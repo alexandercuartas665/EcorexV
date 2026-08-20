@@ -14059,6 +14059,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
 
+                    b.Property<Guid?>("StartedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_tenant_user_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -14113,6 +14117,17 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<bool>("AllowsAssignment")
                         .HasColumnType("boolean")
                         .HasColumnName("allows_assignment");
+
+                    b.Property<string>("AssigneeFormFieldCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("assignee_form_field_code");
+
+                    b.Property<string>("AssigneeSource")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("assignee_source");
 
                     b.Property<string>("BpmnElementId")
                         .IsRequired()

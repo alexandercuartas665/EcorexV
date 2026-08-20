@@ -27,6 +27,15 @@ public class WorkflowNode : TenantEntity
     /// <summary>Si el paso admite reasignacion manual (PERMITE_ASIGNACION legacy).</summary>
     public bool AllowsAssignment { get; set; }
 
+    // ---- Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso ----
+    /// <summary>Modo de resolucion del asignado (Policy=cargo/dependencia por defecto; InheritStart;
+    /// InheritPrevious; FormField). Metadato de nodo, no viaja en el XML.</summary>
+    public WorkflowAssigneeSource AssigneeSource { get; set; } = WorkflowAssigneeSource.Policy;
+
+    /// <summary>Solo para <see cref="WorkflowAssigneeSource.FormField"/>: codigo del campo (de un formulario
+    /// de un nodo anterior) cuyo valor (id o correo de usuario) define el asignado.</summary>
+    public string? AssigneeFormFieldCode { get; set; }
+
     /// <summary>
     /// Nodo destino del reinicio (ID_REINICIO legacy): si este nodo se alcanza durante el
     /// avance, en lugar de continuar se abre un ciclo nuevo (CycleIndex+1) en el nodo destino.

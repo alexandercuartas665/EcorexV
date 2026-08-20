@@ -344,6 +344,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TaskItemStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkflowNodeType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WorkflowAssigneeSource>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkflowInstanceStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkflowStepStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1415,6 +1416,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Apariencia del nodo en el graficador (color de paleta + nota post-it). Aditivas, nullable.
             b.Property(x => x.Color).HasMaxLength(20);
             b.Property(x => x.Note).HasMaxLength(1000);
+            // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
+            b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
         });
 
         modelBuilder.Entity<WorkflowEdge>(b =>

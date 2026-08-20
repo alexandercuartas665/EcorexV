@@ -237,6 +237,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.TargetBoardId = sourceNode.TargetBoardId;
             draftNode.TargetColumnId = sourceNode.TargetColumnId;
             draftNode.JumpToDefinitionId = sourceNode.JumpToDefinitionId;
+            draftNode.AssigneeSource = sourceNode.AssigneeSource;
+            draftNode.AssigneeFormFieldCode = sourceNode.AssigneeFormFieldCode;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))
@@ -784,6 +786,25 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             node.JumpToDefinitionId = null;
         }
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAssigneeAsync(
+        Guid nodeId, WorkflowAssigneeSource source, string? formFieldCode, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        var field = (formFieldCode ?? string.Empty).Trim();
+        node.AssigneeSource = source;
+        // El campo solo aplica al modo FormField; en los demas se limpia. Se permite guardar FormField sin
+        // campo aun (el editor muestra el input para escribirlo); en runtime, sin campo, cae al fallback.
+        node.AssigneeFormFieldCode = source == WorkflowAssigneeSource.FormField
+            ? (string.IsNullOrWhiteSpace(field) ? null : field)
+            : null;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }
@@ -1513,7 +1534,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 firstForm?.DefinitionId, firstForm?.Code, firstForm?.Title,
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
                 n.Color, n.Note, n.TargetBoardId, n.TargetColumnId, nodeForms,
-                n.JumpToDefinitionId, jumpName);
+                n.JumpToDefinitionId, jumpName,
+                n.AssigneeSource, n.AssigneeFormFieldCode);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

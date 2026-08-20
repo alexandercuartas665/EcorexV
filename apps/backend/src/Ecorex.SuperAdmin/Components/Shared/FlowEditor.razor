@@ -835,12 +835,43 @@ else
                 Cambia el tipo de este nodo en "Configuracion basica".</div>
             return;
         }
-        if (!node.AllowsAssignment)
+        @* Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso. Solo Tareas. *@
+        @if (node.NodeType == WorkflowNodeType.Task)
+        {
+            <div class="fe-field">
+                <label>Origen del asignado</label>
+                <select class="fe-input sm" value="@node.AssigneeSource" @onchange="@(e => OnAssigneeSourceChangedAsync(node, e))">
+                    <option value="@WorkflowAssigneeSource.Policy">Cargo / dependencia</option>
+                    <option value="@WorkflowAssigneeSource.InheritStart">Heredar del inicio del flujo</option>
+                    <option value="@WorkflowAssigneeSource.InheritPrevious">Heredar del paso anterior</option>
+                    <option value="@WorkflowAssigneeSource.FormField">Desde campo de formulario</option>
+                </select>
+            </div>
+        }
+        @if (node.AssigneeSource == WorkflowAssigneeSource.InheritStart)
+        {
+            <div class="fe-acc-note">El asignado sera el <b>iniciador del flujo</b> (quien lanzo la actividad).</div>
+        }
+        else if (node.AssigneeSource == WorkflowAssigneeSource.InheritPrevious)
+        {
+            <div class="fe-acc-note">El asignado sera <b>quien atendio el paso anterior</b>, por el camino que activo este paso.</div>
+        }
+        else if (node.AssigneeSource == WorkflowAssigneeSource.FormField)
+        {
+            <div class="fe-field" style="margin-top:8px;">
+                <label>Codigo del campo (usuario)</label>
+                <input class="fe-input sm" value="@node.AssigneeFormFieldCode"
+                       @onchange="@(e => OnAssigneeFieldChangedAsync(node, e))" placeholder="ej. responsable" />
+            </div>
+            <div class="fe-acc-note">El asignado sale del valor de ese campo (id o correo de usuario) de un formulario diligenciado en un nodo anterior.</div>
+        }
+        else if (!node.AllowsAssignment)
         {
             <div class="fe-acc-empty">Para asignar dependencia/cargo, activa <b>"Permite asignacion manual"</b> en
                 "Configuracion basica" de este nodo.</div>
-            return;
         }
+        else
+        {
         <div class="fe-rows">
             @foreach (var policy in _nodePolicies)
             {
@@ -869,7 +900,31 @@ else
         <button class="fe-add-dashed" @onclick="AddNodePolicyAsync"
                 disabled="@(string.IsNullOrEmpty(_assignUnitId))">+ Asignar</button>
         <div class="fe-acc-note">@_resolvedCandidates funcionarios atenderan este paso (asignacion por dependencia/cargo, ADR-0035).</div>
+        }
     };
+
+    private async Task OnAssigneeSourceChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<WorkflowAssigneeSource>(e.Value?.ToString(), out var source)) { return; }
+        await GuardAsync(async () =>
+        {
+            // FormField conserva el codigo actual (si lo hay); el input aparece para escribirlo/editarlo.
+            var field = source == WorkflowAssigneeSource.FormField ? node.AssigneeFormFieldCode : null;
+            var result = await DesignSvc.SetNodeAssigneeAsync(node.Id, source, field);
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
+
+    private async Task OnAssigneeFieldChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAssigneeAsync(node.Id, WorkflowAssigneeSource.FormField, e.Value?.ToString());
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
 
     private static string ClassifierTone(OrgUnitClassifier classifier) => classifier switch
     {

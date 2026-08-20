@@ -93,6 +93,11 @@ public interface IWorkflowDesignService
     /// Referencia suelta, se muestra en el panel del nodo (no se dibuja en el lienzo).</summary>
     Task<WorkflowResult<bool>> SetNodeJumpAsync(Guid nodeId, Guid? jumpToDefinitionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el ORIGEN DEL ASIGNADO del nodo (Policy/InheritStart/InheritPrevious/FormField). Para
+    /// FormField, <paramref name="formFieldCode"/> es el campo cuyo valor define el usuario; en los demas
+    /// modos se ignora/limpia.</summary>
+    Task<WorkflowResult<bool>> SetNodeAssigneeAsync(Guid nodeId, WorkflowAssigneeSource source, string? formFieldCode, CancellationToken cancellationToken = default);
+
     // ---- Propiedades y ciclo de vida de la definicion ----
 
     Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(Guid definitionId, string name, string? category, string? description, CancellationToken cancellationToken = default);

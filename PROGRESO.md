@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-08-20 - v0.15.54: origen del asignado por nodo (4 modos) en flujos (ADR-0056)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (3 columnas). Config verificada en
+navegador contra AGROMETALICAS; resolucion en runtime implementada + build verde (no ejercitada de
+punta a punta con una instancia real).
+
+- **Que:** cada Tarea define COMO se resuelve su encargado al activarse el paso, con 4 modos
+  (`WorkflowAssigneeSource`): **Policy** (cargo/dependencia, historico), **InheritStart** (iniciador del
+  flujo), **InheritPrevious** (quien atendio el paso anterior por el camino real), **FormField** (valor de
+  un campo de un formulario diligenciado en un nodo anterior; id o correo de usuario).
+- **Dominio:** `WorkflowNode.AssigneeSource` + `AssigneeFormFieldCode`; `WorkflowInstance.StartedByTenantUserId`
+  (iniciador, seteado en StartInstanceAsync desde actorUserId). Enum registrado en ConfigureConventions
+  (string). Migracion dual AddWorkflowAssigneeSource (default corregido a "Policy" y filas existentes de
+  prod actualizadas de '' -> 'Policy').
+- **Diseno:** `SetNodeAssigneeAsync` (guarda modo + campo); FlowCanvasNodeDto + proyeccion + EnsureDraftAsync
+  (sobrevive publicar->editar). UI en "Asignar usuarios": selector "Origen del asignado"; en FormField
+  aparece el input del codigo del campo; en Policy, el UI de cargo/dependencia existente.
+- **Runtime:** `WorkflowEngine.ActivateNodeAsync` resuelve `AssignedToTenantUserId` al activar un paso Task
+  pendiente segun el modo (Policy = null, la bandeja expande candidatos). InheritPrevious recibe el usuario
+  del paso de origen via nuevo parametro; FormField lee FormFlowLink+FormResponse (ParseDocument) y mapea
+  el valor a un TenantUser por id o correo.
+- Verificado: el selector y el codigo de campo persisten (nodo Cotizacion Renombrado -> FormField /
+  responsable_asignado). Gotcha resuelto: elegir FormField ya no exige el campo de una vez (se guarda el
+  modo y aparece el input).
+
+---
+
 ## 2026-08-20 - v0.15.53: "saltar a otro flujo" se muestra en el panel del nodo (no en el lienzo)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (columna nueva). Verificado end-to-end

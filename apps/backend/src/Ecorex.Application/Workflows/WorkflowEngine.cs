@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Forms;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -254,6 +255,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
             TaskItemId = taskItemId,
             Status = WorkflowInstanceStatus.Running,
             StartedAt = DateTimeOffset.UtcNow,
+            // Iniciador del flujo: lo usa el modo de asignacion InheritStart (ADR-0056).
+            StartedByTenantUserId = actorUserId,
             CurrentCycle = 0
         };
         _db.WorkflowInstances.Add(instance);
@@ -285,7 +288,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // Paso del startEvent (ciclo 0): los startEvent se completan solos y el avance
         // automatico deja como current el/los siguientes.
         var steps = new List<WorkflowStepHistory>();
-        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, inheritedApprovalResult: null, task, cancellationToken);
+        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, inheritedApprovalResult: null, task, predecessorUserId: null, cancellationToken);
         var stuck = await AdvanceAsync(instance, steps, graph, task, cancellationToken);
 
         try
@@ -437,7 +440,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         step.ApprovalComment = reason.Trim();
 
         var previousNode = graph.NodesById[previous.NodeId];
-        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, inheritedApprovalResult: null, task, cancellationToken);
+        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, inheritedApprovalResult: null, task, previous.ExecutedByTenantUserId ?? previous.AssignedToTenantUserId, cancellationToken);
         if (task is not null)
         {
             AddTaskActivity(task, null, "Sistema",
@@ -501,7 +504,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         var restartInherited = restartNode.NodeType == WorkflowNodeType.ExclusiveGateway
                             ? step.ApprovalResult
                             : null;
-                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, task, cancellationToken);
+                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, task, step.ExecutedByTenantUserId ?? step.AssignedToTenantUserId, cancellationToken);
                         instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
                     }
                     else if (target.NodeType == WorkflowNodeType.EndEvent)
@@ -527,7 +530,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         var inherited = target.NodeType == WorkflowNodeType.ExclusiveGateway
                             ? step.ApprovalResult
                             : null;
-                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, task, cancellationToken);
+                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, task, step.ExecutedByTenantUserId ?? step.AssignedToTenantUserId, cancellationToken);
                     }
                 }
             }
@@ -644,7 +647,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
     /// </summary>
     private async Task<WorkflowStepHistory> ActivateNodeAsync(
         WorkflowInstance instance, List<WorkflowStepHistory> steps, WorkflowNode node,
-        int cycleIndex, bool isCycleStart, string? inheritedApprovalResult, TaskItem? task, CancellationToken cancellationToken)
+        int cycleIndex, bool isCycleStart, string? inheritedApprovalResult, TaskItem? task,
+        Guid? predecessorUserId, CancellationToken cancellationToken)
     {
         var step = AddStep(instance, node, cycleIndex, isCycleStart, WorkflowStepStatus.Pending, isCurrent: true);
         steps.Add(step);
@@ -675,6 +679,16 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 step.ApprovalResult = Normalize(result.ApprovalResult);
                 step.ApprovalComment = Normalize(result.Comment);
             }
+        }
+
+        // Origen del asignado (ADR-0056): si el paso Task queda PENDIENTE (espera a un humano) y el nodo
+        // define un modo distinto de Policy, el motor resuelve aqui el encargado concreto. Policy = historico
+        // (queda null y la bandeja expande los candidatos del cargo/dependencia).
+        if (step.Status == WorkflowStepStatus.Pending
+            && node.NodeType == WorkflowNodeType.Task
+            && node.AssigneeSource != WorkflowAssigneeSource.Policy)
+        {
+            step.AssignedToTenantUserId = await ResolveDynamicAssigneeAsync(instance, node, predecessorUserId, cancellationToken);
         }
 
         // Enlace flujo <-> tableros: cuando el paso QUEDA pendiente (espera a un humano) y el nodo tiene
@@ -714,6 +728,59 @@ public sealed class WorkflowEngine : IWorkflowEngine
         };
         _db.WorkflowStepHistories.Add(step);
         return step;
+    }
+
+    // ---- Origen del asignado (ADR-0056): resuelve el encargado concreto al activar un paso Task ----
+
+    private async Task<Guid?> ResolveDynamicAssigneeAsync(
+        WorkflowInstance instance, WorkflowNode node, Guid? predecessorUserId, CancellationToken cancellationToken)
+        => node.AssigneeSource switch
+        {
+            WorkflowAssigneeSource.InheritStart => instance.StartedByTenantUserId,
+            WorkflowAssigneeSource.InheritPrevious => predecessorUserId,
+            WorkflowAssigneeSource.FormField => string.IsNullOrWhiteSpace(node.AssigneeFormFieldCode)
+                ? null
+                : await ResolveAssigneeFromFormAsync(instance.Id, node.Id, node.AssigneeFormFieldCode!.Trim(), cancellationToken),
+            _ => null
+        };
+
+    /// <summary>Busca en las respuestas de formulario COMPLETADAS de OTROS nodos de la instancia el valor del
+    /// campo indicado (la mas reciente con valor no vacio) y lo mapea a un TenantUser (por id o correo).</summary>
+    private async Task<Guid?> ResolveAssigneeFromFormAsync(
+        Guid instanceId, Guid nodeId, string fieldCode, CancellationToken cancellationToken)
+    {
+        var datas = await _db.FormFlowLinks.AsNoTracking()
+            .Where(l => l.WorkflowInstanceId == instanceId && l.WorkflowNodeId != nodeId
+                && l.Status == FormFlowLinkStatus.Completed)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.FormResponseId, r => r.Id, (l, r) => r)
+            .OrderByDescending(r => r.SubmittedAt)
+            .Select(r => r.Data)
+            .ToListAsync(cancellationToken);
+
+        foreach (var data in datas)
+        {
+            var doc = FormResponseService.ParseDocument(data);
+            if (doc.TryGetValue(fieldCode, out var fv) && !string.IsNullOrWhiteSpace(fv.Value))
+            {
+                var user = await MapValueToUserAsync(fv.Value!.Trim(), cancellationToken);
+                if (user is Guid) { return user; }
+            }
+        }
+        return null;
+    }
+
+    private async Task<Guid?> MapValueToUserAsync(string value, CancellationToken cancellationToken)
+    {
+        if (Guid.TryParse(value, out var id)
+            && await _db.TenantUsers.AsNoTracking().AnyAsync(u => u.Id == id, cancellationToken))
+        {
+            return id;
+        }
+        var lower = value.ToLowerInvariant();
+        return await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.Email != null && u.Email.ToLower() == lower)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private void CompleteInstance(WorkflowInstance instance, TaskItem? task)

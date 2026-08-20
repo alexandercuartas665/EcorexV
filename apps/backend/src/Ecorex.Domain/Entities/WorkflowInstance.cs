@@ -22,6 +22,10 @@ public class WorkflowInstance : TenantEntity, IVersioned
 
     public DateTimeOffset StartedAt { get; set; }
 
+    /// <summary>Iniciador del flujo (TenantUser que lo lanzo). Lo usa el modo de asignacion
+    /// <see cref="Ecorex.Domain.Enums.WorkflowAssigneeSource.InheritStart"/>. Null si lo inicio el sistema.</summary>
+    public Guid? StartedByTenantUserId { get; set; }
+
     public DateTimeOffset? CompletedAt { get; set; }
 
     /// <summary>Ciclo mas alto abierto por reinicios (0 = primer ciclo, ACTIVIDAD_CICLO legacy).</summary>

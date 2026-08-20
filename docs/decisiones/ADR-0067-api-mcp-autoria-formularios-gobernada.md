@@ -66,5 +66,21 @@ reimplementarla.
   la clave y restringir su uso por IP. La traza registra QUE/CUANDO/tenant/tool, no QUIEN (clave
   compartida, sin identidad de usuario; actorUserId de los servicios = Guid.Empty/System).
 - No se anadio esquema de BD ni migraciones: todo es lectura + delegacion. DAL dual intacto.
-- FASE 2 (adaptador MCP JSON-RPC nativo modelado sobre AgentMcpServer): pendiente; el puente
-  solo traduciria protocolo -> estas mismas llamadas, sin duplicar logica.
+
+## FASE 2 (implementada, v0.15.51)
+
+Adaptador MCP JSON-RPC 2.0 nativo modelado sobre AgentMcpServer, para que clientes MCP nativos
+(Claude Desktop, etc.) se conecten directo. NO duplica logica: el puente solo traduce protocolo ->
+las mismas llamadas del toolset.
+
+- Endpoint `POST /api/mgmt/agent/mcp?tenant={guid}` (mismo gate: X-Ecorex-Mgmt-Key + tenant +
+  AmbientTenantContext.Begin + scope). Transporte: JSON-RPC sobre HTTP POST (respuesta
+  application/json directa; sin SSE).
+- Metodos: `initialize` (protocolVersion 2024-11-05 + serverInfo con AppVersion), `notifications/*`
+  (-> 202 sin cuerpo), `tools/list` (specs de TODOS los toolsets con inputSchema como objeto),
+  `tools/call` (name+arguments -> ExecuteAsync del toolset dueno -> content[text] + isError), `ping`.
+  Metodo no soportado -> error JSON-RPC -32601; parse error -> -32700; sin params.name -> -32602.
+- `tools/call` AUDITA cada mutacion (action "mgmt-api.mcp.{tool}"); las tools de solo-lectura no.
+  El cliente MCP se configura con la URL (con ?tenant) y el header de la clave; la seleccion de
+  tenant es la del URL. Verificado: initialize/tools/list(40 tools)/tools/call(describe_components +
+  create_form con auditoria mgmt-api.mcp.create_form) + auth (401 sin clave) contra AGROMETALICAS.

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-20 - v0.15.51: FASE 2 - adaptador MCP JSON-RPC nativo (ADR-0067)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo protocolo -> toolset). Verificado
+contra AGROMETALICAS via instancia local -> BD prod.
+
+- **Puente MCP nativo:** `POST /api/mgmt/agent/mcp?tenant={guid}` habla JSON-RPC 2.0 (initialize,
+  notifications/*, tools/list, tools/call, ping) para que un cliente MCP nativo (Claude Desktop) se
+  conecte directo. SOLO traduce protocolo -> las MISMAS llamadas del toolset; no duplica logica. Mismo
+  gate (X-Ecorex-Mgmt-Key + ?tenant + AmbientTenantContext.Begin). tools/call audita cada mutacion
+  (mgmt-api.mcp.{tool}); lecturas no.
+- **Verificado:** initialize (serverInfo v0.15.x), notifications/initialized -> 202, tools/list (40
+  tools con inputSchema), tools/call describe_components (lectura) + create_form (mutacion, auditada),
+  metodo desconocido -> -32601, sin clave -> 401. Form de prueba archivado.
+
+---
+
 ## 2026-08-20 - v0.15.50: API/MCP de autoria de formularios gobernada (ADR-0067)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (lectura + delegacion). Verificado de

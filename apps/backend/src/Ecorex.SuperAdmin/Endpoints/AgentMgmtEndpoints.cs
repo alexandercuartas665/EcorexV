@@ -240,6 +240,97 @@ public static class AgentMgmtEndpoints
             return Results.Content(result.Json, "application/json; charset=utf-8");
         }).DisableAntiforgery();
 
+        // 8d. Adaptador MCP JSON-RPC 2.0 (FASE 2): un cliente MCP nativo (Claude Desktop, etc.) se conecta a
+        //     esta URL con ?tenant={guid} + header X-Ecorex-Mgmt-Key y habla initialize/tools/list/tools/call.
+        //     El puente SOLO traduce protocolo -> las mismas llamadas del toolset (misma auth/tenant/auditoria);
+        //     NO duplica logica. Transporte: JSON-RPC sobre HTTP POST (respuesta application/json directa).
+        group.MapPost("/agent/mcp", async (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+        {
+            var gate = CheckGate(req, out var tenantId);
+            if (gate is not null) { return gate; }
+
+            string body;
+            using (var reader = new StreamReader(req.Body, Encoding.UTF8)) { body = await reader.ReadToEndAsync(ct); }
+            JsonDocument doc;
+            try { doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body); }
+            catch { return Results.Content(McpError(null, -32700, "JSON invalido (parse error)"), "application/json; charset=utf-8"); }
+
+            using (doc)
+            {
+                var root = doc.RootElement;
+                var method = root.TryGetProperty("method", out var mm) ? mm.GetString() : null;
+                var hasId = root.TryGetProperty("id", out var idEl) && idEl.ValueKind != JsonValueKind.Null;
+
+                // Notificaciones (sin id, o notifications/*): no llevan respuesta JSON-RPC.
+                if (!hasId || method is null || method.StartsWith("notifications/", StringComparison.Ordinal))
+                {
+                    return Results.StatusCode(StatusCodes.Status202Accepted);
+                }
+                var idRaw = idEl.GetRawText();
+
+                using var _ = AmbientTenantContext.Begin(tenantId);
+                using var scope = scopes.CreateScope();
+                var sp = scope.ServiceProvider;
+                var toolsets = sp.GetRequiredService<IEnumerable<IAgentToolset>>().ToList();
+
+                switch (method)
+                {
+                    case "initialize":
+                    {
+                        var ver = JsonSerializer.Serialize(Ecorex.SuperAdmin.AppVersion.Current);
+                        var initResult = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{\"listChanged\":false}},"
+                            + "\"serverInfo\":{\"name\":\"ecorex-mgmt-agent-tools\",\"version\":" + ver + "}}";
+                        return Results.Content(McpEnvelope(idRaw, initResult), "application/json; charset=utf-8");
+                    }
+
+                    case "tools/list":
+                    {
+                        var tools = toolsets.SelectMany(ts => ts.GetSpecs()).Select(s => new
+                        {
+                            name = s.Name,
+                            description = s.Description,
+                            inputSchema = ParseSchema(s.ParametersJsonSchema)
+                        }).ToList();
+                        return Results.Content(McpEnvelope(idRaw, JsonSerializer.Serialize(new { tools }, Json)), "application/json; charset=utf-8");
+                    }
+
+                    case "tools/call":
+                    {
+                        if (!root.TryGetProperty("params", out var prms) || !prms.TryGetProperty("name", out var nEl) || nEl.ValueKind != JsonValueKind.String)
+                        {
+                            return Results.Content(McpError(idRaw, -32602, "params.name es obligatorio"), "application/json; charset=utf-8");
+                        }
+                        var toolName = nEl.GetString()!;
+                        var argsJson = prms.TryGetProperty("arguments", out var aEl) && aEl.ValueKind == JsonValueKind.Object ? aEl.GetRawText() : "{}";
+                        var owner = toolsets.FirstOrDefault(ts => ts.GetSpecs().Any(s => string.Equals(s.Name, toolName, StringComparison.Ordinal)));
+                        if (owner is null)
+                        {
+                            return Results.Content(McpToolContent(idRaw, isError: true, $"Herramienta desconocida: {toolName}"), "application/json; charset=utf-8");
+                        }
+
+                        AgentToolResult tr;
+                        try { tr = await owner.ExecuteAsync(toolName, argsJson, SystemActor, autonomous: true, ct); }
+                        catch (Exception ex) { return Results.Content(McpToolContent(idRaw, isError: true, ex.Message), "application/json; charset=utf-8"); }
+
+                        var readOnly = owner is IFormAuthoringToolset fa && fa.ReadOnlyTools.Contains(toolName);
+                        var errored = ResultIsError(tr.Json);
+                        if (!readOnly && !errored)
+                        {
+                            var svc = Resolve(sp);
+                            await AuditAsync(svc, tenantId, $"mgmt-api.mcp.{toolName}", "AgentTool", null, new { tool = toolName, args = Truncate(argsJson, 2000) }, ct);
+                        }
+                        return Results.Content(McpToolContent(idRaw, errored, tr.Json), "application/json; charset=utf-8");
+                    }
+
+                    case "ping":
+                        return Results.Content(McpEnvelope(idRaw, "{}"), "application/json; charset=utf-8");
+
+                    default:
+                        return Results.Content(McpError(idRaw, -32601, $"Metodo no soportado: {method}"), "application/json; charset=utf-8");
+                }
+            }
+        }).DisableAntiforgery();
+
         // 9. Fijar las tools MCP del agente. Body {toolKeys:[...]} = keys HABILITADAS (opt-in). Se validan
         //    contra el catalogo (400 si hay invalidas) y se persiste el complemento como DisabledTools.
         group.MapPut("/agents/{id:guid}/tools", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
@@ -691,6 +782,17 @@ public static class AgentMgmtEndpoints
     }
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "...";
+
+    // ---- JSON-RPC (MCP) helpers: el id viaja como RAW (number|string) para preservar su tipo. ----
+    private static string McpEnvelope(string idRaw, string resultJson)
+        => $"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw},\"result\":{resultJson}}}";
+
+    private static string McpError(string? idRaw, int code, string message)
+        => $"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw ?? "null"},\"error\":{{\"code\":{code},\"message\":{JsonSerializer.Serialize(message)}}}}}";
+
+    /// <summary>Resultado de tools/call: un bloque de contenido text con el JSON de la tool + isError.</summary>
+    private static string McpToolContent(string idRaw, bool isError, string text)
+        => McpEnvelope(idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonSerializer.Serialize(text)}}}],\"isError\":{(isError ? "true" : "false")}}}");
 
     /// <summary>Detalle del agente + recursos + prompts + cache + catalogo de tools con enabled por-agente.</summary>
     private static async Task<object?> BuildAgentDetailAsync(MgmtServices svc, Guid id, CancellationToken c)

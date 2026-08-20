@@ -98,7 +98,7 @@
                     <span style="position:absolute;right:-2px;bottom:-2px;width:17px;height:17px;border-radius:50%;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font-size:10px;pointer-events:none;box-shadow:0 0 0 2px var(--surface)">@(_fotoBusy ? "…" : "✎")</span>
                 </label>
                 <div style="flex:1;min-width:0">
-                    <div class="dg-m-kicker">@(_editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")</div>
+                    <div class="dg-m-kicker">@(_prospectoId is not null ? $"PROSPECTO SCRAPEADO{(string.IsNullOrWhiteSpace(_prospectoFuente) ? "" : " - " + _prospectoFuente)}" : _editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")</div>
                     <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
                 </div>
                 <button class="dg-close" @onclick="BackOrCloseAsync">
@@ -808,22 +808,37 @@
                 {
                     <span class="dg-m-error">@_modalError</span>
                 }
+                else if (_prospectoId is not null)
+                {
+                    <span class="dg-foot-note">Este contacto AUN NO esta en el Directorio. Pulsa "Incorporar" para crear su ficha.</span>
+                }
                 else
                 {
                     <span class="dg-foot-note">Los campos y las fichas por perfil se guardan con el tercero.</span>
                 }
                 <div class="dg-foot-actions">
                     <button class="dg-btn-ghost" @onclick="BackOrCloseAsync" disabled="@_busy">@(_returnToParentId is not null ? "Volver" : "Cancelar")</button>
-                    @if (_editingId is null && _returnToParentId is null)
+                    @if (_prospectoId is not null)
                     {
-                        <button class="dg-btn-ghost" @onclick="() => SaveAsync(true)" disabled="@_busy" title="Guardar y abrir otra ficha en blanco para crear otro">
-                            Guardar y nuevo
+                        @* Prospecto scrapeado: la incorporacion al Directorio es EXPLICITA (crea el Tercero). *@
+                        <button class="dg-btn-save" style="white-space:nowrap" @onclick="IncorporarProspectoAsync" disabled="@_busy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                            Incorporar al directorio
                         </button>
                     }
-                    <button class="dg-btn-save" @onclick="() => SaveAsync(false)" disabled="@_busy">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
-                        @(_editingId is null ? "Crear tercero" : "Guardar")
-                    </button>
+                    else
+                    {
+                        @if (_editingId is null && _returnToParentId is null)
+                        {
+                            <button class="dg-btn-ghost" @onclick="() => SaveAsync(true)" disabled="@_busy" title="Guardar y abrir otra ficha en blanco para crear otro">
+                                Guardar y nuevo
+                            </button>
+                        }
+                        <button class="dg-btn-save" @onclick="() => SaveAsync(false)" disabled="@_busy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
+                            @(_editingId is null ? "Crear tercero" : "Guardar")
+                        </button>
+                    }
                 </div>
             </div>
         </div>
@@ -844,6 +859,11 @@
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
     [Parameter] public bool CrmWiring { get; set; }
 
+    /// <summary>Se dispara cuando el usuario pulsa "Incorporar al directorio" sobre un prospecto scrapeado
+    /// abierto en este modal (modo <see cref="_prospectoId"/>). El host promueve el prospecto (crea el
+    /// Tercero rico) y reabre el modal en edicion sobre ese tercero. La incorporacion es EXPLICITA.</summary>
+    [Parameter] public EventCallback<Guid> OnIncorporarProspecto { get; set; }
+
     // Actor para el alta de tareas-proceso (quien registra la gestion).
     [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
@@ -862,6 +882,11 @@
     // ---- Modal crear / editar ----
     private bool _modalOpen;
     private Guid? _editingId;
+    // Prospecto scrapeado abierto en modo "incorporar" (aun NO es Tercero): el modal muestra su ficha en
+    // solo-lectura sobre los datos base y el pie cambia el guardar por "Incorporar al directorio". null en
+    // el uso normal (crear/editar terceros). Se limpia SIEMPRE en OpenCreate/OpenEditAsync.
+    private Guid? _prospectoId;
+    private string? _prospectoFuente;
     // Empresa a la que pertenece este tercero (Persona). Al CREAR un contacto asociado se fija a la
     // empresa padre; al EDITAR se carga la existente para PRESERVARLA (antes se mandaba null y editar
     // una persona la desvinculaba de su empresa). null para empresas y personas individuales.
@@ -1041,6 +1066,8 @@
     {
         await EnsureReadyAsync();
         _editingId = null;
+        _prospectoId = null;
+        _prospectoFuente = null;
         _empresaId = null;
         _returnToParentId = null;
         _mTab = "datos";
@@ -1097,6 +1124,45 @@
         StateHasChanged();
     }
 
+    /// <summary>Abre EL MISMO modal grande sobre un prospecto scrapeado que AUN NO es Tercero: pre-carga sus
+    /// datos base y, en el pie, cambia el guardar por "Incorporar al directorio" (la incorporacion es
+    /// EXPLICITA). Reusa el modo crear para que el operador vea la ficha completa; al incorporar, el host
+    /// promueve el prospecto (Tercero rico con ficha base + encadenado de empresa) y reabre en edicion.</summary>
+    public async Task OpenFromProspectoAsync(
+        Guid prospectoId, string nombre, bool esEmpresa, string? fuente = null,
+        string? cargo = null, string? empresa = null, string? ciudad = null,
+        string? email = null, string? telefono = null, string? imagenUrl = null)
+    {
+        await OpenCreate();
+        _prospectoId = prospectoId;
+        _prospectoFuente = fuente;
+        _editingId = null;
+        _mTipo = esEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
+        _mIdTipo = esEmpresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        _mNombre = nombre?.Trim() ?? "";
+        _mCargo = cargo?.Trim() ?? "";
+        _mSector = empresa?.Trim() ?? "";
+        _mCiudad = ciudad?.Trim() ?? "";
+        _ciudadQuery = _mCiudad;
+        _mEmail = email?.Trim() ?? "";
+        _mTelefono = telefono?.Trim() ?? "";
+        _mImagenUrl = imagenUrl ?? "";
+        StateHasChanged();
+    }
+
+    /// <summary>Incorpora al Directorio el prospecto abierto (modo <see cref="_prospectoId"/>): delega en el
+    /// host (promueve + reabre en edicion). No hace el alta aqui para no duplicar el Tercero.</summary>
+    private async Task IncorporarProspectoAsync()
+    {
+        if (_prospectoId is not Guid pid) { return; }
+        _busy = true;
+        var id = pid;
+        _prospectoId = null;
+        CloseModal();
+        await OnIncorporarProspecto.InvokeAsync(id);
+        _busy = false;
+    }
+
     /// <summary>Abre el modal en modo "editar tercero". Con <paramref name="returnToParent"/> vuelve a
     /// esa empresa al guardar/cancelar (edicion de un contacto desde la pestana Relaciones).</summary>
     public async Task OpenEditAsync(Guid id, Guid? returnToParent = null)
@@ -1106,6 +1172,8 @@
         if (d is null) { return; }
         await LoadFichaFieldsAsync();
         _editingId = id;
+        _prospectoId = null;
+        _prospectoFuente = null;
         _empresaId = d.EmpresaId;
         _returnToParentId = returnToParent;
         _mTab = "datos";

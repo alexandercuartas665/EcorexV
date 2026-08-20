@@ -226,12 +226,23 @@
                                     var fi = FuenteInfo(rr.Fuente);
                                     var bi = BadgeInfo(rr.Badge);
                                 }
-                                <div class="gc-tbl-row gc-prosp-grid">
-                                    <div class="gc-cell-name" style="@(rr.EmpresaProspectoId is not null ? "padding-left:18px" : "")">
-                                        @* Persona de LinkedIn ligada a una empresa (enriquecimiento): se anida con "↳". *@
-                                        @if (rr.EmpresaProspectoId is not null)
+                                <div class="gc-tbl-row gc-prosp-grid @(rr.EmpresaProspectoId is not null ? "gc-child" : "")">
+                                    <div class="gc-cell-name">
+                                        @* Empresa (Maps) con contactos conectados: chevron para expandir/colapsar.
+                                           Persona ligada a su empresa: guia "↳". Suelto: espaciador para alinear. *@
+                                        @if (rr.HijosCount > 0 && rr.ProspectoId is Guid pcid)
                                         {
-                                            <span title="Contacto de @(string.IsNullOrWhiteSpace(rr.Empresa) ? "su empresa" : rr.Empresa)" style="color:var(--ink-3);margin-right:2px;font-weight:700">&#8627;</span>
+                                            <button class="gc-expand @(_expandedProsp.Contains(pcid) ? "open" : "")" title="Ver contactos conectados" @onclick="() => ToggleProsp(pcid)" @onclick:stopPropagation="true">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                                            </button>
+                                        }
+                                        else if (rr.EmpresaProspectoId is not null)
+                                        {
+                                            <span class="gc-child-guide" title="Contacto de @(string.IsNullOrWhiteSpace(rr.Empresa) ? "su empresa" : rr.Empresa)">&#8627;</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="gc-expand-sp"></span>
                                         }
                                         @* Iniciales SIEMPRE como base; si hay imagen se superpone y, si falla al
                                            cargar, onerror la quita -> caen las iniciales (nunca icono roto). *@
@@ -243,7 +254,13 @@
                                             }
                                         </span>
                                         <div style="min-width:0">
-                                            <div class="gc-cell-title">@rr.Nombre</div>
+                                            <div class="gc-cell-title">
+                                                @rr.Nombre
+                                                @if (rr.HijosCount > 0)
+                                                {
+                                                    <span class="gc-emp-count" title="@rr.HijosCount contacto(s) conectado(s)">@rr.HijosCount</span>
+                                                }
+                                            </div>
                                             <div class="gc-cell-sub">@rr.Sub</div>
                                         </div>
                                     </div>
@@ -289,9 +306,10 @@
                                         }
                                         else if (rr.ProspectoId is Guid pid)
                                         {
-                                            @* Ver el prospecto en un PREVIEW (NO lo promueve). La incorporacion al
-                                               Directorio es explicita: el boton "Implementar" dentro del preview. *@
-                                            <button class="gc-act edit" title="Ver contacto" @onclick="() => OpenProspectoPreview(pid)" disabled="@_busy">
+                                            @* Abre EL MISMO modal grande de tercero (no un mini-modal) sobre el prospecto.
+                                               NO lo promueve: la incorporacion es explicita con el boton "Incorporar al
+                                               directorio" del pie del modal. *@
+                                            <button class="gc-act edit" title="Ver contacto" @onclick="() => OpenProspectoModalAsync(pid)" disabled="@_busy">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                                             </button>
                                         }
@@ -734,46 +752,6 @@
     </div>
 }
 
-@* ============ MODAL: preview del prospecto scrapeado (NO promueve; "Implementar" es explicito) ============ *@
-@if (_ppOpen && _pp is not null)
-{
-    <div class="gc-overlay" @onclick="() => _ppOpen = false">
-        <div class="gc-modal sm" @onclick:stopPropagation="true">
-            <div class="gc-m-head">
-                <div>
-                    <div class="gc-m-kicker">PROSPECTO SCRAPEADO - @_pp.Fuente</div>
-                    <div class="gc-m-title">@_pp.NombreCompleto</div>
-                </div>
-                <button class="gc-close" @onclick="() => _ppOpen = false">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-            </div>
-            <div class="gc-m-body">
-                <div class="gc-pp-grid">
-                    @if (!string.IsNullOrWhiteSpace(_pp.Cargo)) { <div class="gc-pp-f"><span>Cargo</span><b>@_pp.Cargo</b></div> }
-                    @if (!string.IsNullOrWhiteSpace(_pp.Empresa)) { <div class="gc-pp-f"><span>Empresa</span><b>@_pp.Empresa</b></div> }
-                    @if (!string.IsNullOrWhiteSpace(_pp.Ciudad)) { <div class="gc-pp-f"><span>Ciudad</span><b>@_pp.Ciudad</b></div> }
-                    @if (!string.IsNullOrWhiteSpace(_pp.Telefono)) { <div class="gc-pp-f"><span>Telefono</span><b>@_pp.Telefono</b></div> }
-                    @if (!string.IsNullOrWhiteSpace(_pp.Correo)) { <div class="gc-pp-f"><span>Correo</span><b>@_pp.Correo</b></div> }
-                    @if (!string.IsNullOrWhiteSpace(_pp.Metrica)) { <div class="gc-pp-f"><span>Metrica</span><b>@_pp.Metrica</b></div> }
-                </div>
-                @if (!string.IsNullOrWhiteSpace(_pp.OrigenUrl))
-                {
-                    <a class="gc-pp-link" href="@_pp.OrigenUrl" target="_blank" rel="noopener noreferrer">Ver origen &#8599;</a>
-                }
-                <div class="gc-note" style="margin-top:10px">Este contacto AUN NO esta en el Directorio. Pulsa "Implementar" para incorporarlo.</div>
-            </div>
-            <div class="gc-m-foot">
-                <span></span>
-                <div class="gc-foot-actions">
-                    <button class="gc-btn-ghost" @onclick="() => _ppOpen = false" disabled="@_busy">Cerrar</button>
-                    <button class="gc-btn-brand" @onclick="ImplementarProspectoAsync" disabled="@_busy">Implementar al Directorio</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
 @* ============ MODAL: modificar estados (columnas de la bolsa) ============ *@
 @if (_colOpen)
 {
@@ -888,7 +866,7 @@
 
 @* Nuevo contacto: reusa EL MISMO modal de tercero de Directorio General (un contacto ES un
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
-<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" />
+<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" OnIncorporarProspecto="IncorporarProspectoAsync" />
 
 @* Configurar busquedas de contactos (agente Colmena -> agente IA -> prospecto). *@
 <ContactSearchConfig @ref="_searchCfg" />
@@ -1048,47 +1026,137 @@
         string? Badge, bool Promovido, bool EsPersona,
         string? ImagenUrl = null, string? OrigenUrl = null,
         // Persona de LinkedIn ligada a una empresa-prospecto (enriquecimiento): se pinta anidada.
-        Guid? EmpresaProspectoId = null);
+        Guid? EmpresaProspectoId = null,
+        // Cantidad de contactos-persona conectados a esta empresa-prospecto (Maps). >0 => fila expandible.
+        int HijosCount = 0);
+
+    // Empresas-prospecto (Maps) expandidas en la lista: al expandir se muestran sus contactos conectados.
+    private readonly HashSet<Guid> _expandedProsp = new();
+
+    private void ToggleProsp(Guid empresaProspectoId)
+    {
+        if (!_expandedProsp.Remove(empresaProspectoId)) { _expandedProsp.Add(empresaProspectoId); }
+    }
 
     private List<ContactoRow> ContactosFiltrados
     {
         get
         {
+            var q = _contactSearch?.Trim();
+            var searching = !string.IsNullOrEmpty(q);
+            bool Match(ContactoRow r) => !searching
+                || (r.Nombre?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.Empresa?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.Ciudad?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.Sub?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (r.Metrica?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false);
+
             var rows = new List<ContactoRow>();
+
+            // ===== Prospectos scrapeados: agrupados por EMPRESA -> contactos conectados =====
+            // La empresa (fila cuyo nombre == su texto de empresa, tipico de Maps) es el PADRE; los demas
+            // prospectos de esa misma empresa (personas de LinkedIn u otros) cuelgan de ella. Se resuelve por
+            // dos vias: el amarre FUERTE por FK (EmpresaProspectoId, enriquecimiento Maps->LinkedIn) y, como
+            // los datos historicos no traen ese FK, por COINCIDENCIA de nombre de empresa (texto). Asi el
+            // usuario ve, como en el Directorio, la empresa con sus items conectados y no filas sueltas.
             if (_prospFuente is null || !string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {
-                rows.AddRange(_prospectos.Select(p => new ContactoRow(
+                static string Norm(string? s) => (s ?? string.Empty).Trim().ToLowerInvariant();
+
+                // Fila-empresa por nombre de empresa: el prospecto cuyo nombre completo ES el de la empresa.
+                var companyByName = new Dictionary<string, Guid>(StringComparer.Ordinal);
+                foreach (var p in _prospectos)
+                {
+                    var en = Norm(p.Empresa);
+                    if (en.Length > 0 && Norm(p.NombreCompleto) == en && !companyByName.ContainsKey(en))
+                    {
+                        companyByName[en] = p.Id;
+                    }
+                }
+
+                // Padre de cada prospecto: FK fuerte -> match por nombre de empresa -> ninguno (nivel superior).
+                Guid? ParentOf(ProspectoDto p)
+                {
+                    if (p.EmpresaProspectoId is Guid fk) { return fk; }
+                    var en = Norm(p.Empresa);
+                    if (en.Length > 0 && companyByName.TryGetValue(en, out var compId) && compId != p.Id)
+                    {
+                        return compId;
+                    }
+                    return null;
+                }
+
+                var parentOf = _prospectos.ToDictionary(p => p.Id, ParentOf);
+                var childrenByParent = _prospectos
+                    .Where(p => parentOf[p.Id] is Guid)
+                    .GroupBy(p => parentOf[p.Id]!.Value)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+                var childCount = childrenByParent.ToDictionary(kv => kv.Key, kv => kv.Value.Count);
+
+                ContactoRow ToRow(ProspectoDto p) => new(
                     p.TerceroId, p.Id, p.NombreCompleto,
                     string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
                     p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
-                    p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl, p.EmpresaProspectoId)));
+                    p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl,
+                    // Marca de "hijo": conserva la indentacion aunque el amarre sea por nombre (sin FK real).
+                    parentOf[p.Id], childCount.TryGetValue(p.Id, out var n) ? n : 0);
+
+                var emitted = new HashSet<Guid>();
+                // Nivel superior: prospectos sin padre (empresas y contactos sueltos), en el orden de llegada.
+                foreach (var p in _prospectos.Where(p => parentOf[p.Id] is null))
+                {
+                    var row = ToRow(p);
+                    var kids = childrenByParent.TryGetValue(p.Id, out var kl) ? kl : null;
+                    var esEmpresa = kids is { Count: > 0 };
+                    if (!searching)
+                    {
+                        rows.Add(row);
+                        emitted.Add(p.Id);
+                        // Los hijos SOLO se listan cuando la empresa esta expandida (como en el Directorio).
+                        if (esEmpresa && _expandedProsp.Contains(p.Id))
+                        {
+                            foreach (var k in kids!) { rows.Add(ToRow(k)); emitted.Add(k.Id); }
+                        }
+                    }
+                    else
+                    {
+                        // Buscando: se aplana. La empresa aparece si coincide ella o alguno de sus hijos;
+                        // si coincide la empresa se muestran todos sus hijos, si no solo los que coinciden.
+                        var kidRows = kids?.Select(ToRow).ToList() ?? new List<ContactoRow>();
+                        var matchedKids = kidRows.Where(Match).ToList();
+                        if (Match(row) || matchedKids.Count > 0)
+                        {
+                            rows.Add(row);
+                            emitted.Add(p.Id);
+                            foreach (var k in (Match(row) ? kidRows : matchedKids)) { rows.Add(k); emitted.Add(k.ProspectoId!.Value); }
+                        }
+                    }
+                }
+                // Hijos huerfanos (su empresa-padre no esta en la lista, p.ej. filtrada por fuente): sueltos.
+                foreach (var p in _prospectos.Where(p => parentOf[p.Id] is Guid && !emitted.Contains(p.Id)))
+                {
+                    var row = ToRow(p);
+                    if (Match(row)) { rows.Add(row); }
+                }
             }
+
+            // ===== Directorio (terceros ya cargados): lista plana, filtrada por la busqueda rapida. =====
             if (_prospFuente is null || string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {
                 rows.AddRange(_contactos.Select(t => new ContactoRow(
-                    t.Id, null, t.Nombre,
-                    t.EsEmpresa ? "Empresa" : "Persona",
-                    t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
-                    FuenteDirectorio, t.Identificacion,
-                    null, false, !t.EsEmpresa, t.ImagenUrl)));
+                        t.Id, null, t.Nombre,
+                        t.EsEmpresa ? "Empresa" : "Persona",
+                        t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
+                        FuenteDirectorio, t.Identificacion,
+                        null, false, !t.EsEmpresa, t.ImagenUrl))
+                    .Where(Match));
             }
+
             // Dedup por TerceroId: un prospecto PROMOVIDO crea un Tercero que tambien llega como fila del
             // directorio; se muestra UNA sola vez (gana la del prospecto, que conserva la fuente). Las filas
             // sin TerceroId (prospecto aun no promovido) no se tocan.
             var vistos = new HashSet<Guid>();
             rows = rows.Where(r => r.TerceroId is not Guid tid || vistos.Add(tid)).ToList();
-
-            // Filtro rapido: en memoria sobre lo ya cargado (nombre / empresa / ciudad / identificacion).
-            var q = _contactSearch?.Trim();
-            if (!string.IsNullOrEmpty(q))
-            {
-                rows = rows.Where(r =>
-                    (r.Nombre?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (r.Empresa?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (r.Ciudad?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (r.Sub?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (r.Metrica?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
-            }
             return rows;
         }
     }
@@ -1106,25 +1174,25 @@
         }
     }
 
-    // Preview del prospecto scrapeado (NO promueve al abrir; la incorporacion es explicita con "Implementar").
-    private bool _ppOpen;
-    private ProspectoDto? _pp;
-
-    private void OpenProspectoPreview(Guid prospectoId)
+    // Abre el prospecto scrapeado en EL MISMO modal grande de tercero (no un mini-modal). NO lo promueve:
+    // el modal muestra su ficha con el boton "Incorporar al directorio" en el pie (incorporacion explicita).
+    private async Task OpenProspectoModalAsync(Guid prospectoId)
     {
-        _pp = _prospectos.FirstOrDefault(p => p.Id == prospectoId);
-        _ppOpen = _pp is not null;
+        var p = _prospectos.FirstOrDefault(x => x.Id == prospectoId);
+        if (p is null || _terceroModal is null) { return; }
+        // Es EMPRESA (misma heuristica que la agrupacion de la lista): su nombre ES el de la empresa
+        // (fila-empresa tipica de Maps) o tiene personas que la referencian por FK.
+        static string N(string? s) => (s ?? string.Empty).Trim().ToLowerInvariant();
+        var esEmpresa = (!string.IsNullOrWhiteSpace(p.Empresa) && N(p.NombreCompleto) == N(p.Empresa))
+            || _prospectos.Any(x => x.EmpresaProspectoId == p.Id);
+        await _terceroModal.OpenFromProspectoAsync(
+            p.Id, p.NombreCompleto, esEmpresa, p.Fuente,
+            p.Cargo, p.Empresa, p.Ciudad, p.Correo, p.Telefono, p.ImagenUrl);
     }
 
-    private async Task ImplementarProspectoAsync()
-    {
-        if (_pp is null) { return; }
-        var id = _pp.Id;
-        _ppOpen = false;
-        await PromoverAsync(id); // crea el Tercero + abre su ficha (aqui SI se incorpora al Directorio).
-    }
-
-    private async Task PromoverAsync(Guid prospectoId)
+    // Incorpora el prospecto al Directorio (desde el boton del modal grande): promueve (crea el Tercero rico
+    // con ficha base + encadenado de empresa) y reabre el modal en edicion sobre ese tercero. Aqui SI se crea.
+    private async Task IncorporarProspectoAsync(Guid prospectoId)
     {
         _busy = true;
         var res = await GestorSvc.PromoverProspectoAsync(prospectoId);

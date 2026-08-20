@@ -9156,3 +9156,15 @@ AGROMETALICAS (que ya tenia clientes/facturas/facturas_items). Fuente: Siigo `GE
 usuarios = vendedores). Columnas: Siigo Id (=facturas.Vendedor/seller), Usuario, Nombre, Apellido,
 Nombre completo, Email, Identificacion, Activo. Verificado el enlace factura.Vendedor 645 -> Diego
 Fernando Rojas Mendoza. Carga puntual SQL, uuid5 idempotente. Backup ecorex-2026-08-12-2055.sql.gz.
+
+## 2026-08-20 - Usuario Natalia Guerrero Guetia (AGROMETALICAS)
+
+Alta de usuario en produccion para el tenant AGROMETALICAS (019f478d-6428-7283-a5cd-b7e35f802ef3).
+Nombre "Natalia Guerrero Guetia", cedula/clave 1114875322. El correo pedido venia como
+"Diseno2@agrometalica.com" (sin s); confirmado con el usuario que el dominio del tenant es
+agrometalicaS.com, se corrigio a login diseno2@agrometalicas.com (minusculas). Rol Admin (como el
+resto del tenant), clonando la plantilla ventas1@agrometalicas.com (menu_view_id, lead_visibility,
+auth_provider local, status Active). platform_users + tenant_users con hash PBKDF2
+v1.100000 (Rfc2898DeriveBytes SHA256, 100000 iter). document_code=1114875322. Verificado: login
+nativo POST /auth/login -> HTTP 302 /inicio (OK). Backup previo ecorex-2026-08-20-1601.sql.gz.
+Sin duplicado previo (ni correo ni cedula existian). SQL directo idempotente (NOT EXISTS).

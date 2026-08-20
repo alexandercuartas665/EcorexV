@@ -548,7 +548,9 @@ else
     {
         try
         {
-            _bpmn ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ecorex-bpmn.js?v=3");
+            // Cache-buster = version de la app: cada deploy fuerza JS fresco (antes era fijo "?v=3" y el
+            // navegador servia el modulo cacheado de dias atras, ignorando los arreglos del editor).
+            _bpmn ??= await JS.InvokeAsync<IJSObjectReference>("import", $"./js/ecorex-bpmn.js?v={AppVersion.Current}");
             _selfRef ??= DotNetObjectReference.Create(this);
             var xml = "";
             await GuardAsync(async () => xml = await DesignSvc.GetBpmnXmlAsync(DefinitionId) ?? "");

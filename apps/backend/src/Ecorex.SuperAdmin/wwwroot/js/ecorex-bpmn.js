@@ -317,6 +317,7 @@ export async function init(containerId, dotnetRef, xml) {
 
     const state = { modeler: modeler, dotnetRef: dotnetRef, dirty: false };
     instances.set(containerId, state);
+    ensureColorStyles(); // reglas CSS del coloreado por marker (una vez).
 
     try {
         await modeler.importXML(xml && xml.trim().length > 0 ? xml : EMPTY_DIAGRAM);
@@ -414,38 +415,41 @@ const NODE_COLORS = {
 // OJO: bpmn-js pinta el relleno como ESTILO INLINE; quitarlo a secas deja el nodo en el relleno por
 // defecto del SVG (negro). Por eso se GUARDA el relleno/borde original la primera vez que se colorea y se
 // RESTAURA al quitar el color; un nodo que nunca se coloreo no se toca (conserva el aspecto de bpmn-js).
+// Inyecta (una sola vez) las reglas CSS que colorean por MARKER de bpmn-js. Un marker es una clase que
+// bpmn-js pone en el grupo del elemento y RE-APLICA en cada render; por eso el color sobrevive a
+// renombrar/mover/guardar (a diferencia del estilo inline, que el re-render borraba). El `!important`
+// gana sobre el relleno por defecto que pinta bpmn-js.
+function ensureColorStyles() {
+    if (typeof document === 'undefined' || document.getElementById('ecorex-bpmn-colors')) { return; }
+    const css = Object.keys(NODE_COLORS).map(function (k) {
+        const c = NODE_COLORS[k];
+        return '.ecorex-c-' + k + ' .djs-visual > :nth-child(1){fill:' + c.fill + ' !important;stroke:' + c.stroke + ' !important;}';
+    }).join('\n');
+    const style = document.createElement('style');
+    style.id = 'ecorex-bpmn-colors';
+    style.textContent = css;
+    document.head.appendChild(style);
+}
+
 function paintColors(state, items) {
     if (!state || !Array.isArray(items)) { return; }
-    state._origColor = state._origColor || {};
+    const canvas = state.modeler.get('canvas');
     const registry = state.modeler.get('elementRegistry');
+    const keys = Object.keys(NODE_COLORS);
     items.forEach(function (it) {
-        const gfx = registry.getGraphics(it.id);
-        if (!gfx) { return; }
-        const visual = gfx.querySelector('.djs-visual');
-        const shape = visual && visual.firstElementChild;
-        if (!shape) { return; }
-        const c = it.color && NODE_COLORS[it.color];
-        if (c) {
-            if (state._origColor[it.id] === undefined) {
-                state._origColor[it.id] = { fill: shape.style.fill, stroke: shape.style.stroke };
-            }
-            shape.style.fill = c.fill;
-            shape.style.stroke = c.stroke;
-        } else if (state._origColor[it.id] !== undefined) {
-            // Se quito el color: restaura EXACTAMENTE lo que bpmn-js tenia antes de pintar.
-            shape.style.fill = state._origColor[it.id].fill;
-            shape.style.stroke = state._origColor[it.id].stroke;
-            delete state._origColor[it.id];
+        if (!registry.get(it.id)) { return; }
+        // Quita cualquier color previo y aplica el actual como MARKER (persiste en cada re-render).
+        keys.forEach(function (k) { canvas.removeMarker(it.id, 'ecorex-c-' + k); });
+        if (it.color && NODE_COLORS[it.color]) {
+            canvas.addMarker(it.id, 'ecorex-c-' + it.color);
         }
-        // color null y sin original guardado -> no se toca (aspecto por defecto de bpmn-js).
     });
 }
 
 export function applyNodeColors(containerId, items) {
     const state = instances.get(containerId);
     if (!state || !Array.isArray(items)) { return; }
-    // Se RECUERDAN los colores: un cambio del grafo (rename inline) re-renderiza el shape y borra el
-    // estilo inline del color; el handler de commandStack.changed los re-pinta desde aqui.
+    // Se RECUERDAN los colores para re-aplicarlos si hiciera falta; con markers ya sobreviven al render.
     state._colorItems = items;
     paintColors(state, items);
 }

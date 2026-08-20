@@ -458,6 +458,45 @@ export function applyNodeNotes(containerId, items) {
     });
 }
 
+// Agrega al lienzo un nodo CallActivity (enlace a OTRO flujo). bpmn-js lo dibuja nativo (subproceso
+// llamado). name = nombre del flujo destino (rotulo); calledElement = su ProcessCode (trazabilidad).
+// Se coloca en un hueco libre debajo del contenido para no encimar. Devuelve true si lo creo.
+export function addCallActivity(containerId, name, calledElement) {
+    const state = instances.get(containerId);
+    if (!state) { return false; }
+    try {
+        const modeler = state.modeler;
+        const elementFactory = modeler.get('elementFactory');
+        const modeling = modeler.get('modeling');
+        const elementRegistry = modeler.get('elementRegistry');
+        const canvas = modeler.get('canvas');
+        const root = canvas.getRootElement();
+        // Posicion: debajo del elemento (forma, no conexion) mas bajo; default si el lienzo esta vacio.
+        let baseX = 260, baseY = 320;
+        const shapes = elementRegistry.filter(function (el) {
+            return el.type && el.type.indexOf('bpmn:') === 0 && el.type !== 'bpmn:Process' && !el.waypoints;
+        });
+        if (shapes.length > 0) {
+            let maxBottom = 0, atX = 200;
+            shapes.forEach(function (el) {
+                const bottom = (el.y || 0) + (el.height || 0);
+                if (bottom > maxBottom) { maxBottom = bottom; atX = el.x || atX; }
+            });
+            baseX = atX + 40; baseY = maxBottom + 70;
+        }
+        const shape = elementFactory.createShape({ type: 'bpmn:CallActivity' });
+        const created = modeling.createShape(shape, { x: baseX, y: baseY }, root);
+        const props = { name: name || 'Otro flujo' };
+        if (calledElement) { props.calledElement = calledElement; }
+        modeling.updateProperties(created, props);
+        state.dirty = true;
+        return true;
+    } catch (err) {
+        console.error('[ecorex-bpmn] no se pudo agregar el call activity:', err);
+        return false;
+    }
+}
+
 export function isDirty(containerId) {
     const state = instances.get(containerId);
     return state ? state.dirty : false;

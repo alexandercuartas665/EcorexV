@@ -1373,10 +1373,22 @@ else
             : _jumpFlows.Where(f => f.Name.Contains(_jumpQuery.Trim(), StringComparison.OrdinalIgnoreCase)
                 || f.ProcessCode.Contains(_jumpQuery.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    private void ConfirmJump()
+    private async Task ConfirmJump()
     {
+        var target = _jumpFlows.FirstOrDefault(f => f.DefinitionId == _jumpSelected);
         _jumpOpen = false;
-        _notice = "TODO: el vinculo real entre flujos (call activity) esta pendiente en el motor.";
+        if (target is null) { return; }
+        if (!RequireEditable()) { return; }
+        if (_bpmn is null || !_bpmnReady) { _error = "El editor aun no esta listo."; return; }
+        // Dibuja un nodo CallActivity (enlace a otro flujo) rotulado con el flujo destino y guarda el
+        // diagrama (XML verbatim): el enlace queda VISIBLE en el lienzo y sobrevive publicar->editar.
+        var ok = await _bpmn.InvokeAsync<bool>("addCallActivity", CanvasId, target.Name, target.ProcessCode);
+        if (!ok)
+        {
+            _error = "No se pudo dibujar el enlace al flujo.";
+            return;
+        }
+        await SaveAsync();
     }
 
     private async Task CloseAsync()

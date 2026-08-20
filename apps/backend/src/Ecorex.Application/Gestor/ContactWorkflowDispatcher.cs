@@ -90,6 +90,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         {
             return 0;
         }
+        _emailTemplateCache.Clear();
 
         var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
             .Where(t => t.Id == tenantId)
@@ -300,18 +301,47 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         {
             return (ContactWorkflowRunStatus.Skipped, channel, null, "Contacto sin correo.");
         }
-        var body = schedule.TemplateId?.Trim();
-        if (string.IsNullOrWhiteSpace(body))
+
+        // La ventana referencia una EmailTemplate (su Id como texto). Sin plantilla o inactiva -> Skipped.
+        if (!Guid.TryParse(schedule.TemplateId, out var templateId))
         {
-            return (ContactWorkflowRunStatus.Skipped, channel, null, "Ventana sin mensaje/plantilla configurada.");
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "Ventana de E-mail sin plantilla seleccionada.");
+        }
+        var tpl = await GetEmailTemplateAsync(templateId, cancellationToken);
+        if (tpl is null)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de correo no existe o esta inactiva.");
         }
 
-        var subject = $"Mensaje para {contact.Nombre}";
-        var result = await _email.SendAsync(to, subject, body, cancellationToken);
+        // Merge de las variables con los datos del contacto: asunto en texto plano, cuerpo en HTML (escapa
+        // las variables para evitar inyeccion). {empresa} usa el nombre de la empresa padre (o Sector).
+        var fields = new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email);
+        var subject = EmailTemplateService.RenderTemplate(tpl.Asunto, fields, htmlEscapeValues: false);
+        if (string.IsNullOrWhiteSpace(subject)) { subject = tpl.Nombre; }
+        var htmlBody = EmailTemplateService.RenderTemplate(tpl.CuerpoHtml, fields, htmlEscapeValues: true);
+
+        var result = await _email.SendAsync(to, subject, htmlBody, cancellationToken);
         return result.Ok
             ? (ContactWorkflowRunStatus.Sent, channel, null, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de correo.");
     }
+
+    // Carga (una vez por corrida) la plantilla de correo ACTIVA del tenant. Cache por Id: una ventana
+    // envia el mismo template a todo su lote, evitando una consulta por contacto.
+    private readonly Dictionary<Guid, EmailTemplateRow?> _emailTemplateCache = new();
+
+    private async Task<EmailTemplateRow?> GetEmailTemplateAsync(Guid templateId, CancellationToken cancellationToken)
+    {
+        if (_emailTemplateCache.TryGetValue(templateId, out var cached)) { return cached; }
+        var tpl = await _db.EmailTemplates.AsNoTracking()
+            .Where(t => t.Id == templateId && t.Activa)
+            .Select(t => new EmailTemplateRow(t.Nombre, t.Asunto, t.CuerpoHtml))
+            .FirstOrDefaultAsync(cancellationToken);
+        _emailTemplateCache[templateId] = tpl;
+        return tpl;
+    }
+
+    private sealed record EmailTemplateRow(string Nombre, string Asunto, string CuerpoHtml);
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(
         string? paramsJson, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
@@ -354,13 +384,15 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         IReadOnlyList<FiltroCriterio> criterios, CancellationToken cancellationToken)
     {
         // Mismo universo que el conteo del Gestor: terceros no inactivos. Se evalua en memoria con el
-        // evaluador COMPARTIDO (una sola logica de filtrado).
+        // evaluador COMPARTIDO (una sola logica de filtrado). Se trae ademas Empresa/Cargo/Ciudad para el
+        // merge del correo ({empresa}={nombre de la empresa padre, o Sector}, {cargo}, {ciudad}).
         var rows = await _db.Terceros.AsNoTracking()
             .Where(t => t.Estado != TerceroEstado.Inactivo)
             .Select(t => new
             {
                 t.Id, t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
-                t.Email, t.Telefono
+                t.Email, t.Telefono,
+                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null
             })
             .ToListAsync(cancellationToken);
 
@@ -368,7 +400,10 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             .Where(t => ContactFilterEvaluator.MatchesAll(
                 new ContactFilterEvaluator.Row(t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado),
                 criterios))
-            .Select(t => new SegmentContact(t.Id, t.Nombre, t.Email, t.Telefono))
+            .Select(t => new SegmentContact(
+                t.Id, t.Nombre, t.Email, t.Telefono,
+                string.IsNullOrWhiteSpace(t.EmpresaNombre) ? t.Sector : t.EmpresaNombre,
+                t.Cargo, t.Ciudad))
             .ToList();
     }
 
@@ -433,5 +468,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         Guid Id, DateOnly? StartDate, DateOnly? EndDate, TimeOnly StartTime, TimeOnly EndTime,
         string ActiveDays, string? TemplateId, Guid? AccountId, int? RepeatEvery, int? PackageSize);
 
-    private sealed record SegmentContact(Guid Id, string Nombre, string? Email, string? Telefono);
+    private sealed record SegmentContact(
+        Guid Id, string Nombre, string? Email, string? Telefono,
+        string? Empresa, string? Cargo, string? Ciudad);
 }

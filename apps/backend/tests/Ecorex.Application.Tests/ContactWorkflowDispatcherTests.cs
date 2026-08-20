@@ -37,6 +37,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<ContactWorkflowRun> ContactWorkflowRuns => Set<ContactWorkflowRun>();
         public DbSet<WhatsAppLine> WhatsAppLines => Set<WhatsAppLine>();
         public DbSet<Conversation> Conversations => Set<Conversation>();
+        public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -129,6 +130,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<ContactWorkflowStep> ContactWorkflowSteps => inner.ContactWorkflowSteps;
         public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => inner.ContactWorkflowSchedules;
         public DbSet<ContactWorkflowRun> ContactWorkflowRuns => inner.ContactWorkflowRuns;
+        public DbSet<EmailTemplate> EmailTemplates => inner.EmailTemplates;
         public DbSet<WhatsAppLine> WhatsAppLines => inner.WhatsAppLines;
         public DbSet<Conversation> Conversations => inner.Conversations;
 

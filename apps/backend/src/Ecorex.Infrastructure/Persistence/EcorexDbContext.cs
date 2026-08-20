@@ -87,6 +87,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TenantBlockedNumber> TenantBlockedNumbers => Set<TenantBlockedNumber>();
     public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
     public DbSet<QuoteTemplate> QuoteTemplates => Set<QuoteTemplate>();
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<TemplateAsset> TemplateAssets => Set<TemplateAsset>();
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
@@ -938,6 +939,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.HtmlContent).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.IsDefault });
+        });
+
+        // Plantillas de correo del motor de acciones por filtro (ADR-0056, paso E-mail).
+        modelBuilder.Entity<EmailTemplate>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
+            b.Property(x => x.CuerpoHtml).HasColumnType(longTextColumnType);
+            b.HasIndex(x => new { x.TenantId, x.Activa });
         });
 
         modelBuilder.Entity<TemplateAsset>(b =>

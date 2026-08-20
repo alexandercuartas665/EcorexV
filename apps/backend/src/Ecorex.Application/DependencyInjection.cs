@@ -49,6 +49,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IBlockedNumberService, Tenancy.BlockedNumberService>();
         services.AddScoped<Tenancy.IMessageTemplateService, Tenancy.MessageTemplateService>();
         services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
+        // Plantillas de correo del motor de acciones por filtro (ADR-0056, paso E-mail).
+        services.AddScoped<Gestor.IEmailTemplateService, Gestor.EmailTemplateService>();
         services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();
         services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
         // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.

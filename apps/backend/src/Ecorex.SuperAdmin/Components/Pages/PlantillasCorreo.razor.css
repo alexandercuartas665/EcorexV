@@ -1,0 +1,20 @@
+.pc-eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
+
+.pc-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.pc-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.pc-main { flex: 1; min-width: 0; }
+.pc-name { font-size: 14px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.pc-subj { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.pc-actions { display: flex; gap: 6px; flex: none; }
+
+.pc-badge { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 1px 8px; border-radius: 999px; }
+.pc-on { background: var(--t-green-bg); color: var(--t-green); }
+.pc-off { background: var(--t-slate-bg); color: var(--t-slate); }
+
+.pc-check { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+
+/* Vista previa del correo renderizado con datos de ejemplo. */
+.pc-prev { margin-top: 14px; border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface-2, rgba(0,0,0,.02)); }
+.pc-prev-lbl { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--ink-3); text-transform: uppercase; margin-bottom: 8px; }
+.pc-prev-subj { font-size: 13px; color: var(--ink); margin-bottom: 8px; }
+.pc-prev-body { font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 240px; overflow: auto; }

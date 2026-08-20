@@ -49,6 +49,7 @@ public class ScheduledUpsertRunTests
         // se toca en esta prueba (igual criterio que FakeAppDb de RowIngestServiceTests).
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
         public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
+        public DbSet<EmailTemplate> EmailTemplates => NotUsed<EmailTemplate>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();

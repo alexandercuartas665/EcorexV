@@ -7,8 +7,10 @@
    Estilos scoped en ContactWorkflowDesigner.razor.css.
    Solo ASCII. *@
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Gestor
 @using Ecorex.Domain.Enums
 @inject IContactWorkflowService WorkflowSvc
+@inject IEmailTemplateService EmailTemplateSvc
 
 @if (_open)
 {
@@ -114,6 +116,39 @@
                                 </div>
                             }
 
+                            @* Campos del paso E-mail: plantilla + vista previa (SMTP, cascada tenant->global) *@
+                            @if (st.StepType == ContactWorkflowStepType.Email)
+                            {
+                                <div class="cw-email">
+                                    <div class="cw-field">
+                                        <label>Plantilla de correo</label>
+                                        <select @bind="st.EmailTemplateId">
+                                            <option value="">-- elige una plantilla --</option>
+                                            @foreach (var t in _templates)
+                                            {
+                                                <option value="@t.Id">@t.Nombre</option>
+                                            }
+                                        </select>
+                                        @if (_templates.Count == 0)
+                                        {
+                                            <span class="cw-email-hint">No hay plantillas activas. Crealas en "Plantillas de correo".</span>
+                                        }
+                                    </div>
+                                    @{
+                                        var sel = _templates.FirstOrDefault(t => t.Id.ToString() == st.EmailTemplateId);
+                                    }
+                                    @if (sel is not null)
+                                    {
+                                        <div class="cw-email-prev">
+                                            <div class="cw-email-prev-lbl">VISTA PREVIA &#183; datos de ejemplo</div>
+                                            <div class="cw-email-subj"><b>Asunto:</b> @PreviewSubject(sel)</div>
+                                            <div class="cw-email-body">@((MarkupString)PreviewBody(sel))</div>
+                                            <div class="cw-email-vars">Variables: {nombre} {empresa} {cargo} {ciudad} {correo}</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
                             @* Ventanas de horario del paso *@
                             <div class="cw-sched-wrap">
                                 <div class="cw-sched-lbl">
@@ -211,6 +246,17 @@
     private string _filtroNombre = "";
     private bool _activo = true;
     private readonly List<StepVM> _steps = new();
+    private List<EmailTemplateDto> _templates = new();
+
+    // Datos de ejemplo para la vista previa del correo (no se envian; solo ilustran el merge).
+    private static readonly EmailMergeFields SampleFields =
+        new("Juan Perez", "ACME S.A.S", "Gerente de Compras", "Bogota", "juan.perez@acme.com");
+
+    private static string PreviewSubject(EmailTemplateDto t)
+        => EmailTemplateService.RenderTemplate(t.Asunto, SampleFields, htmlEscapeValues: false);
+
+    private static string PreviewBody(EmailTemplateDto t)
+        => EmailTemplateService.RenderTemplate(t.CuerpoHtml, SampleFields, htmlEscapeValues: true);
 
     /// <summary>Abre el disenador para un filtro y carga su workflow (si existe).</summary>
     public async Task OpenAsync(Guid filtroId, string filtroNombre)
@@ -221,6 +267,7 @@
         _saved = false;
         _activo = true;
         _steps.Clear();
+        _templates = (await EmailTemplateSvc.ListAsync(soloActivas: true)).ToList();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
         if (wf is not null)
@@ -252,6 +299,8 @@
                         AccountId = h.AccountId
                     });
                 }
+                // La plantilla del paso E-mail es la de sus ventanas (todas comparten la misma).
+                vm.EmailTemplateId = vm.Schedules.FirstOrDefault()?.TemplateId;
                 _steps.Add(vm);
             }
         }
@@ -314,7 +363,10 @@
                     ParseTime(h.StartTime, new TimeOnly(9, 0)),
                     ParseTime(h.EndTime, new TimeOnly(18, 0)),
                     string.Join(",", h.ActiveDays.OrderBy(d => d)),
-                    h.TemplateId,
+                    // E-mail: la plantilla del paso se guarda en cada ventana; otros pasos conservan su valor.
+                    s.StepType == ContactWorkflowStepType.Email
+                        ? (string.IsNullOrWhiteSpace(s.EmailTemplateId) ? null : s.EmailTemplateId)
+                        : h.TemplateId,
                     h.AccountId,
                     h.RepeatEvery,
                     h.PackageSize)).ToList())).ToList();
@@ -382,6 +434,8 @@
         public string? Prioridad { get; set; }
         public string? Categoria { get; set; }
         public string? Subcategoria { get; set; }
+        // Paso E-mail: plantilla seleccionada (Id como texto). Se replica a todas sus ventanas al guardar.
+        public string? EmailTemplateId { get; set; }
         public List<ScheduleVM> Schedules { get; } = new();
     }
 

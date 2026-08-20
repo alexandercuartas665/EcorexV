@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-20 - v0.15.52: correo filtrado con plantillas propias (cierra ADR-0056 paso E-mail)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (EmailTemplate). Verificado end-to-end
+contra AGROMETALICAS (BD prod por tunel): admin de plantillas, selector+preview en el disenador y
+persistencia del template_id en la ventana.
+
+- **Entidad + migracion:** `EmailTemplate : TenantEntity` (Nombre, Asunto, CuerpoHtml, Activa) con DbSet
+  en IApplicationDbContext + EcorexDbContext + config inline; migraciones PG y SQL Server (AddEmailTemplate).
+  Tabla `email_templates` con indice (tenant_id, activa). Query filter tenant automatico (ITenantScoped).
+- **Servicio + merge:** `IEmailTemplateService` (CRUD tenant-scoped) + helper estatico
+  `RenderTemplate(texto, EmailMergeFields, htmlEscapeValues)` que reemplaza {nombre},{empresa},{cargo},
+  {ciudad},{correo}; valor faltante -> ""; ESCAPA las variables en el cuerpo (HTML) para evitar inyeccion,
+  no en el asunto (texto plano). Registrado en DI.
+- **UI:** pagina `/plantillas-correo` (lista + modal crear/editar con vista previa en vivo con datos de
+  ejemplo). Disenador (`ContactWorkflowDesigner`): en el paso E-mail, selector de plantilla activa
+  (bindea a la ventana via ScheduleVM.TemplateId, misma plantilla para todas las ventanas del paso) +
+  vista previa del asunto/cuerpo renderizado. Guarda como ya guardaba.
+- **Motor** (`ContactWorkflowDispatcher.ExecuteEmailAsync`): carga la `EmailTemplate` por
+  schedule.TemplateId (Guid); si no existe o esta inactiva -> Skipped con motivo. Merge por contacto ->
+  subject + htmlBody -> IEmailSender.SendAsync. `ResolveSegmentAsync` ahora trae Empresa (nombre de la
+  empresa padre o Sector), Cargo y Ciudad del Tercero para el merge. Cache de plantilla por corrida.
+  Conserva dedupe (ContactWorkflowRun), PackageSize (50/500) y RepeatEvery.
+- **PRE-REQUISITO (lo hace el usuario, config, NO codigo):** el SMTP global de SendGrid tiene el usuario
+  mal (`1144198690`); debe ser `apikey` (user=apikey, password=API key). Sin esto todo envio da 535.
+  Cambiar en Configuracion -> Servidor de correo. Probar primero con un filtro chico y un correo propio.
+- **Deuda previa:** los mismos test-doubles se ampliaron con el DbSet EmailTemplates (sln verde).
+
+---
+
 ## 2026-08-20 - v0.15.51: FASE 2 - adaptador MCP JSON-RPC nativo (ADR-0067)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo protocolo -> toolset). Verificado

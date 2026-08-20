@@ -79,6 +79,7 @@ public class RowIngestServiceTests
         public DbSet<LeadFile> LeadFiles => throw new NotSupportedException();
         public DbSet<ContactImportBatch> ContactImportBatches => throw new NotSupportedException();
         public DbSet<ContactSearchRun> ContactSearchRuns => throw new NotSupportedException();
+        public DbSet<EmailTemplate> EmailTemplates => throw new NotSupportedException();
         public DbSet<FollowUpTask> FollowUpTasks => throw new NotSupportedException();
         public DbSet<Conversation> Conversations => throw new NotSupportedException();
         public DbSet<Message> Messages => throw new NotSupportedException();

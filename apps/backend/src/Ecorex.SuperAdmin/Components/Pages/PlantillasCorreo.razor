@@ -1,0 +1,200 @@
+@page "/plantillas-correo"
+@attribute [Authorize]
+@* Administrador de PLANTILLAS DE CORREO del motor de acciones por filtro (ADR-0056, paso E-mail).
+   Lista + crear/editar (Nombre, Asunto, Cuerpo HTML, Activa) + vista previa con datos de ejemplo.
+   Las plantillas activas se ofrecen en el disenador de acciones (paso E-mail). Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Gestor
+@inject IEmailTemplateService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Plantillas de correo - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Negocio</span>
+    <span class="sep">/</span>
+    <span class="cur">Plantillas de correo</span>
+</nav>
+
+<div class="page-header">
+    <div>
+        <div class="pc-eyebrow">MOTOR DE ACCIONES &#183; E-MAIL</div>
+        <h1 class="page-title" style="margin-top:6px;">Plantillas de correo</h1>
+        <p class="page-sub" style="margin-bottom:0;">Asunto y cuerpo con variables <b>{nombre} {empresa} {cargo} {ciudad} {correo}</b> que se reemplazan con los datos del contacto al enviar. Las activas aparecen en el disenador de acciones (paso E-mail).</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenNew">+ Nueva plantilla</button>
+</div>
+
+@if (_loading)
+{
+    <p class="text-muted">Cargando plantillas...</p>
+}
+else
+{
+    <div class="pc-list">
+        @if (_items.Count == 0)
+        {
+            <p class="text-muted">Aun no hay plantillas. Usa "+ Nueva plantilla" para crear la primera.</p>
+        }
+        @foreach (var t in _items)
+        {
+            var tt = t;
+            <div class="pc-row">
+                <div class="pc-main">
+                    <div class="pc-name">
+                        @tt.Nombre
+                        @if (!tt.Activa)
+                        {
+                            <span class="pc-badge pc-off">Inactiva</span>
+                        }
+                        else
+                        {
+                            <span class="pc-badge pc-on">Activa</span>
+                        }
+                    </div>
+                    <div class="pc-subj">@(string.IsNullOrWhiteSpace(tt.Asunto) ? "(sin asunto)" : tt.Asunto)</div>
+                </div>
+                <div class="pc-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(tt)">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteAsync(tt)" disabled="@_busy">Eliminar</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="text-danger small" style="margin-top:10px">@_error</div>
+}
+
+@* ===== Modal: nueva / editar plantilla ===== *@
+@if (_editOpen)
+{
+    <div class="modal-overlay" @onclick="() => _editOpen = false">
+        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nueva plantilla" : "Editar plantilla")</h3>
+                <button class="modal-close" @onclick="() => _editOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fNombre" maxlength="200" placeholder="Ej. Bienvenida prospectos" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Asunto *</label>
+                    <input class="form-control" @bind="_fAsunto" maxlength="300" placeholder="Hola {nombre}, una propuesta para {empresa}" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Cuerpo (HTML)</label>
+                    <textarea class="form-control" rows="8" @bind="_fCuerpo" placeholder="&lt;p&gt;Hola {nombre},&lt;/p&gt;&lt;p&gt;Nos gustaria conversar con {empresa}...&lt;/p&gt;"></textarea>
+                </div>
+                <label class="pc-check">
+                    <input type="checkbox" checked="@_fActiva" @onchange="e => _fActiva = (bool)(e.Value ?? false)" />
+                    <span>Activa (disponible en el disenador de acciones)</span>
+                </label>
+
+                <div class="pc-prev">
+                    <div class="pc-prev-lbl">VISTA PREVIA &#183; datos de ejemplo (Juan Perez / ACME S.A.S)</div>
+                    <div class="pc-prev-subj"><b>Asunto:</b> @PreviewSubject()</div>
+                    <div class="pc-prev-body">@((MarkupString)PreviewBody())</div>
+                </div>
+
+                @if (_modalError is not null)
+                {
+                    <div class="text-danger small">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _editOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<EmailTemplateDto> _items = new();
+
+    private bool _editOpen;
+    private Guid? _editingId;
+    private string? _modalError;
+    private string _fNombre = "";
+    private string _fAsunto = "";
+    private string _fCuerpo = "";
+    private bool _fActiva = true;
+
+    private static readonly EmailMergeFields SampleFields =
+        new("Juan Perez", "ACME S.A.S", "Gerente de Compras", "Bogota", "juan.perez@acme.com");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _items = (await Svc.ListAsync()).ToList();
+
+    private void OpenNew()
+    {
+        _modalError = null;
+        _editingId = null;
+        _fNombre = "";
+        _fAsunto = "";
+        _fCuerpo = "";
+        _fActiva = true;
+        _editOpen = true;
+    }
+
+    private void OpenEdit(EmailTemplateDto t)
+    {
+        _modalError = null;
+        _editingId = t.Id;
+        _fNombre = t.Nombre;
+        _fAsunto = t.Asunto;
+        _fCuerpo = t.CuerpoHtml;
+        _fActiva = t.Activa;
+        _editOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _modalError = null;
+        if (string.IsNullOrWhiteSpace(_fNombre)) { _modalError = "El nombre es obligatorio."; return; }
+        if (string.IsNullOrWhiteSpace(_fAsunto)) { _modalError = "El asunto es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            var req = new SaveEmailTemplateRequest(_fNombre, _fAsunto, _fCuerpo, _fActiva);
+            var res = _editingId is Guid id
+                ? await Svc.UpdateAsync(id, req)
+                : await Svc.CreateAsync(req);
+            if (res is null) { _modalError = "No se pudo guardar la plantilla."; return; }
+            _editOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(EmailTemplateDto t)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar la plantilla \"{t.Nombre}\"?")) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            await Svc.DeleteAsync(t.Id);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private string PreviewSubject() => EmailTemplateService.RenderTemplate(_fAsunto, SampleFields, htmlEscapeValues: false);
+    private string PreviewBody() => EmailTemplateService.RenderTemplate(_fCuerpo, SampleFields, htmlEscapeValues: true);
+}

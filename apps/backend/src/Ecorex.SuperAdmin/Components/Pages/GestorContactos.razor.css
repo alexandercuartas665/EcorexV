@@ -324,3 +324,13 @@
 .gc-opp-substage { display: flex; align-items: center; gap: 9px; padding: 7px 14px; background: var(--surface-2); border-top: 1px solid var(--line); }
 .gc-opp-substage:first-child { border-top: none; }
 .gc-opp-line-name { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Preview del prospecto scrapeado (modal Cargador de contactos) */
+.gc-pp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.gc-pp-f { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gc-pp-f span { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--ink-3); text-transform: uppercase; }
+.gc-pp-f b { font-size: 13px; font-weight: 600; color: var(--ink); word-break: break-word; }
+.gc-pp-link { display: inline-block; margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--brand); text-decoration: none; }
+.gc-pp-link:hover { text-decoration: underline; }
+/* Selector de conector Y/O en el constructor de filtros */
+.gc-crit-conn-sel { max-width: 54px; text-align: center; font-weight: 700; }

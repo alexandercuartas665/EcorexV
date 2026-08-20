@@ -22,9 +22,22 @@ public static class ContactFilterEvaluator
         TerceroPerfil Perfiles,
         TerceroEstado Estado);
 
-    /// <summary>Cumple TODOS los criterios (AND). Lista vacia = todos pasan.</summary>
+    /// <summary>Evalua los criterios encadenados por su conector (Y = AND, O = OR), de izquierda a
+    /// derecha SIN precedencia (el primer conector se ignora). Lista vacia = todos pasan. Ej.:
+    /// "ciudad=bogota Y sector=salud O cargo=gerente" = ((ciudad Y sector) O cargo).</summary>
     public static bool MatchesAll(Row row, IReadOnlyList<FiltroCriterio> criterios)
-        => criterios.All(c => Matches(row, c));
+    {
+        if (criterios.Count == 0) { return true; }
+        var result = Matches(row, criterios[0]);
+        for (var i = 1; i < criterios.Count; i++)
+        {
+            var m = Matches(row, criterios[i]);
+            result = string.Equals((criterios[i].Conector ?? "Y").Trim(), "O", System.StringComparison.OrdinalIgnoreCase)
+                ? result || m
+                : result && m;
+        }
+        return result;
+    }
 
     public static bool Matches(Row row, FiltroCriterio criterio)
     {

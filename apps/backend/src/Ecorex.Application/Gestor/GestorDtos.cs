@@ -106,8 +106,10 @@ public sealed record SaveCitaRequest(
     int DuracionMinutos = 0,
     string? Nota = null);
 
-/// <summary>Criterio de un filtro dinamico (campo / operador / valor).</summary>
-public sealed record FiltroCriterio(string Campo, string Operador, string Valor);
+/// <summary>Criterio de un filtro dinamico (campo / operador / valor). <see cref="Conector"/> es como se
+/// une con el criterio ANTERIOR: "Y" (AND) u "O" (OR). En el primer criterio se ignora (es el "DONDE").
+/// Se evalua en cadena de izquierda a derecha (sin precedencia).</summary>
+public sealed record FiltroCriterio(string Campo, string Operador, string Valor, string Conector = "Y");
 
 /// <summary>
 /// Filtro dinamico guardado: segmento con su conteo en vivo y el % de crecimiento

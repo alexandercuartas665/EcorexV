@@ -125,6 +125,11 @@
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></svg>
                                         Filtrar ahora
                                     </button>
+                                    @* Editar: abre el constructor pre-cargado con este filtro (nombre, fuente, criterios). *@
+                                    <button @onclick="() => EditFiltro(ff)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                        Editar
+                                    </button>
                                     @* Disenador de acciones (ADR-0056): abre el modal para armar la secuencia
                                        de acciones (conectar/mensaje/whatsapp/email/llamada) de este filtro.
                                        La EJECUCION de los pasos es Fase 2. *@
@@ -284,9 +289,9 @@
                                         }
                                         else if (rr.ProspectoId is Guid pid)
                                         {
-                                            @* Lapiz EDITAR: abre el prospecto (lo promueve a Tercero y abre su ficha para
-                                               editarlo). El boton "Promover" explicito vive DENTRO de la ficha. *@
-                                            <button class="gc-act edit" title="Editar contacto" @onclick="() => PromoverAsync(pid)" disabled="@_busy">
+                                            @* Ver el prospecto en un PREVIEW (NO lo promueve). La incorporacion al
+                                               Directorio es explicita: el boton "Implementar" dentro del preview. *@
+                                            <button class="gc-act edit" title="Ver contacto" @onclick="() => OpenProspectoPreview(pid)" disabled="@_busy">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                                             </button>
                                         }
@@ -653,7 +658,7 @@
         <div class="gc-modal sm" @onclick:stopPropagation="true">
             <div class="gc-m-head">
                 <div>
-                    <div class="gc-m-kicker">NUEVO FILTRO DINAMICO</div>
+                    <div class="gc-m-kicker">@(_fbEditId is null ? "NUEVO FILTRO DINAMICO" : "EDITAR FILTRO")</div>
                     <div class="gc-m-title">Constructor de filtro</div>
                 </div>
                 <button class="gc-close" @onclick="() => _fbOpen = false">
@@ -679,7 +684,18 @@
                     var idx = i;
                     var cr = _fbCriterios[idx];
                     <div class="gc-crit-row">
-                        <span class="gc-crit-conn">@(idx == 0 ? "DONDE" : "Y")</span>
+                        @if (idx == 0)
+                        {
+                            <span class="gc-crit-conn">DONDE</span>
+                        }
+                        else
+                        {
+                            @* Conector con el criterio anterior: Y (todos) u O (cualquiera). *@
+                            <select class="gc-input xs gc-crit-conn-sel" value="@cr.Conector" @onchange="e => UpdateCriterio(idx, conector: e.Value?.ToString())">
+                                <option value="Y">Y</option>
+                                <option value="O">O</option>
+                            </select>
+                        }
                         <select class="gc-input sm" value="@cr.Campo" @onchange="e => UpdateCriterio(idx, campo: e.Value?.ToString())">
                             @foreach (var c in CampoOpciones)
                             {
@@ -711,7 +727,47 @@
                 <span></span>
                 <div class="gc-foot-actions">
                     <button class="gc-btn-ghost" @onclick="() => _fbOpen = false" disabled="@_busy">Cancelar</button>
-                    <button class="gc-btn-brand" @onclick="SaveFiltroAsync" disabled="@_busy">Guardar filtro</button>
+                    <button class="gc-btn-brand" @onclick="SaveFiltroAsync" disabled="@_busy">@(_fbEditId is null ? "Guardar filtro" : "Actualizar filtro")</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ============ MODAL: preview del prospecto scrapeado (NO promueve; "Implementar" es explicito) ============ *@
+@if (_ppOpen && _pp is not null)
+{
+    <div class="gc-overlay" @onclick="() => _ppOpen = false">
+        <div class="gc-modal sm" @onclick:stopPropagation="true">
+            <div class="gc-m-head">
+                <div>
+                    <div class="gc-m-kicker">PROSPECTO SCRAPEADO - @_pp.Fuente</div>
+                    <div class="gc-m-title">@_pp.NombreCompleto</div>
+                </div>
+                <button class="gc-close" @onclick="() => _ppOpen = false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="gc-m-body">
+                <div class="gc-pp-grid">
+                    @if (!string.IsNullOrWhiteSpace(_pp.Cargo)) { <div class="gc-pp-f"><span>Cargo</span><b>@_pp.Cargo</b></div> }
+                    @if (!string.IsNullOrWhiteSpace(_pp.Empresa)) { <div class="gc-pp-f"><span>Empresa</span><b>@_pp.Empresa</b></div> }
+                    @if (!string.IsNullOrWhiteSpace(_pp.Ciudad)) { <div class="gc-pp-f"><span>Ciudad</span><b>@_pp.Ciudad</b></div> }
+                    @if (!string.IsNullOrWhiteSpace(_pp.Telefono)) { <div class="gc-pp-f"><span>Telefono</span><b>@_pp.Telefono</b></div> }
+                    @if (!string.IsNullOrWhiteSpace(_pp.Correo)) { <div class="gc-pp-f"><span>Correo</span><b>@_pp.Correo</b></div> }
+                    @if (!string.IsNullOrWhiteSpace(_pp.Metrica)) { <div class="gc-pp-f"><span>Metrica</span><b>@_pp.Metrica</b></div> }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_pp.OrigenUrl))
+                {
+                    <a class="gc-pp-link" href="@_pp.OrigenUrl" target="_blank" rel="noopener noreferrer">Ver origen &#8599;</a>
+                }
+                <div class="gc-note" style="margin-top:10px">Este contacto AUN NO esta en el Directorio. Pulsa "Implementar" para incorporarlo.</div>
+            </div>
+            <div class="gc-m-foot">
+                <span></span>
+                <div class="gc-foot-actions">
+                    <button class="gc-btn-ghost" @onclick="() => _ppOpen = false" disabled="@_busy">Cerrar</button>
+                    <button class="gc-btn-brand" @onclick="ImplementarProspectoAsync" disabled="@_busy">Implementar al Directorio</button>
                 </div>
             </div>
         </div>
@@ -1050,6 +1106,24 @@
         }
     }
 
+    // Preview del prospecto scrapeado (NO promueve al abrir; la incorporacion es explicita con "Implementar").
+    private bool _ppOpen;
+    private ProspectoDto? _pp;
+
+    private void OpenProspectoPreview(Guid prospectoId)
+    {
+        _pp = _prospectos.FirstOrDefault(p => p.Id == prospectoId);
+        _ppOpen = _pp is not null;
+    }
+
+    private async Task ImplementarProspectoAsync()
+    {
+        if (_pp is null) { return; }
+        var id = _pp.Id;
+        _ppOpen = false;
+        await PromoverAsync(id); // crea el Tercero + abre su ficha (aqui SI se incorpora al Directorio).
+    }
+
     private async Task PromoverAsync(Guid prospectoId)
     {
         _busy = true;
@@ -1190,6 +1264,7 @@
 
     // ================= FILTROS =================
     private bool _fbOpen;
+    private Guid? _fbEditId;   // null = nuevo filtro; con valor = editar ese filtro.
     private string _fbNombre = "";
     private string _fbDesc = "";
     private string? _fbFuente;
@@ -1199,6 +1274,7 @@
     private void OpenFiltroBuilder()
     {
         _filtroMenu = null;
+        _fbEditId = null;
         _fbNombre = "";
         _fbDesc = "";
         _fbFuente = null;
@@ -1207,14 +1283,30 @@
         _fbOpen = true;
     }
 
-    private void UpdateCriterio(int idx, string? campo = null, string? op = null, string? valor = null)
+    /// <summary>Abre el constructor PRE-CARGADO con un filtro guardado para editarlo (mismo modal).</summary>
+    private void EditFiltro(FiltroDto f)
+    {
+        _filtroMenu = null;
+        _fbEditId = f.Id;
+        _fbNombre = f.Nombre;
+        _fbDesc = f.Descripcion ?? "";
+        _fbFuente = f.Fuente;
+        _fbCriterios = f.Criterios.Count > 0
+            ? f.Criterios.Select(c => c).ToList()
+            : new List<FiltroCriterio> { new(CampoOpciones[0], OperadorOpciones[0], "") };
+        _fbError = null;
+        _fbOpen = true;
+    }
+
+    private void UpdateCriterio(int idx, string? campo = null, string? op = null, string? valor = null, string? conector = null)
     {
         var c = _fbCriterios[idx];
         _fbCriterios[idx] = c with
         {
             Campo = campo ?? c.Campo,
             Operador = op ?? c.Operador,
-            Valor = valor ?? c.Valor
+            Valor = valor ?? c.Valor,
+            Conector = conector ?? c.Conector
         };
     }
 
@@ -1229,7 +1321,8 @@
         }
         var req = new SaveFiltroRequest(nombre, Blank(_fbDesc), _fbFuente, _fbCriterios.ToList());
         _busy = true;
-        var res = await GestorSvc.SaveFiltroAsync(null, req);
+        // _fbEditId != null -> actualiza ese filtro; null -> crea uno nuevo.
+        var res = await GestorSvc.SaveFiltroAsync(_fbEditId, req);
         _busy = false;
         if (!res.IsOk)
         {

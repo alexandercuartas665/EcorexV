@@ -48,6 +48,7 @@ public class ScheduledUpsertRunTests
         // El nucleo de ingesta solo necesita las tres tablas EAV de arriba; el resto de la interfaz no
         // se toca en esta prueba (igual criterio que FakeAppDb de RowIngestServiceTests).
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
+        public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();

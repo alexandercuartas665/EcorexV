@@ -1,3 +1,4 @@
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -194,6 +195,50 @@ public static class AgentMgmtEndpoints
         group.MapGet("/mcp-tools", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
             Run(req, scopes, ct, (svc, _, c) => Task.FromResult((object)BuildCatalog(svc.Toolsets)),
                 result => Results.Json(result, Json)));
+
+        // 8b. Catalogo COMPLETO de tools de agente (nombre + descripcion + JSON-Schema de cada tool),
+        //     para que un agente/cliente MCP construya sin leer codigo. Solo AUTH (no requiere ?tenant=).
+        group.MapGet("/agent/tools", (HttpRequest req, IServiceScopeFactory scopes) =>
+        {
+            var gate = CheckAuthGate(req);
+            if (gate is not null) { return gate; }
+            using var scope = scopes.CreateScope();
+            var toolsets = scope.ServiceProvider.GetRequiredService<IEnumerable<IAgentToolset>>();
+            return Results.Json(BuildFullCatalog(toolsets), Json);
+        });
+
+        // 8c. Ejecuta UNA tool de agente en el tenant indicado (?tenant=). El cuerpo son los argumentos JSON.
+        //     Reusa el gate de auth + tenant (AmbientTenantContext.Begin + scope) y AUDITA cada mutacion.
+        group.MapPost("/agent/tools/{tool}", async (string tool, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+        {
+            var gate = CheckGate(req, out var tenantId);
+            if (gate is not null) { return gate; }
+
+            string argsJson;
+            using (var reader = new StreamReader(req.Body, Encoding.UTF8)) { argsJson = await reader.ReadToEndAsync(ct); }
+            if (string.IsNullOrWhiteSpace(argsJson)) { argsJson = "{}"; }
+
+            using var _ = AmbientTenantContext.Begin(tenantId);
+            using var scope = scopes.CreateScope();
+            var sp = scope.ServiceProvider;
+            var toolsets = sp.GetRequiredService<IEnumerable<IAgentToolset>>().ToList();
+            var owner = toolsets.FirstOrDefault(ts => ts.GetSpecs().Any(s => string.Equals(s.Name, tool, StringComparison.Ordinal)));
+            if (owner is null) { return Results.NotFound(new { error = $"tool desconocida: {tool}" }); }
+
+            AgentToolResult result;
+            try { result = await owner.ExecuteAsync(tool, argsJson, SystemActor, autonomous: true, ct); }
+            catch (Exception ex) { return Results.Json(new { ok = false, error = ex.Message }, Json, statusCode: 500); }
+
+            // Auditoria: toda MUTACION exitosa deja traza inmutable. Las tools de solo-lectura no auditan.
+            var readOnly = owner is IFormAuthoringToolset fa && fa.ReadOnlyTools.Contains(tool);
+            if (!readOnly && !ResultIsError(result.Json))
+            {
+                var svc = Resolve(sp);
+                await AuditAsync(svc, tenantId, $"mgmt-api.agent-tool.{tool}", "AgentTool", null, new { tool, args = Truncate(argsJson, 2000) }, ct);
+            }
+
+            return Results.Content(result.Json, "application/json; charset=utf-8");
+        }).DisableAntiforgery();
 
         // 9. Fijar las tools MCP del agente. Body {toolKeys:[...]} = keys HABILITADAS (opt-in). Se validan
         //    contra el catalogo (400 si hay invalidas) y se persiste el complemento como DisabledTools.
@@ -616,6 +661,36 @@ public static class AgentMgmtEndpoints
 
     private static HashSet<string> AllToolNames(IEnumerable<IAgentToolset> toolsets)
         => toolsets.SelectMany(ts => ts.GetSpecs()).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Catalogo COMPLETO (grupos + specs con JSON-Schema embebido como objeto, no como string).</summary>
+    private static object BuildFullCatalog(IEnumerable<IAgentToolset> toolsets)
+        => toolsets.Select(ts => new
+        {
+            groupKey = ts.GroupKey,
+            groupLabel = ts.GroupLabel,
+            tools = ts.GetSpecs().Select(s => new
+            {
+                name = s.Name,
+                description = s.Description,
+                parametersSchema = ParseSchema(s.ParametersJsonSchema)
+            }).ToList()
+        }).ToList();
+
+    /// <summary>Convierte el JSON-Schema (string) en un JsonElement para que viaje como objeto, no escapado.</summary>
+    private static JsonElement ParseSchema(string schema)
+    {
+        try { using var doc = JsonDocument.Parse(schema); return doc.RootElement.Clone(); }
+        catch { using var doc = JsonDocument.Parse("{}"); return doc.RootElement.Clone(); }
+    }
+
+    /// <summary>True si el JSON de resultado de una tool trae "ok": false (fallo estructurado, no mutacion).</summary>
+    private static bool ResultIsError(string json)
+    {
+        try { using var doc = JsonDocument.Parse(json); return doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False; }
+        catch { return false; }
+    }
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "...";
 
     /// <summary>Detalle del agente + recursos + prompts + cache + catalogo de tools con enabled por-agente.</summary>
     private static async Task<object?> BuildAgentDetailAsync(MgmtServices svc, Guid id, CancellationToken c)

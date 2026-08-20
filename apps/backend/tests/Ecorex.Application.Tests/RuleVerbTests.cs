@@ -357,6 +357,10 @@ public class RuleVerbTests
             LastPadding = padding;
             return Task.FromResult(next);
         }
+
+        public Task<long> PeekAsync(string code, CancellationToken cancellationToken = default) => Task.FromResult(0L);
+
+        public Task SetNextAsync(string code, long value, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     /// <summary>Fake de ITaskItemService: solo CreateAsync registra; el resto no se usa.</summary>

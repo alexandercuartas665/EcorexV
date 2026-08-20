@@ -249,6 +249,11 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.InventarioToolset>();
         services.AddScoped<Tenancy.IInventarioToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
+        // Toolset de Autoria de formularios (ADR-0058): construye formularios/plantillas/enlaces/modulos sin
+        // SQL, delegando en los servicios de aplicacion. Se expone externo por /api/mgmt/agent/tools.
+        services.AddScoped<Tenancy.FormAuthoringToolset>();
+        services.AddScoped<Tenancy.IFormAuthoringToolset>(sp => sp.GetRequiredService<Tenancy.FormAuthoringToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.FormAuthoringToolset>());
         // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
         services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();

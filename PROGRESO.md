@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-08-20 - v0.15.50: API/MCP de autoria de formularios gobernada (ADR-0067)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (lectura + delegacion). Verificado de
+punta a punta contra el tenant AGROMETALICAS via instancia local -> BD de prod por tunel.
+
+- **Problema:** crear formularios/plantillas/enlaces/modulos para un tenant se hacia por SQL directo
+  (no gobernado). Ahora un agente de IA o cliente MCP lo hace "conectandose al sistema" con auth,
+  seleccion de tenant, validacion, transaccion y auditoria, SIN SQL. Se EXPONE la logica existente.
+- **Toolset nuevo** `FormAuthoringToolset : IAgentToolset` (Ecorex.Application/Tenancy), registrado en
+  DependencyInjection.cs (3 lineas). ~34 tools (JSON-Schema inline) que delegan en IFormDefinitionService,
+  IFormTokenService, IQuoteTemplateService, IRuleDocumentService, IFormResponseService, IMenuConfigService,
+  IDataContainerService, ITerceroFieldService. Incluye `describe_components` auto-descriptivo (enums por
+  reflexion + esquema de grilla lookup/resolve + marcadores de plantilla + verbos de impresion) y
+  `wire_print_button` (documento+regla IMPRIMIR_PLANTILLA+boton+enlace en una operacion).
+- **Superficie REST** reusando /api/mgmt (ADR-0057): `GET /api/mgmt/agent/tools` (catalogo con schema,
+  solo auth) y `POST /api/mgmt/agent/tools/{tool}?tenant={guid}` (ejecuta con AmbientTenantContext.Begin +
+  scope). Auth X-Ecorex-Mgmt-Key; cada MUTACION audita en super_admin_audit_logs (las lecturas no).
+  Errores de validacion -> resultado estructurado {ok:false,status,error,field_errors}, no 500.
+- **Verificado (aceptacion):** GET tools lista el toolset+schema; describe_components; y con solo tools
+  (sin SQL) cree en AGROMETALICAS un formulario Text+Select+GridDetail(columna resolve), transaccional
+  Sequence prefijo ADEMO (record ADEMO000001), plantilla, boton imprimir cableado, enlace /f/{token}
+  (HTTP 200) y modulo /m/{code}, con auditoria por mutacion. Artefactos demo archivados tras la prueba.
+- **Deuda previa resuelta de paso:** test-doubles desactualizados (ContactSearchRuns, ISequenceService,
+  ctor de FormDefinitionService con `sequences`) impedian compilar los proyectos de test desde v0.15.39;
+  se completaron para dejar `Ecorex.sln` verde.
+- **Siguiente (FASE 2 opcional):** adaptador MCP JSON-RPC nativo (initialize/tools/list/tools/call) sobre
+  AgentMcpServer que haga de puente hacia estos endpoints (sin duplicar logica).
+
+---
+
 ## 2026-08-19 - v0.15.36: tokens {tareas.campo} en el valor por defecto de un campo de formulario
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (reusa DefaultValue). Validado req #2 en

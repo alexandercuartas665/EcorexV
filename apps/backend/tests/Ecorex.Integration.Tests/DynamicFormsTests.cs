@@ -694,7 +694,7 @@ public abstract class DynamicFormsTestsBase
     private static FormDefinitionService BuildDefinitionService(EcorexDbContext ctx, SeedData seed)
     {
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        return new(ctx, tenant, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenant));
+        return new(ctx, tenant, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenant), new Ecorex.Application.Tenancy.SequenceService(ctx, tenant));
     }
 
     private static FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine? engine = null)

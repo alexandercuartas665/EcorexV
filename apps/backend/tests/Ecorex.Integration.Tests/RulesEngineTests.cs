@@ -118,7 +118,7 @@ public abstract class RulesEngineTestsBase
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
-        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext));
+        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext), new Ecorex.Application.Tenancy.SequenceService(ctx, tenantContext));
         var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine), new SequenceService(ctx, tenantContext), tenantContext, new NoOpFormRecordBroadcaster(), new Ecorex.Application.Forms.Lookups.FormLookupService(System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()));
         var dispatcher = new FormRuleDispatcher(ctx, engine);
 
@@ -410,7 +410,7 @@ public abstract class RulesEngineTestsBase
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
-        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext));
+        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext), new Ecorex.Application.Tenancy.SequenceService(ctx, tenantContext));
 
         var document = (await documents.CreateDocumentAsync(new SaveRuleDocumentRequest(
             "RUL-DUP", "Duplicados", "FORMULARIOS", Status: RuleStatus.Active))).Value!;

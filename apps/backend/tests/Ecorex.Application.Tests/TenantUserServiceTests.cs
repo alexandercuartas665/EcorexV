@@ -83,6 +83,7 @@ public class TenantUserServiceTests
         public DbSet<LeadNote> LeadNotes => throw new NotSupportedException();
         public DbSet<LeadFile> LeadFiles => throw new NotSupportedException();
         public DbSet<ContactImportBatch> ContactImportBatches => throw new NotSupportedException();
+        public DbSet<ContactSearchRun> ContactSearchRuns => throw new NotSupportedException();
         public DbSet<FollowUpTask> FollowUpTasks => throw new NotSupportedException();
         public DbSet<Conversation> Conversations => throw new NotSupportedException();
         public DbSet<Message> Messages => throw new NotSupportedException();

@@ -137,6 +137,7 @@ public class ContactWorkflowDispatcherTests
         public bool HasActiveTransaction => false;
 
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
+        public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();

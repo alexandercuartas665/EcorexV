@@ -279,6 +279,22 @@ public sealed class FormResponseService : IFormResponseService
                 .ToListAsync(cancellationToken);
             foreach (var link in pendingLinks)
             {
+                // Este formulario ya se envio: su link queda Completed.
+                link.Status = FormFlowLinkStatus.Completed;
+
+                // Un nodo puede exigir VARIOS formularios: el paso se completa SOLO cuando no queda
+                // ningun otro formulario Pending de ese nodo/instancia (todos enviados). Si aun faltan,
+                // este envio no cierra el paso.
+                var otherPending = await _db.FormFlowLinks
+                    .AnyAsync(l => l.WorkflowInstanceId == link.WorkflowInstanceId
+                        && l.WorkflowNodeId == link.WorkflowNodeId
+                        && l.Status == FormFlowLinkStatus.Pending
+                        && l.Id != link.Id, cancellationToken);
+                if (otherPending)
+                {
+                    continue;
+                }
+
                 var currentSteps = await _workflowEngine.GetCurrentStepsAsync(link.WorkflowInstanceId, cancellationToken);
                 var step = currentSteps.FirstOrDefault(s =>
                     s.NodeId == link.WorkflowNodeId && s.Status == WorkflowStepStatus.Pending);
@@ -296,9 +312,7 @@ public sealed class FormResponseService : IFormResponseService
                             completed.Error ?? "No se pudo completar el paso del flujo vinculado.");
                     }
                 }
-                // Si el paso ya no esta vigente (reinicio/rechazo posterior), el link se
-                // cierra igualmente: el formulario quedo respondido para ese ciclo.
-                link.Status = FormFlowLinkStatus.Completed;
+                // Si el paso ya no esta vigente (reinicio/rechazo posterior), el link ya quedo cerrado.
             }
         }
 
@@ -686,50 +700,56 @@ public sealed class FormResponseService : IFormResponseService
         var result = new List<TaskStepFormDto>();
         foreach (var step in pendingSteps)
         {
-            var nodeForm = nodeForms.FirstOrDefault(f => f.NodeId == step.NodeId);
-            if (nodeForm is null)
+            // Un nodo puede tener VARIOS formularios: se ofrecen TODOS (en orden). El paso no se
+            // completa hasta enviarlos todos (el gating vive en SubmitAsync).
+            var stepForms = nodeForms.Where(f => f.NodeId == step.NodeId)
+                .OrderBy(f => f.SortOrder).ToList();
+            if (stepForms.Count == 0)
             {
                 continue;
             }
-            var definition = await _db.FormDefinitions.AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == nodeForm.DefinitionId, cancellationToken);
-            if (definition is null || definition.Status != FormStatus.Active || definition.IsArchived)
-            {
-                continue;
-            }
-
-            // Borrador (idempotente) anclado al numero de la tarea + link al paso.
-            var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
-            if (!draft.IsOk || draft.Value is null)
-            {
-                continue;
-            }
-            var link = await _db.FormFlowLinks
-                .FirstOrDefaultAsync(l => l.WorkflowInstanceId == instanceId
-                    && l.WorkflowNodeId == step.NodeId
-                    && l.FormResponseId == draft.Value.Id, cancellationToken);
-            if (link is null)
-            {
-                link = new FormFlowLink
-                {
-                    TenantId = task.TenantId,
-                    FormResponseId = draft.Value.Id,
-                    WorkflowInstanceId = instanceId,
-                    WorkflowNodeId = step.NodeId,
-                    Status = FormFlowLinkStatus.Pending
-                };
-                _db.FormFlowLinks.Add(link);
-                await _db.SaveChangesAsync(cancellationToken);
-            }
-
             var (isGatewayAhead, approvalOptions) =
                 WorkflowInboxProjection.ResolveGatewayAhead(step.NodeId, edges, gatewayNodeIds);
 
-            result.Add(new TaskStepFormDto(
-                draft.Value.Id, definition.Id, definition.Code, definition.Title,
-                instanceId, step.NodeId, step.NodeName,
-                link.Status, draft.Value.Status, draft.Value.Reference,
-                isGatewayAhead, approvalOptions, definition.CardLayout));
+            foreach (var nodeForm in stepForms)
+            {
+                var definition = await _db.FormDefinitions.AsNoTracking()
+                    .FirstOrDefaultAsync(d => d.Id == nodeForm.DefinitionId, cancellationToken);
+                if (definition is null || definition.Status != FormStatus.Active || definition.IsArchived)
+                {
+                    continue;
+                }
+
+                // Borrador (idempotente) anclado al numero de la tarea + link al paso (uno por formulario).
+                var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
+                if (!draft.IsOk || draft.Value is null)
+                {
+                    continue;
+                }
+                var link = await _db.FormFlowLinks
+                    .FirstOrDefaultAsync(l => l.WorkflowInstanceId == instanceId
+                        && l.WorkflowNodeId == step.NodeId
+                        && l.FormResponseId == draft.Value.Id, cancellationToken);
+                if (link is null)
+                {
+                    link = new FormFlowLink
+                    {
+                        TenantId = task.TenantId,
+                        FormResponseId = draft.Value.Id,
+                        WorkflowInstanceId = instanceId,
+                        WorkflowNodeId = step.NodeId,
+                        Status = FormFlowLinkStatus.Pending
+                    };
+                    _db.FormFlowLinks.Add(link);
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+
+                result.Add(new TaskStepFormDto(
+                    draft.Value.Id, definition.Id, definition.Code, definition.Title,
+                    instanceId, step.NodeId, step.NodeName,
+                    link.Status, draft.Value.Status, draft.Value.Reference,
+                    isGatewayAhead, approvalOptions, definition.CardLayout));
+            }
         }
         return result;
     }

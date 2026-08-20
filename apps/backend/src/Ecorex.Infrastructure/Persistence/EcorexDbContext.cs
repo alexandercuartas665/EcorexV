@@ -1763,8 +1763,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
 
         modelBuilder.Entity<WorkflowNodeForm>(b =>
         {
-            // Un nodo tiene a lo sumo UN formulario asignado.
-            b.HasIndex(x => x.NodeId).IsUnique();
+            // Un nodo puede tener VARIOS formularios; el unico impide repetir el MISMO en el nodo.
+            b.HasIndex(x => new { x.NodeId, x.DefinitionId }).IsUnique();
             b.HasIndex(x => x.DefinitionId);
             // El vinculo vive y muere con el nodo (definicion de flujo); la definicion de
             // formulario NO se borra mientras este asignada (restrict).

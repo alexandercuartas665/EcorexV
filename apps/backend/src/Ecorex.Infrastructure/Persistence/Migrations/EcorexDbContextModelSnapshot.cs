@@ -14235,6 +14235,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
 
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -14253,9 +14257,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("ix_workflow_node_forms_definition_id");
 
-                    b.HasIndex("NodeId")
+                    b.HasIndex("NodeId", "DefinitionId")
                         .IsUnique()
-                        .HasDatabaseName("ix_workflow_node_forms_node_id");
+                        .HasDatabaseName("ix_workflow_node_forms_node_id_definition_id");
 
                     b.ToTable("workflow_node_forms", (string)null);
                 });

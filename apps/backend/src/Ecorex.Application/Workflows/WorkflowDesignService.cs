@@ -1055,31 +1055,32 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             return WorkflowResult<bool>.Invalid("Solo se vinculan formularios publicados (activos).");
         }
 
-        // A lo sumo un formulario por nodo (indice unico): upsert.
-        var existing = await _db.WorkflowNodeForms.FirstOrDefaultAsync(f => f.NodeId == nodeId, cancellationToken);
-        if (existing is null)
+        // Un nodo puede tener VARIOS formularios: se AGREGA (idempotente por {NodeId, DefinitionId}).
+        var already = await _db.WorkflowNodeForms
+            .AnyAsync(f => f.NodeId == nodeId && f.DefinitionId == formDefinitionId, cancellationToken);
+        if (!already)
         {
+            var maxOrder = await _db.WorkflowNodeForms.Where(f => f.NodeId == nodeId)
+                .Select(f => (int?)f.SortOrder).MaxAsync(cancellationToken) ?? -1;
             _db.WorkflowNodeForms.Add(new WorkflowNodeForm
             {
                 TenantId = node.TenantId,
                 NodeId = nodeId,
-                DefinitionId = formDefinitionId
+                DefinitionId = formDefinitionId,
+                SortOrder = maxOrder + 1
             });
+            await _db.SaveChangesAsync(cancellationToken);
         }
-        else
-        {
-            existing.DefinitionId = formDefinitionId;
-        }
-        await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }
 
-    public async Task<WorkflowResult<bool>> RemoveNodeFormAsync(Guid nodeId, CancellationToken cancellationToken = default)
+    public async Task<WorkflowResult<bool>> RemoveNodeFormAsync(Guid nodeId, Guid formDefinitionId, CancellationToken cancellationToken = default)
     {
-        var existing = await _db.WorkflowNodeForms.FirstOrDefaultAsync(f => f.NodeId == nodeId, cancellationToken);
+        var existing = await _db.WorkflowNodeForms
+            .FirstOrDefaultAsync(f => f.NodeId == nodeId && f.DefinitionId == formDefinitionId, cancellationToken);
         if (existing is null)
         {
-            return WorkflowResult<bool>.NotFound("El nodo no tiene formulario vinculado.");
+            return WorkflowResult<bool>.NotFound("El nodo no tiene ese formulario vinculado.");
         }
         _db.WorkflowNodeForms.Remove(existing);
         await _db.SaveChangesAsync(cancellationToken);
@@ -1440,9 +1441,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         var forms = await _db.WorkflowNodeForms.AsNoTracking()
             .Where(f => nodeIds.Contains(f.NodeId))
             .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id,
-                (f, d) => new { f.NodeId, d.Id, d.Code, d.Title })
+                (f, d) => new { f.NodeId, f.SortOrder, d.Id, d.Code, d.Title })
             .ToListAsync(cancellationToken);
-        var formsByNode = forms.ToDictionary(f => f.NodeId);
+        // Un nodo puede tener VARIOS formularios: se agrupan en orden.
+        var formsByNode = forms
+            .GroupBy(f => f.NodeId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<FlowNodeFormDto>)g
+                .OrderBy(x => x.SortOrder)
+                .Select(x => new FlowNodeFormDto(x.Id, x.Code, x.Title))
+                .ToList());
 
         var rules = await _db.WorkflowNodeRules.AsNoTracking()
             .Where(l => nodeIds.Contains(l.WorkflowNodeId))
@@ -1460,13 +1467,14 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         var nodeDtos = nodes.Select(n =>
         {
             var (dw, dh) = BpmnXmlWriter.DefaultSize(n.NodeType);
-            var form = formsByNode.GetValueOrDefault(n.Id);
+            var nodeForms = formsByNode.GetValueOrDefault(n.Id) ?? [];
+            var firstForm = nodeForms.Count > 0 ? nodeForms[0] : null;
             return new FlowCanvasNodeDto(
                 n.Id, n.BpmnElementId, n.Name, n.NodeType, n.X, n.Y, n.W ?? dw, n.H ?? dh,
                 n.AllowsAssignment, n.RestartNodeId,
-                form?.Id, form?.Code, form?.Title,
+                firstForm?.DefinitionId, firstForm?.Code, firstForm?.Title,
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
-                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId);
+                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId, nodeForms);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

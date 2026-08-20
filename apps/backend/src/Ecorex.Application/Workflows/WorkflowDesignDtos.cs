@@ -25,16 +25,22 @@ public sealed record FlowIndexDto(FlowIndexKpisDto Kpis, IReadOnlyList<FlowCardD
 public sealed record FlowNodeRuleDto(
     Guid LinkId, Guid RuleId, string RuleName, string VerbName, RuleStatus Status, bool IsAutonomous);
 
-/// <summary>Nodo del canvas con layout y vinculos (formulario y reglas).</summary>
+/// <summary>Formulario vinculado a un nodo (fila del acordeon Recursos). Un nodo admite VARIOS.</summary>
+public sealed record FlowNodeFormDto(Guid DefinitionId, string Code, string Title);
+
+/// <summary>Nodo del canvas con layout y vinculos (formularios y reglas).</summary>
 public sealed record FlowCanvasNodeDto(
     Guid Id, string BpmnElementId, string? Name, WorkflowNodeType NodeType,
     int X, int Y, int W, int H, bool AllowsAssignment, Guid? RestartNodeId,
+    // Compat: primer formulario del nodo (o null). La lista completa va en <see cref="Forms"/>.
     Guid? FormDefinitionId, string? FormCode, string? FormTitle,
     IReadOnlyList<FlowNodeRuleDto> Rules,
     // Apariencia del nodo en el graficador (color de paleta + nota post-it). Metadatos, no viajan en el XML.
     string? Color = null, string? Note = null,
     // Destino en tablero: al activarse este paso, la actividad salta a este tablero/columna (enlace flujo<->tableros).
-    Guid? TargetBoardId = null, Guid? TargetColumnId = null);
+    Guid? TargetBoardId = null, Guid? TargetColumnId = null,
+    // TODOS los formularios del nodo (1:N), en orden. Vacio si ninguno.
+    IReadOnlyList<FlowNodeFormDto>? Forms = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

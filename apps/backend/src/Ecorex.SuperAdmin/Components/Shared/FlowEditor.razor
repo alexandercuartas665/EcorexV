@@ -877,18 +877,20 @@ else
             return;
         }
         <div class="fe-chips">
-            @if (node.FormDefinitionId is not null)
+            @foreach (var f in (node.Forms ?? new List<FlowNodeFormDto>()))
             {
+                var ff = f;
                 <span class="fe-chip">
-                    Formulario @node.FormCode - @node.FormTitle
-                    <span class="fe-chip-x" @onclick="@(() => UnlinkFormAsync(node))">x</span>
+                    Formulario @ff.Code - @ff.Title
+                    <span class="fe-chip-x" @onclick="@(() => UnlinkFormAsync(node, ff.DefinitionId))">x</span>
                 </span>
             }
             <button class="fe-chip-add" @onclick="OpenFormPickerAsync">+ Agregar</button>
         </div>
-        @if (node.FormDefinitionId is null)
+        @if ((node.Forms?.Count ?? 0) == 0)
         {
-            <div class="fe-acc-note">El paso no exige formulario. Un nodo admite a lo sumo un formulario (ADR-0015).</div>
+            <div class="fe-acc-note">El paso no exige formulario. Un nodo admite VARIOS: al activarse el paso se
+                piden TODOS y no se completa hasta enviarlos.</div>
         }
     };
 
@@ -1071,10 +1073,19 @@ else
     }
 
     private IEnumerable<FormDefinitionListItemDto> FilteredForms
-        => string.IsNullOrWhiteSpace(_formPickerQuery)
-            ? _forms
-            : _forms.Where(f => f.Title.Contains(_formPickerQuery.Trim(), StringComparison.OrdinalIgnoreCase)
-                || f.Code.Contains(_formPickerQuery.Trim(), StringComparison.OrdinalIgnoreCase));
+    {
+        get
+        {
+            // Excluye los formularios YA vinculados al nodo (un nodo admite varios, pero no repetidos).
+            var linked = (Selected as FlowCanvasNodeDto)?.Forms?.Select(f => f.DefinitionId).ToHashSet()
+                ?? new HashSet<Guid>();
+            var avail = _forms.Where(f => !linked.Contains(f.Id));
+            return string.IsNullOrWhiteSpace(_formPickerQuery)
+                ? avail
+                : avail.Where(f => f.Title.Contains(_formPickerQuery.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || f.Code.Contains(_formPickerQuery.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+    }
 
     private async Task LinkFormAsync(Guid formDefinitionId)
     {
@@ -1085,9 +1096,9 @@ else
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
     }
 
-    private async Task UnlinkFormAsync(FlowCanvasNodeDto node)
+    private async Task UnlinkFormAsync(FlowCanvasNodeDto node, Guid formDefinitionId)
     {
-        var result = await DesignSvc.RemoveNodeFormAsync(node.Id);
+        var result = await DesignSvc.RemoveNodeFormAsync(node.Id, formDefinitionId);
         if (!result.IsOk) { _error = result.Error; }
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
     }

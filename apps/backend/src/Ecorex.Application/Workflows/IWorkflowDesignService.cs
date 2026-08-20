@@ -127,10 +127,12 @@ public interface IWorkflowDesignService
     /// <summary>Catalogo de reglas del tenant (documentos no archivados) para el acordeon Reglas.</summary>
     Task<IReadOnlyList<FlowRuleCatalogItemDto>> ListRuleCatalogAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Vincula un formulario ACTIVO al nodo (WorkflowNodeForm: a lo sumo uno por nodo).</summary>
+    /// <summary>AGREGA un formulario ACTIVO al nodo (WorkflowNodeForm: un nodo admite VARIOS; idempotente
+    /// por {NodeId, DefinitionId}). El paso no se completa hasta enviar TODOS.</summary>
     Task<WorkflowResult<bool>> SetNodeFormAsync(Guid nodeId, Guid formDefinitionId, CancellationToken cancellationToken = default);
 
-    Task<WorkflowResult<bool>> RemoveNodeFormAsync(Guid nodeId, CancellationToken cancellationToken = default);
+    /// <summary>Quita UN formulario del nodo (por su DefinitionId).</summary>
+    Task<WorkflowResult<bool>> RemoveNodeFormAsync(Guid nodeId, Guid formDefinitionId, CancellationToken cancellationToken = default);
 
     Task<WorkflowResult<FlowNodeRuleDto>> AddNodeRuleAsync(Guid nodeId, Guid ruleId, CancellationToken cancellationToken = default);
 

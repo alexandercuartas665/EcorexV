@@ -206,9 +206,15 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         lkTerms.AddRange(geo);
         var lkUrl = $"https://www.linkedin.com/search/results/people/?keywords={Uri.EscapeDataString(string.Join(" ", lkTerms))}";
 
-        // Guia especifica por fuente: LinkedIn descubre PERSONAS (una fila c/u); FB/IG es UN negocio (una fila).
+        // Guia especifica por fuente: LinkedIn descubre PERSONAS (una fila c/u); FB/IG/Maps es UN negocio (una fila).
         var guidance = d.SourceType switch
         {
+            ContactSearchSource.Maps =>
+                "Cada resultado de Google Maps es un NEGOCIO (una empresa) = el lead. Guarda UNA sola fila por "
+                + "negocio con nombre = el NOMBRE DEL NEGOCIO (es la empresa; puedes repetirlo en 'empresa'). NO "
+                + "inventes una persona: NO crees un segundo registro ni un 'Contacto de <negocio>', y NO rellenes "
+                + "cargo/nombre de persona (Maps no trae personas). Las PERSONAS salen unicamente del enriquecimiento "
+                + "en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas) e imagen si aparecen.",
             ContactSearchSource.LinkedIn =>
                 $"Estas logueado en LinkedIn. NAVEGA directamente a {lkUrl} (NO uses Google ni site:linkedin.com). "
                 + "Haz scroll para cargar mas resultados. El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y enlaces "
@@ -303,9 +309,26 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
             if (_total >= _cap) { break; } // respeta el limite de contactos de la busqueda.
             var nombre = Pick(row, "nombre", "name", "nombre_completo", "negocio", "empresa", "company", "razon_social");
             if (string.IsNullOrWhiteSpace(nombre)) { continue; }
+            var nombreTrim = nombre.Trim();
             // Enriquecimiento LinkedIn: la empresa la fuerza el runner (la persona pertenece a esa empresa);
             // si no, se toma de la fila (Maps/Web).
             var empresa = _forcedEmpresa ?? Pick(row, "empresa", "company", "negocio");
+            var empresaKey = (empresa ?? string.Empty).Trim().ToLowerInvariant();
+            var nombreKey = nombreTrim.ToLowerInvariant();
+            // DE-DUP por (nombre, empresa): evita duplicados por re-run o corridas parciales (ej. la misma
+            // clinica de Maps dos veces, o la misma persona de una empresa). Un mismo nombre en OTRA empresa
+            // no se descarta. Se revisa lo creado en ESTA corrida y lo ya existente en la BD del tenant.
+            if (_created.Any(e => string.Equals(e.NombreCompleto, nombreTrim, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals((e.Empresa ?? string.Empty).Trim(), (empresa ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+            if (await _db.ProspectosScrapeados
+                .AnyAsync(p => p.NombreCompleto.ToLower() == nombreKey
+                    && (p.Empresa ?? "").ToLower() == empresaKey, ct))
+            {
+                continue;
+            }
             var entity = new ProspectoScrapeado
             {
                 TenantId = _tenantId,

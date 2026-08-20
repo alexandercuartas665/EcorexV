@@ -18,10 +18,12 @@ public interface IGestorContactosService
     Task<IReadOnlyList<ProspectoDto>> ListProspectosAsync(
         string? fuente, CancellationToken cancellationToken = default);
 
-    /// <summary>Promueve un prospecto a Tercero (Persona/Sospechoso/Prospecto) y lo mete en la
-    /// primera columna de la Bolsa. Devuelve el Id del tercero creado.</summary>
+    /// <summary>Promueve un prospecto a Tercero (Persona/Empresa) y lo mete en la primera columna de la
+    /// Bolsa. Devuelve el Id del tercero creado. <paramref name="promoteChildren"/>: si el prospecto es una
+    /// EMPRESA de Maps con personas de LinkedIn, controla si ademas se promueven esas personas ligadas
+    /// (por defecto NO: abrir/promover una empresa NO arrastra su cluster; se piden con accion explicita).</summary>
     Task<TerceroResult<Guid>> PromoverProspectoAsync(
-        Guid prospectoId, CancellationToken cancellationToken = default);
+        Guid prospectoId, bool promoteChildren = false, CancellationToken cancellationToken = default);
 
     // ---- Bolsa (kanban de terceros por columna) ----
     Task<IReadOnlyList<BolsaColumnaDto>> ListColumnasAsync(CancellationToken cancellationToken = default);

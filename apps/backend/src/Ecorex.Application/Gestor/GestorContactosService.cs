@@ -82,7 +82,7 @@ public sealed class GestorContactosService : IGestorContactosService
     }
 
     public async Task<TerceroResult<Guid>> PromoverProspectoAsync(
-        Guid prospectoId, CancellationToken cancellationToken = default)
+        Guid prospectoId, bool promoteChildren = false, CancellationToken cancellationToken = default)
     {
         if (_tenant.TenantId is not Guid tenantId)
         {
@@ -141,28 +141,35 @@ public sealed class GestorContactosService : IGestorContactosService
             };
             _db.Terceros.Add(empresaTercero);
             prospecto.TerceroId = empresaTercero.Id;
-            foreach (var child in childPersons)
+            // Encadena sus personas SOLO si se pide explicitamente (promoteChildren). Por defecto NO: abrir
+            // una empresa NO debe volcar su cluster entero al Directorio (antes 1 clinica metia 16 filas).
+            // Las personas quedan como prospectos ligados (EmpresaProspectoId) y se promueven aparte; al
+            // hacerlo, el amarre persona->empresa las liga a esta empresa ya promovida (por EmpresaId).
+            if (promoteChildren)
             {
-                var personaTercero = new Tercero
+                foreach (var child in childPersons)
                 {
-                    TenantId = tenantId,
-                    Nombre = child.NombreCompleto,
-                    Tipo = TerceroTipo.Persona,
-                    Perfiles = TerceroPerfil.Ninguno,
-                    IdTipo = TerceroIdTipo.Ninguno,
-                    Estado = TerceroEstado.Prospecto,
-                    Cargo = Normalize(child.Cargo),
-                    Ciudad = Normalize(child.Ciudad),
-                    Email = Normalize(child.Correo),
-                    Telefono = Normalize(child.Telefono),
-                    Sector = Normalize(child.Empresa),
-                    ImagenUrl = child.ImagenUrl,
-                    FichasJson = BuildBaseFichaJson(child),
-                    EmpresaId = empresaTercero.Id,
-                    BolsaColumnaId = primera.Id
-                };
-                _db.Terceros.Add(personaTercero);
-                child.TerceroId = personaTercero.Id;
+                    var personaTercero = new Tercero
+                    {
+                        TenantId = tenantId,
+                        Nombre = child.NombreCompleto,
+                        Tipo = TerceroTipo.Persona,
+                        Perfiles = TerceroPerfil.Ninguno,
+                        IdTipo = TerceroIdTipo.Ninguno,
+                        Estado = TerceroEstado.Prospecto,
+                        Cargo = Normalize(child.Cargo),
+                        Ciudad = Normalize(child.Ciudad),
+                        Email = Normalize(child.Correo),
+                        Telefono = Normalize(child.Telefono),
+                        Sector = Normalize(child.Empresa),
+                        ImagenUrl = child.ImagenUrl,
+                        FichasJson = BuildBaseFichaJson(child),
+                        EmpresaId = empresaTercero.Id,
+                        BolsaColumnaId = primera.Id
+                    };
+                    _db.Terceros.Add(personaTercero);
+                    child.TerceroId = personaTercero.Id;
+                }
             }
             await _db.SaveChangesAsync(cancellationToken);
             return TerceroResult<Guid>.Ok(empresaTercero.Id);

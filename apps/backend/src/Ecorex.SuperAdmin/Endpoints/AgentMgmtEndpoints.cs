@@ -399,20 +399,35 @@ public static class AgentMgmtEndpoints
             },
             result => Results.Json(result, Json)));
 
-        // 19. EJECUTAR una busqueda (IContactSearchRunner) EN EL CONTEXTO del tenant indicado. El helper Run
-        //     fija AmbientTenantContext.Begin(tenant), asi que el ITenantContext del runner ve ese tenant y
-        //     RunAsync corre alli (aterriza en ProspectoScrapeado del tenant). Sincrono: el navegador Colmena
-        //     puede tardar 1-3 min. Respeta el tope 20/dia (que ya vive en el runner). Si la Colmena esta
-        //     offline u ocurre otro fallo, se devuelve ok:false con el error del canal.
+        // 19. EJECUTAR una busqueda (IContactSearchRunner) EN EL CONTEXTO del tenant indicado, de forma
+        //     ASINCRONA (fire-and-forget). La corrida Maps + enriquecimiento LinkedIn tarda varios minutos;
+        //     de forma SINCRONA el reverse-proxy (Caddy) la cortaria con 502 y, al desconectarse el cliente,
+        //     el server CANCELABA la corrida dejando datos parciales. Ahora se valida que la busqueda exista
+        //     y se dispara en BACKGROUND con su PROPIO scope + tenant ambiente y un token NO ligado a la
+        //     request (CancellationToken.None), respondiendo 202 de inmediato. El progreso se consulta por
+        //     lastRunAt / ContactSearchRuns. Respeta el tope 20/dia (vive en el runner). Mismo patron que
+        //     ContactSearchScheduleWorker (que ya corre en proceso y no sufre 502).
         group.MapPost("/contact-searches/{id:guid}/run", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
-            Run(req, scopes, ct, async (svc, _, c) =>
+            Run(req, scopes, ct, async (svc, tenantId, c) =>
             {
                 if (!await svc.Db.ContactSearchDefinitions.AnyAsync(d => d.Id == id, c))
                 {
                     return new ApiOutcome(404, new { ok = false, error = "La busqueda no existe en el tenant." });
                 }
-                var res = await svc.ContactSearchRunner.RunAsync(id, c);
-                return new ApiOutcome(200, new { ok = res.Ok, created = res.Created, error = res.Error });
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await using var bgScope = scopes.CreateAsyncScope();
+                        using (AmbientTenantContext.Begin(tenantId))
+                        {
+                            var runner = bgScope.ServiceProvider.GetRequiredService<IContactSearchRunner>();
+                            await runner.RunAsync(id, CancellationToken.None);
+                        }
+                    }
+                    catch { /* la corrida en background no debe tumbar el proceso; el runner registra su estado */ }
+                });
+                return new ApiOutcome(202, new { ok = true, status = "started", id });
             },
             result => result is ApiOutcome o ? Results.Json(o.Payload, Json, statusCode: o.Status) : Results.NotFound()))
             .DisableAntiforgery();

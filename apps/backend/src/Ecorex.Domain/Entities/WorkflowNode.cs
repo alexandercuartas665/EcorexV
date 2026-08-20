@@ -45,6 +45,12 @@ public class WorkflowNode : TenantEntity
     /// activarse este paso. Null = primera columna del tablero destino.</summary>
     public Guid? TargetColumnId { get; set; }
 
+    // ---- Salto a otro flujo (ADR-0056; visual por ahora, el vinculo runtime es deuda) ----
+    /// <summary>Definicion de flujo a la que "salta" este nodo (handoff a otro proceso). Null = no salta.
+    /// Referencia suelta (sin FK dura, como el destino de tablero; se valida en el servicio). Se muestra
+    /// en el panel del nodo, NO se dibuja en el lienzo.</summary>
+    public Guid? JumpToDefinitionId { get; set; }
+
     // ---- Layout del canvas (editor propio del prototipo, ADR-0022) ----
     // Coordenadas del diagrama (bpmndi:BPMNShape/dc:Bounds). Se llenan al importar el XML
     // (con auto-layout si el XML no trae DI) y las mueve el editor; al guardar, el XML

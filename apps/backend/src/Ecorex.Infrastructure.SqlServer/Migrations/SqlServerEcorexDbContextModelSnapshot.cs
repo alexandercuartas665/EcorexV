@@ -14144,6 +14144,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("h");
 
+                    b.Property<Guid?>("JumpToDefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("jump_to_definition_id");
+
                     b.Property<string>("Name")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)")

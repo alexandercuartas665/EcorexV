@@ -89,6 +89,10 @@ public interface IWorkflowDesignService
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija (o quita, con null) el flujo destino al que "salta" el nodo (handoff a otro proceso).
+    /// Referencia suelta, se muestra en el panel del nodo (no se dibuja en el lienzo).</summary>
+    Task<WorkflowResult<bool>> SetNodeJumpAsync(Guid nodeId, Guid? jumpToDefinitionId, CancellationToken cancellationToken = default);
+
     // ---- Propiedades y ciclo de vida de la definicion ----
 
     Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(Guid definitionId, string name, string? category, string? description, CancellationToken cancellationToken = default);

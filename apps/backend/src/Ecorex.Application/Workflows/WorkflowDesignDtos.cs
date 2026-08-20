@@ -40,7 +40,9 @@ public sealed record FlowCanvasNodeDto(
     // Destino en tablero: al activarse este paso, la actividad salta a este tablero/columna (enlace flujo<->tableros).
     Guid? TargetBoardId = null, Guid? TargetColumnId = null,
     // TODOS los formularios del nodo (1:N), en orden. Vacio si ninguno.
-    IReadOnlyList<FlowNodeFormDto>? Forms = null);
+    IReadOnlyList<FlowNodeFormDto>? Forms = null,
+    // Salto a otro flujo (handoff): definicion destino + su nombre (para mostrar en el panel del nodo).
+    Guid? JumpToDefinitionId = null, string? JumpToName = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

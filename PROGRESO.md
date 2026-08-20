@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-20 - v0.15.53: "saltar a otro flujo" se muestra en el panel del nodo (no en el lienzo)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (columna nueva). Verificado end-to-end
+en AGROMETALICAS (PROCESO COMERCIAL -> ORDENES DE TRABAJO): el salto aparece en el panel, el lienzo
+queda limpio, y el boton "x" lo quita.
+
+- **Problema:** el salto a otro flujo se dibujaba como nodo CallActivity en el lienzo ("ORDENES DE
+  TRABAJO"), y se veia feo/confuso (no se sabia que era ni a que estaba atado). La idea era mostrar,
+  DEBAJO del boton "Saltar a otro flujo", a que flujo conecta el nodo SELECCIONADO.
+- **Ahora:** el salto es una PROPIEDAD del nodo (`WorkflowNode.JumpToDefinitionId`, referencia suelta
+  como el destino de tablero; migracion dual AddWorkflowNodeJumpTo). `IWorkflowDesignService.SetNodeJumpAsync`
+  (valida que el flujo destino exista y no sea el propio). `FlowCanvasNodeDto` suma JumpToDefinitionId +
+  JumpToName (proyeccion en BuildCanvasAsync con lookup de nombres). EnsureDraftAsync lo copia
+  (sobrevive publicar->editar).
+- **UI (FlowEditor):** ConfirmJump ya NO llama addCallActivity; guarda el salto en el nodo y recarga el
+  canvas. Debajo del boton se muestra "Conecta a: <flujo>" con boton "x" para quitarlo; si no hay nodo
+  seleccionado, un hint. OpenJumpAsync exige seleccionar un nodo primero.
+- Verificado: 0 CallActivities en el lienzo; el destino se ve en el panel; el "x" lo limpia.
+
+---
+
 ## 2026-08-20 - v0.15.52: correo filtrado con plantillas propias (cierra ADR-0056 paso E-mail)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (EmailTemplate). Verificado end-to-end

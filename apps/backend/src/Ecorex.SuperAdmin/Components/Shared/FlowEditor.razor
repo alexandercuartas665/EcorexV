@@ -162,6 +162,21 @@ else
                         <span class="fe-acc-name">Saltar a otro flujo</span>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
                     </button>
+                    @* Destino del salto del nodo seleccionado: se muestra AQUI (no en el lienzo). *@
+                    @if (Selected is FlowCanvasNodeDto jumpNode && jumpNode.JumpToDefinitionId is not null)
+                    {
+                        <div class="fe-jump-target">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                            <span class="fe-jump-target-txt">Conecta a: <b>@(string.IsNullOrWhiteSpace(jumpNode.JumpToName) ? "flujo" : jumpNode.JumpToName)</b></span>
+                            <button class="fe-jump-clear" title="Quitar el salto" @onclick="ClearJumpAsync">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                    }
+                    else if (Selected is null)
+                    {
+                        <div class="fe-jump-hint">Selecciona un nodo y pulsa "Saltar a otro flujo" para conectarlo.</div>
+                    }
                 </div>
             </aside>
         </div>
@@ -1361,6 +1376,13 @@ else
 
     private async Task OpenJumpAsync()
     {
+        // El salto es una propiedad del NODO seleccionado (a que flujo hace handoff), no un dibujo suelto.
+        if (Selected is null)
+        {
+            _error = "Selecciona primero un nodo para conectarlo a otro flujo.";
+            return;
+        }
+        _error = null;
         _jumpQuery = "";
         _jumpSelected = null;
         _jumpFlows = (await DesignSvc.ListForIndexAsync()).Cards
@@ -1380,17 +1402,30 @@ else
         var target = _jumpFlows.FirstOrDefault(f => f.DefinitionId == _jumpSelected);
         _jumpOpen = false;
         if (target is null) { return; }
-        if (!RequireEditable()) { return; }
-        if (_bpmn is null || !_bpmnReady) { _error = "El editor aun no esta listo."; return; }
-        // Dibuja un nodo CallActivity (enlace a otro flujo) rotulado con el flujo destino y guarda el
-        // diagrama (XML verbatim): el enlace queda VISIBLE en el lienzo y sobrevive publicar->editar.
-        var ok = await _bpmn.InvokeAsync<bool>("addCallActivity", CanvasId, target.Name, target.ProcessCode);
-        if (!ok)
+        if (Selected is not FlowCanvasNodeDto node)
         {
-            _error = "No se pudo dibujar el enlace al flujo.";
+            _error = "Selecciona primero el nodo que va a saltar.";
             return;
         }
-        await SaveAsync();
+        // El salto se guarda como PROPIEDAD del nodo (handoff a otro flujo); se muestra en el panel,
+        // NO se dibuja en el lienzo. Persiste como el destino de tablero (sobrevive publicar->editar).
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeJumpAsync(node.Id, target.DefinitionId);
+            if (!result.IsOk) { _error = result.Error; return; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
+
+    private async Task ClearJumpAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node) { return; }
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeJumpAsync(node.Id, null);
+            if (!result.IsOk) { _error = result.Error; return; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
     }
 
     private async Task CloseAsync()

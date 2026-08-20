@@ -236,6 +236,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.Note = sourceNode.Note;
             draftNode.TargetBoardId = sourceNode.TargetBoardId;
             draftNode.TargetColumnId = sourceNode.TargetColumnId;
+            draftNode.JumpToDefinitionId = sourceNode.JumpToDefinitionId;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))
@@ -756,6 +757,32 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             node.TargetBoardId = null;
             node.TargetColumnId = null;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeJumpAsync(
+        Guid nodeId, Guid? jumpToDefinitionId, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        if (jumpToDefinitionId is Guid targetId)
+        {
+            if (targetId == node.DefinitionId)
+            {
+                return WorkflowResult<bool>.Invalid("Un nodo no puede saltar a su propio flujo.");
+            }
+            var exists = await _db.WorkflowDefinitions.AsNoTracking().AnyAsync(d => d.Id == targetId, cancellationToken);
+            if (!exists) { return WorkflowResult<bool>.Invalid("El flujo destino no existe."); }
+            node.JumpToDefinitionId = targetId;
+        }
+        else
+        {
+            node.JumpToDefinitionId = null;
         }
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
@@ -1464,17 +1491,29 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     x.Link.Id, x.Rule.Id, x.Rule.Name, x.Rule.VerbName, x.Rule.Status, x.Link.IsAutonomous))
                 .ToList());
 
+        // Nombre del flujo destino del salto (handoff) por nodo, para mostrarlo en el panel (no en el lienzo).
+        var jumpDefIds = nodes.Where(n => n.JumpToDefinitionId is Guid)
+            .Select(n => n.JumpToDefinitionId!.Value).Distinct().ToList();
+        var jumpNames = jumpDefIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.WorkflowDefinitions.AsNoTracking()
+                .Where(d => jumpDefIds.Contains(d.Id))
+                .Select(d => new { d.Id, d.Name })
+                .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+
         var nodeDtos = nodes.Select(n =>
         {
             var (dw, dh) = BpmnXmlWriter.DefaultSize(n.NodeType);
             var nodeForms = formsByNode.GetValueOrDefault(n.Id) ?? [];
             var firstForm = nodeForms.Count > 0 ? nodeForms[0] : null;
+            var jumpName = n.JumpToDefinitionId is Guid jd ? jumpNames.GetValueOrDefault(jd) : null;
             return new FlowCanvasNodeDto(
                 n.Id, n.BpmnElementId, n.Name, n.NodeType, n.X, n.Y, n.W ?? dw, n.H ?? dh,
                 n.AllowsAssignment, n.RestartNodeId,
                 firstForm?.DefinitionId, firstForm?.Code, firstForm?.Title,
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
-                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId, nodeForms);
+                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId, nodeForms,
+                n.JumpToDefinitionId, jumpName);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

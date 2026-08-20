@@ -348,6 +348,11 @@ export async function init(containerId, dotnetRef, xml) {
     // Cambios del grafo -> marca dirty y avisa a Blazor (autosave opcional).
     modeler.get('commandStack').changed && eventBus.on('commandStack.changed', function () {
         state.dirty = true;
+        // Un rename inline (u otro cambio) re-renderiza el shape y borra el color inline: se re-pinta
+        // tras el ciclo de render actual, para que el color NO desaparezca hasta el Guardar.
+        if (state._colorItems) {
+            setTimeout(function () { paintColors(state, state._colorItems); }, 0);
+        }
         dotnetRef.invokeMethodAsync('OnGraphChanged').catch(function () { /* circuito cerrado */ });
     });
 
@@ -409,8 +414,7 @@ const NODE_COLORS = {
 // OJO: bpmn-js pinta el relleno como ESTILO INLINE; quitarlo a secas deja el nodo en el relleno por
 // defecto del SVG (negro). Por eso se GUARDA el relleno/borde original la primera vez que se colorea y se
 // RESTAURA al quitar el color; un nodo que nunca se coloreo no se toca (conserva el aspecto de bpmn-js).
-export function applyNodeColors(containerId, items) {
-    const state = instances.get(containerId);
+function paintColors(state, items) {
     if (!state || !Array.isArray(items)) { return; }
     state._origColor = state._origColor || {};
     const registry = state.modeler.get('elementRegistry');
@@ -435,6 +439,15 @@ export function applyNodeColors(containerId, items) {
         }
         // color null y sin original guardado -> no se toca (aspecto por defecto de bpmn-js).
     });
+}
+
+export function applyNodeColors(containerId, items) {
+    const state = instances.get(containerId);
+    if (!state || !Array.isArray(items)) { return; }
+    // Se RECUERDAN los colores: un cambio del grafo (rename inline) re-renderiza el shape y borra el
+    // estilo inline del color; el handler de commandStack.changed los re-pinta desde aqui.
+    state._colorItems = items;
+    paintColors(state, items);
 }
 
 // Muestra la nota como post-it anclado al nodo. `items` = [{ id, note }]; note vacio = quita el post-it.

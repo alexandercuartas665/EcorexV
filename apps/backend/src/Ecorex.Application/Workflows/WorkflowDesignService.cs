@@ -190,15 +190,20 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             return WorkflowResult<FlowCanvasDto>.Ok((await BuildCanvasAsync(existingDraft, cancellationToken))!);
         }
 
-        // Version borrador nueva por el camino del motor (max+1, NO publicada): el XML se
-        // regenera con el layout actual para que el import materialice el mismo canvas.
+        // Version borrador nueva por el camino del motor (max+1, NO publicada).
         var sourceNodes = await _db.WorkflowNodes.AsNoTracking()
             .Where(n => n.DefinitionId == definition.Id).OrderBy(n => n.StepNumber)
             .ToListAsync(cancellationToken);
         var sourceEdges = await _db.WorkflowEdges.AsNoTracking()
             .Where(e => e.DefinitionId == definition.Id).OrderBy(e => e.CreatedAt)
             .ToListAsync(cancellationToken);
-        var xml = WriteXml(definition.ProcessCode, sourceNodes, sourceEdges);
+        // Se REUTILIZA el XML verbatim de la definicion origen (mismo ProcessCode) para CONSERVAR el
+        // layout completo: waypoints/curvas de las flechas y bounds. Antes se regeneraba desde las tablas
+        // (WriteXml), que NO guardan waypoints, y al publicar->editar las flechas se enderezaban. Si por
+        // algun motivo no hay XML guardado, se cae a la regeneracion desde tablas.
+        var xml = string.IsNullOrWhiteSpace(definition.BpmnXml)
+            ? WriteXml(definition.ProcessCode, sourceNodes, sourceEdges)
+            : definition.BpmnXml;
 
         await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
         var imported = await _engine.ImportBpmnAsync(
@@ -224,6 +229,13 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 continue;
             }
             draftNode.AllowsAssignment = sourceNode.AllowsAssignment;
+            // Apariencia y destino tablero/estado NO viajan en el XML BPMN: se copian al derivar el
+            // borrador para que color/nota y tablero/columna SOBREVIVAN a publicar -> editar (antes se
+            // perdian y el color "parpadeaba" tras guardar).
+            draftNode.Color = sourceNode.Color;
+            draftNode.Note = sourceNode.Note;
+            draftNode.TargetBoardId = sourceNode.TargetBoardId;
+            draftNode.TargetColumnId = sourceNode.TargetColumnId;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))

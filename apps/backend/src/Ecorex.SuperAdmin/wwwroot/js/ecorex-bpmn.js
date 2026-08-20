@@ -372,6 +372,9 @@ export async function importXml(containerId, xml) {
     if (!state) { return false; }
     try {
         await state.modeler.importXML(xml && xml.trim().length > 0 ? xml : EMPTY_DIAGRAM);
+        // El import RECREA los elementos SVG: la cache de colores originales (capturada sobre los shapes
+        // viejos) queda obsoleta. Limpiarla evita el "parpadeo" del color al reaplicar tras cada guardado.
+        state._origColor = {};
         zoomFit(containerId);
         state.dirty = false;
         return true;

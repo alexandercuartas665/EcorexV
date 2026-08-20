@@ -738,9 +738,7 @@ else
         </label>
 
         @* Enlace flujo <-> tableros: al activarse este paso, la actividad SALTA a este tablero/columna.
-           Solo para nodos Tarea (los que esperan a un humano). *@
-        @if (node.NodeType == WorkflowNodeType.Task)
-        {
+           Disponible para CUALQUIER elemento del flujo (inicio, tarea, compuerta, fin). *@
             <div class="fe-field" style="margin-top:10px;">
                 <label>Tablero destino (la actividad salta aqui al llegar a este paso)</label>
                 <select class="fe-input sm" value="@(node.TargetBoardId?.ToString() ?? "")"
@@ -766,7 +764,6 @@ else
                     </select>
                 </div>
             }
-        }
 
         @* Apariencia del nodo (restaurado del canvas propio): color de paleta + nota post-it. Son
            metadatos (no viajan en el XML), asi que se pueden editar tambien sobre una publicada. *@
@@ -815,10 +812,10 @@ else
             <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
             return;
         }
-        if (node.NodeType != WorkflowNodeType.Task)
+        if (node.NodeType is not (WorkflowNodeType.Task or WorkflowNodeType.StartEvent))
         {
-            <div class="fe-acc-empty">Solo las <b>Tareas</b> admiten asignacion de dependencia/cargo. Cambia el tipo de
-                este nodo a <b>Tarea</b> en "Configuracion basica".</div>
+            <div class="fe-acc-empty">Solo el <b>inicio</b> y las <b>Tareas</b> admiten asignacion de dependencia/cargo.
+                Cambia el tipo de este nodo en "Configuracion basica".</div>
             return;
         }
         if (!node.AllowsAssignment)

@@ -36,22 +36,9 @@
         </div>
     </div>
 }
-else
-{
-    @* Cabecera del workspace (fuente ECOREX.dc.html): tile 36px radio 11 con fondo
-       var(--ink) + inicial, nombre 14.5/700 y "{plan} (punto medio) ECOREX" (el nombre del plan
-       ya trae la palabra "Plan"; separador punto medio como el prototipo). *@
-    <div class="ecorex-ws-head">
-        <div class="ecorex-ws-row" title="@(_tenantName ?? "Mi empresa")">
-            <div class="ecorex-tenant-tile">@TenantInitial</div>
-            <div style="flex:1;min-width:0;">
-                <div class="ecorex-tenant-name">@(_tenantName ?? "Mi empresa")</div>
-                <div class="ecorex-tenant-sub">@(_planName is null ? "ECOREX Sistema de Tareas" : $"{_planName} \u00b7 ECOREX")</div>
-            </div>
-            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
-        </div>
-    </div>
-}
+@* La identidad de la co-propiedad del tenant ya NO va arriba: se muestra como
+   "selector de co-propiedad activa" al pie del sidebar (patron Modulix), encima
+   del usuario. Ver el bloque .ecorex-coprop tras </nav>. *@
 
 @* Buscador global del prototipo (Cmd/Ctrl+K). Placeholder: se activa junto con el contenido real. *@
 <div class="ecorex-search" title="Busqueda global (proximamente)">
@@ -271,6 +258,26 @@ else
         </NavLink>
     }
 </nav>
+
+@if (_showTenant && !_showAdmin)
+{
+    @* Selector de CO-PROPIEDAD ACTIVA (patron Modulix): al pie del sidebar, encima del
+       usuario. Muestra la co-propiedad (tenant) en la que se esta trabajando. Hoy cada
+       usuario pertenece a UNA co-propiedad, asi que es un INDICADOR (no cambia de tenant);
+       el chevron replica el look del switcher. El cambio entre varias co-propiedades es
+       trabajo de backend de un hito posterior. *@
+    <div class="ecorex-coprop">
+        <div class="ecorex-coprop-lbl">Co-propiedad activa</div>
+        <div class="ecorex-ws-row" title="@(_tenantName ?? "Mi co-propiedad")">
+            <div class="ecorex-tenant-tile">@TenantInitial</div>
+            <div style="flex:1;min-width:0;">
+                <div class="ecorex-tenant-name">@(_tenantName ?? "Mi co-propiedad")</div>
+                <div class="ecorex-tenant-sub">@(_planName is null ? "ECOREX Sistema de Tareas" : $"{_planName} · ECOREX")</div>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+        </div>
+    </div>
+}
 
 <div class="ecorex-user">
     @* El color AVPAL del prototipo solo aplica al workspace; el admin conserva su avatar dorado. *@

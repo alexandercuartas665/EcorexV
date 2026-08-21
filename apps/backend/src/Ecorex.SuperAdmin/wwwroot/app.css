@@ -1383,7 +1383,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ecorex-acc-count { font-size: 10px; color: var(--ink-3, var(--muted-foreground)); font-weight: 600; }
 .ecorex-acc-chev { width: 15px; height: 15px; flex: none; color: var(--ink-3, var(--muted-foreground)); transition: transform .2s; }
 .ecorex-acc[open] > summary .ecorex-acc-chev { transform: rotate(180deg); }
-.ecorex-acc-body { margin: 1px 0 5px 19px; padding-left: 11px; border-left: 1px solid var(--line, var(--border)); }
+.ecorex-acc-body { margin: 1px 0 5px 19px; padding-left: 13px; border-left: 1px dashed var(--nav-guide, color-mix(in oklab, var(--t-slate) 45%, transparent)); }
 .ecorex-acc-item {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 10px; border-radius: 8px;
@@ -1409,7 +1409,30 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ecorex-acc-sub > summary .ecorex-acc-count { font-size: 9.5px; }
 .ecorex-acc-sub > summary .ecorex-acc-chev { width: 13px; height: 13px; }
 .ecorex-acc-sub[open] > summary .ecorex-acc-chev { transform: rotate(180deg); }
-.ecorex-acc-sub-body { margin: 1px 0 4px 7px; padding-left: 11px; border-left: 1px solid var(--line, var(--border)); }
+.ecorex-acc-sub-body { margin: 1px 0 4px 7px; padding-left: 13px; border-left: 1px dashed var(--nav-guide, color-mix(in oklab, var(--t-slate) 45%, transparent)); }
+
+/* ===== Guia del arbol (estilo Modulix, colores PROPIA): linea punteada por TONO del grupo +
+   conector horizontal "├" que ata cada item/subgrupo a la linea del grupo. ===== */
+.ecorex-acc.tv > .ecorex-acc-body { --nav-guide: color-mix(in oklab, var(--t-violet) 55%, transparent); }
+.ecorex-acc.tb > .ecorex-acc-body { --nav-guide: color-mix(in oklab, var(--t-blue) 55%, transparent); }
+.ecorex-acc.tr > .ecorex-acc-body { --nav-guide: color-mix(in oklab, var(--t-rose) 55%, transparent); }
+.ecorex-acc.tg > .ecorex-acc-body { --nav-guide: color-mix(in oklab, var(--t-green) 55%, transparent); }
+.ecorex-acc.ts > .ecorex-acc-body { --nav-guide: color-mix(in oklab, var(--t-slate) 55%, transparent); }
+/* El sub-nivel hereda el tono del grupo padre (misma "familia" de color). */
+.ecorex-acc-sub-body { --nav-guide: inherit; }
+
+.ecorex-acc-body > .ecorex-acc-item,
+.ecorex-acc-body > .ecorex-acc-sub,
+.ecorex-acc-sub-body > .ecorex-acc-item,
+.ecorex-acc-sub-body > .ecorex-acc-sub { position: relative; }
+.ecorex-acc-body > .ecorex-acc-item::before,
+.ecorex-acc-body > .ecorex-acc-sub::before,
+.ecorex-acc-sub-body > .ecorex-acc-item::before,
+.ecorex-acc-sub-body > .ecorex-acc-sub::before {
+  content: ""; position: absolute; left: -13px; top: 16px; width: 11px; height: 0;
+  border-top: 1px dashed var(--nav-guide, color-mix(in oklab, var(--t-slate) 45%, transparent));
+  pointer-events: none;
+}
 
 /* Breadcrumbs de pagina (prototipo: Equipos / SKY SYSTEM / seccion). */
 .ecorex-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); margin-bottom: 16px; }
@@ -2055,6 +2078,18 @@ html.dark {
 .ecorex-tenant-name { font-weight: 700; font-size: 14.5px; letter-spacing: -.01em; white-space: nowrap; }
 .ecorex-tenant-sub { font-size: 11.5px; color: var(--ink-3); }
 .ecorex-ws-row .chev { width: 15px; height: 15px; flex: none; color: var(--ink-3); }
+
+/* Selector de CO-PROPIEDAD ACTIVA al pie del sidebar (patron Modulix): reusa el look del
+   ws-head pero como tarjeta encima del usuario, con etiqueta y separador superior. */
+.ecorex-coprop { padding: 8px 12px 4px; border-top: 1px solid var(--line); }
+.ecorex-coprop-lbl {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-3); padding: 2px 6px 5px;
+}
+.ecorex-coprop .ecorex-ws-row {
+  border: 1px solid var(--line-2); background: var(--surface-2);
+}
+.ecorex-coprop .ecorex-ws-row:hover { background: var(--surface-3); border-color: var(--ink-3); }
 
 .ws-tenant .ecorex-search {
   margin: 0 16px 12px; height: 40px;

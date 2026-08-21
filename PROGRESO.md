@@ -5,26 +5,6 @@
 
 ---
 
-## 2026-08-21 - v0.15.56: sidebar estilo Modulix (linea-guia tonal) + selector de co-propiedad al pie
-
-**Agentes:** Claude Opus 4.8 (sesion de codigo). Solo UI (NavMenu.razor + app.css). Sin migracion.
-Build verde. Validado por MCP via JS (el screenshot de pixeles quedo bloqueado por congelamiento del
-renderer del navegador, problema de entorno; DOM y estilos computados verificados).
-
-- **Linea-guia del arbol (patron Modulix):** cada grupo de "Modulos" dibuja una guia PUNTEADA
-  (`border-left: 1px dashed`) coloreada por el TONO del grupo (variable `--nav-guide` con
-  `color-mix(in oklab, var(--t-*) 55%, transparent)`): violeta (Mis Procesos), rosa (Comercial),
-  azul (Automatizacion/IA), slate (resto). Cada item/subgrupo cuelga con un conector horizontal
-  punteado (`::before`, "├") del mismo tono. Reemplaza la guia gris plana anterior.
-- **Selector de co-propiedad activa al PIE:** la identidad del tenant se movio de la cabecera
-  superior a una tarjeta `.ecorex-coprop` ("Co-propiedad activa" + tile + nombre + plan) ENCIMA del
-  usuario, replicando el switcher de Modulix. HOY es un INDICADOR (cada usuario = 1 co-propiedad);
-  el CAMBIO entre varias co-propiedades queda como backend de un hito posterior.
-- Sin perder modulos: 12 grupos y 52 items/enlaces intactos; estilo visual PROPIA sin cambios (mismos
-  tokens/tonos). El bloque de admin (marca/agency) no se toca.
-
----
-
 ## 2026-08-21 - v0.15.55: scheduler de busquedas interpreta runTime en la TZ del tenant (no UTC)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo logica + label). Build verde.

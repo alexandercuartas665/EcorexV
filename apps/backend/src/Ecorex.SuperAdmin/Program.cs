@@ -698,7 +698,36 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_OPP_ESTADOS"),
 }
 
 app.UseHttpsRedirection();
-// Sirve archivos subidos en tiempo de ejecucion (logos de agencias en wwwroot/uploads).
+
+// Adjuntos subidos en tiempo de ejecucion (wwwroot/uploads: tareas, inventario, chat, logos). Se admite
+// CUALQUIER tipo de archivo (documentacion .html, prototipos .vsdx, etc.), pero se sirven de forma SEGURA:
+//   - ServeUnknownFileTypes: permite entregar tipos sin content-type registrado (p.ej. .vsdx) como binario.
+//   - X-Content-Type-Options: nosniff en TODO /uploads (impide que el navegador "adivine" un octet-stream como html).
+//   - Content-Disposition: attachment para todo lo que NO sea inline-seguro (imagen raster, pdf, video, audio,
+//     texto plano) -> un .html/.svg/.xml subido NUNCA se ejecuta inline en el origen de la app (XSS almacenado):
+//     el navegador SOLO lo descarga. Las imagenes y el pdf siguen viendose en el visor (img/iframe).
+var uploadsPhysical = System.IO.Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "uploads");
+System.IO.Directory.CreateDirectory(uploadsPhysical);
+app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPhysical),
+    RequestPath = "/uploads",
+    ServeUnknownFileTypes = true,
+    DefaultContentType = "application/octet-stream",
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        var ct = (ctx.Context.Response.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        // Inline-seguro = no puede ejecutar script en navegacion top-level. El SVG SI puede -> se excluye.
+        var inlineSafe = ct is "application/pdf" or "text/plain"
+            || ((ct.StartsWith("image/") || ct.StartsWith("video/") || ct.StartsWith("audio/")) && ct != "image/svg+xml");
+        if (!inlineSafe)
+        {
+            ctx.Context.Response.Headers["Content-Disposition"] = "attachment";
+        }
+    }
+});
+// Resto de wwwroot (css/js/assets estaticos de la app).
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();

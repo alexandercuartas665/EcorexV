@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-21 - v0.15.57: adjuntos de tareas admiten CUALQUIER tipo de archivo (servido seguro)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion. Build verde. NO desplegado (el usuario
+avisa cuando).
+
+- **Pedido:** subir documentacion (.html) y prototipados (.vsdx) y, en general, CUALQUIER tipo de
+  archivo en el sistema de tareas; para los no previsualizables, el visor solo DESCARGA (no renderiza).
+- **Antes:** `StoreAttachmentAsync` (TaskDetailModal) tenia lista blanca de extensiones (pdf/office/
+  imagenes/zip/video) y bloqueaba el resto; ademas tipos sin content-type (.vsdx) no se servian (404).
+- **Cambio (seguro):**
+  - Se ELIMINA la lista blanca en la subida (adjuntos Y comentarios usan el mismo store): se admite
+    cualquier tipo; se conserva el limite de tamano (25 MB; 200 MB video).
+  - `/uploads` se sirve endurecido (Program.cs): `ServeUnknownFileTypes` (entrega .vsdx como binario),
+    `X-Content-Type-Options: nosniff` en todo, y `Content-Disposition: attachment` para todo lo que NO
+    sea inline-seguro (imagen raster, pdf, video, audio, texto plano; el SVG se excluye porque puede
+    ejecutar script). Asi un .html/.svg subido NUNCA se ejecuta inline en el origen de la app (XSS
+    almacenado): el navegador SOLO lo descarga. Imagenes y pdf siguen viendose en el visor.
+  - Los enlaces de descarga llevan `download="@FileName"` para conservar el nombre original.
+- **Seguridad:** el motivo real de la lista blanca era evitar XSS por .html inline; se reemplaza por la
+  defensa correcta (attachment + nosniff) que ademas cumple el requisito "solo descarga".
+
+---
+
 ## 2026-08-21 - v0.15.56: compuerta exclusiva y evento como PUNTO DE DECISION HUMANO (ADR-0068)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (propiedad calculada). Build verde.

@@ -883,7 +883,7 @@
                                 var a = att;
                                 <div class="tk-attachment">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>
-                                    <a href="@a.Url" target="_blank" rel="noopener" class="tk-attachment-name">@a.FileName</a>
+                                    <a href="@a.Url" target="_blank" rel="noopener" download="@a.FileName" class="tk-attachment-name">@a.FileName</a>
                                     <span class="tk-attachment-meta">@(a.UploadedByName ?? "-") - @TaskUi.FormatRelative(a.CreatedAt)</span>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenDocViewer(a))">Ver</button>
                                     @if (!readOnly)
@@ -936,7 +936,7 @@
                                             <div class="tk-doc-noview">
                                                 <span class="tk-doc-ext lg">@AttExt(cur)</span>
                                                 <p>Vista previa no disponible para este tipo de archivo.</p>
-                                                <a href="@cur.Url" target="_blank" rel="noopener" class="btn btn-sm btn-primary">Descargar / Abrir</a>
+                                                <a href="@cur.Url" target="_blank" rel="noopener" download="@cur.FileName" class="btn btn-sm btn-primary">Descargar</a>
                                             </div>
                                         }
                                     </div>
@@ -1318,13 +1318,6 @@
     private const long MaxVideoBytes = 200 * 1024 * 1024; // 200 MB para video (evidencias mas pesadas)
     private static readonly HashSet<string> VideoExt = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
-    };
-    private static readonly HashSet<string> AttExtWhitelist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
-        ".txt", ".rtf", ".zip", ".rar", ".7z",
         ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
     };
 
@@ -2744,12 +2737,10 @@
     private async Task<(string Url, long Size, string? ContentType)?> StoreAttachmentAsync(IBrowserFile file, List<string> errores)
     {
         if (TenantCtx.TenantId is not Guid tenantId) { errores.Add("Sin tenant activo."); return null; }
+        // Se admite CUALQUIER tipo de archivo (documentacion .html, prototipos .vsdx, binarios): la seguridad
+        // la da el SERVIDO (Content-Disposition: attachment + nosniff para todo lo no inline-seguro, ver
+        // Program.cs), NO una lista blanca de extensiones. Solo se conserva el limite de tamano.
         var ext = Path.GetExtension(file.Name);
-        if (string.IsNullOrWhiteSpace(ext) || !AttExtWhitelist.Contains(ext))
-        {
-            errores.Add($"{file.Name}: tipo de archivo no permitido.");
-            return null;
-        }
         var cap = VideoExt.Contains(ext) ? MaxVideoBytes : MaxAttBytes;
         if (file.Size > cap)
         {

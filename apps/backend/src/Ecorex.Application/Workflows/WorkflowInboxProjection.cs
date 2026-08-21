@@ -46,6 +46,20 @@ public static class WorkflowInboxProjection
     }
 
     /// <summary>
+    /// Rutas PROPIAS de una compuerta atendida (ADR-0068): cuando la compuerta exclusiva es un punto de
+    /// decision humano, sus OPCIONES son los Name de SUS PROPIAS aristas salientes (distintos y no vacios).
+    /// El asignado elige una y se pasa como approvalResult a CompleteStep; el motor la evalua contra el
+    /// ConditionExpression de cada arista de la compuerta (misma semantica que <see cref="ResolveGatewayAhead"/>,
+    /// pero la decision vive EN la compuerta, no en el paso anterior).
+    /// </summary>
+    public static IReadOnlyList<string> OwnRoutes(Guid gatewayNodeId, IReadOnlyList<EdgeRow> edges)
+        => edges
+            .Where(e => e.SourceNodeId == gatewayNodeId && !string.IsNullOrWhiteSpace(e.Name))
+            .Select(e => e.Name!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
     /// Un usuario puede atender un paso si es el asignado, o si el paso esta sin asignar y el
     /// usuario esta entre los candidatos resueltos de la policy del nodo (INodeAssigneeResolver).
     /// Regla del modelo "cualquiera lo toma".

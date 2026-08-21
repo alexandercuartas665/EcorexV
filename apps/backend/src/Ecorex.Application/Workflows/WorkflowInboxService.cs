@@ -252,8 +252,12 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             .ToListAsync(cancellationToken))
             .Select(e => new WorkflowInboxProjection.EdgeRow(e.SourceNodeId, e.TargetNodeId, e.Name))
             .ToList();
+        // Solo las compuertas AUTOMATICAS (sin asignacion) cuentan como "gateway adelante" de un Task: alli la
+        // decision la toma el paso anterior. Una compuerta ATENDIDA (ADR-0068) es un punto de decision en si
+        // misma; el paso anterior se completa normal y la ruta se pide EN la compuerta.
         var gatewayNodeIds = (await _db.WorkflowNodes.AsNoTracking()
-            .Where(n => definitionIds.Contains(n.DefinitionId) && n.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Where(n => definitionIds.Contains(n.DefinitionId)
+                && n.NodeType == WorkflowNodeType.ExclusiveGateway && !n.AllowsAssignment)
             .Select(n => n.Id)
             .ToListAsync(cancellationToken)).ToHashSet();
 
@@ -265,9 +269,10 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             var isMine = step.AssignedToTenantUserId == tenantUserId;
             var isUnassigned = step.AssignedToTenantUserId is null;
 
-            // Candidato = asignado a mi, o (sin asignar y soy candidato de la policy del nodo).
+            // Candidato = asignado a mi, o (sin asignar y soy candidato de la policy del nodo). Aplica a los
+            // nodos que ESPERAN a un humano (Task siempre; compuerta/fin atendidos, ADR-0068).
             var isCandidate = isMine;
-            if (isUnassigned && node.NodeType == WorkflowNodeType.Task)
+            if (isUnassigned && node.WaitsForHuman)
             {
                 var candidates = await _resolver.ResolveCandidatesAsync(node.Id, cancellationToken);
                 isCandidate = candidates.Contains(tenantUserId);
@@ -277,9 +282,12 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 continue;
             }
 
-            // Gateway adelante y opciones de aprobacion (logica pura, documentada en el proyector).
+            // Opciones de decision (logica pura): una compuerta ATENDIDA ofrece SUS PROPIAS rutas (ADR-0068);
+            // los demas nodos, las de una compuerta AUTOMATICA que tengan adelante.
             var (isGatewayAhead, approvalOptions) =
-                WorkflowInboxProjection.ResolveGatewayAhead(node.Id, edges, gatewayNodeIds);
+                node.NodeType == WorkflowNodeType.ExclusiveGateway && node.WaitsForHuman
+                    ? (true, WorkflowInboxProjection.OwnRoutes(node.Id, edges))
+                    : WorkflowInboxProjection.ResolveGatewayAhead(node.Id, edges, gatewayNodeIds);
 
             string? taskNumber = null;
             string? taskTitle = null;

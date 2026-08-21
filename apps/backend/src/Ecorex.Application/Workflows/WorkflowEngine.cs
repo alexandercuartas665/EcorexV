@@ -507,7 +507,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, task, step.ExecutedByTenantUserId ?? step.AssignedToTenantUserId, cancellationToken);
                         instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
                     }
-                    else if (target.NodeType == WorkflowNodeType.EndEvent)
+                    else if (target.NodeType == WorkflowNodeType.EndEvent && !target.WaitsForHuman)
                     {
                         // Historial completo: el endEvent alcanzado queda registrado.
                         //
@@ -516,6 +516,9 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         // hermanas vivas quedaban Skipped, asi que en un flujo con 4 salidas
                         // paralelas solo prosperaba la primera en llegar al final. La instancia
                         // ahora se cierra abajo, cuando no queda NINGUN paso vigente.
+                        //
+                        // Evento de fin ATENDIDO (ADR-0068): cae en el 'else' de abajo (ActivateNodeAsync),
+                        // que lo deja Pending para que un responsable CONFIRME el cierre antes de terminar.
                         steps.Add(AddStep(instance, target, step.CycleIndex, isCycleStart: false,
                             status: WorkflowStepStatus.Completed, isCurrent: false));
                     }
@@ -658,15 +661,18 @@ public sealed class WorkflowEngine : IWorkflowEngine
             step.Status = WorkflowStepStatus.Completed;
             step.CompletedAt = DateTimeOffset.UtcNow;
         }
-        else if (node.NodeType == WorkflowNodeType.ExclusiveGateway)
+        else if (node.NodeType == WorkflowNodeType.ExclusiveGateway && !node.WaitsForHuman)
         {
-            // Auto-resuelto: hereda la decision del paso de origen y se completa en el acto. El
-            // bucle lo tomara como IsReady y ResolveOutgoing evaluara sus aristas contra este
-            // ApprovalResult (o tomara la default). Sigue siendo una fila de historial (auditoria).
+            // Compuerta AUTOMATICA (sin asignacion, ADR-0037): hereda la decision del paso de origen y se
+            // completa en el acto. El bucle lo tomara como IsReady y ResolveOutgoing evaluara sus aristas
+            // contra este ApprovalResult (o tomara la default). Sigue siendo una fila de historial (auditoria).
             step.Status = WorkflowStepStatus.Completed;
             step.CompletedAt = DateTimeOffset.UtcNow;
             step.ApprovalResult = Normalize(inheritedApprovalResult);
         }
+        // Compuerta / evento de fin ATENDIDOS (ADR-0068, node.WaitsForHuman): NO caen en ninguna rama y
+        // quedan Pending+IsCurrent -> el asignado ELIGE la ruta (compuerta, con su ApprovalResult) o
+        // CONFIRMA el cierre (fin) desde la bandeja. El inheritedApprovalResult se ignora (lo pone el humano).
         else if (node.NodeType == WorkflowNodeType.Task)
         {
             var result = await _ruleHook.OnNodeActivatedAsync(new WorkflowRuleContext(
@@ -685,7 +691,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // define un modo distinto de Policy, el motor resuelve aqui el encargado concreto. Policy = historico
         // (queda null y la bandeja expande los candidatos del cargo/dependencia).
         if (step.Status == WorkflowStepStatus.Pending
-            && node.NodeType == WorkflowNodeType.Task
+            && node.WaitsForHuman
             && node.AssigneeSource != WorkflowAssigneeSource.Policy)
         {
             step.AssignedToTenantUserId = await ResolveDynamicAssigneeAsync(instance, node, predecessorUserId, cancellationToken);

@@ -829,14 +829,38 @@ else
             <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
             return;
         }
-        if (node.NodeType is not (WorkflowNodeType.Task or WorkflowNodeType.StartEvent))
+        var isGate = node.NodeType == WorkflowNodeType.ExclusiveGateway;
+        var isEnd = node.NodeType == WorkflowNodeType.EndEvent;
+
+        @* Compuerta exclusiva / evento de fin (ADR-0068): son AUTOMATICOS salvo que el disenador los
+           convierta en PUNTO DE ATENCION HUMANO. El interruptor reusa AllowsAssignment (-> node.WaitsForHuman):
+           entonces el usuario/cargo asignado atiende el nodo (elige ruta / confirma cierre). *@
+        if (isGate || isEnd)
         {
-            <div class="fe-acc-empty">Solo el <b>inicio</b> y las <b>Tareas</b> admiten asignacion de dependencia/cargo.
-                Cambia el tipo de este nodo en "Configuracion basica".</div>
+            <label class="fe-check">
+                <input type="checkbox" checked="@node.AllowsAssignment"
+                       disabled="@(!_canvas!.IsEditable)"
+                       @onchange="@(e => OnAllowsAssignmentChangedAsync(node, e))" />
+                @(isGate ? "Punto de decision: el asignado ELIGE la ruta"
+                         : "Punto de cierre: el asignado CONFIRMA el fin del flujo")
+            </label>
+            if (!node.AllowsAssignment)
+            {
+                <div class="fe-acc-note">Sin activar, @(isGate
+                    ? "la compuerta enruta automatica (la decision la toma el paso anterior)"
+                    : "el flujo cierra automatico al llegar aqui").
+                    Activalo para asignar un usuario/cargo que lo atienda.</div>
+                return;
+            }
+        }
+        else if (node.NodeType is not (WorkflowNodeType.Task or WorkflowNodeType.StartEvent))
+        {
+            <div class="fe-acc-empty">Este nodo no admite asignacion.</div>
             return;
         }
-        @* Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso. Solo Tareas. *@
-        @if (node.NodeType == WorkflowNodeType.Task)
+        @* Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso. Aplica a la
+           Tarea y a la compuerta/fin atendidos; el inicio hereda al iniciador. *@
+        @if (node.NodeType == WorkflowNodeType.Task || isGate || isEnd)
         {
             <div class="fe-field">
                 <label>Origen del asignado</label>

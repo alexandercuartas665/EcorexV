@@ -24,8 +24,27 @@ public class WorkflowNode : TenantEntity
     /// <summary>Numero de paso informativo (PASO legacy): orden de aparicion en el XML.</summary>
     public int? StepNumber { get; set; }
 
-    /// <summary>Si el paso admite reasignacion manual (PERMITE_ASIGNACION legacy).</summary>
+    /// <summary>Si el paso admite reasignacion manual (PERMITE_ASIGNACION legacy). Ademas, en una
+    /// compuerta exclusiva o un evento de fin, activa que el nodo sea un PUNTO DE ATENCION HUMANO
+    /// (ver <see cref="WaitsForHuman"/>).</summary>
     public bool AllowsAssignment { get; set; }
+
+    /// <summary>
+    /// True si este nodo ESPERA a un humano antes de avanzar (ADR-0068, extiende ADR-0035/ADR-0037):
+    /// - <see cref="WorkflowNodeType.Task"/>: siempre (salvo auto-cierre por regla, decidido en runtime).
+    /// - <see cref="WorkflowNodeType.ExclusiveGateway"/> / <see cref="WorkflowNodeType.EndEvent"/>: SOLO si
+    ///   el disenador activo la asignacion (<see cref="AllowsAssignment"/>). Entonces el usuario/cargo
+    ///   asignado ELIGE la ruta (compuerta) o CONFIRMA el cierre (fin) en vez de auto-resolverse.
+    /// - <see cref="WorkflowNodeType.StartEvent"/>: nunca (se completa solo; el asignado es el iniciador).
+    /// Es propiedad calculada (no columna): no requiere migracion. Preserva el comportamiento historico
+    /// (compuertas/fines sin asignacion siguen siendo automaticos, ADR-0037).
+    /// </summary>
+    public bool WaitsForHuman => NodeType switch
+    {
+        WorkflowNodeType.Task => true,
+        WorkflowNodeType.ExclusiveGateway or WorkflowNodeType.EndEvent => AllowsAssignment,
+        _ => false
+    };
 
     // ---- Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso ----
     /// <summary>Modo de resolucion del asignado (Policy=cargo/dependencia por defecto; InheritStart;

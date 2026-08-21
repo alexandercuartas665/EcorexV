@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-21 - v0.15.56: compuerta exclusiva y evento como PUNTO DE DECISION HUMANO (ADR-0068)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (propiedad calculada). Build verde.
+Enfoque confirmado con el usuario: "punto de decision humano" + "todos los nodos".
+
+- **Problema:** solo el inicio y las Tareas admitian asignacion de cargo/dependencia. La compuerta
+  exclusiva se auto-resolvia (ADR-0037) y el evento de fin cerraba la rama al instante, asi que un
+  cargo asignado ahi no se usaba. El usuario modela decisiones como compuertas ("Cliente Decide si
+  compra") y necesita que las atienda un usuario/cargo que ELIJA la ruta.
+- **Solucion (ADR-0068):** propiedad calculada `WorkflowNode.WaitsForHuman` (sin columna/migracion):
+  Task siempre; compuerta/fin SOLO si el disenador activa la asignacion (`AllowsAssignment`); inicio
+  nunca. Una compuerta atendida queda `Pending` al activarse y el asignado elige la ruta desde la
+  bandeja/tarjeta; un fin atendido espera que un responsable confirme el cierre. Sin asignacion,
+  compuertas/fines siguen automaticos (compatibilidad total).
+- **Motor** (`WorkflowEngine`): `ActivateNodeAsync` no auto-completa compuerta/fin atendidos;
+  `AdvanceAsync` los enruta al cerrarse por `ResolveOutgoing` (mismo `ApprovalResult`, ahora puesto
+  por el humano). La resolucion del asignado dinamico (origen del asignado) se extiende a esos nodos.
+- **Bandeja** (`WorkflowInboxService`/`WorkflowInboxProjection`): resuelve candidatos por policy para
+  nodos atendidos; una compuerta atendida ofrece SUS PROPIAS rutas (`OwnRoutes`); el paso anterior a
+  ella ya no las ofrece (la decision vive en la compuerta). La tarjeta/diagrama lo refleja igual.
+- **UI** (`FlowEditor`): el panel "Asignar usuarios" habilita compuerta y fin con un interruptor
+  claro ("Punto de decision" / "Punto de cierre") + selector de origen del asignado; el resto del
+  panel (policies, origen) se reusa tal cual.
+- **Sin tocar:** `WorkflowNodePolicyService`/`NodeAssigneeResolver`/`SetNodeConfigAsync`/
+  `SetNodeAssigneeAsync` ya eran agnosticos al tipo de nodo.
+
+---
+
 ## 2026-08-21 - v0.15.55: scheduler de busquedas interpreta runTime en la TZ del tenant (no UTC)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo logica + label). Build verde.

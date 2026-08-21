@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Contactos;
+using Ecorex.Application.Scheduling;
 using Ecorex.Domain.Enums;
 using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
@@ -20,8 +21,9 @@ namespace Ecorex.SuperAdmin.RealTime;
 /// - Vive en Ecorex.SuperAdmin (como los demas workers): el compose de prod solo levanta ecorex-app.
 /// - Se apaga con la env ECOREX_DISABLE_WORKERS=true (junto a los demas motores) o con el flag de config
 ///   ContactSearchScheduler:Enabled=false. Intervalo por config ContactSearchScheduler:TickSeconds.
-/// - Hora: el slot RunTime "HH:mm" se interpreta en UTC (el auto-run no requiere precision de zona; el
-///   usuario fija RunTime a la hora UTC deseada). LastRunAt lo actualiza el runner al correr.
+/// - Hora: el slot RunTime "HH:mm" se interpreta en la ZONA HORARIA DEL TENANT (Tenant.TimeZoneId, IANA;
+///   default America/Bogota), no en UTC. La ocurrencia local se convierte a UTC (con DST) antes de comparar
+///   con LastRunAt/nowUtc. Asi 09:00 = 09:00 hora del tenant. LastRunAt lo actualiza el runner al correr.
 /// </summary>
 public sealed class ContactSearchScheduleWorker(
     IServiceScopeFactory scopeFactory,
@@ -64,14 +66,18 @@ public sealed class ContactSearchScheduleWorker(
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            // Se trae la TZ del tenant (IANA) para interpretar RunTime en su hora local, no en UTC.
             candidates = await db.ContactSearchDefinitions.IgnoreQueryFilters().AsNoTracking()
                 .Where(d => d.IsActive && d.SchedulesJson != null)
-                .Select(d => new ScheduledCandidate(d.Id, d.TenantId, d.SchedulesJson!, d.LastRunAt))
+                .Join(db.Tenants.IgnoreQueryFilters().AsNoTracking(), d => d.TenantId, t => t.Id,
+                    (d, t) => new ScheduledCandidate(d.Id, d.TenantId, d.SchedulesJson!, d.LastRunAt, t.TimeZoneId))
                 .ToListAsync(ct);
         }
 
-        // 2) Filtrar las VENCIDAS.
-        var due = candidates.Where(c => IsDue(ParseSlots(c.SchedulesJson), c.LastRunAt, nowUtc)).ToList();
+        // 2) Filtrar las VENCIDAS (RunTime interpretado en la TZ del tenant -> UTC).
+        var due = candidates.Where(c => IsDue(
+            ParseSlots(c.SchedulesJson), c.LastRunAt, nowUtc,
+            ScheduledJobRecurrence.ResolveTimeZone(c.TimeZoneId))).ToList();
         if (due.Count == 0) { return; }
 
         // 3) Correr cada una EN SU TENANT (scope propio + tenant ambiente); el runner actualiza LastRunAt.
@@ -112,12 +118,13 @@ public sealed class ContactSearchScheduleWorker(
         catch (JsonException) { return []; }
     }
 
-    /// <summary>Vencida si ALGUN slot tiene una ocurrencia programada (&lt;= ahora) posterior a LastRunAt.</summary>
-    private static bool IsDue(IReadOnlyList<ContactSearchScheduleSlot> slots, DateTimeOffset? lastRunAt, DateTimeOffset nowUtc)
+    /// <summary>Vencida si ALGUN slot tiene una ocurrencia programada (&lt;= ahora) posterior a LastRunAt.
+    /// El RunTime del slot se interpreta en <paramref name="tz"/> (la zona del tenant).</summary>
+    private static bool IsDue(IReadOnlyList<ContactSearchScheduleSlot> slots, DateTimeOffset? lastRunAt, DateTimeOffset nowUtc, TimeZoneInfo tz)
     {
         foreach (var slot in slots)
         {
-            if (LastScheduledOccurrence(slot, nowUtc) is DateTimeOffset occ && (lastRunAt is null || lastRunAt.Value < occ))
+            if (LastScheduledOccurrence(slot, nowUtc, tz) is DateTimeOffset occ && (lastRunAt is null || lastRunAt.Value < occ))
             {
                 return true;
             }
@@ -125,26 +132,42 @@ public sealed class ContactSearchScheduleWorker(
         return false;
     }
 
-    /// <summary>Ultima ocurrencia programada del slot &lt;= now (UTC). Null si Manual.</summary>
-    private static DateTimeOffset? LastScheduledOccurrence(ContactSearchScheduleSlot slot, DateTimeOffset now)
+    /// <summary>Ultima ocurrencia programada del slot &lt;= now, con el RunTime interpretado en la zona del
+    /// tenant (<paramref name="tz"/>) y convertido a UTC (respeta DST). Null si Manual.</summary>
+    private static DateTimeOffset? LastScheduledOccurrence(ContactSearchScheduleSlot slot, DateTimeOffset nowUtc, TimeZoneInfo tz)
     {
         if (slot.Frequency == ContactSearchSchedule.Manual) { return null; }
         var rt = ParseTime(slot.RunTime);
-        var today = new DateTimeOffset(now.Year, now.Month, now.Day, rt.Hours, rt.Minutes, 0, TimeSpan.Zero);
+        // "Ahora" en hora LOCAL del tenant: la fecha/DOW de la ocurrencia se calcula en esa zona.
+        var localNow = TimeZoneInfo.ConvertTime(nowUtc, tz);
+
+        // Hora local (Unspecified) -> UTC con la zona del tenant (aplica DST del dia correspondiente).
+        DateTimeOffset ToUtc(int year, int month, int day)
+        {
+            var local = new DateTime(year, month, day, rt.Hours, rt.Minutes, 0, DateTimeKind.Unspecified);
+            return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, tz), TimeSpan.Zero);
+        }
+
         switch (slot.Frequency)
         {
             case ContactSearchSchedule.Diaria:
-                return today <= now ? today : today.AddDays(-1);
+                var today = ToUtc(localNow.Year, localNow.Month, localNow.Day);
+                if (today <= nowUtc) { return today; }
+                var y = localNow.AddDays(-1);
+                return ToUtc(y.Year, y.Month, y.Day);
             case ContactSearchSchedule.Semanal:
-                var targetDow = Math.Clamp(slot.DayOfWeek ?? (int)now.DayOfWeek, 0, 6);
-                var back = (((int)now.DayOfWeek - targetDow) % 7 + 7) % 7;
-                var cand = today.AddDays(-back);
-                return cand <= now ? cand : cand.AddDays(-7);
+                var targetDow = Math.Clamp(slot.DayOfWeek ?? (int)localNow.DayOfWeek, 0, 6);
+                var back = (((int)localNow.DayOfWeek - targetDow) % 7 + 7) % 7;
+                var cd = localNow.AddDays(-back);
+                var cand = ToUtc(cd.Year, cd.Month, cd.Day);
+                if (cand <= nowUtc) { return cand; }
+                var pw = cd.AddDays(-7);
+                return ToUtc(pw.Year, pw.Month, pw.Day);
             case ContactSearchSchedule.Mensual:
                 // Se acota a 28 para no saltar meses cortos (v1: precision de dia, no de fin-de-mes exacto).
                 var dom = Math.Clamp(slot.DayOfMonth ?? 1, 1, 28);
-                var m = new DateTimeOffset(now.Year, now.Month, dom, rt.Hours, rt.Minutes, 0, TimeSpan.Zero);
-                if (m > now) { var p = now.AddMonths(-1); m = new DateTimeOffset(p.Year, p.Month, dom, rt.Hours, rt.Minutes, 0, TimeSpan.Zero); }
+                var m = ToUtc(localNow.Year, localNow.Month, dom);
+                if (m > nowUtc) { var p = localNow.AddMonths(-1); m = ToUtc(p.Year, p.Month, dom); }
                 return m;
             default:
                 return null;
@@ -157,8 +180,9 @@ public sealed class ContactSearchScheduleWorker(
         {
             return (ts.Hours, ts.Minutes);
         }
-        return (8, 0); // por defecto 08:00 UTC
+        return (8, 0); // por defecto 08:00 hora del tenant
     }
 
-    private readonly record struct ScheduledCandidate(Guid Id, Guid TenantId, string SchedulesJson, DateTimeOffset? LastRunAt);
+    private readonly record struct ScheduledCandidate(
+        Guid Id, Guid TenantId, string SchedulesJson, DateTimeOffset? LastRunAt, string? TimeZoneId);
 }

@@ -134,6 +134,7 @@
                                             <label>Prompt de extraccion (que datos debe tomar el agente) *<textarea class="form-control" rows="3" @bind="row.Prompt" placeholder="Ej: extrae de cada resultado el nombre del negocio, telefono, direccion, correo y ciudad."></textarea></label>
                                             <div class="cs-sched">
                                                 <div class="cs-sched-h">Programaciones (cada una es un evento; vacio = solo manual)</div>
+                                                <div class="cs-note">Las horas se interpretan en la <b>zona horaria del tenant</b> (America/Bogota), NO en UTC. Ej.: 09:00 corre a las 9 de la manana hora local.</div>
                                                 @if (row.Schedules.Count == 0)
                                                 {
                                                     <div class="cs-note">Manual: solo se ejecuta bajo demanda (boton Ejecutar).</div>
@@ -147,7 +148,7 @@
                                                             <option value="@ContactSearchSchedule.Semanal">Semanal</option>
                                                             <option value="@ContactSearchSchedule.Mensual">Mensual</option>
                                                         </select>
-                                                        <input class="form-control" type="time" @bind="sl.RunTimeValue" title="Hora del dia" />
+                                                        <input class="form-control" type="time" @bind="sl.RunTimeValue" title="Hora local del tenant (America/Bogota)" />
                                                         @if (sl.Frequency == ContactSearchSchedule.Semanal)
                                                         {
                                                             <select class="form-control" @bind="sl.DayOfWeek" title="Dia de la semana">

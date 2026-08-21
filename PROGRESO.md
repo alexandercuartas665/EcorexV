@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-21 - v0.15.55: scheduler de busquedas interpreta runTime en la TZ del tenant (no UTC)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo logica + label). Build verde.
+
+- **Problema:** `ContactSearchScheduleWorker` interpretaba el `runTime` "HH:mm" en UTC, obligando al
+  usuario a convertir a mano (09:00 Colombia = 14:00 UTC) y a equivocarse.
+- **Fix:** el worker ahora trae la TZ del tenant (`Tenant.TimeZoneId`, IANA; default America/Bogota via
+  `ScheduledJobRecurrence.ResolveTimeZone`) con un join a Tenants en el barrido cross-tenant.
+  `LastScheduledOccurrence`/`IsDue` calculan la ocurrencia en HORA LOCAL del tenant y la convierten a UTC
+  (`TimeZoneInfo.ConvertTimeToUtc`, respeta DST) antes de comparar con LastRunAt/nowUtc. Aplica a Diaria/
+  Semanal/Mensual (dia y DOW en hora local).
+- **UI** (`ContactSearchConfig.razor`): nota "Las horas se interpretan en la zona horaria del tenant
+  (America/Bogota), NO en UTC" + title del input "Hora local del tenant".
+- Verificacion: runTime=09:00 corre a las 09:00 hora del tenant (14:00 UTC en Bogota).
+
+---
+
 ## 2026-08-20 - v0.15.54: origen del asignado por nodo (4 modos) en flujos (ADR-0056)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Migracion DUAL (3 columnas). Config verificada en

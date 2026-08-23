@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-22 - v0.15.60: mismo formulario en varios nodos carga los MISMOS datos (continuidad)
+
+- **Pedido:** si el mismo formulario esta asignado en varios nodos del flujo, cargar el MISMO
+  formulario Y DATOS en los pasos siguientes (no en blanco).
+- **Causa:** `FormResponseService.GetTaskStepFormsAsync` usaba `GetOrCreateDraftAsync(def, task.Number)`
+  que SOLO reutiliza BORRADORES. Mientras el form estaba en borrador, los nodos con el mismo formulario
+  compartian la respuesta; pero al ENVIARLO en un nodo pasaba a Submitted y el siguiente nodo ya no
+  hallaba borrador -> creaba uno EN BLANCO (se perdia la continuidad).
+- **Fix:** al resolver el formulario de un paso, PREFERIR una respuesta ya ENVIADA de ese formulario
+  para la misma tarea (misma ancla definicion+numero). Si existe, se reusa (mismos datos) y el
+  FormFlowLink del nodo nace Completed -> los datos se cargan en solo-lectura y el paso NO queda
+  bloqueado esperando el formulario. Si no hay enviada, se usa/crea el borrador (Pending) como antes.
+  UI: node posterior muestra el form como "Enviado" + "Ver" con los mismos datos.
+- Sin migracion. Sin cambio de esquema.
+
+---
+
 ## 2026-08-22 - v0.15.59: encargado del flujo usa el cargo del INICIO como respaldo + copia local de BD
 
 - **Encargado (fallback al inicio):** `WorkflowStartService.ResolveFirstStepAsync` ahora, si el PRIMER

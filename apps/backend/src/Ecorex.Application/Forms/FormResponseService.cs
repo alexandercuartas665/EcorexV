@@ -720,34 +720,67 @@ public sealed class FormResponseService : IFormResponseService
                     continue;
                 }
 
-                // Borrador (idempotente) anclado al numero de la tarea + link al paso (uno por formulario).
-                var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
-                if (!draft.IsOk || draft.Value is null)
+                // Continuidad de datos (mismo formulario en varios nodos): la respuesta se ANCLA a
+                // (definicion, numero de la tarea). Si ese formulario YA se ENVIO en un paso anterior, se
+                // REUSA esa respuesta (mismos datos) en los pasos siguientes en vez de crear uno en blanco
+                // -que era el bug: GetOrCreateDraft solo reutiliza borradores, y al enviarse pasaba a
+                // Submitted-. Si no hay enviada, se usa/crea el borrador (idempotente) para diligenciarlo.
+                Guid responseId;
+                string? responseRef;
+                FormResponseStatus responseStatus;
+                var submitted = await _db.FormResponses.AsNoTracking()
+                    .Where(r => r.DefinitionId == definition.Id
+                        && r.Reference == task.Number
+                        && r.Status == FormResponseStatus.Submitted)
+                    .OrderByDescending(r => r.SubmittedAt)
+                    .Select(r => new { r.Id, r.Reference })
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (submitted is not null)
                 {
-                    continue;
+                    responseId = submitted.Id;
+                    responseRef = submitted.Reference;
+                    responseStatus = FormResponseStatus.Submitted;
                 }
+                else
+                {
+                    var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
+                    if (!draft.IsOk || draft.Value is null)
+                    {
+                        continue;
+                    }
+                    responseId = draft.Value.Id;
+                    responseRef = draft.Value.Reference;
+                    responseStatus = draft.Value.Status;
+                }
+
+                // Link del nodo a esa respuesta. Si la respuesta ya esta enviada, el link nace Completed
+                // (los datos se cargan, en solo-lectura, y el paso NO queda bloqueado esperando el
+                // formulario). Si es borrador, Pending: hay que diligenciarlo/enviarlo en este paso.
+                var linkStatus = responseStatus == FormResponseStatus.Submitted
+                    ? FormFlowLinkStatus.Completed
+                    : FormFlowLinkStatus.Pending;
                 var link = await _db.FormFlowLinks
                     .FirstOrDefaultAsync(l => l.WorkflowInstanceId == instanceId
                         && l.WorkflowNodeId == step.NodeId
-                        && l.FormResponseId == draft.Value.Id, cancellationToken);
+                        && l.FormResponseId == responseId, cancellationToken);
                 if (link is null)
                 {
                     link = new FormFlowLink
                     {
                         TenantId = task.TenantId,
-                        FormResponseId = draft.Value.Id,
+                        FormResponseId = responseId,
                         WorkflowInstanceId = instanceId,
                         WorkflowNodeId = step.NodeId,
-                        Status = FormFlowLinkStatus.Pending
+                        Status = linkStatus
                     };
                     _db.FormFlowLinks.Add(link);
                     await _db.SaveChangesAsync(cancellationToken);
                 }
 
                 result.Add(new TaskStepFormDto(
-                    draft.Value.Id, definition.Id, definition.Code, definition.Title,
+                    responseId, definition.Id, definition.Code, definition.Title,
                     instanceId, step.NodeId, step.NodeName,
-                    link.Status, draft.Value.Status, draft.Value.Reference,
+                    link.Status, responseStatus, responseRef,
                     isGatewayAhead, approvalOptions, definition.CardLayout));
             }
         }

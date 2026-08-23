@@ -858,6 +858,14 @@ else
             <div class="fe-acc-empty">Este nodo no admite asignacion.</div>
             return;
         }
+        @* El cargo del INICIO no define el encargado del flujo (el inicio se completa solo). El encargado
+           de la actividad lo dicta el PRIMER PASO (Tarea). Evita la confusion tipica de asignar el cargo al
+           nodo de inicio y que la actividad nazca "sin encargado". *@
+        @if (node.NodeType == WorkflowNodeType.StartEvent)
+        {
+            <div class="fe-acc-note">El cargo del <b>inicio</b> no define el encargado de la actividad: el
+                encargado lo dicta el <b>primer paso (Tarea)</b>. Asigna alli el cargo del responsable.</div>
+        }
         @* Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso. Aplica a la
            Tarea y a la compuerta/fin atendidos; el inicio hereda al iniciador. *@
         @if (node.NodeType == WorkflowNodeType.Task || isGate || isEnd)
@@ -1138,9 +1146,17 @@ else
     private async Task OnAllowsAssignmentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         var allows = e.Value is bool b && b;
-        var result = await DesignSvc.SetNodeConfigAsync(node.Id, allows, node.RestartNodeId);
-        if (!result.IsOk) { _error = result.Error; }
-        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        // DEBE pasar por el gate: comparte el DbContext (scoped por circuito) con el resto de
+        // operaciones (Guardar, cargar policies). Sin serializar, togglear + guardar disparaba
+        // "A second operation was started on this context" (DbContext no admite concurrencia).
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeConfigAsync(node.Id, allows, node.RestartNodeId);
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+            // Al activar/desactivar la asignacion cambia lo que muestra el panel: recargar policies.
+            await LoadNodePoliciesAsync();
+        });
     }
 
     private async Task OnNodeColorAsync(FlowCanvasNodeDto node, string? key)
@@ -1152,11 +1168,16 @@ else
     private async Task SetAppearanceAsync(FlowCanvasNodeDto node, string? color, string? note)
     {
         _error = null;
-        var result = await DesignSvc.SetNodeAppearanceAsync(node.Id, color, note);
-        if (!result.IsOk) { _error = result.Error; return; }
-        // Refresca el canvas (para que el swatch/nota activos reflejen lo guardado) y repinta el lienzo.
-        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
-        await ApplyNodeAppearanceAsync();
+        // Gate: comparte el DbContext del circuito con Guardar/cargar (evita "second operation on context").
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAppearanceAsync(node.Id, color, note);
+            if (!result.IsOk) { _error = result.Error; return; }
+            // Refresca el canvas (para que el swatch/nota activos reflejen lo guardado).
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+        // Repinta el lienzo (JS interop, fuera del gate de BD).
+        if (_error is null) { await ApplyNodeAppearanceAsync(); }
     }
 
     private async Task OpenFormPickerAsync()

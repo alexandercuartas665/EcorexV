@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-22 - v0.15.58: fix concurrencia DbContext en editor de flujos + nota de cargo en inicio
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion. Diagnostico con datos reales de prod
+(via tunel, solo lectura). NO desplegado (el usuario avisa cuando).
+
+- **Bug 1 (crash al guardar en el editor):** `System.InvalidOperationException: A second operation was
+  started on this context instance...` al seleccionar un nodo (p.ej. el evento de fin "Cliente No
+  compra") y Guardar. Causa: `OnAllowsAssignmentChangedAsync` y `SetAppearanceAsync` (FlowEditor)
+  tocaban el DbContext del circuito SIN pasar por el `_dbGate` (semaforo que serializa el resto). Al
+  togglear + guardar colisionaban. Fix: ambos handlers ahora corren dentro de `GuardAsync`
+  (OnAllowsAssignmentChangedAsync ademas recarga policies). Bug preexistente que el interruptor nuevo
+  de "punto de decision/cierre" (v0.15.56) hizo mas visible.
+- **Bug 2 (crear tarea: "primer paso sin cargo" / sin encargado):** NO es bug de codigo. En el flujo
+  publicado "PROCESO COMERCIAL" el cargo (3 policies) estaba en el nodo StartEvent "Requisicion de
+  informacion tecnica", pero el encargado lo dicta el PRIMER TASK "Cotizacion Renombrado" (0 cargos).
+  El cargo estaba en el nodo equivocado. Mitigacion UI: al seleccionar un StartEvent, el panel avisa
+  que su cargo NO define el encargado (lo dicta el primer paso Tarea). El usuario debe asignar el
+  cargo en "Cotizacion Renombrado" y publicar.
+
+---
+
 ## 2026-08-21 - v0.15.57: adjuntos de tareas admiten CUALQUIER tipo de archivo (servido seguro)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion. Build verde. NO desplegado (el usuario

@@ -184,6 +184,24 @@ public sealed class WorkflowEngine : IWorkflowEngine
         }
         definition.IsPublished = true;
 
+        // Los CONCEPTOS (subcategorias) enlazados a CUALQUIER version de este flujo (mismo ProcessCode)
+        // deben SEGUIR a la version recien publicada. Al editar un flujo publicado se crea una version
+        // NUEVA; si no se re-apunta el concepto, este queda en la version vieja (ya despublicada) y las
+        // actividades nuevas nacen "sin proceso". Se re-apuntan aqui, en la misma transaccion.
+        var familyIds = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.ProcessCode == definition.ProcessCode)
+            .Select(d => d.Id)
+            .ToListAsync(cancellationToken);
+        var linkedSubs = await _db.ActividadSubcategorias
+            .Where(s => s.WorkflowDefinitionId != null
+                && familyIds.Contains(s.WorkflowDefinitionId.Value)
+                && s.WorkflowDefinitionId != definition.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var sub in linkedSubs)
+        {
+            sub.WorkflowDefinitionId = definition.Id;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {

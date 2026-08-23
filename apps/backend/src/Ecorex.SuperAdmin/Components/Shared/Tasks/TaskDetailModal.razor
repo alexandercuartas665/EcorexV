@@ -308,7 +308,10 @@
                         </div>
                     </div>
                     <div class="tk-flow-scroller">
-                        <div class="tk-flow-canvas" style="width:@(FlowCanvasW(flow))px;height:@(FlowCanvasH(flow))px;zoom:@FlowZoomStr">
+                        @* Clic en el fondo del diagrama CIERRA el menu de nodo abierto (los nodos hacen
+                           stopPropagation, asi que su clic no llega aqui). Evita que el menu quede "abierto siempre". *@
+                        <div class="tk-flow-canvas" style="width:@(FlowCanvasW(flow))px;height:@(FlowCanvasH(flow))px;zoom:@FlowZoomStr"
+                             @onclick="@(() => _flowMenuNodeId = null)">
                             <svg class="tk-flow-edges" width="@(FlowCanvasW(flow))" height="@(FlowCanvasH(flow))">
                                 <defs>
                                     <marker id="tkflowarrow" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--ink-3)" /></marker>

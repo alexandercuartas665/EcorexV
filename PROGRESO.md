@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-23 - v0.15.65: publicar re-apunta el concepto a la version publicada + menu de nodo se cierra
+
+- **Bug (recurrente):** al editar+publicar un flujo se crea una version NUEVA, pero el concepto
+  (ActividadSubcategoria) seguia apuntando a la version vieja (ya despublicada) -> el wizard mostraba
+  "el flujo aun no esta publicado / se creara sin proceso" aunque el flujo SI estuviera publicado.
+  Fix: `WorkflowEngine.PublishAsync` ahora re-apunta TODAS las subcategorias enlazadas a cualquier
+  version de ese flujo (mismo ProcessCode) a la version recien publicada, en la misma transaccion.
+- **UI menu de nodo:** el menu (anotar/cerrar/rutas) quedaba "abierto todo el tiempo" porque no cerraba
+  al hacer clic afuera. Fix: clic en el fondo del diagrama (`.tk-flow-canvas`) cierra el menu abierto
+  (los nodos hacen stopPropagation). Sigue abriendose/cerrandose con el boton ... del nodo.
+- Sin migracion.
+
+---
+
 ## 2026-08-23 - v0.15.64: Owner/Admin cierra cualquier paso desde el diagrama + nombre del responsable
 
 - **Pedido:** no se podia "dar terminado" a un paso desde el menu del nodo, ni se veia el responsable por

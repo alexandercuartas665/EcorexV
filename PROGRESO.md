@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-23 - v0.15.61: el formulario del INICIO del flujo se ofrece en el wizard al crear (ADR-0069)
+
+- **Pedido:** que el formulario asignado a un nodo del flujo "salga" en el paso 3 del wizard igual que
+  los del concepto, sin perder la funcionalidad del concepto.
+- **Causa:** el paso 3 solo mira `ActividadSubcategoria.FormDefinitionId` (form del CONCEPTO). Los del
+  flujo son de NODO y se atienden en el detalle de la tarea; el del inicio ademas queda huerfano (el
+  inicio auto-completa). Con el concepto sin form, el paso 3 mostraba "no tiene formulario asociado".
+- **Fix (ADR-0069):** cuando el concepto no tiene form, el wizard usa el formulario del EVENTO DE INICIO
+  del flujo. `EffectiveFormDefId = concepto ?? primer form del inicio`; se reemplazo el uso directo del
+  form del concepto por esa propiedad en el paso 3, el modal y los helpers. Nuevo
+  `IFormResponseService.GetSubcategoriaCreationFlowFormsAsync`. Anclaje: el form del flujo se ancla al
+  numero EXACTO de la tarea (no "{numero}-{n}") para que el paso del flujo con ese mismo formulario
+  reuse el borrador (continuidad v0.15.60). Si el concepto SI tiene form, todo queda IGUAL (cero riesgo).
+- Sin migracion. Alcance: solo el/los form(s) del inicio; el primero garantiza continuidad.
+
+---
+
 ## 2026-08-22 - v0.15.60: mismo formulario en varios nodos carga los MISMOS datos (continuidad)
 
 - **Pedido:** si el mismo formulario esta asignado en varios nodos del flujo, cargar el MISMO

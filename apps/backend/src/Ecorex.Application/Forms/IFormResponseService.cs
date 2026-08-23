@@ -57,6 +57,13 @@ public interface IFormResponseService
     Task<TaskConceptFormsDto?> GetTaskConceptFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Formularios del PRIMER PASO del flujo (evento de inicio) de una subcategoria, para que el wizard los
+    /// ofrezca AL CREAR la actividad cuando el concepto no define formulario propio (ADR-0069). Vacio si la
+    /// subcategoria no tiene flujo publicado, el inicio no tiene formularios, o estos no estan Active.
+    /// </summary>
+    Task<IReadOnlyList<CreationFlowFormDto>> GetSubcategoriaCreationFlowFormsAsync(Guid subcategoriaId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Crea una NUEVA cotizacion (respuesta en borrador) del formulario del concepto para la tarea,
     /// anclada a su numero. Para el boton "Agregar cotizacion". Error si la tarea no tiene formulario de
     /// concepto o esta Cerrada (Closed).

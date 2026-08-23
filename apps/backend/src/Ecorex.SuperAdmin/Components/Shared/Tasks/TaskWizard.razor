@@ -293,7 +293,7 @@
                                formulario DIRECTO y crea la actividad recien al validarlo. Aqui el formulario
                                es solo informativo: se diligencia desde el detalle de la tarea (ADR-0038). *@
                             <div style="width:100%">
-                                @if (SelectedSub?.FormDefinitionId is Guid formDefId)
+                                @if (EffectiveFormDefId is Guid formDefId)
                                 {
                                     @* Formularios del CONCEPTO como TARJETAS (como el detalle de la tarea): se
                                        diligencian en un modal amplio (mas espacio). Cada cotizacion es un borrador
@@ -447,7 +447,7 @@
 
 @* Modal de llenado del formulario (mismo patron que el detalle): DynamicFormRenderer en una ventana
    amplia dimensionada por el CardLayout del formulario. Reutiliza OnDraftReady/FlushDraftAsync. *@
-@if (_wizFormModalOpen && SelectedSub?.FormDefinitionId is Guid wizFormDefId)
+@if (_wizFormModalOpen && EffectiveFormDefId is Guid wizFormDefId)
 {
     <div class="modal-overlay" style="z-index:1090;" @onclick="CloseWizFormAsync">
         <div class="modal-dialog" style="@WizFormModalWidthStyle()" @onclick:stopPropagation="true">
@@ -665,7 +665,7 @@
     private bool _encargadoRestringido;
 
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
-    private bool HasForm => SelectedSub?.FormDefinitionId is not null;
+    private bool HasForm => EffectiveFormDefId is not null;
 
     // --- Formularios del concepto como TARJETAS + modal de llenado (reemplaza el formulario incrustado) ---
 
@@ -677,6 +677,18 @@
     /// <summary>Borradores con al menos un valor (lo determina FlushDraftAsync al cerrar el modal). Solo
     /// estos se anclan (opcion A: no se anclan formularios vacios).</summary>
     private readonly HashSet<Guid> _draftsWithData = new();
+
+    /// <summary>Formularios del PRIMER PASO del flujo (evento de inicio) que el wizard ofrece al crear
+    /// cuando el concepto no define formulario propio (ADR-0069). Se cargan al elegir la actividad.</summary>
+    private IReadOnlyList<CreationFlowFormDto> _flowStartForms = new List<CreationFlowFormDto>();
+
+    /// <summary>Definicion de formulario que usa el paso 3: la del CONCEPTO si existe; si no, la del PRIMER
+    /// PASO del flujo (inicio, ADR-0069) para que el formulario del flujo "salga" al crear. Null = sin form.</summary>
+    private Guid? EffectiveFormDefId => SelectedSub?.FormDefinitionId ?? _flowStartForms.FirstOrDefault()?.DefinitionId;
+
+    /// <summary>True si el formulario del paso 3 proviene del flujo (inicio), no del concepto: cambia el
+    /// anclaje (al numero EXACTO de la tarea) para compartir datos con los pasos del flujo (continuidad).</summary>
+    private bool UsingFlowStartForm => SelectedSub?.FormDefinitionId is null && _flowStartForms.Count > 0;
 
     /// <summary>Modal de llenado abierto y sobre que borrador (null = uno NUEVO, lo crea el renderer).</summary>
     private bool _wizFormModalOpen;
@@ -712,7 +724,7 @@
     /// avisa por OnDraftReady).</summary>
     private async Task AddWizFormAsync()
     {
-        if (SelectedSub?.FormDefinitionId is not Guid defId) { return; }
+        if (EffectiveFormDefId is not Guid defId) { return; }
         await EnsureFormLayoutAsync(defId);
         _wizFormOpenId = null;
         _wizFormRenderer = null;
@@ -722,7 +734,7 @@
     /// <summary>"Editar": abre el modal sobre un borrador ya existente.</summary>
     private async Task OpenWizFormAsync(Guid draftId)
     {
-        if (SelectedSub?.FormDefinitionId is Guid defId) { await EnsureFormLayoutAsync(defId); }
+        if (EffectiveFormDefId is Guid defId) { await EnsureFormLayoutAsync(defId); }
         _wizFormOpenId = draftId;
         _wizFormRenderer = null;
         _wizFormModalOpen = true;
@@ -778,11 +790,16 @@
     private async Task AnchorWizFormsAsync(string number)
     {
         var n = 0;
+        var flowForm = UsingFlowStartForm;
         foreach (var draftId in _formDraftIds)
         {
             if (!_draftsWithData.Contains(draftId)) { continue; } // vacios no se anclan (opcion A).
             n++;
-            await FormResponsesSvc.SetReferenceAsync(draftId, number + "-" + n);
+            // Formulario del FLUJO (inicio, ADR-0069): el PRIMERO diligenciado se ancla al numero EXACTO de
+            // la tarea, para que el paso del flujo que usa el mismo formulario reuse este borrador y muestre
+            // los MISMOS datos (continuidad, v0.15.60). Los del concepto (y extras) van como "{numero}-{n}".
+            var reference = flowForm && n == 1 ? number : number + "-" + n;
+            await FormResponsesSvc.SetReferenceAsync(draftId, reference);
         }
     }
 
@@ -1042,8 +1059,15 @@
         if (sub is null)
         {
             _encargadoIds = Array.Empty<Guid>();
+            _flowStartForms = new List<CreationFlowFormDto>();
             return;
         }
+
+        // Formularios del primer paso del flujo (inicio) para ofrecerlos AL CREAR cuando el concepto no
+        // define formulario propio (ADR-0069). Si el concepto ya tiene form, no se consultan (gana el concepto).
+        _flowStartForms = sub.FormDefinitionId is null && sub.WorkflowDefinitionId is not null
+            ? await FormResponsesSvc.GetSubcategoriaCreationFlowFormsAsync(sub.Id)
+            : new List<CreationFlowFormDto>();
 
         if (sub.WorkflowDefinitionId is not null)
         {

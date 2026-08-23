@@ -787,6 +787,42 @@ public sealed class FormResponseService : IFormResponseService
         return result;
     }
 
+    public async Task<IReadOnlyList<CreationFlowFormDto>> GetSubcategoriaCreationFlowFormsAsync(
+        Guid subcategoriaId, CancellationToken cancellationToken = default)
+    {
+        var defId = await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => s.Id == subcategoriaId)
+            .Select(s => s.WorkflowDefinitionId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (defId is not Guid wfDefId)
+        {
+            return [];
+        }
+        // Debe estar publicado (mismo criterio que el arranque del flujo).
+        var published = await _db.WorkflowDefinitions.AsNoTracking()
+            .AnyAsync(d => d.Id == wfDefId && d.IsPublished && !d.IsArchived, cancellationToken);
+        if (!published)
+        {
+            return [];
+        }
+        var startNodeId = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.DefinitionId == wfDefId && n.NodeType == WorkflowNodeType.StartEvent)
+            .Select(n => (Guid?)n.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (startNodeId is not Guid snid)
+        {
+            return [];
+        }
+        // Formularios del evento de inicio (Active), en orden. Son los que el wizard ofrece AL CREAR.
+        return await _db.WorkflowNodeForms.AsNoTracking()
+            .Where(f => f.NodeId == snid)
+            .OrderBy(f => f.SortOrder)
+            .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id, (f, d) => d)
+            .Where(d => d.Status == FormStatus.Active && !d.IsArchived)
+            .Select(d => new CreationFlowFormDto(d.Id, d.Code, d.Title, d.CardLayout))
+            .ToListAsync(cancellationToken);
+    }
+
     // Resuelve el formulario del concepto (subcategoria) de una tarea: (tarea, definicion Active) o null.
     private async Task<(TaskItem Task, FormDefinition Def)?> ResolveConceptFormAsync(Guid taskItemId, CancellationToken ct)
     {

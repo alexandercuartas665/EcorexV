@@ -185,6 +185,15 @@ public sealed record TaskStepFormDto(
     FormCardLayout CardLayout = FormCardLayout.Normal);
 
 /// <summary>
+/// Formulario del PRIMER PASO del flujo (evento de inicio) que el wizard ofrece diligenciar AL CREAR
+/// la actividad cuando el concepto no define un formulario propio (ADR-0069). Se llena como los del
+/// concepto (tarjeta + modal) y se ancla al numero EXACTO de la tarea, para que la continuidad (mismo
+/// formulario en pasos siguientes) cargue los mismos datos.
+/// </summary>
+public sealed record CreationFlowFormDto(
+    Guid DefinitionId, string FormCode, string FormTitle, FormCardLayout CardLayout);
+
+/// <summary>
 /// Formulario por defecto que el concepto definio para la actividad
 /// (ActividadSubcategoria.FormDefinitionId, 000131). Se deriva de la subcategoria de la tarea y se
 /// ancla como borrador idempotente al numero de la tarea, igual que los formularios del paso, pero

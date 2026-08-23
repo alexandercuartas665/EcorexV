@@ -858,13 +858,13 @@ else
             <div class="fe-acc-empty">Este nodo no admite asignacion.</div>
             return;
         }
-        @* El cargo del INICIO no define el encargado del flujo (el inicio se completa solo). El encargado
-           de la actividad lo dicta el PRIMER PASO (Tarea). Evita la confusion tipica de asignar el cargo al
-           nodo de inicio y que la actividad nazca "sin encargado". *@
+        @* El encargado de la actividad lo dicta el PRIMER PASO (Tarea); si esa Tarea no tiene cargo, se usa
+           como RESPALDO el cargo del inicio (WorkflowStartService). Se sugiere asignarlo en la primera Tarea. *@
         @if (node.NodeType == WorkflowNodeType.StartEvent)
         {
-            <div class="fe-acc-note">El cargo del <b>inicio</b> no define el encargado de la actividad: el
-                encargado lo dicta el <b>primer paso (Tarea)</b>. Asigna alli el cargo del responsable.</div>
+            <div class="fe-acc-note">El encargado de la actividad lo dicta el <b>primer paso (Tarea)</b>. Si
+                esa Tarea no tiene cargo, se usa como respaldo el cargo del <b>inicio</b>. Lo ideal es
+                asignar el cargo en la primera Tarea.</div>
         }
         @* Origen del asignado (ADR-0056): como resuelve el motor el encargado al activar el paso. Aplica a la
            Tarea y a la compuerta/fin atendidos; el inicio hereda al iniciador. *@

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-22 - v0.15.59: encargado del flujo usa el cargo del INICIO como respaldo + copia local de BD
+
+- **Encargado (fallback al inicio):** `WorkflowStartService.ResolveFirstStepAsync` ahora, si el PRIMER
+  TASK no tiene cargo, usa como respaldo el cargo del EVENTO DE INICIO. Antes solo miraba el primer Task,
+  y un cargo puesto en el inicio (lo que el usuario hacia) daba "primer paso sin cargo" y la actividad
+  nacia sin encargado. El runtime ya ruteaba el encargado elegido al primer paso (TaskItemService fija
+  currentStep.AssignedToTenantUserId y salta la validacion cuando el Task no tiene cargo), asi que el
+  fallback SOLO faltaba en la resolucion del wizard. Se ajusto la nota del panel del inicio.
+- **Copia local de BD (dev):** el tunel SSH a prod (15433) hacia el dev local inusable (thread pool
+  starvation, paginas congeladas). Se descargo un pg_dump de prod (db ecorex, ~22 MB) y se restauro en
+  el Postgres local (ecorex-tareas-postgres:5442, db `ecorex`, 9 tenants). `appsettings.Development.local
+  .json` -> Default apunta a 5442. App UP en 3s (antes minutos). Tunel cerrado. Ver memoria
+  db-conexion-siempre-prod para refrescar/revertir. La copia NO se sincroniza con prod.
+
+---
+
 ## 2026-08-22 - v0.15.58: fix concurrencia DbContext en editor de flujos + nota de cargo en inicio
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion. Diagnostico con datos reales de prod

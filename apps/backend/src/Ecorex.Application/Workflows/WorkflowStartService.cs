@@ -68,12 +68,30 @@ public sealed class WorkflowStartService : IWorkflowStartService
             return Fail(FirstStepStatus.SinNodoTask, defId, null, null);
         }
 
-        var cargos = await _db.WorkflowNodePolicies
-            .AsNoTracking()
-            .Where(p => p.WorkflowNodeId == firstTask.Id)
-            .OrderBy(p => p.SortOrder)
-            .Select(p => new FirstStepCargoDto(p.OrgUnitId, p.OrgUnit!.Name))
-            .ToListAsync(cancellationToken);
+        // El cargo que define el ENCARGADO sale del PRIMER TASK. Si ese Task no tiene cargo asignado, se usa
+        // como FALLBACK el cargo del EVENTO DE INICIO (el usuario suele asignarlo ahi, en el "primer nodo").
+        // El motor igual rutea el encargado elegido al primer paso pendiente (TaskItemService.CreateAsync
+        // fija currentStep.AssignedToTenantUserId), asi que el cargo del inicio SI cuenta como encargado.
+        var cargoNodeId = firstTask.Id;
+        var cargos = await ReadCargosAsync(cargoNodeId, cancellationToken);
+
+        if (cargos.Count == 0)
+        {
+            var startNodeId = await _db.WorkflowNodes
+                .AsNoTracking()
+                .Where(n => n.DefinitionId == defId && n.NodeType == WorkflowNodeType.StartEvent)
+                .Select(n => (Guid?)n.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (startNodeId is Guid snid)
+            {
+                var startCargos = await ReadCargosAsync(snid, cancellationToken);
+                if (startCargos.Count > 0)
+                {
+                    cargoNodeId = snid;
+                    cargos = startCargos;
+                }
+            }
+        }
 
         if (cargos.Count == 0)
         {
@@ -81,7 +99,7 @@ public sealed class WorkflowStartService : IWorkflowStartService
         }
 
         // Reusa el resolver que ya expande cargo -> ocupantes (el mismo que usan la bandeja y el tablero).
-        var candidates = await _assignees.ResolveCandidatesAsync(firstTask.Id, cancellationToken);
+        var candidates = await _assignees.ResolveCandidatesAsync(cargoNodeId, cancellationToken);
 
         var status = candidates.Count == 0 ? FirstStepStatus.SinCandidatos : FirstStepStatus.Ok;
         return new FirstStepDto(status, defId, firstTask.Id, firstTask.Name, cargos, candidates);
@@ -175,6 +193,15 @@ public sealed class WorkflowStartService : IWorkflowStartService
         var fallback = outgoing.FirstOrDefault(e => WorkflowConditionEvaluator.IsDefault(e.ConditionExpression));
         return fallback is null ? [] : [fallback];
     }
+
+    /// <summary>Cargos (Dependencia/Cargo) asignados a un nodo, ordenados. Vacio si el nodo no tiene policy.</summary>
+    private async Task<List<FirstStepCargoDto>> ReadCargosAsync(Guid nodeId, CancellationToken cancellationToken)
+        => await _db.WorkflowNodePolicies
+            .AsNoTracking()
+            .Where(p => p.WorkflowNodeId == nodeId)
+            .OrderBy(p => p.SortOrder)
+            .Select(p => new FirstStepCargoDto(p.OrgUnitId, p.OrgUnit!.Name))
+            .ToListAsync(cancellationToken);
 
     private static FirstStepDto Fail(FirstStepStatus status, Guid? definitionId, Guid? nodeId, string? nodeName)
         => new(status, definitionId, nodeId, nodeName, NoCargos, NoCandidates);

@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-23 - v0.15.63: diagrama de la tarjeta - nombres en TODOS los nodos + cerrar paso con form
+
+- **Pedido:** el diagrama del proceso no mostraba los NOMBRES de los pasos siguientes (eventos/
+  compuerta salian como circulos/diamante vacios) ni una forma de CERRAR el paso desde el grafico.
+- **Agregado:**
+  - Etiqueta de NOMBRE bajo el shape de eventos (inicio/fin) y compuerta (antes solo el nodo Task
+    mostraba nombre). Ahora se leen "Requisicion de informacion tecnica", "Cliente Decide si compra",
+    "Cliente Decide Comprar", "Cliente No compra".
+  - Boton de menu (...) tambien en los eventos (antes solo Task y compuerta), para ver su info/nota.
+  - Menu de un paso CON FORMULARIO: boton "Ir a diligenciar y cerrar" que abre la pestana Formularios
+    (ese paso se cierra al enviar su formulario, y avanza al siguiente encargado).
+- **Encargado por paso:** el nodo Task muestra su encargado; eventos/compuerta lo mostraran cuando
+  tengan un cargo asignado (hoy solo el inicio tenia cargo). El menu por nodo ya permite anotar/cerrar
+  (pasos sin formulario) o elegir ruta (compuerta atendida).
+- Validado en local (T00026): los 5 nodos muestran nombre; colores verde/rosa correctos.
+
+---
+
 ## 2026-08-23 - v0.15.62: diagrama de la tarjeta muestra color + nota configurada del nodo
 
 - **Pedido:** en el diagrama del proceso (detalle de la tarea) cada nodo debe mostrar el COLOR y las

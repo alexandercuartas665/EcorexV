@@ -352,11 +352,20 @@
                                         @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
                                         <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @if (!string.IsNullOrWhiteSpace(nn.Name))
+                                        {
+                                            <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
+                                        }
                                     }
                                     else if (isEvent)
                                     {
                                         @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
                                         <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};" : "")"></div>
+                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @if (!string.IsNullOrWhiteSpace(nn.Name))
+                                        {
+                                            <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
+                                        }
                                     }
                                     else
                                     {
@@ -454,7 +463,8 @@
                                             else if (nn.IsCurrent && nn.HasForm)
                                             {
                                                 <div class="tk-flow-menu-t">PASO CON FORMULARIO</div>
-                                                <div class="tk-flow-menu-note">Este paso se atiende en la seccion "Formularios del paso".</div>
+                                                <div class="tk-flow-menu-note">Este paso se CIERRA al enviar su formulario. Al enviarlo, la actividad pasa al siguiente encargado.</div>
+                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => { _modalTab = "formularios"; _flowMenuNodeId = null; })">Ir a diligenciar y cerrar</button>
                                             }
                                             else
                                             {

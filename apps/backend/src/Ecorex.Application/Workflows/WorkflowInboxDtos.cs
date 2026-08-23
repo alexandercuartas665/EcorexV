@@ -64,7 +64,12 @@ public sealed record TaskFlowNodeDto(
     // Rutas de la compuerta que sigue a este paso (aprobado/rechazado con su destino), para el menu.
     IReadOnlyList<TaskFlowRouteDto>? Routes = null,
     // Cargo(s) del organigrama que atienden el nodo (WorkflowNodePolicy -> OrgUnit), para el footer.
-    string? CargoLabel = null);
+    string? CargoLabel = null,
+    // Apariencia CONFIGURADA del nodo en el editor de flujos (metadatos): color de paleta
+    // (violet/blue/green/amber/rose/slate) y nota post-it. Para pintar el nodo con su color y mostrar
+    // la nota dejada en la configuracion dentro de la tarjeta del proceso (ADR-0022).
+    string? Color = null,
+    string? ConfigNote = null);
 
 /// <summary>Clasificacion de una rama de compuerta para colorear/rotular: aprobado (verde),
 /// rechazado (rojo) o neutral (una salida sin semantica de aprobacion).</summary>

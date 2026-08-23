@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-23 - v0.15.62: diagrama de la tarjeta muestra color + nota configurada del nodo
+
+- **Pedido:** en el diagrama del proceso (detalle de la tarea) cada nodo debe mostrar el COLOR y las
+  NOTAS dejadas en la configuracion del flujo; el menu por nodo debe permitir anotar y cerrar el paso;
+  y en Formularios ver los del paso del flujo sin perder los del concepto.
+- **Ya existia:** el menu por nodo (textarea + "Cerrar paso" / rutas / reclamar) y la seccion de
+  Formularios muestra concepto (tarjetas) + "Formularios del proceso" (del paso). Los del paso solo
+  aparecen con un paso vigente (GetTaskStepFormsAsync).
+- **Agregado (v0.15.62):** `TaskFlowNodeDto.Color` y `ConfigNote` (de WorkflowNode.Color/Note via
+  GetCanvasAsync). El diagrama pinta el borde del nodo con el color configurado (o azul auto/violeta
+  manual por defecto) y muestra la nota de configuracion en el cuerpo del nodo y en su menu. Helper
+  `FlowNodeColor` (paleta violet/blue/green/amber/rose/slate -> var --t-*). Sin migracion.
+- Nota: para VER el menu "Cerrar paso" y los formularios del paso hace falta que el flujo tenga un paso
+  vigente (no Stuck). El flujo demo "PROCESO COMERCIAL" queda Stuck por un reinicio mal configurado en
+  "Cotizacion Renombrado" (Reinicio -> inicio): quitarlo en el editor para que corra.
+
+---
+
 ## 2026-08-23 - v0.15.61: el formulario del INICIO del flujo se ofrece en el wizard al crear (ADR-0069)
 
 - **Pedido:** que el formulario asignado a un nodo del flujo "salga" en el paso 3 del wizard igual que

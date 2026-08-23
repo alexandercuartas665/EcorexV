@@ -168,7 +168,10 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 LastActivityAt: lastAt,
                 WaitingSince: waitingSince,
                 Routes: routesByNode.TryGetValue(n.Id, out var nodeRoutes) ? nodeRoutes : null,
-                CargoLabel: cargoByNode.TryGetValue(n.Id, out var cargo) ? cargo : null);
+                CargoLabel: cargoByNode.TryGetValue(n.Id, out var cargo) ? cargo : null,
+                // Apariencia configurada (editor de flujos): color de paleta + nota post-it del nodo.
+                Color: n.Color,
+                ConfigNote: n.Note);
         }).ToList();
 
         var edges = canvas.Edges

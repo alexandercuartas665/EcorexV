@@ -339,7 +339,8 @@
                                 var isGw = nn.NodeType == WorkflowNodeType.ExclusiveGateway;
                                 var isEvent = nn.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
                                 var canAct = nn.IsCurrent && nn.IsMine && nn.StepId is not null && !nn.HasForm;
-                                var accent = nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)";
+                                // Color configurado del nodo (editor de flujos) si lo tiene; si no, azul (auto) / violeta.
+                                var accent = FlowNodeColor(nn.Color) ?? (nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
                                 <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
                                      style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@(isGw || isEvent ? "" : $"border-left:3px solid {accent};")"
                                      draggable="true"
@@ -348,12 +349,14 @@
                                      @onclick:stopPropagation="true">
                                     @if (isGw)
                                     {
-                                        <div class="tk-flow-gw"></div>
+                                        @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
+                                        <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                     }
                                     else if (isEvent)
                                     {
-                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")"></div>
+                                        @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
+                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};" : "")"></div>
                                     }
                                     else
                                     {
@@ -388,13 +391,22 @@
                                             <div class="tk-flow-badges">
                                                 @if (nn.IsAuto) { <span class="tk-flow-badge auto">AUTOMATICO</span> }
                                                 @if (nn.State == TaskFlowNodeState.Completed) { <span class="tk-flow-badge done">CERRADO</span> }
-                                                @if (nn.HasNote) { <span title="Tiene anotacion">&#128172;</span> }
+                                                @if (nn.HasNote) { <span title="Tiene anotacion del paso">&#128172;</span> }
                                             </div>
+                                            @* Nota dejada en la CONFIGURACION del nodo (editor de flujos): descripcion/instruccion del paso. *@
+                                            @if (!string.IsNullOrWhiteSpace(nn.ConfigNote))
+                                            {
+                                                <div class="tk-flow-confignote" title="@nn.ConfigNote" style="margin-top:6px;font-size:11px;line-height:1.35;color:var(--ink-3);background:var(--surface-2);border-left:2px solid @accent;border-radius:6px;padding:5px 7px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;">@nn.ConfigNote</div>
+                                            }
                                         </div>
                                     }
                                     @if (_flowMenuNodeId == nn.NodeId)
                                     {
                                         <div class="tk-flow-menu" draggable="false" @onclick:stopPropagation="true">
+                                            @if (!string.IsNullOrWhiteSpace(nn.ConfigNote))
+                                            {
+                                                <div class="tk-flow-menu-note" style="margin:0 0 8px;padding:6px 8px;background:var(--surface-2);border-radius:6px;border-left:2px solid @accent;white-space:pre-wrap;">@nn.ConfigNote</div>
+                                            }
                                             @if (nn.IsAuto)
                                             {
                                                 <div class="tk-flow-menu-t">PASO AUTOMATICO</div>
@@ -1852,6 +1864,20 @@
         TaskFlowRouteKind.Approve => "approve",
         TaskFlowRouteKind.Reject => "reject",
         _ => ""
+    };
+
+    /// <summary>Color CSS del nodo segun la clave de paleta configurada en el editor de flujos
+    /// (violet/blue/green/amber/rose/slate). Null si el nodo no tiene color: el diagrama aplica el
+    /// color por defecto (azul para automatico, violeta para manual).</summary>
+    private static string? FlowNodeColor(string? key) => key?.Trim().ToLowerInvariant() switch
+    {
+        "violet" => "var(--t-violet)",
+        "blue" => "var(--t-blue)",
+        "green" => "var(--t-green)",
+        "amber" => "var(--t-amber)",
+        "rose" => "var(--t-rose)",
+        "slate" => "var(--t-slate)",
+        _ => null
     };
 
     /// <summary>Linea del footer del nodo: cargo y (si hay) el usuario que lo ocupa. "Cargo: Usuario".</summary>

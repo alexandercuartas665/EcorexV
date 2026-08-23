@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-23 - v0.15.66: al derivar el borrador del flujo se copian los CARGOS y agentes por nodo
+
+- **Bug:** "los usuarios asignados se borran solos". Al editar un flujo publicado, `EnsureDraftAsync`
+  deriva una version NUEVA (nodos con IDs nuevos) y copiaba color/nota/tablero/reinicio/formularios/
+  reglas, PERO NO las `WorkflowNodePolicies` (cargos) ni los `WorkflowNodeAgents`. Asi, cada edicion/
+  publicacion dejaba los cargos varados en la version vieja -> la nueva quedaba sin usuarios.
+- **Fix:** `EnsureDraftAsync` ahora tambien copia las policies (cargo/dependencia por nodo) y los agentes,
+  mapeando por BpmnElementId (igual que formularios/reglas). Junto con v0.15.65 (publicar re-apunta el
+  concepto), editar+publicar ya conserva TODO (cargo, agentes, forms, color, nota, tablero, etc.).
+- Correccion puntual en la copia local: se copiaron los 3 cargos del StartEvent a la version publicada
+  actual para poder seguir probando de una.
+
+---
+
 ## 2026-08-23 - v0.15.65: publicar re-apunta el concepto a la version publicada + menu de nodo se cierra
 
 - **Bug (recurrente):** al editar+publicar un flujo se crea una version NUEVA, pero el concepto

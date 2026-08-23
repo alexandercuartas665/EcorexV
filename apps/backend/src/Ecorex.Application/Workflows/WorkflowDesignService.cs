@@ -279,6 +279,42 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             }
         }
 
+        // Asignaciones de CARGO/DEPENDENCIA por nodo (WorkflowNodePolicy): tampoco viajan en el XML. Sin
+        // esto, al editar+publicar un flujo los usuarios asignados "se borraban solos" (quedaban en la
+        // version vieja). Se copian mapeando por BpmnElementId, como formularios y reglas.
+        var sourcePolicies = await _db.WorkflowNodePolicies
+            .AsNoTracking().Where(p => sourceNodeIds.Contains(p.WorkflowNodeId)).ToListAsync(cancellationToken);
+        foreach (var policy in sourcePolicies)
+        {
+            if (draftByElement.TryGetValue(sourceById[policy.WorkflowNodeId].BpmnElementId, out var draftNode))
+            {
+                _db.WorkflowNodePolicies.Add(new WorkflowNodePolicy
+                {
+                    TenantId = draft.TenantId,
+                    WorkflowNodeId = draftNode.Id,
+                    OrgUnitId = policy.OrgUnitId,
+                    SortOrder = policy.SortOrder
+                });
+            }
+        }
+
+        // Agentes por nodo (WorkflowNodeAgent): mismo criterio, para no perder los pasos automaticos.
+        var sourceAgents = await _db.WorkflowNodeAgents
+            .AsNoTracking().Where(a => sourceNodeIds.Contains(a.NodeId)).ToListAsync(cancellationToken);
+        foreach (var agent in sourceAgents)
+        {
+            if (draftByElement.TryGetValue(sourceById[agent.NodeId].BpmnElementId, out var draftNode))
+            {
+                _db.WorkflowNodeAgents.Add(new WorkflowNodeAgent
+                {
+                    TenantId = draft.TenantId,
+                    NodeId = draftNode.Id,
+                    AiAgentId = agent.AiAgentId,
+                    Autonomy = agent.Autonomy
+                });
+            }
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {

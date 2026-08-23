@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-23 - v0.15.64: Owner/Admin cierra cualquier paso desde el diagrama + nombre del responsable
+
+- **Pedido:** no se podia "dar terminado" a un paso desde el menu del nodo, ni se veia el responsable por
+  nombre. Causa: el menu abre pero queda en solo-lectura porque el VIEWER (Admin) no es el asignado
+  (por diseno solo el asignado cierra); y el responsable salia como correo/cedula.
+- **Cambios (WorkflowInboxService.GetTaskFlowDiagramAsync + CompletePendingStepAsync):**
+  - Etiqueta de usuario = NOMBRE (display_name del platform user; fallback correo) -> el nodo muestra
+    "Lilian Loaiza".
+  - StepId del paso VIGENTE se puebla aunque el viewer no sea el asignado (para que el Owner/Admin pueda
+    accionar). HasForm ahora sale de los WorkflowNodeForms del nodo (no del viewer) -> correcto para todos.
+  - CompletePendingStepAsync autoriza tambien a OWNER/ADMIN del tenant (IsOwnerOrAdminAsync), no solo al
+    asignado/candidato: gobierno del proceso.
+- **UI (TaskDetailModal):** `_viewerIsManager` (tenant_role Owner/Admin) -> `canAct` incluye al manager,
+  asi el menu del paso vigente ofrece "Cerrar paso"/rutas al Owner/Admin. Los pasos con formulario se
+  cierran por el formulario ("Ir a diligenciar y cerrar").
+- **Notas/color:** ya se guardan (version editada del flujo); se ven en actividades NUEVAS (las viejas
+  usan la version anterior del flujo). Recordatorio: tras republicar, re-enlazar el concepto a la version
+  publicada (hueco pendiente: publicar no re-apunta el concepto).
+
+---
+
 ## 2026-08-23 - v0.15.63: diagrama de la tarjeta - nombres en TODOS los nodos + cerrar paso con form
 
 - **Pedido:** el diagrama del proceso no mostraba los NOMBRES de los pasos siguientes (eventos/

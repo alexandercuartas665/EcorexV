@@ -76,6 +76,13 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
 
         // Nodos con agente (automaticos): a lo sumo uno por nodo.
         var nodeIds = canvas.Nodes.Select(n => n.Id).ToList();
+        // Nodos con formulario (independiente del viewer): asi HasForm es correcto para TODOS (incluido un
+        // Owner/Admin que no es el asignado) y un paso con formulario se cierra por el formulario, no con
+        // "Cerrar paso" a secas.
+        var formNodeIds = (await _db.WorkflowNodeForms.AsNoTracking()
+            .Where(f => nodeIds.Contains(f.NodeId))
+            .Select(f => f.NodeId)
+            .ToListAsync(cancellationToken)).ToHashSet();
         var agentByNode = await (
             from a in _db.WorkflowNodeAgents.AsNoTracking()
             where nodeIds.Contains(a.NodeId)
@@ -84,9 +91,14 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             select new { a.NodeId, AgentName = ag != null ? ag.Name : null })
             .ToDictionaryAsync(x => x.NodeId, x => x.AgentName, cancellationToken);
 
-        var userLabels = await _db.TenantUsers.AsNoTracking()
-            .Select(u => new { u.Id, u.Email })
-            .ToDictionaryAsync(u => u.Id, u => u.Email, cancellationToken);
+        // Etiqueta del usuario = NOMBRE (display_name del platform user); si no hay, el correo. Para que
+        // el diagrama muestre "Lilian Loaiza" y no el correo/cedula.
+        var userLabels = await (
+                from tu in _db.TenantUsers.AsNoTracking()
+                join pu in _db.PlatformUsers.AsNoTracking() on tu.PlatformUserId equals pu.Id into puj
+                from pu in puj.DefaultIfEmpty()
+                select new { tu.Id, Label = pu != null && pu.DisplayName != null && pu.DisplayName != "" ? pu.DisplayName : tu.Email })
+            .ToDictionaryAsync(x => x.Id, x => x.Label, cancellationToken);
 
         // Cargo(s) del nodo (WorkflowNodePolicy -> OrgUnit del organigrama): el "cargo que atiende".
         var cargoRows = await (
@@ -156,8 +168,10 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 IsCurrent: h?.IsCurrent ?? false,
                 IsMine: my?.IsMine ?? false,
                 IsClaimable: my?.IsClaimable ?? false,
-                StepId: my?.StepId,
-                HasForm: my?.HasForm ?? false,
+                // StepId del paso VIGENTE del nodo aunque el viewer no sea el asignado: asi un Owner/Admin
+                // (o quien atiende) puede accionar sobre el paso actual desde el diagrama.
+                StepId: my?.StepId ?? (h is { IsCurrent: true, Status: WorkflowStepStatus.Pending } ? h.Id : (Guid?)null),
+                HasForm: formNodeIds.Contains(n.Id),
                 ApprovalOptions: my?.ApprovalOptions ?? Array.Empty<string>(),
                 IsAuto: isAuto,
                 AgentName: agentName,
@@ -420,9 +434,11 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
         var (step, node) = loaded.Value;
 
-        // Solo el asignado o un candidato (paso sin asignar) puede completar.
+        // El asignado, un candidato (paso sin asignar) o un OWNER/ADMIN del tenant puede completar. El
+        // Owner/Admin cierra cualquier paso desde el diagrama (gobierno del proceso), no solo el suyo.
         var authorized = step.AssignedToTenantUserId == tenantUserId
-            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken));
+            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken))
+            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
         if (!authorized)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid("No estas autorizado para completar este paso.");
@@ -461,6 +477,14 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
         return new LoadedStep((step, node), null);
     }
+
+    /// <summary>True si el usuario es OWNER o ADMIN del tenant: puede cerrar/gobernar cualquier paso del
+    /// flujo desde el diagrama, no solo el que tiene asignado.</summary>
+    private async Task<bool> IsOwnerOrAdminAsync(Guid tenantUserId, CancellationToken cancellationToken)
+        => await _db.TenantUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == tenantUserId
+                && (u.TenantRole == Ecorex.Domain.Enums.TenantRole.Owner || u.TenantRole == Ecorex.Domain.Enums.TenantRole.Admin),
+                cancellationToken);
 
     private async Task<bool> IsCandidateAsync(WorkflowNode node, Guid tenantUserId, CancellationToken cancellationToken)
     {

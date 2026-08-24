@@ -21,6 +21,26 @@
 
 ---
 
+## 2026-08-24 - v0.15.74: herencia de encargado robusta + el evento de FIN auto-finaliza (ADR-0075)
+
+- **Bug (T00032)**: al cerrar el primer paso, la COMPUERTA no dejaba elegir la ruta (menu de solo lectura).
+  Causa: la compuerta es InheritStart y el INICIADOR de la instancia estaba guardado con el id de un
+  PLATFORM user (no tenant_user) -> se "asignaba" a un fantasma -> IsMine falso para todos.
+- **Fix herencia robusta**: `InheritStart`/`InheritPrevious` VALIDAN que el id sea tenant_user real; si no
+  (iniciador fantasma/nulo/borrado), caen al encargado del PASO ANTERIOR (`FirstValidTenantUserAsync`). Asi
+  el caso lo sigue llevando quien lo tomo. Auditado: la compuerta paso a direccionventas y aparecio el
+  selector de rutas.
+- **Evento de FIN auto-finaliza** (`FinalizeEndEventAsync`): el fin NO lo cierra el usuario; al alcanzarlo el
+  motor lo auto-completa, ejecuta el hook de reglas del nodo, y la tarea se marca terminada (revierte la
+  parte de ADR-0068 del fin atendido). Auditado: elegir "Cliente Decide Comprar" -> fin Completed, instancia
+  Completed, tarea Done, sin cierre manual.
+- **Pendiente declarado (ADR-0075)**: (a) raiz del iniciador fantasma = la creacion pasa el id de PLATAFORMA
+  a StartInstanceAsync (deberia ser el de tenant); (b) reglas del nodo en runtime = el hook es NoOp (falta
+  cablear el RulesEngine); (c) salto a otro flujo (JumpToDefinitionId) = sin runtime, falta definir semantica.
+- Sin desplegar.
+
+---
+
 ## 2026-08-24 - v0.15.73 (visuales): rama descartada en gris + eventos mas grandes (ADR-0074)
 
 - **Aclaracion asignacion (no bug)**: el primer paso SI se asigna por cargo (Cotizacion sin cargo -> usa de

@@ -539,9 +539,9 @@ public sealed class WorkflowEngine : IWorkflowEngine
             await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, inherited, task, predecessor, cancellationToken);
             instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
         }
-        else if (target.NodeType == WorkflowNodeType.EndEvent && !target.WaitsForHuman)
+        else if (target.NodeType == WorkflowNodeType.EndEvent)
         {
-            steps.Add(AddStep(instance, target, step.CycleIndex, isCycleStart: false, WorkflowStepStatus.Completed, isCurrent: false));
+            await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, cancellationToken);
         }
         else
         {
@@ -728,20 +728,17 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, task, step.ExecutedByTenantUserId ?? step.AssignedToTenantUserId, cancellationToken);
                         instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
                     }
-                    else if (target.NodeType == WorkflowNodeType.EndEvent && !target.WaitsForHuman)
+                    else if (target.NodeType == WorkflowNodeType.EndEvent)
                     {
-                        // Historial completo: el endEvent alcanzado queda registrado.
+                        // Un EVENTO DE FIN no lo cierra el usuario (decision del usuario 2026-08-24, ADR-0075):
+                        // al alcanzarlo se AUTO-completa y ejecuta las reglas del nodo (hook del RulesEngine);
+                        // no queda Pending esperando un cierre manual. Se revierte la parte de ADR-0068 que
+                        // dejaba un fin ATENDIDO en espera de confirmacion.
                         //
-                        // D11 (multi-token): alcanzar un endEvent cierra ESTA RAMA, no la
-                        // instancia. Antes se llamaba aqui a CompleteInstance y las ramas
-                        // hermanas vivas quedaban Skipped, asi que en un flujo con 4 salidas
-                        // paralelas solo prosperaba la primera en llegar al final. La instancia
-                        // ahora se cierra abajo, cuando no queda NINGUN paso vigente.
-                        //
-                        // Evento de fin ATENDIDO (ADR-0068): cae en el 'else' de abajo (ActivateNodeAsync),
-                        // que lo deja Pending para que un responsable CONFIRME el cierre antes de terminar.
-                        steps.Add(AddStep(instance, target, step.CycleIndex, isCycleStart: false,
-                            status: WorkflowStepStatus.Completed, isCurrent: false));
+                        // D11 (multi-token): alcanzar un endEvent cierra ESTA RAMA, no la instancia. La
+                        // instancia se completa abajo, cuando no queda NINGUN paso vigente (asi prosperan las
+                        // ramas paralelas, no solo la primera en llegar al fin).
+                        await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, cancellationToken);
                     }
                     else
                     {
@@ -983,19 +980,58 @@ public sealed class WorkflowEngine : IWorkflowEngine
         return step;
     }
 
+    /// <summary>
+    /// Alcanza un EVENTO DE FIN (ADR-0075): NO lo cierra el usuario. Ejecuta las reglas del nodo (hook del
+    /// RulesEngine; hoy NoOp hasta esa ola) y lo registra Completed. La tarea se marca terminada mas arriba,
+    /// cuando ya no queda ningun paso vigente (CompleteInstance). El salto a otro flujo (JumpToDefinitionId)
+    /// queda pendiente de runtime (deuda ADR-0056): aqui es el punto natural para dispararlo en su ola.
+    /// </summary>
+    private async Task FinalizeEndEventAsync(
+        WorkflowInstance instance, List<WorkflowStepHistory> steps, WorkflowNode endNode, int cycleIndex,
+        CancellationToken cancellationToken)
+    {
+        await _ruleHook.OnNodeActivatedAsync(new WorkflowRuleContext(
+            instance.TenantId, instance.Id, instance.DefinitionId, endNode.Id,
+            endNode.BpmnElementId, endNode.Name, cycleIndex, instance.TaskItemId), cancellationToken);
+        steps.Add(AddStep(instance, endNode, cycleIndex, isCycleStart: false, WorkflowStepStatus.Completed, isCurrent: false));
+    }
+
     // ---- Origen del asignado (ADR-0056): resuelve el encargado concreto al activar un paso Task ----
 
     private async Task<Guid?> ResolveDynamicAssigneeAsync(
         WorkflowInstance instance, WorkflowNode node, Guid? predecessorUserId, CancellationToken cancellationToken)
         => node.AssigneeSource switch
         {
-            WorkflowAssigneeSource.InheritStart => instance.StartedByTenantUserId,
-            WorkflowAssigneeSource.InheritPrevious => predecessorUserId,
+            // InheritStart hereda al INICIADOR del flujo; InheritPrevious, al encargado del PASO ANTERIOR.
+            // En ambos se VALIDA que el id sea un tenant_user real del tenant y, si no (iniciador nulo o
+            // guardado con un id que NO es de tenant -- p.ej. el id de PLATAFORMA del usuario), se cae al
+            // paso anterior para que el caso lo siga llevando quien lo tomo (el primer paso se resolvio por
+            // cargo). Sin esto, el paso quedaba "asignado" a un usuario fantasma y nadie podia atender (ADR-0075).
+            WorkflowAssigneeSource.InheritStart
+                => await FirstValidTenantUserAsync(cancellationToken, instance.StartedByTenantUserId, predecessorUserId),
+            WorkflowAssigneeSource.InheritPrevious
+                => await FirstValidTenantUserAsync(cancellationToken, predecessorUserId),
             WorkflowAssigneeSource.FormField => string.IsNullOrWhiteSpace(node.AssigneeFormFieldCode)
                 ? null
                 : await ResolveAssigneeFromFormAsync(instance.Id, node.Id, node.AssigneeFormFieldCode!.Trim(), cancellationToken),
             _ => null
         };
+
+    /// <summary>Primer id de la lista que corresponde a un tenant_user REAL del tenant (filtro global); null
+    /// si ninguno. Evita "asignar" un paso a un id que no es de tenant (iniciador guardado con id de
+    /// plataforma, usuario borrado, etc.), que dejaba el paso sin encargado atendible (ADR-0075).</summary>
+    private async Task<Guid?> FirstValidTenantUserAsync(CancellationToken cancellationToken, params Guid?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate is Guid id
+                && await _db.TenantUsers.AsNoTracking().AnyAsync(u => u.Id == id, cancellationToken))
+            {
+                return id;
+            }
+        }
+        return null;
+    }
 
     /// <summary>Busca en las respuestas de formulario COMPLETADAS de OTROS nodos de la instancia el valor del
     /// campo indicado (la mas reciente con valor no vacio) y lo mapea a un TenantUser (por id o correo).</summary>

@@ -86,6 +86,9 @@ public static class DependencyInjection
         // RulesEngine (FASE 4 ola 3, ADR-0016): ejecuta las reglas autonomas del nodo.
         services.AddScoped<Workflows.IWorkflowEngine, Workflows.WorkflowEngine>();
         services.AddScoped<Workflows.IWorkflowRuleHook, Rules.WorkflowRuleHook>();
+        // Salto de flujo -> tarea hija (ADR-0076): el motor lo resuelve perezosamente al alcanzar un fin con
+        // JumpToDefinitionId (evita el ciclo de DI con TaskItemService).
+        services.AddScoped<Workflows.IChildTaskStarter, Workflows.ChildTaskStarter>();
         // Editor de flujos del prototipo (ADR-0022): indice con metricas + mutaciones del canvas.
         services.AddScoped<Workflows.IWorkflowDesignService, Workflows.WorkflowDesignService>();
         // Agentes de IA en nodos (ola 1): arma el contexto del paso (nodo+formulario, datos

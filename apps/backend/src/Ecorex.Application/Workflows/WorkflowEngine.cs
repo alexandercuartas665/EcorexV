@@ -29,17 +29,24 @@ public sealed class WorkflowEngine : IWorkflowEngine
     private readonly ITenantContext _tenantContext;
     private readonly IWorkflowRuleHook _ruleHook;
     private readonly ITaskBroadcaster _broadcaster;
+    // Resuelve el iniciador de tarea hija (salto de flujo, ADR-0076) PEREZOSAMENTE, en el mismo scope, para
+    // no acoplar el motor a TaskItemService y evitar el ciclo de DI (TaskItemService -> IWorkflowEngine).
+    // Opcional/nullable: DI inyecta el proveedor real; los tests que construyen el motor a mano pasan null
+    // (no ejercen saltos de flujo) y el salto simplemente se omite.
+    private readonly IServiceProvider? _serviceProvider;
 
     public WorkflowEngine(
         IApplicationDbContext db,
         ITenantContext tenantContext,
         IWorkflowRuleHook ruleHook,
-        ITaskBroadcaster broadcaster)
+        ITaskBroadcaster broadcaster,
+        IServiceProvider? serviceProvider = null)
     {
         _db = db;
         _tenantContext = tenantContext;
         _ruleHook = ruleHook;
         _broadcaster = broadcaster;
+        _serviceProvider = serviceProvider;
     }
 
     // ---- Importacion y publicacion ----
@@ -989,6 +996,19 @@ public sealed class WorkflowEngine : IWorkflowEngine
         if (task is not null)
         {
             await MoveTaskToNodeTargetAsync(task, endNode, cancellationToken);
+        }
+        // Salto a otro flujo (ADR-0076): si el nodo fin tiene JumpToDefinitionId, se crea una TAREA HIJA
+        // (ParentId = esta tarea) corriendo ese otro flujo, heredando Entidad y adjuntos del padre. Se resuelve
+        // el starter perezosamente (evita el ciclo de DI con TaskItemService) y corre en esta misma transaccion.
+        if (task is not null && endNode.JumpToDefinitionId is Guid jumpDefId
+            && _serviceProvider?.GetService(typeof(IChildTaskStarter)) is IChildTaskStarter starter)
+        {
+            var childId = await starter.StartChildFromJumpAsync(task.Id, jumpDefId, cancellationToken);
+            if (childId is not null)
+            {
+                AddTaskActivity(task, null, "Sistema",
+                    "salto de flujo: se creo la tarea hija que corre el flujo destino");
+            }
         }
         steps.Add(AddStep(instance, endNode, cycleIndex, isCycleStart: false, WorkflowStepStatus.Completed, isCurrent: false));
     }

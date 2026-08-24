@@ -21,6 +21,23 @@
 
 ---
 
+## 2026-08-24 - v0.15.76: un evento de FIN con salto a otro flujo crea una TAREA HIJA (ADR-0076)
+
+- **Salto de flujo en runtime** (antes era solo visual, deuda ADR-0056): al alcanzar un fin con
+  `JumpToDefinitionId`, el motor crea una TAREA HIJA (`ParentId` = la tarea del padre) que corre ese otro
+  flujo. Seam `IChildTaskStarter`/`ChildTaskStarter` resuelto perezosamente por el motor via `IServiceProvider`
+  (evita el ciclo de DI con TaskItemService; misma transaccion del avance del padre).
+- **Herencia**: la hija hereda `EntidadId` (conexion de negocio) + queda ligada por `ParentId`; se **copian
+  los adjuntos** del padre (filas nuevas reusando el mismo Url -> mismo archivo, sin duplicar). Idempotente
+  (no crea 2 hijas del mismo padre/flujo) y con guarda (flujo destino debe estar publicado).
+- **Correccion**: el hook de reglas registrado en DI es el REAL (`Rules.WorkflowRuleHook`), NO NoOp -> las
+  reglas del nodo SI se ejecutan (incluido en el fin, via FinalizeEndEventAsync). (Antes reporte que era NoOp.)
+- **Pendiente (siguiente paso)**: mostrar en la hija, en SOLO LECTURA, los FORMULARIOS diligenciados del
+  padre (los formularios se anclan por Reference==Number, asi que requiere UI + servicio). Los adjuntos ya
+  se heredan. Sin desplegar.
+
+---
+
 ## 2026-08-24 - v0.15.75: la tarjeta cae en el tablero/columna del nodo FIN al terminar el flujo
 
 - Al alcanzar un evento de FIN, la tarjeta ahora se mueve al tablero/columna destino configurado en ESE

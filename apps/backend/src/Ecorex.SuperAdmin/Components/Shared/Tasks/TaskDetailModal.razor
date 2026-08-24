@@ -357,6 +357,7 @@
                                         @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
                                         <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;background:color-mix(in srgb, {gc} 16%, var(--surface));" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @if (nn.TeamNotes is { Count: > 0 } gwn) { <span class="tk-flow-notecount" title="@(gwn.Count) nota(s) del equipo">&#128172; @gwn.Count</span> }
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
                                             <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
@@ -367,6 +368,7 @@
                                         @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
                                         <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};background:color-mix(in srgb, {ec} 18%, var(--surface));" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @if (nn.TeamNotes is { Count: > 0 } gwn) { <span class="tk-flow-notecount" title="@(gwn.Count) nota(s) del equipo">&#128172; @gwn.Count</span> }
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
                                             <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
@@ -406,6 +408,7 @@
                                                 @if (nn.IsAuto) { <span class="tk-flow-badge auto">AUTOMATICO</span> }
                                                 @if (nn.State == TaskFlowNodeState.Completed) { <span class="tk-flow-badge done">CERRADO</span> }
                                                 @if (nn.HasNote) { <span title="Tiene anotacion del paso">&#128172;</span> }
+                                                @if (nn.TeamNotes is { Count: > 0 } tnc) { <span class="tk-flow-badge notes" title="@(tnc.Count) nota(s) del equipo">&#128172; @tnc.Count</span> }
                                             </div>
                                             @* Nota dejada en la CONFIGURACION del nodo (editor de flujos): descripcion/instruccion del paso. *@
                                             @if (!string.IsNullOrWhiteSpace(nn.ConfigNote))

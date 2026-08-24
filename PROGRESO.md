@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-24 - v0.15.71: contador de notas del equipo por nodo en el diagrama
+
+- Cada nodo muestra CUANTAS notas del equipo tiene (ADR-0071): badge "(globo) N". En tarjetas Task va
+  inline en la fila de badges (`.tk-flow-badge.notes`, color de marca); en compuertas/eventos es una
+  pildora flotante en la esquina (`.tk-flow-notecount`). Solo si hay >0 notas. Reusa
+  `TaskFlowNodeDto.TeamNotes.Count`; sin backend ni migracion.
+- Auditado (navegador interno del preview): Cotización muestra "N 1" y la compuerta "N 1". Sin desplegar.
+
+---
+
 ## 2026-08-23 - v0.15.70: notas colaborativas del equipo por nodo + color del nodo VISIBLE (ADR-0071)
 
 - **Notas del equipo (nuevo)**: cualquier miembro con acceso a la tarea deja notas en CUALQUIER nodo

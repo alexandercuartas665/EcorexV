@@ -1673,6 +1673,10 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-badge { font-size: 8px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 4px; color: #fff; }
 .tk-flow-badge.auto { background: var(--t-blue); }
 .tk-flow-badge.done { background: var(--t-green); }
+/* Contador de notas del equipo (ADR-0071): cuantos recados hay sobre el nodo. */
+.tk-flow-badge.notes { background: var(--brand); font-size: 9px; padding: 1px 6px; letter-spacing: 0; }
+/* Version flotante para compuertas/eventos (sin fila de badges): pildora en la esquina del nodo. */
+.tk-flow-notecount { position: absolute; top: -6px; right: -6px; z-index: 4; background: var(--brand); color: #fff; font-size: 9px; font-weight: 800; line-height: 1; padding: 2px 5px; border-radius: 8px; box-shadow: var(--sh-sm); pointer-events: none; }
 .tk-flow-by { font-size: 9px; color: var(--ink-3); margin-top: 3px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; }
 .tk-flow-menu { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 20; width: 220px; max-height: 300px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line-2); border-radius: 11px; box-shadow: var(--sh-lg); padding: 11px; text-align: left; }
 /* Popover FIJO del menu de nodo (a nivel raiz): no lo recorta el scroller del diagrama ni lo descoloca

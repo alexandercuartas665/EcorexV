@@ -343,7 +343,7 @@
                                 var isEvent = nn.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
                                 @* Puede accionar el paso vigente: el asignado, o un OWNER/ADMIN (gobierna el flujo).
                                    Incluye pasos CON formulario: se pueden cerrar directo (el formulario es opcional). *@
-                                var canAct = nn.IsCurrent && nn.StepId is not null && (nn.IsMine || _viewerIsManager);
+                                var canAct = nn.IsCurrent && nn.StepId is not null && nn.IsMine;
                                 // Color configurado del nodo (editor de flujos) si lo tiene; si no, azul (auto) / violeta.
                                 var accent = FlowNodeColor(nn.Color) ?? (nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
                                 <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
@@ -1205,7 +1205,7 @@
      && _flowDiagram.Nodes.FirstOrDefault(x => x.NodeId == _openMenuId) is TaskFlowNodeDto mnode)
 {
     var maccent = FlowNodeColor(mnode.Color) ?? (mnode.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
-    var mcanAct = mnode.IsCurrent && mnode.StepId is not null && (mnode.IsMine || _viewerIsManager);
+    var mcanAct = mnode.IsCurrent && mnode.StepId is not null && mnode.IsMine;
     <div class="tk-flow-menu-backdrop" @onclick="@(() => _flowMenuNodeId = null)"></div>
     <div class="tk-flow-menu tk-flow-menu-fixed" style="left:@(_flowMenuLeft)px;top:@(_flowMenuTop)px;" @onclick:stopPropagation="true">
         @if (!string.IsNullOrWhiteSpace(mnode.ConfigNote))
@@ -1571,7 +1571,6 @@
             // Si falla (p.ej. un corte transitorio de la BD por el tunel de dev), se degrada a "sin
             // diagrama" SIN tumbar el circuito ni impedir abrir la tarea. Ensancha el modal y pinta el
             // estado del flujo; el menu de cada nodo actual mio permite cerrar EN ORDEN con nota.
-            _viewerIsManager = await ViewerIsManagerAsync();
             if (_actorTenantUserId is Guid meForFlow)
             {
                 try
@@ -3018,18 +3017,6 @@
             await Broadcaster.TaskChangedAsync(tenantId, taskId, status);
         }
         await OnChanged.InvokeAsync();
-    }
-
-    /// <summary>El viewer es OWNER/ADMIN del tenant: puede cerrar/gobernar cualquier paso del flujo desde
-    /// el diagrama (no solo el que tiene asignado). El servidor lo revalida (IsOwnerOrAdminAsync).</summary>
-    private bool _viewerIsManager;
-    private async Task<bool> ViewerIsManagerAsync()
-    {
-        if (AuthState is null) { return false; }
-        var st = await AuthState;
-        var role = st.User.FindFirst("tenant_role")?.Value;
-        return string.Equals(role, "Owner", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<Guid> ActorAsync()

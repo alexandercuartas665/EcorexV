@@ -184,8 +184,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 g => (IReadOnlyList<TaskFlowNoteDto>)g
                     .Select(x => new TaskFlowNoteDto(x.AuthorName, x.Text, x.CreatedAt)).ToList());
 
-        // Reapertura de pasos (ADR-0070): un Owner/Admin reabre cualquiera; el encargado, el que cerro.
-        var viewerIsManager = await IsOwnerOrAdminAsync(viewerTenantUserId, cancellationToken);
+        // Reapertura de pasos (ADR-0070): SOLO el encargado que lo cerro (decision del usuario 2026-08-24;
+        // sin override de Owner/Admin).
         var typeById = canvas.Nodes.ToDictionary(x => x.Id, x => x.NodeType);
         var adjacency = canvas.Edges
             .GroupBy(e => e.SourceNodeId)
@@ -244,7 +244,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 && n.NodeType == WorkflowNodeType.Task
                 && !isAuto
                 && instance.Status == WorkflowInstanceStatus.Running
-                && (viewerIsManager || (h?.ExecutedByTenantUserId is Guid exu && exu == viewerTenantUserId))
+                && (h?.ExecutedByTenantUserId is Guid exu && exu == viewerTenantUserId)
                 && !DownstreamHasHumanClose(n.Id);
             return new TaskFlowNodeDto(
                 NodeId: n.Id,
@@ -524,14 +524,14 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
         var (step, node) = loaded.Value;
 
-        // El asignado, un candidato (paso sin asignar) o un OWNER/ADMIN del tenant puede completar. El
-        // Owner/Admin cierra cualquier paso desde el diagrama (gobierno del proceso), no solo el suyo.
+        // Solo el ASIGNADO o, si el paso esta sin asignar, un CANDIDATO de su cargo puede cerrar (decision
+        // del usuario 2026-08-24): se respeta la asignacion, sin override de Owner/Admin. Un candidato del
+        // cargo primero RECLAMA el paso (ClaimStepAsync) y luego lo cierra.
         var authorized = step.AssignedToTenantUserId == tenantUserId
-            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken))
-            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
+            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken));
         if (!authorized)
         {
-            return WorkflowResult<WorkflowInstanceDto>.Invalid("No estas autorizado para completar este paso.");
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo el encargado asignado (o su cargo) puede cerrar este paso.");
         }
 
         // La decision (approvalResult) se captura EN el paso Task que entra a la compuerta. El
@@ -557,13 +557,12 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return WorkflowResult<bool>.Invalid("Solo se puede reabrir un paso ya cerrado.");
         }
 
-        // Reabre el ENCARGADO que lo cerro o un Owner/Admin (gobierno del proceso). El motor revalida el
-        // estado (que no haya cierre humano posterior) dentro de la transaccion.
-        var authorized = (step.ExecutedByTenantUserId is Guid ex && ex == tenantUserId)
-            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
+        // Reabre SOLO el ENCARGADO que lo cerro (decision del usuario 2026-08-24: se respeta la asignacion,
+        // sin override de Owner/Admin). El motor revalida el estado (que no haya cierre humano posterior).
+        var authorized = step.ExecutedByTenantUserId is Guid ex && ex == tenantUserId;
         if (!authorized)
         {
-            return WorkflowResult<bool>.Invalid("No estas autorizado para reabrir este paso.");
+            return WorkflowResult<bool>.Invalid("Solo quien cerro el paso puede reabrirlo.");
         }
 
         var result = await _engine.ReopenStepAsync(step.InstanceId, step.Id, tenantUserId, cancellationToken);
@@ -639,11 +638,10 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         var (step, node) = loaded.Value;
 
         var authorized = step.AssignedToTenantUserId == tenantUserId
-            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken))
-            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
+            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken));
         if (!authorized)
         {
-            return WorkflowResult<WorkflowInstanceDto>.Invalid("No estas autorizado para decidir en esta compuerta.");
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo el encargado asignado (o su cargo) puede decidir en esta compuerta.");
         }
 
         return await _engine.ChooseGatewayRouteAsync(
@@ -674,14 +672,6 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
         return new LoadedStep((step, node), null);
     }
-
-    /// <summary>True si el usuario es OWNER o ADMIN del tenant: puede cerrar/gobernar cualquier paso del
-    /// flujo desde el diagrama, no solo el que tiene asignado.</summary>
-    private async Task<bool> IsOwnerOrAdminAsync(Guid tenantUserId, CancellationToken cancellationToken)
-        => await _db.TenantUsers.AsNoTracking()
-            .AnyAsync(u => u.Id == tenantUserId
-                && (u.TenantRole == Ecorex.Domain.Enums.TenantRole.Owner || u.TenantRole == Ecorex.Domain.Enums.TenantRole.Admin),
-                cancellationToken);
 
     private async Task<bool> IsCandidateAsync(WorkflowNode node, Guid tenantUserId, CancellationToken cancellationToken)
     {

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-24 - v0.15.73: cerrar/decidir/reabrir SOLO el asignado o su cargo (ADR-0073, revierte ADR-0064)
+
+- Decision del usuario: el flujo respeta la asignacion; un usuario distinto al asignado no cierra pasos
+  ajenos. Se retira el override de Owner/Admin en `CompletePendingStepAsync`, `CompleteGatewayChoiceAsync`
+  y `ReopenStepAsync` (reabre solo quien cerro). En el diagrama, `mcanAct`/`canAct`/`CanReopen` ya no usan
+  `viewerIsManager`; se elimino el campo y el metodo `IsOwnerOrAdminAsync` quedo sin uso (removido).
+- Las NOTAS del equipo NO cambian (siguen colaborativas para cualquiera).
+- **Auditado (preview)**: como Diego (Owner/Admin, no asignado) el paso actual ahora es "PASO ACTUAL" de
+  solo lectura, sin cerrar ni rutas (solo las notas). Antes lo podia cerrar.
+- **Caveat registrado en ADR-0073**: todo nodo atendido debe tener encargado resoluble (asignado o cargo
+  con candidatos); si no, ya nadie lo cierra. Se resuelve configurando "por cargo" por nodo en el editor.
+- Config #1 (por cargo por nodo) es del editor de flujos (dropdown "Cargo / dependencia" + cargo por nodo);
+  el motor ya lo soporta, no requiere codigo. Sin desplegar.
+
+---
+
 ## 2026-08-24 - v0.15.72: la compuerta atendida deja ELEGIR la rama por destino (ADR-0072)
 
 - **Bug**: en una compuerta de decision ATENDIDA (paso actual) no se podia escoger la ruta. Causa: las

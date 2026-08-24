@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-23 - v0.15.68: menu de nodo del diagrama = popover FIJO (no lo recorta el scroller/zoom)
+
+- **Bug:** el menu del nodo (anotar/cerrar/rutas) se abria dentro del canvas y quedaba RECORTADO por el
+  scroller del diagrama (overflow:auto, max-height) -> no se veian los botones -> inusable. El
+  padding-bottom (v0.15.67) no bastaba y el `zoom` del canvas descoloca `position:fixed` interno.
+- **Fix:** el menu se renderiza a NIVEL RAIZ como popover `position:fixed`, anclado a la posicion en
+  PANTALLA del boton del nodo (helper JS `ecorexFlow.anchorRect` en task-timer.js, con clamp al
+  viewport). z-index 3000 + backdrop para cerrar al clic afuera. Los botones ... llevan
+  `data-flow-anchor`. Se quito el padding-bottom del canvas (v0.15.67).
+- **Auditado con Chrome MCP:** menu `position:fixed`, z-index 3000, `fullyVisible:true` (sin recorte);
+  el backdrop lo cierra.
+
+---
+
 ## 2026-08-23 - v0.15.66: al derivar el borrador del flujo se copian los CARGOS y agentes por nodo
 
 - **Bug:** "los usuarios asignados se borran solos". Al editar un flujo publicado, `EnsureDraftAsync`

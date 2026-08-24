@@ -355,7 +355,7 @@
                                     {
                                         @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
                                         <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;" : "")"></div>
-                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
                                             <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
@@ -365,7 +365,7 @@
                                     {
                                         @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
                                         <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};" : "")"></div>
-                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
                                             <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
@@ -376,7 +376,7 @@
                                         <div class="tk-flow-node-body">
                                             <div class="tk-flow-node-title">
                                                 <span class="tk-flow-node-name">@(nn.Name ?? "(paso)")</span>
-                                                <button class="tk-flow-dots" title="Menu del paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                                <button class="tk-flow-dots" title="Menu del paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                             </div>
                                             <div class="tk-flow-meta">
                                                 @if (!string.IsNullOrWhiteSpace(nn.CargoLabel) || !string.IsNullOrWhiteSpace(nn.AssigneeLabel))
@@ -413,70 +413,8 @@
                                             }
                                         </div>
                                     }
-                                    @if (_flowMenuNodeId == nn.NodeId)
-                                    {
-                                        <div class="tk-flow-menu" draggable="false" @onclick:stopPropagation="true">
-                                            @if (!string.IsNullOrWhiteSpace(nn.ConfigNote))
-                                            {
-                                                <div class="tk-flow-menu-note" style="margin:0 0 8px;padding:6px 8px;background:var(--surface-2);border-radius:6px;border-left:2px solid @accent;white-space:pre-wrap;">@nn.ConfigNote</div>
-                                            }
-                                            @if (nn.IsAuto)
-                                            {
-                                                <div class="tk-flow-menu-t">PASO AUTOMATICO</div>
-                                                <div class="tk-flow-menu-note">Lo atiende el agente@(string.IsNullOrWhiteSpace(nn.AgentName) ? "" : " " + nn.AgentName). El cierre por agente llega en una proxima ola.</div>
-                                            }
-                                            else if (canAct && (nn.Routes is { Count: > 0 } || nn.ApprovalOptions.Count > 0))
-                                            {
-                                                <div class="tk-flow-menu-t">QUE RUTA TOMAR?</div>
-                                                @if (nn.Routes is { Count: > 0 } routes)
-                                                {
-                                                    @foreach (var r in routes)
-                                                    {
-                                                        var rr = r;
-                                                        <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, rr.Option, _flowNote))">
-                                                            <span class="tk-flow-route-opt">@rr.Option</span>
-                                                            @if (!string.IsNullOrWhiteSpace(rr.TargetName))
-                                                            {
-                                                                <span class="tk-flow-route-to">&#8594; @rr.TargetName</span>
-                                                            }
-                                                        </button>
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    @foreach (var opt in nn.ApprovalOptions)
-                                                    {
-                                                        var o = opt;
-                                                        <button class="tk-flow-route" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, o, _flowNote))">&#8594; @o</button>
-                                                    }
-                                                }
-                                                <textarea class="tk-flow-textarea" placeholder="Anotacion (opcional)..." @bind="_flowNote"></textarea>
-                                                <div class="tk-flow-menu-note" style="margin-top:6px;">Al elegir, el sistema toma esa ruta y la actividad pasa al usuario que corresponda.</div>
-                                            }
-                                            else if (canAct)
-                                            {
-                                                <div class="tk-flow-menu-t">ANOTACION PARA EL EQUIPO</div>
-                                                <textarea class="tk-flow-textarea" placeholder="Escribe una nota..." @bind="_flowNote"></textarea>
-                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, null, _flowNote))">Cerrar paso</button>
-                                            }
-                                            else if (nn.IsClaimable && nn.StepId is not null)
-                                            {
-                                                <div class="tk-flow-menu-t">PASO SIN RECLAMAR</div>
-                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => ClaimFlowNodeAsync(nn.StepId!.Value))">Tomar este paso</button>
-                                            }
-                                            else if (nn.IsCurrent && nn.HasForm)
-                                            {
-                                                <div class="tk-flow-menu-t">PASO CON FORMULARIO</div>
-                                                <div class="tk-flow-menu-note">Este paso se CIERRA al enviar su formulario. Al enviarlo, la actividad pasa al siguiente encargado.</div>
-                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => { _modalTab = "formularios"; _flowMenuNodeId = null; })">Ir a diligenciar y cerrar</button>
-                                            }
-                                            else
-                                            {
-                                                <div class="tk-flow-menu-t">@FlowStateLabel(nn.State)</div>
-                                                <div class="tk-flow-menu-note">@(string.IsNullOrWhiteSpace(nn.Note) ? "Sin anotacion." : nn.Note)</div>
-                                            }
-                                        </div>
-                                    }
+                                    @* El menu del nodo se renderiza a NIVEL RAIZ (popover fijo), no aqui dentro,
+                                       para que NO lo recorte el scroller ni lo descoloque el zoom del canvas. *@
                                 </div>
                             }
                         </div>
@@ -1257,6 +1195,77 @@
     </div>
 }
 
+@* ===== Menu del nodo del diagrama, como popover FIJO a nivel raiz (no lo recorta el scroller ni lo
+       descoloca el zoom del canvas). Se ancla a la posicion en pantalla del boton del nodo. ===== *@
+@if (_flowDiagram is not null && _flowMenuNodeId is Guid _openMenuId
+     && _flowDiagram.Nodes.FirstOrDefault(x => x.NodeId == _openMenuId) is TaskFlowNodeDto mnode)
+{
+    var maccent = FlowNodeColor(mnode.Color) ?? (mnode.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
+    var mcanAct = mnode.IsCurrent && mnode.StepId is not null && !mnode.HasForm && (mnode.IsMine || _viewerIsManager);
+    <div class="tk-flow-menu-backdrop" @onclick="@(() => _flowMenuNodeId = null)"></div>
+    <div class="tk-flow-menu tk-flow-menu-fixed" style="left:@(_flowMenuLeft)px;top:@(_flowMenuTop)px;" @onclick:stopPropagation="true">
+        @if (!string.IsNullOrWhiteSpace(mnode.ConfigNote))
+        {
+            <div class="tk-flow-menu-note" style="margin:0 0 8px;padding:6px 8px;background:var(--surface-2);border-radius:6px;border-left:2px solid @maccent;white-space:pre-wrap;">@mnode.ConfigNote</div>
+        }
+        @if (mnode.IsAuto)
+        {
+            <div class="tk-flow-menu-t">PASO AUTOMATICO</div>
+            <div class="tk-flow-menu-note">Lo atiende el agente@(string.IsNullOrWhiteSpace(mnode.AgentName) ? "" : " " + mnode.AgentName). El cierre por agente llega en una proxima ola.</div>
+        }
+        else if (mcanAct && (mnode.Routes is { Count: > 0 } || mnode.ApprovalOptions.Count > 0))
+        {
+            <div class="tk-flow-menu-t">QUE RUTA TOMAR?</div>
+            @if (mnode.Routes is { Count: > 0 } routes)
+            {
+                @foreach (var r in routes)
+                {
+                    var rr = r;
+                    <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, rr.Option, _flowNote))">
+                        <span class="tk-flow-route-opt">@rr.Option</span>
+                        @if (!string.IsNullOrWhiteSpace(rr.TargetName))
+                        {
+                            <span class="tk-flow-route-to">&#8594; @rr.TargetName</span>
+                        }
+                    </button>
+                }
+            }
+            else
+            {
+                @foreach (var opt in mnode.ApprovalOptions)
+                {
+                    var o = opt;
+                    <button class="tk-flow-route" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, o, _flowNote))">&#8594; @o</button>
+                }
+            }
+            <textarea class="tk-flow-textarea" placeholder="Anotacion (opcional)..." @bind="_flowNote"></textarea>
+            <div class="tk-flow-menu-note" style="margin-top:6px;">Al elegir, el sistema toma esa ruta y la actividad pasa al usuario que corresponda.</div>
+        }
+        else if (mcanAct)
+        {
+            <div class="tk-flow-menu-t">ANOTACION PARA EL EQUIPO</div>
+            <textarea class="tk-flow-textarea" placeholder="Escribe una nota..." @bind="_flowNote"></textarea>
+            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, null, _flowNote))">Cerrar paso</button>
+        }
+        else if (mnode.IsClaimable && mnode.StepId is not null)
+        {
+            <div class="tk-flow-menu-t">PASO SIN RECLAMAR</div>
+            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => ClaimFlowNodeAsync(mnode.StepId!.Value))">Tomar este paso</button>
+        }
+        else if (mnode.IsCurrent && mnode.HasForm)
+        {
+            <div class="tk-flow-menu-t">PASO CON FORMULARIO</div>
+            <div class="tk-flow-menu-note">Este paso se CIERRA al enviar su formulario. Al enviarlo, la actividad pasa al siguiente encargado.</div>
+            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => { _modalTab = "formularios"; _flowMenuNodeId = null; })">Ir a diligenciar y cerrar</button>
+        }
+        else
+        {
+            <div class="tk-flow-menu-t">@FlowStateLabel(mnode.State)</div>
+            <div class="tk-flow-menu-note">@(string.IsNullOrWhiteSpace(mnode.Note) ? "Sin anotacion." : mnode.Note)</div>
+        }
+    </div>
+}
+
 @code {
     // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
     // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
@@ -1983,11 +1992,31 @@
         return (d, sx, sy, tx, ty, mx, (sy + ty) / 2 - 4);
     }
 
-    private void ToggleFlowMenu(TaskFlowNodeDto n)
+    // Posicion en pantalla (fixed) del menu de nodo abierto, para que NO lo recorte el scroller del diagrama.
+    private int _flowMenuLeft;
+    private int _flowMenuTop;
+
+    private async Task ToggleFlowMenu(TaskFlowNodeDto n)
     {
-        _flowMenuNodeId = _flowMenuNodeId == n.NodeId ? null : n.NodeId;
+        if (_flowMenuNodeId == n.NodeId)
+        {
+            _flowMenuNodeId = null;
+            return;
+        }
+        _flowMenuNodeId = n.NodeId;
         _flowNote = "";
+        // Ancla el menu (popover fijo) a la posicion en pantalla del boton del nodo; el helper JS ya
+        // clampa para que quepa en el viewport. Si falla, cae a 0,0 (raro) sin romper el circuito.
+        try
+        {
+            var rect = await JS.InvokeAsync<FlowAnchorRect?>("ecorexFlow.anchorRect", n.NodeId);
+            _flowMenuLeft = rect?.Left ?? 0;
+            _flowMenuTop = rect?.Top ?? 0;
+        }
+        catch { _flowMenuLeft = 0; _flowMenuTop = 0; }
     }
+
+    private sealed record FlowAnchorRect(int Left, int Top);
 
     private static string FlowStateLabel(TaskFlowNodeState s) => s switch
     {

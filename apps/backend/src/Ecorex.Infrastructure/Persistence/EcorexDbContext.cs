@@ -156,6 +156,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
 
     /// <summary>Agente de IA que atiende un nodo (a lo sumo uno por nodo). Ola 1: modelo y asignacion.</summary>
     public DbSet<WorkflowNodeAgent> WorkflowNodeAgents => Set<WorkflowNodeAgent>();
+    public DbSet<WorkflowNodeNote> WorkflowNodeNotes => Set<WorkflowNodeNote>();
 
     // Motor de reglas (FASE 4 ola 3, ADR-0016): documentos de reglas, reglas con verbo
     // tipado, historial append-only con TTL y vinculos a preguntas de formulario y nodos
@@ -1801,6 +1802,21 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.AiAgent).WithMany()
                 .HasForeignKey(x => x.AiAgentId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Notas colaborativas del equipo por nodo de una instancia (ADR-0071): recados entre companeros.
+        modelBuilder.Entity<WorkflowNodeNote>(b =>
+        {
+            b.Property(x => x.AuthorName).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Text).HasMaxLength(2000).IsRequired();
+            // Menu del nodo en el diagrama: notas de un nodo de una instancia, en orden.
+            b.HasIndex(x => new { x.InstanceId, x.NodeId });
+            // La nota vive y muere con la instancia (cascade); hacia el nodo NO ACTION (la definicion
+            // solo se archiva, nunca se borra), igual criterio que WorkflowStepHistory.
+            b.HasOne(x => x.Instance).WithMany()
+                .HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Node).WithMany()
+                .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ---- Motor de reglas (FASE 4 ola 3, ADR-0016) ----

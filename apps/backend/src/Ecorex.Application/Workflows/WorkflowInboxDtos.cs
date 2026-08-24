@@ -74,7 +74,13 @@ public sealed record TaskFlowNodeDto(
     // Owner/Admin) puede REABRIR este paso Task cerrado, siempre que ningun paso posterior este
     // cerrado/rechazado y la instancia siga Running. ReopenStepId es el paso cerrado a reactivar.
     bool CanReopen = false,
-    Guid? ReopenStepId = null);
+    Guid? ReopenStepId = null,
+    // Notas colaborativas del equipo sobre este nodo (ADR-0071): recados entre companeros, visibles en
+    // el menu del nodo. Cualquiera con acceso a la tarea puede agregarlas, incluso en pasos futuros.
+    IReadOnlyList<TaskFlowNoteDto>? TeamNotes = null);
+
+/// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
+public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);
 
 /// <summary>Clasificacion de una rama de compuerta para colorear/rotular: aprobado (verde),
 /// rechazado (rojo) o neutral (una salida sin semantica de aprobacion).</summary>

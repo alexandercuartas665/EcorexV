@@ -347,7 +347,7 @@
                                 // Color configurado del nodo (editor de flujos) si lo tiene; si no, azul (auto) / violeta.
                                 var accent = FlowNodeColor(nn.Color) ?? (nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
                                 <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
-                                     style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@(isGw || isEvent ? "" : $"border-left:3px solid {accent};")"
+                                     style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@FlowNodeCardStyle(nn, accent, isGw, isEvent)"
                                      draggable="true"
                                      @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
                                      @ondragend="FlowDragEnd" @ondragend:stopPropagation="true"
@@ -355,7 +355,7 @@
                                     @if (isGw)
                                     {
                                         @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
-                                        <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;" : "")"></div>
+                                        <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;background:color-mix(in srgb, {gc} 16%, var(--surface));" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
@@ -365,7 +365,7 @@
                                     else if (isEvent)
                                     {
                                         @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
-                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};" : "")"></div>
+                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};background:color-mix(in srgb, {ec} 18%, var(--surface));" : "")"></div>
                                         <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
@@ -1268,6 +1268,32 @@
                 <div class="tk-flow-menu-note" style="margin-top:6px;">Vuelve este paso a pendiente. Disponible mientras no se haya cerrado un paso posterior.</div>
             }
         }
+        @* Notas COLABORATIVAS del equipo (ADR-0071): cualquiera con acceso a la tarea deja recados en
+           CUALQUIER nodo, incluso pasos futuros de los que no es encargado. Siempre visible. *@
+        <div class="tk-flow-team">
+            <div class="tk-flow-menu-t" style="margin-top:12px;">NOTAS DEL EQUIPO</div>
+            @if (mnode.TeamNotes is { Count: > 0 } tnotes)
+            {
+                <div class="tk-flow-notes">
+                    @foreach (var note in tnotes)
+                    {
+                        <div class="tk-flow-note-item">
+                            <div class="tk-flow-note-head">
+                                <span class="tk-flow-note-author">@note.AuthorName</span>
+                                <span class="tk-flow-note-date">@FlowShortDate(note.CreatedAt)</span>
+                            </div>
+                            <div class="tk-flow-note-text">@note.Text</div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="tk-flow-menu-note">Sin notas todavia. Deja un recado para el equipo.</div>
+            }
+            <textarea class="tk-flow-textarea" placeholder="Escribe una nota para el equipo..." @bind="_teamNote"></textarea>
+            <button class="tk-flow-link" disabled="@_busy" @onclick="@(() => AddTeamNoteAsync(mnode.NodeId))">Agregar nota</button>
+        </div>
     </div>
 }
 
@@ -1407,7 +1433,8 @@
     // Diagrama del flujo de la tarea (ADR-0051): grafo + estado por nodo, para pintar el proceso.
     private TaskFlowDiagramDto? _flowDiagram;
     private Guid? _flowMenuNodeId;   // nodo cuyo menu (anotar/cerrar/rutas) esta abierto
-    private string _flowNote = "";   // anotacion del menu del nodo actual
+    private string _flowNote = "";   // anotacion del menu del nodo actual (cierre/ruta)
+    private string _teamNote = "";   // nota colaborativa del equipo (ADR-0071), por nodo
 
     // Tabs del modal (ADR-0051): Detalle / Formularios / Documentos, con la Bitacora en columna lateral.
     private string _modalTab = "detalle";
@@ -1898,6 +1925,19 @@
     /// <summary>Color CSS del nodo segun la clave de paleta configurada en el editor de flujos
     /// (violet/blue/green/amber/rose/slate). Null si el nodo no tiene color: el diagrama aplica el
     /// color por defecto (azul para automatico, violeta para manual).</summary>
+    /// <summary>Estilo de la tarjeta de un nodo Task: barra de acento SIEMPRE y, si el nodo tiene color
+    /// CONFIGURADO en el editor, un tinte suave para que ese color se vea claro (no una linea fina).</summary>
+    private static string FlowNodeCardStyle(TaskFlowNodeDto n, string accent, bool isGw, bool isEvent)
+    {
+        if (isGw || isEvent) { return ""; }
+        var s = $"border-left:4px solid {accent};";
+        if (FlowNodeColor(n.Color) is not null)
+        {
+            s += $"background:color-mix(in srgb, {accent} 12%, var(--surface));";
+        }
+        return s;
+    }
+
     private static string? FlowNodeColor(string? key) => key?.Trim().ToLowerInvariant() switch
     {
         "violet" => "var(--t-violet)",
@@ -2086,6 +2126,29 @@
             _flowMenuNodeId = null;
             await ReloadAsync(taskId);
             await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Agrega una nota colaborativa del equipo (ADR-0071) al nodo. Cualquiera con acceso a la
+    /// tarea puede dejarla, en cualquier nodo (incluso pasos futuros). Mantiene el menu abierto para ver
+    /// la nota recien agregada.</summary>
+    private async Task AddTeamNoteAsync(Guid nodeId)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        var body = _teamNote?.Trim();
+        if (string.IsNullOrEmpty(body)) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = await InboxSvc.AddNodeNoteAsync(taskId, nodeId, me, body);
+            if (!result.IsOk) { _actionError = result.Error; }
+            else { _teamNote = ""; }
+            await ReloadAsync(taskId);
+            // Mantener abierto el menu del mismo nodo para ver la nota agregada (ReloadAsync lo cierra).
+            _flowMenuNodeId = nodeId;
         }
         finally { _busy = false; }
     }

@@ -53,6 +53,15 @@ public interface IWorkflowInboxService
         Guid reopenStepId, Guid tenantUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Agrega una NOTA colaborativa del equipo (ADR-0071) sobre un nodo del flujo de una tarea.
+    /// Cualquier miembro con acceso a la tarea puede dejarla, en CUALQUIER nodo -- incluidos pasos
+    /// futuros de los que no es encargado -- para avisar algo a quien atienda ese paso. El nodo debe
+    /// pertenecer a la definicion de la instancia de la tarea. Append-only.
+    /// </summary>
+    Task<WorkflowResult<bool>> AddNodeNoteAsync(
+        Guid taskId, Guid nodeId, Guid tenantUserId, string text, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Diagrama del flujo de una TAREA de proceso (ADR-0051): une la geometria de la definicion
     /// (nodos con X/Y/W/H + aristas) con el ESTADO por nodo del runtime (cerrado/actual/pendiente)
     /// y marca los nodos de agente. Puebla, para el viewer, StepId/IsMine/IsClaimable/ApprovalOptions

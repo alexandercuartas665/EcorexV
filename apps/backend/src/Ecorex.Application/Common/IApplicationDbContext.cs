@@ -84,6 +84,8 @@ public interface IApplicationDbContext
     DbSet<FormRecordLink> FormRecordLinks { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
     DbSet<WorkflowNodeAgent> WorkflowNodeAgents { get; }
+    /// <summary>Notas colaborativas del equipo por nodo de una instancia (ADR-0071).</summary>
+    DbSet<WorkflowNodeNote> WorkflowNodeNotes { get; }
 
     // Motor de programaciones (000889 "Programar actividad"): cabecera + reglas + canales + bitacora.
     DbSet<ScheduledJob> ScheduledJobs { get; }

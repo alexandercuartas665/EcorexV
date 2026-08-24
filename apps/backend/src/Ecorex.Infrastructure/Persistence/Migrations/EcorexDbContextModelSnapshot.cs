@@ -14340,6 +14340,69 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("workflow_node_forms", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("author_name");
+
+                    b.Property<Guid?>("AuthorTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("InstanceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("instance_id");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("node_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("text");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_node_notes");
+
+                    b.HasIndex("NodeId")
+                        .HasDatabaseName("ix_workflow_node_notes_node_id");
+
+                    b.HasIndex("InstanceId", "NodeId")
+                        .HasDatabaseName("ix_workflow_node_notes_instance_id_node_id");
+
+                    b.ToTable("workflow_node_notes", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodePolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -16623,6 +16686,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_workflow_node_forms_workflow_nodes_node_id");
 
                     b.Navigation("Definition");
+
+                    b.Navigation("Node");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeNote", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowInstance", "Instance")
+                        .WithMany()
+                        .HasForeignKey("InstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_notes_workflow_instances_instance_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
+                        .WithMany()
+                        .HasForeignKey("NodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_notes_workflow_nodes_node_id");
+
+                    b.Navigation("Instance");
 
                     b.Navigation("Node");
                 });

@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-23 - v0.15.70: notas colaborativas del equipo por nodo + color del nodo VISIBLE (ADR-0071)
+
+- **Notas del equipo (nuevo)**: cualquier miembro con acceso a la tarea deja notas en CUALQUIER nodo
+  del diagrama -- incluidos pasos FUTUROS de los que no es encargado -- para avisar algo a quien lo
+  atienda. Entidad nueva `WorkflowNodeNote` (tenant-scoped, append-only) por (InstanceId, NodeId) con
+  autor+fecha+texto; migracion DUAL (PG tabla workflow_node_notes + SQL Server). Servicio
+  `IWorkflowInboxService.AddNodeNoteAsync`; el diagrama expone `TaskFlowNodeDto.TeamNotes`. El menu del
+  nodo SIEMPRE muestra "NOTAS DEL EQUIPO" (hilo + caja para agregar); tras agregar, el menu queda
+  abierto para ver la nota. Es distinta de la nota de CONFIG del editor y del comentario de CIERRE.
+- **Color del nodo visible**: el color configurado en el editor ahora se ve claro en el diagrama de la
+  tarea: tarjeta Task con tinte suave (color-mix 12%) + barra de acento 4px; compuerta/evento con tinte
+  16-18%. Antes solo se pintaba una linea fina y "no se veian" los colores. `EnsureDraftAsync` ya copiaba
+  Color/Note al derivar (no habia perdida de datos; era solo render).
+- **Auditado con Chrome MCP** (tarea "test"): Cotización se ve amber, fin verde, fin rosa (compuerta sin
+  color queda blanca, correcto). Nota agregada en el paso actual y tambien en un nodo FUTURO (compuerta);
+  ambas persisten y se muestran con autor+fecha. Sin desplegar (deploy lo indica el usuario).
+
+---
+
 ## 2026-08-23 - v0.15.69: reabrir paso cerrado + cerrar directo el paso con formulario (ADR-0070)
 
 - **Menu del nodo mas visible**: el boton `...` pasa a pildora con borde/fondo/sombra, resaltada en

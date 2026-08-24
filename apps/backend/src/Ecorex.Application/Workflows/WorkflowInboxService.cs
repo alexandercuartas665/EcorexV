@@ -147,6 +147,19 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             if (routes.Count > 0) { routesByNode[cn.Id] = routes; }
         }
 
+        // Notas colaborativas del equipo (ADR-0071): recados por nodo de esta instancia, en orden.
+        var notesByNode = (await (
+                from nt in _db.WorkflowNodeNotes.AsNoTracking()
+                where nt.InstanceId == instanceId
+                orderby nt.CreatedAt
+                select new { nt.NodeId, nt.AuthorName, nt.Text, nt.CreatedAt })
+            .ToListAsync(cancellationToken))
+            .GroupBy(x => x.NodeId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<TaskFlowNoteDto>)g
+                    .Select(x => new TaskFlowNoteDto(x.AuthorName, x.Text, x.CreatedAt)).ToList());
+
         // Reapertura de pasos (ADR-0070): un Owner/Admin reabre cualquiera; el encargado, el que cerro.
         var viewerIsManager = await IsOwnerOrAdminAsync(viewerTenantUserId, cancellationToken);
         var typeById = canvas.Nodes.ToDictionary(x => x.Id, x => x.NodeType);
@@ -237,7 +250,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 Color: n.Color,
                 ConfigNote: n.Note,
                 CanReopen: canReopen,
-                ReopenStepId: canReopen ? h!.Id : (Guid?)null);
+                ReopenStepId: canReopen ? h!.Id : (Guid?)null,
+                TeamNotes: notesByNode.TryGetValue(n.Id, out var teamNotes) ? teamNotes : null);
         }).ToList();
 
         var edges = canvas.Edges
@@ -532,6 +546,61 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         return result.IsOk
             ? WorkflowResult<bool>.Ok(true)
             : WorkflowResult<bool>.Invalid(result.Error ?? "No se pudo reabrir el paso.");
+    }
+
+    public async Task<WorkflowResult<bool>> AddNodeNoteAsync(
+        Guid taskId, Guid nodeId, Guid tenantUserId, string text, CancellationToken cancellationToken = default)
+    {
+        var body = (text ?? "").Trim();
+        if (body.Length == 0)
+        {
+            return WorkflowResult<bool>.Invalid("La nota no puede estar vacia.");
+        }
+        if (body.Length > 2000)
+        {
+            body = body[..2000];
+        }
+
+        var task = await _db.TaskItems.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task?.WorkflowInstanceId is not Guid instanceId)
+        {
+            return WorkflowResult<bool>.Invalid("La tarea no tiene un flujo asociado.");
+        }
+        var instance = await _db.WorkflowInstances.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+        if (instance is null)
+        {
+            return WorkflowResult<bool>.NotFound("La instancia de flujo no existe.");
+        }
+        // El nodo debe pertenecer a la definicion de ESTA instancia (evita anotar nodos de otro flujo).
+        var nodeOk = await _db.WorkflowNodes.AsNoTracking()
+            .AnyAsync(n => n.Id == nodeId && n.DefinitionId == instance.DefinitionId, cancellationToken);
+        if (!nodeOk)
+        {
+            return WorkflowResult<bool>.Invalid("El nodo no pertenece al flujo de la tarea.");
+        }
+
+        // Autor: nombre para mostrar (display_name del platform user) o el correo del tenant user.
+        var authorName = await (
+                from tu in _db.TenantUsers.AsNoTracking()
+                where tu.Id == tenantUserId
+                join pu in _db.PlatformUsers.AsNoTracking() on tu.PlatformUserId equals pu.Id into puj
+                from pu in puj.DefaultIfEmpty()
+                select pu != null && pu.DisplayName != null && pu.DisplayName != "" ? pu.DisplayName : tu.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        _db.WorkflowNodeNotes.Add(new WorkflowNodeNote
+        {
+            TenantId = instance.TenantId,
+            InstanceId = instanceId,
+            NodeId = nodeId,
+            AuthorTenantUserId = tenantUserId,
+            AuthorName = string.IsNullOrWhiteSpace(authorName) ? "Usuario" : authorName!,
+            Text = body
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
     }
 
     // ---- Helpers ----

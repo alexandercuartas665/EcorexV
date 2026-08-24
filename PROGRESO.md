@@ -21,6 +21,20 @@
 
 ---
 
+## 2026-08-24 - v0.15.75: la tarjeta cae en el tablero/columna del nodo FIN al terminar el flujo
+
+- Al alcanzar un evento de FIN, la tarjeta ahora se mueve al tablero/columna destino configurado en ESE
+  nodo (p.ej. "Completado") antes de marcarse terminada. Antes el fin auto-completaba pero NO movia la
+  tarjeta (el movimiento solo ocurria al activar un paso PENDIENTE). Se extrajo `MoveTaskToNodeTargetAsync`
+  (reusa la logica ya probada del salto de tablero) y se llama tambien desde `FinalizeEndEventAsync`.
+- **Pendiente (lo pidio el usuario, feature grande)**: el nodo FIN con `JumpToDefinitionId` debe crear una
+  TAREA HIJA (ParentId) corriendo ese otro flujo. Requiere: (a) el flujo destino PUBLICADO (el de prueba,
+  "ORDENES DE TRABAJO" FLW-002, esta SIN publicar), (b) un seam sin ciclo de dependencias para que el motor
+  cree la tarea hija reusando la asignacion por cargo del primer paso, (c) definir el destino/tablero de la
+  hija. A construir en un paso enfocado. Sin desplegar.
+
+---
+
 ## 2026-08-24 - v0.15.74: herencia de encargado robusta + el evento de FIN auto-finaliza (ADR-0075)
 
 - **Bug (T00032)**: al cerrar el primer paso, la COMPUERTA no dejaba elegir la ruta (menu de solo lectura).

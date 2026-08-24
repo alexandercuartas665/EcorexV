@@ -541,7 +541,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         }
         else if (target.NodeType == WorkflowNodeType.EndEvent)
         {
-            await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, cancellationToken);
+            await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, task, cancellationToken);
         }
         else
         {
@@ -738,7 +738,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         // D11 (multi-token): alcanzar un endEvent cierra ESTA RAMA, no la instancia. La
                         // instancia se completa abajo, cuando no queda NINGUN paso vigente (asi prosperan las
                         // ramas paralelas, no solo la primera en llegar al fin).
-                        await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, cancellationToken);
+                        await FinalizeEndEventAsync(instance, steps, target, step.CycleIndex, task, cancellationToken);
                     }
                     else
                     {
@@ -945,18 +945,9 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // un tablero destino configurado, la actividad SALTA a ese tablero/columna. Asi, al cerrar un
         // paso y activarse el siguiente, la tarjeta se mueve sola de tablero/estado. Se persiste en el
         // mismo SaveChanges del avance. Columna null -> primera columna del tablero destino.
-        if (task is not null && step.Status == WorkflowStepStatus.Pending && node.TargetBoardId is Guid targetBoard)
+        if (task is not null && step.Status == WorkflowStepStatus.Pending)
         {
-            var targetColumn = node.TargetColumnId ?? await _db.TaskBoardColumns.AsNoTracking()
-                .Where(c => c.BoardId == targetBoard)
-                .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
-                .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
-            if (targetColumn is Guid col && (task.BoardId != targetBoard || task.ColumnId != col))
-            {
-                task.BoardId = targetBoard;
-                task.ColumnId = col;
-                task.ColumnEnteredAt = DateTimeOffset.UtcNow;
-            }
+            await MoveTaskToNodeTargetAsync(task, node, cancellationToken);
         }
         return step;
     }
@@ -988,12 +979,35 @@ public sealed class WorkflowEngine : IWorkflowEngine
     /// </summary>
     private async Task FinalizeEndEventAsync(
         WorkflowInstance instance, List<WorkflowStepHistory> steps, WorkflowNode endNode, int cycleIndex,
-        CancellationToken cancellationToken)
+        TaskItem? task, CancellationToken cancellationToken)
     {
         await _ruleHook.OnNodeActivatedAsync(new WorkflowRuleContext(
             instance.TenantId, instance.Id, instance.DefinitionId, endNode.Id,
             endNode.BpmnElementId, endNode.Name, cycleIndex, instance.TaskItemId), cancellationToken);
+        // Tablero: al ALCANZAR el fin, la tarjeta cae en el tablero/columna configurado del nodo fin
+        // (p.ej. "Completado"), antes de que la instancia marque la tarea como terminada.
+        if (task is not null)
+        {
+            await MoveTaskToNodeTargetAsync(task, endNode, cancellationToken);
+        }
         steps.Add(AddStep(instance, endNode, cycleIndex, isCycleStart: false, WorkflowStepStatus.Completed, isCurrent: false));
+    }
+
+    /// <summary>Mueve la tarjeta de la tarea al tablero/columna destino del nodo (si lo tiene). Columna
+    /// null -> primera columna del tablero destino. Reusado al activar un paso pendiente y al alcanzar el fin.</summary>
+    private async Task MoveTaskToNodeTargetAsync(TaskItem task, WorkflowNode node, CancellationToken cancellationToken)
+    {
+        if (node.TargetBoardId is not Guid targetBoard) { return; }
+        var targetColumn = node.TargetColumnId ?? await _db.TaskBoardColumns.AsNoTracking()
+            .Where(c => c.BoardId == targetBoard)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
+        if (targetColumn is Guid col && (task.BoardId != targetBoard || task.ColumnId != col))
+        {
+            task.BoardId = targetBoard;
+            task.ColumnId = col;
+            task.ColumnEnteredAt = DateTimeOffset.UtcNow;
+        }
     }
 
     // ---- Origen del asignado (ADR-0056): resuelve el encargado concreto al activar un paso Task ----

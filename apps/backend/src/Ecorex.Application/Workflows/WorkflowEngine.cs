@@ -486,6 +486,118 @@ public sealed class WorkflowEngine : IWorkflowEngine
             : WorkflowResult<WorkflowInstanceDto>.Ok(dto);
     }
 
+    public async Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
+        Guid instanceId, Guid stepId, Guid? tenantUserId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return loaded.Error;
+        }
+        var (instance, steps, graph, task) = loaded.Value;
+
+        var step = steps.FirstOrDefault(s => s.Id == stepId);
+        if (step is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.NotFound("El paso no existe en la instancia.");
+        }
+        if (step.Status != WorkflowStepStatus.Completed)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo se puede reabrir un paso ya cerrado.");
+        }
+        var node = graph.NodesById[step.NodeId];
+        if (node.NodeType != WorkflowNodeType.Task)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo se pueden reabrir pasos de tarea.");
+        }
+
+        // Guarda dura: no reabrir si el proceso ya AVANZO con trabajo humano posterior. Un cierre humano
+        // posterior es un Task/EndEvent Completed, o cualquier paso Rejected, en un nodo alcanzable HACIA
+        // ADELANTE desde este. Las compuertas AUTOMATICAS Completed (parte del avance normal) NO cuentan.
+        var latestByNode = steps
+            .GroupBy(s => s.NodeId)
+            .ToDictionary(g => g.Key, g => g
+                .OrderByDescending(x => x.CycleIndex).ThenByDescending(x => x.IsCurrent).ThenByDescending(x => x.CreatedAt)
+                .First());
+        var downstream = ForwardReachable(node.Id, graph);
+        foreach (var dn in downstream)
+        {
+            if (!latestByNode.TryGetValue(dn, out var dh)) { continue; }
+            if (dh.Status == WorkflowStepStatus.Rejected)
+            {
+                return WorkflowResult<WorkflowInstanceDto>.Invalid("No se puede reabrir: un paso posterior fue rechazado.");
+            }
+            var dnode = graph.NodesById[dn];
+            if (dh.Status == WorkflowStepStatus.Completed
+                && (dnode.NodeType == WorkflowNodeType.Task || dnode.NodeType == WorkflowNodeType.EndEvent))
+            {
+                return WorkflowResult<WorkflowInstanceDto>.Invalid("No se puede reabrir: un paso posterior ya fue cerrado.");
+            }
+        }
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+
+        // Deshacer lo que el cierre activo aguas abajo: los pasos VIGENTES de nodos posteriores se
+        // apagan (Pending -> Skipped, historial). Cuando el paso reabierto se vuelva a cerrar, el avance
+        // creara filas nuevas para esos nodos (append-only).
+        foreach (var s in steps.Where(s => s.IsCurrent && downstream.Contains(s.NodeId)).ToList())
+        {
+            s.IsCurrent = false;
+            if (s.Status == WorkflowStepStatus.Pending)
+            {
+                s.Status = WorkflowStepStatus.Skipped;
+            }
+        }
+
+        // Reactivar EN SITIO el paso cerrado: vuelve a Pending+IsCurrent, se limpia el cierre. Se conserva
+        // el asignado para que regrese al mismo encargado.
+        step.Status = WorkflowStepStatus.Pending;
+        step.IsCurrent = true;
+        step.CompletedAt = null;
+        step.ExecutedByTenantUserId = null;
+        step.ExecutedByAiAgentId = null;
+        step.ApprovalResult = null;
+        step.ApprovalComment = null;
+
+        // Tablero: si el nodo reabierto tiene tablero/columna destino, la tarjeta regresa alli (igual que
+        // al activarse el paso en el avance normal). Sin destino configurado, la tarjeta se queda donde este.
+        if (task is not null && node.TargetBoardId is Guid targetBoard)
+        {
+            var targetColumn = node.TargetColumnId ?? await _db.TaskBoardColumns.AsNoTracking()
+                .Where(c => c.BoardId == targetBoard)
+                .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+                .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
+            if (targetColumn is Guid col && (task.BoardId != targetBoard || task.ColumnId != col))
+            {
+                task.BoardId = targetBoard;
+                task.ColumnId = col;
+                task.ColumnEnteredAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        if (task is not null)
+        {
+            AddTaskActivity(task, tenantUserId, "Usuario",
+                $"reabrio el paso {node.Name ?? node.BpmnElementId} del flujo");
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Conflict(ConflictMessage);
+        }
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        await BroadcastTaskAsync(task, cancellationToken);
+
+        return WorkflowResult<WorkflowInstanceDto>.Ok(BuildInstanceDto(instance, steps, graph));
+    }
+
     // ---- Avance interno (port de SiguienteEstado) ----
 
     /// <summary>
@@ -656,6 +768,32 @@ public sealed class WorkflowEngine : IWorkflowEngine
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Nodos alcanzables HACIA ADELANTE desde <paramref name="startNodeId"/> siguiendo las aristas
+    /// (excluye el propio nodo). Sirve para la guarda de reapertura: si algun nodo posterior tiene un
+    /// cierre humano, no se puede reabrir. Evita ciclos (RestartNodeId) con un set de visitados.
+    /// </summary>
+    private static HashSet<Guid> ForwardReachable(Guid startNodeId, WorkflowGraph graph)
+    {
+        var seen = new HashSet<Guid> { startNodeId };
+        var stack = new Stack<Guid>();
+        stack.Push(startNodeId);
+        while (stack.Count > 0)
+        {
+            var id = stack.Pop();
+            if (!graph.EdgesBySource.TryGetValue(id, out var outs)) { continue; }
+            foreach (var edge in outs)
+            {
+                if (seen.Add(edge.TargetNodeId))
+                {
+                    stack.Push(edge.TargetNodeId);
+                }
+            }
+        }
+        seen.Remove(startNodeId);
+        return seen;
     }
 
     /// <summary>

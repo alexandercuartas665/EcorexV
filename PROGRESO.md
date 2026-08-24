@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-23 - v0.15.69: reabrir paso cerrado + cerrar directo el paso con formulario (ADR-0070)
+
+- **Menu del nodo mas visible**: el boton `...` pasa a pildora con borde/fondo/sombra, resaltada en
+  hover y en color de marca en el paso vigente. El usuario no lo ubicaba.
+- **Cerrar actividad directo**: el menu de un paso vigente atendible SIEMPRE ofrece "Cerrar actividad"
+  con nota OPCIONAL, tenga o no formulario (antes un paso con formulario obligaba a "ir a diligenciar
+  y cerrar"). Si hay formulario, se ofrece ademas "Diligenciar formulario" (opcional). Solo UI: el
+  motor nunca exigio formulario para cerrar.
+- **Reabrir actividad** (nuevo `IWorkflowEngine.ReopenStepAsync` + `IWorkflowInboxService.ReopenStepAsync`):
+  reactiva EN SITIO un paso Task cerrado (Completed -> Pending+IsCurrent), deshace lo que activo aguas
+  abajo (Pending -> Skipped) y conserva el asignado. Guarda dura: solo si la instancia sigue Running y
+  NINGUN nodo posterior tiene cierre humano (Task/EndEvent Completed) ni rechazo; las compuertas
+  automaticas Completed NO cuentan. Autoriza al encargado que cerro o a Owner/Admin. El diagrama expone
+  `CanReopen`/`ReopenStepId` por nodo. Tablero: la tarjeta regresa al tablero/columna del nodo reabierto.
+- **Estado vigente robusto**: `GetTaskFlowDiagramAsync` desempata el paso del nodo por
+  CycleIndex desc, IsCurrent desc, CreatedAt desc (evita mostrar una fila vieja tras rechazo/reapertura).
+- **Auditado con Chrome MCP** (tarea "test", flujo PROCESO COMERCIAL): pildora visible; menu de paso con
+  formulario muestra "Cerrar actividad" + "Diligenciar formulario"; ciclo cerrar -> el paso queda CERRADO
+  y avanza la compuerta -> "Reabrir actividad" vuelve el paso a actual y deshace la compuerta; el menu se
+  cierra bien con clic real. Sin desplegar (deploy lo indica el usuario).
+
+---
+
 ## 2026-08-23 - v0.15.68: menu de nodo del diagrama = popover FIJO (no lo recorta el scroller/zoom)
 
 - **Bug:** el menu del nodo (anotar/cerrar/rutas) se abria dentro del canvas y quedaba RECORTADO por el

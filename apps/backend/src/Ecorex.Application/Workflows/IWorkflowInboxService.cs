@@ -44,6 +44,15 @@ public interface IWorkflowInboxService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// REABRE un paso Task ya cerrado (ADR-0070): lo reactiva (Pending+IsCurrent) y deshace lo que
+    /// activo aguas abajo. Autoriza al ENCARGADO que lo cerro o a un Owner/Admin; el motor valida que
+    /// ningun paso posterior este cerrado/rechazado y que la instancia siga Running. reopenStepId es el
+    /// paso cerrado a reactivar (TaskFlowNodeDto.ReopenStepId).
+    /// </summary>
+    Task<WorkflowResult<bool>> ReopenStepAsync(
+        Guid reopenStepId, Guid tenantUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Diagrama del flujo de una TAREA de proceso (ADR-0051): une la geometria de la definicion
     /// (nodos con X/Y/W/H + aristas) con el ESTADO por nodo del runtime (cerrado/actual/pendiente)
     /// y marca los nodos de agente. Puebla, para el viewer, StepId/IsMine/IsClaimable/ApprovalOptions

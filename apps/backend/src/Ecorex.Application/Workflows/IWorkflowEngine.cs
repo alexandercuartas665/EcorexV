@@ -61,4 +61,14 @@ public interface IWorkflowEngine
     Task<WorkflowResult<WorkflowInstanceDto>> RejectStepAsync(
         Guid instanceId, Guid stepId, Guid? tenantUserId, string reason,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// REABRE un paso Task ya cerrado (ADR-0070): lo vuelve a Pending+IsCurrent y DESHACE los
+    /// pasos que habia activado aguas abajo (los deja Skipped). Solo procede si ningun paso
+    /// posterior fue cerrado por un humano (Task/EndEvent Completed) ni rechazado y la instancia
+    /// sigue Running. Es el "deshacer" del cierre; la autorizacion la valida la bandeja.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
+        Guid instanceId, Guid stepId, Guid? tenantUserId,
+        CancellationToken cancellationToken = default);
 }

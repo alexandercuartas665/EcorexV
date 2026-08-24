@@ -69,7 +69,12 @@ public sealed record TaskFlowNodeDto(
     // (violet/blue/green/amber/rose/slate) y nota post-it. Para pintar el nodo con su color y mostrar
     // la nota dejada en la configuracion dentro de la tarjeta del proceso (ADR-0022).
     string? Color = null,
-    string? ConfigNote = null);
+    string? ConfigNote = null,
+    // Reapertura de un paso ya cerrado (ADR-0070): true si el viewer (encargado que lo cerro u
+    // Owner/Admin) puede REABRIR este paso Task cerrado, siempre que ningun paso posterior este
+    // cerrado/rechazado y la instancia siga Running. ReopenStepId es el paso cerrado a reactivar.
+    bool CanReopen = false,
+    Guid? ReopenStepId = null);
 
 /// <summary>Clasificacion de una rama de compuerta para colorear/rotular: aprobado (verde),
 /// rechazado (rojo) o neutral (una salida sin semantica de aprobacion).</summary>

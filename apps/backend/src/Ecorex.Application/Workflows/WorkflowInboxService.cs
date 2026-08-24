@@ -69,9 +69,15 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.AssignedToTenantUserId, s.CreatedAt, s.CompletedAt
             })
             .ToListAsync(cancellationToken);
+        // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
+        // El tiebreak (IsCurrent/CreatedAt) importa cuando un nodo tiene VARIAS filas en el mismo ciclo
+        // (rechazo o reapertura, que dejan la fila vieja y crean/reactivan otra): sin el, el diagrama podia
+        // mostrar el paso viejo (p.ej. Skipped) en vez del vigente.
         var latestByNode = histories
             .GroupBy(h => h.NodeId)
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(h => h.CycleIndex).First());
+            .ToDictionary(g => g.Key, g => g
+                .OrderByDescending(h => h.CycleIndex).ThenByDescending(h => h.IsCurrent).ThenByDescending(h => h.CreatedAt)
+                .First());
         var stepIdToNodeId = histories.ToDictionary(h => h.Id, h => h.NodeId);
 
         // Nodos con agente (automaticos): a lo sumo uno por nodo.
@@ -141,6 +147,42 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             if (routes.Count > 0) { routesByNode[cn.Id] = routes; }
         }
 
+        // Reapertura de pasos (ADR-0070): un Owner/Admin reabre cualquiera; el encargado, el que cerro.
+        var viewerIsManager = await IsOwnerOrAdminAsync(viewerTenantUserId, cancellationToken);
+        var typeById = canvas.Nodes.ToDictionary(x => x.Id, x => x.NodeType);
+        var adjacency = canvas.Edges
+            .GroupBy(e => e.SourceNodeId)
+            .ToDictionary(g => g.Key, g => g.Select(e => e.TargetNodeId).ToList());
+        // True si HACIA ADELANTE de este nodo hay un cierre HUMANO (Task/EndEvent Completed) o un rechazo.
+        // Las compuertas automaticas Completed (parte del avance normal) NO cuentan como cierre humano.
+        bool DownstreamHasHumanClose(Guid startId)
+        {
+            var seen = new HashSet<Guid> { startId };
+            var stack = new Stack<Guid>();
+            stack.Push(startId);
+            while (stack.Count > 0)
+            {
+                var id = stack.Pop();
+                if (!adjacency.TryGetValue(id, out var outs)) { continue; }
+                foreach (var t in outs)
+                {
+                    if (!seen.Add(t)) { continue; }
+                    if (latestByNode.TryGetValue(t, out var th))
+                    {
+                        if (th.Status == WorkflowStepStatus.Rejected) { return true; }
+                        if (th.Status == WorkflowStepStatus.Completed
+                            && typeById.TryGetValue(t, out var tt)
+                            && (tt == WorkflowNodeType.Task || tt == WorkflowNodeType.EndEvent))
+                        {
+                            return true;
+                        }
+                    }
+                    stack.Push(t);
+                }
+            }
+            return false;
+        }
+
         var nodes = canvas.Nodes.Select(n =>
         {
             latestByNode.TryGetValue(n.Id, out var h);
@@ -159,6 +201,14 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             DateTimeOffset? lastAt = h?.CompletedAt ?? h?.CreatedAt;
             // En espera: solo tiene sentido en el paso vigente (aun sin cerrar).
             DateTimeOffset? waitingSince = state == TaskFlowNodeState.Current ? h?.CreatedAt : null;
+            // Reapertura (ADR-0070): un paso Task CERRADO (no automatico) es reabrible por su encargado o un
+            // Owner/Admin, siempre que la instancia siga Running y NINGUN paso posterior este cerrado/rechazado.
+            var canReopen = state == TaskFlowNodeState.Completed
+                && n.NodeType == WorkflowNodeType.Task
+                && !isAuto
+                && instance.Status == WorkflowInstanceStatus.Running
+                && (viewerIsManager || (h?.ExecutedByTenantUserId is Guid exu && exu == viewerTenantUserId))
+                && !DownstreamHasHumanClose(n.Id);
             return new TaskFlowNodeDto(
                 NodeId: n.Id,
                 Name: n.Name,
@@ -185,7 +235,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 CargoLabel: cargoByNode.TryGetValue(n.Id, out var cargo) ? cargo : null,
                 // Apariencia configurada (editor de flujos): color de paleta + nota post-it del nodo.
                 Color: n.Color,
-                ConfigNote: n.Note);
+                ConfigNote: n.Note,
+                CanReopen: canReopen,
+                ReopenStepId: canReopen ? h!.Id : (Guid?)null);
         }).ToList();
 
         var edges = canvas.Edges
@@ -451,6 +503,35 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         return await _engine.CompleteStepAsync(
             step.InstanceId, step.Id, tenantUserId, approvalResult, approvalComment,
             cancellationToken: cancellationToken);
+    }
+
+    public async Task<WorkflowResult<bool>> ReopenStepAsync(
+        Guid reopenStepId, Guid tenantUserId, CancellationToken cancellationToken = default)
+    {
+        var step = await _db.WorkflowStepHistories.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == reopenStepId, cancellationToken);
+        if (step is null)
+        {
+            return WorkflowResult<bool>.NotFound("El paso no existe.");
+        }
+        if (step.Status != WorkflowStepStatus.Completed)
+        {
+            return WorkflowResult<bool>.Invalid("Solo se puede reabrir un paso ya cerrado.");
+        }
+
+        // Reabre el ENCARGADO que lo cerro o un Owner/Admin (gobierno del proceso). El motor revalida el
+        // estado (que no haya cierre humano posterior) dentro de la transaccion.
+        var authorized = (step.ExecutedByTenantUserId is Guid ex && ex == tenantUserId)
+            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
+        if (!authorized)
+        {
+            return WorkflowResult<bool>.Invalid("No estas autorizado para reabrir este paso.");
+        }
+
+        var result = await _engine.ReopenStepAsync(step.InstanceId, step.Id, tenantUserId, cancellationToken);
+        return result.IsOk
+            ? WorkflowResult<bool>.Ok(true)
+            : WorkflowResult<bool>.Invalid(result.Error ?? "No se pudo reabrir el paso.");
     }
 
     // ---- Helpers ----

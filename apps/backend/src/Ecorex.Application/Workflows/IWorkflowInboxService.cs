@@ -44,6 +44,16 @@ public interface IWorkflowInboxService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Completa una COMPUERTA ATENDIDA eligiendo la RAMA por su nodo destino (ADR-0072). Valida que el
+    /// usuario sea el asignado/candidato del paso o un Owner/Admin, y delega en
+    /// IWorkflowEngine.ChooseGatewayRouteAsync. Sirve para compuertas cuyas ramas no tienen nombre ni
+    /// condicion: la persona elige el destino y el motor sigue esa rama.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> CompleteGatewayChoiceAsync(
+        Guid stepId, Guid targetNodeId, Guid tenantUserId, string? note,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// REABRE un paso Task ya cerrado (ADR-0070): lo reactiva (Pending+IsCurrent) y deshace lo que
     /// activo aguas abajo. Autoriza al ENCARGADO que lo cerro o a un Owner/Admin; el motor valida que
     /// ningun paso posterior este cerrado/rechazado y que la instancia siga Running. reopenStepId es el

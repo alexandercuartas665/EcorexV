@@ -146,6 +146,30 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 .ToList();
             if (routes.Count > 0) { routesByNode[cn.Id] = routes; }
         }
+        // Compuerta ATENDIDA (ADR-0068) como paso ACTUAL: sus PROPIAS salidas son las rutas que el
+        // encargado (o un Owner/Admin) elige EN la compuerta. Sin esto, el menu de la compuerta vigente
+        // no ofrecia las rutas (solo se colgaban del paso ANTERIOR) y no se podia decidir (bug reportado).
+        // Mismo Option que WorkflowInboxProjection.OwnRoutes (el Name de la arista) para que el motor enrute.
+        foreach (var gwId in gatewayIds)
+        {
+            if (routesByNode.ContainsKey(gwId)) { continue; }
+            // TODAS las salidas (aunque el edge no tenga nombre): la rama se ELIGE por su DESTINO. La
+            // etiqueta es el nombre del edge si lo tiene; si no, el nombre del paso destino. El motor sigue
+            // la rama por TargetNodeId (ADR-0072), asi que no depende de nombres ni condiciones.
+            var ownRoutes = canvas.Edges
+                .Where(x => x.SourceNodeId == gwId)
+                .Select(x =>
+                {
+                    var targetName = nameById.TryGetValue(x.TargetNodeId, out var tn) ? tn : null;
+                    var label = !string.IsNullOrWhiteSpace(x.Name) ? x.Name!.Trim() : (targetName ?? "(salida)");
+                    return new TaskFlowRouteDto(
+                        label, targetName,
+                        ClassifyRoute(string.IsNullOrWhiteSpace(x.Name) ? targetName : x.Name, x.ConditionExpression),
+                        x.TargetNodeId);
+                })
+                .ToList();
+            if (ownRoutes.Count > 0) { routesByNode[gwId] = ownRoutes; }
+        }
 
         // Notas colaborativas del equipo (ADR-0071): recados por nodo de esta instancia, en orden.
         var notesByNode = (await (
@@ -601,6 +625,29 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         });
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<WorkflowInstanceDto>> CompleteGatewayChoiceAsync(
+        Guid stepId, Guid targetNodeId, Guid tenantUserId, string? note,
+        CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadCurrentStepAsync(stepId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(loaded.Error.Error ?? "Paso no vigente.");
+        }
+        var (step, node) = loaded.Value;
+
+        var authorized = step.AssignedToTenantUserId == tenantUserId
+            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken))
+            || await IsOwnerOrAdminAsync(tenantUserId, cancellationToken);
+        if (!authorized)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("No estas autorizado para decidir en esta compuerta.");
+        }
+
+        return await _engine.ChooseGatewayRouteAsync(
+            step.InstanceId, step.Id, targetNodeId, tenantUserId, note, cancellationToken);
     }
 
     // ---- Helpers ----

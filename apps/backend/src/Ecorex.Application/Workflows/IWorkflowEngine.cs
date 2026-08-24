@@ -63,6 +63,17 @@ public interface IWorkflowEngine
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Completa una COMPUERTA ATENDIDA (ADR-0068) siguiendo la RAMA elegida por el humano, identificada por
+    /// su nodo destino (ADR-0072). A diferencia de una compuerta automatica (que enruta por
+    /// ConditionExpression), aqui la persona ELIGE el destino, asi que la rama se sigue por
+    /// <paramref name="targetNodeId"/> aunque el edge no tenga nombre ni condicion. El destino debe ser una
+    /// salida directa de la compuerta.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> ChooseGatewayRouteAsync(
+        Guid instanceId, Guid stepId, Guid targetNodeId, Guid? tenantUserId, string? note = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// REABRE un paso Task ya cerrado (ADR-0070): lo vuelve a Pending+IsCurrent y DESHACE los
     /// pasos que habia activado aguas abajo (los deja Skipped). Solo procede si ningun paso
     /// posterior fue cerrado por un humano (Task/EndEvent Completed) ni rechazado y la instancia

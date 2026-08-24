@@ -1225,9 +1225,14 @@
                 @foreach (var r in routes)
                 {
                     var rr = r;
-                    <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, rr.Option, _flowNote))">
+                    @* Compuerta ATENDIDA: la rama se sigue por su DESTINO (ADR-0072). Un paso Task con compuerta
+                       AUTOMATICA adelante: se completa con el approvalResult (nombre) y el motor enruta. *@
+                    <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy"
+                            @onclick="@(() => (mnode.NodeType == WorkflowNodeType.ExclusiveGateway && rr.TargetNodeId is Guid tgt)
+                                ? ChooseGatewayRouteAsync(mnode.StepId!.Value, tgt, _flowNote)
+                                : CompleteFlowNodeAsync(mnode.StepId!.Value, rr.Option, _flowNote))">
                         <span class="tk-flow-route-opt">@rr.Option</span>
-                        @if (!string.IsNullOrWhiteSpace(rr.TargetName))
+                        @if (!string.IsNullOrWhiteSpace(rr.TargetName) && !string.Equals(rr.TargetName, rr.Option, StringComparison.Ordinal))
                         {
                             <span class="tk-flow-route-to">&#8594; @rr.TargetName</span>
                         }
@@ -2087,6 +2092,30 @@
             var taskId = _detail.Item.Id;
             var comment = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
             var result = await InboxSvc.CompletePendingStepAsync(stepId, me, approvalResult, comment);
+            if (!result.IsOk && result.Status != WorkflowEngineStatus.StuckDetected)
+            {
+                _actionError = result.Error;
+            }
+            _flowMenuNodeId = null;
+            _flowNote = "";
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Elige la rama de una compuerta ATENDIDA por su nodo destino (ADR-0072): funciona aunque las
+    /// ramas no tengan nombre ni condicion. El motor sigue esa rama.</summary>
+    private async Task ChooseGatewayRouteAsync(Guid stepId, Guid targetNodeId, string? note)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var comment = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+            var result = await InboxSvc.CompleteGatewayChoiceAsync(stepId, targetNodeId, me, comment);
             if (!result.IsOk && result.Status != WorkflowEngineStatus.StuckDetected)
             {
                 _actionError = result.Error;

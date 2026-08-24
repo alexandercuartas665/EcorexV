@@ -486,6 +486,97 @@ public sealed class WorkflowEngine : IWorkflowEngine
             : WorkflowResult<WorkflowInstanceDto>.Ok(dto);
     }
 
+    public async Task<WorkflowResult<WorkflowInstanceDto>> ChooseGatewayRouteAsync(
+        Guid instanceId, Guid stepId, Guid targetNodeId, Guid? tenantUserId, string? note = null,
+        CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return loaded.Error;
+        }
+        var (instance, steps, graph, task) = loaded.Value;
+
+        var step = steps.FirstOrDefault(s => s.Id == stepId);
+        if (step is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.NotFound("El paso no existe en la instancia.");
+        }
+        if (!step.IsCurrent || step.Status != WorkflowStepStatus.Pending)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("El paso no esta vigente.");
+        }
+        var node = graph.NodesById[step.NodeId];
+        if (node.NodeType != WorkflowNodeType.ExclusiveGateway)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo una compuerta permite elegir la ruta por destino.");
+        }
+        // El destino elegido debe ser una salida DIRECTA de la compuerta.
+        var outgoing = graph.EdgesBySource.TryGetValue(node.Id, out var outs) ? outs : [];
+        var chosen = outgoing.FirstOrDefault(e => e.TargetNodeId == targetNodeId);
+        if (chosen is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("La ruta elegida no es una salida de esta compuerta.");
+        }
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+
+        step.Status = WorkflowStepStatus.Completed;
+        step.IsCurrent = false;
+        step.ExecutedByTenantUserId = tenantUserId;
+        step.CompletedAt = DateTimeOffset.UtcNow;
+        // El nombre del edge (si lo tiene) queda como resultado, para auditoria; puede ser null.
+        step.ApprovalResult = Normalize(chosen.Name);
+        step.ApprovalComment = Normalize(note);
+
+        // Sigue SOLO la rama elegida (mismo manejo por-arista que AdvanceAsync: reinicio / fin / activacion).
+        var predecessor = step.ExecutedByTenantUserId ?? step.AssignedToTenantUserId;
+        var target = graph.NodesById[chosen.TargetNodeId];
+        if (target.RestartNodeId is Guid restartId && graph.NodesById.TryGetValue(restartId, out var restartNode))
+        {
+            var cycle = step.CycleIndex + 1;
+            var inherited = restartNode.NodeType == WorkflowNodeType.ExclusiveGateway ? step.ApprovalResult : null;
+            await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, inherited, task, predecessor, cancellationToken);
+            instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
+        }
+        else if (target.NodeType == WorkflowNodeType.EndEvent && !target.WaitsForHuman)
+        {
+            steps.Add(AddStep(instance, target, step.CycleIndex, isCycleStart: false, WorkflowStepStatus.Completed, isCurrent: false));
+        }
+        else
+        {
+            var inherited = target.NodeType == WorkflowNodeType.ExclusiveGateway ? step.ApprovalResult : null;
+            await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, task, predecessor, cancellationToken);
+        }
+
+        if (task is not null)
+        {
+            AddTaskActivity(task, tenantUserId, "Usuario",
+                $"eligio la ruta hacia {target.Name ?? target.BpmnElementId} en {node.Name ?? node.BpmnElementId}");
+        }
+
+        var stuck = await AdvanceAsync(instance, steps, graph, task, cancellationToken);
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Conflict(ConflictMessage);
+        }
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        await BroadcastTaskAsync(task, cancellationToken);
+
+        var dto = BuildInstanceDto(instance, steps, graph);
+        return stuck
+            ? WorkflowResult<WorkflowInstanceDto>.Stuck(dto, StuckMessage())
+            : WorkflowResult<WorkflowInstanceDto>.Ok(dto);
+    }
+
     public async Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
         Guid instanceId, Guid stepId, Guid? tenantUserId, CancellationToken cancellationToken = default)
     {

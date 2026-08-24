@@ -93,8 +93,10 @@ public sealed record TaskFlowEdgeDto(
     TaskFlowRouteKind Kind = TaskFlowRouteKind.Neutral);
 
 /// <summary>Una ruta que el usuario puede tomar desde un paso con compuerta adelante: la opcion
-/// (approvalResult que se manda al motor), el nombre del PASO DESTINO y su clasificacion.</summary>
-public sealed record TaskFlowRouteDto(string Option, string? TargetName, TaskFlowRouteKind Kind);
+/// (approvalResult que se manda al motor), el nombre del PASO DESTINO y su clasificacion.
+/// TargetNodeId se usa cuando la ruta se elige EN una compuerta ATENDIDA (ADR-0068): el motor sigue
+/// esa rama por su destino aunque el edge no tenga nombre ni condicion (ADR-0072).</summary>
+public sealed record TaskFlowRouteDto(string Option, string? TargetName, TaskFlowRouteKind Kind, Guid? TargetNodeId = null);
 
 /// <summary>
 /// Diagrama del flujo de una tarea de proceso: nombre, bounds para el viewBox y los nodos/aristas

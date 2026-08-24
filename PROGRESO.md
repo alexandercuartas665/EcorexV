@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-24 - v0.15.72: la compuerta atendida deja ELEGIR la rama por destino (ADR-0072)
+
+- **Bug**: en una compuerta de decision ATENDIDA (paso actual) no se podia escoger la ruta. Causa: las
+  rutas se derivaban del NOMBRE del edge y las ramas del flujo de prueba no tenian nombre ni condicion,
+  asi que el menu no ofrecia opciones (caia en "Cerrar actividad").
+- **Fix**: una compuerta atendida deja elegir la rama por su NODO DESTINO. El diagrama lista TODAS las
+  salidas (etiqueta = nombre del edge o del paso destino) con `TaskFlowRouteDto.TargetNodeId`. Nuevo
+  `IWorkflowEngine.ChooseGatewayRouteAsync` completa la compuerta y sigue SOLO esa rama (sin depender de
+  ConditionExpression). `IWorkflowInboxService.CompleteGatewayChoiceAsync` autoriza (asignado/candidato u
+  Owner/Admin). La UI llama a la eleccion por destino cuando el nodo es compuerta.
+- **Auditado (preview)**: la compuerta "Cliente Decide si compra" mostro las 2 rutas ("Cliente No compra"
+  / "Cliente Decide Comprar"); al elegir "Cliente Decide Comprar" el motor siguio ESA rama (fin atendido
+  quedo vigente esperando confirmacion). Sin desplegar.
+- **Pendiente de decision del usuario (config, no bug)**: los nodos Cotizacion/compuerta usan
+  AssigneeSource=InheritStart (heredan al iniciador), no Policy(cargo). Resolver "por cargo" es config por
+  nodo en el editor. Y "otro usuario cierra" es el override de Owner/Admin (ADR-0064). A definir con el
+  usuario si se cambia.
+
+---
+
 ## 2026-08-24 - v0.15.71: contador de notas del equipo por nodo en el diagrama
 
 - Cada nodo muestra CUANTAS notas del equipo tiene (ADR-0071): badge "(globo) N". En tarjetas Task va

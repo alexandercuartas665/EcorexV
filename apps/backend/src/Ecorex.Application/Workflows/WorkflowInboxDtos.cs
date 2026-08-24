@@ -75,6 +75,9 @@ public sealed record TaskFlowNodeDto(
     // cerrado/rechazado y la instancia siga Running. ReopenStepId es el paso cerrado a reactivar.
     bool CanReopen = false,
     Guid? ReopenStepId = null,
+    // Rama DESCARTADA (ADR-0073): un nodo que ya no puede alcanzarse porque una compuerta tomo otra ruta.
+    // Se pinta en gris en el diagrama. Distinto de Skipped (un paso que existio y se anulo).
+    bool IsAbandoned = false,
     // Notas colaborativas del equipo sobre este nodo (ADR-0071): recados entre companeros, visibles en
     // el menu del nodo. Cualquiera con acceso a la tarea puede agregarlas, incluso en pasos futuros.
     IReadOnlyList<TaskFlowNoteDto>? TeamNotes = null);

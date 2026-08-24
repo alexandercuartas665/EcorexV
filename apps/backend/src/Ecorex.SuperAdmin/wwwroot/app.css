@@ -1644,6 +1644,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-node.gw, .tk-flow-node.ev { cursor: grab; }
 .tk-flow-node.current { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft), 0 10px 22px -8px rgba(20,20,25,.30); }
 .tk-flow-node.done { background: var(--surface-2); }
+/* Rama DESCARTADA (ADR-0073): la compuerta tomo otra ruta -> el nodo se atenua en gris. Sigue siendo
+   consultable (menu/notas), pero visualmente queda claro que el proceso no paso por ahi. */
+.tk-flow-node.abandoned { opacity: 0.5; filter: grayscale(1); }
 .tk-flow-menu { cursor: default; }
 .tk-flow-node.gw, .tk-flow-node.ev { background: none; border: none; box-shadow: none; padding: 0; }
 .tk-flow-gw { width: 72%; height: 72%; background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px; box-shadow: var(--sh-sm); transform: rotate(45deg); }

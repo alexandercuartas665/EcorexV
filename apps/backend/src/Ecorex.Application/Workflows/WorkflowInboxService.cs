@@ -220,9 +220,31 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return false;
         }
 
+        // Ramas DESCARTADAS (ADR-0073): un nodo SIN historial que ya NO es alcanzable hacia adelante desde
+        // ningun paso vigente quedo descartado (la compuerta tomo la otra ruta) -> se pinta en gris. Mientras
+        // la compuerta NO se ha decidido, ambas salidas son alcanzables desde ella (vigente) y NO se griselan.
+        var reachableFromCurrent = new HashSet<Guid>();
+        {
+            var stack = new Stack<Guid>();
+            foreach (var kv in latestByNode)
+            {
+                if (kv.Value.IsCurrent && reachableFromCurrent.Add(kv.Key)) { stack.Push(kv.Key); }
+            }
+            while (stack.Count > 0)
+            {
+                var id = stack.Pop();
+                if (!adjacency.TryGetValue(id, out var outs)) { continue; }
+                foreach (var t in outs)
+                {
+                    if (reachableFromCurrent.Add(t)) { stack.Push(t); }
+                }
+            }
+        }
+
         var nodes = canvas.Nodes.Select(n =>
         {
             latestByNode.TryGetValue(n.Id, out var h);
+            var isAbandoned = h is null && !reachableFromCurrent.Contains(n.Id);
             var state = h is null
                 ? TaskFlowNodeState.Pending
                 : h.Status == WorkflowStepStatus.Completed ? TaskFlowNodeState.Completed
@@ -275,6 +297,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 ConfigNote: n.Note,
                 CanReopen: canReopen,
                 ReopenStepId: canReopen ? h!.Id : (Guid?)null,
+                IsAbandoned: isAbandoned,
                 TeamNotes: notesByNode.TryGetValue(n.Id, out var teamNotes) ? teamNotes : null);
         }).ToList();
 

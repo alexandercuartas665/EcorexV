@@ -287,6 +287,7 @@
             @* ===== FLUJO DEL PROCESO (ADR-0051): solo si la tarea viene de un flujo ===== *@
             @if (_flowDiagram is TaskFlowDiagramDto flow)
             {
+                var abandonedIds = flow.Nodes.Where(x => x.IsAbandoned).Select(x => x.NodeId).ToHashSet();
                 <div class="tk-flow-card">
                     <div class="tk-flow-cardhead">
                         <div>
@@ -322,10 +323,12 @@
                                 {
                                     var p = FlowEdgePath(flow, e);
                                     if (p is null) { continue; }
-                                    var stroke = FlowEdgeStroke(e.Kind);
-                                    <path d="@p.Value.D" fill="none" stroke="@stroke" stroke-width="2" marker-end="url(#@FlowEdgeMarker(e.Kind))" />
-                                    <circle cx="@p.Value.Sx" cy="@p.Value.Sy" r="3.5" fill="@stroke" />
-                                    <circle cx="@p.Value.Tx" cy="@p.Value.Ty" r="3.5" fill="@stroke" />
+                                    @* Rama DESCARTADA (compuerta tomo otra ruta): arista en gris punteado. *@
+                                    var isAband = abandonedIds.Contains(e.TargetNodeId) || abandonedIds.Contains(e.SourceNodeId);
+                                    var stroke = isAband ? "var(--line-2)" : FlowEdgeStroke(e.Kind);
+                                    <path d="@p.Value.D" fill="none" stroke="@stroke" stroke-width="2" stroke-dasharray="@(isAband ? "4 4" : null)" marker-end="url(#@(isAband ? "tkflowarrow" : FlowEdgeMarker(e.Kind)))" opacity="@(isAband ? "0.55" : "1")" />
+                                    <circle cx="@p.Value.Sx" cy="@p.Value.Sy" r="3.5" fill="@stroke" opacity="@(isAband ? "0.55" : "1")" />
+                                    <circle cx="@p.Value.Tx" cy="@p.Value.Ty" r="3.5" fill="@stroke" opacity="@(isAband ? "0.55" : "1")" />
                                 }
                             </svg>
                             @* Etiquetas de aristas condicionales como divs (evita el choque de <text> con Razor). *@
@@ -346,7 +349,7 @@
                                 var canAct = nn.IsCurrent && nn.StepId is not null && nn.IsMine;
                                 // Color configurado del nodo (editor de flujos) si lo tiene; si no, azul (auto) / violeta.
                                 var accent = FlowNodeColor(nn.Color) ?? (nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)");
-                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
+                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
                                      style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@FlowNodeCardStyle(nn, accent, isGw, isEvent)"
                                      draggable="true"
                                      @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
@@ -1964,10 +1967,15 @@
         if (!string.IsNullOrWhiteSpace(n.CargoLabel)) { return n.CargoLabel!; }
         return string.IsNullOrWhiteSpace(user) ? "sin asignar" : user;
     }
-    // Tamano de render: eventos (inicio/fin) compactos; tareas mas anchas/altas para las etiquetas.
+    // Tamano de render: eventos (inicio/fin) como circulos de buen tamano (antes 38px se veian diminutos
+    // frente a las tareas); tareas mas anchas/altas para las etiquetas. Los eventos se re-centran en
+    // FlowNodeLeft/Top para que crecer el circulo NO descoloque las aristas (mantienen su centro).
+    private const int FlowEventSize = 72;
     private static bool FlowIsEvent(TaskFlowNodeDto n) => n.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
-    private static int FlowNodeW(TaskFlowNodeDto n) => FlowIsEvent(n) ? Math.Min(n.W, 38) : Math.Max(n.W, 132);
-    private static int FlowNodeH(TaskFlowNodeDto n) => FlowIsEvent(n) ? Math.Min(n.H, 38) : Math.Max(n.H, 112);
+    private static int FlowEventOrigW(TaskFlowNodeDto n) => Math.Min(n.W, 38);
+    private static int FlowEventOrigH(TaskFlowNodeDto n) => Math.Min(n.H, 38);
+    private static int FlowNodeW(TaskFlowNodeDto n) => FlowIsEvent(n) ? FlowEventSize : Math.Max(n.W, 132);
+    private static int FlowNodeH(TaskFlowNodeDto n) => FlowIsEvent(n) ? FlowEventSize : Math.Max(n.H, 112);
 
     // Arrastre "un poco": desplazamiento por nodo (solo de sesion, no se persiste) para reacomodar el
     // diagrama a gusto. Se suma a la posicion calculada. Se usa HTML5 drag (ondragstart/ondragend), que
@@ -1978,8 +1986,13 @@
 
     private int FlowOffX(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dx : 0;
     private int FlowOffY(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dy : 0;
-    private int FlowNodeLeft(TaskFlowDiagramDto flow, TaskFlowNodeDto n) => (int)((n.X - flow.MinX) * FlowXScale) + 16 + FlowOffX(n.NodeId);
-    private int FlowNodeTop(TaskFlowDiagramDto flow, TaskFlowNodeDto n) => (n.Y - flow.MinY) + 16 + FlowOffY(n.NodeId);
+    // Base con padding 30 (deja aire para el re-centrado de los eventos, que restan hasta ~18px).
+    private int FlowNodeLeft(TaskFlowDiagramDto flow, TaskFlowNodeDto n)
+        => (int)((n.X - flow.MinX) * FlowXScale) + 30 + FlowOffX(n.NodeId)
+           - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigW(n)) / 2 : 0);
+    private int FlowNodeTop(TaskFlowDiagramDto flow, TaskFlowNodeDto n)
+        => (n.Y - flow.MinY) + 30 + FlowOffY(n.NodeId)
+           - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigH(n)) / 2 : 0);
     private int FlowCanvasW(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 200 : flow.Nodes.Max(n => FlowNodeLeft(flow, n) + FlowNodeW(n)) + 20;
     private int FlowCanvasH(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 140 : flow.Nodes.Max(n => FlowNodeTop(flow, n) + FlowNodeH(n)) + 20;
 

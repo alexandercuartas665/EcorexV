@@ -21,12 +21,8 @@
 
 ---
 
-## 2026-08-24 - v0.15.73: cerrar/decidir/reabrir SOLO el asignado o su cargo + rama descartada en gris + eventos mas grandes (ADR-0073)
+## 2026-08-24 - v0.15.73 (visuales): rama descartada en gris + eventos mas grandes (ADR-0074)
 
-- **Cierre estricto (ADR-0073)**: se retira el override de Owner/Admin (ADR-0064). Cerrar/decidir un paso
-  ahora solo lo hace el ASIGNADO o un CANDIDATO de su cargo (que primero reclama); reabrir, solo quien
-  cerro. En el diagrama `mcanAct`/`canAct` usan `IsMine` (no `viewerIsManager`); se eliminaron
-  IsOwnerOrAdminAsync/ViewerIsManagerAsync. Se mantiene la herencia por cargo del primer nodo.
 - **Aclaracion asignacion (no bug)**: el primer paso SI se asigna por cargo (Cotizacion sin cargo -> usa de
   respaldo el cargo del inicio; el asignado real, direccionventas, es del cargo Coordinador Comercial). Los
   pasos siguientes usan InheritStart (heredan a ese usuario), por decision del usuario se deja asi.
@@ -35,8 +31,7 @@
   paso vigente).
 - **Eventos mas grandes**: inicio/fin de 38px -> 72px (re-centrados para no descolocar aristas).
 - **Auditado (preview)**: eventos 72x72; "Cliente No compra" gris (opacity 0.5) + arista punteada tras
-  elegir "Cliente Decide Comprar"; Diego (Owner/Admin no asignado) ve el paso actual en SOLO LECTURA (sin
-  cerrar). Sin desplegar.
+  elegir "Cliente Decide Comprar". Sin desplegar.
 
 ---
 

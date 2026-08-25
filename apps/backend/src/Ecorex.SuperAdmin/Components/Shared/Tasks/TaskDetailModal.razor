@@ -764,11 +764,13 @@
                             </div>
                         }
 
-                        @* --- Formularios DERIVADOS anclados a la tarea (ADR-0078): p.ej. Orden de Trabajo --- *@
+                        @* --- Otros formularios anclados a la tarea: el diligenciado EN LA CREACION (form del
+                             evento de inicio del flujo), los de pasos ya recorridos, y los DERIVADOS (ADR-0078,
+                             p.ej. Orden de Trabajo). Todo lo que no sea el concepto ni el paso ACTUAL. --- *@
                         @if (_relatedForms.Count > 0)
                         {
                             <div class="tk-card">
-                                <div class="tk-card-head"><h3>Formularios derivados</h3></div>
+                                <div class="tk-card-head"><h3>Formularios de la actividad</h3></div>
                                 <div class="tk-quote-grid">
                                     @foreach (var rf in _relatedForms)
                                     {

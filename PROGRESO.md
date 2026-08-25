@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-25 - v0.15.82: fix el formulario diligenciado EN LA CREACION (flujo) no aparecia en la tarea
+
+- Bug reportado: una tarea creada bajo un flujo pide el formulario del inicio del proceso, se llena y la tarea
+  se crea, pero al consultarla el formulario NO estaba. Causa: el form de creacion se ancla al numero BASE de
+  la tarea y su definicion es de un nodo (evento de inicio); `GetTaskRelatedFormsAsync` (v0.15.80) excluia toda
+  respuesta de def de paso anclada al base, y `GetTaskStepFormsAsync` solo muestra el paso ACTUAL. Si el nodo de
+  ese form no es el paso actual (evento de inicio, o paso ya recorrido), el formulario quedaba invisible.
+- Fix: `GetTaskRelatedFormsAsync` ya NO excluye por "def de paso + numero base". Ahora excluye SOLO las
+  respuestas que "Formularios del proceso" muestra AHORA (las del paso ACTUAL, via FormFlowLink al nodo current,
+  usando IWorkflowEngine.GetCurrentStepsAsync). Todo lo demas anclado a la tarea -form de creacion, pasos ya
+  recorridos, derivados ADR-0078- aparece en la tarjeta (renombrada) "Formularios de la actividad". Se filtran
+  borradores en blanco (data vacia). Depende de que _stepForms se cargue antes que _relatedForms (ya es asi).
+- Sin migracion, sin cambio de contrato. Build verde. A verificar en dev y desplegar.
+
+---
+
 ## 2026-08-25 - v0.15.81: la Orden de Trabajo nace NUMERADA + conversion idempotente + marca "convertida" (ADR-0078)
 
 - Delta de negocio (hand-off de la sesion de formularios), dos decisiones que faltaban:

@@ -1039,42 +1039,57 @@ public sealed class FormResponseService : IFormResponseService
                 .Select(s => s.FormDefinitionId!.Value).FirstOrDefaultAsync(cancellationToken);
             if (conceptDef != Guid.Empty) { excluded.Add(conceptDef); }
         }
-        // Formularios de PASO del flujo: NO se excluye la definicion entera. Un mismo formulario puede ser
-        // paso Y destino de una conversion (p.ej. FT-C-008 es formulario de un nodo Y la Orden de Trabajo
-        // derivada de la cotizacion). La respuesta PROPIA del paso se ancla al numero BASE de la tarea
-        // ("{tarea}") -y se muestra en "Formularios del proceso"-, mientras que las DERIVADAS llevan ordinal
-        // ("{tarea}-{n}", ADR-0078) y SI deben aparecer aqui como formularios derivados.
-        var stepDefList = new List<Guid>();
+        // Formularios de PASO del flujo: NO se excluye la definicion entera ni "toda respuesta anclada al numero
+        // base". Solo se excluyen las respuestas que "Formularios del proceso" YA muestra AHORA (las del paso
+        // ACTUAL, via FormFlowLink al nodo current). Asi un formulario diligenciado EN LA CREACION (form del
+        // evento de inicio, ADR-0069) o en un paso ya recorrido -anclado al numero base- SIGUE visible aunque su
+        // nodo no sea el paso actual (bug: el form de creacion desaparecia de la tarea). Las derivadas (ordinal,
+        // ADR-0078) no tienen link a un paso -> tambien pasan. Requiere que _stepForms se cargue ANTES (crea los
+        // links del paso actual): TaskDetailModal lo hace en ese orden.
+        var shownInStep = new HashSet<Guid>();
         if (task.WorkflowInstanceId is Guid instId)
         {
-            var wfDefId = await _db.WorkflowInstances.AsNoTracking()
-                .Where(i => i.Id == instId).Select(i => i.DefinitionId).FirstOrDefaultAsync(cancellationToken);
-            var nodeIds = await _db.WorkflowNodes.AsNoTracking()
-                .Where(n => n.DefinitionId == wfDefId).Select(n => n.Id).ToListAsync(cancellationToken);
-            stepDefList = await _db.WorkflowNodeForms.AsNoTracking()
-                .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).Distinct().ToListAsync(cancellationToken);
+            var current = await _workflowEngine.GetCurrentStepsAsync(instId, cancellationToken);
+            var currentNodeIds = current
+                .Where(s => s.Status == WorkflowStepStatus.Pending)
+                .Select(s => s.NodeId)
+                .ToList();
+            if (currentNodeIds.Count > 0)
+            {
+                shownInStep = (await _db.FormFlowLinks.AsNoTracking()
+                    .Where(l => l.WorkflowInstanceId == instId && currentNodeIds.Contains(l.WorkflowNodeId))
+                    .Select(l => l.FormResponseId)
+                    .ToListAsync(cancellationToken)).ToHashSet();
+            }
         }
         var excludedList = excluded.ToList(); // solo el def del concepto (su seccion cubre base + ordinales)
-        var baseNumber = task.Number;
 
         var prefix = task.Number + "-";
         var rows = await _db.FormResponses.AsNoTracking()
             .Where(r => (r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix)))
-                && !excludedList.Contains(r.DefinitionId)
-                && !(stepDefList.Contains(r.DefinitionId) && r.Reference == baseNumber))
+                && !excludedList.Contains(r.DefinitionId))
             .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
             {
                 r.Id, r.DefinitionId, d.Code, d.Title, r.Reference, r.RecordNumber, r.Status, r.CreatedAt,
-                d.CardLayout, d.IsArchived
+                d.CardLayout, d.IsArchived, r.Data
             })
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
 
         return rows
             .Where(x => !x.IsArchived)
+            .Where(x => !shownInStep.Contains(x.Id))                          // ya visible en "Formularios del proceso"
+            .Where(x => x.Status != FormResponseStatus.Draft || HasData(x.Data)) // sin borradores de paso creados en blanco
             .Select(x => new TaskRelatedFormDto(
                 x.Id, x.DefinitionId, x.Code, x.Title, x.Reference, x.RecordNumber, x.Status, x.CreatedAt, x.CardLayout))
             .ToList();
+    }
+
+    /// <summary>El documento Data trae algo mas que un objeto/arreglo vacio (para no listar borradores en blanco).</summary>
+    private static bool HasData(string? data)
+    {
+        var s = data?.Trim();
+        return !string.IsNullOrEmpty(s) && s is not "{}" and not "[]";
     }
 
     public async Task<DerivedFormRefDto?> GetDerivedRecordAsync(Guid sourceResponseId, CancellationToken cancellationToken = default)

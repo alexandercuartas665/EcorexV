@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-25 - v0.15.79: verbo CONVERTIR_A_FORMULARIO (transformar un registro en otro formulario) (ADR-0078)
+
+- Boton (regla) que TRANSFORMA el registro actual en uno NUEVO de otro formulario (por code), copiando los
+  datos mapeables y ABRIENDOLO para completar. Caso AGROMETALICAS: Cotizacion (COT) -> Orden de Trabajo (FT-C-008).
+- Piezas: `RuleActionKind.OpenForm` (al final) + factory; verbo `ConvertirAFormularioVerb`
+  (targetCode/mapping/openMode) registrado en DI; `IFormResponseService.CreateDerivedFormAsync` (mapea por
+  field_code conocido del destino + hereda el anclaje a la tarea via Reference "{tarea}-{n}"); el renderer
+  emite `OnOpenFormRequested`; hosts TaskDetailModal (modal _openForm) y FormModule (standalone) lo abren.
+- Visibilidad: `GetTaskRelatedFormsAsync` descubre los derivados anclados por Reference (definicion != concepto
+  ni paso) y TaskDetailModal los pinta como tarjetas "Formularios derivados".
+- Sin migracion (enum solo de codigo). Multi-tenant intacto. A verificar end-to-end. Sin desplegar.
+
+---
+
 ## 2026-08-25 - v0.15.78: formulario OBLIGATORIO por nodo para cerrar/decidir (ADR-0077)
 
 - Marca nueva `WorkflowNodeForm.IsRequired` (migracion dual PG + SQL Server): por nodo se decide si su

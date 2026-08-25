@@ -226,6 +226,13 @@ public sealed record TaskConceptFormsDto(
     // Ancho de tarjeta del formulario (Normal/Ancho/Completo), para dimensionar el modal del detalle.
     FormCardLayout CardLayout = FormCardLayout.Normal);
 
+/// <summary>Formulario DERIVADO anclado a la tarea (ADR-0078): de OTRA definicion (no la del concepto),
+/// creado por transformacion (p.ej. Orden de Trabajo desde una cotizacion). Tarjeta extra en Formularios.</summary>
+public sealed record TaskRelatedFormDto(
+    Guid ResponseId, Guid DefinitionId, string FormCode, string FormTitle,
+    string? Reference, string? RecordNumber, FormResponseStatus Status, DateTimeOffset CreatedAt,
+    FormCardLayout CardLayout = FormCardLayout.Normal);
+
 /// <summary>
 /// Un formulario relevante para un tablero (ADR-0065, columnas de campo de formulario): el del
 /// concepto de sus tareas o uno de los pasos de su flujo. Para el selector "Elijo un formulario".

@@ -41,7 +41,15 @@ public enum RuleActionKind
     /// Plantillas con los datos del registro. La aplica el DynamicFormRenderer (abre el
     /// documento), NO FormRuleUiState.Apply. Se agrego al FINAL para no romper el enum.
     /// </summary>
-    PrintTemplate
+    PrintTemplate,
+
+    /// <summary>
+    /// Efecto de UNA sola vez (ADR-0078): abrir OTRO registro de formulario recien creado por una
+    /// transformacion (verbo CONVERTIR_A_FORMULARIO). El nuevo responseId viaja en Value. La aplica el
+    /// DynamicFormRenderer emitiendo OnOpenFormRequested para que el HOST lo abra (modal en la tarea, etc.).
+    /// Se agrego al FINAL para no romper los ordinales del enum.
+    /// </summary>
+    OpenForm
 }
 
 /// <summary>
@@ -59,6 +67,10 @@ public sealed record RuleAction(RuleActionKind Kind, string FieldCode, string? V
     /// <summary>Imprimir la plantilla <paramref name="templateName"/> (por nombre) en el formato dado (null = dialogo).</summary>
     public static RuleAction PrintTemplate(string templateName, string? format = null)
         => new(RuleActionKind.PrintTemplate, format ?? string.Empty, Value: templateName);
+
+    /// <summary>Abrir el registro de formulario recien creado <paramref name="responseId"/> (ADR-0078).</summary>
+    public static RuleAction OpenForm(string responseId)
+        => new(RuleActionKind.OpenForm, string.Empty, Value: responseId);
 }
 
 /// <summary>Resultado de la ejecucion de UN verbo.</summary>

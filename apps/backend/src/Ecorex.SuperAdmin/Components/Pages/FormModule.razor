@@ -246,6 +246,7 @@ else
                                          Mode="FormRenderMode.Fill"
                                          ApplyCardWidth="true"
                                          SubmittedByTenantUserId="@_actorTenantUserId"
+                                         OnOpenFormRequested="OnConvertToFormAsync"
                                          OnSubmitted="OnNewRecordSubmittedAsync" />
                 </div>
             </div>
@@ -266,6 +267,27 @@ else
                                          ResponseId="@_viewResponseId"
                                          Mode="FormRenderMode.ReadOnly"
                                          ApplyCardWidth="true" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Modal: registro CONVERTIDO (ADR-0078): una regla creo OTRO formulario y se abre para completar ===== *@
+    @if (_convertResponseId is not null && _convertDefId is not null)
+    {
+        <div class="modal-overlay" style="z-index:61;" @onclick="@(() => _convertResponseId = null)">
+            <div class="modal-dialog fm-new-dialog" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Completar formulario</h3>
+                    <button class="modal-close" @onclick="@(() => _convertResponseId = null)">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <DynamicFormRenderer DefinitionId="@_convertDefId.Value"
+                                         ResponseId="@_convertResponseId"
+                                         Mode="FormRenderMode.Fill"
+                                         ApplyCardWidth="true"
+                                         SubmittedByTenantUserId="@_actorTenantUserId"
+                                         OnSubmitted="@(_ => { _convertResponseId = null; return Task.CompletedTask; })" />
                 </div>
             </div>
         </div>
@@ -513,6 +535,20 @@ else
     // Abrir un registro EXISTENTE en el formulario, solo lectura (FormRenderMode.View carga por ResponseId).
     private void OpenView(FormRecordListItemDto r) => _viewResponseId = r.Id;
     private void CloseView() => _viewResponseId = null;
+
+    // Registro creado por transformacion (CONVERTIR_A_FORMULARIO, ADR-0078) para abrir standalone.
+    private Guid? _convertResponseId;
+    private Guid? _convertDefId;
+
+    /// <summary>Una regla de boton creo OTRO registro (transformacion): lo resuelve y lo abre para completar.</summary>
+    private async Task OnConvertToFormAsync(Guid newResponseId)
+    {
+        var resp = await ResponsesSvc.GetAsync(newResponseId);
+        if (resp is null) { return; }
+        _convertDefId = resp.DefinitionId;
+        _convertResponseId = newResponseId;
+        StateHasChanged();
+    }
 
     private async Task OnNewRecordSubmittedAsync(FormResponseDto _)
     {

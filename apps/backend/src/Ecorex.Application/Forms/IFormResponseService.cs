@@ -84,6 +84,25 @@ public interface IFormResponseService
     Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// TRANSFORMACION (ADR-0078): crea un registro NUEVO de <paramref name="targetDefinitionId"/> a partir de
+    /// <paramref name="sourceResponseId"/>, copiando los campos por field_code que el destino conozca (con el
+    /// mapeo explicito {origen: destino} para los que cambian de nombre) y heredando el ANCLAJE a la tarea del
+    /// origen (misma tarea, ordinal nuevo) o sin anclaje si el origen es suelto. Devuelve el id del nuevo
+    /// registro (borrador). Lo usa el verbo CONVERTIR_A_FORMULARIO (p.ej. Cotizacion -> Orden de Trabajo).
+    /// </summary>
+    Task<FormResult<Guid>> CreateDerivedFormAsync(
+        Guid sourceResponseId, Guid targetDefinitionId,
+        IReadOnlyDictionary<string, string>? fieldMapping, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Formularios DERIVADOS anclados a la tarea (ADR-0078): respuestas cuyo Reference es el numero de la
+    /// tarea (o "{numero}-{n}") pero cuya definicion NO es la del concepto -- p.ej. una Orden de Trabajo
+    /// creada por transformacion desde una cotizacion. Para mostrarlas como tarjetas extra en la pestana
+    /// Formularios de la tarea. Excluye la definicion del concepto (esas ya salen por GetTaskConceptFormsAsync).
+    /// </summary>
+    Task<IReadOnlyList<TaskRelatedFormDto>> GetTaskRelatedFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Formularios relevantes para un tablero (ADR-0065): el del concepto de sus tareas + los de los
     /// pasos de su flujo. Para el selector "Elijo un formulario" del configurador de columnas.
     /// </summary>

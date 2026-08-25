@@ -927,6 +927,121 @@ public sealed class FormResponseService : IFormResponseService
             response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
     }
 
+    public async Task<FormResult<Guid>> CreateDerivedFormAsync(
+        Guid sourceResponseId, Guid targetDefinitionId,
+        IReadOnlyDictionary<string, string>? fieldMapping,
+        CancellationToken cancellationToken = default)
+    {
+        var src = await _db.FormResponses.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == sourceResponseId, cancellationToken);
+        if (src is null) { return FormResult<Guid>.NotFound("Registro origen no encontrado."); }
+
+        var targetDef = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == targetDefinitionId, cancellationToken);
+        if (targetDef is null) { return FormResult<Guid>.NotFound("Formulario destino no encontrado."); }
+        if (targetDef.Status != FormStatus.Active || targetDef.IsArchived)
+        {
+            return FormResult<Guid>.Invalid("El formulario destino no esta activo.");
+        }
+
+        // Solo se copian los field_codes que el destino CONOCE (auto-copiado por codigo), aplicando el mapeo
+        // explicito {origen: destino} para los campos que cambian de nombre. La grilla 'items' se copia como
+        // un campo mas si el destino tambien la tiene (las columnas que no coincidan se ignoran al renderizar).
+        var targetCodes = (await _db.FormQuestions.AsNoTracking()
+            .Where(q => q.DefinitionId == targetDefinitionId)
+            .Select(q => q.FieldCode)
+            .ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+
+        var sourceDoc = ParseDocument(src.Data);
+        var mapped = new Dictionary<string, FormFieldValue>(StringComparer.Ordinal);
+        foreach (var (srcCode, val) in sourceDoc)
+        {
+            var targetCode = fieldMapping is not null && fieldMapping.TryGetValue(srcCode, out var mc) && !string.IsNullOrWhiteSpace(mc)
+                ? mc.Trim()
+                : srcCode;
+            if (targetCodes.Contains(targetCode))
+            {
+                mapped[targetCode] = val;
+            }
+        }
+
+        // Anclaje a tarea: si el origen esta anclado (Reference "{tarea}-{n}" o "{tarea}"), la derivada cae en
+        // la MISMA tarea con un ordinal nuevo -> aparece en su pestana Formularios. Si el origen es suelto
+        // (sin Reference), la derivada nace sin anclaje (flujo standalone).
+        var taskNumber = StripOrdinal(src.Reference);
+        string? reference = null;
+        if (!string.IsNullOrEmpty(taskNumber))
+        {
+            var next = await NextFormOrdinalAsync(targetDefinitionId, taskNumber, cancellationToken);
+            reference = $"{taskNumber}-{next}";
+        }
+
+        var dataJson = reference is not null
+            ? await BuildInheritedNumberDataAsync(targetDefinitionId, reference,
+                JsonSerializer.Serialize(mapped, JsonOptions), cancellationToken)
+            : JsonSerializer.Serialize(mapped, JsonOptions);
+
+        var response = new FormResponse
+        {
+            TenantId = targetDef.TenantId,
+            DefinitionId = targetDefinitionId,
+            Reference = reference,
+            Status = FormResponseStatus.Draft,
+            Data = dataJson
+        };
+        _db.FormResponses.Add(response);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<Guid>.Ok(response.Id);
+    }
+
+    public async Task<IReadOnlyList<TaskRelatedFormDto>> GetTaskRelatedFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Id == taskItemId)
+            .Select(t => new { t.Number, t.SubcategoriaId, t.WorkflowInstanceId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (task is null || string.IsNullOrEmpty(task.Number)) { return Array.Empty<TaskRelatedFormDto>(); }
+
+        // Definiciones ya listadas por otras vias (concepto + pasos del flujo): se excluyen para no duplicar.
+        var excluded = new HashSet<Guid>();
+        if (task.SubcategoriaId is Guid subId)
+        {
+            var conceptDef = await _db.ActividadSubcategorias.AsNoTracking()
+                .Where(s => s.Id == subId && s.FormDefinitionId != null)
+                .Select(s => s.FormDefinitionId!.Value).FirstOrDefaultAsync(cancellationToken);
+            if (conceptDef != Guid.Empty) { excluded.Add(conceptDef); }
+        }
+        if (task.WorkflowInstanceId is Guid instId)
+        {
+            var wfDefId = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => i.Id == instId).Select(i => i.DefinitionId).FirstOrDefaultAsync(cancellationToken);
+            var nodeIds = await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.DefinitionId == wfDefId).Select(n => n.Id).ToListAsync(cancellationToken);
+            var stepDefs = await _db.WorkflowNodeForms.AsNoTracking()
+                .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).ToListAsync(cancellationToken);
+            foreach (var d in stepDefs) { excluded.Add(d); }
+        }
+        var excludedList = excluded.ToList();
+
+        var prefix = task.Number + "-";
+        var rows = await _db.FormResponses.AsNoTracking()
+            .Where(r => (r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix)))
+                && !excludedList.Contains(r.DefinitionId))
+            .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
+            {
+                r.Id, r.DefinitionId, d.Code, d.Title, r.Reference, r.RecordNumber, r.Status, r.CreatedAt,
+                d.CardLayout, d.IsArchived
+            })
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(x => !x.IsArchived)
+            .Select(x => new TaskRelatedFormDto(
+                x.Id, x.DefinitionId, x.Code, x.Title, x.Reference, x.RecordNumber, x.Status, x.CreatedAt, x.CardLayout))
+            .ToList();
+    }
+
     public async Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default)
     {
         var target = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);

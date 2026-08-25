@@ -764,6 +764,33 @@
                             </div>
                         }
 
+                        @* --- Formularios DERIVADOS anclados a la tarea (ADR-0078): p.ej. Orden de Trabajo --- *@
+                        @if (_relatedForms.Count > 0)
+                        {
+                            <div class="tk-card">
+                                <div class="tk-card-head"><h3>Formularios derivados</h3></div>
+                                <div class="tk-quote-grid">
+                                    @foreach (var rf in _relatedForms)
+                                    {
+                                        var rfClosed = rf.Status == FormResponseStatus.Submitted;
+                                        <div class="tk-quote-card @(rfClosed ? "is-final" : "")">
+                                            <div class="tk-quote-main" @onclick="@(() => OpenRelatedForm(rf))">
+                                                <strong>@rf.FormTitle</strong>
+                                                <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(rf.RecordNumber) ? (rf.Reference ?? "Sin numero") : rf.RecordNumber)</span>
+                                                <span class="tk-quote-meta">
+                                                    <span class="tk-status @(rfClosed ? "st-done" : "st-pending")">@(rfClosed ? "Finalizado" : "Borrador")</span>
+                                                    <span>@rf.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
+                                                </span>
+                                            </div>
+                                            <div class="tk-quote-actions">
+                                                <button class="btn btn-xs" @onclick="@(() => OpenRelatedForm(rf))">@(rfClosed || taskClosed ? "Ver" : "Abrir")</button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
                         @* --- Formularios del paso del flujo --- *@
                         @if (_stepForms.Count > 0)
                         {
@@ -1196,6 +1223,7 @@
                                      SubmittedByTenantUserId="@_actorTenantUserId"
                                      TaskTokens="@BuildTaskTokens()"
                                      ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
+                                     OnOpenFormRequested="@OnConvertToFormAsync"
                                      OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />
             </div>
         </div>
@@ -1418,6 +1446,7 @@
     // Cotizaciones del concepto (subcategoria): varias respuestas por tarea, mostradas como tarjetas.
     // Editables mientras la tarea NO este Cerrada; cada una se finaliza (envia) o se reabre por separado.
     private TaskConceptFormsDto? _conceptForms;
+    private IReadOnlyList<TaskRelatedFormDto> _relatedForms = [];
     // Formulario abierto en el modal editor (una cotizacion del concepto o un formulario del paso).
     private OpenFormState? _openForm;
     private Guid? _actorTenantUserId;
@@ -1538,6 +1567,9 @@
             _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
             // Cotizaciones del concepto (subcategoria) de la actividad: todas las respuestas, como tarjetas.
             _conceptForms = await formsSvc.GetTaskConceptFormsAsync(taskId);
+            // Formularios DERIVADOS anclados a la tarea (ADR-0078): p.ej. una Orden de Trabajo creada por
+            // transformacion desde una cotizacion. Van como tarjetas extra en la pestana Formularios.
+            _relatedForms = (await formsSvc.GetTaskRelatedFormsAsync(taskId)).ToList();
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await tasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
@@ -2281,6 +2313,33 @@
         var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
         var title = _conceptForms.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
         _openForm = new OpenFormState(_conceptForms.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: _conceptForms.CardLayout);
+    }
+
+    /// <summary>Abre un formulario DERIVADO (Orden de Trabajo, etc.) anclado a la tarea (ADR-0078) en el modal.</summary>
+    private void OpenRelatedForm(TaskRelatedFormDto it)
+    {
+        if (_detail is null) { return; }
+        var taskClosed = _detail.Item.Status == TaskItemStatus.Closed;
+        var finalized = it.Status == FormResponseStatus.Submitted;
+        var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
+        var title = it.FormTitle + (string.IsNullOrWhiteSpace(it.RecordNumber) ? "" : $" - {it.RecordNumber}");
+        _openForm = new OpenFormState(it.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: it.CardLayout);
+    }
+
+    /// <summary>Una regla de boton creo OTRO registro por transformacion (CONVERTIR_A_FORMULARIO, ADR-0078):
+    /// recarga la tarea para que la nueva tarjeta aparezca en Formularios y ABRE ese registro para completarlo.</summary>
+    private async Task OnConvertToFormAsync(Guid newResponseId)
+    {
+        if (_detail is null) { return; }
+        var taskId = _detail.Item.Id;
+        await ReloadAsync(taskId);
+        var created = _relatedForms.FirstOrDefault(f => f.ResponseId == newResponseId);
+        if (created is not null)
+        {
+            OpenRelatedForm(created);
+        }
+        await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        StateHasChanged();
     }
 
     /// <summary>"Agregar cotizacion": crea un borrador nuevo y lo abre para diligenciar.</summary>

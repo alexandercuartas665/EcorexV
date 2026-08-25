@@ -229,6 +229,10 @@ else
     [Parameter] public Guid? AmbientTenantId { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
 
+    /// <summary>Una regla de boton (CONVERTIR_A_FORMULARIO, ADR-0078) creo OTRO registro y pide abrirlo:
+    /// el renderer emite aqui el nuevo responseId para que el HOST lo abra (modal en la tarea, etc.).</summary>
+    [Parameter] public EventCallback<Guid> OnOpenFormRequested { get; set; }
+
     /// <summary>
     /// Avisa al contenedor el borrador (FormResponse) en cuanto se crea/carga en modo Fill, SIN esperar
     /// al "Enviar". Lo usa la wizard de tareas para conocer el Id del borrador y poder anclarlo a la
@@ -2754,7 +2758,7 @@ else
             _ruleUiState.Apply(outcome.Actions, _values);
             _dirty = true;
             foreach (var fieldCode in outcome.Actions
-                .Where(a => a.Kind != RuleActionKind.PrintTemplate)
+                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm)
                 .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
             {
                 var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
@@ -2767,6 +2771,14 @@ else
         if (print is not null)
         {
             await StartPrintFromRuleAsync(print);
+        }
+
+        // Transformacion (ADR-0078): una regla creo OTRO registro (CONVERTIR_A_FORMULARIO) y pide abrirlo.
+        // El renderer NO navega: reenvia al HOST el nuevo responseId para que lo abra (modal en la tarea, etc.).
+        var open = outcome.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.OpenForm);
+        if (open is not null && Guid.TryParse(open.Value, out var openId) && OnOpenFormRequested.HasDelegate)
+        {
+            await OnOpenFormRequested.InvokeAsync(openId);
         }
     }
 

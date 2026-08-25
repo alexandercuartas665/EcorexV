@@ -50,6 +50,14 @@ Es el patron de reglas existente: se EXTIENDE, no se reinventa.
   grilla 'items' se copia si el destino tambien la tiene (columnas no coincidentes se ignoran).
 - El anclaje por Reference hace que la OT aparezca en la MISMA tarea sin una tabla de enlace nueva.
 
+## Nota (v0.15.80): destino que ademas es formulario de un paso
+
+`GetTaskRelatedFormsAsync` NO excluye la definicion de paso completa. Un mismo formulario puede ser paso del
+flujo Y destino de una conversion (FT-C-008 es nodo del flujo Y la Orden de Trabajo derivada de la COT). La
+respuesta PROPIA del paso se ancla al numero BASE de la tarea ("{tarea}") y la cubre "Formularios del proceso";
+las DERIVADAS llevan ordinal ("{tarea}-{n}") y aparecen como "Formularios derivados". Se excluye por respuesta
+(base del paso), no por definicion, para que el derivado no quede invisible.
+
 ## Alternativas descartadas
 
 - Tabla de enlace tarea<->response para los derivados: mas infraestructura; el anclaje por Reference

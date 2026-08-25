@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-25 - v0.15.80: fix visibilidad del derivado cuando su formulario tambien es paso del flujo (ADR-0078)
+
+- Bug hallado al verificar v0.15.79 end-to-end: si el formulario DESTINO de la conversion tambien esta
+  configurado como formulario de un PASO del flujo (caso real: FT-C-008 es Orden de Trabajo derivada Y nodo
+  del flujo), `GetTaskRelatedFormsAsync` lo excluia por definition_id -> el registro derivado quedaba invisible
+  (ni en "Formularios derivados" ni en "Formularios del proceso", que solo muestra la respuesta enlazada al nodo).
+- Fix: no se excluye la definicion de paso entera. La respuesta PROPIA del paso se ancla al numero BASE
+  ("{tarea}") y se sigue mostrando en el proceso; las DERIVADAS llevan ordinal ("{tarea}-{n}") y ahora SI
+  aparecen como "Formularios derivados". Discriminador estable e independiente del orden de carga.
+- Verificado en dev (D:, prod-data): T00032 -> clic en el boton de la COT dispara CONVERTIR_A_FORMULARIO ->
+  nace OT FT-C-008 "T00032-2" (Draft) con `items` (grilla con precios) y `cliente` copiados. Sin migracion. Sin desplegar.
+
+---
+
 ## 2026-08-25 - v0.15.79: verbo CONVERTIR_A_FORMULARIO (transformar un registro en otro formulario) (ADR-0078)
 
 - Boton (regla) que TRANSFORMA el registro actual en uno NUEVO de otro formulario (por code), copiando los

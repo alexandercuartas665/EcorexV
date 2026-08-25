@@ -1011,22 +1011,29 @@ public sealed class FormResponseService : IFormResponseService
                 .Select(s => s.FormDefinitionId!.Value).FirstOrDefaultAsync(cancellationToken);
             if (conceptDef != Guid.Empty) { excluded.Add(conceptDef); }
         }
+        // Formularios de PASO del flujo: NO se excluye la definicion entera. Un mismo formulario puede ser
+        // paso Y destino de una conversion (p.ej. FT-C-008 es formulario de un nodo Y la Orden de Trabajo
+        // derivada de la cotizacion). La respuesta PROPIA del paso se ancla al numero BASE de la tarea
+        // ("{tarea}") -y se muestra en "Formularios del proceso"-, mientras que las DERIVADAS llevan ordinal
+        // ("{tarea}-{n}", ADR-0078) y SI deben aparecer aqui como formularios derivados.
+        var stepDefList = new List<Guid>();
         if (task.WorkflowInstanceId is Guid instId)
         {
             var wfDefId = await _db.WorkflowInstances.AsNoTracking()
                 .Where(i => i.Id == instId).Select(i => i.DefinitionId).FirstOrDefaultAsync(cancellationToken);
             var nodeIds = await _db.WorkflowNodes.AsNoTracking()
                 .Where(n => n.DefinitionId == wfDefId).Select(n => n.Id).ToListAsync(cancellationToken);
-            var stepDefs = await _db.WorkflowNodeForms.AsNoTracking()
-                .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).ToListAsync(cancellationToken);
-            foreach (var d in stepDefs) { excluded.Add(d); }
+            stepDefList = await _db.WorkflowNodeForms.AsNoTracking()
+                .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).Distinct().ToListAsync(cancellationToken);
         }
-        var excludedList = excluded.ToList();
+        var excludedList = excluded.ToList(); // solo el def del concepto (su seccion cubre base + ordinales)
+        var baseNumber = task.Number;
 
         var prefix = task.Number + "-";
         var rows = await _db.FormResponses.AsNoTracking()
             .Where(r => (r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix)))
-                && !excludedList.Contains(r.DefinitionId))
+                && !excludedList.Contains(r.DefinitionId)
+                && !(stepDefList.Contains(r.DefinitionId) && r.Reference == baseNumber))
             .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
             {
                 r.Id, r.DefinitionId, d.Code, d.Title, r.Reference, r.RecordNumber, r.Status, r.CreatedAt,

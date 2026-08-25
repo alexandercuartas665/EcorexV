@@ -57,6 +57,16 @@ public interface IFormResponseService
     Task<TaskConceptFormsDto?> GetTaskConceptFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Formularios de la tarea agrupados por GENERO (una definicion = un genero), para presentarlos y
+    /// gestionarlos todos igual que los del concepto: el genero del concepto (si hay) + los generos del FLUJO
+    /// (definiciones de WorkflowNodeForm de cualquier nodo; las de inicio siempre, las demas si tienen
+    /// respuestas) + un catch-all de cualquier definicion con respuestas ancladas (p.ej. Orden de Trabajo
+    /// derivada). Cada genero trae sus respuestas ("{numero}"/"{numero}-{n}") con un activo, EXCLUYENDO la
+    /// respuesta del paso ACTUAL (esa se ve en "Formularios del proceso"). Vacio si la tarea no tiene generos.
+    /// </summary>
+    Task<IReadOnlyList<TaskConceptFormsDto>> GetTaskFormGenerosAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Formularios del PRIMER PASO del flujo (evento de inicio) de una subcategoria, para que el wizard los
     /// ofrezca AL CREAR la actividad cuando el concepto no define formulario propio (ADR-0069). Vacio si la
     /// subcategoria no tiene flujo publicado, el inicio no tiene formularios, o estos no estan Active.
@@ -69,6 +79,13 @@ public interface IFormResponseService
     /// concepto o esta Cerrada (Closed).
     /// </summary>
     Task<FormResult<TaskConceptFormItemDto>> CreateTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Crea una NUEVA respuesta (borrador) de un GENERO cualquiera (definitionId) para la tarea, anclada a su
+    /// numero ("{numero}-{n}"). Generaliza CreateTaskConceptFormAsync al boton "+ Agregar" de cualquier genero
+    /// (concepto o flujo). Error si la tarea no existe/esta Cerrada o la definicion no esta Active.
+    /// </summary>
+    Task<FormResult<TaskConceptFormItemDto>> CreateTaskFormAsync(Guid taskItemId, Guid definitionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Duplica una respuesta (formulario) de la tarea: copia su Data en una nueva en borrador, con el

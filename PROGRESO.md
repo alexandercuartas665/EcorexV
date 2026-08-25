@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-25 - v0.15.83: formularios de la tarea agrupados por GENERO (concepto + flujo), como el concepto (ADR-0079)
+
+- Peticion: los formularios de una tarea de FLUJO deben presentarse y gestionarse IGUAL que los del
+  concepto (tarjeta "Formularios · <titulo>" con ★ Activo / Borrador, Editar/Copiar/Marcar activo/
+  Reabrir/Eliminar y + Agregar), agrupados por GENERO (una definicion = un genero), un solo activo por
+  genero, varios generos posibles segun config del concepto y/o del flujo.
+- Backend: `GetTaskFormGenerosAsync(taskId)` devuelve la lista de generos (concepto + defs de
+  WorkflowNodeForm del flujo [inicio siempre, resto si tienen respuestas] + catch-all de defs con
+  respuestas ancladas, p.ej. Orden de Trabajo derivada), cada uno EXCLUYENDO la respuesta del paso
+  ACTUAL (esa se ve en "Formularios del proceso"). Se extrajo `BuildGeneroAsync` del cuerpo de
+  `GetTaskConceptFormsAsync` (reuso total: numeracion/activo/mapeo). `CreateTaskFormAsync(taskId, defId)`
+  generaliza el + Agregar a cualquier genero. Copiar/Activo/Reabrir/Eliminar sin cambios (por responseId).
+- UI (TaskDetailModal): la pestana Formularios recorre `_generos` y pinta la misma tarjeta por cada uno;
+  "Formularios del proceso" se conserva aparte para ejecutar el paso actual (no se toca la ejecucion del
+  flujo); "Formularios de la actividad" (v0.15.82) queda subsumida por las tarjetas de genero.
+- Sin migracion, sin cambio de contrato de ejecucion. Build verde. Limitacion documentada: el "activo"
+  es de presentacion; el paso sigue ejecutando la respuesta del numero base. A verificar en dev.
+
+---
+
 ## 2026-08-25 - v0.15.82: fix el formulario diligenciado EN LA CREACION (flujo) no aparecia en la tarea
 
 - Bug reportado: una tarea creada bajo un flujo pide el formulario del inicio del proceso, se llena y la tarea

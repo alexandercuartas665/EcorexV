@@ -841,19 +841,29 @@ public sealed class FormResponseService : IFormResponseService
         var resolved = await ResolveConceptFormAsync(taskItemId, cancellationToken);
         if (resolved is null) { return null; }
         var (task, def) = resolved.Value;
+        return await BuildGeneroAsync(task, def, new HashSet<Guid>(), cancellationToken);
+    }
 
-        // Formularios de la actividad = todas las respuestas ancladas a la tarea. El numero heredado va en
-        // Reference: "{numero tarea}-{n}" (o "{numero tarea}" para las de antes de la numeracion). Mas
-        // antiguas primero.
+    /// <summary>
+    /// Arma la tarjeta de un GENERO (una definicion de formulario) para una tarea: sus respuestas ancladas
+    /// ("{numero}" / "{numero}-{n}"), el formulario ACTIVO efectivo y los items. Excluye las respuestas
+    /// indicadas (p.ej. la del paso ACTUAL del flujo, que se muestra en "Formularios del proceso"). Es la base
+    /// compartida por el genero del concepto y los generos del flujo: toda la logica es agnostica del origen.
+    /// </summary>
+    private async Task<TaskConceptFormsDto> BuildGeneroAsync(
+        TaskItem task, FormDefinition def, ISet<Guid> excludeResponseIds, CancellationToken ct)
+    {
         var prefix = task.Number + "-";
-        var responses = await _db.FormResponses.AsNoTracking()
+        var responses = (await _db.FormResponses.AsNoTracking()
             .Where(r => r.DefinitionId == def.Id
                 && (r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix))))
             .OrderBy(r => r.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct))
+            .Where(r => !excludeResponseIds.Contains(r.Id))
+            .ToList();
 
         // Cliente para el subtitulo de la tarjeta (generico, por Label). El titulo = numero (Reference).
-        var cliCode = await ResolveFieldCodeAsync(def.Id, cancellationToken, "cliente", "tercero", "razon", "razón", "empresa");
+        var cliCode = await ResolveFieldCodeAsync(def.Id, ct, "cliente", "tercero", "razon", "razón", "empresa");
 
         // Formulario ACTIVO efectivo: el marcado (IsActive); si ninguno, el original ("{numero}" sin
         // sufijo); si tampoco, el mas antiguo. Asi siempre hay exactamente uno activo aunque nadie
@@ -870,14 +880,118 @@ public sealed class FormResponseService : IFormResponseService
         return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items, def.CardLayout);
     }
 
+    public async Task<IReadOnlyList<TaskConceptFormsDto>> GetTaskFormGenerosAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task is null || string.IsNullOrEmpty(task.Number)) { return Array.Empty<TaskConceptFormsDto>(); }
+
+        // 1) Genero del CONCEPTO (0 o 1): siempre se muestra si existe (aunque este vacio).
+        Guid? conceptDefId = null;
+        if (task.SubcategoriaId is Guid subId)
+        {
+            var cd = await _db.ActividadSubcategorias.AsNoTracking()
+                .Where(s => s.Id == subId && s.FormDefinitionId != null)
+                .Select(s => s.FormDefinitionId!.Value).FirstOrDefaultAsync(cancellationToken);
+            if (cd != Guid.Empty) { conceptDefId = cd; }
+        }
+
+        // 2) Generos del FLUJO: definiciones de WorkflowNodeForm de TODOS los nodos. Las de StartEvent
+        //    (creacion) se muestran siempre (para ofrecer + Agregar aunque esten vacias). Ademas se
+        //    calcula shownInStep: las respuestas del paso ACTUAL se ven en "Formularios del proceso", no aqui.
+        var flowDefIds = new List<Guid>();
+        var startDefIds = new HashSet<Guid>();
+        var shownInStep = new HashSet<Guid>();
+        if (task.WorkflowInstanceId is Guid instId)
+        {
+            var wfDefId = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => i.Id == instId).Select(i => i.DefinitionId).FirstOrDefaultAsync(cancellationToken);
+            var startNodeIds = (await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.DefinitionId == wfDefId && n.NodeType == WorkflowNodeType.StartEvent)
+                .Select(n => n.Id).ToListAsync(cancellationToken)).ToHashSet();
+            var nodeIds = await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.DefinitionId == wfDefId).Select(n => n.Id).ToListAsync(cancellationToken);
+            var nodeForms = await _db.WorkflowNodeForms.AsNoTracking()
+                .Where(f => nodeIds.Contains(f.NodeId))
+                .Select(f => new { f.NodeId, f.DefinitionId, f.SortOrder })
+                .OrderBy(x => x.SortOrder).ToListAsync(cancellationToken);
+            foreach (var nf in nodeForms)
+            {
+                if (!flowDefIds.Contains(nf.DefinitionId)) { flowDefIds.Add(nf.DefinitionId); }
+                if (startNodeIds.Contains(nf.NodeId)) { startDefIds.Add(nf.DefinitionId); }
+            }
+
+            var current = await _workflowEngine.GetCurrentStepsAsync(instId, cancellationToken);
+            var currentNodeIds = current
+                .Where(s => s.Status == WorkflowStepStatus.Pending)
+                .Select(s => s.NodeId).ToList();
+            if (currentNodeIds.Count > 0)
+            {
+                shownInStep = (await _db.FormFlowLinks.AsNoTracking()
+                    .Where(l => l.WorkflowInstanceId == instId && currentNodeIds.Contains(l.WorkflowNodeId))
+                    .Select(l => l.FormResponseId).ToListAsync(cancellationToken)).ToHashSet();
+            }
+        }
+
+        // 3) Catch-all: cualquier definicion con respuestas ancladas a la tarea (p.ej. una Orden de Trabajo
+        //    derivada, ADR-0078). Asi nada anclado queda sin tarjeta (subsume la vieja "Formularios de la actividad").
+        var prefix = task.Number + "-";
+        var anchoredDefIds = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix)))
+            .Select(r => r.DefinitionId).Distinct().ToListAsync(cancellationToken);
+
+        // Orden de generos: concepto, luego flujo (SortOrder), luego catch-all.
+        var ordered = new List<Guid>();
+        void AddDef(Guid id) { if (!ordered.Contains(id)) { ordered.Add(id); } }
+        if (conceptDefId is Guid c) { AddDef(c); }
+        foreach (var d in flowDefIds) { AddDef(d); }
+        foreach (var d in anchoredDefIds) { AddDef(d); }
+        if (ordered.Count == 0) { return Array.Empty<TaskConceptFormsDto>(); }
+
+        var defs = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => ordered.Contains(d.Id) && d.Status == FormStatus.Active && !d.IsArchived)
+            .ToListAsync(cancellationToken);
+        var defById = defs.ToDictionary(d => d.Id);
+
+        var result = new List<TaskConceptFormsDto>();
+        foreach (var defId in ordered)
+        {
+            if (!defById.TryGetValue(defId, out var def)) { continue; } // archivada/inactiva -> no se muestra
+            var genero = await BuildGeneroAsync(task, def, shownInStep, cancellationToken);
+            // Se muestra: concepto y generos de inicio SIEMPRE (para ofrecer + Agregar); los demas solo si
+            // tienen formularios (ya diligenciados / derivados). Asi no se llena de tarjetas vacias de pasos
+            // aun no alcanzados.
+            var alwaysShow = defId == conceptDefId || startDefIds.Contains(defId);
+            if (alwaysShow || genero.Items.Count > 0)
+            {
+                result.Add(genero);
+            }
+        }
+        return result;
+    }
+
     public async Task<FormResult<TaskConceptFormItemDto>> CreateTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var resolved = await ResolveConceptFormAsync(taskItemId, cancellationToken);
         if (resolved is null) { return FormResult<TaskConceptFormItemDto>.NotFound("La tarea no tiene formulario de concepto."); }
-        var (task, def) = resolved.Value;
+        return await CreateTaskFormAsync(taskItemId, resolved.Value.Def.Id, cancellationToken);
+    }
+
+    public async Task<FormResult<TaskConceptFormItemDto>> CreateTaskFormAsync(Guid taskItemId, Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task is null || string.IsNullOrEmpty(task.Number))
+        {
+            return FormResult<TaskConceptFormItemDto>.NotFound("Tarea no encontrada.");
+        }
         if (task.Status == TaskItemStatus.Closed)
         {
             return FormResult<TaskConceptFormItemDto>.Invalid("La tarea esta cerrada: no se pueden agregar formularios.");
+        }
+        var def = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId && d.Status == FormStatus.Active && !d.IsArchived, cancellationToken);
+        if (def is null)
+        {
+            return FormResult<TaskConceptFormItemDto>.NotFound("Formulario no encontrado o inactivo.");
         }
 
         var next = await NextFormOrdinalAsync(def.Id, task.Number, cancellationToken);

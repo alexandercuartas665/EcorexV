@@ -474,7 +474,7 @@
 
                 <div class="tk-detail-tabs">
                     <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
-                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForms?.Items.Count ?? 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@((_generos.Sum(g => g.Items.Count) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
                     <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
                 </div>
 
@@ -704,29 +704,31 @@
                 {
                     var taskClosed = _detail!.Item.Status == TaskItemStatus.Closed;
                     <div class="tk-tabpane">
-                        @* --- Cotizaciones (respuestas del formulario del concepto), como tarjetas --- *@
-                        @if (_conceptForms is not null)
+                        @* --- Formularios de la tarea agrupados por GENERO (concepto + flujo + derivados). Cada
+                             genero se gestiona igual: activo por defecto, + Agregar, Copiar, Editar, Eliminar,
+                             Reabrir. El formulario del paso ACTUAL no sale aqui (va en "Formularios del proceso"). --- *@
+                        @foreach (var g in _generos)
                         {
                             <div class="tk-card">
                                 <div class="tk-card-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                                    <h3>Formularios &middot; @_conceptForms.FormTitle</h3>
+                                    <h3>Formularios &middot; @g.FormTitle</h3>
                                     @if (!taskClosed)
                                     {
-                                        <button class="btn btn-sm btn-primary" @onclick="AddConceptFormAsync" disabled="@_busy">+ Agregar formulario</button>
+                                        <button class="btn btn-sm btn-primary" @onclick="@(() => AddGeneroFormAsync(g.DefinitionId))" disabled="@_busy">+ Agregar formulario</button>
                                     }
                                 </div>
-                                @if (_conceptForms.Items.Count == 0)
+                                @if (g.Items.Count == 0)
                                 {
                                     <p class="tk-empty-note">Aun no hay formularios.@(taskClosed ? "" : " Usa \"Agregar formulario\" para crear el primero.")</p>
                                 }
                                 else
                                 {
                                     <div class="tk-quote-grid">
-                                        @foreach (var it in _conceptForms.Items)
+                                        @foreach (var it in g.Items)
                                         {
                                             var finalized = it.Status == FormResponseStatus.Submitted;
                                             <div class="tk-quote-card @(finalized ? "is-final" : "") @(it.IsActive ? "is-active" : "")">
-                                                <div class="tk-quote-main" @onclick="@(() => OpenConceptForm(it))">
+                                                <div class="tk-quote-main" @onclick="@(() => OpenGeneroForm(g, it))">
                                                     <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Formulario sin numero" : it.Titulo)</strong>
                                                     <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(it.Cliente) ? "Sin cliente" : it.Cliente)</span>
                                                     <span class="tk-quote-meta">
@@ -739,8 +741,8 @@
                                                     </span>
                                                 </div>
                                                 <div class="tk-quote-actions">
-                                                    <button class="btn btn-xs" @onclick="@(() => OpenConceptForm(it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
-                                                    @if (!it.IsActive && _conceptForms.Items.Count > 1 && !taskClosed)
+                                                    <button class="btn btn-xs" @onclick="@(() => OpenGeneroForm(g, it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
+                                                    @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de la tarea">Marcar activo</button>
                                                     }
@@ -761,35 +763,6 @@
                                         }
                                     </div>
                                 }
-                            </div>
-                        }
-
-                        @* --- Otros formularios anclados a la tarea: el diligenciado EN LA CREACION (form del
-                             evento de inicio del flujo), los de pasos ya recorridos, y los DERIVADOS (ADR-0078,
-                             p.ej. Orden de Trabajo). Todo lo que no sea el concepto ni el paso ACTUAL. --- *@
-                        @if (_relatedForms.Count > 0)
-                        {
-                            <div class="tk-card">
-                                <div class="tk-card-head"><h3>Formularios de la actividad</h3></div>
-                                <div class="tk-quote-grid">
-                                    @foreach (var rf in _relatedForms)
-                                    {
-                                        var rfClosed = rf.Status == FormResponseStatus.Submitted;
-                                        <div class="tk-quote-card @(rfClosed ? "is-final" : "")">
-                                            <div class="tk-quote-main" @onclick="@(() => OpenRelatedForm(rf))">
-                                                <strong>@rf.FormTitle</strong>
-                                                <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(rf.RecordNumber) ? (rf.Reference ?? "Sin numero") : rf.RecordNumber)</span>
-                                                <span class="tk-quote-meta">
-                                                    <span class="tk-status @(rfClosed ? "st-done" : "st-pending")">@(rfClosed ? "Finalizado" : "Borrador")</span>
-                                                    <span>@rf.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
-                                                </span>
-                                            </div>
-                                            <div class="tk-quote-actions">
-                                                <button class="btn btn-xs" @onclick="@(() => OpenRelatedForm(rf))">@(rfClosed || taskClosed ? "Ver" : "Abrir")</button>
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
                             </div>
                         }
 
@@ -820,9 +793,9 @@
                             </div>
                         }
 
-                        @if (_conceptForms is null && _stepForms.Count == 0)
+                        @if (_generos.Count == 0 && _stepForms.Count == 0)
                         {
-                            <div class="tk-card"><p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el paso del flujo).</p></div>
+                            <div class="tk-card"><p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el flujo).</p></div>
                         }
                     </div>
                 }
@@ -1445,10 +1418,10 @@
 
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
-    // Cotizaciones del concepto (subcategoria): varias respuestas por tarea, mostradas como tarjetas.
-    // Editables mientras la tarea NO este Cerrada; cada una se finaliza (envia) o se reabre por separado.
-    private TaskConceptFormsDto? _conceptForms;
-    private IReadOnlyList<TaskRelatedFormDto> _relatedForms = [];
+    // Formularios de la tarea agrupados por GENERO (una definicion = un genero): el del concepto + los del
+    // flujo + derivados. Cada genero se gestiona igual (activo/agregar/copiar/editar/eliminar). Excluye la
+    // respuesta del paso ACTUAL (esa se ve en "Formularios del proceso").
+    private IReadOnlyList<TaskConceptFormsDto> _generos = [];
     // Formulario abierto en el modal editor (una cotizacion del concepto o un formulario del paso).
     private OpenFormState? _openForm;
     private Guid? _actorTenantUserId;
@@ -1565,13 +1538,12 @@
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
             _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime.Date;
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
-            // de forma idempotente si el nodo tiene formulario asignado).
+            // de forma idempotente si el nodo tiene formulario asignado). PRIMERO: crea los links del paso
+            // actual que GetTaskFormGenerosAsync usa para no duplicar ese formulario como tarjeta de genero.
             _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
-            // Cotizaciones del concepto (subcategoria) de la actividad: todas las respuestas, como tarjetas.
-            _conceptForms = await formsSvc.GetTaskConceptFormsAsync(taskId);
-            // Formularios DERIVADOS anclados a la tarea (ADR-0078): p.ej. una Orden de Trabajo creada por
-            // transformacion desde una cotizacion. Van como tarjetas extra en la pestana Formularios.
-            _relatedForms = (await formsSvc.GetTaskRelatedFormsAsync(taskId)).ToList();
+            // Formularios de la tarea agrupados por GENERO (concepto + flujo + derivados). Cada genero se
+            // gestiona como los del concepto (activo/agregar/copiar/editar/eliminar).
+            _generos = (await formsSvc.GetTaskFormGenerosAsync(taskId)).ToList();
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await tasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
@@ -2304,59 +2276,56 @@
         StateHasChanged();
     }
 
-    // --- Cotizaciones del concepto (tarjetas del tab Formularios) ---
+    // --- Formularios de la tarea por GENERO (tarjetas del tab Formularios) ---
 
-    /// <summary>Abre una cotizacion en el modal editor. Editable solo si es borrador y la tarea NO esta cerrada.</summary>
-    private void OpenConceptForm(TaskConceptFormItemDto it)
+    /// <summary>Busca (genero, item) por responseId a traves de todos los generos cargados.</summary>
+    private (TaskConceptFormsDto Genero, TaskConceptFormItemDto Item)? FindGeneroItem(Guid responseId)
     {
-        if (_conceptForms is null || _detail is null) { return; }
-        var taskClosed = _detail.Item.Status == TaskItemStatus.Closed;
-        var finalized = it.Status == FormResponseStatus.Submitted;
-        var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
-        var title = _conceptForms.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
-        _openForm = new OpenFormState(_conceptForms.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: _conceptForms.CardLayout);
+        foreach (var g in _generos)
+        {
+            var it = g.Items.FirstOrDefault(x => x.ResponseId == responseId);
+            if (it is not null) { return (g, it); }
+        }
+        return null;
     }
 
-    /// <summary>Abre un formulario DERIVADO (Orden de Trabajo, etc.) anclado a la tarea (ADR-0078) en el modal.</summary>
-    private void OpenRelatedForm(TaskRelatedFormDto it)
+    /// <summary>Abre una respuesta de un genero en el modal editor. Editable solo si es borrador y la tarea NO esta cerrada.</summary>
+    private void OpenGeneroForm(TaskConceptFormsDto g, TaskConceptFormItemDto it)
     {
         if (_detail is null) { return; }
         var taskClosed = _detail.Item.Status == TaskItemStatus.Closed;
         var finalized = it.Status == FormResponseStatus.Submitted;
         var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
-        var title = it.FormTitle + (string.IsNullOrWhiteSpace(it.RecordNumber) ? "" : $" - {it.RecordNumber}");
-        _openForm = new OpenFormState(it.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: it.CardLayout);
+        var title = g.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
+        _openForm = new OpenFormState(g.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: g.CardLayout);
     }
 
     /// <summary>Una regla de boton creo OTRO registro por transformacion (CONVERTIR_A_FORMULARIO, ADR-0078):
-    /// recarga la tarea para que la nueva tarjeta aparezca en Formularios y ABRE ese registro para completarlo.</summary>
+    /// recarga la tarea para que la nueva tarjeta aparezca (como genero) y ABRE ese registro para completarlo.</summary>
     private async Task OnConvertToFormAsync(Guid newResponseId)
     {
         if (_detail is null) { return; }
         var taskId = _detail.Item.Id;
         await ReloadAsync(taskId);
-        var created = _relatedForms.FirstOrDefault(f => f.ResponseId == newResponseId);
-        if (created is not null)
-        {
-            OpenRelatedForm(created);
-        }
+        var found = FindGeneroItem(newResponseId);
+        if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
         await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
         StateHasChanged();
     }
 
-    /// <summary>"Agregar cotizacion": crea un borrador nuevo y lo abre para diligenciar.</summary>
-    private async Task AddConceptFormAsync()
+    /// <summary>"+ Agregar formulario": crea un borrador nuevo del genero (definicion) y lo abre para diligenciar.</summary>
+    private async Task AddGeneroFormAsync(Guid definitionId)
     {
         if (_detail is null || _busy) { return; }
         _busy = true;
         try
         {
-            var res = await FormResponsesSvc.CreateTaskConceptFormAsync(_detail.Item.Id);
+            var res = await FormResponsesSvc.CreateTaskFormAsync(_detail.Item.Id, definitionId);
             if (res.IsOk && res.Value is not null)
             {
                 await ReloadAsync(_detail.Item.Id);
-                var created = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == res.Value.ResponseId);
-                if (created is not null) { OpenConceptForm(created); }
+                var found = FindGeneroItem(res.Value.ResponseId);
+                if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
             }
         }
         finally { _busy = false; }
@@ -2373,14 +2342,14 @@
             if (res.IsOk && res.Value is not null)
             {
                 await ReloadAsync(_detail.Item.Id);
-                var copy = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == res.Value.ResponseId);
-                if (copy is not null) { OpenConceptForm(copy); }
+                var found = FindGeneroItem(res.Value.ResponseId);
+                if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
             }
         }
         finally { _busy = false; }
     }
 
-    /// <summary>"Marcar activo": fija esta respuesta como el formulario activo por defecto de la tarea.</summary>
+    /// <summary>"Marcar activo": fija esta respuesta como el formulario activo por defecto de su genero.</summary>
     private async Task SetActiveConceptFormAsync(TaskConceptFormItemDto it)
     {
         if (_detail is null || _busy || it.IsActive) { return; }
@@ -2404,18 +2373,18 @@
             if (res.IsOk)
             {
                 await ReloadAsync(_detail.Item.Id);
-                var reopened = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == it.ResponseId);
-                if (reopened is not null) { OpenConceptForm(reopened); }
+                var found = FindGeneroItem(it.ResponseId);
+                if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
             }
         }
         finally { _busy = false; }
     }
 
-    /// <summary>"Eliminar" (solo borradores): borra la cotizacion tras confirmar.</summary>
+    /// <summary>"Eliminar" (solo borradores): borra la respuesta tras confirmar.</summary>
     private async Task DeleteConceptFormAsync(TaskConceptFormItemDto it)
     {
         if (_detail is null || _busy) { return; }
-        var ok = await JS.InvokeAsync<bool>("confirm", "Eliminar esta cotizacion? Esta accion no se puede deshacer.");
+        var ok = await JS.InvokeAsync<bool>("confirm", "Eliminar este formulario? Esta accion no se puede deshacer.");
         if (!ok) { return; }
         _busy = true;
         try

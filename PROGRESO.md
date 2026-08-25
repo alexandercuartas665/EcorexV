@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-25 - v0.15.84: formularios de la tarea en UNA lista uniforme + selector de tipo en "+ Agregar" (ADR-0079)
+
+- Feedback del usuario sobre v0.15.83: las tarjetas por genero (una seccion por tipo, con encabezado
+  "Formularios · <tipo>") se veian distintas y aparecian tarjetas vacias. Se pidio: (a) que TODOS los
+  formularios se vean iguales en una sola lista, y (b) que "+ Agregar formulario", si hay VARIOS tipos,
+  abra un modal preguntando cual agregar.
+- UI (TaskDetailModal): una sola tarjeta "Formularios" con la lista uniforme de TODOS los formularios de
+  la tarea (cada item muestra su numero + una pildora con el tipo/genero + activo/estado/fecha + las
+  mismas acciones). Ya no hay tarjetas por genero ni tarjetas vacias. El boton "+ Agregar" llama a
+  OnAddFormClick: con 1 tipo crea directo; con varios abre un modal selector (modal-overlay) que lista
+  los tipos configurados y crea el elegido. "Formularios del proceso" sigue aparte (paso actual).
+- Backend: GetTaskFormGenerosAsync ahora devuelve TODOS los generos configurados (incl. vacios) para
+  alimentar el selector; la UI aplana los items para la lista. Sin migracion, sin cambio de contrato.
+- Build verde. A verificar en dev.
+
+---
+
 ## 2026-08-25 - v0.15.83: formularios de la tarea agrupados por GENERO (concepto + flujo), como el concepto (ADR-0079)
 
 - Peticion: los formularios de una tarea de FLUJO deben presentarse y gestionarse IGUAL que los del

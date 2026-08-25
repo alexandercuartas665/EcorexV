@@ -895,29 +895,23 @@ public sealed class FormResponseService : IFormResponseService
             if (cd != Guid.Empty) { conceptDefId = cd; }
         }
 
-        // 2) Generos del FLUJO: definiciones de WorkflowNodeForm de TODOS los nodos. Las de StartEvent
-        //    (creacion) se muestran siempre (para ofrecer + Agregar aunque esten vacias). Ademas se
-        //    calcula shownInStep: las respuestas del paso ACTUAL se ven en "Formularios del proceso", no aqui.
+        // 2) Generos del FLUJO: definiciones de WorkflowNodeForm de TODOS los nodos (opciones de "+ Agregar").
+        //    Ademas se calcula shownInStep: las respuestas del paso ACTUAL se ven en "Formularios del proceso".
         var flowDefIds = new List<Guid>();
-        var startDefIds = new HashSet<Guid>();
         var shownInStep = new HashSet<Guid>();
         if (task.WorkflowInstanceId is Guid instId)
         {
             var wfDefId = await _db.WorkflowInstances.AsNoTracking()
                 .Where(i => i.Id == instId).Select(i => i.DefinitionId).FirstOrDefaultAsync(cancellationToken);
-            var startNodeIds = (await _db.WorkflowNodes.AsNoTracking()
-                .Where(n => n.DefinitionId == wfDefId && n.NodeType == WorkflowNodeType.StartEvent)
-                .Select(n => n.Id).ToListAsync(cancellationToken)).ToHashSet();
             var nodeIds = await _db.WorkflowNodes.AsNoTracking()
                 .Where(n => n.DefinitionId == wfDefId).Select(n => n.Id).ToListAsync(cancellationToken);
             var nodeForms = await _db.WorkflowNodeForms.AsNoTracking()
                 .Where(f => nodeIds.Contains(f.NodeId))
-                .Select(f => new { f.NodeId, f.DefinitionId, f.SortOrder })
+                .Select(f => new { f.DefinitionId, f.SortOrder })
                 .OrderBy(x => x.SortOrder).ToListAsync(cancellationToken);
             foreach (var nf in nodeForms)
             {
                 if (!flowDefIds.Contains(nf.DefinitionId)) { flowDefIds.Add(nf.DefinitionId); }
-                if (startNodeIds.Contains(nf.NodeId)) { startDefIds.Add(nf.DefinitionId); }
             }
 
             var current = await _workflowEngine.GetCurrentStepsAsync(instId, cancellationToken);
@@ -952,19 +946,14 @@ public sealed class FormResponseService : IFormResponseService
             .ToListAsync(cancellationToken);
         var defById = defs.ToDictionary(d => d.Id);
 
+        // Se devuelven TODOS los generos configurados (concepto + flujo + catch-all), INCLUIDOS los vacios:
+        // la UI pinta una lista UNIFORME de formularios (los generos vacios no aportan items) y usa el conjunto
+        // completo para el selector del boton "+ Agregar formulario" (que pregunta el tipo cuando hay varios).
         var result = new List<TaskConceptFormsDto>();
         foreach (var defId in ordered)
         {
-            if (!defById.TryGetValue(defId, out var def)) { continue; } // archivada/inactiva -> no se muestra
-            var genero = await BuildGeneroAsync(task, def, shownInStep, cancellationToken);
-            // Se muestra: concepto y generos de inicio SIEMPRE (para ofrecer + Agregar); los demas solo si
-            // tienen formularios (ya diligenciados / derivados). Asi no se llena de tarjetas vacias de pasos
-            // aun no alcanzados.
-            var alwaysShow = defId == conceptDefId || startDefIds.Contains(defId);
-            if (alwaysShow || genero.Items.Count > 0)
-            {
-                result.Add(genero);
-            }
+            if (!defById.TryGetValue(defId, out var def)) { continue; } // archivada/inactiva -> no se ofrece
+            result.Add(await BuildGeneroAsync(task, def, shownInStep, cancellationToken));
         }
         return result;
     }

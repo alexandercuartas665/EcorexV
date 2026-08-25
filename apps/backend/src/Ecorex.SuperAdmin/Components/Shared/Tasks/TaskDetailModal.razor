@@ -704,37 +704,48 @@
                 {
                     var taskClosed = _detail!.Item.Status == TaskItemStatus.Closed;
                     <div class="tk-tabpane">
-                        @* --- Formularios de la tarea agrupados por GENERO (concepto + flujo + derivados). Cada
-                             genero se gestiona igual: activo por defecto, + Agregar, Copiar, Editar, Eliminar,
-                             Reabrir. El formulario del paso ACTUAL no sale aqui (va en "Formularios del proceso"). --- *@
-                        @foreach (var g in _generos)
+                        @{
+                            var allForms = _generos.SelectMany(g => g.Items.Select(it => (Genero: g, Item: it))).ToList();
+                        }
+                        @* --- Formularios de la tarea en UNA lista uniforme (todos los tipos/generos se ven igual).
+                             El boton "+ Agregar formulario" pregunta el tipo cuando hay varios. El formulario del
+                             paso ACTUAL no sale aqui (va en "Formularios del proceso"). --- *@
+                        @if (_generos.Count > 0)
                         {
                             <div class="tk-card">
                                 <div class="tk-card-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                                    <h3>Formularios &middot; @g.FormTitle</h3>
-                                    @if (!taskClosed)
+                                    <h3>Formularios</h3>
+                                    @if (!taskClosed && _addableGeneros.Count > 0)
                                     {
-                                        <button class="btn btn-sm btn-primary" @onclick="@(() => AddGeneroFormAsync(g.DefinitionId))" disabled="@_busy">+ Agregar formulario</button>
+                                        <button class="btn btn-sm btn-primary" @onclick="OnAddFormClick" disabled="@_busy">+ Agregar formulario</button>
                                     }
                                 </div>
-                                @if (g.Items.Count == 0)
+                                @if (allForms.Count == 0)
                                 {
                                     <p class="tk-empty-note">Aun no hay formularios.@(taskClosed ? "" : " Usa \"Agregar formulario\" para crear el primero.")</p>
                                 }
                                 else
                                 {
                                     <div class="tk-quote-grid">
-                                        @foreach (var it in g.Items)
+                                        @foreach (var pair in allForms)
                                         {
+                                            var g = pair.Genero;
+                                            var it = pair.Item;
                                             var finalized = it.Status == FormResponseStatus.Submitted;
                                             <div class="tk-quote-card @(finalized ? "is-final" : "") @(it.IsActive ? "is-active" : "")">
                                                 <div class="tk-quote-main" @onclick="@(() => OpenGeneroForm(g, it))">
-                                                    <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Formulario sin numero" : it.Titulo)</strong>
-                                                    <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(it.Cliente) ? "Sin cliente" : it.Cliente)</span>
+                                                    <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Sin numero" : it.Titulo)</strong>
+                                                    <span class="tk-quote-sub">
+                                                        <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:var(--surface-3,#f0f0f2);color:var(--ink-2,#5C5C66);font-size:11px;font-weight:600;">@g.FormTitle</span>
+                                                        @if (!string.IsNullOrWhiteSpace(it.Cliente))
+                                                        {
+                                                            <span>&nbsp;&middot; @it.Cliente</span>
+                                                        }
+                                                    </span>
                                                     <span class="tk-quote-meta">
                                                         @if (it.IsActive)
                                                         {
-                                                            <span class="tk-quote-active" title="Formulario activo por defecto de la tarea">&#9733; Activo</span>
+                                                            <span class="tk-quote-active" title="Formulario activo por defecto de este tipo">&#9733; Activo</span>
                                                         }
                                                         <span class="tk-status @(finalized ? "st-done" : "st-pending")">@(finalized ? "Finalizada" : "Borrador")</span>
                                                         <span>@it.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
@@ -744,7 +755,7 @@
                                                     <button class="btn btn-xs" @onclick="@(() => OpenGeneroForm(g, it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
                                                     @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
                                                     {
-                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de la tarea">Marcar activo</button>
+                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
                                                     }
                                                     @if (!taskClosed)
                                                     {
@@ -1205,6 +1216,29 @@
     </div>
 }
 
+@* ===== Selector "Agregar formulario": cuando hay VARIOS tipos (generos) configurados, pregunta cual
+       agregar antes de crear el borrador. Con un solo tipo no aparece (se agrega directo). ===== *@
+@if (_addPickerOpen)
+{
+    <div class="modal-overlay" style="z-index:61;" @onclick="@(() => _addPickerOpen = false)">
+        <div class="modal-dialog" style="max-width:380px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Agregar formulario</h3>
+                <button class="modal-close" @onclick="@(() => _addPickerOpen = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="tk-empty-note" style="margin:0 0 10px;">Elige el tipo de formulario a agregar:</p>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    @foreach (var opt in _addableGeneros)
+                    {
+                        <button class="btn btn-primary" style="justify-content:flex-start;width:100%;" @onclick="@(() => PickAddGeneroAsync(opt.DefinitionId))" disabled="@_busy">@opt.Title</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Menu del nodo del diagrama, como popover FIJO a nivel raiz (no lo recorta el scroller ni lo
        descoloca el zoom del canvas). Se ancla a la posicion en pantalla del boton del nodo. ===== *@
 @if (_flowDiagram is not null && _flowMenuNodeId is Guid _openMenuId
@@ -1418,10 +1452,14 @@
 
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
-    // Formularios de la tarea agrupados por GENERO (una definicion = un genero): el del concepto + los del
-    // flujo + derivados. Cada genero se gestiona igual (activo/agregar/copiar/editar/eliminar). Excluye la
-    // respuesta del paso ACTUAL (esa se ve en "Formularios del proceso").
+    // Formularios de la tarea por GENERO (una definicion = un genero): concepto + flujo + derivados. Se pintan
+    // en UNA lista uniforme (los generos vacios no aportan items). Excluye la respuesta del paso ACTUAL (esa se
+    // ve en "Formularios del proceso"). El conjunto completo (incl. vacios) alimenta el selector de "+ Agregar".
     private IReadOnlyList<TaskConceptFormsDto> _generos = [];
+    // Tipos de formulario que se pueden agregar (los generos configurados). Si hay varios, el boton "+ Agregar"
+    // abre un modal para elegir cual.
+    private List<(Guid DefinitionId, string Title)> _addableGeneros = new();
+    private bool _addPickerOpen;
     // Formulario abierto en el modal editor (una cotizacion del concepto o un formulario del paso).
     private OpenFormState? _openForm;
     private Guid? _actorTenantUserId;
@@ -1541,9 +1579,10 @@
             // de forma idempotente si el nodo tiene formulario asignado). PRIMERO: crea los links del paso
             // actual que GetTaskFormGenerosAsync usa para no duplicar ese formulario como tarjeta de genero.
             _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
-            // Formularios de la tarea agrupados por GENERO (concepto + flujo + derivados). Cada genero se
-            // gestiona como los del concepto (activo/agregar/copiar/editar/eliminar).
+            // Formularios de la tarea por GENERO (concepto + flujo + derivados), incluidos los vacios.
             _generos = (await formsSvc.GetTaskFormGenerosAsync(taskId)).ToList();
+            // Tipos que ofrece el boton "+ Agregar" (todos los generos configurados, aunque esten vacios).
+            _addableGeneros = _generos.Select(g => (g.DefinitionId, g.FormTitle)).ToList();
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await tasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
@@ -2311,6 +2350,25 @@
         if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
         await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
         StateHasChanged();
+    }
+
+    /// <summary>Click en "+ Agregar formulario": con un solo tipo lo crea directo; con varios abre el selector.</summary>
+    private async Task OnAddFormClick()
+    {
+        if (_busy || _addableGeneros.Count == 0) { return; }
+        if (_addableGeneros.Count == 1)
+        {
+            await AddGeneroFormAsync(_addableGeneros[0].DefinitionId);
+            return;
+        }
+        _addPickerOpen = true;
+    }
+
+    /// <summary>El usuario eligio un tipo en el selector: cierra el selector y crea ese formulario.</summary>
+    private async Task PickAddGeneroAsync(Guid definitionId)
+    {
+        _addPickerOpen = false;
+        await AddGeneroFormAsync(definitionId);
     }
 
     /// <summary>"+ Agregar formulario": crea un borrador nuevo del genero (definicion) y lo abre para diligenciar.</summary>

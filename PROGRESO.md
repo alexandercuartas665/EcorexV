@@ -9702,3 +9702,17 @@ auth_provider local, status Active). platform_users + tenant_users con hash PBKD
 v1.100000 (Rfc2898DeriveBytes SHA256, 100000 iter). document_code=1114875322. Verificado: login
 nativo POST /auth/login -> HTTP 302 /inicio (OK). Backup previo ecorex-2026-08-20-1601.sql.gz.
 Sin duplicado previo (ni correo ni cedula existian). SQL directo idempotente (NOT EXISTS).
+
+## 2026-08-25 - SOLDARCO: asesores (000074) poblados desde el sistema viejo (vendedores)
+
+Agente: Claude Opus 4.8 (sesion prod-data). El usuario pidio poblar el modulo de asesores/vendedores
+(000074) de SOLDARCO con los vendedores del sistema legacy m700_car.dbo.vendedores (SQL Server de
+SOLDARCO, solo lectura; credencial fuera del repo por regla de repo publico). Lectura via pyodbc
+(ODBC Driver 18) con decode cp1252 para recuperar la enie (LONDOÑO/BRIÑEZ/PEÑALOZA salian mojibake).
+Mapeo: NOMBRE->nombre, IDE->documento, TELF_CEL->telefono, FLAG_INA->is_active (0=activo); la fuente
+no tiene email. Se cargaron los 11 vendedores (decision del usuario: incluir tambien 00 SOLDARCO
+cuenta-casa y 99 GENERAL (NO USAR)). Idempotente por (tenant, documento). SOLDARCO tenia 0 asesores.
+Backup ecorex-2026-08-25-1713.sql.gz. SQL directo (excepcion ETL documentada). Estos asesores
+alimentan el campo "Vendedor asignado" del Directorio. Nota: el codigo de vendedor legacy (CODIGO
+00/02/03...) NO se conservo (asesores no tiene esa columna); si luego se mapean terceros->vendedor
+por ese codigo, habra que anadir un campo de codigo o mapear por documento.

@@ -75,6 +75,15 @@ else
                     {
                         <span class="dfr-chip dfr-chip-void">Anulado</span>
                     }
+                    @* ADR-0078: esta respuesta ya fue convertida a otro formulario (p.ej. Orden de Trabajo).
+                       El chip es clicable: reabre el registro derivado (no crea otro; la conversion es idempotente). *@
+                    @if (_derivedRecord is not null)
+                    {
+                        <button type="button" class="dfr-chip dfr-chip-converted" title="Ver el registro derivado"
+                                @onclick="OpenDerivedRecordAsync" disabled="@(!OnOpenFormRequested.HasDelegate)">
+                            Convertida a @_derivedRecord.FormTitle@(string.IsNullOrWhiteSpace(_derivedRecord.RecordNumber) ? "" : $" {_derivedRecord.RecordNumber}")
+                        </button>
+                    }
                 </div>
             </div>
         }
@@ -269,6 +278,10 @@ else
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
 
+    // ADR-0078: registro DERIVADO de esta respuesta (Orden de Trabajo creada por conversion). Non-null =>
+    // esta respuesta ya fue "convertida"; la UI lo marca y ofrece reabrir el derivado (idempotente).
+    private Ecorex.Application.Forms.DerivedFormRefDto? _derivedRecord;
+
     // #8: id unico del contenedor del formulario, usado como raiz del @scope del CSS personalizado.
     private string FormScopeId => $"ecx-form-{(_definition?.Id ?? DefinitionId):N}";
 
@@ -383,6 +396,11 @@ else
                         _values[fieldCode] = field.Value;
                     }
                 }
+                // ADR-0078: si esta respuesta YA fue convertida a otro formulario (p.ej. Orden de Trabajo),
+                // cargar la referencia para marcarla "convertida" y permitir reabrir el derivado (idempotente).
+                _derivedRecord = _response is not null
+                    ? await ResponsesSvc.GetDerivedRecordAsync(_response.Id)
+                    : null;
                 // Valor por defecto del disenador (ADR-0021): solo en Fill, solo campos de
                 // captura reales y sin valor previo en el borrador.
                 if (Mode == FormRenderMode.Fill && !IsLocked)
@@ -2776,9 +2794,33 @@ else
         // Transformacion (ADR-0078): una regla creo OTRO registro (CONVERTIR_A_FORMULARIO) y pide abrirlo.
         // El renderer NO navega: reenvia al HOST el nuevo responseId para que lo abra (modal en la tarea, etc.).
         var open = outcome.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.OpenForm);
-        if (open is not null && Guid.TryParse(open.Value, out var openId) && OnOpenFormRequested.HasDelegate)
+        if (open is not null && Guid.TryParse(open.Value, out var openId))
         {
-            await OnOpenFormRequested.InvokeAsync(openId);
+            // Refresca la marca "convertida" (ADR-0078) tras crear/reabrir el derivado, sin recargar todo.
+            if (_response is not null)
+            {
+                await _dbGate.WaitAsync();
+                try
+                {
+                    using var ambient = BeginAmbient();
+                    _derivedRecord = await ResponsesSvc.GetDerivedRecordAsync(_response.Id);
+                }
+                finally { _dbGate.Release(); }
+            }
+            if (OnOpenFormRequested.HasDelegate)
+            {
+                await OnOpenFormRequested.InvokeAsync(openId);
+            }
+        }
+    }
+
+    /// <summary>ADR-0078: reabre el registro DERIVADO (Orden de Trabajo) de esta respuesta ya convertida. No
+    /// crea otro: solo pide al HOST abrir el existente (la conversion es idempotente por DerivedFromResponseId).</summary>
+    private async Task OpenDerivedRecordAsync()
+    {
+        if (_derivedRecord is not null && OnOpenFormRequested.HasDelegate)
+        {
+            await OnOpenFormRequested.InvokeAsync(_derivedRecord.ResponseId);
         }
     }
 

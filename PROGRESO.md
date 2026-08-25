@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-25 - v0.15.81: la Orden de Trabajo nace NUMERADA + conversion idempotente + marca "convertida" (ADR-0078)
+
+- Delta de negocio (hand-off de la sesion de formularios), dos decisiones que faltaban:
+- DECISION A - numeracion al CREAR: si el formulario destino es transaccional IdentityMode=Sequence (caso
+  FT-C-008 Orden de Trabajo, prefijo OT-, padding 6), `CreateDerivedFormAsync` ahora ASIGNA el consecutivo en
+  el momento de crear (reusa `ResolveIdentityAsync`): setea RecordNumber (OT-000001...), RecordStatus=Confirmed
+  y TransactionDate=UtcNow. Antes nacia Draft sin numero (nunca pasaba por el submit que numera). NO bloquea la
+  edicion posterior (IsLocked depende de Status=Submitted, no de RecordStatus) y el submit ya guarda contra
+  re-numerar (guard RecordStatus!=Confirmed). Otros modos (NaturalKey/None): sin cambio (Draft sin numero).
+- DECISION B - idempotencia + marca "convertida": columna nueva `FormResponse.DerivedFromResponseId` (Guid?,
+  nullable) con MIGRACION DUAL `AddFormResponseDerivedFrom` (PG + SQL Server, columna + indice
+  {tenant_id, derived_from_response_id}; has-pending-model-changes = "No changes" en ambos contextos).
+  `CreateDerivedFormAsync`: antes de crear busca un derivado existente con DerivedFromResponseId==origen y, si
+  existe, devuelve ESE id (re-clic reabre, no duplica); si no, crea y setea DerivedFromResponseId=origen.
+- UI (DynamicFormRenderer): nuevo `IFormResponseService.GetDerivedRecordAsync(sourceResponseId)` -> DerivedFormRefDto;
+  la cabecera muestra un chip clicable "Convertida a Orden de Trabajo OT-000001" que reabre el derivado
+  (via OnOpenFormRequested, idempotente). Se refresca al convertir sin recargar todo.
+- Sin SQL crudo; multi-tenant intacto; enums sin reordenar. Build verde (SuperAdmin + ambos Infrastructure).
+  Pendiente: verificar end-to-end en dev y desplegar (a la senal del usuario).
+
+---
+
 ## 2026-08-25 - v0.15.80: fix visibilidad del derivado cuando su formulario tambien es paso del flujo (ADR-0078)
 
 - Bug hallado al verificar v0.15.79 end-to-end: si el formulario DESTINO de la conversion tambien esta

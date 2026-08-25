@@ -340,6 +340,13 @@
 .dfr-chip-record { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); font-weight: 700; }
 .dfr-chip-void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); font-weight: 700; }
 .dfr-chip-pending { color: var(--ink-3, #8a8a8a); background: var(--surface-3, #f0f0f2); font-style: italic; }
+/* ADR-0078: marca "convertida" -clicable- que reabre el registro derivado (Orden de Trabajo). */
+.dfr-chip-converted {
+    color: var(--t-violet, #7C3AED); background: var(--t-violet-bg, #EFE7FE); font-weight: 700;
+    border: 0; cursor: pointer;
+}
+.dfr-chip-converted:hover:not(:disabled) { filter: brightness(.97); text-decoration: underline; }
+.dfr-chip-converted:disabled { cursor: default; opacity: .8; }
 
 /* Control Boton (accion "Imprimir plantilla") */
 .dfr-formbtn-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

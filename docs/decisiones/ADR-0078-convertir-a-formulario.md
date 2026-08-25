@@ -58,6 +58,24 @@ respuesta PROPIA del paso se ancla al numero BASE de la tarea ("{tarea}") y la c
 las DERIVADAS llevan ordinal ("{tarea}-{n}") y aparecen como "Formularios derivados". Se excluye por respuesta
 (base del paso), no por definicion, para que el derivado no quede invisible.
 
+## Delta v0.15.81: OT numerada al crear + idempotencia + marca "convertida"
+
+Dos decisiones de negocio que no venian en el primer prompt:
+
+- **La OT nace NUMERADA (decision A)**: al CREAR el derivado, si el destino es `IsTransactional` &&
+  `IdentityMode==Sequence`, `CreateDerivedFormAsync` asigna el consecutivo en ese momento (reusa
+  `ResolveIdentityAsync`): `RecordNumber` (OT-000001...), `RecordStatus=Confirmed`, `TransactionDate=UtcNow`.
+  Como la OT se trabaja como borrador dentro de la tarea, nunca pasaria por el submit que numera; por eso se
+  numera al nacer. NO bloquea la edicion (IsLocked mira `Status`=Submitted, no `RecordStatus`) y el submit no
+  re-numera (guard `RecordStatus!=Confirmed`). NaturalKey/None: sin cambio (Draft sin numero, sin error).
+
+- **Idempotencia + marca "convertida" (decision B)**: columna nueva `FormResponse.DerivedFromResponseId`
+  (Guid?, nullable; migracion dual `AddFormResponseDerivedFrom`, columna + indice
+  `{TenantId, DerivedFromResponseId}`). `CreateDerivedFormAsync` primero busca un derivado existente del mismo
+  destino con `DerivedFromResponseId==origen`: si existe, devuelve ESE id (el re-clic REABRE, no duplica); si
+  no, crea y marca `DerivedFromResponseId=origen`. El renderer, via `GetDerivedRecordAsync`, muestra en la
+  cabecera un chip clicable "Convertida a &lt;Titulo&gt; &lt;OT-xxxx&gt;" que reabre el derivado.
+
 ## Alternativas descartadas
 
 - Tabla de enlace tarea<->response para los derivados: mas infraestructura; el anclaje por Reference

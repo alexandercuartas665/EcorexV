@@ -5572,6 +5572,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<Guid?>("DerivedFromResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("derived_from_response_id");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -5649,6 +5653,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("ix_form_responses_definition_id");
+
+                    b.HasIndex("TenantId", "DerivedFromResponseId")
+                        .HasDatabaseName("ix_form_responses_tenant_id_derived_from_response_id");
 
                     b.HasIndex("TenantId", "DefinitionId", "RecordNumber")
                         .IsUnique()

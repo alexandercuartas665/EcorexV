@@ -944,6 +944,16 @@ public sealed class FormResponseService : IFormResponseService
             return FormResult<Guid>.Invalid("El formulario destino no esta activo.");
         }
 
+        // Idempotencia (ADR-0078): si ESTE origen ya fue convertido a ESTE formulario destino, no se crea otro
+        // registro; se devuelve el existente para que el boton simplemente lo REABRA (re-clic seguro). El
+        // filtro global de tenant aplica.
+        var existingId = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DerivedFromResponseId == sourceResponseId && r.DefinitionId == targetDefinitionId)
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => (Guid?)r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (existingId is Guid already) { return FormResult<Guid>.Ok(already); }
+
         // Solo se copian los field_codes que el destino CONOCE (auto-copiado por codigo), aplicando el mapeo
         // explicito {origen: destino} para los campos que cambian de nombre. La grilla 'items' se copia como
         // un campo mas si el destino tambien la tiene (las columnas que no coincidan se ignoran al renderizar).
@@ -987,8 +997,26 @@ public sealed class FormResponseService : IFormResponseService
             DefinitionId = targetDefinitionId,
             Reference = reference,
             Status = FormResponseStatus.Draft,
-            Data = dataJson
+            Data = dataJson,
+            // Marca de origen: idempotencia + "convertida" en la cotizacion origen (ADR-0078).
+            DerivedFromResponseId = sourceResponseId
         };
+
+        // Numeracion AL CREAR (ADR-0078, decision A): un formulario transaccional por Secuencia (ej. Orden de
+        // Trabajo FT-C-008, OT-000001) nace NUMERADO y Confirmed -porque como borrador dentro de la tarea nunca
+        // pasa por el submit que asigna el numero-. La edicion posterior NO se bloquea (el registro sigue
+        // Draft en el ciclo de envio; RecordStatus=Confirmed solo evita RE-numerar). Otros modos: sin cambio.
+        if (targetDef.IsTransactional && targetDef.IdentityMode == FormIdentityMode.Sequence)
+        {
+            var identity = await ResolveIdentityAsync(targetDef, mapped, cancellationToken);
+            if (identity.Ok && !string.IsNullOrWhiteSpace(identity.Number))
+            {
+                response.RecordNumber = identity.Number;
+                response.RecordStatus = FormRecordStatus.Confirmed;
+                response.TransactionDate = DateTimeOffset.UtcNow;
+            }
+        }
+
         _db.FormResponses.Add(response);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<Guid>.Ok(response.Id);
@@ -1047,6 +1075,21 @@ public sealed class FormResponseService : IFormResponseService
             .Select(x => new TaskRelatedFormDto(
                 x.Id, x.DefinitionId, x.Code, x.Title, x.Reference, x.RecordNumber, x.Status, x.CreatedAt, x.CardLayout))
             .ToList();
+    }
+
+    public async Task<DerivedFormRefDto?> GetDerivedRecordAsync(Guid sourceResponseId, CancellationToken cancellationToken = default)
+    {
+        // El registro derivado de esta respuesta (ADR-0078): idempotencia garantiza a lo sumo uno por destino;
+        // se toma el mas antiguo. Filtro global de tenant aplica.
+        var row = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DerivedFromResponseId == sourceResponseId)
+            .OrderBy(r => r.CreatedAt)
+            .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
+            {
+                r.Id, d.Code, d.Title, r.RecordNumber, r.Status
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        return row is null ? null : new DerivedFormRefDto(row.Id, row.Code, row.Title, row.RecordNumber, row.Status);
     }
 
     public async Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default)

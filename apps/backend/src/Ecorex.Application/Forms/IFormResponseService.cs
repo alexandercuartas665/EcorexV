@@ -103,6 +103,13 @@ public interface IFormResponseService
     Task<IReadOnlyList<TaskRelatedFormDto>> GetTaskRelatedFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// El registro DERIVADO de una respuesta (ADR-0078): si <paramref name="sourceResponseId"/> ya fue
+    /// convertida (verbo CONVERTIR_A_FORMULARIO), devuelve el destino (Orden de Trabajo) con su numero; null si
+    /// no. La UI lo usa para marcar la origen como "convertida" y para reabrir el derivado (idempotente).
+    /// </summary>
+    Task<DerivedFormRefDto?> GetDerivedRecordAsync(Guid sourceResponseId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Formularios relevantes para un tablero (ADR-0065): el del concepto de sus tareas + los de los
     /// pasos de su flujo. Para el selector "Elijo un formulario" del configurador de columnas.
     /// </summary>

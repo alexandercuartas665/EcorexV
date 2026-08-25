@@ -18,6 +18,14 @@ public class FormResponse : TenantEntity, IVersioned
     public string? Reference { get; set; }
 
     /// <summary>
+    /// ADR-0078: si esta respuesta NACIO de una conversion (verbo CONVERTIR_A_FORMULARIO), apunta a la
+    /// respuesta ORIGEN (ej. la cotizacion COT de la que salio esta Orden de Trabajo). Sirve para: (1)
+    /// idempotencia -no crear otra derivada al re-hacer clic-, y (2) marcar la origen como "convertida".
+    /// Null = no derivada.
+    /// </summary>
+    public Guid? DerivedFromResponseId { get; set; }
+
+    /// <summary>
     /// Formulario ACTIVO por defecto de la tarea (ADR-0065): cuando una tarea tiene varias
     /// respuestas ancladas, marca cual es la principal. Exclusivo por tarea (solo una en true). Si
     /// ninguna esta marcada, la UI toma la mas antigua/original como activa; con una sola, esa lo es.

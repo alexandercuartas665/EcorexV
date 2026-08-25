@@ -1581,6 +1581,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.RecordNumber).HasMaxLength(100);
             b.Property(x => x.RecordStatus).HasDefaultValue(FormRecordStatus.Draft);
             b.Property(x => x.VoidReason).HasMaxLength(500);
+            // ADR-0078: origen de una conversion (CONVERTIR_A_FORMULARIO). Escalar auto-referente sin
+            // navegacion/FK (evita cascadas cruzadas SQL Server); indice para idempotencia + marca "convertida".
+            b.HasIndex(x => new { x.TenantId, x.DerivedFromResponseId });
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.Reference });
             // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()

@@ -233,6 +233,12 @@ public sealed record TaskRelatedFormDto(
     string? Reference, string? RecordNumber, FormResponseStatus Status, DateTimeOffset CreatedAt,
     FormCardLayout CardLayout = FormCardLayout.Normal);
 
+/// <summary>ADR-0078: apunta al registro DERIVADO de una respuesta (la Orden de Trabajo creada desde una
+/// cotizacion). La UI del renderer lo usa para marcar la origen como "convertida" y para reabrir el derivado.
+/// Null si la respuesta aun no se ha convertido.</summary>
+public sealed record DerivedFormRefDto(
+    Guid ResponseId, string FormCode, string FormTitle, string? RecordNumber, FormResponseStatus Status);
+
 /// <summary>
 /// Un formulario relevante para un tablero (ADR-0065, columnas de campo de formulario): el del
 /// concepto de sus tareas o uno de los pasos de su flujo. Para el selector "Elijo un formulario".

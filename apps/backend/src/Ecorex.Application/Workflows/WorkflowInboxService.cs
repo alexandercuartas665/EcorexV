@@ -557,6 +557,14 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo el encargado asignado (o su cargo) puede cerrar este paso.");
         }
 
+        // Formulario OBLIGATORIO (ADR-0077): si el nodo tiene un formulario marcado requerido y aun no se
+        // ha enviado, no se puede cerrar el paso.
+        if (await HasUnfilledRequiredFormAsync(step, node, cancellationToken))
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(
+                "Este paso tiene un formulario obligatorio. Diligencialo y envialo antes de cerrar.");
+        }
+
         // La decision (approvalResult) se captura EN el paso Task que entra a la compuerta. El
         // motor la propaga: al avanzar, el exclusiveGateway se auto-resuelve heredando este
         // ApprovalResult y enruta por el ConditionExpression de sus aristas (ADR-0037). La
@@ -667,8 +675,54 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return WorkflowResult<WorkflowInstanceDto>.Invalid("Solo el encargado asignado (o su cargo) puede decidir en esta compuerta.");
         }
 
+        // Formulario OBLIGATORIO (ADR-0077): en una compuerta atendida, no se puede ELEGIR la ruta (ni saltar
+        // a otro nodo) hasta enviar el formulario requerido del nodo -- p.ej. confirmar que el cliente acepta.
+        if (await HasUnfilledRequiredFormAsync(step, node, cancellationToken))
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(
+                "Esta compuerta tiene un formulario obligatorio. Diligencialo y envialo antes de elegir la ruta.");
+        }
+
         return await _engine.ChooseGatewayRouteAsync(
             step.InstanceId, step.Id, targetNodeId, tenantUserId, note, cancellationToken);
+    }
+
+    /// <summary>True si el nodo tiene algun formulario marcado OBLIGATORIO (ADR-0077) que aun NO se ha enviado
+    /// en esta instancia. "Enviado" = existe un FormFlowLink Completed para (instancia, nodo) de esa definicion,
+    /// o una FormResponse Submitted anclada al numero de la tarea (robustez si el link aun no se creo).</summary>
+    private async Task<bool> HasUnfilledRequiredFormAsync(
+        WorkflowStepHistory step, WorkflowNode node, CancellationToken cancellationToken)
+    {
+        var requiredDefIds = await _db.WorkflowNodeForms.AsNoTracking()
+            .Where(f => f.NodeId == node.Id && f.IsRequired)
+            .Select(f => f.DefinitionId)
+            .ToListAsync(cancellationToken);
+        if (requiredDefIds.Count == 0) { return false; }
+
+        var taskNumber = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == step.InstanceId && i.TaskItemId != null)
+            .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, t => t.Id, (i, t) => t.Number)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        foreach (var defId in requiredDefIds)
+        {
+            var linkDone = await (
+                from l in _db.FormFlowLinks.AsNoTracking()
+                where l.WorkflowInstanceId == step.InstanceId && l.WorkflowNodeId == node.Id
+                    && l.Status == FormFlowLinkStatus.Completed
+                join r in _db.FormResponses.AsNoTracking() on l.FormResponseId equals r.Id
+                where r.DefinitionId == defId
+                select l.Id).AnyAsync(cancellationToken);
+            if (linkDone) { continue; }
+
+            var respDone = taskNumber != null && await _db.FormResponses.AsNoTracking()
+                .AnyAsync(r => r.DefinitionId == defId && r.Reference == taskNumber
+                    && r.Status == FormResponseStatus.Submitted, cancellationToken);
+            if (respDone) { continue; }
+
+            return true; // hay un formulario obligatorio sin enviar
+        }
+        return false;
     }
 
     // ---- Helpers ----

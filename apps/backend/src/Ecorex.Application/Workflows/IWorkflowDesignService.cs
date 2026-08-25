@@ -143,6 +143,11 @@ public interface IWorkflowDesignService
     /// <summary>Quita UN formulario del nodo (por su DefinitionId).</summary>
     Task<WorkflowResult<bool>> RemoveNodeFormAsync(Guid nodeId, Guid formDefinitionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Marca (o desmarca) un formulario del nodo como OBLIGATORIO para cerrar/decidir (ADR-0077):
+    /// si required=true, el paso no se puede cerrar (ni elegir ruta en una compuerta) hasta ENVIAR ese
+    /// formulario.</summary>
+    Task<WorkflowResult<bool>> SetNodeFormRequiredAsync(Guid nodeId, Guid formDefinitionId, bool required, CancellationToken cancellationToken = default);
+
     Task<WorkflowResult<FlowNodeRuleDto>> AddNodeRuleAsync(Guid nodeId, Guid ruleId, CancellationToken cancellationToken = default);
 
     Task<WorkflowResult<bool>> RemoveNodeRuleAsync(Guid linkId, CancellationToken cancellationToken = default);

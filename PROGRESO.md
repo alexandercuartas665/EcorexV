@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-08-25 - v0.15.78: formulario OBLIGATORIO por nodo para cerrar/decidir (ADR-0077)
+
+- Marca nueva `WorkflowNodeForm.IsRequired` (migracion dual PG + SQL Server): por nodo se decide si su
+  formulario es requisito para cerrar/decidir. Opcional (default false; los flujos existentes no cambian).
+- Editor (FlowEditor, acordeon Recursos): checkbox "obligatorio" por formulario del nodo ->
+  IWorkflowDesignService.SetNodeFormRequiredAsync. El canvas expone FlowNodeFormDto.IsRequired.
+- Enforcement (WorkflowInboxService): CompletePendingStepAsync y CompleteGatewayChoiceAsync bloquean si el
+  nodo tiene un formulario obligatorio SIN enviar (FormFlowLink Completed o FormResponse Submitted anclada al
+  numero de tarea). Sirve para exigir "el cliente acepta" en la compuerta antes de enrutar/cerrar.
+- EnsureDraftAsync ahora copia IsRequired (y SortOrder) al derivar el borrador.
+- Pendiente UX: que el menu del nodo guie a "Diligenciar formulario" cuando es obligatorio (hoy el backend
+  bloquea el cierre directo con mensaje). Sin desplegar.
+
+---
+
+## 2026-08-24 - v0.15.77: el salto a otro flujo resuelve la version PUBLICADA del destino (verificado)
+
+- Fix de v0.15.77: el salto (JumpToDefinitionId) resuelve la version PUBLICADA vigente del flujo destino por
+  ProcessCode, no el id de version guardado (que podia quedar en una version vieja al re-publicar). VERIFICADO
+  end-to-end: T00032 -> decidir ruta "Cliente Decide Comprar" -> padre Done en "Completado" + nacio la hija
+  T00036 corriendo ORDENES DE TRABAJO (v2), ligada por ParentId, con Entidad heredada. La tarjeta hija se ve
+  en el tablero (subtarea "flecha T00032").
+
+---
+
 ## 2026-08-24 - v0.15.73: cerrar/decidir/reabrir SOLO el asignado o su cargo (ADR-0073, revierte ADR-0064)
 
 - Decision del usuario: el flujo respeta la asignacion; un usuario distinto al asignado no cierra pasos

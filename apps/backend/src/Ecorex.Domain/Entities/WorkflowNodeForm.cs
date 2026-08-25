@@ -18,4 +18,12 @@ public class WorkflowNodeForm : TenantEntity
 
     /// <summary>Orden del formulario dentro del nodo (0..n). Fija el orden de presentacion.</summary>
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// OBLIGATORIO para cerrar/decidir (ADR-0077): si es true, el paso de este nodo NO se puede cerrar
+    /// (ni, en una compuerta atendida, elegir ruta) hasta ENVIAR este formulario. Si es false (por defecto),
+    /// el formulario es opcional y el paso se puede cerrar directo (comportamiento de ADR-0070). Es una marca
+    /// por nodo: cada flujo decide en cuales pasos el formulario es requisito de cierre.
+    /// </summary>
+    public bool IsRequired { get; set; }
 }

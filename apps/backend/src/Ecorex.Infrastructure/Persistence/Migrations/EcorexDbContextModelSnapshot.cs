@@ -14307,6 +14307,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_required");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");

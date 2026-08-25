@@ -984,8 +984,12 @@ else
             @foreach (var f in (node.Forms ?? new List<FlowNodeFormDto>()))
             {
                 var ff = f;
-                <span class="fe-chip">
+                <span class="fe-chip @(ff.IsRequired ? "req" : "")">
                     Formulario @ff.Code - @ff.Title
+                    <label class="fe-chip-req" title="Obligatorio: hay que enviarlo para cerrar/decidir el paso">
+                        <input type="checkbox" checked="@ff.IsRequired"
+                               @onchange="@(e => ToggleFormRequiredAsync(node, ff, e))" /> obligatorio
+                    </label>
                     <span class="fe-chip-x" @onclick="@(() => UnlinkFormAsync(node, ff.DefinitionId))">x</span>
                 </span>
             }
@@ -994,7 +998,7 @@ else
         @if ((node.Forms?.Count ?? 0) == 0)
         {
             <div class="fe-acc-note">El paso no exige formulario. Un nodo admite VARIOS: al activarse el paso se
-                piden TODOS y no se completa hasta enviarlos.</div>
+                piden TODOS. Marca "obligatorio" si el formulario debe enviarse para poder cerrar/decidir.</div>
         }
     };
 
@@ -1216,6 +1220,14 @@ else
     private async Task UnlinkFormAsync(FlowCanvasNodeDto node, Guid formDefinitionId)
     {
         var result = await DesignSvc.RemoveNodeFormAsync(node.Id, formDefinitionId);
+        if (!result.IsOk) { _error = result.Error; }
+        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+    }
+
+    private async Task ToggleFormRequiredAsync(FlowCanvasNodeDto node, FlowNodeFormDto form, ChangeEventArgs e)
+    {
+        var required = e.Value is bool b && b;
+        var result = await DesignSvc.SetNodeFormRequiredAsync(node.Id, form.DefinitionId, required);
         if (!result.IsOk) { _error = result.Error; }
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
     }

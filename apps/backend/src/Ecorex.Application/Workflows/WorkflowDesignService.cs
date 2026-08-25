@@ -258,7 +258,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 {
                     TenantId = draft.TenantId,
                     NodeId = draftNode.Id,
-                    DefinitionId = form.DefinitionId
+                    DefinitionId = form.DefinitionId,
+                    SortOrder = form.SortOrder,
+                    IsRequired = form.IsRequired
                 });
             }
         }
@@ -1171,6 +1173,19 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<bool>> SetNodeFormRequiredAsync(Guid nodeId, Guid formDefinitionId, bool required, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.WorkflowNodeForms
+            .FirstOrDefaultAsync(f => f.NodeId == nodeId && f.DefinitionId == formDefinitionId, cancellationToken);
+        if (existing is null)
+        {
+            return WorkflowResult<bool>.NotFound("El nodo no tiene ese formulario vinculado.");
+        }
+        existing.IsRequired = required;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     // ---- Agente de IA por nodo (ola 1) ----
 
     public async Task<IReadOnlyList<FlowAgentCatalogItemDto>> ListAgentCatalogAsync(
@@ -1525,14 +1540,14 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         var forms = await _db.WorkflowNodeForms.AsNoTracking()
             .Where(f => nodeIds.Contains(f.NodeId))
             .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id,
-                (f, d) => new { f.NodeId, f.SortOrder, d.Id, d.Code, d.Title })
+                (f, d) => new { f.NodeId, f.SortOrder, f.IsRequired, d.Id, d.Code, d.Title })
             .ToListAsync(cancellationToken);
         // Un nodo puede tener VARIOS formularios: se agrupan en orden.
         var formsByNode = forms
             .GroupBy(f => f.NodeId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<FlowNodeFormDto>)g
                 .OrderBy(x => x.SortOrder)
-                .Select(x => new FlowNodeFormDto(x.Id, x.Code, x.Title))
+                .Select(x => new FlowNodeFormDto(x.Id, x.Code, x.Title, x.IsRequired))
                 .ToList());
 
         var rules = await _db.WorkflowNodeRules.AsNoTracking()

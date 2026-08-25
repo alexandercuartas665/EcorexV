@@ -474,7 +474,7 @@
 
                 <div class="tk-detail-tabs">
                     <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
-                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@((_generos.Sum(g => g.Items.Count) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(_generos.Sum(g => g.Items.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
                     <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
                 </div>
 
@@ -706,10 +706,15 @@
                     <div class="tk-tabpane">
                         @{
                             var allForms = _generos.SelectMany(g => g.Items.Select(it => (Genero: g, Item: it))).ToList();
+                            // El formulario del paso ACTUAL se pinta como una tarjeta mas; se cruza por ResponseId
+                            // con _stepForms para saber cual es el paso (boton "Diligenciar" + ruta/cierre de compuerta).
+                            var stepById = _stepForms
+                                .GroupBy(s => s.ResponseId)
+                                .ToDictionary(gp => gp.Key, gp => gp.First());
                         }
-                        @* --- Formularios de la tarea en UNA lista uniforme (todos los tipos/generos se ven igual).
-                             El boton "+ Agregar formulario" pregunta el tipo cuando hay varios. El formulario del
-                             paso ACTUAL no sale aqui (va en "Formularios del proceso"). --- *@
+                        @* --- Formularios de la tarea en UNA lista uniforme: TODOS los tipos/generos se ven igual,
+                             incluido el del paso ACTUAL (su tarjeta trae "Diligenciar"). El boton "+ Agregar
+                             formulario" pregunta el tipo cuando hay varios. --- *@
                         @if (_generos.Count > 0)
                         {
                             <div class="tk-card">
@@ -732,12 +737,19 @@
                                             var g = pair.Genero;
                                             var it = pair.Item;
                                             var finalized = it.Status == FormResponseStatus.Submitted;
+                                            TaskStepFormDto? sf = stepById.TryGetValue(it.ResponseId, out var _sf) ? _sf : null;
+                                            var isStep = sf is not null;
+                                            var stepPending = sf?.LinkStatus == FormFlowLinkStatus.Pending;
                                             <div class="tk-quote-card @(finalized ? "is-final" : "") @(it.IsActive ? "is-active" : "")">
-                                                <div class="tk-quote-main" @onclick="@(() => OpenGeneroForm(g, it))">
+                                                <div class="tk-quote-main" @onclick="@(() => OpenFormItem(g, it, sf))">
                                                     <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Sin numero" : it.Titulo)</strong>
                                                     <span class="tk-quote-sub">
                                                         <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:var(--surface-3,#f0f0f2);color:var(--ink-2,#5C5C66);font-size:11px;font-weight:600;">@g.FormTitle</span>
-                                                        @if (!string.IsNullOrWhiteSpace(it.Cliente))
+                                                        @if (isStep)
+                                                        {
+                                                            <span>&nbsp;&middot; Paso: @(sf!.NodeName ?? "(sin nombre)")</span>
+                                                        }
+                                                        else if (!string.IsNullOrWhiteSpace(it.Cliente))
                                                         {
                                                             <span>&nbsp;&middot; @it.Cliente</span>
                                                         }
@@ -747,25 +759,39 @@
                                                         {
                                                             <span class="tk-quote-active" title="Formulario activo por defecto de este tipo">&#9733; Activo</span>
                                                         }
-                                                        <span class="tk-status @(finalized ? "st-done" : "st-pending")">@(finalized ? "Finalizada" : "Borrador")</span>
+                                                        @if (isStep && stepPending)
+                                                        {
+                                                            <span class="tk-status st-pending">Pendiente</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="tk-status @(finalized ? "st-done" : "st-pending")">@(finalized ? "Finalizada" : "Borrador")</span>
+                                                        }
                                                         <span>@it.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
                                                     </span>
                                                 </div>
                                                 <div class="tk-quote-actions">
-                                                    <button class="btn btn-xs" @onclick="@(() => OpenGeneroForm(g, it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
-                                                    @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
+                                                    @if (isStep)
                                                     {
-                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
+                                                        <button class="btn btn-xs @(stepPending && !taskClosed ? "btn-primary" : "")" @onclick="@(() => OpenStepFormModal(sf!))" disabled="@_busy">@(stepPending && !taskClosed ? "Diligenciar" : "Ver")</button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="btn btn-xs" @onclick="@(() => OpenGeneroForm(g, it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
+                                                        @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
+                                                        {
+                                                            <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
+                                                        }
                                                     }
                                                     @if (!taskClosed)
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
                                                     }
-                                                    @if (finalized && !taskClosed)
+                                                    @if (!isStep && finalized && !taskClosed)
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
                                                     }
-                                                    @if (!finalized && !taskClosed)
+                                                    @if (!isStep && !finalized && !taskClosed)
                                                     {
                                                         <button class="btn btn-xs tk-btn-danger" @onclick="@(() => DeleteConceptFormAsync(it))" disabled="@_busy" title="Eliminar formulario">Eliminar</button>
                                                     }
@@ -777,34 +803,7 @@
                             </div>
                         }
 
-                        @* --- Formularios del paso del flujo --- *@
-                        @if (_stepForms.Count > 0)
-                        {
-                            <div class="tk-card" style="margin-top:14px;">
-                                <div class="tk-card-head"><h3>Formularios del proceso</h3></div>
-                                @foreach (var sf in _stepForms)
-                                {
-                                    <div class="tk-summary-row" style="align-items:center;gap:8px;">
-                                        <span style="flex:1;min-width:0;">
-                                            <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
-                                            <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
-                                        </span>
-                                        @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
-                                        {
-                                            <span class="tk-status st-pending">Pendiente</span>
-                                            <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepFormModal(sf))" disabled="@_busy">Diligenciar</button>
-                                        }
-                                        else
-                                        {
-                                            <span class="tk-status st-done">Enviado</span>
-                                            <button class="btn btn-sm" @onclick="@(() => OpenStepFormModal(sf))">Ver</button>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        }
-
-                        @if (_generos.Count == 0 && _stepForms.Count == 0)
+                        @if (_generos.Count == 0)
                         {
                             <div class="tk-card"><p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el flujo).</p></div>
                         }
@@ -1575,11 +1574,12 @@
             _totalSeconds = _detail.TotalWorkSeconds;
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
             _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime.Date;
-            // Formularios exigidos por los pasos current del flujo (crea borrador+link
-            // de forma idempotente si el nodo tiene formulario asignado). PRIMERO: crea los links del paso
-            // actual que GetTaskFormGenerosAsync usa para no duplicar ese formulario como tarjeta de genero.
+            // Paso(s) ACTUAL(es) del flujo: crea borrador+link idempotente si el nodo tiene formulario. Se carga
+            // PRIMERO para que ese formulario ya EXISTA como respuesta y aparezca como tarjeta en _generos; ademas
+            // aporta la metadata (NodeName, ruta/compuerta) para el boton "Diligenciar" de esa tarjeta.
             _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
-            // Formularios de la tarea por GENERO (concepto + flujo + derivados), incluidos los vacios.
+            // Formularios de la tarea por GENERO (concepto + flujo + derivados), incluidos los vacios y el del
+            // paso actual (que se pinta como una tarjeta mas, cruzado por ResponseId con _stepForms).
             _generos = (await formsSvc.GetTaskFormGenerosAsync(taskId)).ToList();
             // Tipos que ofrece el boton "+ Agregar" (todos los generos configurados, aunque esten vacios).
             _addableGeneros = _generos.Select(g => (g.DefinitionId, g.FormTitle)).ToList();
@@ -2326,6 +2326,14 @@
             if (it is not null) { return (g, it); }
         }
         return null;
+    }
+
+    /// <summary>Abre el formulario de una tarjeta: si es el del paso ACTUAL, en modo PASO (su envio completa el
+    /// paso del flujo silenciosamente); si no, como formulario normal del genero.</summary>
+    private void OpenFormItem(TaskConceptFormsDto g, TaskConceptFormItemDto it, TaskStepFormDto? sf)
+    {
+        if (sf is not null) { OpenStepFormModal(sf); }
+        else { OpenGeneroForm(g, it); }
     }
 
     /// <summary>Abre una respuesta de un genero en el modal editor. Editable solo si es borrador y la tarea NO esta cerrada.</summary>

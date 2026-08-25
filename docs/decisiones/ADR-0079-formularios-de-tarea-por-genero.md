@@ -50,6 +50,18 @@ por definicion, activo exclusivo por definicion, crear/copiar/borrar/reabrir/act
   cubre derivados y formularios de pasos ya recorridos). `GetTaskRelatedFormsAsync` queda sin uso en el
   modal (se conserva por si se reusa).
 
+## Evolucion (v0.15.84 / v0.15.85)
+
+- v0.15.84: se dejo de agrupar por tarjeta-seccion (una por tipo). Una sola tarjeta "Formularios" con la lista
+  UNIFORME de todos los formularios (cada item con una pildora del tipo). "+ Agregar formulario" con varios
+  tipos abre un modal selector; con uno crea directo. `GetTaskFormGenerosAsync` devuelve TODOS los generos
+  (incl. vacios) para poblar el selector.
+- v0.15.85: se UNIFICA tambien el paso actual. `GetTaskFormGenerosAsync` ya no excluye el formulario del paso
+  actual (se quito shownInStep): aparece como una tarjeta mas, cuya accion "Diligenciar"/"Ver" abre en modo
+  PASO (su envio completa el paso del flujo, sin cambios en el motor). Se ELIMINA la seccion "Formularios del
+  proceso": todo vive en la lista unica. La tarjeta de paso oculta Eliminar/Reabrir/Marcar-activo para no
+  romper la ejecucion.
+
 ## Limitacion conocida
 
 Marcar "activo" un genero de flujo afecta la presentacion y las columnas del tablero, pero la EJECUCION

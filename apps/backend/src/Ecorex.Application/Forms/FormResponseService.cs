@@ -895,10 +895,10 @@ public sealed class FormResponseService : IFormResponseService
             if (cd != Guid.Empty) { conceptDefId = cd; }
         }
 
-        // 2) Generos del FLUJO: definiciones de WorkflowNodeForm de TODOS los nodos (opciones de "+ Agregar").
-        //    Ademas se calcula shownInStep: las respuestas del paso ACTUAL se ven en "Formularios del proceso".
+        // 2) Generos del FLUJO: definiciones de WorkflowNodeForm de TODOS los nodos (opciones de "+ Agregar" y,
+        //    ya diligenciados, tarjetas). El formulario del paso ACTUAL YA NO se excluye: tambien se pinta como
+        //    tarjeta; su boton "Diligenciar" (y ruta/cierre de compuerta) lo resuelve la UI en modo paso.
         var flowDefIds = new List<Guid>();
-        var shownInStep = new HashSet<Guid>();
         if (task.WorkflowInstanceId is Guid instId)
         {
             var wfDefId = await _db.WorkflowInstances.AsNoTracking()
@@ -912,17 +912,6 @@ public sealed class FormResponseService : IFormResponseService
             foreach (var nf in nodeForms)
             {
                 if (!flowDefIds.Contains(nf.DefinitionId)) { flowDefIds.Add(nf.DefinitionId); }
-            }
-
-            var current = await _workflowEngine.GetCurrentStepsAsync(instId, cancellationToken);
-            var currentNodeIds = current
-                .Where(s => s.Status == WorkflowStepStatus.Pending)
-                .Select(s => s.NodeId).ToList();
-            if (currentNodeIds.Count > 0)
-            {
-                shownInStep = (await _db.FormFlowLinks.AsNoTracking()
-                    .Where(l => l.WorkflowInstanceId == instId && currentNodeIds.Contains(l.WorkflowNodeId))
-                    .Select(l => l.FormResponseId).ToListAsync(cancellationToken)).ToHashSet();
             }
         }
 
@@ -950,10 +939,11 @@ public sealed class FormResponseService : IFormResponseService
         // la UI pinta una lista UNIFORME de formularios (los generos vacios no aportan items) y usa el conjunto
         // completo para el selector del boton "+ Agregar formulario" (que pregunta el tipo cuando hay varios).
         var result = new List<TaskConceptFormsDto>();
+        var noExclude = new HashSet<Guid>();
         foreach (var defId in ordered)
         {
             if (!defById.TryGetValue(defId, out var def)) { continue; } // archivada/inactiva -> no se ofrece
-            result.Add(await BuildGeneroAsync(task, def, shownInStep, cancellationToken));
+            result.Add(await BuildGeneroAsync(task, def, noExclude, cancellationToken));
         }
         return result;
     }

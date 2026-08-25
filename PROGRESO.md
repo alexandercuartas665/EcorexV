@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-25 - v0.15.85: unificar el paso actual como tarjeta y quitar "FORMULARIOS DEL PROCESO" (ADR-0079)
+
+- Diagnostico: el formulario del paso ACTUAL no salia como tarjeta porque se excluia (shownInStep) para no
+  duplicarlo con la seccion "FORMULARIOS DEL PROCESO". Eso rompia el objetivo "todos como tarjeta".
+- Cambio: GetTaskFormGenerosAsync YA NO excluye el formulario del paso actual (se quito el calculo shownInStep);
+  ese formulario aparece como una tarjeta mas. La UI lo cruza por ResponseId con _stepForms (que se sigue
+  cargando primero para crear su borrador+link y aportar NodeName/ruta de compuerta). En su tarjeta, el boton
+  principal es "Diligenciar" (pendiente) / "Ver" (enviado) y abre en modo PASO: su envio COMPLETA el paso del
+  flujo silenciosamente (OpenStepFormModal + OnStepFormSubmittedAsync, sin cambios). Se muestra "Paso: <nodo>"
+  y badge "Pendiente". Para no romper la ejecucion, la tarjeta de paso oculta Eliminar/Reabrir/Marcar-activo.
+- Se ELIMINO la seccion "FORMULARIOS DEL PROCESO": todo queda en la unica lista "Formularios". Contador de la
+  pestana ajustado (ya no suma _stepForms aparte). Sin migracion, sin cambios en el motor de flujo. Build verde.
+
+---
+
 ## 2026-08-25 - v0.15.84: formularios de la tarea en UNA lista uniforme + selector de tipo en "+ Agregar" (ADR-0079)
 
 - Feedback del usuario sobre v0.15.83: las tarjetas por genero (una seccion por tipo, con encabezado

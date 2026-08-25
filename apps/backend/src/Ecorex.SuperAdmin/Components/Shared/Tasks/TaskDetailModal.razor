@@ -771,17 +771,11 @@
                                                     </span>
                                                 </div>
                                                 <div class="tk-quote-actions">
-                                                    @if (isStep)
+                                                    @{ var primaryActive = isStep ? (stepPending && !taskClosed) : (!finalized && !taskClosed); }
+                                                    <button class="btn btn-xs @(primaryActive ? "btn-primary" : "")" @onclick="@(() => OpenFormItem(g, it, sf))" disabled="@_busy">@(primaryActive ? "Diligenciar" : "Ver")</button>
+                                                    @if (!isStep && !it.IsActive && g.Items.Count > 1 && !taskClosed)
                                                     {
-                                                        <button class="btn btn-xs @(stepPending && !taskClosed ? "btn-primary" : "")" @onclick="@(() => OpenStepFormModal(sf!))" disabled="@_busy">@(stepPending && !taskClosed ? "Diligenciar" : "Ver")</button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <button class="btn btn-xs" @onclick="@(() => OpenGeneroForm(g, it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
-                                                        @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
-                                                        {
-                                                            <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
-                                                        }
+                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
                                                     }
                                                     @if (!taskClosed)
                                                     {
@@ -791,7 +785,7 @@
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
                                                     }
-                                                    @if (!isStep && !finalized && !taskClosed)
+                                                    @if (!finalized && !taskClosed)
                                                     {
                                                         <button class="btn btn-xs tk-btn-danger" @onclick="@(() => DeleteConceptFormAsync(it))" disabled="@_busy" title="Eliminar formulario">Eliminar</button>
                                                     }

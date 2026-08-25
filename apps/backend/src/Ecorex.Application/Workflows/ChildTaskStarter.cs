@@ -34,21 +34,33 @@ public sealed class ChildTaskStarter : IChildTaskStarter
         var parent = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == parentTaskId, cancellationToken);
         if (parent is null) { return null; }
 
-        // Idempotencia: si ya existe una hija de este padre corriendo este flujo, no crear otra (el FIN puede
-        // alcanzarse mas de una vez si el padre se reabre/re-cierra).
+        // El JumpToDefinitionId puede apuntar a una VERSION VIEJA del flujo destino: al re-publicar un flujo
+        // se crea una version nueva y se despublica la anterior, pero el salto guardado sigue apuntando a la
+        // vieja. Se resuelve la version PUBLICADA vigente de ese ProcessCode (misma idea que el re-apunte de
+        // conceptos al publicar). Si ninguna version esta publicada, no se salta (se omite sin romper el padre).
+        var jumpDef = await _db.WorkflowDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == jumpDefinitionId, cancellationToken);
+        if (jumpDef is null) { return null; }
+        var target = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.ProcessCode == jumpDef.ProcessCode && d.IsPublished && !d.IsArchived)
+            .OrderByDescending(d => d.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (target is null) { return null; }
+        var effectiveDefId = target.Id;
+
+        // Idempotencia: si ya existe una hija de este padre corriendo CUALQUIER version de este flujo destino,
+        // no crear otra (el FIN puede alcanzarse mas de una vez si el padre se reabre/re-cierra).
+        var familyIds = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.ProcessCode == jumpDef.ProcessCode)
+            .Select(d => d.Id)
+            .ToListAsync(cancellationToken);
         var alreadyExists = await (
             from t in _db.TaskItems.AsNoTracking()
             where t.ParentId == parentTaskId && t.WorkflowInstanceId != null
             join i in _db.WorkflowInstances.AsNoTracking() on t.WorkflowInstanceId equals i.Id
-            where i.DefinitionId == jumpDefinitionId
+            where familyIds.Contains(i.DefinitionId)
             select t.Id).AnyAsync(cancellationToken);
         if (alreadyExists) { return null; }
-
-        // El flujo destino debe estar publicado (StartInstance lo rechaza si no; se valida aqui para poder
-        // saltar el salto sin ensuciar la transaccion del padre).
-        var jumpDef = await _db.WorkflowDefinitions.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == jumpDefinitionId, cancellationToken);
-        if (jumpDef is null || !jumpDef.IsPublished || jumpDef.IsArchived) { return null; }
 
         // Consecutivo. La fila ya existe (el tenant ya creo tareas), asi que Ensure es no-op: seguro dentro
         // de la transaccion del padre.
@@ -109,7 +121,7 @@ public sealed class ChildTaskStarter : IChildTaskStarter
         // El actor es el asignado del padre (tenant_user valido) o null; la herencia robusta (ADR-0075) resuelve
         // el encargado de la hija por su propio cargo / paso previo.
         var started = await _engine.StartInstanceAsync(
-            jumpDefinitionId, child.Id, parent.AssigneeTenantUserId, "Salto de flujo", cancellationToken);
+            effectiveDefId, child.Id, parent.AssigneeTenantUserId, "Salto de flujo", cancellationToken);
         if (started.Status is not (WorkflowEngineStatus.Ok or WorkflowEngineStatus.StuckDetected))
         {
             // No se pudo arrancar el flujo hijo: propagar para que la transaccion del padre se revierta entera

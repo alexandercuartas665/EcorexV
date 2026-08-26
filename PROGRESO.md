@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-08-26 - v0.15.88: el formulario DEL WIZARD (al crear tarea) ahora precarga tokens {tareas.campo}
+
+- Bug: al llenar el formulario DURANTE la creacion de la tarea (modal "Formulario de la actividad" del
+  TaskWizard), los tokens {tareas.cliente} etc. NO se resolvian -> el contacto no se traia. Causa: ese
+  DynamicFormRenderer del wizard no pasaba TaskTokens (a diferencia del de TaskDetailModal).
+- Fix: TaskWizard.BuildWizTokens() (cliente/contacto/solicitante=_requesterName, email, telefono, titulo) +
+  TaskTokens="@BuildWizTokens()" en el renderer del wizard. Como la tarea aun no existe, los tokens salen del
+  contacto elegido en el paso "Contacto".
+- Nota de config (no codigo): en el COT el campo donde el usuario puso el token (cliente_nombre) esta OCULTO;
+  el visible es 'cliente'. Para VER la precarga el token debe ir en un campo de texto VISIBLE.
+
+---
+
 ## 2026-08-26 - v0.15.87: blindar el disenador de formularios (un fallo al guardar ya no tumba el circuito)
 
 - Sintoma: el usuario edito en PROD el "Valor por defecto" de un campo del COT (publicado y muy usado) y al

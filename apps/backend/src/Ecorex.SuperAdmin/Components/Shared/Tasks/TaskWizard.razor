@@ -460,6 +460,7 @@
                                      DefinitionId="@wizFormDefId"
                                      Mode="FormRenderMode.Fill"
                                      ResponseId="@_wizFormOpenId"
+                                     TaskTokens="@BuildWizTokens()"
                                      OnDraftReady="OnWizFormDraftReadyAsync"
                                      OnSubmitted="OnWizFormSubmittedAsync" />
             </div>
@@ -719,6 +720,21 @@
         }
         catch { /* si falla, queda Normal */ }
     }
+
+    /// <summary>Tokens {tareas.campo} para precargar el formulario DURANTE la creacion (la tarea aun no existe,
+    /// asi que salen del contacto/solicitante que se eligio en el paso "Contacto"). Igual que BuildTaskTokens del
+    /// detalle, para que {tareas.cliente} etc. se resuelvan tambien al crear.</summary>
+    private IReadOnlyDictionary<string, string?> BuildWizTokens() =>
+        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["cliente"] = _requesterName,
+            ["contacto"] = _requesterName,
+            ["solicitante"] = _requesterName,
+            ["email"] = _requesterEmail,
+            ["correo"] = _requesterEmail,
+            ["telefono"] = _requesterPhone,
+            ["titulo"] = _title,
+        };
 
     /// <summary>"Agregar": abre el modal para una cotizacion NUEVA (el renderer crea el borrador y lo
     /// avisa por OnDraftReady).</summary>

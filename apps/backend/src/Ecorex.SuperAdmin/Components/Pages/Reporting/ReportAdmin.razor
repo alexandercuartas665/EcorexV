@@ -90,6 +90,11 @@
                                 <button @onclick="() => ArchiveAsync(rep.Id)" disabled="@_busy"
                                         style="background:#fef2f2;color:#b91c1c;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Archivar</button>
                             }
+                            else
+                            {
+                                <button @onclick="() => UnarchiveAsync(rep.Id)" disabled="@_busy"
+                                        style="background:#ecfdf5;color:#047857;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Restaurar</button>
+                            }
                         </td>
                     </tr>
                 }
@@ -155,6 +160,20 @@
             await Defs.ArchiveAsync(reportId);
             _reports = await Defs.ListAllAsync();
             _ok = "Reporte archivado.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task UnarchiveAsync(Guid reportId)
+    {
+        _error = _ok = null;
+        _busy = true;
+        try
+        {
+            await Defs.UnarchiveAsync(reportId);
+            _reports = await Defs.ListAllAsync();
+            _ok = "Reporte restaurado.";
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

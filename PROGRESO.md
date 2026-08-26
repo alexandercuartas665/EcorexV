@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-26 - v0.15.90: /reportes/admin gana boton "Restaurar" (desarchivar)
+
+- GAP menor (sesion de reportes): ReportAdmin.razor listaba reportes archivados pero solo permitia
+  "Archivar" los activos; no habia forma de volver a Active desde la UI.
+- Fix: nuevo `IReportDefinitionService.UnarchiveAsync(id)` (espeja ArchiveAsync: carga tenant-scoped por
+  filtro global, Status=Active, SaveChanges -> auditado por el interceptor updated_at/by). Boton "Restaurar"
+  (verde) en las filas con Status=Archived -> UnarchiveAsync -> recarga la lista. Sin tocar la BD a mano.
+- Sin migracion. Build verde.
+
+---
+
 ## 2026-08-26 - v0.15.89: control de formulario Canvas (Croquis / Dibujo) (ADR-0080)
 
 - Nuevo `FormControlType.Canvas` (AL FINAL del enum) = lienzo de dibujo que reemplaza la parrilla milimetrada

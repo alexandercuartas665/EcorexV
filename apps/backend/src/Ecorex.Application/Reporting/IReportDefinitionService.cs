@@ -65,6 +65,10 @@ public interface IReportDefinitionService
 
     Task ArchiveAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Desarchiva un reporte (Status=Archived -> Active) para recuperarlo desde la UI. Tenant-scoped
+    /// (filtro global); auditado por el interceptor (updated_at/by). Idempotente: si no existe, no hace nada.</summary>
+    Task UnarchiveAsync(Guid id, CancellationToken ct = default);
+
     Task<ReportRunResult?> RunAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>Devuelve el RDL de un imprimible + su dataset ya ejecutado por el datasource tenant-safe,
@@ -401,6 +405,18 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         }
 
         def.Status = ReportDefinitionStatus.Archived;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task UnarchiveAsync(Guid id, CancellationToken ct = default)
+    {
+        var def = await _db.ReportDefinitions.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null)
+        {
+            return;
+        }
+
+        def.Status = ReportDefinitionStatus.Active;
         await _db.SaveChangesAsync(ct);
     }
 

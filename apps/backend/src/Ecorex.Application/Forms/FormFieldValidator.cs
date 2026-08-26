@@ -47,7 +47,7 @@ public static class FormFieldValidator
     public static bool IsPlaceholderCapture(FormControlType type)
         => type is FormControlType.Image or FormControlType.Photo or FormControlType.Audio
             or FormControlType.Signature or FormControlType.Gps or FormControlType.File
-            or FormControlType.Barcode;
+            or FormControlType.Barcode or FormControlType.Canvas;
 
     /// <summary>Opciones de la pregunta ([{id,label,value}]); lista vacia si el JSON es nulo o invalido.</summary>
     public static IReadOnlyList<FormOption> ParseOptions(string? optionsJson)

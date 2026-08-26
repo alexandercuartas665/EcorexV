@@ -473,6 +473,12 @@ else
             try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", $"sig-{q.Id}"); }
             catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
         }
+        // Editor de croquis (ADR Canvas): init idempotente; carga el SVG previo (_values) en la 1a init.
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Canvas))
+        {
+            try { await JS.InvokeVoidAsync("ecorexFormCanvas.init", $"croquis-{q.Id}", CanvasOptsJson(q), _values.GetValueOrDefault(q.FieldCode)); }
+            catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
+        }
         // Panel de lookup de celda: es position:fixed (para escapar del scroller de la tabla) y
         // hay que anclarlo por JS al input de su celda. Solo si hay alguno abierto (evita chatter).
         if (_gridLookupOpen.Count > 0)
@@ -854,6 +860,10 @@ else
             case FormControlType.Barcode:
                 @RenderCapturePlaceholder(q, "solid", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "Escanear")
                 break;
+            case FormControlType.Canvas:
+                @* Croquis / dibujo (ADR Canvas): editor de lienzo (form-canvas.js) -> SVG autocontenido. *@
+                @RenderCanvas(q, value)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
@@ -906,6 +916,55 @@ else
                         <span class="dfr-capture-ok">Firma capturada</span>
                     }
                 </div>
+            }
+        </div>
+    };
+
+    private RenderFragment RenderCanvas(FormQuestionDto q, string? value) => __builder =>
+    {
+        var hasVal = !string.IsNullOrEmpty(value);
+        <div class="dfr-canvas">
+            @if (IsDisabled)
+            {
+                @if (hasVal && value!.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase))
+                {
+                    <div class="dfr-canvas-view">@((MarkupString)value!)</div>
+                }
+                else
+                {
+                    <div class="dfr-capture" aria-disabled="true"><span>Sin dibujo</span></div>
+                }
+            }
+            else
+            {
+                <div class="dfr-canvas-toolbar">
+                    <button type="button" class="dfr-canvas-tool" title="Seleccionar / mover" @onclick="@(() => CanvasToolAsync(q, "select"))">Mover</button>
+                    <button type="button" class="dfr-canvas-tool" title="Rectangulo" @onclick="@(() => CanvasToolAsync(q, "rect"))">Rect</button>
+                    <button type="button" class="dfr-canvas-tool" title="Circulo / elipse" @onclick="@(() => CanvasToolAsync(q, "ellipse"))">Circulo</button>
+                    <button type="button" class="dfr-canvas-tool" title="Texto / anotacion" @onclick="@(() => CanvasToolAsync(q, "text"))">Texto</button>
+                    <button type="button" class="dfr-canvas-tool" title="Lapiz libre" @onclick="@(() => CanvasToolAsync(q, "pen"))">Lapiz</button>
+                    <label class="dfr-canvas-tool dfr-canvas-img" title="Insertar imagen">
+                        Imagen
+                        <InputFile OnChange="@(e => OnCanvasImageSelectedAsync(q, e))" accept="image/*" style="display:none" />
+                    </label>
+                    <input type="color" class="dfr-canvas-color" title="Color de trazo" value="#1B1B1E" @onchange="@(e => CanvasColorAsync(q, e.Value?.ToString()))" />
+                    <span class="dfr-canvas-sep"></span>
+                    <button type="button" class="dfr-canvas-tool" title="Deshacer" @onclick="@(() => CanvasCmdAsync(q, "undo"))">Deshacer</button>
+                    <button type="button" class="dfr-canvas-tool" title="Rehacer" @onclick="@(() => CanvasCmdAsync(q, "redo"))">Rehacer</button>
+                    <button type="button" class="dfr-canvas-tool" title="Borrar seleccion" @onclick="@(() => CanvasCmdAsync(q, "del"))">Borrar</button>
+                    <button type="button" class="dfr-canvas-tool" title="Limpiar todo" @onclick="@(() => CanvasCmdAsync(q, "clearAll"))">Limpiar</button>
+                    <span class="dfr-canvas-sep"></span>
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="@(() => SaveCanvasAsync(q))">Guardar dibujo</button>
+                </div>
+                <div id="@($"croquis-{q.Id}")" class="dfr-canvas-surface"></div>
+                @if (hasVal)
+                {
+                    <span class="dfr-capture-ok">Dibujo guardado</span>
+                }
+                @if (_canvasError is not null)
+                {
+                    <span class="dfr-canvas-err">@_canvasError</span>
+                }
             }
         </div>
     };
@@ -992,6 +1051,71 @@ else
             await SetValue(q, coords);
         }
         catch (JSException) { }
+    }
+
+    // ---- Control CANVAS (croquis/dibujo, ADR Canvas): editor form-canvas.js -> SVG en _values ----
+    private string? _canvasError;
+
+    /// <summary>Config del lienzo (alto, cuadricula, tamano de celda) desde OptionsJson -> JSON para el motor JS.</summary>
+    private static string CanvasOptsJson(FormQuestionDto q)
+    {
+        int height = 360, cell = 20; var grid = true;
+        if (!string.IsNullOrWhiteSpace(q.OptionsJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(q.OptionsJson);
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    if (doc.RootElement.TryGetProperty("height", out var h) && h.TryGetInt32(out var hv)) { height = hv; }
+                    if (doc.RootElement.TryGetProperty("cell", out var c) && c.TryGetInt32(out var cv)) { cell = cv; }
+                    if (doc.RootElement.TryGetProperty("grid", out var g)) { grid = g.ValueKind != System.Text.Json.JsonValueKind.False; }
+                }
+            }
+            catch (System.Text.Json.JsonException) { /* config invalida: default */ }
+        }
+        return System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid });
+    }
+
+    private async Task CanvasToolAsync(FormQuestionDto q, string tool)
+    { try { await JS.InvokeVoidAsync("ecorexFormCanvas.setTool", $"croquis-{q.Id}", tool); } catch (JSException) { } }
+
+    private async Task CanvasColorAsync(FormQuestionDto q, string? color)
+    { try { await JS.InvokeVoidAsync("ecorexFormCanvas.setColor", $"croquis-{q.Id}", string.IsNullOrWhiteSpace(color) ? "#1B1B1E" : color); } catch (JSException) { } }
+
+    private async Task CanvasCmdAsync(FormQuestionDto q, string cmd)
+    { try { await JS.InvokeVoidAsync($"ecorexFormCanvas.{cmd}", $"croquis-{q.Id}"); } catch (JSException) { } }
+
+    /// <summary>"Guardar dibujo": lee el SVG del editor y lo persiste en el campo (como Signature). Limite ~2 MB.</summary>
+    private async Task SaveCanvasAsync(FormQuestionDto q)
+    {
+        _canvasError = null;
+        try
+        {
+            var svg = await JS.InvokeAsync<string>("ecorexFormCanvas.getSvg", $"croquis-{q.Id}");
+            if (string.IsNullOrWhiteSpace(svg)) { await SetValue(q, null); return; }
+            if (svg.Length > 2_000_000) { _canvasError = "El dibujo es muy grande (imagenes pesadas). Reduce o quita imagenes."; return; }
+            await SetValue(q, svg);
+        }
+        catch (JSException) { }
+    }
+
+    private async Task OnCanvasImageSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
+    {
+        _canvasError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        if (file.Size > 1_500_000) { _canvasError = "La imagen supera 1.5 MB. Usa una mas liviana."; return; }
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(1_500_000).CopyToAsync(ms);
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+            await JS.InvokeVoidAsync("ecorexFormCanvas.addImage", $"croquis-{q.Id}", $"data:{mime};base64,{b64}");
+        }
+        catch (JSException) { }
+        catch (Exception ex) { _canvasError = "No se pudo insertar la imagen: " + ex.Message; }
     }
 
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)

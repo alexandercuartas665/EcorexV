@@ -86,5 +86,14 @@ public enum FormControlType
     /// del catalogo global DANE (<see cref="Ecorex.Domain.Entities.Ciudad"/>), sin configuracion.
     /// El valor se persiste en FormResponse.Data como JSON {pais,departamento,ciudad}.
     /// </summary>
-    Geografia
+    Geografia,
+
+    /// <summary>
+    /// Lienzo de CROQUIS/DIBUJO (ADR Canvas): reemplaza la parrilla milimetrada del formato en papel por un
+    /// editor donde se dibujan rectangulos, elipses, texto, imagenes y trazo libre sobre una cuadricula clara.
+    /// El dibujo se guarda en FormResponse.Data como un SVG autocontenido (imagenes embebidas como data-URL);
+    /// FormFieldValue.Type = "Canvas". Motor JS propio (form-canvas.js). Se agrego AL FINAL del enum para
+    /// preservar los ordinales de los valores anteriores.
+    /// </summary>
+    Canvas
 }

@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-26 - v0.15.89: control de formulario Canvas (Croquis / Dibujo) (ADR-0080)
+
+- Nuevo `FormControlType.Canvas` (AL FINAL del enum) = lienzo de dibujo que reemplaza la parrilla milimetrada
+  del FT-C-008. Editor con barra: seleccionar/mover(+resize), rectangulo, elipse, texto, lapiz, imagen, color,
+  deshacer/rehacer, borrar, limpiar; fondo cuadricula tenue.
+- Motor JS propio `wwwroot/js/form-canvas.js` (`window.ecorexFormCanvas`, estilo form-capture.js, sin
+  frameworks); escena -> <svg> nativo; espacio logico fijo con escala uniforme.
+- Persistencia: SVG autocontenido (imagenes embebidas data-URL) en FormResponse.Data por field_code
+  (FormFieldValue.Type="Canvas"); el mismo SVG edita e imprime. Boton "Guardar dibujo" (como Signature).
+  Limite 2 MB SVG / 1.5 MB imagen.
+- Renderer (DynamicFormRenderer): case Canvas + RenderCanvas + handlers + init idempotente en OnAfterRender.
+  Validador: Canvas en IsPlaceholderCapture.
+- Impresion: FormTemplateRenderService.EmitField emite <svg>/<img> sin escapar ({{campo.codigo}});
+  FormPrint.razor case Canvas via MarkupString. Chromium/PuppeteerSharp renderiza el SVG.
+- Disenador: combobox + ControlReg ("Croquis / Dibujo") + propiedades (alto, celda, cuadricula) en OptionsJson
+  (objeto {height,cell,grid}, sin migracion). DefaultOptions(Canvas). CSS en DynamicFormRenderer.razor.css.
+- Sin migracion. Build verde. A verificar con FT-C-008 en AGROMETALICAS. ADR-0080.
+
+---
+
 ## 2026-08-26 - v0.15.88: el formulario DEL WIZARD (al crear tarea) ahora precarga tokens {tareas.campo}
 
 - Bug: al llenar el formulario DURANTE la creacion de la tarea (modal "Formulario de la actividad" del

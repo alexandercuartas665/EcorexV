@@ -653,6 +653,7 @@ else
         [FormControlType.Gps] = new("GPS", "GPS", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.File] = new("Archivo", "Archivo", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Barcode] = new("Codigo de barras", "Barras", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Canvas] = new("Croquis / Dibujo", "Croquis", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"1.5\"/><path d=\"M3 9h18M3 14h18M9 4v16M15 4v16\"/><path d=\"M6 16c2-3 4 1 6-2\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
         // Documento (ADR-0021).
         [FormControlType.Paragraph] = new("Texto", "Parrafo", "M4 6h16M4 12h16M4 18h10", "var(--t-amber)", "var(--t-amber-bg)", "doc"),
         [FormControlType.Divider] = new("Divisor", "Divisor", "M5 12h14", "var(--t-amber)", "var(--t-amber-bg)", "doc"),
@@ -918,8 +919,44 @@ else
             """[{"id":"opcion_1","label":"Opcion 1"},{"id":"opcion_2","label":"Opcion 2"}]""",
         FormControlType.GridDetail =>
             """[{"id":"columna_1","label":"Columna 1"},{"id":"columna_2","label":"Columna 2"}]""",
+        // Croquis (ADR Canvas): la config del lienzo vive como OBJETO JSON en OptionsJson.
+        FormControlType.Canvas => """{"height":360,"cell":20,"grid":true}""",
         _ => null
     };
+
+    // ---- Config del control Canvas (ADR Canvas): { height, cell, grid } en OptionsJson ----
+    private sealed record CanvasCfgDto(int Height, int Cell, bool Grid);
+
+    private static CanvasCfgDto CanvasCfg(FormQuestionDto q)
+    {
+        int height = 360, cell = 20; var grid = true;
+        if (!string.IsNullOrWhiteSpace(q.OptionsJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(q.OptionsJson);
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    if (doc.RootElement.TryGetProperty("height", out var h) && h.TryGetInt32(out var hv)) { height = hv; }
+                    if (doc.RootElement.TryGetProperty("cell", out var c) && c.TryGetInt32(out var cv)) { cell = cv; }
+                    if (doc.RootElement.TryGetProperty("grid", out var g)) { grid = g.ValueKind != System.Text.Json.JsonValueKind.False; }
+                }
+            }
+            catch (System.Text.Json.JsonException) { /* config invalida: default */ }
+        }
+        return new CanvasCfgDto(height, cell, grid);
+    }
+
+    private async Task PatchCanvasCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        var cfg = CanvasCfg(q);
+        var height = cfg.Height; var cell = cfg.Cell; var grid = cfg.Grid;
+        if (key == "height" && int.TryParse(raw, out var hv)) { height = Math.Clamp(hv, 120, 2000); }
+        else if (key == "cell" && int.TryParse(raw, out var cv)) { cell = Math.Clamp(cv, 6, 120); }
+        else if (key == "grid") { grid = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on"; }
+        var json = System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid });
+        await PatchQuestionAsync(q, r => r with { OptionsJson = json });
+    }
 
     // ---- Drag and drop ----
 
@@ -1798,7 +1835,7 @@ else
                         FormControlType.Number, FormControlType.Toggle,
                         FormControlType.GridDetail, FormControlType.Subform, FormControlType.CascadeConfigurator,
                         FormControlType.Geografia,
-                        FormControlType.Signature,
+                        FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
                         FormControlType.Button
                     };
@@ -1920,6 +1957,27 @@ else
                 <CascadeConfigEditor Json="@node.Q!.CascadeConfigJson"
                                      JsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { CascadeConfigJson = json }))" />
                 <div class="fb-hint">Config-driven: componelo por niveles/columnas/juegos (o pega JSON). El mismo motor sirve cualquier taxonomia y se replica en otro formulario o tenant.</div>
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Canvas })
+        {
+            var ccfg = CanvasCfg(node.Q!);
+            <div class="fb-field">
+                <label>Alto del lienzo (px)</label>
+                <input class="fb-input" type="number" min="120" max="2000" step="20" value="@ccfg.Height"
+                       @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "height", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label>Tamano de celda de la cuadricula (px)</label>
+                <input class="fb-input" type="number" min="6" max="120" step="1" value="@ccfg.Cell"
+                       @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "cell", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label class="fb-check">
+                    <input type="checkbox" checked="@ccfg.Grid" @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "grid", (e.Value?.ToString())))" />
+                    Mostrar cuadricula (papel milimetrado)
+                </label>
+                <div class="fb-hint">El croquis se guarda como SVG autocontenido y se imprime en la plantilla de la OT.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })

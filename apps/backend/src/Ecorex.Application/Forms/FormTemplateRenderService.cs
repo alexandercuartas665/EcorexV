@@ -104,7 +104,7 @@ public static class FormTemplateMerge
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw)
-                ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw))
+                ? EmitField(fieldFormat.GetValueOrDefault(code), raw)
                 : string.Empty;
         });
 
@@ -217,4 +217,21 @@ public static class FormTemplateMerge
 
     private static string Esc(string? s)
         => (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>Emite el valor de un campo en la plantilla. Los artefactos grafados AUTOCONTENIDOS (ADR Canvas:
+    /// un SVG que empieza con '&lt;svg'; o una imagen data-URL 'data:image') se emiten como MARKUP sin escapar
+    /// (Chromium los renderiza al generar el PDF); el resto se formatea y se escapa normal para prevenir HTML.</summary>
+    private static string EmitField(string? format, string? raw)
+    {
+        var v = raw?.TrimStart();
+        if (!string.IsNullOrEmpty(v))
+        {
+            if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)) { return raw!; }
+            if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
+            {
+                return "<img src=\"" + raw!.Trim() + "\" style=\"max-width:100%;height:auto\" alt=\"\" />";
+            }
+        }
+        return Esc(FormatCell(format, raw));
+    }
 }

@@ -245,6 +245,18 @@
                 }
                 else { <text>@value</text> }
                 break;
+            case FormControlType.Canvas:
+                @* Croquis (ADR Canvas): el valor es un SVG autocontenido -> se emite inline SIN escapar. *@
+                if (value.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase))
+                {
+                    <div class="fpr-canvas">@((MarkupString)value)</div>
+                }
+                else if (value.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
+                {
+                    <img class="fpr-img" src="@value" alt="Croquis" />
+                }
+                else { <text>@value</text> }
+                break;
             case FormControlType.GridDetail:
                 @RenderGrid(q, value)
                 break;

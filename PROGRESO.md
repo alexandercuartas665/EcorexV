@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-26 - v0.15.91: rotacion de objetos/imagenes en el control Canvas (ADR-0080)
+
+- Mejora pedida: poder ROTAR objetos e imagenes en el editor de croquis. Cada figura gana un angulo `rot`;
+  la seleccion muestra una MANIJA de rotacion (circulo arriba del centro) que se arrastra (Shift = pasos de
+  15 grados). La redimension estando rotado se hace simetrica desde el centro (sin correr el pivote).
+- El giro se serializa en el SVG como `transform="rotate(deg cx cy)"` y se re-lee al recargar (nodeToShape),
+  asi el dibujo se edita, guarda e imprime con el mismo giro. Solo JS (form-canvas.js, cache v=2); sin backend.
+- Build verde.
+
+---
+
 ## 2026-08-26 - v0.15.90: /reportes/admin gana boton "Restaurar" (desarchivar)
 
 - GAP menor (sesion de reportes): ReportAdmin.razor listaba reportes archivados pero solo permitia

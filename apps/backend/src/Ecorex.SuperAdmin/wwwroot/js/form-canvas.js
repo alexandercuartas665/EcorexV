@@ -75,8 +75,24 @@ window.ecorexFormCanvas = (function () {
         } else if (sh.type === 'path') {
             n = el('path', { d: sh.d, fill: 'none', stroke: sh.stroke, 'stroke-width': sh.sw || 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
         }
-        if (n) { n.setAttribute('data-ecx', sh.id); }
+        if (n) {
+            n.setAttribute('data-ecx', sh.id);
+            // Rotacion: transform rotate(deg cx cy) alrededor del centro de la figura. Se serializa en el
+            // SVG exportado, asi que se recarga e imprime con el mismo giro.
+            if (sh.rot) {
+                var cb = boundsOf(sh);
+                n.setAttribute('transform', 'rotate(' + r2(sh.rot) + ' ' + r2(cb.x + cb.w / 2) + ' ' + r2(cb.y + cb.h / 2) + ')');
+            }
+        }
         return n;
+    }
+
+    // Figuras que admiten rotacion por manija (objetos e imagenes).
+    function rotatable(sh) { return sh && (sh.type === 'rect' || sh.type === 'ellipse' || sh.type === 'image' || sh.type === 'text' || sh.type === 'path'); }
+    // Pasa un punto de pantalla al espacio LOCAL sin rotar (gira -deg alrededor del centro).
+    function unrotate(px, py, cx, cy, deg) {
+        var r = -deg * Math.PI / 180, cos = Math.cos(r), sin = Math.sin(r), dx = px - cx, dy = py - cy;
+        return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
     }
 
     function boundsOf(sh) {
@@ -101,12 +117,22 @@ window.ecorexFormCanvas = (function () {
         var selSh = s.scene.find(function (x) { return x.id === s.sel; });
         if (selSh) {
             var b = boundsOf(selSh);
-            o.appendChild(el('rect', { x: b.x - 3, y: b.y - 3, width: b.w + 6, height: b.h + 6, fill: 'none', stroke: '#2563EB', 'stroke-width': 1.2, 'stroke-dasharray': '5 4' }));
+            var cx = b.x + b.w / 2, cy = b.y + b.h / 2, rot = selSh.rot || 0;
+            // El overlay se pinta en un grupo rotado igual que la figura, para que la caja y las manijas
+            // acompanen el giro.
+            var grp = el('g');
+            if (rot) { grp.setAttribute('transform', 'rotate(' + r2(rot) + ' ' + r2(cx) + ' ' + r2(cy) + ')'); }
+            grp.appendChild(el('rect', { x: b.x - 3, y: b.y - 3, width: b.w + 6, height: b.h + 6, fill: 'none', stroke: '#2563EB', 'stroke-width': 1.2, 'stroke-dasharray': '5 4' }));
             // manija de redimension (esquina inf-der) para rect/ellipse/image
             if (selSh.type === 'rect' || selSh.type === 'ellipse' || selSh.type === 'image') {
-                var h = el('rect', { x: b.x + b.w - 4, y: b.y + b.h - 4, width: 10, height: 10, fill: '#2563EB', stroke: '#fff', 'stroke-width': 1.5, 'data-handle': '1', style: 'cursor:nwse-resize' });
-                o.appendChild(h);
+                grp.appendChild(el('rect', { x: b.x + b.w - 4, y: b.y + b.h - 4, width: 10, height: 10, fill: '#2563EB', stroke: '#fff', 'stroke-width': 1.5, 'data-handle': '1', style: 'cursor:nwse-resize' }));
             }
+            // manija de ROTACION: linea + circulo arriba del centro.
+            if (rotatable(selSh)) {
+                grp.appendChild(el('line', { x1: cx, y1: b.y - 3, x2: cx, y2: b.y - 24, stroke: '#2563EB', 'stroke-width': 1.2 }));
+                grp.appendChild(el('circle', { cx: cx, cy: b.y - 24, r: 6, fill: '#2563EB', stroke: '#fff', 'stroke-width': 1.5, 'data-rothandle': '1', style: 'cursor:grab' }));
+            }
+            o.appendChild(grp);
         }
     }
 
@@ -130,10 +156,16 @@ window.ecorexFormCanvas = (function () {
         var p = pt(s, evt);
         s.svg.setPointerCapture && s.svg.setPointerCapture(evt.pointerId);
         if (s.tool === 'select') {
+            var cur = s.scene.find(function (x) { return x.id === s.sel; });
+            // manija de ROTACION?
+            if (cur && evt.target && evt.target.getAttribute && evt.target.getAttribute('data-rothandle')) {
+                var rb = boundsOf(cur); pushUndo(s);
+                s.drag = { mode: 'rotate', sh: cur, cx: rb.x + rb.w / 2, cy: rb.y + rb.h / 2 };
+                return;
+            }
             // manija de redimension?
-            if (evt.target && evt.target.getAttribute && evt.target.getAttribute('data-handle')) {
-                var selSh = s.scene.find(function (x) { return x.id === s.sel; });
-                if (selSh) { pushUndo(s); s.drag = { mode: 'resize', sh: selSh }; return; }
+            if (cur && evt.target && evt.target.getAttribute && evt.target.getAttribute('data-handle')) {
+                pushUndo(s); s.drag = { mode: 'resize', sh: cur }; return;
             }
             var hit = hitShape(s, p.x, p.y);
             s.sel = hit ? hit.id : null;
@@ -171,7 +203,21 @@ window.ecorexFormCanvas = (function () {
             moveShape(d.sh, dx, dy);
         } else if (d.mode === 'resize') {
             var b = boundsOf(d.sh);
-            d.sh.w = r2(Math.max(6, p.x - b.x)); d.sh.h = r2(Math.max(6, p.y - b.y));
+            var rrot = d.sh.rot || 0;
+            if (rrot) {
+                // La figura esta rotada: redimension SIMETRICA alrededor del centro (pasa el puntero al
+                // espacio local sin rotar y toma el semi-ancho/alto). Evita que el pivote se corra.
+                var rcx = b.x + b.w / 2, rcy = b.y + b.h / 2, lp = unrotate(p.x, p.y, rcx, rcy, rrot);
+                var hw = Math.max(3, Math.abs(lp.x - rcx)), hh = Math.max(3, Math.abs(lp.y - rcy));
+                d.sh.w = r2(hw * 2); d.sh.h = r2(hh * 2); d.sh.x = r2(rcx - hw); d.sh.y = r2(rcy - hh);
+            } else {
+                d.sh.w = r2(Math.max(6, p.x - b.x)); d.sh.h = r2(Math.max(6, p.y - b.y));
+            }
+        } else if (d.mode === 'rotate') {
+            // El mango esta ARRIBA del centro (angulo -90 en pantalla): rot = atan2(dy,dx) + 90.
+            var ang = Math.atan2(p.y - d.cy, p.x - d.cx) * 180 / Math.PI + 90;
+            if (evt.shiftKey) { ang = Math.round(ang / 15) * 15; } // Shift: pasos de 15 grados
+            d.sh.rot = r2(((ang % 360) + 360) % 360);
         } else if (d.mode === 'pen') {
             d.sh.pts.push([r2(p.x), r2(p.y)]); d.sh.d += ' L ' + r2(p.x) + ' ' + r2(p.y);
         }
@@ -312,6 +358,12 @@ window.ecorexFormCanvas = (function () {
             sh = newShape(s, 'image'); sh.x = num(n, 'x'); sh.y = num(n, 'y'); sh.w = num(n, 'width'); sh.h = num(n, 'height'); sh.href = href;
         } else if (tag === 'path') {
             sh = newShape(s, 'path'); sh.d = n.getAttribute('d') || ''; sh.stroke = stroke; sh.sw = sw; sh.pts = dToPts(sh.d);
+        }
+        if (sh) {
+            // Recuperar la rotacion del transform rotate(deg ...), si la tiene.
+            var tr = n.getAttribute('transform');
+            var mm = tr && tr.match(/rotate\(\s*(-?\d+(?:\.\d+)?)/);
+            if (mm) { sh.rot = parseFloat(mm[1]) || 0; }
         }
         return sh;
     }

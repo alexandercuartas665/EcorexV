@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-26 - v0.15.87: blindar el disenador de formularios (un fallo al guardar ya no tumba el circuito)
+
+- Sintoma: el usuario edito en PROD el "Valor por defecto" de un campo del COT (publicado y muy usado) y al
+  guardar "se exploto el sistema" (unhandled exception -> circuito Blazor terminado). En LOCAL el mismo cambio
+  guarda sin problema; la excepcion en prod fue de runtime (probable concurrencia por usuarios en vivo o
+  presion de memoria), no del valor.
+- Causa: los handlers del disenador (PatchQuestionAsync, PatchContainerAsync, SaveFlashAsync -boton Guardar-)
+  usaban try/finally SIN catch: cualquier excepcion se propagaba y tumbaba el circuito, en vez de mostrarse.
+- Fix: se agrego catch a esos tres handlers -> muestran el error en el banner (_pageError) y la pagina sigue
+  viva. Sin cambios de datos ni de motores.
+- Recordatorio del mecanismo de precarga de contacto (v0.15.60/ADR-0021): el token correcto es {tareas.cliente}
+  (equivale a {tareas.contacto}/{tareas.solicitante}); NO existe {tareas.cliente_nombre}. Va como Valor por
+  defecto del campo de texto donde se quiere el nombre; se precarga al abrir en modo Diligenciar con el campo
+  vacio. (v0.15.86 fue el bloque de botones uniformes de las tarjetas de formulario.)
+
+---
+
 ## 2026-08-25 - v0.15.85: unificar el paso actual como tarjeta y quitar "FORMULARIOS DEL PROCESO" (ADR-0079)
 
 - Diagnostico: el formulario del paso ACTUAL no salia como tarjeta porque se excluia (shownInStep) para no

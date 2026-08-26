@@ -793,12 +793,21 @@ else
 
     private async Task SaveFlashAsync()
     {
-        // Persistencia por cambio (ADR-0021): Guardar confirma recargando el estado real.
-        await ReloadAsync();
-        _savedFlash = true;
-        StateHasChanged();
-        await Task.Delay(1400);
-        _savedFlash = false;
+        _pageError = null;
+        try
+        {
+            // Persistencia por cambio (ADR-0021): Guardar confirma recargando el estado real.
+            await ReloadAsync();
+            _savedFlash = true;
+            StateHasChanged();
+            await Task.Delay(1400);
+            _savedFlash = false;
+        }
+        catch (Exception ex)
+        {
+            // Un fallo al confirmar/recargar NO debe tumbar el disenador: se muestra el error.
+            _pageError = "No se pudo confirmar el guardado: " + ex.Message;
+        }
     }
 
     private string StatusLabel() => _def!.IsArchived ? "Archivado" : _def.Status switch
@@ -998,6 +1007,12 @@ else
             if (!result.IsOk) { _pageError = result.Error; return; }
             await ReloadAsync();
         }
+        catch (Exception ex)
+        {
+            // Nunca tumbar el circuito del disenador por un fallo al guardar (concurrencia, transitorio, etc.):
+            // se muestra el error y la pagina sigue viva.
+            _pageError = "No se pudo guardar el cambio: " + ex.Message;
+        }
         finally
         {
             _busy = false;
@@ -1013,6 +1028,10 @@ else
             var result = await FormsSvc.UpdateContainerAsync(c.Id, patch(ToRequest(c)));
             if (!result.IsOk) { _pageError = result.Error; return; }
             await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _pageError = "No se pudo guardar el cambio: " + ex.Message;
         }
         finally
         {

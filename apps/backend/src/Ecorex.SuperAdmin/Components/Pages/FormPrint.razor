@@ -246,10 +246,11 @@
                 else { <text>@value</text> }
                 break;
             case FormControlType.Canvas:
-                @* Croquis (ADR Canvas): el valor es un SVG autocontenido -> se emite inline SIN escapar. *@
-                if (value.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase))
+                @* Croquis (ADR-0080): SVG suelto (legacy) o {"v":1,"pages":[...]} multipagina -> N hojas
+                   (una por pagina, con salto de pagina y "Pagina X de N"). Se emite inline SIN escapar. *@
+                @if (Ecorex.Application.Forms.FormCanvasHtml.IsCanvasValue(value))
                 {
-                    <div class="fpr-canvas">@((MarkupString)value)</div>
+                    <div class="fpr-canvas">@((MarkupString)Ecorex.Application.Forms.FormCanvasHtml.Render(value))</div>
                 }
                 else if (value.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
                 {

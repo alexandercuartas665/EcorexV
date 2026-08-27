@@ -226,7 +226,13 @@ public static class FormTemplateMerge
         var v = raw?.TrimStart();
         if (!string.IsNullOrEmpty(v))
         {
-            if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)) { return raw!; }
+            // Canvas (croquis, ADR-0080): SVG suelto (legacy) o {"v":1,"pages":[...]} multipagina -> N hojas,
+            // una por pagina, con salto de pagina y "Pagina X de N". Se emite SIN escapar.
+            if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)
+                || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
+            {
+                return FormCanvasHtml.Render(raw);
+            }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
             {
                 return "<img src=\"" + raw!.Trim() + "\" style=\"max-width:100%;height:auto\" alt=\"\" />";

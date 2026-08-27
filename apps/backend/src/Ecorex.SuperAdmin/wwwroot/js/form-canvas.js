@@ -20,7 +20,7 @@ window.ecorexFormCanvas = (function () {
     function ed(id) { return editors[id]; }
 
     function parseOpts(optsJson) {
-        var o = { cell: 20, grid: true, height: 360 };
+        var o = { cell: 20, grid: true, height: 360, maxPages: 20 };
         try {
             if (optsJson) {
                 var p = JSON.parse(optsJson);
@@ -28,6 +28,7 @@ window.ecorexFormCanvas = (function () {
                     if (p.cell > 0) { o.cell = Math.max(6, Math.min(120, p.cell | 0)); }
                     if (p.grid === false) { o.grid = false; }
                     if (p.height > 0) { o.height = Math.max(120, Math.min(2000, p.height | 0)); }
+                    if (p.maxPages > 0) { o.maxPages = Math.max(1, Math.min(50, p.maxPages | 0)); }
                 }
             }
         } catch (e) { /* opts invalidas: default */ }
@@ -311,11 +312,14 @@ window.ecorexFormCanvas = (function () {
         var s = {
             id: id, root: root, svg: svg, defs: defs, gShapes: gShapes, gOverlay: gOverlay,
             scene: [], sel: null, tool: 'select', color: '#1B1B1E', opts: opts, vw: vw, vh: vh,
-            undo: [], redo: [], drag: null, nextId: 0, readonly: !!root.dataset.readonly, onTool: null
+            undo: [], redo: [], drag: null, nextId: 0, readonly: !!root.dataset.readonly, onTool: null,
+            pages: [], pageIdx: 0
         };
         editors[id] = s;
 
-        if (existingSvg) { loadSvg(s, existingSvg); }
+        // Multipagina: el valor puede ser un SVG suelto (legacy = 1 pagina) o {"v":1,"pages":[svg,...]}.
+        s.pages = parseValueToPages(s, existingSvg);
+        s.pageIdx = 0; s.scene = s.pages[0].scene; s.nextId = s.pages[0].nextId;
         render(s);
 
         if (!s.readonly) {
@@ -326,8 +330,9 @@ window.ecorexFormCanvas = (function () {
         }
     }
 
-    // ---- Cargar un SVG previo -> escena ----
-    function loadSvg(s, svgStr) {
+    // ---- Cargar un SVG -> escena (array de shapes). No toca el estado global; devuelve la escena. ----
+    function parseSvgToScene(s, svgStr) {
+        var scene = [];
         try {
             var doc = new DOMParser().parseFromString(svgStr, 'image/svg+xml');
             var g = doc.querySelector('[data-ecx-shapes]') || doc.documentElement;
@@ -335,10 +340,58 @@ window.ecorexFormCanvas = (function () {
             nodes.forEach(function (n) {
                 if (n.getAttribute('data-ecx-grid') || n.getAttribute('data-ecx-bg')) { return; }
                 var sh = nodeToShape(s, n);
-                if (sh) { s.scene.push(sh); }
+                if (sh) { scene.push(sh); }
             });
         } catch (e) { /* svg invalido: escena vacia */ }
+        return scene;
     }
+
+    // Valor guardado -> lista de paginas [{scene, nextId}]. Compatibilidad: '<svg' = 1 pagina (legacy);
+    // '{' con pages:[] = multipagina; vacio = 1 pagina en blanco.
+    function parseValueToPages(s, value) {
+        var v = (value || '').trim();
+        if (!v) { return [{ scene: [], nextId: 0 }]; }
+        var svgs = [];
+        if (v.charAt(0) === '{') {
+            try { var o = JSON.parse(v); if (o && Array.isArray(o.pages)) { svgs = o.pages; } } catch (e) { svgs = []; }
+        }
+        if (!svgs.length) { svgs = [v]; } // legacy: un SVG suelto (o fallback)
+        return svgs.map(function (svg) { return { scene: parseSvgToScene(s, svg), nextId: 0 }; });
+    }
+
+    // ---- Paginas (multipagina): cada pagina es su propio lienzo; misma cuadricula/opts ----
+    function savePage(s) { s.pages[s.pageIdx] = { scene: s.scene, nextId: s.nextId }; }
+    function loadPage(s, i) {
+        if (i < 0 || i >= s.pages.length) { return; }
+        savePage(s);
+        s.pageIdx = i; s.scene = s.pages[i].scene; s.nextId = s.pages[i].nextId;
+        s.sel = null; s.undo = []; s.redo = []; s.drag = null;
+        render(s);
+    }
+    function pageInfoStr(s) { return (s.pageIdx + 1) + '/' + s.pages.length; }
+    function addPage(id) {
+        var s = ed(id); if (!s) { return ''; }
+        savePage(s);
+        if (s.pages.length < (s.opts.maxPages || 20)) {
+            s.pages.push({ scene: [], nextId: 0 });
+            loadPage(s, s.pages.length - 1);
+        }
+        return pageInfoStr(s);
+    }
+    function deletePage(id) {
+        var s = ed(id); if (!s) { return ''; }
+        if (s.pages.length > 1) {
+            s.pages.splice(s.pageIdx, 1);
+            var ni = Math.min(s.pageIdx, s.pages.length - 1);
+            s.pageIdx = ni; s.scene = s.pages[ni].scene; s.nextId = s.pages[ni].nextId;
+            s.sel = null; s.undo = []; s.redo = []; s.drag = null; render(s);
+        }
+        return pageInfoStr(s);
+    }
+    function prevPage(id) { var s = ed(id); if (s) { loadPage(s, s.pageIdx - 1); return pageInfoStr(s); } return ''; }
+    function nextPage(id) { var s = ed(id); if (s) { loadPage(s, s.pageIdx + 1); return pageInfoStr(s); } return ''; }
+    function gotoPage(id, i) { var s = ed(id); if (s) { loadPage(s, (i | 0)); return pageInfoStr(s); } return ''; }
+    function pageInfo(id) { var s = ed(id); return s ? pageInfoStr(s) : ''; }
 
     function nodeToShape(s, n) {
         var tag = n.tagName.toLowerCase();
@@ -373,17 +426,24 @@ window.ecorexFormCanvas = (function () {
         return pts;
     }
 
-    // ---- Exportar SVG autocontenido (con grid tenue, sin overlay de seleccion) ----
-    function getSvg(id) {
-        var s = ed(id); if (!s) { return ''; }
+    // ---- Exportar ----
+    // Una escena -> SVG autocontenido (grid tenue + shapes; sin overlay de seleccion).
+    function buildPageSvg(s, scene) {
         var out = el('svg', { xmlns: SVGNS, viewBox: '0 0 ' + s.vw + ' ' + s.vh, width: s.vw, height: s.vh });
         out.appendChild(s.defs.cloneNode(true));
         out.appendChild(el('rect', { x: 0, y: 0, width: s.vw, height: s.vh, fill: '#ffffff', 'data-ecx-bg': '1' }));
-        if (s.opts.grid) { out.appendChild(el('rect', { x: 0, y: 0, width: s.vw, height: s.vh, fill: 'url(#ecxgrid5-' + id + ')', 'data-ecx-grid': '1' })); }
+        if (s.opts.grid) { out.appendChild(el('rect', { x: 0, y: 0, width: s.vw, height: s.vh, fill: 'url(#ecxgrid5-' + s.id + ')', 'data-ecx-grid': '1' })); }
         var g = el('g', { 'data-ecx-shapes': '1' });
-        s.scene.forEach(function (sh) { var n = shapeToNode(sh); if (n) { g.appendChild(n); } });
+        scene.forEach(function (sh) { var n = shapeToNode(sh); if (n) { g.appendChild(n); } });
         out.appendChild(g);
         return new XMLSerializer().serializeToString(out);
+    }
+    // Valor a guardar: SIEMPRE el sobre multipagina {"v":1,"pages":[svg,...]} (aunque sea 1 pagina).
+    // Al leer se acepta ademas el legacy (un SVG suelto). Type sigue = "Canvas".
+    function getSvg(id) {
+        var s = ed(id); if (!s) { return ''; }
+        savePage(s);
+        return JSON.stringify({ v: 1, pages: s.pages.map(function (p) { return buildPageSvg(s, p.scene); }) });
     }
 
     // ---- Comandos de la barra de herramientas (llamados desde Blazor) ----
@@ -403,6 +463,8 @@ window.ecorexFormCanvas = (function () {
 
     return {
         init: init, getSvg: getSvg, setTool: setTool, setColor: setColor,
-        undo: undo, redo: redo, del: del, addImage: addImage, clearAll: clearAll
+        undo: undo, redo: redo, del: del, addImage: addImage, clearAll: clearAll,
+        addPage: addPage, deletePage: deletePage, prevPage: prevPage, nextPage: nextPage,
+        gotoPage: gotoPage, pageInfo: pageInfo
     };
 })();

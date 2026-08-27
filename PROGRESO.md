@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-27 - v0.15.93: Canvas MULTIPAGINA (croquis con varias hojas) (ADR-0080)
+
+- El editor de croquis agrega/elimina paginas de dibujo (barra "Pagina X de N" + Anterior/Siguiente/
+  + Agregar / Eliminar; salto entre paginas 100% JS). Cada pagina = su propio lienzo (misma cuadricula/opts).
+- Guardado COMPATIBLE HACIA ATRAS: el valor pasa a ser {"v":1,"pages":["<svg>",...]} (Type="Canvas"). Al leer,
+  '<svg' = 1 pagina (legacy) y '{' con pages:[] = multipagina; los registros viejos siguen sirviendo.
+- Impresion: nuevo helper `FormCanvasHtml.Render(value)` (Application) -> cada pagina en su HOJA propia con
+  salto de pagina CSS (.dfr-canvas-page, break-before:always) + contador (.dfr-canvas-pageno "Pagina X de N",
+  solo si >1). Lo usan FormTemplateRenderService.EmitField (plantilla) y FormPrint.razor (directa). Marcador
+  {{campo.croquis_pieza}} sin cambios, ahora rinde N hojas. Legacy (1 SVG) = 1 hoja sin contador.
+- form-canvas.js: pages[], pageIdx, savePage/loadPage/add/delete/prev/next/gotoPage/pageInfo; getSvg envuelve
+  todas las paginas; parseValueToPages lee legacy vs multipagina. Cache v=3.
+- Prop nueva `maxPages` en options_json (default 20, clamp 1..50) + input en el disenador. Limite 2 MB del
+  valor completo (varias paginas con imagenes). Rotacion (v0.15.91) intacta.
+- Sin migracion. Build verde. A verificar con FT-C-008.
+
+---
+
 ## 2026-08-26 - v0.15.92: interruptor por formulario para ocultar Enviar/Imprimir/autoguardado en el wizard
 
 - Pedido: al llenar un formulario DURANTE la creacion de una tarea (wizard) salen Enviar/Imprimir y el

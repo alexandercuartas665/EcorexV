@@ -49,6 +49,24 @@ registro y se imprime en la plantilla de la OT.
 - El "alto" es proporcional (viewBox fijo, escala uniforme), no px exactos, para mantener la cuadricula
   cuadrada y la recarga fiel a cualquier ancho de tarjeta.
 
+## Evolucion (v0.15.91 / v0.15.93)
+
+- v0.15.91: ROTACION de objetos/imagenes. Cada figura gana un angulo `rot`; manija de giro sobre la
+  seleccion (Shift = pasos de 15 grados); se persiste como `transform="rotate(deg cx cy)"` en el SVG del
+  objeto (imprime igual, sin tocar la impresion). Redimension estando rotado = simetrica desde el centro.
+- v0.15.93: CANVAS MULTIPAGINA. El editor agrega/elimina paginas de dibujo (barra "Pagina X de N" +
+  Anterior/Siguiente/+Agregar/Eliminar); cada pagina es su propio lienzo (misma cuadricula/opts).
+  - Guardado (compatible hacia atras): el valor pasa a ser el sobre JSON `{"v":1,"pages":["<svg>",...]}`
+    (Type sigue = "Canvas"). Al LEER: si (trim) empieza con `<svg` -> 1 pagina (legacy); si empieza con `{`
+    y trae `pages:[]` -> multipagina. Los registros viejos (SVG suelto) siguen sirviendo.
+  - Impresion: helper compartido `FormCanvasHtml.Render(value)` (Application) expande CADA pagina a una HOJA
+    imprimible propia: `<div class="dfr-canvas-page" style="break-before:always">` + el SVG + un pie
+    `<div class="dfr-canvas-pageno">Pagina X de N</div>` (contador solo si hay >1 pagina). Lo usan la ruta de
+    plantilla (`FormTemplateRenderService.EmitField`) y la directa (`FormPrint.razor`). Marcador sin cambios:
+    `{{campo.croquis_pieza}}` ahora rinde N hojas.
+  - Prop nueva `maxPages` en options_json (default 20, clamp 1..50) + input en el disenador. Limite de tamano
+    del valor completo: 2 MB (varias paginas con imagenes embebidas -> avisa si se excede).
+
 ## Pendientes / supuestos
 
 - El SVG se persiste al pulsar "Guardar dibujo" (igual que Signature "Guardar firma"); no hay flush automatico

@@ -488,10 +488,20 @@ else
             try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", $"sig-{q.Id}"); }
             catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
         }
-        // Editor de croquis (ADR Canvas): init idempotente; carga el SVG previo (_values) en la 1a init.
+        // Editor de croquis (ADR Canvas): init idempotente; carga el valor previo (_values) en la 1a init.
+        // Tras inicializar, se lee UNA vez el numero de paginas para el indicador "Pagina X de N".
         foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Canvas))
         {
-            try { await JS.InvokeVoidAsync("ecorexFormCanvas.init", $"croquis-{q.Id}", CanvasOptsJson(q), _values.GetValueOrDefault(q.FieldCode)); }
+            try
+            {
+                await JS.InvokeVoidAsync("ecorexFormCanvas.init", $"croquis-{q.Id}", CanvasOptsJson(q), _values.GetValueOrDefault(q.FieldCode));
+                if (!_canvasPageInited.Contains(q.Id))
+                {
+                    var info = await JS.InvokeAsync<string>("ecorexFormCanvas.pageInfo", $"croquis-{q.Id}");
+                    _canvasPageInited.Add(q.Id);
+                    if (!string.IsNullOrEmpty(info)) { _canvasPageInfo[q.Id] = info; StateHasChanged(); }
+                }
+            }
             catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
         }
         // Panel de lookup de celda: es position:fixed (para escapar del scroller de la tabla) y
@@ -941,9 +951,9 @@ else
         <div class="dfr-canvas">
             @if (IsDisabled)
             {
-                @if (hasVal && value!.TrimStart().StartsWith("<svg", StringComparison.OrdinalIgnoreCase))
+                @if (hasVal && Ecorex.Application.Forms.FormCanvasHtml.IsCanvasValue(value))
                 {
-                    <div class="dfr-canvas-view">@((MarkupString)value!)</div>
+                    <div class="dfr-canvas-view">@((MarkupString)Ecorex.Application.Forms.FormCanvasHtml.Render(value))</div>
                 }
                 else
                 {
@@ -970,6 +980,15 @@ else
                     <button type="button" class="dfr-canvas-tool" title="Limpiar todo" @onclick="@(() => CanvasCmdAsync(q, "clearAll"))">Limpiar</button>
                     <span class="dfr-canvas-sep"></span>
                     <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="@(() => SaveCanvasAsync(q))">Guardar dibujo</button>
+                </div>
+                @* Barra de PAGINAS: cada pagina es una hoja de dibujo propia (misma cuadricula). *@
+                <div class="dfr-canvas-pagebar">
+                    <button type="button" class="dfr-canvas-tool" title="Pagina anterior" @onclick="@(() => CanvasPageCmdAsync(q, "prevPage"))">&#8249; Anterior</button>
+                    <span class="dfr-canvas-pageind">Pagina @CanvasPageLabel(q)</span>
+                    <button type="button" class="dfr-canvas-tool" title="Pagina siguiente" @onclick="@(() => CanvasPageCmdAsync(q, "nextPage"))">Siguiente &#8250;</button>
+                    <span class="dfr-canvas-sep"></span>
+                    <button type="button" class="dfr-canvas-tool" title="Agregar una hoja de dibujo" @onclick="@(() => CanvasPageCmdAsync(q, "addPage"))">+ Agregar pagina</button>
+                    <button type="button" class="dfr-canvas-tool" title="Eliminar la pagina actual" @onclick="@(() => CanvasPageCmdAsync(q, "deletePage"))">Eliminar pagina</button>
                 </div>
                 <div id="@($"croquis-{q.Id}")" class="dfr-canvas-surface"></div>
                 @if (hasVal)
@@ -1074,7 +1093,7 @@ else
     /// <summary>Config del lienzo (alto, cuadricula, tamano de celda) desde OptionsJson -> JSON para el motor JS.</summary>
     private static string CanvasOptsJson(FormQuestionDto q)
     {
-        int height = 360, cell = 20; var grid = true;
+        int height = 360, cell = 20, maxPages = 20; var grid = true;
         if (!string.IsNullOrWhiteSpace(q.OptionsJson))
         {
             try
@@ -1085,11 +1104,12 @@ else
                     if (doc.RootElement.TryGetProperty("height", out var h) && h.TryGetInt32(out var hv)) { height = hv; }
                     if (doc.RootElement.TryGetProperty("cell", out var c) && c.TryGetInt32(out var cv)) { cell = cv; }
                     if (doc.RootElement.TryGetProperty("grid", out var g)) { grid = g.ValueKind != System.Text.Json.JsonValueKind.False; }
+                    if (doc.RootElement.TryGetProperty("maxPages", out var m) && m.TryGetInt32(out var mv)) { maxPages = mv; }
                 }
             }
             catch (System.Text.Json.JsonException) { /* config invalida: default */ }
         }
-        return System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid });
+        return System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid, maxPages });
     }
 
     private async Task CanvasToolAsync(FormQuestionDto q, string tool)
@@ -1131,6 +1151,26 @@ else
         }
         catch (JSException) { }
         catch (Exception ex) { _canvasError = "No se pudo insertar la imagen: " + ex.Message; }
+    }
+
+    // ---- Paginas del croquis (multipagina, ADR-0080) ----
+    private readonly Dictionary<Guid, string> _canvasPageInfo = new(); // q.Id -> "X/N"
+    private readonly HashSet<Guid> _canvasPageInited = new();
+
+    /// <summary>"X de N" para el indicador de pagina (desde "X/N" que devuelve el motor JS).</summary>
+    private string CanvasPageLabel(FormQuestionDto q)
+        => _canvasPageInfo.TryGetValue(q.Id, out var s) ? s.Replace("/", " de ") : "1 de 1";
+
+    /// <summary>Comando de pagina (prevPage/nextPage/addPage/deletePage): el motor devuelve "X/N" y se refresca
+    /// el indicador. El salto entre paginas es 100% JS (Blazor Server no puede round-trip de dibujo).</summary>
+    private async Task CanvasPageCmdAsync(FormQuestionDto q, string cmd)
+    {
+        try
+        {
+            var info = await JS.InvokeAsync<string>($"ecorexFormCanvas.{cmd}", $"croquis-{q.Id}");
+            if (!string.IsNullOrEmpty(info)) { _canvasPageInfo[q.Id] = info; }
+        }
+        catch (JSException) { }
     }
 
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)

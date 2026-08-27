@@ -933,11 +933,11 @@ else
     };
 
     // ---- Config del control Canvas (ADR Canvas): { height, cell, grid } en OptionsJson ----
-    private sealed record CanvasCfgDto(int Height, int Cell, bool Grid);
+    private sealed record CanvasCfgDto(int Height, int Cell, bool Grid, int MaxPages);
 
     private static CanvasCfgDto CanvasCfg(FormQuestionDto q)
     {
-        int height = 360, cell = 20; var grid = true;
+        int height = 360, cell = 20, maxPages = 20; var grid = true;
         if (!string.IsNullOrWhiteSpace(q.OptionsJson))
         {
             try
@@ -948,21 +948,23 @@ else
                     if (doc.RootElement.TryGetProperty("height", out var h) && h.TryGetInt32(out var hv)) { height = hv; }
                     if (doc.RootElement.TryGetProperty("cell", out var c) && c.TryGetInt32(out var cv)) { cell = cv; }
                     if (doc.RootElement.TryGetProperty("grid", out var g)) { grid = g.ValueKind != System.Text.Json.JsonValueKind.False; }
+                    if (doc.RootElement.TryGetProperty("maxPages", out var m) && m.TryGetInt32(out var mv)) { maxPages = mv; }
                 }
             }
             catch (System.Text.Json.JsonException) { /* config invalida: default */ }
         }
-        return new CanvasCfgDto(height, cell, grid);
+        return new CanvasCfgDto(height, cell, grid, maxPages);
     }
 
     private async Task PatchCanvasCfgAsync(FormQuestionDto q, string key, string? raw)
     {
         var cfg = CanvasCfg(q);
-        var height = cfg.Height; var cell = cfg.Cell; var grid = cfg.Grid;
+        var height = cfg.Height; var cell = cfg.Cell; var grid = cfg.Grid; var maxPages = cfg.MaxPages;
         if (key == "height" && int.TryParse(raw, out var hv)) { height = Math.Clamp(hv, 120, 2000); }
         else if (key == "cell" && int.TryParse(raw, out var cv)) { cell = Math.Clamp(cv, 6, 120); }
         else if (key == "grid") { grid = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on"; }
-        var json = System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid });
+        else if (key == "maxPages" && int.TryParse(raw, out var mv)) { maxPages = Math.Clamp(mv, 1, 50); }
+        var json = System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid, maxPages });
         await PatchQuestionAsync(q, r => r with { OptionsJson = json });
     }
 
@@ -1982,11 +1984,16 @@ else
                        @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "cell", e.Value?.ToString()))" />
             </div>
             <div class="fb-field">
+                <label>Maximo de paginas de dibujo</label>
+                <input class="fb-input" type="number" min="1" max="50" step="1" value="@ccfg.MaxPages"
+                       @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "maxPages", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
                 <label class="fb-check">
                     <input type="checkbox" checked="@ccfg.Grid" @onchange="@(e => PatchCanvasCfgAsync(node.Q!, "grid", (e.Value?.ToString())))" />
                     Mostrar cuadricula (papel milimetrado)
                 </label>
-                <div class="fb-hint">El croquis se guarda como SVG autocontenido y se imprime en la plantilla de la OT.</div>
+                <div class="fb-hint">El croquis se guarda como SVG autocontenido (multipagina) y cada pagina imprime en su propia hoja.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })

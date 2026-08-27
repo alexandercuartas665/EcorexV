@@ -17,6 +17,7 @@
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
 @inject Ecorex.Application.DataLookups.IDataLookupService LookupSvc
+@inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
 @using Ecorex.Application.DataLookups
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
@@ -39,8 +40,11 @@
         <div class="dg-head-actions">
             @if (CanCreateAny)
             {
-                <button class="dg-btn-cfg" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con datos de ejemplo y hojas de codigos para importar">
+                <button class="dg-btn-cfg" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con listas desplegables y hojas de codigos para importar">
                     &#8681; Plantilla Excel
+                </button>
+                <button class="dg-btn-cfg" @onclick="OpenImportAsync" disabled="@(_loading || _reloading)" title="Cargar terceros en lote desde la plantilla Excel">
+                    &#8679; Importar Excel
                 </button>
             }
             @if (_canEdit)
@@ -362,6 +366,129 @@
    contacto ES un cliente y ambos modulos se alimentan de los MISMOS registros (Tercero). El
    modal grande y el sub-modal de contacto viven en este componente; aqui se invoca por @@ref. *@
 <TerceroModal @ref="_terceroModal" OnChanged="OnModalChangedAsync" />
+
+@* ===================== MODAL IMPORTAR EXCEL ===================== *@
+@if (_impOpen)
+{
+    <div class="dg-overlay" @onclick="CloseImport">
+        <div class="dg-modal" style="max-width:820px" @onclick:stopPropagation="true">
+            <div class="dg-m-head">
+                <span class="dg-m-av" style="background:var(--brand)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+                </span>
+                <div style="flex:1;min-width:0">
+                    <div class="dg-m-kicker">DIRECTORIO GENERAL &#183; 000232</div>
+                    <div class="dg-m-title">Importar terceros desde Excel</div>
+                </div>
+                <button class="dg-close" @onclick="CloseImport" disabled="@_impBusy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div style="padding:18px 22px;max-height:70vh;overflow:auto">
+                <p style="margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.5">
+                    Descarga primero la <strong>Plantilla Excel</strong> (trae listas desplegables y las hojas de
+                    codigos), llenala y subela aqui. Se crea un tercero por fila de la hoja <strong>"Terceros"</strong>.
+                    Las filas con error no se importan; el resto si.
+                </p>
+
+                <label class="dg-btn-cfg" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+                    &#8679; Seleccionar archivo .xlsx
+                    <InputFile OnChange="OnImportFileAsync" accept=".xlsx" disabled="@_impBusy" style="display:none" />
+                </label>
+                @if (_impFileName is not null)
+                {
+                    <span style="margin-left:10px;font-size:13px;color:var(--ink)">@_impFileName</span>
+                }
+
+                @if (_impBusy && _impParse is null && _impFatal is null)
+                {
+                    <p style="margin:14px 0 0;color:var(--muted)">Leyendo el archivo...</p>
+                }
+
+                @if (_impFatal is not null)
+                {
+                    <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--t-red-bg,#fdecec);color:var(--t-red,#c0392b);font-size:13px">
+                        @_impFatal
+                    </div>
+                }
+
+                @if (_impParse is not null && _impFatal is null)
+                {
+                    <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
+                        <span><strong>@_impParse.Total</strong> filas</span>
+                        <span style="color:var(--t-green,#1e8e4f)"><strong>@_impParse.Valid</strong> validas</span>
+                        <span style="color:var(--t-red,#c0392b)"><strong>@_impParse.Invalid</strong> con error</span>
+                    </div>
+
+                    @if (_impFinished)
+                    {
+                        <div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--t-green-bg,#e8f7ee);color:var(--t-green,#1e8e4f);font-size:13px">
+                            Importacion terminada: <strong>@_impDone</strong> creados@(_impFailed > 0 ? $", {_impFailed} fallidos" : "").
+                        </div>
+                    }
+                    else if (_impBusy && _impDone + _impFailed > 0)
+                    {
+                        <p style="margin:12px 0 0;color:var(--muted)">Importando... @(_impDone + _impFailed) / @_impParse.Valid</p>
+                    }
+
+                    <div style="margin-top:14px;border:1px solid var(--line,#e5e7eb);border-radius:8px;overflow:hidden">
+                        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+                            <thead>
+                                <tr style="background:var(--surface-2,#f7f8fa);text-align:left">
+                                    <th style="padding:6px 8px">#</th>
+                                    <th style="padding:6px 8px">Nombre</th>
+                                    <th style="padding:6px 8px">Tipo</th>
+                                    <th style="padding:6px 8px">Estado</th>
+                                    <th style="padding:6px 8px">Ciudad</th>
+                                    <th style="padding:6px 8px">Vendedor</th>
+                                    <th style="padding:6px 8px">Estado fila</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _impParse.Rows.Take(200))
+                                {
+                                    <tr style="border-top:1px solid var(--line,#eef0f3)">
+                                        <td style="padding:6px 8px;color:var(--muted)">@row.RowNumber</td>
+                                        <td style="padding:6px 8px">@row.Nombre</td>
+                                        <td style="padding:6px 8px">@row.Tipo</td>
+                                        <td style="padding:6px 8px">@row.Estado</td>
+                                        <td style="padding:6px 8px">@row.Ciudad</td>
+                                        <td style="padding:6px 8px">@(row.VendedorAsesorId is not null ? "asesor" : row.Vendedor)</td>
+                                        <td style="padding:6px 8px">
+                                            @if (row.IsValid)
+                                            {
+                                                <span style="color:var(--t-green,#1e8e4f)">OK</span>
+                                            }
+                                            else
+                                            {
+                                                <span style="color:var(--t-red,#c0392b)" title="@row.Error">@row.Error</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (_impParse.Total > 200)
+                        {
+                            <div style="padding:6px 8px;font-size:12px;color:var(--muted)">Mostrando 200 de @_impParse.Total filas.</div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="dg-m-foot" style="display:flex;justify-content:flex-end;gap:10px;padding:14px 22px;border-top:1px solid var(--line,#e5e7eb)">
+                <button class="dg-btn-cfg" @onclick="CloseImport" disabled="@_impBusy">Cerrar</button>
+                @if (_impParse is not null && _impParse.Valid > 0 && !_impFinished)
+                {
+                    <button class="dg-btn-new" @onclick="RunImportAsync" disabled="@_impBusy">
+                        &#8679; Importar @_impParse.Valid validas
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
 
 @* ===================== MODAL CONFIGURAR CAMPOS ===================== *@
 @if (_cfgOpen)
@@ -927,16 +1054,113 @@
     private bool _downloadingTpl;
 
     /// <summary>Descarga la plantilla Excel de importacion de terceros: hoja "Terceros" con filas de
-    /// ejemplo + hojas de codigos (Tipos/Perfiles/Estados/TiposId) con los valores validos.</summary>
+    /// ejemplo + LISTAS DESPLEGABLES y hojas de codigos (Tipos/Perfiles/Estados/TiposId/Ciudades/
+    /// Sectores/Vendedores). Vendedores sale del catalogo vivo de asesores; Ciudades se enriquece con
+    /// las que ya existen en el tenant.</summary>
     private async Task DownloadTemplateAsync()
     {
         _downloadingTpl = true;
         try
         {
-            var bytes = TerceroTemplateXlsx.Build();
+            var asesores = await AsesorSvc.ListOptionsAsync();
+            var vendedores = asesores.Select(a => a.Nombre);
+            var ciudades = _allRows.Select(r => r.Ciudad).Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!);
+            var bytes = TerceroTemplateXlsx.Build(vendedores, ciudades);
             await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-directorio.xlsx", TerceroTemplateXlsx.Mime, Convert.ToBase64String(bytes));
         }
         finally { _downloadingTpl = false; }
+    }
+
+    // ===================== IMPORTAR EXCEL (carga en lote) =====================
+    private bool _impOpen;
+    private bool _impBusy;                       // parseando o importando
+    private string? _impFileName;
+    private string? _impFatal;                   // error que impide leer el archivo
+    private TerceroImportXlsx.TerceroImportParse? _impParse;
+    private int _impDone;                        // filas ya creadas (progreso)
+    private int _impFailed;                      // filas que fallaron al crear
+    private bool _impFinished;                   // ya se corrio la importacion
+    // 12 MB: una plantilla de terceros con miles de filas cabe de sobra.
+    private const long ImpMaxBytes = 12L * 1024 * 1024;
+
+    private async Task OpenImportAsync()
+    {
+        if (_loading || _reloading) { return; }
+        _impOpen = true;
+        _impParse = null; _impFatal = null; _impFileName = null;
+        _impDone = 0; _impFailed = 0; _impFinished = false;
+        await Task.CompletedTask;
+    }
+
+    private void CloseImport()
+    {
+        if (_impBusy) { return; }
+        _impOpen = false;
+    }
+
+    private async Task OnImportFileAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _impFileName = file.Name;
+        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impFinished = false;
+        _impBusy = true;
+        try
+        {
+            if (file.Size > ImpMaxBytes)
+            {
+                _impFatal = "El archivo supera el limite de 12 MB.";
+                return;
+            }
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(ImpMaxBytes).CopyToAsync(ms);
+            ms.Position = 0;
+
+            // Indice de asesores por nombre para resolver la columna Vendedor.
+            var asesores = await AsesorSvc.ListOptionsAsync();
+            var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in asesores) { byName[a.Nombre] = a.Id; }
+
+            _impParse = TerceroImportXlsx.Parse(ms, byName);
+            if (_impParse.FatalError is not null) { _impFatal = _impParse.FatalError; }
+        }
+        catch (Exception ex)
+        {
+            _impFatal = "No se pudo procesar el archivo: " + ex.Message;
+        }
+        finally
+        {
+            _impBusy = false;
+        }
+    }
+
+    private async Task RunImportAsync()
+    {
+        if (_impParse is null || _impBusy) { return; }
+        var valid = _impParse.Rows.Where(r => r.IsValid).ToList();
+        if (valid.Count == 0) { return; }
+
+        _impBusy = true;
+        _impDone = 0; _impFailed = 0;
+        try
+        {
+            foreach (var row in valid)
+            {
+                try
+                {
+                    var res = await TerceroSvc.CreateAsync(row.ToRequest());
+                    if (res.IsOk) { _impDone++; } else { _impFailed++; }
+                }
+                catch { _impFailed++; }
+                // Refresca el contador en vivo cada pocas filas para no saturar el render.
+                if ((_impDone + _impFailed) % 10 == 0) { StateHasChanged(); }
+            }
+            _impFinished = true;
+        }
+        finally
+        {
+            _impBusy = false;
+        }
+        await ReloadAsync();
     }
 
     protected override async Task OnInitializedAsync()

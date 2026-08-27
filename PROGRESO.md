@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-27 - v0.15.95: Directorio - plantilla Excel con listas desplegables + IMPORTAR en lote (000232)
+
+- Pedido: en Directorio General solo existia DESCARGAR plantilla (sin subir). Se pidio (1) mejorar la
+  plantilla con listas desplegables + mas hojas de referencia, y (2) poder cargar todo de golpe desde Excel.
+- Plantilla mejorada (TerceroTemplateXlsx.Build(vendedores?, ciudades?, sectores?)):
+  - Listas desplegables REALES via validacion de datos + rangos con nombre (lista_Tipos, lista_Perfiles,
+    lista_Estados, lista_TiposId, lista_Ciudades, lista_Sectores, lista_Vendedores). Son de AYUDA, no
+    bloquean (ShowErrorMessage=false) para admitir combos de perfil o una ciudad nueva.
+  - Hojas nuevas: Ciudades (catalogo Colombia por defecto + las del tenant), Sectores (catalogo por defecto),
+    Vendedores (catalogo VIVO de asesores 000074). Fila 1 congelada. Encabezados publicos (Headers[]).
+  - La descarga pasa asesores (AsesorSvc.ListOptionsAsync) + ciudades distintas ya cargadas.
+- Importador (TerceroImportXlsx.Parse(stream, asesoresByName)): lee la hoja "Terceros", una fila = un tercero,
+  valida por fila (no aborta el archivo). Parsea enums case-insensitive, perfiles combinables por coma,
+  infiere TipoId (Nit si hay numero, si no Ninguno), resuelve Vendedor -> VendedorAsesorId (o texto legado).
+  Devuelve filas OK/Error con conteos. ToRequest() -> ITerceroService.CreateAsync.
+- UI (DirectorioGeneral.razor): boton "Importar Excel" (gateado por CanCreateAny) abre modal con InputFile
+  (.xlsx, <=12 MB), previsualiza filas (200 max) con estado por fila y conteos, y boton "Importar N validas"
+  que crea en bucle con progreso, luego recarga. Sin migracion. Multi-tenant intacto (CreateAsync estampa).
+- Build verde (SuperAdmin). Sin cambios de BD ni de DI (parser/plantilla estaticos).
+
+---
+
 ## 2026-08-27 - v0.15.94: cabezote por hoja + numeral configurable en la impresion del Canvas (ADR-0080)
 
 - Pedido: en la impresion, cada hoja del croquis con un CABEZOTE de proyecto repetido (OT/cliente/proyecto)

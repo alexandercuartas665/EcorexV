@@ -130,6 +130,11 @@ else
                     </div>
                 </div>
             }
+            @* Barra de Enviar/Imprimir/autoguardado. Se OCULTA cuando el formulario se llena dentro del wizard
+               de crear tarea Y su definicion tiene HideSubmitBar: ahi el commit lo hace el boton "Listo" del
+               wizard. En el modulo standalone y el detalle de tarea (EmbeddedInTask=false) siempre se muestra. *@
+            @if (!HideSubmitChrome)
+            {
             <div class="dfr-foot">
                 <span class="dfr-autosave">
                     @(_lastSavedAt is null ? "Borrador sin guardar" : $"Borrador guardado {_lastSavedAt:HH:mm:ss}")
@@ -159,6 +164,7 @@ else
                     @(IsLocked ? "Enviado" : (KeepEditable ? "Guardar" : "Enviar"))
                 </button>
             </div>
+            }
         }
 
         @* Dialogo del boton "Imprimir plantilla": elige plantilla + formato y genera el documento con
@@ -256,6 +262,10 @@ else
     /// comportamiento estandar (enviar = "Enviado", solo lectura).
     /// </summary>
     [Parameter] public bool KeepEditable { get; set; }
+    /// <summary>El formulario se llena DENTRO del wizard de crear tarea. Cuando ademas la definicion tiene
+    /// HideSubmitBar, se oculta la barra de Enviar/Imprimir/autoguardado (el commit lo hace el boton "Listo"
+    /// del wizard). Los demas hosts (detalle de tarea, modulo standalone) lo dejan en false.</summary>
+    [Parameter] public bool EmbeddedInTask { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
     /// <summary>
     /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
@@ -330,6 +340,10 @@ else
     // "Bloqueado" = enviado Y sin KeepEditable. Con KeepEditable el formulario sigue editable tras enviar
     // (lo usa el formulario del concepto mientras la tarea este abierta). Default: IsLocked == IsSubmitted.
     private bool IsLocked => IsSubmitted && !KeepEditable;
+
+    /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado: solo dentro del wizard de crear tarea
+    /// (EmbeddedInTask) y si la definicion lo pide (HideSubmitBar). Tambien apaga el autosave periodico.</summary>
+    private bool HideSubmitChrome => EmbeddedInTask && _definition?.HideSubmitBar == true;
     private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsLocked;
 
     protected override async Task OnParametersSetAsync()
@@ -446,10 +460,11 @@ else
             _loadInProgress = false;
         }
 
-        // Autosave del borrador cada 30 segundos (solo Fill y solo si hay cambios).
+        // Autosave del borrador cada 30 segundos (solo Fill y solo si hay cambios). Se APAGA cuando la barra
+        // esta oculta (wizard + HideSubmitBar): ahi el guardado lo hace el "Listo" del wizard (FlushDraftAsync).
         _autosaveTimer?.Dispose();
         _autosaveTimer = null;
-        if (Mode == FormRenderMode.Fill && _response is not null && !IsLocked)
+        if (Mode == FormRenderMode.Fill && _response is not null && !IsLocked && !HideSubmitChrome)
         {
             _autosaveTimer = new System.Threading.Timer(
                 _ => _ = InvokeAsync(AutosaveTickAsync),

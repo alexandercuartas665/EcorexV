@@ -5070,6 +5070,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("filter_fields_json");
 
+                    b.Property<bool>("HideSubmitBar")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("hide_submit_bar");
+
                     b.Property<string>("IdentityMode")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

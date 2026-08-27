@@ -404,6 +404,13 @@ else
                         Se aplica al llenar (URL publica, modulo y vista previa). No cambia la impresion.
                     </p>
                 </div>
+                <div class="field">
+                    <label class="pl-toggle"><input type="checkbox" @bind="_hideSubmitBar" /> Ocultar Enviar / Imprimir / autoguardado al llenar dentro de una tarea</label>
+                    <p style="font-size:12px;color:var(--ink-3);margin:4px 0 0;">
+                        Para formularios que se diligencian en la CREACION de una tarea: el commit lo hace el
+                        boton "Listo" del asistente. En el modulo standalone y el detalle de tarea no aplica.
+                    </p>
+                </div>
                 <hr style="margin:14px 0;border:none;border-top:1px solid var(--line);" />
                 <label class="pl-toggle"><input type="checkbox" @bind="_txIsTransactional" /> Es transaccional (cada envio confirmado es un registro)</label>
                 @if (_txIsTransactional)
@@ -591,6 +598,7 @@ else
     private string? _txNextMsg;
     private bool _txNextOk;
     private FormCardLayout _cardLayout = FormCardLayout.Normal;
+    private bool _hideSubmitBar;
     private string _customCss = "";
     // Formulario como modulo (ola F4).
     private bool _isModule;
@@ -1277,6 +1285,7 @@ else
         _txNextInput = _def.SequenceNext > 0 ? _def.SequenceNext : 1;
         _txNextMsg = null; _txNextOk = false;
         _cardLayout = _def.CardLayout;
+        _hideSubmitBar = _def.HideSubmitBar;
         _customCss = _def.CustomCss ?? "";
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
@@ -1347,7 +1356,7 @@ else
         {
             var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
                 new SetFormTransactionalRequest(_txIsTransactional, mode, _txField, _cardLayout,
-                    _txPrefix, _txPadding));
+                    _txPrefix, _txPadding, _hideSubmitBar));
             if (!tx.IsOk) { _modalError = tx.Error; return; }
             _def = tx.Value;
             // Refresca el preview con lo persistido (prefijo/padding normalizados + next_value actual).

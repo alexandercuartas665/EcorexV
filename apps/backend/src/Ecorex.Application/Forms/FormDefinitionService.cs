@@ -686,7 +686,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
             definition.CardLayout, definition.CustomCss,
-            definition.IdentityPrefix, definition.IdentityPadding, sequenceNext);
+            definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
+            definition.HideSubmitBar);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -715,8 +716,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.IdentityPrefix = null;
             definition.IdentityPadding = 6;
         }
-        // Ancho de tarjeta: se guarda desde el mismo panel de Propiedades del formulario.
+        // Ancho de tarjeta y "ocultar barra de envio": se guardan desde el mismo panel de Propiedades.
         definition.CardLayout = request.CardLayout;
+        definition.HideSubmitBar = request.HideSubmitBar;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

@@ -65,7 +65,9 @@ public sealed record FormDefinitionDetailDto(
     string? CustomCss = null,
     // Consecutivo configurable (Sequence): prefijo/padding del numero + el next_value ACTUAL de la
     // secuencia (solo lectura, para el preview del disenador). IdentityPrefix null => usar Code.
-    string? IdentityPrefix = null, int IdentityPadding = 6, long SequenceNext = 0);
+    string? IdentityPrefix = null, int IdentityPadding = 6, long SequenceNext = 0,
+    // Oculta Enviar/Imprimir/autoguardado cuando el formulario se llena dentro del wizard de crear tarea.
+    bool HideSubmitBar = false);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding
@@ -73,7 +75,8 @@ public sealed record FormDefinitionDetailDto(
 public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode,
     FormCardLayout CardLayout = FormCardLayout.Normal,
-    string? IdentityPrefix = null, int IdentityPadding = 6);
+    string? IdentityPrefix = null, int IdentityPadding = 6,
+    bool HideSubmitBar = false);
 
 /// <summary>Fija el "proximo numero" (next_value) del consecutivo de un formulario. Operacion separada
 /// del guardado del panel: valida anti-colision (no bajar por debajo de un numero ya emitido).</summary>

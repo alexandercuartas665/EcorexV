@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-26 - v0.15.92: interruptor por formulario para ocultar Enviar/Imprimir/autoguardado en el wizard
+
+- Pedido: al llenar un formulario DURANTE la creacion de una tarea (wizard) salen Enviar/Imprimir y el
+  autoguardado, que solo tienen sentido en el modulo standalone; ahi basta el boton "Listo". Se pidio un
+  interruptor CONFIGURABLE por formulario, y que el guardado sea al pulsar "Listo".
+- Nuevo flag `FormDefinition.HideSubmitBar` (migracion dual `AddFormDefinitionHideSubmitBar`, columna bool
+  NOT NULL default false; has-pending = "No changes" en ambos contextos). Toggle en el panel "Propiedades del
+  formulario" del disenador; round-trip en DTO/SetFormTransactionalRequest/servicio.
+- Renderer: nuevo parametro `EmbeddedInTask` (lo pone el wizard). `HideSubmitChrome = EmbeddedInTask &&
+  def.HideSubmitBar` oculta la barra (Enviar/Imprimir/autoguardado) Y apaga el autosave periodico. El commit
+  lo hace "Listo" del wizard (CloseWizFormAsync -> FlushDraftAsync). En el modulo standalone y el detalle de
+  tarea (EmbeddedInTask=false) NO aplica: ahi "Enviar" sigue siendo el commit.
+- Build verde. A verificar en dev.
+
+---
+
 ## 2026-08-26 - v0.15.91: rotacion de objetos/imagenes en el control Canvas (ADR-0080)
 
 - Mejora pedida: poder ROTAR objetos e imagenes en el editor de croquis. Cada figura gana un angulo `rot`;

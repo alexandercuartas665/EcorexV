@@ -1499,6 +1499,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.FilterFieldsJson).HasColumnType(jsonColumnType);
             // Ancho de tarjeta configurable (aditiva): default Normal para no alterar los existentes.
             b.Property(x => x.CardLayout).HasDefaultValue(FormCardLayout.Normal);
+            // Ocultar barra de envio en el wizard (aditiva): default false = comportamiento actual.
+            b.Property(x => x.HideSubmitBar).HasDefaultValue(false);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

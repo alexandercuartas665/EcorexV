@@ -84,6 +84,14 @@ public class FormDefinition : TenantEntity, IVersioned
     public FormCardLayout CardLayout { get; set; } = FormCardLayout.Normal;
 
     /// <summary>
+    /// Cuando el formulario se llena DENTRO de la creacion de una tarea (wizard), oculta la barra de
+    /// Enviar/Imprimir y el autoguardado del renderer: el commit lo hace el boton "Listo" del wizard (que
+    /// hace flush del borrador). En el modulo standalone y el detalle de tarea NO aplica (ahi "Enviar" es el
+    /// commit). Config por formulario (panel Propiedades). Default false = comportamiento actual.
+    /// </summary>
+    public bool HideSubmitBar { get; set; }
+
+    /// <summary>
     /// CSS personalizado para TODO el formulario (opcional). Lo edita el disenador en la pestana de
     /// estilos y el renderer lo inyecta en un &lt;style&gt; dentro del contenedor del formulario. Para
     /// dar estilo a un objeto puntual el renderer emite una clase estable por campo: <c>field-{FieldCode}</c>.

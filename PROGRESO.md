@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-27 - v0.15.94: cabezote por hoja + numeral configurable en la impresion del Canvas (ADR-0080)
+
+- Pedido: en la impresion, cada hoja del croquis con un CABEZOTE de proyecto repetido (OT/cliente/proyecto)
+  y un numeral "Grafico X de N", ademas del salto de pagina.
+- FormCanvasHtml.Render(value, pageHeaderHtml=null, counterLabel="Grafico"): cabezote (div.dfr-canvas-hd)
+  arriba de cada hoja si viene; contador relabelizado "{label} X de N" (solo >1 pagina). Compat: sin header
+  = como antes; legacy 1-SVG intacto. (Callers sin header pasan a "Grafico"; antes decia "Pagina".)
+- Config por campo en options_json: printHeader (HTML con {{campo.x}}) + printCounterLabel (default "Grafico").
+  FormTemplateRenderService lee el printHeader del campo Canvas, resuelve sus tokens contra el registro
+  (valor escapado; HTML del cabezote no) y lo pasa a Render. PatchCanvasCfgAsync ahora hace MERGE sobre el
+  options_json (no borra printHeader al editar height/cell/grid/maxPages en el disenador).
+- FormTemplateMerge.Render gana parametro canvasOptions (dict code->options_json de campos Canvas). Tests de
+  FormTemplateMerge actualizados. Marcador {{campo.croquis_pieza}} sin cambios.
+- Build verde (SuperAdmin). Nota: el proyecto de tests tiene un break PRE-EXISTENTE (fakes sin WorkflowNodeNotes,
+  v0.15.70) ajeno a este cambio; el publish de deploy no corre tests. Sin migracion.
+
+---
+
 ## 2026-08-27 - v0.15.93: Canvas MULTIPAGINA (croquis con varias hojas) (ADR-0080)
 
 - El editor de croquis agrega/elimina paginas de dibujo (barra "Pagina X de N" + Anterior/Siguiente/

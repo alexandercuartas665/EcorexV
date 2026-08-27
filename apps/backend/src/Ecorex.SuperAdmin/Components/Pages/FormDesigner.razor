@@ -958,14 +958,26 @@ else
 
     private async Task PatchCanvasCfgAsync(FormQuestionDto q, string key, string? raw)
     {
+        // Se edita el options_json como OBJETO mutable para PRESERVAR claves que no toca el disenador
+        // (printHeader / printCounterLabel de impresion, que la sesion de config setea por fuera).
+        System.Text.Json.Nodes.JsonObject obj;
+        try
+        {
+            obj = (string.IsNullOrWhiteSpace(q.OptionsJson)
+                ? null
+                : System.Text.Json.Nodes.JsonNode.Parse(q.OptionsJson) as System.Text.Json.Nodes.JsonObject) ?? new();
+        }
+        catch (System.Text.Json.JsonException) { obj = new(); }
         var cfg = CanvasCfg(q);
-        var height = cfg.Height; var cell = cfg.Cell; var grid = cfg.Grid; var maxPages = cfg.MaxPages;
-        if (key == "height" && int.TryParse(raw, out var hv)) { height = Math.Clamp(hv, 120, 2000); }
-        else if (key == "cell" && int.TryParse(raw, out var cv)) { cell = Math.Clamp(cv, 6, 120); }
-        else if (key == "grid") { grid = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on"; }
-        else if (key == "maxPages" && int.TryParse(raw, out var mv)) { maxPages = Math.Clamp(mv, 1, 50); }
-        var json = System.Text.Json.JsonSerializer.Serialize(new { height, cell, grid, maxPages });
-        await PatchQuestionAsync(q, r => r with { OptionsJson = json });
+        obj["height"] ??= cfg.Height;
+        obj["cell"] ??= cfg.Cell;
+        obj["grid"] ??= cfg.Grid;
+        obj["maxPages"] ??= cfg.MaxPages;
+        if (key == "height" && int.TryParse(raw, out var hv)) { obj["height"] = Math.Clamp(hv, 120, 2000); }
+        else if (key == "cell" && int.TryParse(raw, out var cv)) { obj["cell"] = Math.Clamp(cv, 6, 120); }
+        else if (key == "grid") { obj["grid"] = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on"; }
+        else if (key == "maxPages" && int.TryParse(raw, out var mv)) { obj["maxPages"] = Math.Clamp(mv, 1, 50); }
+        await PatchQuestionAsync(q, r => r with { OptionsJson = obj.ToJsonString() });
     }
 
     // ---- Drag and drop ----

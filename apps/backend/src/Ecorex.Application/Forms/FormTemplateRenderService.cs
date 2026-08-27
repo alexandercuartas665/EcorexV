@@ -73,10 +73,14 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         var gridOptions = questions
             .Where(q => q.ControlType == FormControlType.GridDetail)
             .ToDictionary(q => q.FieldCode, q => q.OptionsJson, StringComparer.OrdinalIgnoreCase);
+        // Config de impresion de los campos Canvas (croquis): options_json trae printHeader/printCounterLabel.
+        var canvasOptions = questions
+            .Where(q => q.ControlType == FormControlType.Canvas)
+            .ToDictionary(q => q.FieldCode, q => q.OptionsJson, StringComparer.OrdinalIgnoreCase);
 
         var fecha = (response.TransactionDate ?? response.SubmittedAt ?? response.CreatedAt).ToLocalTime();
         return FormTemplateMerge.Render(
-            template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions,
+            template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions, canvasOptions,
             tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty);
     }
 }
@@ -93,6 +97,7 @@ public static class FormTemplateMerge
         string? responseDataJson,
         IReadOnlyDictionary<string, string?> fieldFormat,
         IReadOnlyDictionary<string, string?> gridOptions,
+        IReadOnlyDictionary<string, string?> canvasOptions,
         string empresa,
         DateTimeOffset fecha,
         string numero)
@@ -104,7 +109,7 @@ public static class FormTemplateMerge
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw)
-                ? EmitField(fieldFormat.GetValueOrDefault(code), raw)
+                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat)
                 : string.Empty;
         });
 
@@ -221,17 +226,21 @@ public static class FormTemplateMerge
     /// <summary>Emite el valor de un campo en la plantilla. Los artefactos grafados AUTOCONTENIDOS (ADR Canvas:
     /// un SVG que empieza con '&lt;svg'; o una imagen data-URL 'data:image') se emiten como MARKUP sin escapar
     /// (Chromium los renderiza al generar el PDF); el resto se formatea y se escapa normal para prevenir HTML.</summary>
-    private static string EmitField(string? format, string? raw)
+    private static string EmitField(string? format, string? raw, string? canvasOptionsJson,
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat)
     {
         var v = raw?.TrimStart();
         if (!string.IsNullOrEmpty(v))
         {
             // Canvas (croquis, ADR-0080): SVG suelto (legacy) o {"v":1,"pages":[...]} multipagina -> N hojas,
-            // una por pagina, con salto de pagina y "Pagina X de N". Se emite SIN escapar.
+            // una por pagina, con salto de pagina y "{label} X de N". Si el campo tiene printHeader en su
+            // options_json, se repite ese cabezote (con sus {{campo.x}} resueltos) arriba de cada hoja.
             if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)
                 || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
             {
-                return FormCanvasHtml.Render(raw);
+                var (header, counter) = ParseCanvasPrint(canvasOptionsJson);
+                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat);
+                return FormCanvasHtml.Render(raw, resolvedHeader, counter);
             }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
             {
@@ -240,4 +249,43 @@ public static class FormTemplateMerge
         }
         return Esc(FormatCell(format, raw));
     }
+
+    /// <summary>Lee del options_json del campo Canvas el cabezote de impresion (printHeader, HTML con tokens
+    /// {{campo.x}}) y la etiqueta del contador (printCounterLabel, default "Grafico").</summary>
+    private static (string? header, string counter) ParseCanvasPrint(string? optionsJson)
+    {
+        string? header = null; var counter = "Grafico";
+        if (!string.IsNullOrWhiteSpace(optionsJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(optionsJson);
+                if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    if (doc.RootElement.TryGetProperty("printHeader", out var h) && h.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = h.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) { header = s; }
+                    }
+                    if (doc.RootElement.TryGetProperty("printCounterLabel", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var s = c.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) { counter = s!.Trim(); }
+                    }
+                }
+            }
+            catch (System.Text.Json.JsonException) { /* config invalida: sin cabezote */ }
+        }
+        return (header, counter);
+    }
+
+    /// <summary>Resuelve los {{campo.x}} del cabezote contra los valores del registro (mismo criterio que los
+    /// campos: valor formateado y ESCAPADO). El HTML del cabezote (etiquetas) es de config y NO se escapa.</summary>
+    private static string ResolveHeaderTokens(string template,
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat)
+        => Regex.Replace(template, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
+        {
+            var code = m.Groups[1].Value;
+            return values.TryGetValue(code, out var raw) ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw)) : string.Empty;
+        });
 }

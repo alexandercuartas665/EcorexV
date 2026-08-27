@@ -67,6 +67,19 @@ registro y se imprime en la plantilla de la OT.
   - Prop nueva `maxPages` en options_json (default 20, clamp 1..50) + input en el disenador. Limite de tamano
     del valor completo: 2 MB (varias paginas con imagenes embebidas -> avisa si se excede).
 
+## Cabezote e identificacion por hoja (v0.15.94)
+
+Cada hoja de croquis puede repetir un CABEZOTE de proyecto y un numeral configurable en la impresion:
+- `FormCanvasHtml.Render(value, pageHeaderHtml = null, counterLabel = "Grafico")`: si pageHeaderHtml no
+  esta vacio, se emite `<div class="dfr-canvas-hd">{header}</div>` ARRIBA del SVG de cada hoja; el pie pasa a
+  `"{counterLabel} X de N"` (solo si hay >1 pagina). Sin header -> como antes; legacy 1-SVG intacto.
+- Config por campo en options_json: `printHeader` (HTML con tokens {{campo.codigo}}) y `printCounterLabel`
+  (default "Grafico"). En la ruta de plantilla (FormTemplateRenderService) se lee el printHeader del campo
+  Canvas, se resuelven sus {{campo.x}} contra el registro (valor formateado y ESCAPADO; el HTML del cabezote
+  NO se escapa) y se pasa como pageHeaderHtml. `PatchCanvasCfgAsync` del disenador ahora hace merge sobre el
+  options_json (preserva printHeader/printCounterLabel al editar height/cell/grid/maxPages).
+- Estilos inline (`.dfr-canvas-hd`: font 11px, borde inferior fino). Se pueden override por clase en la plantilla.
+
 ## Pendientes / supuestos
 
 - El SVG se persiste al pulsar "Guardar dibujo" (igual que Signature "Guardar firma"); no hay flush automatico

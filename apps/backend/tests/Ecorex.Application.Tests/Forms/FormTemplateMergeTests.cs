@@ -9,6 +9,7 @@ public class FormTemplateMergeTests
 {
     private static readonly Dictionary<string, string?> NoFieldFormat = new();
     private static readonly Dictionary<string, string?> NoGridOptions = new();
+    private static readonly Dictionary<string, string?> NoCanvasOptions = new();
     private static readonly DateTimeOffset Fecha = new(2026, 7, 27, 10, 0, 0, TimeSpan.Zero);
 
     // Data del registro: { fieldCode: { value, type } }. El grid guarda su arreglo como texto en "value".
@@ -26,7 +27,7 @@ public class FormTemplateMergeTests
         var fieldFormat = new Dictionary<string, string?> { ["total"] = "currency" };
         var html = FormTemplateMerge.Render(
             "<h1>{{empresa}}</h1><p>Cliente: {{campo.cliente}} | Total: {{campo.total}} | No {{numero}} | {{fecha}}</p>",
-            Data, fieldFormat, NoGridOptions, "SKY SYSTEM", Fecha, "COT-000007");
+            Data, fieldFormat, NoGridOptions, NoCanvasOptions, "SKY SYSTEM", Fecha, "COT-000007");
 
         Assert.Contains("SKY SYSTEM", html);
         Assert.Contains("Cliente: AGROMETALICAS", html);
@@ -44,7 +45,7 @@ public class FormTemplateMergeTests
         };
         var tpl = "<table>{{#tabla.items}}<tr><td>{{fila}}</td><td>{{col.codigo}}</td><td>{{col.producto}}</td><td>{{col.cantidad}}</td><td>{{col.precio}}</td></tr>{{/tabla.items}}</table>";
 
-        var html = FormTemplateMerge.Render(tpl, Data, NoFieldFormat, gridOptions, "SKY", Fecha, "1");
+        var html = FormTemplateMerge.Render(tpl, Data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1");
 
         // Dos filas, numeradas, con la columna precio formateada como moneda.
         Assert.Contains("<td>1</td><td>IMP1</td><td>IMPRESORA</td><td>2</td><td>$ 750,000</td>", html);
@@ -57,7 +58,7 @@ public class FormTemplateMergeTests
     {
         var html = FormTemplateMerge.Render(
             "A[{{campo.no_existe}}]B[{{#tabla.no_existe}}x{{/tabla.no_existe}}]C",
-            Data, NoFieldFormat, NoGridOptions, "T", Fecha, "1");
+            Data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1");
         Assert.Equal("A[]B[]C", html); // ambos marcadores se colapsan a vacio, el resto intacto
     }
 
@@ -65,7 +66,7 @@ public class FormTemplateMergeTests
     public void Escapa_html_de_los_valores()
     {
         var data = """{ "x": { "value": "<b>hola</b> & cia", "type": "text" } }""";
-        var html = FormTemplateMerge.Render("{{campo.x}}", data, NoFieldFormat, NoGridOptions, "T", Fecha, "1");
+        var html = FormTemplateMerge.Render("{{campo.x}}", data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1");
         Assert.Equal("&lt;b&gt;hola&lt;/b&gt; &amp; cia", html);
     }
 }

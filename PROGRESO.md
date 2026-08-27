@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-27 - v0.15.98: Canvas - las IMAGENES del croquis ya imprimen (ADR-0080)
+
+- Bug (hand-off sesion CONFIG): en el control Canvas las imagenes no salian en la impresion de la OT
+  (figuras rect/elipse/texto/path SI). Causa raiz: buildPageSvg no declara xmlns:xlink y el <image>
+  fijaba href con setAttributeNS(xlink,'href') SIN prefijo -> XMLSerializer lo emite como "ns1:href",
+  que el parser HTML de la impresion NO reconoce -> la imagen quedaba sin href.
+- Fix JS (form-canvas.js shapeToNode): <image> usa href PLANO (SVG2) unicamente; sobrevive
+  serializar->reinyectar en HTML y Chromium lo rinde. Cache-bust ?v=4 (App.razor).
+- Fix servidor (FormCanvasHtml.ExtractPages): normaliza xlink:href/ns\d+:href de imagen a href plano,
+  asi los dibujos guardados ANTES del fix tambien imprimen (sin re-guardar). Regex acotada.
+- Verificado determinista contra el dato REAL guardado (croquis_pieza, imagen jpeg): Render emite 1
+  <image> con href="data:image/jpeg;base64,..." y CERO hrefs con prefijo. Build verde. Sin migracion.
+  Formato guardado nuevo: href plano; sobre {"v":1,"pages":[]} sin cambios.
+
+---
+
 ## 2026-08-27 - v0.15.97: Directorio - la importacion NO duplica (de-dup por documento/nombre) (000232)
 
 - Bug reportado: la importacion en lote duplicaba terceros (al reimportar el mismo archivo o con filas

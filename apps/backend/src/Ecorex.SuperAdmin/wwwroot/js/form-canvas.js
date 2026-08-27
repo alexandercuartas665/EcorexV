@@ -71,7 +71,10 @@ window.ecorexFormCanvas = (function () {
             n.textContent = sh.text || '';
         } else if (sh.type === 'image') {
             n = el('image', { x: sh.x, y: sh.y, width: sh.w, height: sh.h, preserveAspectRatio: 'xMidYMid meet' });
-            n.setAttributeNS('http://www.w3.org/1999/xlink', 'href', sh.href);
+            // href PLANO (SVG2), sin xlink: XMLSerializer NO declara xmlns:xlink en la raiz, asi que un
+            // xlink:href sin prefijo se serializa como "ns1:href", que el parser HTML de la impresion NO
+            // reconoce (la imagen no cargaba). El href plano sobrevive serializar -> reinyectar en HTML y
+            // Chromium (edicion e impresion Puppeteer) lo rinde. (ADR-0080, fix v0.15.98)
             n.setAttribute('href', sh.href);
         } else if (sh.type === 'path') {
             n = el('path', { d: sh.d, fill: 'none', stroke: sh.stroke, 'stroke-width': sh.sw || 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });

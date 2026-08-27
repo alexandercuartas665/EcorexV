@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Ecorex.Application.Forms;
 
@@ -13,12 +14,23 @@ namespace Ecorex.Application.Forms;
 /// </summary>
 public static class FormCanvasHtml
 {
-    /// <summary>Extrae las paginas (cada una un string SVG) de un valor Canvas. Lista vacia si no aplica.</summary>
+    // Un <image> cuyo href quedo con prefijo de namespace (xlink:href o el ns1:href que inventa el
+    // XMLSerializer del editor) NO carga al reinyectar el SVG en el HTML de impresion: el parser HTML solo
+    // reconoce la forma literal xlink:href, no ns1:href. Aqui se normaliza a href PLANO (SVG2), que Chromium
+    // rinde. Cubre los dibujos guardados ANTES del fix del editor (v0.15.98). Base64 no contiene comillas.
+    private static readonly Regex PrefixedHrefRx = new(
+        "\\s(?:xlink|ns\\d+):href=", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static string NormalizeImageHref(string svg)
+        => PrefixedHrefRx.IsMatch(svg) ? PrefixedHrefRx.Replace(svg, " href=") : svg;
+
+    /// <summary>Extrae las paginas (cada una un string SVG) de un valor Canvas. Lista vacia si no aplica.
+    /// Normaliza los href de imagen con prefijo (xlink/ns) a href plano para que impriman.</summary>
     public static IReadOnlyList<string> ExtractPages(string? value)
     {
         var v = value?.Trim();
         if (string.IsNullOrEmpty(v)) { return Array.Empty<string>(); }
-        if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)) { return new[] { v }; }
+        if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)) { return new[] { NormalizeImageHref(v) }; }
         if (v[0] == '{')
         {
             try
@@ -32,7 +44,7 @@ public static class FormCanvasHtml
                     foreach (var el in pages.EnumerateArray())
                     {
                         var svg = el.ValueKind == JsonValueKind.String ? el.GetString() : null;
-                        if (!string.IsNullOrWhiteSpace(svg)) { list.Add(svg!); }
+                        if (!string.IsNullOrWhiteSpace(svg)) { list.Add(NormalizeImageHref(svg!)); }
                     }
                     return list;
                 }

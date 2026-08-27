@@ -80,6 +80,25 @@ Cada hoja de croquis puede repetir un CABEZOTE de proyecto y un numeral configur
   options_json (preserva printHeader/printCounterLabel al editar height/cell/grid/maxPages).
 - Estilos inline (`.dfr-canvas-hd`: font 11px, borde inferior fino). Se pueden override por clase en la plantilla.
 
+## Fix impresion de imagenes (v0.15.98)
+
+Las IMAGENES no aparecian al imprimir (las figuras rect/elipse/texto/path si). Causa raiz: en
+`buildPageSvg` el `<svg>` raiz NO declara `xmlns:xlink`, y el `<image>` fijaba el href con
+`setAttributeNS(xlink,'href',...)` SIN prefijo. El `XMLSerializer` del editor lo serializaba como
+`ns1:href="..."` (prefijo inventado). Al reinyectar ese SVG como texto en el HTML de impresion, el
+PARSER HTML solo reconoce la forma literal `xlink:href` en contenido foraneo (SVG); `ns1:href` queda
+como atributo inerte y la imagen se quedaba sin href -> no cargaba. Las figuras no usan href, por eso
+imprimian.
+
+- JS (`form-canvas.js` shapeToNode): el `<image>` ahora usa **href PLANO (SVG2)** unicamente
+  (`setAttribute('href', ...)`), que sobrevive serializar->reinyectar en HTML y Chromium (edicion e
+  impresion Puppeteer) rinde. Cache-bust `?v=4`. La lectura (`parseSvgToScene`) ya leia `href` primero.
+- Servidor (`FormCanvasHtml.ExtractPages`): normaliza cada pagina reescribiendo `xlink:href`/`ns\d+:href`
+  de imagen a `href` plano (regex acotada; base64 no lleva comillas). Asi los dibujos GUARDADOS antes del
+  fix (formato roto) tambien imprimen, sin re-guardar.
+- Formato guardado: los dibujos NUEVOS guardan `href` plano en el `<image>` del SVG (el sobre
+  `{"v":1,"pages":[...]}` no cambia). Los viejos se normalizan al imprimir.
+
 ## Pendientes / supuestos
 
 - El SVG se persiste al pulsar "Guardar dibujo" (igual que Signature "Guardar firma"); no hay flush automatico

@@ -773,7 +773,9 @@
                                                 <div class="tk-quote-actions">
                                                     @{ var primaryActive = isStep ? (stepPending && !taskClosed) : (!finalized && !taskClosed); }
                                                     <button class="btn btn-xs @(primaryActive ? "btn-primary" : "")" @onclick="@(() => OpenFormItem(g, it, sf))" disabled="@_busy">@(primaryActive ? "Diligenciar" : "Ver")</button>
-                                                    @if (!isStep && !it.IsActive && g.Items.Count > 1 && !taskClosed)
+                                                    @* "Marcar activo" en CUALQUIER formulario NO activo del genero (incluido el del paso
+                                                       actual): asi se puede volver a activar el otro. Un solo activo por (genero, tarea). *@
+                                                    @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
                                                     }

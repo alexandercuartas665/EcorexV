@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-27 - v0.15.99: tarjetas de formulario - fix ajuste de botones + "Marcar activo" en el paso
+
+- Bug 1 (UI): con 2 formularios, la tarjeta con 4 botones (Diligenciar/Marcar activo/Copiar/Eliminar) se
+  desbordaba (Eliminar se salia de pantalla). Fix: `.tk-quote-actions` gana `flex-wrap: wrap` (app.css).
+- Bug 2 (logica): no se podia volver a activar el OTRO formulario cuando ese otro era el del PASO actual.
+  El boton "Marcar activo" se ocultaba con `!isStep`. Fix: se muestra en CUALQUIER formulario NO activo del
+  genero con >1 item (incluido el del paso), para poder alternar el activo. Un solo activo por (genero, tarea).
+  (TaskDetailModal.razor). Build verde. Sin migracion.
+
+---
+
 ## 2026-08-27 - v0.15.98: Canvas - las IMAGENES del croquis ya imprimen (ADR-0080)
 
 - Bug (hand-off sesion CONFIG): en el control Canvas las imagenes no salian en la impresion de la OT

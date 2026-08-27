@@ -20,6 +20,10 @@ public interface ITerceroService
     Task<TerceroResult<TerceroDetailDto>> CreateAsync(
         SaveTerceroRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Claves existentes (documentos + nombres, normalizados) para de-duplicar una importacion
+    /// en lote. Incluye TODOS los terceros del tenant (empresas y personas, activos o no).</summary>
+    Task<TerceroDedupKeys> GetDedupKeysAsync(CancellationToken cancellationToken = default);
+
     Task<TerceroResult<TerceroDetailDto>> UpdateAsync(
         Guid id, SaveTerceroRequest request, CancellationToken cancellationToken = default);
 

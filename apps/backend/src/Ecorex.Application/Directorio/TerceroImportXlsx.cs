@@ -34,6 +34,12 @@ public static class TerceroImportXlsx
     {
         public bool IsValid => Error is null;
 
+        /// <summary>Clave de documento normalizada (trim+minusculas) o null si la fila no trae documento.</summary>
+        public string? DocKey => string.IsNullOrWhiteSpace(NumeroId) ? null : NumeroId.Trim().ToLowerInvariant();
+
+        /// <summary>Clave de nombre normalizada (trim+minusculas). Se usa para de-duplicar cuando no hay documento.</summary>
+        public string NameKey => (Nombre ?? string.Empty).Trim().ToLowerInvariant();
+
         /// <summary>Arma el request de alta a partir de la fila (solo se llama si es valida).</summary>
         public SaveTerceroRequest ToRequest() => new(
             Nombre: Nombre,

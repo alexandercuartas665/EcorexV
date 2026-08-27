@@ -434,19 +434,23 @@
                 {
                     <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap;font-size:13px">
                         <span><strong>@_impParse.Total</strong> filas</span>
-                        <span style="color:var(--t-green,#1e8e4f)"><strong>@_impParse.Valid</strong> validas</span>
+                        <span style="color:var(--t-green,#1e8e4f)"><strong>@ImportableCount</strong> a crear</span>
+                        @if (DupCount > 0)
+                        {
+                            <span style="color:var(--t-amber,#b7791f)"><strong>@DupCount</strong> ya existen (se omiten)</span>
+                        }
                         <span style="color:var(--t-red,#c0392b)"><strong>@_impParse.Invalid</strong> con error</span>
                     </div>
 
                     @if (_impFinished)
                     {
                         <div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--t-green-bg,#e8f7ee);color:var(--t-green,#1e8e4f);font-size:13px">
-                            Importacion terminada: <strong>@_impDone</strong> creados@(_impFailed > 0 ? $", {_impFailed} fallidos" : "").
+                            Importacion terminada: <strong>@_impDone</strong> creados@(_impSkipped > 0 ? $", {_impSkipped} omitidos (ya existian)" : "")@(_impFailed > 0 ? $", {_impFailed} fallidos" : "").
                         </div>
                     }
                     else if (_impBusy && _impDone + _impFailed > 0)
                     {
-                        <p style="margin:12px 0 0;color:var(--muted)">Importando... @(_impDone + _impFailed) / @_impParse.Valid</p>
+                        <p style="margin:12px 0 0;color:var(--muted)">Importando... @(_impDone + _impFailed) / @ImportableCount</p>
                     }
 
                     <div style="margin-top:14px;border:1px solid var(--line,#e5e7eb);border-radius:8px;overflow:hidden">
@@ -473,13 +477,17 @@
                                         <td style="padding:6px 8px">@row.Ciudad</td>
                                         <td style="padding:6px 8px">@(row.VendedorAsesorId is not null ? "asesor" : row.Vendedor)</td>
                                         <td style="padding:6px 8px">
-                                            @if (row.IsValid)
+                                            @if (!row.IsValid)
                                             {
-                                                <span style="color:var(--t-green,#1e8e4f)">OK</span>
+                                                <span style="color:var(--t-red,#c0392b)" title="@row.Error">@row.Error</span>
+                                            }
+                                            else if (_impDupRows.Contains(row.RowNumber))
+                                            {
+                                                <span style="color:var(--t-amber,#b7791f)" title="Ya existe un tercero con ese documento o nombre">Ya existe (se omite)</span>
                                             }
                                             else
                                             {
-                                                <span style="color:var(--t-red,#c0392b)" title="@row.Error">@row.Error</span>
+                                                <span style="color:var(--t-green,#1e8e4f)">OK</span>
                                             }
                                         </td>
                                     </tr>
@@ -496,10 +504,10 @@
 
             <div class="dg-m-foot" style="display:flex;justify-content:flex-end;gap:10px;padding:14px 22px;border-top:1px solid var(--line,#e5e7eb)">
                 <button class="dg-btn-cfg" @onclick="CloseImport" disabled="@_impBusy">Cerrar</button>
-                @if (_impParse is not null && _impParse.Valid > 0 && !_impFinished)
+                @if (_impParse is not null && ImportableCount > 0 && !_impFinished)
                 {
                     <button class="dg-btn-new" @onclick="RunImportAsync" disabled="@_impBusy">
-                        &#8679; Importar @_impParse.Valid validas
+                        &#8679; Importar @ImportableCount @(ImportableCount == 1 ? "nuevo" : "nuevos")
                     </button>
                 }
             </div>
@@ -1094,9 +1102,15 @@
     private string? _impFileName;
     private string? _impFatal;                   // error que impide leer el archivo
     private TerceroImportXlsx.TerceroImportParse? _impParse;
+    private readonly HashSet<int> _impDupRows = new(); // RowNumbers que ya existen (o repetidos en el archivo)
     private int _impDone;                        // filas ya creadas (progreso)
     private int _impFailed;                      // filas que fallaron al crear
+    private int _impSkipped;                     // filas omitidas por duplicadas
     private bool _impFinished;                   // ya se corrio la importacion
+
+    // Filas que de verdad se van a crear: validas y NO duplicadas.
+    private int ImportableCount => _impParse?.Rows.Count(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)) ?? 0;
+    private int DupCount => _impDupRows.Count;
     // 12 MB: una plantilla de terceros con miles de filas cabe de sobra.
     private const long ImpMaxBytes = 12L * 1024 * 1024;
 
@@ -1105,7 +1119,8 @@
         if (_loading || _reloading) { return; }
         _impOpen = true;
         _impParse = null; _impFatal = null; _impFileName = null;
-        _impDone = 0; _impFailed = 0; _impFinished = false;
+        _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false;
+        _impDupRows.Clear();
         await Task.CompletedTask;
     }
 
@@ -1119,7 +1134,8 @@
     {
         var file = e.File;
         _impFileName = file.Name;
-        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impFinished = false;
+        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false;
+        _impDupRows.Clear();
         _impBusy = true;
         try
         {
@@ -1139,6 +1155,7 @@
 
             _impParse = TerceroImportXlsx.Parse(ms, byName);
             if (_impParse.FatalError is not null) { _impFatal = _impParse.FatalError; }
+            else { await ComputeDuplicatesAsync(); }
         }
         catch (Exception ex)
         {
@@ -1150,17 +1167,44 @@
         }
     }
 
+    // Marca como duplicadas las filas cuyo documento (o, si no hay, cuyo nombre) YA existe en el tenant,
+    // o que se repiten dentro del mismo archivo. La primera aparicion se importa; las siguientes se omiten.
+    private async Task ComputeDuplicatesAsync()
+    {
+        _impDupRows.Clear();
+        if (_impParse is null) { return; }
+
+        var keys = await TerceroSvc.GetDedupKeysAsync();
+        var seenDocs = new HashSet<string>(keys.Documentos, StringComparer.Ordinal);
+        var seenNames = new HashSet<string>(keys.Nombres, StringComparer.Ordinal);
+
+        foreach (var row in _impParse.Rows.Where(r => r.IsValid))
+        {
+            bool dup;
+            if (row.DocKey is not null)
+            {
+                dup = !seenDocs.Add(row.DocKey);            // ya estaba (BD o fila previa)
+            }
+            else
+            {
+                dup = !seenNames.Add(row.NameKey);
+            }
+            if (dup) { _impDupRows.Add(row.RowNumber); }
+        }
+    }
+
     private async Task RunImportAsync()
     {
         if (_impParse is null || _impBusy) { return; }
-        var valid = _impParse.Rows.Where(r => r.IsValid).ToList();
-        if (valid.Count == 0) { return; }
+        var toCreate = _impParse.Rows.Where(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)).ToList();
+        _impSkipped = _impParse.Rows.Count(r => r.IsValid && _impDupRows.Contains(r.RowNumber));
+        if (toCreate.Count == 0) { _impFinished = true; return; }
 
         _impBusy = true;
         _impDone = 0; _impFailed = 0;
         try
         {
-            foreach (var row in valid)
+            foreach (var row in toCreate)
             {
                 try
                 {

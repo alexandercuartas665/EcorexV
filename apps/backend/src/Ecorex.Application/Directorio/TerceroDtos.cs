@@ -72,6 +72,13 @@ public sealed record TerceroContactoDto(
     // completo y su Id es el del tercero. false = contacto ligero heredado (entidad TerceroContacto).
     bool EsTercero = false);
 
+/// <summary>Claves existentes del tenant para de-duplicar una importacion: numeros de documento
+/// (IdValor) y nombres, ambos ya normalizados (trim + minusculas) por el servicio. La UI marca una
+/// fila como duplicada si su documento (o, si no tiene, su nombre) ya esta aqui.</summary>
+public sealed record TerceroDedupKeys(
+    IReadOnlyCollection<string> Documentos,
+    IReadOnlyCollection<string> Nombres);
+
 /// <summary>Alta/edicion de un tercero.</summary>
 public sealed record SaveTerceroRequest(
     string Nombre,

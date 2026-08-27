@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-27 - v0.15.97: Directorio - la importacion NO duplica (de-dup por documento/nombre) (000232)
+
+- Bug reportado: la importacion en lote duplicaba terceros (al reimportar el mismo archivo o con filas
+  repetidas dentro del archivo).
+- ITerceroService.GetDedupKeysAsync(): devuelve las claves existentes del tenant (IdValor + Nombre,
+  normalizados) de TODOS los terceros (empresas y personas, activos o no). Filtro global por tenant.
+- La UI, al parsear, marca como duplicada la fila cuyo DOCUMENTO (o, si no tiene, cuyo NOMBRE) ya existe
+  en el tenant o se repite antes en el mismo archivo (primera gana). Row.DocKey/NameKey normalizados.
+  Preview muestra "Ya existe (se omite)" en ambar; contadores "N a crear / M ya existen / K con error";
+  el boton crea solo los nuevos. RunImportAsync salta los duplicados y reporta "omitidos".
+- Verificado determinista: empresa ya en BD -> su fila se omite; archivo duplicado -> solo la 1a copia.
+  Build verde. Sin migracion.
+
+---
+
 ## 2026-08-27 - v0.15.96: Directorio - un solo boton Importar/Exportar + modal en 2 pasos (000232)
 
 - Ajuste decorativo pedido: fusionar los botones "Plantilla Excel" e "Importar Excel" de la cabecera en UNO

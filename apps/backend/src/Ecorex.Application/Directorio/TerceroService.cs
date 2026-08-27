@@ -230,6 +230,24 @@ public sealed class TerceroService : ITerceroService
         return TerceroResult<TerceroDetailDto>.Ok(ToDetail(entity, null, Array.Empty<TerceroContactoDto>()));
     }
 
+    public async Task<TerceroDedupKeys> GetDedupKeysAsync(CancellationToken cancellationToken = default)
+    {
+        // TODOS los terceros del tenant (empresas + personas, incluidas las asignadas a empresa y las
+        // inactivas): el filtro global por tenant ya acota; aqui NO se filtra a mano por TenantId.
+        var rows = await _db.Terceros.AsNoTracking()
+            .Select(t => new { t.Nombre, t.IdValor })
+            .ToListAsync(cancellationToken);
+
+        var docs = new HashSet<string>(StringComparer.Ordinal);
+        var nombres = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in rows)
+        {
+            if (!string.IsNullOrWhiteSpace(r.IdValor)) { docs.Add(r.IdValor.Trim().ToLowerInvariant()); }
+            if (!string.IsNullOrWhiteSpace(r.Nombre)) { nombres.Add(r.Nombre.Trim().ToLowerInvariant()); }
+        }
+        return new TerceroDedupKeys(docs, nombres);
+    }
+
     public async Task<TerceroResult<TerceroDetailDto>> UpdateAsync(
         Guid id, SaveTerceroRequest request, CancellationToken cancellationToken = default)
     {

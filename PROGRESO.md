@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-27 - v0.15.96: Directorio - un solo boton Importar/Exportar + modal en 2 pasos (000232)
+
+- Ajuste decorativo pedido: fusionar los botones "Plantilla Excel" e "Importar Excel" de la cabecera en UNO
+  ("Importar / Exportar Excel"). El mismo modal ahora ofrece DESCARGAR la plantilla (paso 1) y SUBIRLA (paso 2),
+  con numerales y tarjetas claras.
+- Se subio el contraste del texto del modal (antes var(--muted), casi invisible -> ahora var(--ink) con leve
+  opacidad). Sin cambios de logica ni de BD. Build verde.
+
+---
+
 ## 2026-08-27 - v0.15.95: Directorio - plantilla Excel con listas desplegables + IMPORTAR en lote (000232)
 
 - Pedido: en Directorio General solo existia DESCARGAR plantilla (sin subir). Se pidio (1) mejorar la

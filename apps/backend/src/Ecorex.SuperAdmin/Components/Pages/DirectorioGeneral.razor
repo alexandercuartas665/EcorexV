@@ -40,11 +40,8 @@
         <div class="dg-head-actions">
             @if (CanCreateAny)
             {
-                <button class="dg-btn-cfg" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con listas desplegables y hojas de codigos para importar">
-                    &#8681; Plantilla Excel
-                </button>
-                <button class="dg-btn-cfg" @onclick="OpenImportAsync" disabled="@(_loading || _reloading)" title="Cargar terceros en lote desde la plantilla Excel">
-                    &#8679; Importar Excel
+                <button class="dg-btn-cfg" @onclick="OpenImportAsync" disabled="@(_loading || _reloading)" title="Descargar la plantilla Excel e importar terceros en lote">
+                    &#8646; Importar / Exportar Excel
                 </button>
             }
             @if (_canEdit)
@@ -386,20 +383,40 @@
             </div>
 
             <div style="padding:18px 22px;max-height:70vh;overflow:auto">
-                <p style="margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.5">
-                    Descarga primero la <strong>Plantilla Excel</strong> (trae listas desplegables y las hojas de
-                    codigos), llenala y subela aqui. Se crea un tercero por fila de la hoja <strong>"Terceros"</strong>.
-                    Las filas con error no se importan; el resto si.
-                </p>
+                @* Paso 1: descargar la plantilla (antes era un boton aparte en la cabecera) *@
+                <div style="display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line,#e5e7eb);border-radius:10px;background:var(--surface-2,#f7f8fa)">
+                    <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">1</span>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;color:var(--ink,#1f2430);font-size:14px;margin-bottom:2px">Descarga la plantilla</div>
+                        <div style="color:var(--ink,#1f2430);opacity:.75;font-size:13px;line-height:1.5">
+                            Trae <strong>listas desplegables</strong> y las hojas de codigos (Tipos, Perfiles, Ciudades, Vendedores...).
+                            Llenala sin cambiar los encabezados.
+                        </div>
+                    </div>
+                    <button class="dg-btn-new" style="flex:none" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl">
+                        &#8681; Descargar plantilla
+                    </button>
+                </div>
 
-                <label class="dg-btn-cfg" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
-                    &#8679; Seleccionar archivo .xlsx
-                    <InputFile OnChange="OnImportFileAsync" accept=".xlsx" disabled="@_impBusy" style="display:none" />
-                </label>
-                @if (_impFileName is not null)
-                {
-                    <span style="margin-left:10px;font-size:13px;color:var(--ink)">@_impFileName</span>
-                }
+                @* Paso 2: subir el archivo lleno *@
+                <div style="display:flex;gap:14px;align-items:flex-start;padding:14px 16px;margin-top:12px;border:1px solid var(--line,#e5e7eb);border-radius:10px">
+                    <span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">2</span>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;color:var(--ink,#1f2430);font-size:14px;margin-bottom:2px">Sube la plantilla llena</div>
+                        <div style="color:var(--ink,#1f2430);opacity:.75;font-size:13px;line-height:1.5;margin-bottom:10px">
+                            Se crea <strong>un tercero por fila</strong> de la hoja <strong>"Terceros"</strong>.
+                            Las filas con error no se importan; el resto si.
+                        </div>
+                        <label class="dg-btn-cfg" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+                            &#8679; Seleccionar archivo .xlsx
+                            <InputFile OnChange="OnImportFileAsync" accept=".xlsx" disabled="@_impBusy" style="display:none" />
+                        </label>
+                        @if (_impFileName is not null)
+                        {
+                            <span style="margin-left:10px;font-size:13px;color:var(--ink,#1f2430)">@_impFileName</span>
+                        }
+                    </div>
+                </div>
 
                 @if (_impBusy && _impParse is null && _impFatal is null)
                 {

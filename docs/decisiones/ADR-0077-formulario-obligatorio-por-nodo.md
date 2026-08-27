@@ -42,3 +42,22 @@ requisito de cierre.
 - UX en el detalle de la tarea: cuando el nodo exige formulario, convendria que el menu del nodo
   guie a "Diligenciar formulario" en vez de ofrecer el cierre directo (hoy el cierre directo se
   intenta y el backend lo bloquea con el mensaje). Mejora de UI para una proxima pasada.
+
+## Ampliacion (v0.15.100): CARGA AUTOMATICA al llegar al paso
+
+Nueva marca hermana de `IsRequired` en `WorkflowNodeForm`: **`AutoCreateOnArrival`** (bool, default
+true = comportamiento previo). Controla si el formulario del nodo se MATERIALIZA solo (crea borrador +
+aparece "Pendiente") al activarse el paso, o no.
+
+- **true** (por defecto): al llegar al paso, `GetTaskStepFormsAsync` crea el borrador (idempotente) y lo
+  ofrece, como siempre.
+- **false**: NO se crea al llegar; el formulario queda disponible para agregarlo a mano
+  ("+ Agregar formulario") cuando se necesite. `GetTaskStepFormsAsync` solo lo muestra si YA existe un
+  borrador/enviado; si no, lo omite (no lo materializa).
+
+UI: en el editor de flujos, nodo -> "Recursos y componentes", cada formulario tiene ahora DOS checks:
+"obligatorio" (IsRequired) y "cargar al llegar" (AutoCreateOnArrival). Servicio
+`SetNodeFormAutoCreateAsync` (gemelo de `SetNodeFormRequiredAsync`). Migracion dual (columna bool NOT
+NULL default true, PG + SqlServer). Combinar "no cargar al llegar" con "obligatorio" no tiene sentido
+practico (si no se materializa, no hay link Pending que bloquee el cierre): la carga automatica es la
+condicion natural para exigirlo.

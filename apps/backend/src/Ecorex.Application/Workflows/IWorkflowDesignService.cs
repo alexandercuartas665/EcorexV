@@ -148,6 +148,10 @@ public interface IWorkflowDesignService
     /// formulario.</summary>
     Task<WorkflowResult<bool>> SetNodeFormRequiredAsync(Guid nodeId, Guid formDefinitionId, bool required, CancellationToken cancellationToken = default);
 
+    /// <summary>Marca si el formulario del nodo se CREA automaticamente al llegar al paso (true, por defecto)
+    /// o no (false: queda para agregarlo a mano). Hermana de <see cref="SetNodeFormRequiredAsync"/>.</summary>
+    Task<WorkflowResult<bool>> SetNodeFormAutoCreateAsync(Guid nodeId, Guid formDefinitionId, bool autoCreate, CancellationToken cancellationToken = default);
+
     Task<WorkflowResult<FlowNodeRuleDto>> AddNodeRuleAsync(Guid nodeId, Guid ruleId, CancellationToken cancellationToken = default);
 
     Task<WorkflowResult<bool>> RemoveNodeRuleAsync(Guid linkId, CancellationToken cancellationToken = default);

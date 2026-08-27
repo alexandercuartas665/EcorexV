@@ -990,6 +990,10 @@ else
                         <input type="checkbox" checked="@ff.IsRequired"
                                @onchange="@(e => ToggleFormRequiredAsync(node, ff, e))" /> obligatorio
                     </label>
+                    <label class="fe-chip-req" title="Cargar al llegar: si esta activo, el formulario se crea solo al activarse el paso. Si lo apagas, no se crea automaticamente; se agrega a mano cuando se necesite.">
+                        <input type="checkbox" checked="@ff.AutoCreateOnArrival"
+                               @onchange="@(e => ToggleFormAutoCreateAsync(node, ff, e))" /> cargar al llegar
+                    </label>
                     <span class="fe-chip-x" @onclick="@(() => UnlinkFormAsync(node, ff.DefinitionId))">x</span>
                 </span>
             }
@@ -1228,6 +1232,14 @@ else
     {
         var required = e.Value is bool b && b;
         var result = await DesignSvc.SetNodeFormRequiredAsync(node.Id, form.DefinitionId, required);
+        if (!result.IsOk) { _error = result.Error; }
+        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+    }
+
+    private async Task ToggleFormAutoCreateAsync(FlowCanvasNodeDto node, FlowNodeFormDto form, ChangeEventArgs e)
+    {
+        var autoCreate = e.Value is bool b && b;
+        var result = await DesignSvc.SetNodeFormAutoCreateAsync(node.Id, form.DefinitionId, autoCreate);
         if (!result.IsOk) { _error = result.Error; }
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
     }

@@ -27,7 +27,7 @@ public sealed record FlowNodeRuleDto(
 
 /// <summary>Formulario vinculado a un nodo (fila del acordeon Recursos). Un nodo admite VARIOS.
 /// IsRequired (ADR-0077): si es true, hay que ENVIARLO para poder cerrar/decidir el paso.</summary>
-public sealed record FlowNodeFormDto(Guid DefinitionId, string Code, string Title, bool IsRequired = false);
+public sealed record FlowNodeFormDto(Guid DefinitionId, string Code, string Title, bool IsRequired = false, bool AutoCreateOnArrival = true);
 
 /// <summary>Nodo del canvas con layout y vinculos (formularios y reglas).</summary>
 public sealed record FlowCanvasNodeDto(

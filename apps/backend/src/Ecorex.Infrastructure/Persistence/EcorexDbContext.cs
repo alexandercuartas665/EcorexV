@@ -1791,6 +1791,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+            // Carga automatica al llegar al paso: por defecto true (comportamiento previo).
+            b.Property(x => x.AutoCreateOnArrival).HasDefaultValue(true);
         });
 
         // Agente de IA por nodo (ola 1): el gemelo no humano de WorkflowNodePolicy.

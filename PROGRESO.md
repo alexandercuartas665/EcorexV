@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-27 - v0.15.100: flujo - "cargar al llegar" configurable por formulario del nodo (ADR-0077)
+
+- Pedido: en el editor de flujos, al agregar un formulario a un paso, poder elegir si se CREA
+  automaticamente al llegar al paso o no (como el check "obligatorio"). Caso: el SIMULADOR no debe
+  generar el registro solo.
+- WorkflowNodeForm.AutoCreateOnArrival (bool, default true). Gate en FormResponseService.
+  GetTaskStepFormsAsync: si false, NO crea el borrador al llegar (solo lo muestra si ya existe); si true,
+  comportamiento previo. UI: 2do check "cargar al llegar" junto a "obligatorio" (FlowEditor Recursos) +
+  SetNodeFormAutoCreateAsync (gemelo de SetNodeFormRequiredAsync). FlowNodeFormDto + proyeccion GetCanvas.
+- Migracion DUAL (PG + SqlServer): columna bool NOT NULL default true. La app auto-migra al arrancar
+  (MigrateAsync). Build verde. ADR-0077 ampliado.
+- Nota de entorno: la BD demo ecorex_dev estaba atrasada de migraciones (Aug 20) por un conflicto de
+  seed (import_runs duplicado); se aplicaron las pendientes con `dotnet ef database update`. Prod NO
+  tiene ese problema (desplego v0.15.97 ok). Preview local corre con ECOREX_SKIP_DEMO_SEED=true.
+
+---
+
 ## 2026-08-27 - v0.15.99: tarjetas de formulario - fix ajuste de botones + "Marcar activo" en el paso
 
 - Bug 1 (UI): con 2 formularios, la tarjeta con 4 botones (Diligenciar/Marcar activo/Copiar/Eliminar) se

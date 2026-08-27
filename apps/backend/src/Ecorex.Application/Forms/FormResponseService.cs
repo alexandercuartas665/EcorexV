@@ -741,6 +741,25 @@ public sealed class FormResponseService : IFormResponseService
                     responseRef = submitted.Reference;
                     responseStatus = FormResponseStatus.Submitted;
                 }
+                else if (!nodeForm.AutoCreateOnArrival)
+                {
+                    // Carga automatica DESACTIVADA: no se crea el borrador al llegar al paso. Solo se muestra
+                    // si YA existe uno (p.ej. agregado a mano con "+ Agregar formulario"); si no, se omite.
+                    var existingDraft = await _db.FormResponses.AsNoTracking()
+                        .Where(r => r.DefinitionId == definition.Id
+                            && r.Reference == task.Number
+                            && r.Status == FormResponseStatus.Draft)
+                        .OrderByDescending(r => r.CreatedAt)
+                        .Select(r => new { r.Id, r.Reference, r.Status })
+                        .FirstOrDefaultAsync(cancellationToken);
+                    if (existingDraft is null)
+                    {
+                        continue;
+                    }
+                    responseId = existingDraft.Id;
+                    responseRef = existingDraft.Reference;
+                    responseStatus = existingDraft.Status;
+                }
                 else
                 {
                     var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);

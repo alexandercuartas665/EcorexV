@@ -26,4 +26,12 @@ public class WorkflowNodeForm : TenantEntity
     /// por nodo: cada flujo decide en cuales pasos el formulario es requisito de cierre.
     /// </summary>
     public bool IsRequired { get; set; }
+
+    /// <summary>
+    /// CARGA AUTOMATICA al llegar al paso: si es true (por defecto), al activarse el paso de este nodo el
+    /// formulario se materializa solo (se crea el borrador y aparece "Pendiente" en la tarea, como siempre).
+    /// Si es false, el formulario NO se crea automaticamente al llegar; queda disponible para agregarlo a mano
+    /// ("+ Agregar formulario") cuando se necesite. Marca por (nodo, formulario), hermana de <see cref="IsRequired"/>.
+    /// </summary>
+    public bool AutoCreateOnArrival { get; set; } = true;
 }

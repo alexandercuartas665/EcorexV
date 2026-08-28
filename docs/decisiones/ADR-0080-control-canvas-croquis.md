@@ -129,3 +129,17 @@ Con la opcion activa, `FormCanvasHtml.Render(..., skipHeaderOnFirst)` NO emite e
 `<div class="dfr-canvas-hd">` en la hoja i==0; las hojas 2+ lo llevan igual. El contador
 "Grafico X de N" no cambia. `FormTemplateRenderService.ParseCanvasPrint` lee la clave (true, o "true"
 string) y la pasa a Render. Sin la opcion -> cabezote en todas (como antes); legacy 1-SVG intacto.
+
+## Marcador de codigo de barras en la plantilla (v0.15.104)
+
+Nuevo marcador de plantilla `{{barcode:...}}` (motor de plantillas, no exclusivo del Canvas pero
+pensado para la OT): genera un codigo de barras LINEAL escaneable server-side, sin libs ni JS.
+- Sintaxis: `{{barcode:numero}}` (codifica el RecordNumber) y `{{barcode:campo.<codigo>}}` (codifica el
+  valor de un campo). Altura opcional en px: `{{barcode:numero:48}}` (default 44, clamp 16..200).
+- Simbologia **Code39** (charset A-Z 0-9 espacio - . $ / + %; start/stop '*'; sin digito de control).
+  `Barcode.Code39Svg(data, height)` emite un SVG autocontenido (barras negras sobre blanco + valor
+  legible debajo), inline SIN escapar (Chromium lo rinde). Caracteres no soportados se descartan.
+- Se resuelve en AMBOS lugares donde se resuelven los {{campo.x}}: el merge principal
+  (`FormTemplateMerge.Render` -> `ResolveBarcodes`) Y el cabezote por hoja del Canvas
+  (`ResolveHeaderTokens`, que ahora recibe `numero`), para que la OT lo repita en cada pagina.
+- No cambia el guardado de datos. Verificado por decode-back (el SVG decodifica a `*OT-000001*`).

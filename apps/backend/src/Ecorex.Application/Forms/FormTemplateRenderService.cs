@@ -109,9 +109,12 @@ public static class FormTemplateMerge
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw)
-                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat)
+                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero)
                 : string.Empty;
         });
+
+        // Codigo de barras: {{barcode:numero}} o {{barcode:campo.codigo}} -> SVG Code39 inline.
+        html = ResolveBarcodes(html, values, numero);
 
         var sb = new StringBuilder(html);
         sb.Replace("{{empresa}}", Esc(empresa));
@@ -227,7 +230,7 @@ public static class FormTemplateMerge
     /// un SVG que empieza con '&lt;svg'; o una imagen data-URL 'data:image') se emiten como MARKUP sin escapar
     /// (Chromium los renderiza al generar el PDF); el resto se formatea y se escapa normal para prevenir HTML.</summary>
     private static string EmitField(string? format, string? raw, string? canvasOptionsJson,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat)
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero)
     {
         var v = raw?.TrimStart();
         if (!string.IsNullOrEmpty(v))
@@ -239,7 +242,7 @@ public static class FormTemplateMerge
                 || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
             {
                 var (header, counter, skipFirst) = ParseCanvasPrint(canvasOptionsJson);
-                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat);
+                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat, numero);
                 return FormCanvasHtml.Render(raw, resolvedHeader, counter, skipFirst);
             }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
@@ -287,12 +290,32 @@ public static class FormTemplateMerge
     }
 
     /// <summary>Resuelve los {{campo.x}} del cabezote contra los valores del registro (mismo criterio que los
-    /// campos: valor formateado y ESCAPADO). El HTML del cabezote (etiquetas) es de config y NO se escapa.</summary>
+    /// campos: valor formateado y ESCAPADO) y los {{barcode:...}} (SVG inline). El HTML del cabezote
+    /// (etiquetas) es de config y NO se escapa. Recibe <paramref name="numero"/> para {{barcode:numero}}.</summary>
     private static string ResolveHeaderTokens(string template,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat)
-        => Regex.Replace(template, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero)
+    {
+        var html = Regex.Replace(template, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw) ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw)) : string.Empty;
+        });
+        return ResolveBarcodes(html, values, numero);
+    }
+
+    /// <summary>Resuelve los marcadores de codigo de barras: <c>{{barcode:numero}}</c> (codifica el numero de
+    /// registro) y <c>{{barcode:campo.codigo}}</c> (codifica el valor de un campo). Sintaxis opcional de altura:
+    /// <c>{{barcode:target:48}}</c> (px, default 44). Emite un SVG Code39 INLINE (sin escapar); vacio si el
+    /// valor no tiene caracteres codificables.</summary>
+    private static string ResolveBarcodes(string html, IReadOnlyDictionary<string, string> values, string numero)
+        => Regex.Replace(html, @"\{\{\s*barcode:\s*(numero|campo\.[a-zA-Z0-9_]+)\s*(?::\s*(\d+)\s*)?\}\}", m =>
+        {
+            var target = m.Groups[1].Value;
+            var data = target == "numero"
+                ? numero
+                : (values.TryGetValue(target.Substring("campo.".Length), out var v) ? v : string.Empty);
+            if (string.IsNullOrWhiteSpace(data)) { return string.Empty; }
+            var height = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var h) ? h : 44;
+            return Barcode.Code39Svg(data, height);
         });
 }

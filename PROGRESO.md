@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-28 - v0.15.104: marcador {{barcode:...}} en plantillas (Code39) para la OT (ADR-0080)
+
+- Pedido (CONFIG): un marcador que imprima un CODIGO DE BARRAS escaneable del consecutivo en la OT.
+- Nuevo Barcode.Code39Svg(data, height): SVG Code39 autocontenido (barras + valor legible), server-side,
+  sin libs ni JS. Charset A-Z 0-9 espacio - . $ / + %; start/stop '*'; sin digito de control.
+- Marcador {{barcode:numero}} (RecordNumber) y {{barcode:campo.<codigo>}} (valor de campo); altura opcional
+  {{barcode:target:48}} (default 44, clamp 16..200). Emite SVG inline sin escapar (Chromium lo rinde).
+- Resuelto en AMBOS lugares: merge principal (FormTemplateMerge.Render -> ResolveBarcodes) Y cabezote por
+  hoja del Canvas (ResolveHeaderTokens, ahora recibe numero) -> la OT lo repite en cada pagina.
+- No cambia el guardado de datos. Build verde. Verificado por DECODE-BACK (SVG -> *OT-000001*) + resuelto
+  en merge (2 svg) y en printHeader (1 por hoja).
+
+---
+
 ## 2026-08-27 - v0.15.103: fix crash Asesores (edit) + Canvas omitir cabezote en 1a hoja
 
 - BUG (prod): el modulo Asesores explotaba al abrir crear/editar. Causa: AsesorService.ListLinkableUsersAsync

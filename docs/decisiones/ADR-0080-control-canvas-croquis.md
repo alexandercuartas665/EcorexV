@@ -104,3 +104,19 @@ imprimian.
 - El SVG se persiste al pulsar "Guardar dibujo" (igual que Signature "Guardar firma"); no hay flush automatico
   en submit. Se puede agregar en una ola siguiente (leer getSvg de cada Canvas antes de enviar).
 - Redimension solo por la esquina inf-der (rect/elipse/imagen); texto/lapiz solo mover. Suficiente para bosquejo.
+
+## Herramienta LINEA recta (v0.15.102)
+
+Nueva herramienta 'line' en la barra ("Linea"): click-arrastrar traza un segmento recto. Con **Shift**
+el angulo se ajusta a multiplos de 45 grados (horizontal / vertical / diagonales), conservando la
+longitud; sin Shift es libre. Permite armar triangulos/poligonos con varios segmentos.
+
+- **Representacion**: la linea se guarda como un `path` de 2 puntos (`<path d="M x1 y1 L x2 y2">`), NO
+  como `<line>`. Asi reusa TODO el pipeline existente de `path`: shapeToNode, boundsOf, moveShape,
+  rotacion por manija (rotatable ya incluye 'path'), parse (dToPts -> pts) y export (buildPageSvg).
+  Imprime igual que el lapiz. Sin cambios en export/import ni en la impresion.
+- Es SELECCIONABLE / movible / rotable / borrable como las demas figuras; respeta el color de trazo
+  actual (setColor). La herramienta 'line' PERMANECE activa tras cada trazo (como 'pen') para encadenar
+  segmentos (p.ej. un triangulo con 3 lineas). Cache-bust `?v=5`.
+- Polilinea cerrada de un trazo (click por vertice): NO implementada (queda como pendiente opcional);
+  el triangulo/poligono se arma con lineas sueltas, que ya cumple la aceptacion.

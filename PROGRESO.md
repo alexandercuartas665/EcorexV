@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-08-27 - v0.15.102: Canvas - herramienta LINEA recta con snap de angulo (ADR-0080)
+
+- Pedido (sesion CONFIG): agregar herramienta de linea recta al croquis (para armar triangulos/poligonos).
+- Nueva herramienta 'line' (boton "Linea" en la barra, DynamicFormRenderer): click-arrastrar traza un
+  segmento; con SHIFT el angulo se ajusta a multiplos de 45 grados (horizontal/vertical/diagonales),
+  misma longitud. La herramienta permanece activa tras cada trazo (como 'pen') para encadenar segmentos.
+- Representacion: la linea se guarda como un PATH de 2 puntos (`<path d="M x1 y1 L x2 y2">`), reusando TODO
+  el pipeline de 'path' (shapeToNode/boundsOf/moveShape/rotacion/parse/export). Es seleccionable, movible,
+  rotable y borrable; respeta el color. Imprime igual (1 pagina y multipagina). Sin cambios de impresion.
+- form-canvas.js: onDown/onMove/onUp modo 'line' + snap. Cache-bust ?v=5. Polilinea cerrada: pendiente
+  opcional (el triangulo se arma con 3 lineas). Build verde. Sin migracion.
+
+---
+
 ## 2026-08-27 - v0.15.101: tableros - filtro "Ver archivadas" + restaurar desde el tablero
 
 - Pedido: las tareas archivadas desaparecen del tablero; poder verlas de nuevo y reactivarlas.

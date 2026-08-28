@@ -188,6 +188,15 @@ window.ecorexFormCanvas = (function () {
             render(s);
             return;
         }
+        if (s.tool === 'line') {
+            // Linea recta = path de 2 puntos (reusa export/import/rotacion/mover de 'path').
+            pushUndo(s);
+            var ln = newShape(s, 'path'); ln.stroke = s.color; ln.sw = 2;
+            ln.pts = [[r2(p.x), r2(p.y)], [r2(p.x), r2(p.y)]]; ln.d = ptsToD(ln.pts);
+            s.scene.push(ln); s.sel = ln.id; s.drag = { mode: 'line', sh: ln, ox: p.x, oy: p.y };
+            render(s);
+            return;
+        }
         // rect / ellipse: arranca una forma nueva
         pushUndo(s);
         var sh = newShape(s, s.tool); sh.x = r2(p.x); sh.y = r2(p.y); sh.w = 0; sh.h = 0; sh.stroke = s.color; sh.sw = 2;
@@ -224,6 +233,16 @@ window.ecorexFormCanvas = (function () {
             d.sh.rot = r2(((ang % 360) + 360) % 360);
         } else if (d.mode === 'pen') {
             d.sh.pts.push([r2(p.x), r2(p.y)]); d.sh.d += ' L ' + r2(p.x) + ' ' + r2(p.y);
+        } else if (d.mode === 'line') {
+            var ex = p.x, ey = p.y;
+            if (evt.shiftKey) {
+                // Snap del angulo a multiplos de 45 grados (horizontal/vertical/diagonales), misma longitud.
+                var ang = Math.atan2(p.y - d.oy, p.x - d.ox);
+                var snap = Math.round(ang / (Math.PI / 4)) * (Math.PI / 4);
+                var dist = Math.hypot(p.x - d.ox, p.y - d.oy);
+                ex = d.ox + dist * Math.cos(snap); ey = d.oy + dist * Math.sin(snap);
+            }
+            d.sh.pts[1] = [r2(ex), r2(ey)]; d.sh.d = ptsToD(d.sh.pts);
         }
         render(s);
     }
@@ -238,7 +257,13 @@ window.ecorexFormCanvas = (function () {
         if (d.mode === 'pen' && (d.sh.pts || []).length < 2) {
             s.scene = s.scene.filter(function (x) { return x.id !== d.sh.id; }); s.sel = null;
         }
-        if (s.tool !== 'select' && s.tool !== 'pen') { s.tool = 'select'; if (s.onTool) { try { s.onTool('select'); } catch (e) { } } }
+        // Linea degenerada (arranque sin arrastre): descartar.
+        if (d.mode === 'line') {
+            var la = d.sh.pts[0], lb = d.sh.pts[1];
+            if (Math.hypot(lb[0] - la[0], lb[1] - la[1]) < 3) { s.scene = s.scene.filter(function (x) { return x.id !== d.sh.id; }); s.sel = null; }
+        }
+        // 'pen' y 'line' permanecen activos (dibujar varios trazos/segmentos seguidos, p.ej. un triangulo).
+        if (s.tool !== 'select' && s.tool !== 'pen' && s.tool !== 'line') { s.tool = 'select'; if (s.onTool) { try { s.onTool('select'); } catch (e) { } } }
         render(s);
     }
 

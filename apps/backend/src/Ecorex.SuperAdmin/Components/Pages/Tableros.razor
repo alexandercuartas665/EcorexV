@@ -316,6 +316,10 @@ else
     private Guid? _editId;
     private ActivityBoardSummaryDto? _deleteTarget;
     private List<TaskBoardColumnDto> _columns = new();
+    // Los estados se guardan "al instante" desde @onchange: este candado SERIALIZA esas operaciones para
+    // que no se solapen sobre el DbContext del circuito ("second operation on this context is in progress",
+    // que sin catch tumbaba el circuito). Combinado con el try/catch de cada handler.
+    private readonly System.Threading.SemaphoreSlim _stateGate = new(1, 1);
 
     // Etiquetas permitidas por columna (restriccion). El catalogo del tenant se carga una vez al
     // abrir el editor; _colAllowed es el set de la columna cuyo editor de etiquetas esta abierto.
@@ -508,6 +512,7 @@ else
             return;
         }
 
+        await _stateGate.WaitAsync();
         _busy = true;
         try
         {
@@ -518,7 +523,13 @@ else
             if (upd is null) { _error = "No se pudo guardar el estado."; }
             await ReloadColumnsAsync();
         }
-        finally { _busy = false; }
+        catch (Exception ex)
+        {
+            // Nunca dejar que una excepcion del guardado instantaneo tumbe el circuito (banner + recarga).
+            _error = "No se pudo guardar el estado: " + ex.Message;
+            try { await ReloadColumnsAsync(); } catch { /* recarga best-effort */ }
+        }
+        finally { _busy = false; _stateGate.Release(); }
     }
 
     private async Task MoveStateAsync(TaskBoardColumnDto col, int delta)
@@ -529,6 +540,7 @@ else
         if (idx < 0 || destino < 0 || destino >= _columns.Count) { return; }
 
         _error = null;
+        await _stateGate.WaitAsync();
         _busy = true;
         try
         {
@@ -540,12 +552,18 @@ else
             }
             await ReloadColumnsAsync();
         }
-        finally { _busy = false; }
+        catch (Exception ex)
+        {
+            _error = "No se pudo reordenar los estados: " + ex.Message;
+            try { await ReloadColumnsAsync(); } catch { }
+        }
+        finally { _busy = false; _stateGate.Release(); }
     }
 
     private async Task DeleteStateAsync(TaskBoardColumnDto col)
     {
         _error = null;
+        await _stateGate.WaitAsync();
         _busy = true;
         try
         {
@@ -558,7 +576,12 @@ else
             }
             await ReloadColumnsAsync();
         }
-        finally { _busy = false; }
+        catch (Exception ex)
+        {
+            _error = "No se pudo eliminar el estado: " + ex.Message;
+            try { await ReloadColumnsAsync(); } catch { }
+        }
+        finally { _busy = false; _stateGate.Release(); }
     }
 
     private void OpenDelete(ActivityBoardSummaryDto b)

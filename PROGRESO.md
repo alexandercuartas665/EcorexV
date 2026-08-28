@@ -17,6 +17,21 @@
 
 ---
 
+## 2026-08-28 - v0.15.108: fix crash del editor de tableros al renombrar columnas (estados)
+
+- BUG (prod): al renombrar/mover/eliminar una columna (estado) del tablero, el guardado "al instante"
+  (@onchange) tumbaba el CIRCUITO Blazor ("unhandled exception on the current circuit" -> "Connection
+  disconnected"). Causa: SaveStateAsync/MoveStateAsync/DeleteStateAsync tenian try/finally SIN catch, y
+  el onchange podia solapar operaciones sobre el DbContext del circuito ("second operation on this
+  context").
+- Fix (Tableros.razor): candado SemaphoreSlim _stateGate que SERIALIZA los guardados instantaneos +
+  try/catch en los tres handlers (banner de error + recarga best-effort en vez de matar el circuito).
+  Mismo patron que el blindaje del disenador (v0.15.87).
+- Verificado en local (AGROMETALICAS): renombrar una columna guarda y el circuito sigue vivo
+  (sin overlay de reconexion). Build verde. Sin migracion; sin cambios de datos.
+
+---
+
 ## 2026-08-28 - v0.15.106: pie por hoja del Canvas (printFooter) + nombre completo en CurrentUser (ADR-0080)
 
 - Pedido (CONFIG): un PIE por hoja del croquis con quien elaboro la OT (junto al contador), y que el

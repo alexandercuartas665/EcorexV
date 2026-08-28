@@ -352,8 +352,9 @@ public sealed class ActivityBoardService : IActivityBoardService
             .ToListAsync(cancellationToken);
 
         // Query base filtrada (sin alcance): sobre ella se calculan los contadores por alcance.
+        // OnlyArchived alterna entre la vista normal (activas) y la "papelera" del tablero (archivadas).
         var query = _db.TaskItems.AsNoTracking()
-            .Where(t => t.BoardId == boardId && !t.IsArchived);
+            .Where(t => t.BoardId == boardId && (filter.OnlyArchived ? t.IsArchived : !t.IsArchived));
         if (filter.ColumnIds is { Count: > 0 })
         {
             var columnIds = filter.ColumnIds.ToList();

@@ -89,7 +89,10 @@ public sealed record ActivityBoardDetailFilter(
     DateTimeOffset? DueOn = null,
     IReadOnlyList<Guid>? TagIds = null,
     ActivityBoardScope Scope = ActivityBoardScope.Team,
-    Guid? CurrentTenantUserId = null);
+    Guid? CurrentTenantUserId = null,
+    // true = mostrar SOLO las tareas archivadas (papelera del tablero) para revisarlas/restaurarlas.
+    // false (por defecto) = solo las activas, como siempre.
+    bool OnlyArchived = false);
 
 /// <summary>
 /// Contadores por alcance del detalle (chips "Equipo / Pendientes mias / No asignadas").

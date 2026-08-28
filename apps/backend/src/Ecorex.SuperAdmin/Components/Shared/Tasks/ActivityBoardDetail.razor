@@ -145,6 +145,11 @@
             <button class="ab-scope @(_scope == ActivityBoardScope.Done ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Done))">
                 Terminados<span class="ab-scope-n">@_detail.ScopeCounters.Done</span>
             </button>
+            @* Papelera del tablero: alterna a mostrar SOLO las archivadas (para restaurarlas). *@
+            <button class="ab-scope @(_onlyArchived ? "on" : "")" style="margin-left:auto" @onclick="ToggleArchivedAsync"
+                    title="Ver las tareas archivadas de este tablero (para restaurarlas)">
+                &#128230; @(_onlyArchived ? "Archivadas" : "Ver archivadas")
+            </button>
         </div>
 
         @* ---- Switcher de vistas ---- *@
@@ -1331,6 +1336,7 @@
     private DateTime? _fDueOn;
     private readonly HashSet<Guid> _fTags = new();
     private ActivityBoardScope _scope = ActivityBoardScope.Team;
+    private bool _onlyArchived;   // true = "papelera" del tablero: muestra solo las archivadas.
     private bool _filtersVisible = true;
     private string _view = "tablero";
 
@@ -1598,7 +1604,8 @@
             DueOn: _fDueOn is DateTime d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
             TagIds: _fTags.Count == 0 ? null : _fTags.ToList(),
             Scope: _scope,
-            CurrentTenantUserId: _meTenantUserId);
+            CurrentTenantUserId: _meTenantUserId,
+            OnlyArchived: _onlyArchived);
         await _reloadLock.WaitAsync();
         try
         {
@@ -1690,6 +1697,14 @@
     private async Task SetScopeAsync(ActivityBoardScope scope)
     {
         _scope = scope;
+        await ReloadAsync();
+    }
+
+    // Alterna la "papelera" del tablero: al activarla se listan SOLO las archivadas (cada tarjeta abre
+    // su detalle con el boton "Restaurar"). Al desactivarla vuelve a las activas.
+    private async Task ToggleArchivedAsync()
+    {
+        _onlyArchived = !_onlyArchived;
         await ReloadAsync();
     }
 

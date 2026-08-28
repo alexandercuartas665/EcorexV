@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-27 - v0.15.101: tableros - filtro "Ver archivadas" + restaurar desde el tablero
+
+- Pedido: las tareas archivadas desaparecen del tablero; poder verlas de nuevo y reactivarlas.
+- ActivityBoardDetailFilter.OnlyArchived (bool, default false). GetBoardDetailAsync alterna la query base
+  entre activas (!IsArchived) y la "papelera" (IsArchived). Los contadores por alcance heredan el modo.
+- UI (ActivityBoardDetail.razor): boton "Ver archivadas" (toggle, junto a las pestanas de alcance) ->
+  _onlyArchived + ToggleArchivedAsync. Cada tarjeta archivada abre su detalle con el boton "Restaurar"
+  que YA existia (TasksSvc.RestoreAsync). Sin migracion (IsArchived ya existia); sin cambios de datos.
+- Verificado en dev (operator): el toggle lista las archivadas del tablero y quedan restaurables. Build verde.
+
+---
+
 ## 2026-08-27 - v0.15.100: flujo - "cargar al llegar" configurable por formulario del nodo (ADR-0077)
 
 - Pedido: en el editor de flujos, al agregar un formulario a un paso, poder elegir si se CREA

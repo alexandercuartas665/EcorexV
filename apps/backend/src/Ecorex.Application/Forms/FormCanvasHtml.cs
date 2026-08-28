@@ -60,7 +60,10 @@ public static class FormCanvasHtml
     /// <summary>HTML de impresion del valor Canvas: una hoja por pagina, con salto de pagina y un numeral
     /// "{counterLabel} X de N" (solo si hay &gt;1 pagina). Si <paramref name="pageHeaderHtml"/> no esta vacio,
     /// se repite ese cabezote (HTML ya resuelto) ARRIBA de cada hoja. Cadena vacia si el valor no es Canvas.</summary>
-    public static string Render(string? value, string? pageHeaderHtml = null, string counterLabel = "Grafico")
+    /// <param name="skipHeaderOnFirst">Si es true, NO se emite el cabezote en la PRIMERA hoja (i==0):
+    /// util cuando la pagina 1 de la plantilla ya trae el membrete del documento y el cabezote lo
+    /// duplicaria. Las hojas 2+ lo llevan igual. El contador no cambia.</param>
+    public static string Render(string? value, string? pageHeaderHtml = null, string counterLabel = "Grafico", bool skipHeaderOnFirst = false)
     {
         var pages = ExtractPages(value);
         if (pages.Count == 0) { return string.Empty; }
@@ -72,7 +75,7 @@ public static class FormCanvasHtml
             // La 1a pagina no fuerza salto (ya esta en su posicion); las demas caen en hoja nueva.
             var brk = i > 0 ? "break-before:always;page-break-before:always;" : "";
             sb.Append("<div class=\"dfr-canvas-page\" style=\"").Append(brk).Append("\">");
-            if (hasHeader)
+            if (hasHeader && !(skipHeaderOnFirst && i == 0))
             {
                 // Cabezote repetido por hoja (identificacion del proyecto). Es HTML de config ya resuelto.
                 sb.Append("<div class=\"dfr-canvas-hd\" style=\"font-size:11px;color:#333;border-bottom:1px solid #bbb;padding-bottom:3px;margin-bottom:4px;\">")

@@ -64,11 +64,19 @@ public sealed class AsesorService : IAsesorService
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<AsesorUserOptionDto>> ListLinkableUsersAsync(CancellationToken cancellationToken = default)
-        => await _db.TenantUsers.AsNoTracking()
+    {
+        // El OrderBy va sobre la COLUMNA (pu.DisplayName) ANTES de proyectar al DTO: ordenar por una
+        // propiedad del record recien construido no se puede traducir a SQL (EF lanza InvalidOperation y
+        // reventaba el modal de asesor). DisplayName puede ser null -> cae a Email/"(sin nombre)".
+        var rows = await _db.TenantUsers.AsNoTracking()
             .Join(_db.PlatformUsers.AsNoTracking(), tu => tu.PlatformUserId, pu => pu.Id,
-                (tu, pu) => new AsesorUserOptionDto(tu.Id, pu.DisplayName, tu.Email))
-            .OrderBy(u => u.Nombre)
+                (tu, pu) => new { tu.Id, pu.DisplayName, tu.Email })
+            .OrderBy(x => x.DisplayName)
             .ToListAsync(cancellationToken);
+        return rows
+            .Select(x => new AsesorUserOptionDto(x.Id, x.DisplayName ?? x.Email ?? "(sin nombre)", x.Email))
+            .ToList();
+    }
 
     public async Task<AsesorDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {

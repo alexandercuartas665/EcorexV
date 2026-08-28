@@ -238,9 +238,9 @@ public static class FormTemplateMerge
             if (v.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)
                 || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
             {
-                var (header, counter) = ParseCanvasPrint(canvasOptionsJson);
+                var (header, counter, skipFirst) = ParseCanvasPrint(canvasOptionsJson);
                 var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat);
-                return FormCanvasHtml.Render(raw, resolvedHeader, counter);
+                return FormCanvasHtml.Render(raw, resolvedHeader, counter, skipFirst);
             }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
             {
@@ -251,10 +251,11 @@ public static class FormTemplateMerge
     }
 
     /// <summary>Lee del options_json del campo Canvas el cabezote de impresion (printHeader, HTML con tokens
-    /// {{campo.x}}) y la etiqueta del contador (printCounterLabel, default "Grafico").</summary>
-    private static (string? header, string counter) ParseCanvasPrint(string? optionsJson)
+    /// {{campo.x}}), la etiqueta del contador (printCounterLabel, default "Grafico") y si se OMITE el cabezote
+    /// en la primera hoja (printHeaderSkipFirst, default false: cabezote en todas las hojas).</summary>
+    private static (string? header, string counter, bool skipFirst) ParseCanvasPrint(string? optionsJson)
     {
-        string? header = null; var counter = "Grafico";
+        string? header = null; var counter = "Grafico"; var skipFirst = false;
         if (!string.IsNullOrWhiteSpace(optionsJson))
         {
             try
@@ -272,11 +273,17 @@ public static class FormTemplateMerge
                         var s = c.GetString();
                         if (!string.IsNullOrWhiteSpace(s)) { counter = s!.Trim(); }
                     }
+                    // Omitir el cabezote en la 1a hoja: bool true, o el numero 1 (compat con "true"/1).
+                    if (doc.RootElement.TryGetProperty("printHeaderSkipFirst", out var sf))
+                    {
+                        skipFirst = sf.ValueKind == System.Text.Json.JsonValueKind.True
+                            || (sf.ValueKind == System.Text.Json.JsonValueKind.String && bool.TryParse(sf.GetString(), out var b) && b);
+                    }
                 }
             }
             catch (System.Text.Json.JsonException) { /* config invalida: sin cabezote */ }
         }
-        return (header, counter);
+        return (header, counter, skipFirst);
     }
 
     /// <summary>Resuelve los {{campo.x}} del cabezote contra los valores del registro (mismo criterio que los

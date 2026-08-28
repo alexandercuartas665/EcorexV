@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-27 - v0.15.103: fix crash Asesores (edit) + Canvas omitir cabezote en 1a hoja
+
+- BUG (prod): el modulo Asesores explotaba al abrir crear/editar. Causa: AsesorService.ListLinkableUsersAsync
+  hacia OrderBy(u => u.Nombre) sobre el record DTO recien proyectado tras un Join -> EF no lo traducia
+  (InvalidOperationException "could not be translated"). Fix: OrderBy por la COLUMNA (pu.DisplayName) ANTES
+  de proyectar; el DTO se arma en memoria (DisplayName null -> Email -> "(sin nombre)"). Verificado: el modal
+  abre con el selector de usuarios, sin crash.
+- Canvas (hand-off CONFIG): opcion `printHeaderSkipFirst` (bool, default false) en options_json del campo
+  Canvas -> omite el cabezote en la PRIMERA hoja (la pagina 1 de la OT ya trae el membrete del documento).
+  FormCanvasHtml.Render(..., skipHeaderOnFirst): no emite dfr-canvas-hd en i==0; hojas 2+ igual; contador sin
+  cambios. FormTemplateRenderService.ParseCanvasPrint lee la clave. Compat total; legacy 1-SVG intacto.
+- Build verde. Sin migracion. Verificado determinista (2 hojas: default=2 cabezotes, skip=1 en hoja 2).
+
+---
+
 ## 2026-08-27 - v0.15.102: Canvas - herramienta LINEA recta con snap de angulo (ADR-0080)
 
 - Pedido (sesion CONFIG): agregar herramienta de linea recta al croquis (para armar triangulos/poligonos).

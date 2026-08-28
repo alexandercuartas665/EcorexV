@@ -120,3 +120,12 @@ longitud; sin Shift es libre. Permite armar triangulos/poligonos con varios segm
   segmentos (p.ej. un triangulo con 3 lineas). Cache-bust `?v=5`.
 - Polilinea cerrada de un trazo (click por vertice): NO implementada (queda como pendiente opcional);
   el triangulo/poligono se arma con lineas sueltas, que ya cumple la aceptacion.
+
+## Omitir cabezote en la 1a hoja (v0.15.103)
+
+Opcion `printHeaderSkipFirst` (bool, default false) en el options_json del campo Canvas: cuando la
+PAGINA 1 de la plantilla ya trae el membrete del documento, el cabezote (printHeader) lo duplicaba.
+Con la opcion activa, `FormCanvasHtml.Render(..., skipHeaderOnFirst)` NO emite el
+`<div class="dfr-canvas-hd">` en la hoja i==0; las hojas 2+ lo llevan igual. El contador
+"Grafico X de N" no cambia. `FormTemplateRenderService.ParseCanvasPrint` lee la clave (true, o "true"
+string) y la pasa a Render. Sin la opcion -> cabezote en todas (como antes); legacy 1-SVG intacto.

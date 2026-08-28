@@ -165,3 +165,12 @@ vano). El boton "Guardar dibujo" se conserva (guardado manual explicito).
   (que puede ser login/email o un claim viejo). El renderer resuelve el DisplayName FRESCO del PlatformUser
   via ITenantUserService.ResolveDisplayNameAsync(platformUserId) (dentro del gate del circuito), con
   fallback a Identity.Name. Asi emitido_por = "Alexander Cuartas".
+
+## Marcadores de fecha/hora en la plantilla (v0.15.107)
+
+Dos marcadores nuevos del motor de plantillas (hora local, formato "dd/MM/yyyy HH:mm"), resueltos en el
+merge principal Y en el cabezote/pie del Canvas (ResolveHeaderTokens), igual que {{fecha}}/{{barcode}}:
+- `{{fechahora}}`: fecha y hora del REGISTRO (TransactionDate ?? SubmittedAt ?? CreatedAt, ya en local).
+  Gemelo con hora de {{fecha}}.
+- `{{impreso}}`: fecha y hora ACTUAL de impresion (DateTimeOffset.Now del render).
+Helper compartido `ResolveDateTokens(html, fecha)` (fecha/fechahora/impreso). Texto plano (no markup).

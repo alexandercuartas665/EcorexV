@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-28 - v0.15.107: marcadores {{fechahora}} e {{impreso}} en plantillas (ADR-0080)
+
+- Pedido (CONFIG): dos marcadores de fecha/hora para la OT.
+- {{fechahora}}: fecha y hora del REGISTRO (TransactionDate??SubmittedAt??CreatedAt, hora local), formato
+  "dd/MM/yyyy HH:mm" (gemelo con hora de {{fecha}}). {{impreso}}: fecha y hora ACTUAL de impresion
+  (DateTimeOffset.Now del render), mismo formato.
+- Helper compartido ResolveDateTokens(html, fecha) (fecha/fechahora/impreso), usado en el merge principal
+  y en ResolveHeaderTokens (cabezote/pie por hoja). Texto plano. Build verde. Sin migracion, no cambia datos.
+- Verificado: cuerpo (fecha/fechahora/impreso) + cabezote (fechahora e impreso, 1 por hoja).
+
+---
+
 ## 2026-08-28 - v0.15.106: pie por hoja del Canvas (printFooter) + nombre completo en CurrentUser (ADR-0080)
 
 - Pedido (CONFIG): un PIE por hoja del croquis con quien elaboro la OT (junto al contador), y que el

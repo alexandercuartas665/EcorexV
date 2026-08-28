@@ -109,7 +109,7 @@ public static class FormTemplateMerge
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw)
-                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero)
+                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero, fecha)
                 : string.Empty;
         });
 
@@ -118,9 +118,10 @@ public static class FormTemplateMerge
 
         var sb = new StringBuilder(html);
         sb.Replace("{{empresa}}", Esc(empresa));
-        sb.Replace("{{fecha}}", fecha.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture));
         sb.Replace("{{numero}}", Esc(numero));
-        return sb.ToString();
+        // Fechas: {{fecha}} (dd/MM/yyyy), {{fechahora}} (dd/MM/yyyy HH:mm del registro) e {{impreso}}
+        // (dd/MM/yyyy HH:mm del momento de impresion). Texto plano.
+        return ResolveDateTokens(sb.ToString(), fecha);
     }
 
     private static string RenderGridBlocks(string html, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> gridOptions)
@@ -226,11 +227,23 @@ public static class FormTemplateMerge
     private static string Esc(string? s)
         => (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
+    /// <summary>Marcadores de fecha/hora (texto plano): {{fecha}} (dd/MM/yyyy del registro),
+    /// {{fechahora}} (dd/MM/yyyy HH:mm del registro) e {{impreso}} (dd/MM/yyyy HH:mm del momento de
+    /// impresion, hora local). Compartido por el merge principal y el cabezote del Canvas.</summary>
+    private static string ResolveDateTokens(string html, DateTimeOffset fecha)
+    {
+        var impreso = DateTimeOffset.Now;
+        return html
+            .Replace("{{fechahora}}", fecha.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))
+            .Replace("{{impreso}}", impreso.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))
+            .Replace("{{fecha}}", fecha.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture));
+    }
+
     /// <summary>Emite el valor de un campo en la plantilla. Los artefactos grafados AUTOCONTENIDOS (ADR Canvas:
     /// un SVG que empieza con '&lt;svg'; o una imagen data-URL 'data:image') se emiten como MARKUP sin escapar
     /// (Chromium los renderiza al generar el PDF); el resto se formatea y se escapa normal para prevenir HTML.</summary>
     private static string EmitField(string? format, string? raw, string? canvasOptionsJson,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero)
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, DateTimeOffset fecha)
     {
         var v = raw?.TrimStart();
         if (!string.IsNullOrEmpty(v))
@@ -242,8 +255,8 @@ public static class FormTemplateMerge
                 || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
             {
                 var (header, counter, skipFirst, footer) = ParseCanvasPrint(canvasOptionsJson);
-                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat, numero);
-                var resolvedFooter = string.IsNullOrWhiteSpace(footer) ? null : ResolveHeaderTokens(footer!, values, fieldFormat, numero);
+                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat, numero, fecha);
+                var resolvedFooter = string.IsNullOrWhiteSpace(footer) ? null : ResolveHeaderTokens(footer!, values, fieldFormat, numero, fecha);
                 return FormCanvasHtml.Render(raw, resolvedHeader, counter, skipFirst, resolvedFooter);
             }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
@@ -300,14 +313,16 @@ public static class FormTemplateMerge
     /// campos: valor formateado y ESCAPADO) y los {{barcode:...}} (SVG inline). El HTML del cabezote
     /// (etiquetas) es de config y NO se escapa. Recibe <paramref name="numero"/> para {{barcode:numero}}.</summary>
     private static string ResolveHeaderTokens(string template,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero)
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, DateTimeOffset fecha)
     {
         var html = Regex.Replace(template, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw) ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw)) : string.Empty;
         });
-        return ResolveBarcodes(html, values, numero);
+        // Codigo de barras y fechas ({{fecha}}/{{fechahora}}/{{impreso}}), igual que en el cuerpo,
+        // para que el cabezote/pie por hoja los soporte.
+        return ResolveDateTokens(ResolveBarcodes(html, values, numero), fecha);
     }
 
     /// <summary>Resuelve los marcadores de codigo de barras: <c>{{barcode:numero}}</c> (codifica el numero de

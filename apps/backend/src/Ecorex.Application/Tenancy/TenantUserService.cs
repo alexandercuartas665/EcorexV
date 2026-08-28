@@ -28,6 +28,12 @@ public sealed class TenantUserService : ITenantUserService
     public Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default) =>
         ListAsync(includeRemoved: false, cancellationToken);
 
+    public async Task<string?> ResolveDisplayNameAsync(Guid platformUserId, CancellationToken cancellationToken = default)
+        => await _db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
+            .Where(u => u.Id == platformUserId)
+            .Select(u => u.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<TenantUserDto>> ListAsync(bool includeRemoved, CancellationToken cancellationToken = default)
     {
         // El filtro global del DbContext limita por el tenant del contexto.

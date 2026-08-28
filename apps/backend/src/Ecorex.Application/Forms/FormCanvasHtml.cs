@@ -63,11 +63,16 @@ public static class FormCanvasHtml
     /// <param name="skipHeaderOnFirst">Si es true, NO se emite el cabezote en la PRIMERA hoja (i==0):
     /// util cuando la pagina 1 de la plantilla ya trae el membrete del documento y el cabezote lo
     /// duplicaria. Las hojas 2+ lo llevan igual. El contador no cambia.</param>
-    public static string Render(string? value, string? pageHeaderHtml = null, string counterLabel = "Grafico", bool skipHeaderOnFirst = false)
+    /// <param name="pageFooterHtml">PIE por hoja (HTML ya resuelto, p.ej. "Elaboro: Alexander Cuartas").
+    /// Si no esta vacio, se emite al FONDO de CADA hoja (incluida la 1a), a la izquierda del contador
+    /// "{label} X de N". Vacio -> sin pie (compat).</param>
+    public static string Render(string? value, string? pageHeaderHtml = null, string counterLabel = "Grafico",
+        bool skipHeaderOnFirst = false, string? pageFooterHtml = null)
     {
         var pages = ExtractPages(value);
         if (pages.Count == 0) { return string.Empty; }
         var hasHeader = !string.IsNullOrWhiteSpace(pageHeaderHtml);
+        var hasFooter = !string.IsNullOrWhiteSpace(pageFooterHtml);
         var label = string.IsNullOrWhiteSpace(counterLabel) ? "Grafico" : counterLabel.Trim();
         var sb = new StringBuilder();
         for (var i = 0; i < pages.Count; i++)
@@ -82,10 +87,18 @@ public static class FormCanvasHtml
                   .Append(pageHeaderHtml).Append("</div>");
             }
             sb.Append(pages[i]);
-            if (pages.Count > 1)
+            // Pie por hoja: pie (izquierda) + contador "X de N" (derecha) en la misma fila. Se emite si hay
+            // pie (en TODAS las hojas) o si hay mas de una pagina (contador). Compat: sin pie y 1 hoja -> nada.
+            if (hasFooter || pages.Count > 1)
             {
-                sb.Append("<div class=\"dfr-canvas-pageno\" style=\"text-align:right;font-size:11px;color:#555;margin-top:2px;\">")
-                  .Append(label).Append(' ').Append(i + 1).Append(" de ").Append(pages.Count).Append("</div>");
+                sb.Append("<div class=\"dfr-canvas-ft\" style=\"display:flex;justify-content:space-between;align-items:flex-end;gap:8px;font-size:11px;color:#555;margin-top:2px;\">");
+                sb.Append("<div class=\"dfr-canvas-emit\">").Append(hasFooter ? pageFooterHtml : string.Empty).Append("</div>");
+                if (pages.Count > 1)
+                {
+                    sb.Append("<div class=\"dfr-canvas-pageno\" style=\"text-align:right;white-space:nowrap;\">")
+                      .Append(label).Append(' ').Append(i + 1).Append(" de ").Append(pages.Count).Append("</div>");
+                }
+                sb.Append("</div>");
             }
             sb.Append("</div>");
         }

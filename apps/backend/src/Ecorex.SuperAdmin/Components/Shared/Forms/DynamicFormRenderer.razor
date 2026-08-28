@@ -16,6 +16,7 @@
 @inject IJSRuntime JS
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
+@inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -367,11 +368,18 @@ else
         try
         {
             // Permisos por campo (ola F6): rol del usuario (null en el visor publico -> sin restriccion).
+            // Claims (sin BD): el Identity.Name es el fallback; el id del PlatformUser sirve para resolver
+            // el nombre COMPLETO fresco DENTRO del gate (abajo).
+            Guid? platformUserId = null;
             if (AuthState is not null)
             {
                 var user = (await AuthState).User;
                 _currentRole = user.FindFirst("tenant_role")?.Value;
                 _currentUserName = user.Identity?.Name;
+                if (Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var puid))
+                {
+                    platformUserId = puid;
+                }
             }
             // Toma el gate del circuito para TODA la carga: impide que otro renderer (o un autosave/
             // regla/submit de este) toque el DbContext a la vez -> sin "second operation".
@@ -379,6 +387,17 @@ else
             try
             {
             using var ambient = BeginAmbient();
+            // Nombre COMPLETO para el default CurrentUser ("emitido por"): DisplayName FRESCO del
+            // PlatformUser (el claim puede estar viejo o ser el email). Fallback: Identity.Name (ya puesto).
+            if (platformUserId is Guid puid2)
+            {
+                try
+                {
+                    var full = await TenantUsersSvc.ResolveDisplayNameAsync(puid2);
+                    if (!string.IsNullOrWhiteSpace(full)) { _currentUserName = full; }
+                }
+                catch { /* si no se puede resolver, queda el Identity.Name */ }
+            }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
             _values.Clear();

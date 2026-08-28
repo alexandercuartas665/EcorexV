@@ -11,6 +11,11 @@ public interface ITenantUserService
     /// <summary>Usuarios vigentes del tenant (excluye los eliminados logicamente).</summary>
     Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Nombre COMPLETO (DisplayName del PlatformUser) por su Id, FRESCO de la BD (no del claim,
+    /// que puede estar viejo). null si no existe o no tiene nombre. Lo usa el default dinamico
+    /// CurrentUser del formulario para autollenar "emitido por" con el nombre real, no el login.</summary>
+    Task<string?> ResolveDisplayNameAsync(Guid platformUserId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Igual que <see cref="ListAsync(CancellationToken)"/> pero permite incluir los usuarios
     /// eliminados (Status = Removed). Solo la pantalla de administracion de usuarios los pide,

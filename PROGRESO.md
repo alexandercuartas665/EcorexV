@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-28 - v0.15.106: pie por hoja del Canvas (printFooter) + nombre completo en CurrentUser (ADR-0080)
+
+- Pedido (CONFIG): un PIE por hoja del croquis con quien elaboro la OT (junto al contador), y que el
+  campo emitido_por (default CurrentUser) traiga el NOMBRE COMPLETO, no el login.
+- printFooter: nueva opcion en options_json del campo Canvas (HTML con {{campo.x}}), analoga a printHeader.
+  FormCanvasHtml.Render gana pageFooterHtml: lo emite al FONDO de CADA hoja (incluida la 1a) en una fila
+  flex (div.dfr-canvas-ft: pie a la izquierda, contador "Grafico X de N" a la derecha). ParseCanvasPrint
+  lo lee y resuelve sus tokens (ResolveHeaderTokens). Vacio -> sin pie (compat, contador se conserva).
+- CurrentUser (nombre completo): el renderer resuelve el DisplayName FRESCO del PlatformUser via
+  ITenantUserService.ResolveDisplayNameAsync(platformUserId) DENTRO del gate del circuito, con fallback a
+  Identity.Name. Antes usaba solo user.Identity.Name (login/email o claim viejo). Prod: acuartas ->
+  "ALEXANDER CUARTAS BEJARANO".
+- Build verde. Sin migracion. No cambia el guardado del croquis. Verificado (pie en 2 hojas junto al
+  contador; 1 hoja sin contador; sin pie conserva el contador).
+
+---
+
 ## 2026-08-28 - v0.15.105: el autoguardado del formulario ahora guarda el croquis (Canvas) (ADR-0080)
 
 - Pedido: el autoguardado debe guardar tambien el grafico (croquis) del formulario; hoy solo se guardaba

@@ -1122,6 +1122,31 @@ else
     private async Task CanvasCmdAsync(FormQuestionDto q, string cmd)
     { try { await JS.InvokeVoidAsync($"ecorexFormCanvas.{cmd}", $"croquis-{q.Id}"); } catch (JSException) { } }
 
+    /// <summary>Vuelca el SVG de CADA croquis (Canvas) MONTADO al valor del campo, para que el
+    /// AUTOGUARDADO y el ENVIO incluyan el dibujo sin depender del boton "Guardar dibujo" (ADR-0080).
+    /// No borra: si getSvg viene vacio (editor no montado) se omite ese campo. Escritura directa a
+    /// _values (los Canvas no participan en grids/calc/reglas) y marca _dirty SOLO si el dibujo cambio,
+    /// para no disparar autoguardados en vano.</summary>
+    private async Task FlushCanvasesAsync()
+    {
+        if (_definition?.Questions is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Canvas))
+        {
+            try
+            {
+                var svg = await JS.InvokeAsync<string>("ecorexFormCanvas.getSvg", $"croquis-{q.Id}");
+                if (string.IsNullOrWhiteSpace(svg) || svg.Length > 2_000_000) { continue; }
+                var cur = _values.TryGetValue(q.FieldCode, out var v) ? v : null;
+                if (!string.Equals(cur, svg, StringComparison.Ordinal))
+                {
+                    _values[q.FieldCode] = svg;
+                    _dirty = true;
+                }
+            }
+            catch (JSException) { /* editor no montado o interop no disponible: se omite (no borra) */ }
+        }
+    }
+
     /// <summary>"Guardar dibujo": lee el SVG del editor y lo persiste en el campo (como Signature). Limite ~2 MB.</summary>
     private async Task SaveCanvasAsync(FormQuestionDto q)
     {
@@ -2771,7 +2796,13 @@ else
 
     private async Task AutosaveTickAsync()
     {
-        if (!_dirty || _busy || _response is null || IsLocked || Mode != FormRenderMode.Fill)
+        if (_busy || _response is null || IsLocked || Mode != FormRenderMode.Fill)
+        {
+            return;
+        }
+        // Captura el dibujo del croquis (si cambio, marca _dirty) para que el autoguardado lo incluya.
+        await FlushCanvasesAsync();
+        if (!_dirty)
         {
             return;
         }
@@ -2853,6 +2884,10 @@ else
         {
             return;
         }
+        // Vuelca los croquis al valor ANTES de construir el documento: el envio y el guardado del
+        // borrador (incluido "Listo" del wizard via FlushDraftAsync) incluyen el dibujo, sin depender
+        // del boton "Guardar dibujo".
+        await FlushCanvasesAsync();
         _busy = true;
         _globalError = null;
         // Diferido para invocar al padre FUERA del gate (ver nota abajo).

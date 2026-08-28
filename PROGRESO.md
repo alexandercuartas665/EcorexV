@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-28 - v0.15.105: el autoguardado del formulario ahora guarda el croquis (Canvas) (ADR-0080)
+
+- Pedido: el autoguardado debe guardar tambien el grafico (croquis) del formulario; hoy solo se guardaba
+  al pulsar "Guardar dibujo".
+- DynamicFormRenderer.FlushCanvasesAsync(): vuelca el SVG de cada croquis MONTADO al valor del campo
+  (getSvg -> _values, escritura directa) marcando dirty solo si cambio. Se invoca en SaveAsync (envio +
+  borrador + "Listo"/FlushDraft) y en AutosaveTickAsync (antes del check de dirty, para que un dibujo
+  nuevo dispare el autoguardado). No borra si el editor no esta montado. Boton "Guardar dibujo" se
+  conserva. Build verde. Sin migracion.
+- Diagnostico aparte (T00031 en prod): el flujo se atascaba por un loop de reinicio (el Task tenia
+  RestartNodeId al StartEvent) -> 50 ciclos, 0 pasos pendientes. Se corrige quitando ese "reiniciar" en
+  el editor (config del usuario). El "formulario obligatorio sin enviar" es correcto: el step form estaba
+  en DRAFT (no enviado); el gate ADR-0077 exige ENVIAR.
+
+---
+
 ## 2026-08-28 - v0.15.104: marcador {{barcode:...}} en plantillas (Code39) para la OT (ADR-0080)
 
 - Pedido (CONFIG): un marcador que imprima un CODIGO DE BARRAS escaneable del consecutivo en la OT.

@@ -143,3 +143,12 @@ pensado para la OT): genera un codigo de barras LINEAL escaneable server-side, s
   (`FormTemplateMerge.Render` -> `ResolveBarcodes`) Y el cabezote por hoja del Canvas
   (`ResolveHeaderTokens`, que ahora recibe `numero`), para que la OT lo repita en cada pagina.
 - No cambia el guardado de datos. Verificado por decode-back (el SVG decodifica a `*OT-000001*`).
+
+## Autoguardado del croquis (v0.15.105)
+
+Resuelve el pendiente "no hay flush automatico en submit": el renderer ahora vuelca el SVG de CADA
+croquis MONTADO a su campo (`FlushCanvasesAsync`) ANTES de construir el documento, tanto en el
+AUTOGUARDADO (cada 30 s) como en el ENVIO y en "Listo" del wizard (via SaveAsync/FlushDraftAsync). Ya
+no hace falta pulsar "Guardar dibujo" para que el dibujo quede guardado. No borra: si getSvg viene
+vacio (editor no montado) se omite; marca dirty SOLO si el dibujo cambio (no dispara autoguardados en
+vano). El boton "Guardar dibujo" se conserva (guardado manual explicito).

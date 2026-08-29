@@ -68,7 +68,18 @@ ultima pasada). Hoy el recalculo es una sola pasada en orden de preguntas.
   (columna origen = valor de esta fila). Helpers `SetGridColumnGroupByAsync`, `SetGridCrossGridAsync`,
   `PatchGridCrossFieldAsync`, `PatchGridCrossMatchAsync` (mutan `groupBy`/`crossGrid` del options_json;
   `RawColumnExtras` los preserva en el round-trip de columnas). Nada de JSON crudo ni SQL. Sin migracion.
-- FASE 3 (CAP 3): render agrupado (bloques por grupo + filas de subtotal) sobre RenderGrid.
+- FASE 3 (v0.15.116, CAP 3): RENDER AGRUPADO (presentacion, opt-in). Nueva clave de columna
+  `"groupRender": true` que marca la columna CLAVE por la que la grilla se pinta agrupada (a lo sumo una por
+  grilla). En pantalla (`DynamicFormRenderer.RenderGrid` via `BuildGridRenderPlan`): por cada valor de la
+  clave, un encabezado de grupo, sus filas y una fila de SUBTOTAL (agrega las columnas con Agg sobre las filas
+  del grupo). Se conserva el pie de total general y las grillas sin `groupRender` quedan planas (sin
+  regresion). En impresion (`FormTemplateRenderService.RenderGroupedGrid`): el bloque `{{#tabla.<grid>}}` que
+  contiene un sub-bloque `{{#grupo}} ... {{#filas}}{{col.x}}{{/filas}} ... {{subtotal.<col>}} ... {{/grupo}}`
+  se emite una vez por grupo (`{{grupo}}` = etiqueta, `{{fila}}` global 1-based, `{{subtotal.<col>}}` = agregado
+  del grupo); sin `{{#grupo}}` el bloque sigue plano. UI del disenador: selector a nivel de grilla "Mostrar
+  agrupado con subtotales por" (`SetGridGroupRenderAsync`) que fija `groupRender` en la columna elegida y lo
+  quita de las demas. Verificado el merge de impresion determinista (subtotales por grupo, fila global, plano
+  intacto). Sin migracion (todo en options_json).
 
 ## Consecuencias
 

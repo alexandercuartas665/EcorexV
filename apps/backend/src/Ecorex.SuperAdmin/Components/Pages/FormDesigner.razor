@@ -2067,7 +2067,21 @@ else
                 @{
                     var gcols = GridColumns(node.Q!);
                     var gext = FormGridColumnLookupParser.Parse(node.Q!.OptionsJson);
+                    var groupRenderId = gcols.FirstOrDefault(c => c.GroupRender)?.Id;
                 }
+                @* CAP 3 (ADR-0081): render agrupado a nivel de GRILLA. Agrupa las filas por la columna elegida
+                   y agrega una fila de subtotal por grupo (pantalla e impresion). Opt-in; sin elegir = plana. *@
+                <div class="fb-gcp-field" style="margin-bottom:8px">
+                    <label>Mostrar agrupado con subtotales por</label>
+                    <select class="fb-select" @onchange="@(e => SetGridGroupRenderAsync(node.Q!, e.Value?.ToString()))">
+                        <option value="" selected="@(string.IsNullOrEmpty(groupRenderId))">No agrupar (tabla plana)</option>
+                        @foreach (var gc in gcols)
+                        {
+                            <option value="@gc.Id" selected="@(groupRenderId == gc.Id)">@gc.Label</option>
+                        }
+                    </select>
+                    <div class="fb-hint">Encabezado de grupo + fila de subtotal por cada valor de esa columna. En impresion usa el bloque {{@("#grupo")}} (ver plantilla).</div>
+                </div>
                 <div class="fb-gridcols">
                     @for (var ci = 0; ci < gcols.Count; ci++)
                     {
@@ -3112,6 +3126,26 @@ else
             var v = value?.Trim();
             if (string.IsNullOrEmpty(v)) { obj.Remove("default"); } else { obj["default"] = v; }
         });
+
+    // ---- CAP 3 (ADR-0081): render agrupado a nivel de grilla ("groupRender") ----
+
+    /// <summary>Marca UNA columna como clave de agrupacion visual (groupRender:true) y la quita de las demas.
+    /// colId vacio = grilla plana (quita groupRender de todas). Toca varias columnas -> reescribe el array.</summary>
+    private Task SetGridGroupRenderAsync(FormQuestionDto q, string? colId)
+    {
+        JsonArray arr;
+        try { arr = (JsonNode.Parse(string.IsNullOrWhiteSpace(q.OptionsJson) ? "[]" : q.OptionsJson) as JsonArray) ?? new JsonArray(); }
+        catch (JsonException) { return Task.CompletedTask; }
+        var target = colId?.Trim();
+        foreach (var n in arr)
+        {
+            if (n is not JsonObject obj) { continue; }
+            var id = obj["id"]?.GetValue<string>();
+            if (!string.IsNullOrEmpty(target) && string.Equals(id, target, StringComparison.Ordinal)) { obj["groupRender"] = true; }
+            else { obj.Remove("groupRender"); }
+        }
+        return PatchQuestionAsync(q, r => r with { OptionsJson = arr.ToJsonString() });
+    }
 
     // ---- CAP 1 (ADR-0081): subtotales por grupo ("groupBy") ----
 

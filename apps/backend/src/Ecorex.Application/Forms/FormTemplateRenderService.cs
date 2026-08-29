@@ -135,10 +135,17 @@ public static class FormTemplateMerge
             var rows = ParseGridRows(raw);
             if (rows.Count == 0) { return string.Empty; }
 
+            var cols = gridOptions.TryGetValue(code, out var opts)
+                ? FormGridCalculator.ParseColumns(opts)
+                : (IReadOnlyList<FormGridColumn>)System.Array.Empty<FormGridColumn>();
             var colFormat = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            if (gridOptions.TryGetValue(code, out var opts))
+            foreach (var col in cols) { colFormat[col.Id] = col.Format; }
+
+            // CAP 3 (ADR-0081): si la plantilla usa un sub-bloque {{#grupo}} ... {{/grupo}}, se renderiza
+            // AGRUPADO por la columna GroupRender (o, si no hay, como un solo grupo). Sin {{#grupo}}, plano.
+            if (Regex.IsMatch(inner, @"\{\{\s*#grupo\s*\}\}", RegexOptions.Singleline))
             {
-                foreach (var col in FormGridCalculator.ParseColumns(opts)) { colFormat[col.Id] = col.Format; }
+                return RenderGroupedGrid(inner, rows, cols, colFormat);
             }
 
             var outSb = new StringBuilder();
@@ -155,6 +162,90 @@ public static class FormTemplateMerge
             }
             return outSb.ToString();
         }, RegexOptions.Singleline);
+    }
+
+    /// <summary>
+    /// CAP 3: render AGRUPADO de un bloque de tabla. La grilla se agrupa por la columna GroupRender (o, si
+    /// ninguna la tiene, como un unico grupo). Por cada grupo se emite el sub-bloque {{#grupo}}...{{/grupo}}
+    /// una vez, resolviendo: {{grupo}} = etiqueta del grupo; {{#filas}}...{{/filas}} = las filas del grupo
+    /// (con {{col.x}} y {{fila}} global 1-based); {{subtotal.<colId>}} = agregado de esa columna en el grupo
+    /// (segun su Agg). Lo de fuera de {{#grupo}} (cabecera/pie de tabla) queda tal cual, una sola vez.
+    /// </summary>
+    private static string RenderGroupedGrid(
+        string inner, List<Dictionary<string, string?>> rows, IReadOnlyList<FormGridColumn> cols,
+        IReadOnlyDictionary<string, string?> colFormat)
+    {
+        var groupCol = cols.FirstOrDefault(c => c.GroupRender);
+        var aggById = cols.ToDictionary(c => c.Id, c => c.Agg, StringComparer.OrdinalIgnoreCase);
+
+        // Grupos en orden de primera aparicion (clave normalizada, misma semantica que el calculo).
+        var order = new List<string>();
+        var byKey = new Dictionary<string, List<Dictionary<string, string?>>>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            var key = groupCol is null ? string.Empty
+                : FormGridCalculator.NormalizeKey(row.TryGetValue(groupCol.Id, out var kv) ? kv : null);
+            if (!byKey.TryGetValue(key, out var bucket)) { bucket = new List<Dictionary<string, string?>>(); byKey[key] = bucket; order.Add(key); }
+            bucket.Add(row);
+        }
+
+        // Se separa el bloque {{#grupo}}...{{/grupo}} del resto: lo de ANTES y DESPUES (envoltura de la
+        // tabla: thead, apertura/cierre) se emite UNA sola vez; el template de grupo, una vez por grupo.
+        var mGroup = Regex.Match(inner, @"\{\{\s*#grupo\s*\}\}(.*?)\{\{\s*/grupo\s*\}\}", RegexOptions.Singleline);
+        if (!mGroup.Success) { return inner; }
+        var before = inner.Substring(0, mGroup.Index);
+        var after = inner.Substring(mGroup.Index + mGroup.Length);
+        var groupTpl = mGroup.Groups[1].Value;
+
+        var fila = 0; // {{fila}} es global (1-based) a lo largo de todos los grupos.
+        var outSb = new StringBuilder(before);
+        foreach (var key in order)
+        {
+            var groupRows = byKey[key];
+            var label = groupCol is null ? string.Empty : GroupLabel(groupCol, groupRows[0]);
+            var tpl = Regex.Replace(groupTpl, @"\{\{\s*#filas\s*\}\}(.*?)\{\{\s*/filas\s*\}\}", fm =>
+            {
+                var rowTpl = fm.Groups[1].Value;
+                var rowsSb = new StringBuilder();
+                foreach (var row in groupRows)
+                {
+                    fila++;
+                    var rowChunk = Regex.Replace(rowTpl, @"\{\{\s*col\.([a-zA-Z0-9_]+)\s*\}\}", cm =>
+                    {
+                        var cell = row.TryGetValue(cm.Groups[1].Value, out var cv) ? cv : null;
+                        return Esc(FormatCell(colFormat.GetValueOrDefault(cm.Groups[1].Value), cell));
+                    });
+                    rowChunk = rowChunk.Replace("{{fila}}", fila.ToString(CultureInfo.InvariantCulture));
+                    rowsSb.Append(rowChunk);
+                }
+                return rowsSb.ToString();
+            }, RegexOptions.Singleline);
+            // Subtotales del grupo por columna.
+            tpl = Regex.Replace(tpl, @"\{\{\s*subtotal\.([a-zA-Z0-9_]+)\s*\}\}", sm =>
+            {
+                var colId = sm.Groups[1].Value;
+                if (!aggById.TryGetValue(colId, out var agg) || agg == Ecorex.Domain.Enums.FormAggregate.None) { return string.Empty; }
+                var total = FormGridCalculator.Aggregate(agg, groupRows.Select(r => r.TryGetValue(colId, out var v) ? v : null));
+                return Esc(FormatCell(colFormat.GetValueOrDefault(colId), total?.ToString(CultureInfo.InvariantCulture)));
+            });
+            tpl = tpl.Replace("{{grupo}}", Esc(label));
+            outSb.Append(tpl);
+        }
+        outSb.Append(after);
+        return outSb.ToString();
+    }
+
+    /// <summary>Etiqueta del grupo: valor de la columna clave, mapeado a label si la columna es una lista.</summary>
+    private static string GroupLabel(FormGridColumn groupCol, Dictionary<string, string?> firstRow)
+    {
+        var raw = firstRow.TryGetValue(groupCol.Id, out var v) ? v : null;
+        if (string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
+        if (groupCol.IsSelect && groupCol.Options is { } opts)
+        {
+            var match = opts.FirstOrDefault(o => o.Id == raw);
+            if (match is not null) { return match.Label; }
+        }
+        return raw!;
     }
 
     /// <summary>Data del registro: { fieldCode: { value, type } } (o valor directo) -> fieldCode -> texto.</summary>

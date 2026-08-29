@@ -1768,16 +1768,40 @@ else
                             <td class="dfr-grid-empty" colspan="@(columns.Count + (IsDisabled ? 0 : 1))">Sin filas todavia.</td>
                         </tr>
                     }
-                    @for (var r = 0; r < rows.Count; r++)
+                    @* CAP 3 (ADR-0081): si una columna tiene GroupRender, la tabla se pinta AGRUPADA por ella
+                       (encabezado de grupo + filas + fila de subtotal). Sin GroupRender, el plan es la lista
+                       plana de filas visibles y todo se pinta igual que antes. El indice REAL de fila se
+                       conserva (edicion/borrado siguen apuntando a la fila almacenada). *@
+                    @{
+                        var badgeCol = StockBadgeColumnId(columns, extras);
+                        var groupCol = columns.FirstOrDefault(c => c.GroupRender);
+                    }
+                    @foreach (var _item in BuildGridRenderPlan(q, rows, columns, groupCol))
                     {
-                        var rowIndex = r;
-                        @* Filtro rapido: se salta la fila si no coincide, PERO se conserva rowIndex real
-                           (los indices de edicion/borrado siguen apuntando a la fila almacenada). *@
-                        if (!GridRowVisible(q, rows[rowIndex])) { continue; }
+                        if (_item.Kind == GridRowKind.GroupHead)
+                        {
+                            <tr class="dfr-grid-group-head" style="background:var(--surface-2,#f3f4f6);font-weight:700">
+                                @if (!IsDisabled) { <td class="dfr-grid-tools"></td> }
+                                <td colspan="@columns.Count" class="dfr-grid-group-label">@_item.Display</td>
+                            </tr>
+                            continue;
+                        }
+                        if (_item.Kind == GridRowKind.Subtotal)
+                        {
+                            <tr class="dfr-grid-subtotal" style="font-weight:700;border-top:1px solid var(--line-2,#d1d5db)">
+                                @if (!IsDisabled) { <td class="dfr-grid-tools"></td> }
+                                @foreach (var col in columns)
+                                {
+                                    var sub = col.Agg == FormAggregate.None ? (decimal?)null : FormGridCalculator.Aggregate(col, _item.GroupRows!, _values);
+                                    <td class="@(NumCls(col.Format).Trim())">@(col.Agg == FormAggregate.None ? null : FormatValue(col.Format, sub?.ToString(System.Globalization.CultureInfo.InvariantCulture)))</td>
+                                }
+                            </tr>
+                            continue;
+                        }
+                        var rowIndex = _item.RowIndex;
                         @* Aviso de existencias (declarado por la columna con stockCheck): la fila se
                            marca pero NO se bloquea el guardado; se puede cotizar sobre pedido. *@
                         var lowStock = IsRowShortOfStock(q, rowIndex, rows[rowIndex], extras);
-                        var badgeCol = StockBadgeColumnId(columns, extras);
                         <tr class="@(lowStock ? "dfr-grid-nostock" : null)">
                             @if (!IsDisabled)
                             {
@@ -1879,6 +1903,68 @@ else
             }
         </div>
     };
+
+    // ---- CAP 3 (ADR-0081): plan de render agrupado de una grilla ----
+
+    private enum GridRowKind { Data, GroupHead, Subtotal }
+
+    /// <summary>Un item del plan de render: una fila de datos (RowIndex), un encabezado de grupo (Display) o
+    /// una fila de subtotal (GroupRows = filas del grupo para agregar).</summary>
+    private sealed record GridRenderItem(GridRowKind Kind, int RowIndex = -1, string? Display = null,
+        IReadOnlyList<Dictionary<string, string?>>? GroupRows = null);
+
+    /// <summary>
+    /// Ordena las filas para el render. Sin <paramref name="groupCol"/>: lista PLANA de las filas visibles
+    /// (mismo orden y filtro que antes). Con groupCol: por cada valor de la clave (en orden de primera
+    /// aparicion) un encabezado, sus filas visibles y una fila de subtotal (agrega TODAS las filas del grupo,
+    /// como el pie general). Un grupo sin filas visibles por el filtro no se pinta.
+    /// </summary>
+    private List<GridRenderItem> BuildGridRenderPlan(
+        FormQuestionDto q, List<Dictionary<string, string?>> rows, IReadOnlyList<FormGridColumn> columns, FormGridColumn? groupCol)
+    {
+        var plan = new List<GridRenderItem>();
+        if (groupCol is null)
+        {
+            for (var i = 0; i < rows.Count; i++)
+            {
+                if (GridRowVisible(q, rows[i])) { plan.Add(new GridRenderItem(GridRowKind.Data, i)); }
+            }
+            return plan;
+        }
+        // Agrupacion de 1 nivel por la columna GroupRender, en orden de primera aparicion.
+        var order = new List<string>();
+        var idxByKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        foreach (var (row, i) in rows.Select((r, i) => (r, i)))
+        {
+            var key = FormGridCalculator.NormalizeKey(row.GetValueOrDefault(groupCol.Id));
+            if (!idxByKey.TryGetValue(key, out var list)) { list = new List<int>(); idxByKey[key] = list; order.Add(key); }
+            list.Add(i);
+        }
+        foreach (var key in order)
+        {
+            var idxs = idxByKey[key];
+            var visible = idxs.Where(i => GridRowVisible(q, rows[i])).ToList();
+            if (visible.Count == 0) { continue; }
+            var groupRows = idxs.Select(i => rows[i]).ToList();
+            plan.Add(new GridRenderItem(GridRowKind.GroupHead, Display: GridGroupLabel(groupCol, rows[idxs[0]])));
+            foreach (var i in visible) { plan.Add(new GridRenderItem(GridRowKind.Data, i)); }
+            plan.Add(new GridRenderItem(GridRowKind.Subtotal, GroupRows: groupRows));
+        }
+        return plan;
+    }
+
+    /// <summary>Etiqueta del encabezado de grupo: el valor de la columna clave (mapeado a label si es lista).</summary>
+    private static string GridGroupLabel(FormGridColumn groupCol, Dictionary<string, string?> firstRow)
+    {
+        var raw = firstRow.GetValueOrDefault(groupCol.Id);
+        if (string.IsNullOrWhiteSpace(raw)) { return "(sin " + groupCol.Label + ")"; }
+        if (groupCol.IsSelect && groupCol.Options is { } opts)
+        {
+            var match = opts.FirstOrDefault(o => o.Id == raw);
+            if (match is not null) { return match.Label; }
+        }
+        return raw!;
+    }
 
     // ---- Lookup con autollenado A NIVEL DE COLUMNA de tabla ----
     //

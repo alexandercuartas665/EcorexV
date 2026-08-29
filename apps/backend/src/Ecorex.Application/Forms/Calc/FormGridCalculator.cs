@@ -33,7 +33,11 @@ public sealed record FormGridColumn(
     // OTRA columna clave, ademas del total completo se calculan SUBTOTALES por grupo (SUMIF/COUNTIF...
     // por el valor de la columna clave). Se exponen en FormGridComputation.GroupSubtotals y los consume
     // el cross-grid (CAP 2) y el render agrupado (CAP 3). Null = solo total completo (comportamiento previo).
-    string? GroupBy = null)
+    string? GroupBy = null,
+    // CAP 3 (render agrupado): marca esta columna como la CLAVE por la que la grilla se pinta AGRUPADA
+    // (encabezado de grupo + filas + fila de subtotal por grupo), en pantalla y en impresion. A lo sumo una
+    // columna por grilla la lleva. Es SOLO presentacion (el calculo no cambia). False = grilla plana (default).
+    bool GroupRender = false)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -99,6 +103,8 @@ public static class FormGridCalculator
                 var format = el.TryGetProperty("format", out var pfmt) ? pfmt.GetString() : null;
                 // CAP 1: id de la columna clave por la que se agrupan los subtotales de ESTA columna agregada.
                 var groupBy = el.TryGetProperty("groupBy", out var pgb) ? pgb.GetString() : null;
+                // CAP 3: esta columna es la CLAVE de agrupacion visual de la grilla (opt-in de presentacion).
+                var groupRender = el.TryGetProperty("groupRender", out var pgr) && pgr.ValueKind == JsonValueKind.True;
                 List<FormOption>? options = null;
                 if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
                 {
@@ -124,7 +130,8 @@ public static class FormGridCalculator
                     string.IsNullOrWhiteSpace(aggWhen) ? null : aggWhen,
                     width,
                     string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant(),
-                    string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim()));
+                    string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim(),
+                    groupRender));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

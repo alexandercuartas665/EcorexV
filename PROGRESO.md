@@ -17,6 +17,25 @@
 
 ---
 
+## 2026-08-29 - v0.15.116: APU CAP 3 - render AGRUPADO con subtotales (pantalla + impresion + disenador) (ADR-0081)
+
+- Hand-off CONFIG: ultima pieza del APU. El calculo agrupado ya estaba (CAP1/CAP2, v0.15.112); faltaba la
+  PRESENTACION agrupada. Opt-in, solo presentacion (server sigue mandando el calculo).
+- Nueva clave de columna en options_json: "groupRender": true -> marca la columna CLAVE por la que la grilla
+  se pinta agrupada (a lo sumo una). FormGridColumn.GroupRender + parse en FormGridCalculator.
+- Pantalla (DynamicFormRenderer): BuildGridRenderPlan arma [encabezado de grupo, filas, fila de subtotal] por
+  cada valor de la clave; el subtotal agrega las columnas con Agg sobre las filas del grupo. Se conserva el pie
+  general; sin groupRender la grilla queda plana (sin regresion). Indice real de fila preservado.
+- Impresion (FormTemplateRenderService.RenderGroupedGrid): el bloque {{#tabla.<grid>}} con un sub-bloque
+  {{#grupo}} ... {{#filas}}{{col.x}}{{/filas}} ... {{subtotal.<col>}} ... {{/grupo}} se emite una vez por grupo
+  ({{grupo}}=etiqueta, {{fila}} global, {{subtotal.<col>}}=agregado del grupo). Sin {{#grupo}} = plano.
+  Verificado determinista (subtotales A=150/B=30, fila global, plano intacto).
+- Disenador (FormDesigner): selector a nivel de grilla "Mostrar agrupado con subtotales por"
+  (SetGridGroupRenderAsync) que fija groupRender en una columna y lo quita de las demas.
+- Build verde. Sin migracion. Cierra ADR-0081 (CAP1+CAP2+CAP3).
+
+---
+
 ## 2026-08-29 - v0.15.115: el fondo ya NO cierra los modales de tarea (ni click ni arrastre)
 
 - El fix v0.15.114 solo evito el cierre por ARRASTRE (cerrar por @onmousedown en el backdrop), pero un

@@ -86,7 +86,7 @@ public sealed partial class FormDefinitionService
             Guid? newParent = c.ParentId is Guid p && idMap.TryGetValue(p, out var np) ? np : null;
             var req = new SaveFormContainerRequest(
                 c.Name, c.ContainerType, newParent, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels,
-                c.AllowedCargosJson);
+                c.AllowedCargosJson, c.VisibleWhenJson);
             var res = await AddContainerAsync(defId, req, cancellationToken);
             if (res.IsOk && res.Value is not null) { idMap[c.Id] = res.Value.Id; }
         }
@@ -103,7 +103,7 @@ public sealed partial class FormDefinitionService
                 q.Required, q.GridCol, q.Numeral, q.ValidationJson, q.Width, q.PlaceholderText, q.DefaultValue,
                 q.IsLocked, q.IsHidden, q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
                 q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, subform,
-                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson);
+                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
             await AddQuestionAsync(defId, req, cancellationToken);
         }
 

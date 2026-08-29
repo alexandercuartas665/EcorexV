@@ -1295,6 +1295,39 @@ else
         catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
     }
 
+    // Visibilidad condicional por valor (visible_when_json = {field,op,value}). Editor compartido por campo
+    // y por seccion. field vacio = siempre visible (null).
+    private static (string? field, string op, string? value) ParseVisibleWhen(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return (null, "equals", null); }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (r.ValueKind != JsonValueKind.Object) { return (null, "equals", null); }
+            var field = r.TryGetProperty("field", out var pf) ? pf.GetString() : null;
+            var op = (r.TryGetProperty("op", out var po) ? po.GetString() : null) ?? "equals";
+            var value = r.TryGetProperty("value", out var pv) ? pv.GetString() : null;
+            return (string.IsNullOrWhiteSpace(field) ? null : field, string.IsNullOrWhiteSpace(op) ? "equals" : op, value);
+        }
+        catch (JsonException) { return (null, "equals", null); }
+    }
+
+    private static string? BuildVisibleWhen(string? field, string? op, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(field)) { return null; }
+        var o = new JsonObject { ["field"] = field.Trim(), ["op"] = string.IsNullOrWhiteSpace(op) ? "equals" : op.Trim() };
+        // "empty"/"notEmpty" no llevan valor; los demas si (si esta vacio se omite).
+        if (op is not ("empty" or "notEmpty") && !string.IsNullOrEmpty(value)) { o["value"] = value; }
+        return o.ToJsonString();
+    }
+
+    private Task SetVisibleWhenAsync(FormQuestionDto q, string? field, string? op, string? value)
+        => PatchQuestionAsync(q, r => r with { VisibleWhenJson = BuildVisibleWhen(field, op, value) });
+
+    private Task SetVisibleWhenContainerAsync(FormContainerDto c, string? field, string? op, string? value)
+        => PatchContainerAsync(c, r => r with { VisibleWhenJson = BuildVisibleWhen(field, op, value) });
+
     // Acceso por cargo de la seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit-Cargo.
     private static List<Guid> ParseCargoIds(string? json)
     {
@@ -1998,6 +2031,39 @@ else
                         }
                     </div>
                 }
+                @* Visibilidad condicional de la SECCION por valor de una pregunta (mismo motor que los campos). *@
+                @if (node.IsContainer)
+                {
+                    var cvw = ParseVisibleWhen(node.C!.VisibleWhenJson);
+                    <div class="fb-field" style="margin-top:8px;">
+                        <label>Mostrar la seccion solo si (condicional)</label>
+                        <div class="fb-gcp-row">
+                            <select class="fb-select" @onchange="@(e => SetVisibleWhenContainerAsync(node.C!, e.Value?.ToString(), cvw.op, cvw.value))">
+                                <option value="" selected="@(string.IsNullOrEmpty(cvw.field))">(siempre visible)</option>
+                                @foreach (var oq in _def!.Questions.OrderBy(x => x.SortOrder))
+                                {
+                                    <option value="@oq.FieldCode" selected="@(cvw.field == oq.FieldCode)">@oq.Label (@oq.FieldCode)</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(cvw.field))
+                            {
+                                <select class="fb-select" @onchange="@(e => SetVisibleWhenContainerAsync(node.C!, cvw.field, e.Value?.ToString(), cvw.value))">
+                                    <option value="equals" selected="@(cvw.op == "equals")">es igual a</option>
+                                    <option value="notEquals" selected="@(cvw.op == "notEquals")">es distinto de</option>
+                                    <option value="includes" selected="@(cvw.op == "includes")">incluye</option>
+                                    <option value="notEmpty" selected="@(cvw.op == "notEmpty")">tiene valor</option>
+                                    <option value="empty" selected="@(cvw.op == "empty")">esta vacio</option>
+                                </select>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(cvw.field) && cvw.op is not ("empty" or "notEmpty"))
+                        {
+                            <input class="fb-input" value="@cvw.value" placeholder="valor (ej. leads / id de opcion)"
+                                   @onchange="@(e => SetVisibleWhenContainerAsync(node.C!, cvw.field, cvw.op, e.Value?.ToString()))" />
+                        }
+                        <div class="fb-hint">La seccion (y su contenido) aparece solo cuando la pregunta cumple la condicion.</div>
+                    </div>
+                }
             </div>
         }
     };
@@ -2498,6 +2564,37 @@ else
                             @onchange="@(e => ToggleFieldVisAsync(node.Q!, "readonly", role, (bool)e.Value!))" /> @role</label>
                     }
                 </div>
+            </div>
+            @* Visibilidad condicional por VALOR de otro campo (visible_when_json). Si no se cumple, el campo
+               no se pinta ni se exige. Ej.: mostrar 'area_otro' solo si 'area' = 'otro'. *@
+            var vw = ParseVisibleWhen(node.Q!.VisibleWhenJson);
+            <div class="fb-field">
+                <label>Mostrar solo si (condicional)</label>
+                <div class="fb-gcp-row">
+                    <select class="fb-select" @onchange="@(e => SetVisibleWhenAsync(node.Q!, e.Value?.ToString(), vw.op, vw.value))">
+                        <option value="" selected="@(string.IsNullOrEmpty(vw.field))">(siempre visible)</option>
+                        @foreach (var oq in _def!.Questions.Where(x => x.FieldCode != node.Q!.FieldCode).OrderBy(x => x.SortOrder))
+                        {
+                            <option value="@oq.FieldCode" selected="@(vw.field == oq.FieldCode)">@oq.Label (@oq.FieldCode)</option>
+                        }
+                    </select>
+                    @if (!string.IsNullOrEmpty(vw.field))
+                    {
+                        <select class="fb-select" @onchange="@(e => SetVisibleWhenAsync(node.Q!, vw.field, e.Value?.ToString(), vw.value))">
+                            <option value="equals" selected="@(vw.op == "equals")">es igual a</option>
+                            <option value="notEquals" selected="@(vw.op == "notEquals")">es distinto de</option>
+                            <option value="includes" selected="@(vw.op == "includes")">incluye</option>
+                            <option value="notEmpty" selected="@(vw.op == "notEmpty")">tiene valor</option>
+                            <option value="empty" selected="@(vw.op == "empty")">esta vacio</option>
+                        </select>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(vw.field) && vw.op is not ("empty" or "notEmpty"))
+                {
+                    <input class="fb-input" value="@vw.value" placeholder="valor (ej. otro / el id de la opcion)"
+                           @onchange="@(e => SetVisibleWhenAsync(node.Q!, vw.field, vw.op, e.Value?.ToString()))" />
+                }
+                <div class="fb-hint">El campo aparece solo cuando la otra pregunta cumple la condicion. Para listas usa el ID de la opcion; "incluye" sirve para casillas multiples.</div>
             </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))

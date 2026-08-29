@@ -51,4 +51,11 @@ public class FormContainer : TenantEntity
     /// cuyo cargo NO este en la lista VE la seccion en SOLO-LECTURA. Owner/Admin del tenant la operan siempre.
     /// </summary>
     public string? AllowedCargosJson { get; set; }
+
+    /// <summary>
+    /// Visibilidad CONDICIONAL de la SECCION por el VALOR de una pregunta (mismo esquema que
+    /// <see cref="FormQuestion.VisibleWhenJson"/>): JSON { "field","op","value" }. Si no se cumple, ni la
+    /// seccion ni su subarbol se pintan ni se exigen. Null = siempre visible. Se evalua en vivo en el renderer.
+    /// </summary>
+    public string? VisibleWhenJson { get; set; }
 }

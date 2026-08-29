@@ -588,8 +588,9 @@ else
 
     private RenderFragment RenderContainer(FormContainerDto container) => __builder =>
     {
-        @* Contenedores ocultos por el disenador: ni el nodo ni su subarbol se pintan. *@
-        if (container.IsHidden)
+        @* Contenedores ocultos por el disenador, O por visibilidad condicional por VALOR (visible_when_json):
+           ni el nodo ni su subarbol se pintan (ni se exigen). *@
+        if (container.IsHidden || !IsContainerVisibleByValue(container))
         {
             return;
         }
@@ -712,8 +713,9 @@ else
 
     private RenderFragment RenderQuestion(FormQuestionDto q, bool forceFullWidth = false) => __builder =>
     {
-        @* Campos ocultos por regla, por el disenador (ADR-0021) O por permiso de rol (ola F6). *@
-        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden || IsFieldHidden(q))
+        @* Campos ocultos por regla, por el disenador (ADR-0021), por permiso de rol (ola F6) O por
+           visibilidad condicional por VALOR de otro campo (visible_when_json). *@
+        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden || IsFieldHidden(q) || !IsVisibleByValue(q))
         {
             return;
         }
@@ -2729,6 +2731,52 @@ else
     private bool IsFieldHidden(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "hide");
     private bool IsFieldReadonly(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "readonly");
 
+    // Visibilidad condicional por VALOR de otra pregunta (visible_when_json). Se evalua EN VIVO contra
+    // _values; el renderer re-renderiza al cambiar un campo, asi que aparece/desaparece al instante.
+    private bool IsVisibleByValue(FormQuestionDto q)
+        => FormVisibilityEvaluator.IsVisible(q.VisibleWhenJson, code => _values.GetValueOrDefault(code));
+    private bool IsContainerVisibleByValue(FormContainerDto c)
+        => FormVisibilityEvaluator.IsVisible(c.VisibleWhenJson, code => _values.GetValueOrDefault(code));
+
+    /// <summary>FieldCodes que quedan OCULTOS al enviar (para que el servidor no los exija): union de los
+    /// ocultos por regla (runtime) MAS los ocultos por visibilidad condicional por valor (campos y todo el
+    /// subarbol de una seccion oculta). El servidor ya salta la validacion Required de estos.</summary>
+    private HashSet<string> HiddenFieldCodesForSubmit()
+    {
+        var hidden = new HashSet<string>(_ruleUiState.HiddenFields, StringComparer.Ordinal);
+        if (_definition is null) { return hidden; }
+        // Secciones ocultas por valor: sus preguntas (todo el subarbol) no se exigen.
+        var hiddenContainers = new HashSet<Guid>();
+        foreach (var c in _definition.Containers)
+        {
+            if (!IsContainerVisibleByValue(c)) { hiddenContainers.Add(c.Id); }
+        }
+        foreach (var q in _definition.Questions)
+        {
+            if (!IsVisibleByValue(q)
+                || (q.ContainerId is Guid cid && ContainerAncestorHidden(cid, hiddenContainers)))
+            {
+                hidden.Add(q.FieldCode);
+            }
+        }
+        return hidden;
+    }
+
+    // True si el contenedor o alguno de sus ancestros esta en el set de ocultos (subarbol oculto).
+    private bool ContainerAncestorHidden(Guid containerId, HashSet<Guid> hiddenContainers)
+    {
+        if (_definition is null) { return false; }
+        var byId = _definition.Containers.ToDictionary(c => c.Id);
+        var cursor = (Guid?)containerId;
+        var guard = 0;
+        while (cursor is Guid cid && byId.TryGetValue(cid, out var node) && guard++ < 100)
+        {
+            if (hiddenContainers.Contains(cid)) { return true; }
+            cursor = node.ParentId;
+        }
+        return false;
+    }
+
     private bool FieldRoleMatch(string? json, string key)
     {
         if (string.IsNullOrWhiteSpace(json) || _currentRole is null) { return false; }
@@ -3092,7 +3140,7 @@ else
             var result = await ResponsesSvc.SaveAsync(
                 _response.Id, BuildDocument(), submit, SubmittedByTenantUserId,
                 approvalResult: submit ? _approvalChoice : null,
-                hiddenFieldCodes: _ruleUiState.HiddenFields);
+                hiddenFieldCodes: HiddenFieldCodesForSubmit());
             if (result.Status == FormServiceStatus.ValidationFailed && result.FieldErrors is not null)
             {
                 // Errores del servidor bajo cada campo (fuente de verdad).

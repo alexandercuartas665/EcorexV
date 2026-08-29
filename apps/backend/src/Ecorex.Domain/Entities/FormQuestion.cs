@@ -129,6 +129,15 @@ public class FormQuestion : TenantEntity
     /// </summary>
     public string? FieldVisibilityJson { get; set; }
 
+    /// <summary>
+    /// Visibilidad CONDICIONAL por el VALOR de otra pregunta (config-driven, motor de formularios): JSON
+    /// { "field":"area", "op":"equals|notEquals|includes|empty|notEmpty", "value":"otro" }. Si no se cumple,
+    /// el campo NO se pinta y NO se exige (aunque sea Required). Null = siempre visible. Se evalua en vivo en
+    /// el renderer contra los valores actuales; en el submit el campo entra al set de "ocultos" que ya
+    /// respeta el servidor. Distinto de FieldVisibilityJson (que es por ROL/cargo).
+    /// </summary>
+    public string? VisibleWhenJson { get; set; }
+
     // ---- Calculo y agregacion (Formularios avanzados, ola F2; doc 01 seccion D5) ----
 
     /// <summary>

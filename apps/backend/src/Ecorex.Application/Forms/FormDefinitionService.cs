@@ -299,7 +299,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             IsLocked = request.IsLocked,
             IsHidden = request.IsHidden,
             InlineLabels = request.InlineLabels,
-            AllowedCargosJson = Normalize(request.AllowedCargosJson)
+            AllowedCargosJson = Normalize(request.AllowedCargosJson),
+            VisibleWhenJson = Normalize(request.VisibleWhenJson)
         };
         _db.FormContainers.Add(container);
         TouchRevision(definition);
@@ -355,6 +356,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         container.IsHidden = request.IsHidden;
         container.InlineLabels = request.InlineLabels;
         container.AllowedCargosJson = Normalize(request.AllowedCargosJson);
+        container.VisibleWhenJson = Normalize(request.VisibleWhenJson);
         await TouchRevisionAsync(container.DefinitionId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<FormContainerDto>.Ok(ToDto(container));
@@ -852,7 +854,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
 
     private static FormContainerDto ToDto(FormContainer c)
         => new(c.Id, c.Name, c.ContainerType, c.ParentId, c.SortOrder, c.Style,
-            c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels, c.AllowedCargosJson);
+            c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson);
 
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,
@@ -860,7 +862,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
             q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
             q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-            q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson);
+            q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -918,6 +920,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.DefaultDynamic = request.DefaultDynamic;
         question.Format = Normalize(request.Format);
         question.FieldVisibilityJson = Normalize(request.FieldVisibilityJson);
+        // Visibilidad condicional por valor de otra pregunta (config-driven).
+        question.VisibleWhenJson = Normalize(request.VisibleWhenJson);
         // Configurador en cascada (motor generico): taxonomia de la pregunta.
         question.CascadeConfigJson = Normalize(request.CascadeConfigJson);
     }

@@ -28,7 +28,9 @@ public sealed record FormContainerDto(
     // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
     bool InlineLabels = false,
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
-    string? AllowedCargosJson = null);
+    string? AllowedCargosJson = null,
+    // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
+    string? VisibleWhenJson = null);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -48,7 +50,9 @@ public sealed record FormQuestionDto(
     FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
     string? FieldVisibilityJson = null,
     // Configurador en cascada (motor generico): taxonomia de la pregunta CascadeConfigurator.
-    string? CascadeConfigJson = null);
+    string? CascadeConfigJson = null,
+    // Visibilidad condicional por valor de otra pregunta ({field,op,value}). Null = siempre visible.
+    string? VisibleWhenJson = null);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -114,7 +118,9 @@ public sealed record SaveFormContainerRequest(
     // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
     bool InlineLabels = false,
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
-    string? AllowedCargosJson = null);
+    string? AllowedCargosJson = null,
+    // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
+    string? VisibleWhenJson = null);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el
@@ -141,7 +147,9 @@ public sealed record SaveFormQuestionRequest(
     FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
     string? FieldVisibilityJson = null,
     // Configurador en cascada (motor generico): taxonomia de la pregunta CascadeConfigurator.
-    string? CascadeConfigJson = null);
+    string? CascadeConfigJson = null,
+    // Visibilidad condicional por valor de otra pregunta ({field,op,value}). Null = siempre visible.
+    string? VisibleWhenJson = null);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

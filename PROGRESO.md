@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-29 - v0.15.119: Formularios - visibilidad condicional por VALOR de otro campo (visible_when_json)
+
+- Hand-off SOLDARCO (diseno de formularios), P0#2: mostrar/ocultar un campo o seccion segun el VALOR de otra
+  pregunta (hoy field_visibility_json solo es por ROL/cargo). Config-driven, generico.
+- Modelo: FormQuestion.VisibleWhenJson + FormContainer.VisibleWhenJson (jsonb / nvarchar(max), dual).
+  Migracion dual AddFormVisibleWhen (2 columnas x 2 tablas). Propagado por DTOs/requests + service + import/export.
+- Esquema del JSON: { "field":"area", "op":"equals|notEquals|includes|empty|notEmpty", "value":"otro" }.
+  op includes = para MultiCheck (valor guardado es arreglo JSON). Ausente/invalido = visible (fail-open).
+- Motor: FormVisibilityEvaluator (puro, compartido). Renderer: IsVisibleByValue / IsContainerVisibleByValue
+  se evaluan EN VIVO contra _values; RenderQuestion/RenderContainer no pintan si no se cumple. Al enviar,
+  HiddenFieldCodesForSubmit une los ocultos por regla + los ocultos por valor (campos y subarbol de secciones
+  ocultas) -> el servidor ya salta la validacion Required de esos (mismo mecanismo que las reglas runtime).
+- Disenador (FormDesigner): editor "Mostrar solo si" en campo Y en seccion (selector de pregunta + operador +
+  valor). Helpers ParseVisibleWhen/BuildVisibleWhen/SetVisibleWhen(Container)Async.
+- Verificado determinista (equals/notEquals/includes/empty/notEmpty + fail-open). Build verde. NO desplegado.
+
+---
+
 ## 2026-08-29 - v0.15.118: Gestor contactos - el CONTEO de la tarjeta cuadra con "Filtrar ahora"
 
 - Bug (AGROMETALICAS): filtro "Contactos Bogota" mostraba 12 en la tarjeta pero 13 al aplicar.

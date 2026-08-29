@@ -1513,6 +1513,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.TabsJson).HasColumnType(jsonColumnType);
             // Acceso por cargo (ADR-0082): arreglo JSON de Guids de OrgUnit-Cargo (dual PG jsonb / SQL nvarchar).
             b.Property(x => x.AllowedCargosJson).HasColumnType(jsonColumnType);
+            // Visibilidad condicional por valor (motor de formularios): JSON {field,op,value}.
+            b.Property(x => x.VisibleWhenJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Width).HasDefaultValue(12);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
@@ -1554,6 +1556,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.DefaultDynamic).HasDefaultValue(FormDefaultDynamic.None);
             b.Property(x => x.Format).HasMaxLength(40);
             b.Property(x => x.FieldVisibilityJson).HasColumnType(jsonColumnType);
+            // Visibilidad condicional por valor de otra pregunta (config-driven): JSON {field,op,value}.
+            b.Property(x => x.VisibleWhenJson).HasColumnType(jsonColumnType);
             // Configurador en cascada (config-driven): aditiva, nullable, tipo dual (jsonb / nvarchar(max)).
             b.Property(x => x.CascadeConfigJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Definition).WithMany()

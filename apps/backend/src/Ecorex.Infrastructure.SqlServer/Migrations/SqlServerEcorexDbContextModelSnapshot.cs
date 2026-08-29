@@ -5014,6 +5014,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<string>("VisibleWhenJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("visible_when_json");
+
                     b.Property<int>("Width")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
@@ -5479,6 +5483,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("value_field");
+
+                    b.Property<string>("VisibleWhenJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("visible_when_json");
 
                     b.Property<int>("Width")
                         .ValueGeneratedOnAdd()

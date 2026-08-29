@@ -17,6 +17,18 @@
 
 ---
 
+## 2026-08-28 - v0.15.110: HideSubmitBar aplica tambien en el detalle de la tarea
+
+- Pedido: la propiedad "Ocultar Enviar / Imprimir / autoguardado al llenar dentro de una tarea"
+  (HideSubmitBar) solo aplicaba en el wizard de CREACION; el usuario la quiere tambien al editar el
+  formulario desde la tarjeta de una tarea activa (donde v0.15.109 ya agrego el boton "Listo").
+- TaskDetailModal.razor: el DynamicFormRenderer del modal de formulario ahora pasa EmbeddedInTask="true";
+  asi HideSubmitChrome (=EmbeddedInTask && HideSubmitBar) oculta Enviar/Imprimir/autoguardado en el
+  detalle cuando la definicion lo pide, quedando solo "Listo" (guarda borrador). Si HideSubmitBar=false,
+  todo sigue igual (chrome visible). Texto de la propiedad en el disenador actualizado. Build verde.
+
+---
+
 ## 2026-08-28 - v0.15.109: boton "Listo" en el editor de formulario del detalle de la tarea
 
 - Pedido: al crear una tarea (wizard) el formulario tiene un boton "Listo"; al abrir el formulario desde

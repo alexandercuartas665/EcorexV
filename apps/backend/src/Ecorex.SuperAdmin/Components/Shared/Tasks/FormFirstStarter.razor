@@ -22,8 +22,8 @@
 
 @if (_visible)
 {
-    <div class="tk-formfirst" style="position:fixed;inset:0;z-index:1060;background:rgba(15,15,18,.5);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:3vh 2vw" @onclick="Close">
-        <div style="width:min(880px,96vw);max-height:92vh;background:var(--surface);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--sh-lg);overflow:hidden;display:flex;flex-direction:column" @onclick:stopPropagation="true">
+    <div class="tk-formfirst" style="position:fixed;inset:0;z-index:1060;background:rgba(15,15,18,.5);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:3vh 2vw;overscroll-behavior:contain" @onmousedown="Close">
+        <div style="width:min(880px,96vw);max-height:92vh;background:var(--surface);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--sh-lg);overflow:hidden;display:flex;flex-direction:column" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
 
             @* header *@
             <div style="display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line)">

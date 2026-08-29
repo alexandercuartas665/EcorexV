@@ -31,8 +31,10 @@
     var item = _detail.Item;
     var readOnly = item.Status == TaskItemStatus.Closed;
     var targets = TaskItemStateMachine.AllowedTargets(item.Status);
-    <div class="modal-overlay" @onclick="CloseAsync">
-        <div class="tk-detail tk-detail-tabbed @(_flowDiagram is not null ? "tk-detail-flow" : "")" @onclick:stopPropagation="true" @onclick="CloseMenus">
+    @* Cerrar solo con una PULSACION deliberada en el fondo (mousedown en el backdrop). Con @onclick, un
+       arrastre que empieza dentro (seleccionar texto, dibujar en el croquis) y suelta afuera cerraba la tarea. *@
+    <div class="modal-overlay" style="overscroll-behavior:contain" @onmousedown="CloseAsync">
+        <div class="tk-detail tk-detail-tabbed @(_flowDiagram is not null ? "tk-detail-flow" : "")" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true" @onclick="CloseMenus">
             @* ===== Hero: numero + titulo + meta pills ===== *@
             <div class="tk-detail-head">
                 <div class="tk-detail-head-main">
@@ -1190,8 +1192,8 @@
 @* ===== Modal editor de un formulario (cotizacion del concepto o formulario del paso) ===== *@
 @if (_openForm is not null)
 {
-    <div class="modal-overlay" style="z-index:60;" @onclick="CloseOpenFormWithSaveAsync">
-        <div class="modal-dialog" style="@FormModalWidthStyle()" @onclick:stopPropagation="true">
+    <div class="modal-overlay" style="z-index:60;overscroll-behavior:contain" @onmousedown="CloseOpenFormWithSaveAsync">
+        <div class="modal-dialog" style="@FormModalWidthStyle()" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
             <div class="modal-head">
                 <h3>@_openForm.Title</h3>
                 <button class="modal-close" @onclick="CloseOpenFormWithSaveAsync">&times;</button>
@@ -1222,8 +1224,8 @@
        agregar antes de crear el borrador. Con un solo tipo no aparece (se agrega directo). ===== *@
 @if (_addPickerOpen)
 {
-    <div class="modal-overlay" style="z-index:61;" @onclick="@(() => _addPickerOpen = false)">
-        <div class="modal-dialog" style="max-width:380px;" @onclick:stopPropagation="true">
+    <div class="modal-overlay" style="z-index:61;overscroll-behavior:contain" @onmousedown="@(() => _addPickerOpen = false)">
+        <div class="modal-dialog" style="max-width:380px;" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
             <div class="modal-head">
                 <h3>Agregar formulario</h3>
                 <button class="modal-close" @onclick="@(() => _addPickerOpen = false)">&times;</button>

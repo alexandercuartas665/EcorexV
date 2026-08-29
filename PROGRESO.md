@@ -17,6 +17,22 @@
 
 ---
 
+## 2026-08-29 - v0.15.114: los modales de tarea ya no se cierran por un arrastre/click accidental al fondo
+
+- Pedido: al crear o editar una tarea, un click fuera del modal o un gesto de arrastre (empezar dentro y
+  soltar al lado) cerraba la tarea, el formulario o hasta salia de la pagina.
+- Causa: cierre por @onclick en el backdrop. Un arrastre que inicia dentro (seleccionar texto, dibujar en
+  el croquis) y suelta afuera dispara un "click" cuyo target resuelve al overlay -> cerraba. @onclick:
+  stopPropagation del dialogo no lo evita porque el click nunca pasa por el dialogo.
+- Fix: cerrar por @onmousedown en el backdrop (pulsacion DELIBERADA en el fondo) + @onmousedown:
+  stopPropagation en el dialogo. Un arrastre que empieza dentro nunca llega al overlay -> no cierra; un
+  click limpio en el fondo si cierra. Ademas overscroll-behavior:contain en los overlays para mitigar el
+  swipe-atras del trackpad ("salir de la pagina").
+- Aplicado a los 4 modales de crear/editar tarea: TaskWizard (wizard + su modal de formulario),
+  TaskDetailModal (detalle + modal de formulario + selector de agregar), FormFirstStarter. Build verde.
+
+---
+
 ## 2026-08-29 - v0.15.113: acceso a SECCIONES de formulario por CARGO (solo-lectura no autorizados) (ADR-0082)
 
 - Hand-off CONFIG: una seccion (FormContainer) puede declarar los cargos autorizados a operarla; quien no

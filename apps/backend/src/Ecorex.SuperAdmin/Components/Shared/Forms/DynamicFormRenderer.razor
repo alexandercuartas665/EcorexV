@@ -1607,16 +1607,35 @@ else
     private void RecomputeGrids()
     {
         if (_definition is null) { return; }
-        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+        // ADR-0081 fase 2: recalculo por ORDEN DE DEPENDENCIA (cross-grid) igual que el servidor: la grilla
+        // origen (APU) se computa antes que las que la referencian (Oferta/Margen). computedRows guarda las
+        // filas ya computadas para el resolver cross-grid (VLOOKUP/SUMIF). El servidor sigue mandando al enviar.
+        var gridMeta = _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail)
+            .Select(q => (q, cols: GridColumnsOf(q), extras: GridExtrasOf(q)))
+            .Where(x => x.cols.Count > 0)
+            .ToList();
+        var metaByCode = gridMeta.ToDictionary(m => m.q.FieldCode, m => m, StringComparer.OrdinalIgnoreCase);
+        var depItems = gridMeta
+            .Select(m => (m.q.FieldCode, (IReadOnlyList<string>)m.extras.Values
+                .Where(e => e.CrossRef is not null).Select(e => e.CrossRef!.Grid).ToList()))
+            .ToList();
+        var computedRowsByField = new Dictionary<string, List<Dictionary<string, string?>>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in FormGridDependency.Order(depItems))
         {
-            var cols = GridColumnsOf(q);
-            if (cols.Count == 0) { continue; }
-            // _values es el encabezado del formulario: resuelve las referencias {#campo} (C3).
-            // Compute (y no Recompute) porque ademas de filas y roll-ups devuelve QUE filas quedaron
-            // fuera del agregado: ese es el dato con el que se marcan visualmente (C4).
-            var computation = FormGridCalculator.Compute(GridRowsOf(q), cols, _values);
-            var rows = computation.Rows;
-            _values[q.FieldCode] = rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows);
+            var (q, cols, extras) = metaByCode[code];
+            var rows = GridRowsOf(q);
+            // CAP 2: resolver columnas crossGrid contra las grillas YA computadas (antes del Compute que las usa).
+            foreach (var ex in extras.Values.Where(e => e.CrossRef is not null))
+            {
+                if (!computedRowsByField.TryGetValue(ex.CrossRef!.Grid, out var src)) { continue; }
+                foreach (var row in rows) { row[ex.Id] = FormGridCrossRefResolver.Resolve(ex.CrossRef, src, row, _values); }
+            }
+            // _values es el encabezado del formulario: resuelve las referencias {#campo} (C3). Compute (y no
+            // Recompute) porque ademas de filas y roll-ups devuelve QUE filas quedaron fuera del agregado (C4).
+            var computation = FormGridCalculator.Compute(rows, cols, _values);
+            var computed = computation.Rows;
+            computedRowsByField[q.FieldCode] = computed;
+            _values[q.FieldCode] = computed.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(computed);
             foreach (var (field, total) in computation.Rollups) { _values[field] = total; }
             _gridExcludedRows[q.FieldCode] = computation.ExcludedRowIndexes.ToHashSet();
         }

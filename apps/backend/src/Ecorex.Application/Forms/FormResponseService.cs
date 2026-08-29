@@ -152,17 +152,34 @@ public sealed class FormResponseService : IFormResponseService
         // Valores del ENCABEZADO visibles para las formulas de columna via {#campo} (C3): p.ej. el
         // % de IVA de la cotizacion, que es editable por documento y no se repite en cada fila.
         var headerValues = document.ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
-        foreach (var question in questions.Where(q => q.ControlType == FormControlType.GridDetail))
+        // ADR-0081 fase 2: las grillas se recalculan en ORDEN POR DEPENDENCIA (cross-grid): una grilla que
+        // referencia a otra (columna crossGrid) se computa DESPUES de esa. Asi el APU se calcula antes que
+        // Oferta/Margen, que traen sus totales por VLOOKUP/SUMIF. computedRows guarda las filas ya computadas
+        // para que el resolver cross-grid las lea.
+        var gridMeta = questions.Where(q => q.ControlType == FormControlType.GridDetail)
+            .Select(q => (q, cols: Calc.FormGridCalculator.ParseColumns(q.OptionsJson),
+                             extras: Lookups.FormGridColumnLookupParser.Parse(q.OptionsJson)))
+            .Where(x => x.cols.Count > 0)
+            .ToList();
+        var metaByCode = gridMeta.ToDictionary(m => m.q.FieldCode, m => m, StringComparer.OrdinalIgnoreCase);
+        var depItems = gridMeta
+            .Select(m => (m.q.FieldCode, (IReadOnlyList<string>)m.extras.Values
+                .Where(e => e.CrossRef is not null).Select(e => e.CrossRef!.Grid).ToList()))
+            .ToList();
+        var computedRowsByField = new Dictionary<string, List<Dictionary<string, string?>>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in Calc.FormGridDependency.Order(depItems))
         {
-            var cols = Calc.FormGridCalculator.ParseColumns(question.OptionsJson);
-            if (cols.Count == 0) { continue; }
+            var (question, cols, extras) = metaByCode[code];
             document.TryGetValue(question.FieldCode, out var gridField);
             var gridRows = FormFieldValidator.ParseGridRows(gridField?.Value)
                 .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
             // Auto-resolucion multi-clave (VLOOKUP) AUTORITATIVA en servidor ANTES del calculo: el cliente
             // no es fuente de verdad para los precios resueltos (igual que el calc por formula).
             await ResolveGridColumnsAsync(question, gridRows, cancellationToken);
+            // CAP 2: resolver columnas crossGrid contra las grillas YA computadas (antes del calc, que las usa).
+            ResolveCrossGridColumns(extras, gridRows, computedRowsByField, headerValues);
             var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols, headerValues);
+            computedRowsByField[question.FieldCode] = computed;
             document[question.FieldCode] = new FormFieldValue(
                 computed.Count == 0 ? null : JsonSerializer.Serialize(computed, JsonOptions),
                 question.ControlType.ToString());
@@ -352,6 +369,27 @@ public sealed class FormResponseService : IFormResponseService
     /// consecutivo (una TenantSequence por formulario, prefijo = codigo del form) o clave natural
     /// (valor de un campo, unicidad garantizada por indice). None = sin numero.
     /// </summary>
+    // ADR-0081 CAP 2: para cada columna 'crossGrid' de la tabla, resuelve su valor (VLOOKUP/SUMIF) contra
+    // las filas YA COMPUTADAS de la grilla origen (mismo registro). Se llama ANTES del Recompute para que
+    // los 'calc' que usan el valor lo vean. Si la grilla origen aun no se computo (deberia por el orden de
+    // dependencia), la celda se deja como estaba.
+    private static void ResolveCrossGridColumns(
+        IReadOnlyDictionary<string, Lookups.FormGridColumnExtras> extras,
+        List<Dictionary<string, string?>> rows,
+        IReadOnlyDictionary<string, List<Dictionary<string, string?>>> computedByField,
+        IReadOnlyDictionary<string, string?> headerValues)
+    {
+        foreach (var ex in extras.Values.Where(e => e.CrossRef is not null))
+        {
+            var cross = ex.CrossRef!;
+            if (!computedByField.TryGetValue(cross.Grid, out var sourceRows)) { continue; }
+            foreach (var row in rows)
+            {
+                row[ex.Id] = Calc.FormGridCrossRefResolver.Resolve(cross, sourceRows, row, headerValues);
+            }
+        }
+    }
+
     // Auto-resolucion multi-clave (VLOOKUP/INDEX-MATCH) en SERVIDOR: para cada columna 'resolve' de la
     // tabla, valida 'when', sustituye {campo} del match con celdas de la MISMA fila y pide el valor a la
     // capa de lookup (tenant-safe). Mismo criterio que el renderer; el servidor manda.

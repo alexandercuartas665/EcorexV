@@ -17,6 +17,27 @@
 
 ---
 
+## 2026-08-29 - v0.15.112: motor APU fase 2 - cableado recalculo (server+cliente) + UI del disenador (ADR-0081)
+
+- Hand-off CONFIG (APU EPRING), FASE 2: cablear el motor de fase 1 en el recalculo real y exponerlo en el
+  disenador. Server sigue autoritativo; cliente en paridad para el preview.
+- Orden por dependencias: nuevo FormGridDependency.Order (Kahn estable) -> las grillas referenciadas por un
+  crossGrid se computan ANTES que las que las referencian; ciclos/aristas ausentes se ignoran (quedan al
+  final en orden de entrada, sin colgar).
+- Recalculo server (FormResponseService) y cliente (DynamicFormRenderer.RecomputeGrids) reescritos: arman el
+  meta por grilla (cols + extras), ordenan por dependencia, RESUELVEN las columnas crossGrid contra las filas
+  YA computadas de la grilla origen (FormGridCrossRefResolver) antes de Compute, y guardan las filas por field
+  code para las grillas que las referencian.
+- UI del disenador (FormDesigner.razor, editor de columnas de grilla): selector "Agrupar subtotales por"
+  (CAP 1, visible solo si la columna agrega) y bloque "Traer de otra grilla (cross-grid)" (grilla origen,
+  modo SUMIF/VLOOKUP, columna a traer, operacion para SUMIF, y 1 par columnaOrigen = valor de esta fila).
+  Helpers SetGridColumnGroupByAsync/SetGridCrossGridAsync/PatchGridCrossFieldAsync/PatchGridCrossMatchAsync
+  (mutan groupBy/crossGrid en options_json; RawColumnExtras los preserva). Nada de JSON crudo ni SQL.
+- Build SuperAdmin verde (0 errores). Sin migracion. PENDIENTE fase 3: render agrupado (CAP 3). Validacion
+  end-to-end contra el form APU-COZ (grillas lineas_apu/margen/items_oferta) la hace el usuario en dev.
+
+---
+
 ## 2026-08-28 - v0.15.111: motor APU fase 1 - subtotales agrupados (CAP1) + cross-grid resolver (CAP2) (ADR-0081)
 
 - Hand-off sesion CONFIG (APU EPRING): completar el costeo APU con calculo agrupado y referencias entre

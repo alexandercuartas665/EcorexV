@@ -2251,12 +2251,108 @@ else
                                                    @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { AggWhen = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value!.ToString() }))" />
                                             <div class="fb-hint">Solo las filas que cumplan la condicion entran al total.</div>
                                         </div>
+                                        @* CAP 1 (ADR-0081): subtotales por grupo. Ademas del total completo, calcula un
+                                           subtotal por cada valor de la columna clave (SUMIF por grupo). *@
+                                        <div class="fb-gcp-field">
+                                            <label>Agrupar subtotales por (opcional)</label>
+                                            <select class="fb-select" @onchange="@(e => SetGridColumnGroupByAsync(node.Q!, idx, e.Value?.ToString()))">
+                                                <option value="" selected="@(string.IsNullOrWhiteSpace(col.GroupBy))">Sin agrupar</option>
+                                                @foreach (var gc in gcols.Where(x => x.Id != col.Id))
+                                                {
+                                                    <option value="@gc.Id" selected="@(col.GroupBy == gc.Id)">@gc.Label</option>
+                                                }
+                                            </select>
+                                            <div class="fb-hint">Subtotal por cada valor de esa columna. Lo usan el cross-grid (traer de otra grilla) y el render agrupado.</div>
+                                        </div>
                                     }
                                     <div class="fb-gcp-field">
                                         <label>Valor por defecto (al crear fila)</label>
                                         <input class="fb-input" value="@(ext?.Default)" placeholder="(vacio)"
                                                @onchange="@(e => SetGridColumnDefaultAsync(node.Q!, idx, e.Value?.ToString()))" />
                                     </div>
+                                    @* CAP 2 (ADR-0081): referencia CROSS-GRID. La columna trae un valor de OTRA grilla del
+                                       mismo formulario (VLOOKUP/SUMIF por clave). El motor ordena el recalculo por dependencias. *@
+                                    @{
+                                        var otherGrids = _def!.Questions
+                                            .Where(x => x.ControlType == FormControlType.GridDetail && x.FieldCode != node.Q!.FieldCode)
+                                            .ToList();
+                                        var cross = ext?.CrossRef;
+                                        var srcQ = cross is null ? null : _def!.Questions.FirstOrDefault(x => x.FieldCode == cross.Grid);
+                                        var srcCols = srcQ is null ? new List<FormGridColumn>() : FormGridCalculator.ParseColumns(srcQ.OptionsJson).ToList();
+                                        var matchSrc = cross?.Match.Keys.FirstOrDefault();
+                                        var matchRef = cross?.Match.Values.FirstOrDefault();
+                                    }
+                                    @if (otherGrids.Count > 0)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Traer de otra grilla (cross-grid)</label>
+                                            <select class="fb-select" @onchange="@(e => SetGridCrossGridAsync(node.Q!, idx, e.Value?.ToString()))">
+                                                <option value="" selected="@(cross is null)">No</option>
+                                                @foreach (var og in otherGrids)
+                                                {
+                                                    <option value="@og.FieldCode" selected="@(cross?.Grid == og.FieldCode)">@og.Label</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        @if (cross is not null)
+                                        {
+                                            <div class="fb-gcp-row">
+                                                <div class="fb-gcp-field">
+                                                    <label>Como</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchGridCrossFieldAsync(node.Q!, idx, "mode", e.Value?.ToString()))">
+                                                        <option value="sumif" selected="@(cross.IsSumIf)">Sumar por grupo (SUMIF)</option>
+                                                        <option value="vlookup" selected="@(!cross.IsSumIf)">Traer de la 1a fila (VLOOKUP)</option>
+                                                    </select>
+                                                </div>
+                                                <div class="fb-gcp-field">
+                                                    <label>Columna a traer</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchGridCrossFieldAsync(node.Q!, idx, "valueField", e.Value?.ToString()))">
+                                                        <option value="">...</option>
+                                                        @foreach (var sc in srcCols)
+                                                        {
+                                                            <option value="@sc.Id" selected="@(cross.ValueField == sc.Id)">@sc.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            @if (cross.IsSumIf)
+                                            {
+                                                <div class="fb-gcp-field">
+                                                    <label>Operacion</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchGridCrossFieldAsync(node.Q!, idx, "agg", e.Value?.ToString()))">
+                                                        <option value="Sum" selected="@(cross.Agg == FormAggregate.Sum)">Suma</option>
+                                                        <option value="Count" selected="@(cross.Agg == FormAggregate.Count)">Conteo</option>
+                                                        <option value="Avg" selected="@(cross.Agg == FormAggregate.Avg)">Promedio</option>
+                                                        <option value="Min" selected="@(cross.Agg == FormAggregate.Min)">Minimo</option>
+                                                        <option value="Max" selected="@(cross.Agg == FormAggregate.Max)">Maximo</option>
+                                                    </select>
+                                                </div>
+                                            }
+                                            <div class="fb-gcp-row">
+                                                <div class="fb-gcp-field">
+                                                    <label>Emparejar: columna de la otra grilla</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchGridCrossMatchAsync(node.Q!, idx, e.Value?.ToString(), matchRef))">
+                                                        <option value="">...</option>
+                                                        @foreach (var sc in srcCols)
+                                                        {
+                                                            <option value="@sc.Id" selected="@(matchSrc == sc.Id)">@sc.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="fb-gcp-field">
+                                                    <label>= valor de esta fila</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchGridCrossMatchAsync(node.Q!, idx, matchSrc, e.Value?.ToString()))">
+                                                        <option value="">...</option>
+                                                        @foreach (var gc in gcols.Where(x => x.Id != col.Id))
+                                                        {
+                                                            <option value="@("{" + gc.Id + "}")" selected="@(matchRef == "{" + gc.Id + "}")">@gc.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="fb-hint">SUMIF suma la columna de la otra grilla por grupo; VLOOKUP toma la 1a fila que coincide. La grilla origen se recalcula primero.</div>
+                                        }
+                                    }
                                 </div>
                             }
                         </div>
@@ -2965,6 +3061,61 @@ else
         {
             var v = value?.Trim();
             if (string.IsNullOrEmpty(v)) { obj.Remove("default"); } else { obj["default"] = v; }
+        });
+
+    // ---- CAP 1 (ADR-0081): subtotales por grupo ("groupBy") ----
+
+    /// <summary>Columna clave por la que se calculan subtotales (SUMIF por grupo); vacio lo quita.</summary>
+    private Task SetGridColumnGroupByAsync(FormQuestionDto q, int index, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            var v = value?.Trim();
+            if (string.IsNullOrEmpty(v)) { obj.Remove("groupBy"); } else { obj["groupBy"] = v; }
+        });
+
+    // ---- CAP 2 (ADR-0081): referencia cross-grid ("crossGrid") ----
+
+    /// <summary>Activa/desactiva el cross-grid de la columna. Al activar arma el objeto con defaults (sumif/Sum).</summary>
+    private Task SetGridCrossGridAsync(FormQuestionDto q, int index, string? gridFieldCode)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            var g = gridFieldCode?.Trim();
+            if (string.IsNullOrEmpty(g)) { obj.Remove("crossGrid"); return; }
+            if (obj["crossGrid"] is JsonObject cg)
+            {
+                cg["grid"] = g;
+            }
+            else
+            {
+                obj["crossGrid"] = new JsonObject
+                {
+                    ["grid"] = g,
+                    ["mode"] = "sumif",
+                    ["agg"] = "Sum",
+                    ["match"] = new JsonObject(),
+                };
+            }
+        });
+
+    /// <summary>Fija un escalar del cross-grid (mode / valueField / agg); vacio lo quita.</summary>
+    private Task PatchGridCrossFieldAsync(FormQuestionDto q, int index, string key, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["crossGrid"] is not JsonObject cg) { return; }
+            var v = value?.Trim();
+            if (string.IsNullOrEmpty(v)) { cg.Remove(key); } else { cg[key] = v; }
+        });
+
+    /// <summary>Reescribe el unico par de emparejamiento del cross-grid: {columnaOrigen: refFilaActual}.</summary>
+    private Task PatchGridCrossMatchAsync(FormQuestionDto q, int index, string? sourceCol, string? rowRef)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["crossGrid"] is not JsonObject cg) { return; }
+            var match = new JsonObject();
+            var s = sourceCol?.Trim();
+            var r = rowRef?.Trim();
+            if (!string.IsNullOrEmpty(s) && !string.IsNullOrEmpty(r)) { match[s] = r; }
+            cg["match"] = match;
         });
 
     // Mapa de autollenado (campoFuente -> columnaDestino): se edita como lista ordenada y se reescribe.

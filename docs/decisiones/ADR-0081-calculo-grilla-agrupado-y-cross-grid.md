@@ -56,9 +56,18 @@ ultima pasada). Hoy el recalculo es una sola pasada en orden de preguntas.
   `FormGridCalculator.Compute`/`GroupAggregate`/`NormalizeKey`, `FormGridCrossRef` + parse (`crossGrid`),
   `FormGridCrossRefResolver`. Verificado determinista contra la aritmetica del APU (SUMIF APU->Margen,
   APU->Oferta; VLOOKUP). Sin migracion (todo en options_json).
-- FASE 2 (siguiente): cablear en el recalculo AUTORITATIVO del servidor (FormResponseService) y en el cliente
-  (DynamicFormRenderer) con ORDEN POR DEPENDENCIAS entre grillas; resolver las columnas `crossGrid` antes de
-  las `calc` que las usan. UI del disenador para `groupBy` y `crossGrid` (nada de JSON crudo).
+- FASE 2 (v0.15.112, este commit): CABLEADO. Nuevo `FormGridDependency.Order` (Kahn estable: grillas
+  referenciadas primero; ciclos/aristas ausentes se ignoran y quedan al final en orden de entrada). El
+  recalculo del servidor (`FormResponseService`) y el del cliente (`DynamicFormRenderer.RecomputeGrids`)
+  ahora: (a) arman el meta de cada grilla (columnas + extras), (b) ordenan por dependencia cross-grid,
+  (c) resuelven las columnas `crossGrid` (`FormGridCrossRefResolver`) contra las filas YA computadas de la
+  grilla origen antes de correr `Compute`, (d) guardan las filas por field code para las grillas que las
+  referencian. UI del disenador (`FormDesigner.razor`, editor de columnas de grilla): selector "Agrupar
+  subtotales por" (CAP 1, solo si la columna tiene Agg) y bloque "Traer de otra grilla (cross-grid)" con
+  grilla origen, modo (SUMIF/VLOOKUP), columna a traer, operacion (para SUMIF) y 1 par de emparejamiento
+  (columna origen = valor de esta fila). Helpers `SetGridColumnGroupByAsync`, `SetGridCrossGridAsync`,
+  `PatchGridCrossFieldAsync`, `PatchGridCrossMatchAsync` (mutan `groupBy`/`crossGrid` del options_json;
+  `RawColumnExtras` los preserva en el round-trip de columnas). Nada de JSON crudo ni SQL. Sin migracion.
 - FASE 3 (CAP 3): render agrupado (bloques por grupo + filas de subtotal) sobre RenderGrid.
 
 ## Consecuencias
@@ -70,7 +79,8 @@ ultima pasada). Hoy el recalculo es una sola pasada en orden de preguntas.
 
 ## Pendientes / supuestos
 
-- Fase 2 y 3 (wiring server/cliente con orden de dependencias, UI del disenador, render agrupado).
-- SUMIF/VLOOKUP con clave COMPUESTA soportado por el resolver (match multi-columna); la UI de fase 2 puede
-  exponer solo 1 clave al inicio.
-- Ciclos entre grillas: se cortan (no hay iteracion a punto fijo en fase 1); fase 2 define el tope de pasadas.
+- Fase 3 (CAP 3): render agrupado (bloques por grupo + filas de subtotal).
+- SUMIF/VLOOKUP con clave COMPUESTA soportado por el resolver (match multi-columna); la UI de fase 2 expone
+  solo 1 clave (el motor acepta varias si se editan a mano o en una futura UI).
+- Ciclos entre grillas: `FormGridDependency.Order` los corta (una sola pasada ordenada, sin iteracion a punto
+  fijo); los nodos en ciclo quedan al final en orden de entrada. No hay tope de pasadas porque no se itera.

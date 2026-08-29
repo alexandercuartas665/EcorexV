@@ -17,6 +17,29 @@
 
 ---
 
+## 2026-08-29 - v0.15.113: acceso a SECCIONES de formulario por CARGO (solo-lectura no autorizados) (ADR-0082)
+
+- Hand-off CONFIG: una seccion (FormContainer) puede declarar los cargos autorizados a operarla; quien no
+  tenga uno de esos cargos la ve en SOLO-LECTURA. Sin cargos = todos operan. Owner/Admin bypass.
+- Persistencia: FormContainer.AllowedCargosJson (string? arreglo JSON de Guids OrgUnit-Cargo). Columna dual
+  (PG jsonb / SQL nvarchar(max)). Migracion dual 20260829132944 (PG) + 20260829133053 (SQL). Aditiva,
+  nullable. Propagada por FormContainerDto/SaveFormContainerRequest + create/update/import-export.
+- Modelo de cargo reusado (sin entidad nueva). Resolver INVERSO nuevo IOrgUnitService.ListCargoIdsForUserAsync
+  (3 vias: funcionario hijo con TenantUserId, OrgUnitMember, ResponsibleTenantUserId) +
+  ListCargoOptionsAsync (picker). Puente claim->TenantUser: ITenantUserService.ResolveTenantUserIdAsync.
+- Renderer: cachea _currentUserCargos en la carga; IsSectionReadonly(container) = cargos declarados && rol
+  no Owner/Admin && sin interseccion; gate en RenderContainerChildren (choke point) que envuelve el cuerpo
+  en <fieldset disabled> (cuerpo extraido a RenderContainerChildrenInner). No pierde datos (idem readonly
+  por campo: _values se conserva, fieldset disabled no dispara onchange).
+- Disenador: picker "Cargos que pueden operar esta seccion" (checkbox grid, gate Section/Segment) que
+  guarda Guids en AllowedCargosJson via PatchContainerAsync.
+- Build verde (SuperAdmin + ambos proveedores compilan; migraciones generadas). Dev migrado auto en arranque.
+  NOTA de validacion: EPRING no tiene organigrama; los tenants con cargos (AGROMETALICAS) tienen TODOS sus
+  usuarios como Owner/Admin, asi que para ver el estado solo-lectura hace falta un usuario Supervisor/Advisor
+  sin el cargo. El picker y el guardado si se validan como Admin.
+
+---
+
 ## 2026-08-29 - v0.15.112: motor APU fase 2 - cableado recalculo (server+cliente) + UI del disenador (ADR-0081)
 
 - Hand-off CONFIG (APU EPRING), FASE 2: cablear el motor de fase 1 en el recalculo real y exponerlo en el

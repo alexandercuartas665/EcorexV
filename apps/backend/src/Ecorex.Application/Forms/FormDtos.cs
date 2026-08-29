@@ -26,7 +26,9 @@ public sealed record FormContainerDto(
     int SortOrder, string? Style,
     string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false,
     // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
-    bool InlineLabels = false);
+    bool InlineLabels = false,
+    // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
+    string? AllowedCargosJson = null);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -110,7 +112,9 @@ public sealed record SaveFormContainerRequest(
     Guid? ParentId = null, string? Style = null,
     string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false,
     // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
-    bool InlineLabels = false);
+    bool InlineLabels = false,
+    // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
+    string? AllowedCargosJson = null);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el

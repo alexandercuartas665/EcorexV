@@ -44,4 +44,11 @@ public class FormContainer : TenantEntity
 
     /// <summary>Oculto: ni el contenedor ni su subarbol se pintan en el renderer (prototipo eye).</summary>
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// Acceso por CARGO (ADR-0082): arreglo JSON de Guids de OrgUnit con Classifier==Cargo autorizados a
+    /// OPERAR esta seccion. Null/vacio = sin restriccion (todos la operan, comportamiento actual). Un usuario
+    /// cuyo cargo NO este en la lista VE la seccion en SOLO-LECTURA. Owner/Admin del tenant la operan siempre.
+    /// </summary>
+    public string? AllowedCargosJson { get; set; }
 }

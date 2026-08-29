@@ -1511,6 +1511,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Style).HasMaxLength(300);
             // Constructor del prototipo (ADR-0021).
             b.Property(x => x.TabsJson).HasColumnType(jsonColumnType);
+            // Acceso por cargo (ADR-0082): arreglo JSON de Guids de OrgUnit-Cargo (dual PG jsonb / SQL nvarchar).
+            b.Property(x => x.AllowedCargosJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Width).HasDefaultValue(12);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);

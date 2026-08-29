@@ -16,6 +16,10 @@ public interface ITenantUserService
     /// CurrentUser del formulario para autollenar "emitido por" con el nombre real, no el login.</summary>
     Task<string?> ResolveDisplayNameAsync(Guid platformUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>TenantUser.Id del usuario del tenant activo dado su PlatformUserId (claim). null si no es
+    /// miembro. Lo usa el acceso por cargo de secciones (ADR-0082) para resolver los cargos del usuario.</summary>
+    Task<Guid?> ResolveTenantUserIdAsync(Guid platformUserId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Igual que <see cref="ListAsync(CancellationToken)"/> pero permite incluir los usuarios
     /// eliminados (Status = Removed). Solo la pantalla de administracion de usuarios los pide,

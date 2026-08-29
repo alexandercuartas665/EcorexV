@@ -34,6 +34,17 @@ public sealed class TenantUserService : ITenantUserService
             .Select(u => u.DisplayName)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<Guid?> ResolveTenantUserIdAsync(Guid platformUserId, CancellationToken cancellationToken = default)
+    {
+        if (platformUserId == Guid.Empty) { return null; }
+        // Filtro global: solo resuelve el TenantUser del tenant activo (aislamiento por construccion).
+        var id = await _db.TenantUsers.AsNoTracking()
+            .Where(tu => tu.PlatformUserId == platformUserId)
+            .Select(tu => (Guid?)tu.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        return id;
+    }
+
     public async Task<IReadOnlyList<TenantUserDto>> ListAsync(bool includeRemoved, CancellationToken cancellationToken = default)
     {
         // El filtro global del DbContext limita por el tenant del contexto.

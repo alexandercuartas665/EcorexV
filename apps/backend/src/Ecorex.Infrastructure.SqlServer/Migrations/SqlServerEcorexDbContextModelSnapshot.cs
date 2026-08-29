@@ -4945,6 +4945,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AllowedCargosJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("allowed_cargos_json");
+
                     b.Property<string>("ContainerType")
                         .IsRequired()
                         .HasMaxLength(40)

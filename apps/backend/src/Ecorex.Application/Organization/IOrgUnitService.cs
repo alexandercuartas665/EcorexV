@@ -1,3 +1,5 @@
+using Ecorex.Application.Actividades;
+
 namespace Ecorex.Application.Organization;
 
 /// <summary>
@@ -17,6 +19,17 @@ public interface IOrgUnitService
     Task<IReadOnlyList<OrgUnitDto>> ListAsync(bool includeArchived = false, CancellationToken cancellationToken = default);
 
     Task<OrgUnitDto?> GetAsync(Guid unitId, CancellationToken cancellationToken = default);
+
+    /// <summary>Opciones de CARGO (OrgUnit Classifier==Cargo, no archivados) para pickers. Tenant-scoped.</summary>
+    Task<IReadOnlyList<CargoOptionDto>> ListCargoOptionsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolver INVERSO (ADR-0082): ids de los CARGOS a los que pertenece un usuario del tenant. Union de las
+    /// tres vias de vinculacion usuario-cargo (espejo de ActividadCatalogoService.ListEncargadoUserIdsAsync):
+    /// (1) OrgUnit Funcionario hijo del cargo con TenantUserId; (2) OrgUnitMember con OrgUnitId=cargo;
+    /// (3) ResponsibleTenantUserId del cargo. Solo cargos no archivados. Tenant-scoped por el filtro global.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListCargoIdsForUserAsync(Guid tenantUserId, CancellationToken cancellationToken = default);
 
     /// <summary>KPIs de cabecera: total dependencias activas, usuarios asignados (miembros + responsables distintos) y areas.</summary>
     Task<OrgKpisDto> GetKpisAsync(CancellationToken cancellationToken = default);

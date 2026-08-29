@@ -17,6 +17,7 @@
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
+@inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -285,6 +286,9 @@ else
     private string? _currentRole;
     // Nombre del usuario logueado (para el default dinamico "usuario actual": se muestra el NOMBRE, no el Guid).
     private string? _currentUserName;
+    // Acceso por cargo (ADR-0082): cargos (OrgUnit-Cargo) del usuario actual, cacheados por carga. Se usan
+    // para deshabilitar (solo-lectura) las secciones cuyo AllowedCargosJson no incluya ninguno de estos.
+    private HashSet<Guid> _currentUserCargos = new();
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -397,6 +401,21 @@ else
                     if (!string.IsNullOrWhiteSpace(full)) { _currentUserName = full; }
                 }
                 catch { /* si no se puede resolver, queda el Identity.Name */ }
+            }
+            // Acceso por cargo (ADR-0082): cargos del usuario actual (PlatformUser -> TenantUser -> cargos),
+            // una vez por carga. Owner/Admin no lo necesitan (bypass), pero resolverlo es barato e idempotente.
+            _currentUserCargos = new();
+            if (platformUserId is Guid puid3)
+            {
+                try
+                {
+                    var tenantUserId = await TenantUsersSvc.ResolveTenantUserIdAsync(puid3);
+                    if (tenantUserId is Guid tuid)
+                    {
+                        _currentUserCargos = (await OrgUnitsSvc.ListCargoIdsForUserAsync(tuid)).ToHashSet();
+                    }
+                }
+                catch { /* sin cargos resueltos: las secciones restringidas quedan en solo-lectura */ }
             }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
@@ -652,6 +671,23 @@ else
     };
 
     private RenderFragment RenderContainerChildren(FormContainerDto container, bool stack) => __builder =>
+    {
+        @* Acceso por cargo (ADR-0082): si el usuario no puede operar la seccion, se envuelve TODO su cuerpo
+           (preguntas directas + subcontenedores + cuerpo de Tabs, este es el unico choke point) en
+           <fieldset disabled>, que deshabilita sin tocar RenderInput ni el guardado de valores. *@
+        @if (IsSectionReadonly(container))
+        {
+            <fieldset disabled class="dfr-ro dfr-section-ro">
+                @RenderContainerChildrenInner(container, stack)
+            </fieldset>
+        }
+        else
+        {
+            @RenderContainerChildrenInner(container, stack)
+        }
+    };
+
+    private RenderFragment RenderContainerChildrenInner(FormContainerDto container, bool stack) => __builder =>
     {
         var questions = QuestionsOf(container.Id);
         @if (questions.Count > 0)
@@ -2623,6 +2659,39 @@ else
         }
         catch (System.Text.Json.JsonException) { }
         return false;
+    }
+
+    // Acceso por CARGO a la seccion (ADR-0082): una seccion con AllowedCargosJson no vacio solo la operan
+    // los usuarios cuyo cargo este en la lista; los demas la ven en SOLO-LECTURA. Bypass: Owner/Admin del
+    // tenant operan todas las secciones. Sin cargos declarados = sin restriccion (todos operan).
+    private bool IsSectionReadonly(FormContainerDto container)
+    {
+        if (string.IsNullOrWhiteSpace(container.AllowedCargosJson)) { return false; }
+        // Bypass de administradores.
+        if (string.Equals(_currentRole, "Owner", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(_currentRole, "Admin", StringComparison.OrdinalIgnoreCase)) { return false; }
+        var allowed = ParseCargoIds(container.AllowedCargosJson);
+        if (allowed.Count == 0) { return false; }
+        // Solo-lectura si el usuario NO tiene ninguno de los cargos autorizados.
+        return !allowed.Any(_currentUserCargos.Contains);
+    }
+
+    private static List<Guid> ParseCargoIds(string? json)
+    {
+        var ids = new List<Guid>();
+        if (string.IsNullOrWhiteSpace(json)) { return ids; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) { return ids; }
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                if (e.ValueKind == System.Text.Json.JsonValueKind.String
+                    && Guid.TryParse(e.GetString(), out var g)) { ids.Add(g); }
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return ids;
     }
 
     /// <summary>Contexto de la TAREA anfitriona (cliente, email, etc.) para resolver tokens {tareas.campo}

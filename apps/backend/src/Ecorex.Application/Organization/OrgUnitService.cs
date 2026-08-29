@@ -85,6 +85,45 @@ public sealed class OrgUnitService : IOrgUnitService
         return await ToDtoAsync(unit, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Actividades.CargoOptionDto>> ListCargoOptionsAsync(CancellationToken cancellationToken = default)
+        => await _db.OrgUnits.AsNoTracking()
+            .Where(o => o.Classifier == OrgUnitClassifier.Cargo && !o.IsArchived)
+            .OrderBy(o => o.Name)
+            .Select(o => new Actividades.CargoOptionDto(o.Id, o.Name))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> ListCargoIdsForUserAsync(Guid tenantUserId, CancellationToken cancellationToken = default)
+    {
+        if (tenantUserId == Guid.Empty) { return Array.Empty<Guid>(); }
+        var cargos = new HashSet<Guid>();
+
+        // (1) Funcionario (hijo de un Cargo) ocupado por el usuario -> su cargo padre.
+        var byOccupant = await _db.OrgUnits.AsNoTracking()
+            .Where(o => o.Classifier == OrgUnitClassifier.Funcionario && o.TenantUserId == tenantUserId
+                && o.ParentId != null && !o.IsArchived)
+            .Select(o => o.ParentId!.Value)
+            .ToListAsync(cancellationToken);
+        foreach (var c in byOccupant) { cargos.Add(c); }
+
+        // (2) Miembro directo de un Cargo (OrgUnitMember con OrgUnitId = cargo).
+        var byMember = await _db.OrgUnitMembers.AsNoTracking()
+            .Where(m => m.TenantUserId == tenantUserId
+                && m.OrgUnit!.Classifier == OrgUnitClassifier.Cargo && !m.OrgUnit.IsArchived)
+            .Select(m => m.OrgUnitId)
+            .ToListAsync(cancellationToken);
+        foreach (var c in byMember) { cargos.Add(c); }
+
+        // (3) Responsable/jefe de un Cargo.
+        var byResponsible = await _db.OrgUnits.AsNoTracking()
+            .Where(o => o.Classifier == OrgUnitClassifier.Cargo && !o.IsArchived
+                && o.ResponsibleTenantUserId == tenantUserId)
+            .Select(o => o.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var c in byResponsible) { cargos.Add(c); }
+
+        return cargos.ToList();
+    }
+
     public async Task<OrgKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
     {
         var totalUnits = await _db.OrgUnits.CountAsync(u => !u.IsArchived, cancellationToken);

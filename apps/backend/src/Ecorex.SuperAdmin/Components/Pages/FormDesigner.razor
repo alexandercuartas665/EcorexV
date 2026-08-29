@@ -17,6 +17,7 @@
 @inject IRuleDocumentService RulesSvc
 @inject IFormLookupService LookupSvc
 @inject IMenuConfigService MenuSvc
+@inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject NavigationManager Nav
 
 @* ============================================================
@@ -788,12 +789,17 @@ else
     // ---- Ciclo de vida ----
 
     private IReadOnlyList<FormDefinitionListItemDto> _allDefs = [];
+    // Cargos del tenant (OrgUnit-Cargo) para el picker de acceso por seccion (ADR-0082).
+    private IReadOnlyList<Ecorex.Application.Actividades.CargoOptionDto> _cargoOptions = [];
 
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
         // Definiciones para el selector de formulario hijo (Subform, ola F5).
         _allDefs = await FormsSvc.ListAsync();
+        // Cargos del tenant para el picker "Cargos que pueden operar esta seccion" (ADR-0082).
+        try { _cargoOptions = await OrgUnitsSvc.ListCargoOptionsAsync(); }
+        catch { _cargoOptions = Array.Empty<Ecorex.Application.Actividades.CargoOptionDto>(); }
         _loading = false;
     }
 
@@ -1056,7 +1062,7 @@ else
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
-        c.InlineLabels);
+        c.InlineLabels, c.AllowedCargosJson);
 
     private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
     {
@@ -1287,6 +1293,26 @@ else
         if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
         try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
         catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
+    }
+
+    // Acceso por cargo de la seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit-Cargo.
+    private static List<Guid> ParseCargoIds(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return new(); }
+        try { return (JsonSerializer.Deserialize<List<Guid>>(json) ?? new()).ToList(); }
+        catch (JsonException) { return new(); }
+    }
+
+    private static bool ContainerCargoHas(FormContainerDto c, Guid cargoId)
+        => ParseCargoIds(c.AllowedCargosJson).Contains(cargoId);
+
+    private Task ToggleContainerCargoAsync(FormContainerDto c, Guid cargoId, bool on)
+    {
+        var ids = ParseCargoIds(c.AllowedCargosJson);
+        ids.RemoveAll(x => x == cargoId);
+        if (on) { ids.Add(cargoId); }
+        var json = ids.Count == 0 ? null : JsonSerializer.Serialize(ids);
+        return PatchContainerAsync(c, r => r with { AllowedCargosJson = json });
     }
 
     private async void OpenFormProps()
@@ -1947,6 +1973,30 @@ else
                     @RenderToggleRow("Etiquetas en linea", "El label va al frente del valor (misma linea)",
                         node.C!.InlineLabels,
                         () => PatchContainerAsync(node.C!, r => r with { InlineLabels = !node.C!.InlineLabels }))
+                }
+                @* Acceso por cargo (ADR-0082): solo para secciones. Sin cargos = todos operan; con cargos,
+                   quien no tenga uno de esos cargos ve la seccion en solo-lectura (Owner/Admin siempre operan). *@
+                @if (node.IsContainer && node.C!.ContainerType is FormContainerType.Section or FormContainerType.Segment)
+                {
+                    <div class="fb-field" style="margin-top:8px;">
+                        <label>Cargos que pueden operar esta seccion</label>
+                        @if (_cargoOptions.Count == 0)
+                        {
+                            <div class="fb-hint">No hay cargos en el organigrama del tenant (modulo Dependencias).</div>
+                        }
+                        else
+                        {
+                            <div class="fb-chkgrid">
+                                @foreach (var cargo in _cargoOptions)
+                                {
+                                    <label class="pl-toggle"><input type="checkbox"
+                                        checked="@ContainerCargoHas(node.C!, cargo.Id)"
+                                        @onchange="@(e => ToggleContainerCargoAsync(node.C!, cargo.Id, (bool)e.Value!))" /> @cargo.Nombre</label>
+                                }
+                            </div>
+                            <div class="fb-hint">Sin marcar ninguno: todos la operan. Owner/Admin siempre operan.</div>
+                        }
+                    </div>
                 }
             </div>
         }

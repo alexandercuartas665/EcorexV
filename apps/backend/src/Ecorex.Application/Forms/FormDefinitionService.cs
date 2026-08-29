@@ -298,7 +298,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             Width = Math.Clamp(request.Width, 1, 12),
             IsLocked = request.IsLocked,
             IsHidden = request.IsHidden,
-            InlineLabels = request.InlineLabels
+            InlineLabels = request.InlineLabels,
+            AllowedCargosJson = Normalize(request.AllowedCargosJson)
         };
         _db.FormContainers.Add(container);
         TouchRevision(definition);
@@ -353,6 +354,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         container.IsLocked = request.IsLocked;
         container.IsHidden = request.IsHidden;
         container.InlineLabels = request.InlineLabels;
+        container.AllowedCargosJson = Normalize(request.AllowedCargosJson);
         await TouchRevisionAsync(container.DefinitionId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<FormContainerDto>.Ok(ToDto(container));
@@ -850,7 +852,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
 
     private static FormContainerDto ToDto(FormContainer c)
         => new(c.Id, c.Name, c.ContainerType, c.ParentId, c.SortOrder, c.Style,
-            c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels);
+            c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels, c.AllowedCargosJson);
 
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,

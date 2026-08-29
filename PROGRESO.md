@@ -17,6 +17,17 @@
 
 ---
 
+## 2026-08-28 - v0.15.109: boton "Listo" en el editor de formulario del detalle de la tarea
+
+- Pedido: al crear una tarea (wizard) el formulario tiene un boton "Listo"; al abrir el formulario desde
+  la tarjeta de una tarea (modo edicion, TaskDetailModal) no estaba ese boton.
+- TaskDetailModal.razor: el modal del formulario gana un pie con boton "Listo" (@ref al renderer +
+  CloseOpenFormWithSaveAsync): GUARDA el borrador (FlushDraftAsync, sin enviar) y cierra, refrescando las
+  tarjetas. La X y el clic afuera ahora tambien guardan (igual que el wizard). El "Enviar" del propio
+  formulario sigue siendo el commit definitivo. Build verde. Sin migracion.
+
+---
+
 ## 2026-08-28 - v0.15.108: fix crash del editor de tableros al renombrar columnas (estados)
 
 - BUG (prod): al renombrar/mover/eliminar una columna (estado) del tablero, el guardado "al instante"

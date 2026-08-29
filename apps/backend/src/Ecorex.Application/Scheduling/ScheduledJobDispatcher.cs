@@ -193,7 +193,7 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
             rule.NextRunAt = ScheduledJobRecurrence.ComputeNextRun(rule, window, tz);
         }
 
-        _db.ScheduledJobRuns.Add(new ScheduledJobRun
+        var run = new ScheduledJobRun
         {
             JobId = job.Id,
             RuleId = rule.Id,
@@ -202,7 +202,8 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
             Result = result,
             Detail = detail,
             CreatedEntityRef = createdRef,
-        });
+        };
+        _db.ScheduledJobRuns.Add(run);
 
         try
         {
@@ -213,6 +214,11 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
         {
             // Choque contra el indice unico (tenant, job, rule, fired_at, attempt): otra instancia del
             // worker ya disparo esta MISMA ventana en este MISMO intento. Idempotencia, no un error.
+            //
+            // Se DESENGANCHA la fila fallida (igual que SequenceService / ImportRunLog): EF la deja en
+            // estado Added tras el SaveChanges roto, y como el DbContext es compartido por el bucle, el
+            // SaveChanges de la SIGUIENTE regla reintentaria este insert fantasma y chocaria de nuevo.
+            _db.ScheduledJobRuns.Entry(run).State = EntityState.Detached;
             _logger.LogDebug("Ventana {Window:o} (intento {Attempt}) de {Code} ya disparada por otra instancia.",
                 window, attempt, job.Code);
             return false;

@@ -64,6 +64,13 @@ public sealed class ImportRunLog(IApplicationDbContext db, ILogger<ImportRunLog>
         {
             // Choco el indice unico (TenantId, ProcessId, FiredAt): otro worker ya tomo esta ventana.
             // No es un error: es la idempotencia funcionando. El perdedor se retira en silencio.
+            //
+            // CRITICO: se DESENGANCHA la fila fallida (igual que SequenceService). Tras un SaveChanges
+            // que revienta, EF la deja en estado Added; como este DbContext es COMPARTIDO con el
+            // dispatcher (mismo scope), el siguiente SaveChangesAsync de RunDueForTenantAsync
+            // reintentaria este insert fantasma y volveria a chocar el indice, ahora SIN catch -> el
+            // NextRunAt nunca se persiste y la ventana se reintenta en bucle cada minuto.
+            db.ImportRuns.Entry(run).State = EntityState.Detached;
             log.LogInformation("[BITACORA] ventana {Fired:o} del proceso {Process} ya estaba tomada; no se dispara dos veces",
                 firedAt, processId);
             return null;

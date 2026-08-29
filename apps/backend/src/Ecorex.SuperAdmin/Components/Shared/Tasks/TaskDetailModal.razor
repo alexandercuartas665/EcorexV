@@ -1190,14 +1190,15 @@
 @* ===== Modal editor de un formulario (cotizacion del concepto o formulario del paso) ===== *@
 @if (_openForm is not null)
 {
-    <div class="modal-overlay" style="z-index:60;" @onclick="@(() => _openForm = null)">
+    <div class="modal-overlay" style="z-index:60;" @onclick="CloseOpenFormWithSaveAsync">
         <div class="modal-dialog" style="@FormModalWidthStyle()" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>@_openForm.Title</h3>
-                <button class="modal-close" @onclick="@(() => _openForm = null)">&times;</button>
+                <button class="modal-close" @onclick="CloseOpenFormWithSaveAsync">&times;</button>
             </div>
             <div class="modal-body">
-                <DynamicFormRenderer DefinitionId="@_openForm.DefinitionId"
+                <DynamicFormRenderer @ref="_openFormRenderer"
+                                     DefinitionId="@_openForm.DefinitionId"
                                      ResponseId="@_openForm.ResponseId"
                                      Reference="@_openForm.Reference"
                                      Mode="@_openForm.Mode"
@@ -1206,6 +1207,11 @@
                                      ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
                                      OnOpenFormRequested="@OnConvertToFormAsync"
                                      OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />
+            </div>
+            @* "Listo": guarda el borrador y cierra (igual que el wizard de crear tarea). No envia; el
+               commit definitivo sigue en el boton "Enviar" del propio formulario. *@
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--line)">
+                <button class="btn btn-primary" disabled="@_busy" @onclick="CloseOpenFormWithSaveAsync">Listo</button>
             </div>
         </div>
     </div>
@@ -2307,6 +2313,23 @@
     {
         // Finalizar (enviar) una cotizacion: cierra el editor y refresca las tarjetas (queda Finalizada).
         _openForm = null;
+        if (_detail is not null) { await ReloadAsync(_detail.Item.Id); }
+        StateHasChanged();
+    }
+
+    private DynamicFormRenderer? _openFormRenderer;
+
+    /// <summary>"Listo" del editor de formulario en el detalle de la tarea (y el cierre por la X / clic afuera):
+    /// GUARDA el borrador (sin enviar) y cierra, igual que el wizard de crear tarea; luego refresca las
+    /// tarjetas para reflejar lo capturado. El envio definitivo sigue siendo el boton "Enviar" del formulario.</summary>
+    private async Task CloseOpenFormWithSaveAsync()
+    {
+        if (_openFormRenderer is not null)
+        {
+            try { await _openFormRenderer.FlushDraftAsync(); } catch { /* guardado best-effort */ }
+        }
+        _openForm = null;
+        _openFormRenderer = null;
         if (_detail is not null) { await ReloadAsync(_detail.Item.Id); }
         StateHasChanged();
     }

@@ -10204,3 +10204,21 @@ Items 319, Categorias 258, Cotizaciones 185, Notas credito 123, Impuestos 6, Ven
 Ademas 11 conectores RestApi/Basic (data_connectors, mapping_json con fields+paging offset) para el sync
 repetible; FALTA guardar el token cifrado (credentials_encrypted) via UI del conector o Config API para que
 el servidor re-descargue solo. Backup ecorex-2026-08-29-1623. SQL directo (excepcion ETL).
+
+## 2026-08-29 (cont.) - BITCODE/Alegra: sync automatico diario via Config API (ADR-0058)
+
+Se dejo la descarga de Alegra AUTOMATICA (server-direct, sin agente, porque Alegra es API publica).
+Pasos:
+- Bootstrap de un token de Config API para BITCODE (INSERT en tenant_api_tokens; solo se guarda el hash
+  SHA-256, igual que POST /tokens). Autorizado por el usuario (el clasificador habia frenado el mint por
+  ser credencial). El texto plano vive solo en scratchpad, NO versionado.
+- Basic auth: el runner arma "Authorization: Basic base64(secreto)" y el secreto DEBE ser "usuario:clave".
+  Se fijo el secreto = "<email>:<token>" en los 11 conectores via PUT /connectors/{id}/secret (cifrado
+  server-side con ISecretProtector). auth_kind=Basic. El campo username del conector es indiferente.
+- taxes: su arreglo va bajo results -> se ajusto mapping_json.arrayPath="results" (el resto son arrays raiz,
+  arrayPath null). El planner (ConnectorRunPlanner) lee arrayPath/paging/fields del mapping_json.
+- Validacion: probe Contactos OK; run Upsert Contactos -> updated 437 failed 0 (reconcilio con lo cargado
+  sin duplicar); run Impuestos OK (valida arrayPath).
+- Programacion: PUT /connectors/{id}/schedule en los 11 -> ScheduleKind=Cron "0 5 * * *" (05:00 Bogota =
+  10:00 UTC), Mode=Upsert, KeyColumn="Alegra Id", IsActive=true. nextRunAt 2026-08-30 10:00 UTC.
+Nota: paginado Offset start/limit pageSize=30 maxPages=500 (Alegra tope 30/pagina). Sin secretos en el repo.

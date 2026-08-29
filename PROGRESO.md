@@ -17,6 +17,18 @@
 
 ---
 
+## 2026-08-29 - v0.15.115: el fondo ya NO cierra los modales de tarea (ni click ni arrastre)
+
+- El fix v0.15.114 solo evito el cierre por ARRASTRE (cerrar por @onmousedown en el backdrop), pero un
+  click limpio afuera seguia cerrando. Pedido: que un click fuera del modal de tarea NO cierre.
+- Fix: quitar el handler de cierre del backdrop en los modales de crear/editar tarea. Ahora se cierran
+  SOLO con el boton X (y "Listo"/autoguardado en los de formulario). Aplicado a TaskDetailModal (detalle +
+  modal de formulario), TaskWizard (asistente + modal de formulario) y FormFirstStarter. El selector chico
+  "agregar formulario" (popup transitorio) si sigue cerrando al click afuera (comportamiento esperado).
+- Se conserva overscroll-behavior:contain. Build verde.
+
+---
+
 ## 2026-08-29 - v0.15.114: los modales de tarea ya no se cierran por un arrastre/click accidental al fondo
 
 - Pedido: al crear o editar una tarea, un click fuera del modal o un gesto de arrastre (empezar dentro y

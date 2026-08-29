@@ -17,6 +17,26 @@
 
 ---
 
+## 2026-08-29 - v0.15.117: Gestor contactos - filtros: borrar ya no tumba el circuito + aplicar filtra + activo/limpiar
+
+- Pedidos (CRM 000740, pestana Prospectos scrapeados):
+  1) Borrar un filtro tumbaba el circuito (excepcion no controlada). Causa: TerceroFiltro tiene 1:1 un
+     ContactWorkflow (disenador de acciones, ADR-0056) con FK RESTRICT; borrar el filtro directo violaba la FK.
+     Fix (GestorContactosService.DeleteFiltroAsync): borrar PRIMERO el ContactWorkflow (sus pasos/ventanas/runs
+     caen por cascada en BD) y luego el filtro, en un solo SaveChanges (atomico). El handler razor ahora
+     tambien respeta el resultado (res.IsOk).
+  2) "Filtrar ahora" no filtraba: solo cambiaba la fuente. Ahora ApplyFiltroAsync marca _activeFiltro y
+     ContactosFiltrados aplica sus criterios (ContactFilterEvaluator, misma logica que el conteo y el motor de
+     acciones) a la lista (prospectos + directorio). Campos no soportados por una fila se ignoran (no excluyen).
+  3) Filtro ACTIVO se resalta (clase .gc-filtro.active: borde/fondo brand + barra lateral) y hay un boton
+     "Limpiar filtros" (ClearActiveFilterAsync) que vuelve a Todas sin criterios ni busqueda.
+- PENDIENTE (tarea aparte en curso, otra sesion): el CONTEO de la tarjeta (ff.Conteo) se calcula sobre el
+  universo de Terceros (directorio), no sobre prospectos+directorio, asi que no coincide con lo que muestra
+  "Filtrar ahora". Reconciliar CountMatching al MISMO universo que ContactosFiltrados.
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-08-29 - v0.15.116: APU CAP 3 - render AGRUPADO con subtotales (pantalla + impresion + disenador) (ADR-0081)
 
 - Hand-off CONFIG: ultima pieza del APU. El calculo agrupado ya estaba (CAP1/CAP2, v0.15.112); faltaba la

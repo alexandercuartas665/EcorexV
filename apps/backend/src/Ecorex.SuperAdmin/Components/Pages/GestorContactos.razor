@@ -86,7 +86,19 @@
                     <div class="gc-side-hint">Define nombre, fuente y criterios en un solo lugar</div>
                 </div>
                 <div class="gc-side-list">
-                    <div class="gc-side-lbl">Filtros guardados</div>
+                    <div class="gc-side-lbl">
+                        <span>Filtros guardados</span>
+                        @if (_activeFiltro is not null)
+                        {
+                            <button class="gc-clear-filters" @onclick="ClearActiveFilterAsync" title="Quitar el filtro activo y volver a Todas">
+                                Limpiar filtros
+                            </button>
+                        }
+                    </div>
+                    @if (_activeFiltro is not null)
+                    {
+                        <div class="gc-active-note">Filtro activo: <b>@_activeFiltro.Nombre</b></div>
+                    }
                     @if (_filtros.Count == 0)
                     {
                         <div class="gc-empty-note">Sin filtros guardados todavia.</div>
@@ -94,7 +106,7 @@
                     @foreach (var f in _filtros)
                     {
                         var ff = f;
-                        <div class="gc-filtro">
+                        <div class="gc-filtro @(_activeFiltro?.Id == ff.Id ? "active" : "")">
                             <div class="gc-filtro-top">
                                 <span class="gc-filtro-name">@ff.Nombre</span>
                                 <button class="gc-dot" @onclick="() => _filtroMenu = _filtroMenu == ff.Id ? null : ff.Id" title="Acciones">
@@ -966,6 +978,8 @@
     // Sidebar filtros
     private bool _filtrosOpen = true;
     private Guid? _filtroMenu;
+    // Filtro ACTIVO (aplicado con "Filtrar ahora"): sus criterios filtran la lista y su tarjeta se resalta.
+    private FiltroDto? _activeFiltro;
 
     // Prospectos
     private string? _prospFuente;
@@ -1150,6 +1164,17 @@
                         FuenteDirectorio, t.Identificacion,
                         null, false, !t.EsEmpresa, t.ImagenUrl))
                     .Where(Match));
+            }
+
+            // Filtro ACTIVO: sus criterios (misma logica que "conteo" y el motor de acciones, ADR-0056)
+            // filtran la lista. Campos no soportados por una fila (p.ej. vendedor/perfil en un prospecto) se
+            // ignoran (no excluyen). Antes "Filtrar ahora" solo cambiaba la fuente y no filtraba de verdad.
+            if (_activeFiltro is { Criterios.Count: > 0 } af)
+            {
+                rows = rows.Where(r => ContactFilterEvaluator.MatchesAll(
+                    new ContactFilterEvaluator.Row(
+                        r.Nombre, r.Ciudad, null, r.Empresa, r.Sub, TerceroPerfil.Ninguno, TerceroEstado.Activo),
+                    af.Criterios)).ToList();
             }
 
             // Dedup por TerceroId: un prospecto PROMOVIDO crea un Tercero que tambien llega como fila del
@@ -1404,8 +1429,19 @@
     private async Task ApplyFiltroAsync(FiltroDto f)
     {
         _filtroMenu = null;
+        _activeFiltro = f;          // marca el filtro activo (resalta la tarjeta + filtra la lista)
+        _contactSearch = null;      // el "Filtrar ahora" manda; se limpia la busqueda rapida
         _prospFuente = f.Fuente;
         _tab = Tab.Prospectos;
+        _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
+    }
+
+    /// <summary>Limpia el filtro activo y vuelve a "Todas" (sin criterios ni busqueda).</summary>
+    private async Task ClearActiveFilterAsync()
+    {
+        _activeFiltro = null;
+        _contactSearch = null;
+        _prospFuente = null;
         _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
     }
 
@@ -1413,8 +1449,11 @@
     {
         _filtroMenu = null;
         _busy = true;
-        await GestorSvc.DeleteFiltroAsync(id);
+        var res = await GestorSvc.DeleteFiltroAsync(id);
         _busy = false;
+        if (!res.IsOk) { _fbError = res.Error; return; }
+        // Si el que se borro estaba activo, se limpia el estado activo.
+        if (_activeFiltro?.Id == id) { _activeFiltro = null; }
         _filtros = (await GestorSvc.ListFiltrosAsync()).ToList();
     }
 

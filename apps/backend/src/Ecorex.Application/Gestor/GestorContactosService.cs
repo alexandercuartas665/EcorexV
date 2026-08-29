@@ -813,6 +813,15 @@ public sealed class GestorContactosService : IGestorContactosService
         {
             return TerceroResult<bool>.NotFound("El filtro no existe.");
         }
+        // ADR-0056: el filtro tiene 1:1 un disenador de acciones (ContactWorkflow) con FK RESTRICT. Si existe,
+        // borrar el filtro directo lanzaba una violacion de FK que tumbaba el circuito. Se borra PRIMERO el
+        // workflow (sus pasos/ventanas/runs caen por cascada en BD) y luego el filtro, en un solo SaveChanges
+        // (atomico). Sin el workflow, esto es un no-op y se comporta como antes.
+        var workflow = await _db.ContactWorkflows.FirstOrDefaultAsync(w => w.TerceroFiltroId == id, cancellationToken);
+        if (workflow is not null)
+        {
+            _db.ContactWorkflows.Remove(workflow);
+        }
         _db.TerceroFiltros.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return TerceroResult<bool>.Ok(true);

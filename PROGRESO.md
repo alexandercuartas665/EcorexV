@@ -17,6 +17,24 @@
 
 ---
 
+## 2026-08-28 - v0.15.111: motor APU fase 1 - subtotales agrupados (CAP1) + cross-grid resolver (CAP2) (ADR-0081)
+
+- Hand-off sesion CONFIG (APU EPRING): completar el costeo APU con calculo agrupado y referencias entre
+  grillas, configurable desde el disenador. Feature grande, por fases; esta es la FASE 1 (motor puro).
+- CAP 1 (subtotales agrupados): FormGridColumn.GroupBy; FormGridComputation.GroupSubtotals; Compute + helper
+  GroupAggregate + NormalizeKey en FormGridCalculator. options_json: "groupBy":"<colClave>".
+- CAP 2 (cross-grid VLOOKUP/SUMIF): FormGridCrossRef + parse ("crossGrid") en FormGridColumnLookup;
+  resolver puro FormGridCrossRefResolver (vlookup: 1a fila que empareja; sumif: agrega por grupo). Reusa
+  Aggregate + NormalizeKey. options_json: "crossGrid":{grid,mode,valueField,agg,match:{col:"{ref}"}}.
+- Verificado determinista con la aritmetica del APU: parcial by grupo (mat 230/mo 50), by item (250/30);
+  SUMIF Margen.costo_directo por grupo (230/50); Oferta.v_unitario por item (250); VLOOKUP. Build verde.
+  Sin migracion (todo en options_json). ADR-0081.
+- PENDIENTE fase 2: cablear el recalculo autoritativo (server FormResponseService) y el cliente
+  (DynamicFormRenderer) con ORDEN POR DEPENDENCIAS entre grillas + UI del disenador (groupBy/crossGrid).
+  Fase 3: render agrupado (CAP 3).
+
+---
+
 ## 2026-08-28 - v0.15.110: HideSubmitBar aplica tambien en el detalle de la tarea
 
 - Pedido: la propiedad "Ocultar Enviar / Imprimir / autoguardado al llenar dentro de una tarea"

@@ -77,17 +77,39 @@ public sealed record FormGridResolveConfig(
     IReadOnlyDictionary<string, string> When);
 
 /// <summary>
+/// CAP 2 (referencia ENTRE GRILLAS del mismo registro): esta columna se calcula sola trayendo un valor
+/// desde OTRA grilla del MISMO formulario. Dos modos:
+///  - "vlookup": empareja una fila de la grilla origen por <see cref="Match"/> (columnaOrigen -&gt; ref de
+///    celda de ESTA fila, ej. "{item}") y devuelve <see cref="ValueField"/> de esa fila.
+///  - "sumif": AGRUPA la grilla origen por la(s) columna(s) de <see cref="Match"/> y agrega
+///    (<see cref="Agg"/>, default Sum) <see cref="ValueField"/> por grupo, devolviendo el subtotal del grupo
+///    cuya clave coincide con los valores de ESTA fila. Se apoya en el agregado agrupado (CAP 1).
+/// La grilla origen debe recalcularse ANTES (orden por dependencias). El match es EXACTO con la misma
+/// normalizacion que el resolve (numerico si ambos lados son numero, si no texto case-insensitive).
+/// </summary>
+public sealed record FormGridCrossRef(
+    string Grid,                                 // field code de la pregunta GridDetail origen
+    string Mode,                                 // "vlookup" | "sumif"
+    string ValueField,                           // columna de la grilla origen a devolver/agregar
+    Ecorex.Domain.Enums.FormAggregate Agg,       // solo sumif (Sum/Count/Avg/Min/Max)
+    IReadOnlyDictionary<string, string> Match)   // columnaOrigen -> ref de celda de esta fila (ej. "{item}")
+{
+    public bool IsSumIf => string.Equals(Mode, "sumif", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>
 /// Extras de una columna de tabla que NO viven en FormGridColumn (calculo/agregado): lookup con
-/// autollenado, valor por defecto al crear la fila, comprobacion de existencias y auto-resolucion
-/// multi-clave. Se parsean del MISMO OptionsJson de la pregunta, en paralelo a
-/// FormGridCalculator.ParseColumns, para no mezclar responsabilidades ni tocar el contrato del calculador.
+/// autollenado, valor por defecto al crear la fila, comprobacion de existencias, auto-resolucion
+/// multi-clave y referencia CROSS-GRID (CAP 2). Se parsean del MISMO OptionsJson de la pregunta, en
+/// paralelo a FormGridCalculator.ParseColumns, para no mezclar responsabilidades ni tocar el calculador.
 /// </summary>
 public sealed record FormGridColumnExtras(
     string Id,
     FormGridLookupConfig? Lookup,
     string? Default,
     FormGridStockCheck? StockCheck,
-    FormGridResolveConfig? Resolve = null);
+    FormGridResolveConfig? Resolve = null,
+    FormGridCrossRef? CrossRef = null);
 
 /// <summary>
 /// Parseo de los extras de columna del OptionsJson. Defensivo: cualquier columna mal formada se
@@ -115,9 +137,10 @@ public static class FormGridColumnLookupParser
                 var def = el.TryGetProperty("default", out var pd) ? ReadScalar(pd) : null;
                 var stock = ParseStockCheck(el);
                 var resolve = ParseResolve(el);
-                if (lookup is null && def is null && stock is null && resolve is null) { continue; }
+                var crossRef = ParseCrossRef(el);
+                if (lookup is null && def is null && stock is null && resolve is null && crossRef is null) { continue; }
 
-                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock, resolve);
+                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock, resolve, crossRef);
             }
         }
         catch (JsonException) { /* extras invalidos: la tabla se comporta como texto plano */ }
@@ -214,6 +237,38 @@ public static class FormGridColumnLookupParser
         }
 
         return new FormGridResolveConfig(kind, Trimmed(rv, "sourceRef"), match, returnField!, when);
+    }
+
+    /// <summary>CAP 2: parsea la referencia cross-grid del options_json de la columna
+    /// ("crossGrid": {"grid":"lineas_apu","mode":"sumif","valueField":"parcial","agg":"Sum","match":{"grupo":"{grupo}"}}).</summary>
+    private static FormGridCrossRef? ParseCrossRef(JsonElement col)
+    {
+        if (!col.TryGetProperty("crossGrid", out var cg) || cg.ValueKind != JsonValueKind.Object) { return null; }
+        var grid = Trimmed(cg, "grid");
+        var valueField = Trimmed(cg, "valueField");
+        if (string.IsNullOrWhiteSpace(grid) || string.IsNullOrWhiteSpace(valueField)) { return null; }
+
+        var mode = (Trimmed(cg, "mode") ?? "vlookup").ToLowerInvariant();
+        if (mode != "vlookup" && mode != "sumif") { mode = "vlookup"; }
+
+        var agg = Ecorex.Domain.Enums.FormAggregate.Sum;
+        if (cg.TryGetProperty("agg", out var pa) && Enum.TryParse<Ecorex.Domain.Enums.FormAggregate>(pa.GetString(), ignoreCase: true, out var parsedAgg))
+        {
+            agg = parsedAgg;
+        }
+
+        var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (cg.TryGetProperty("match", out var m) && m.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in m.EnumerateObject())
+            {
+                var v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(v)) { match[p.Name] = v!; }
+            }
+        }
+        if (match.Count == 0) { return null; }
+
+        return new FormGridCrossRef(grid!, mode, valueField!, agg, match);
     }
 
     private static string? Trimmed(JsonElement obj, string name)

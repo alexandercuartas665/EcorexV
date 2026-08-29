@@ -28,7 +28,12 @@ public sealed record FormGridColumn(
     int? Width = null,
     // Formato de presentacion del valor (currency | percent | integer | decimal | document). Null =
     // sin formato (texto crudo). Solo afecta como se MUESTRA; el valor guardado sigue siendo el numero.
-    string? Format = null)
+    string? Format = null,
+    // CAP 1 (subtotales agrupados): si esta columna tiene agregado (Agg) y se declara GroupBy = id de
+    // OTRA columna clave, ademas del total completo se calculan SUBTOTALES por grupo (SUMIF/COUNTIF...
+    // por el valor de la columna clave). Se exponen en FormGridComputation.GroupSubtotals y los consume
+    // el cross-grid (CAP 2) y el render agrupado (CAP 3). Null = solo total completo (comportamiento previo).
+    string? GroupBy = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -44,7 +49,11 @@ public sealed record FormGridComputation(
     List<Dictionary<string, string?>> Rows,
     Dictionary<string, string?> Rollups,
     IReadOnlyList<int> ExcludedRowIndexes,
-    IReadOnlyDictionary<string, IReadOnlyList<int>> ExcludedRowIndexesByColumn);
+    IReadOnlyDictionary<string, IReadOnlyList<int>> ExcludedRowIndexesByColumn,
+    // CAP 1: subtotales por grupo de las columnas con Agg + GroupBy. columnaId -> (claveDeGrupo -> subtotal).
+    // La clave de grupo es el valor NORMALIZADO de la columna clave (numero si aplica, si no texto en minusculas),
+    // igual criterio de match que el resolve (VLOOKUP). Vacio si ninguna columna declara GroupBy.
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> GroupSubtotals);
 
 /// <summary>
 /// Calculo de tablas (GridDetail) compartido por el renderer (UX inmediata) y el servidor
@@ -88,6 +97,8 @@ public static class FormGridCalculator
                     width = wv;
                 }
                 var format = el.TryGetProperty("format", out var pfmt) ? pfmt.GetString() : null;
+                // CAP 1: id de la columna clave por la que se agrupan los subtotales de ESTA columna agregada.
+                var groupBy = el.TryGetProperty("groupBy", out var pgb) ? pgb.GetString() : null;
                 List<FormOption>? options = null;
                 if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
                 {
@@ -112,7 +123,8 @@ public static class FormGridCalculator
                     required,
                     string.IsNullOrWhiteSpace(aggWhen) ? null : aggWhen,
                     width,
-                    string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant()));
+                    string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant(),
+                    string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim()));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }
@@ -217,7 +229,54 @@ public static class FormGridCalculator
             var total = Aggregate(col, result, headerValues);
             rollups[col.Rollup!] = total?.ToString(CultureInfo.InvariantCulture);
         }
-        return new FormGridComputation(result, rollups, excludedAny.ToList(), excludedByColumn);
+
+        // CAP 1: subtotales por grupo de cada columna con Agg + GroupBy (SUMIF/COUNTIF por la columna clave).
+        var groupSubtotals = new Dictionary<string, IReadOnlyDictionary<string, string?>>(StringComparer.Ordinal);
+        foreach (var col in columns.Where(c => c.Agg != FormAggregate.None && !string.IsNullOrWhiteSpace(c.GroupBy)))
+        {
+            groupSubtotals[col.Id] = GroupAggregate(col.Agg, result, col.Id, col.GroupBy!, col.AggWhen, headerValues);
+        }
+        return new FormGridComputation(result, rollups, excludedAny.ToList(), excludedByColumn, groupSubtotals);
+    }
+
+    /// <summary>
+    /// CAP 1/CAP 2: agrega una columna AGRUPANDO por el valor de otra columna clave (SUMIF por grupo).
+    /// Devuelve claveDeGrupoNORMALIZADA -&gt; subtotal (string invariant). Respeta la condicion aggWhen.
+    /// La normalizacion de la clave (<see cref="NormalizeKey"/>) es la MISMA que usa el match del resolve,
+    /// para que un cross-grid pueda emparejar "grupo" con la misma semantica exacta.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string?> GroupAggregate(
+        FormAggregate agg,
+        IReadOnlyList<Dictionary<string, string?>> rows,
+        string valueColumnId,
+        string groupByColumnId,
+        string? aggWhen = null,
+        IReadOnlyDictionary<string, string?>? headerValues = null)
+    {
+        var byGroup = new Dictionary<string, List<string?>>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (!string.IsNullOrWhiteSpace(aggWhen) && !RowIsIncluded(aggWhen, row, headerValues)) { continue; }
+            var key = NormalizeKey(row.GetValueOrDefault(groupByColumnId));
+            if (!byGroup.TryGetValue(key, out var bucket)) { bucket = new List<string?>(); byGroup[key] = bucket; }
+            bucket.Add(row.GetValueOrDefault(valueColumnId));
+        }
+        var outMap = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var (key, values) in byGroup)
+        {
+            outMap[key] = Aggregate(agg, values)?.ToString(CultureInfo.InvariantCulture);
+        }
+        return outMap;
+    }
+
+    /// <summary>Normaliza una clave de match/grupo: numero invariante si parsea (asi "3" y "3.0" coinciden),
+    /// si no el texto recortado en minusculas (case-insensitive). Mismo criterio para agrupar y para el
+    /// emparejamiento cross-grid, para que los subtotales y el VLOOKUP casen igual.</summary>
+    public static string NormalizeKey(string? raw)
+    {
+        var s = (raw ?? string.Empty).Trim();
+        if (s.Length == 0) { return string.Empty; }
+        return ParseNumber(s) is decimal n ? n.ToString(CultureInfo.InvariantCulture) : s.ToLowerInvariant();
     }
 
     private static decimal? ParseNumber(string? v)

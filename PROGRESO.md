@@ -10178,3 +10178,29 @@ Backup ecorex-2026-08-25-1713.sql.gz. SQL directo (excepcion ETL documentada). E
 alimentan el campo "Vendedor asignado" del Directorio. Nota: el codigo de vendedor legacy (CODIGO
 00/02/03...) NO se conservo (asesores no tiene esa columna); si luego se mapean terceros->vendedor
 por ese codigo, habra que anadir un campo de codigo o mapear por documento.
+
+## 2026-08-29 - SKY: ajustes plantilla cotizacion + BITCODE: carga Alegra al contenedor ALEGRA
+
+Agente: Claude Opus 4.8 (sesion prod-data). Dos trabajos:
+
+### SKY SYSTEM - plantilla de cotizacion (quote_templates 1024ad08, "Cotizacion SKY Formato Cliente")
+Ajustes pedidos sobre el formulario SIMULADOR DE COTIZACIONES (render por /formularios/plantilla/{responseId},
+motor FormTemplateMerge). Cambios en html_content (data del tenant):
+- Titulo con tilde: COTIZACION -> COTIZACION (con tilde en la O).
+- Quitado el campo IVA que iba junto al nombre del cliente.
+- Logo: el PNG tenia margen transparente (dibujo real 196x85 dentro de lienzo 220x219, solo 39% del alto).
+  Se recorto con Pillow al contenido (205x93) y se re-embebio; altura CSS a 90px. Logo visible paso de ~56px a ~82px.
+- Nombre de cliente: NO era bug; el campo "Cliente" (autocomplete Tercero) autollena el campo oculto
+  cliente_nombre que imprime la plantilla; solo sale si se selecciona un cliente. La formula de ganancia
+  del grid YA divide ({costo}/(1-{margen}/100)); no se toco.
+Backups ecorex-2026-08-11-2027 / 0712 / 24-0624. SQL directo (excepcion ETL, sin AdminAuditLog).
+
+### BITCODE - descarga Alegra al modelo/contenedor ALEGRA (019f5320-...)
+Peticion: bajar toda la info posible de Alegra (contabilidad) al contenedor ALEGRA via el agente/conector.
+Alegra es API publica (api.alegra.com, auth Basic email:token), asi que la carga inicial se hizo server-side
+(ETL propio en Python: paginado start/limit=30, mapeo path->columna). Se crearon 11 tablas bajo el modelo
+ALEGRA y se cargaron 12.615 filas: Pagos 6253, Facturas compra 2578, Facturas venta 2449, Contactos 437,
+Items 319, Categorias 258, Cotizaciones 185, Notas credito 123, Impuestos 6, Vendedores 6, Listas precio 1.
+Ademas 11 conectores RestApi/Basic (data_connectors, mapping_json con fields+paging offset) para el sync
+repetible; FALTA guardar el token cifrado (credentials_encrypted) via UI del conector o Config API para que
+el servidor re-descargue solo. Backup ecorex-2026-08-29-1623. SQL directo (excepcion ETL).

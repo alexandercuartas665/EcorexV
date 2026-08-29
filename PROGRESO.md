@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-08-29 - v0.15.118: Gestor contactos - el CONTEO de la tarjeta cuadra con "Filtrar ahora"
+
+- Bug (AGROMETALICAS): filtro "Contactos Bogota" mostraba 12 en la tarjeta pero 13 al aplicar.
+- Causa: el conteo (CountMatching) contaba SOLO Terceros (directorio); la lista incluye ademas prospectos
+  scrapeados (deduplicando los ya promovidos). 12 terceros + 1 prospecto-sin-tercero = 13.
+- Fix: CountDistinctMatching = terceros que cumplen + prospectos que cumplen y aun no son tercero
+  (TerceroId==null), misma dedup que la lista. Se aplica en ListFiltrosAsync/SaveFiltroAsync/ContarAsync.
+  ApplyFiltroAsync ahora muestra el universo completo (Todas) para que la lista cuadre con la tarjeta.
+- Verificado local (dev, prod-copy): tarjeta 13 == aplicado "13 contactos". Sin migracion. NO desplegado
+  (validacion local del usuario pendiente).
+
+---
+
 ## 2026-08-28 - v0.15.107: marcadores {{fechahora}} e {{impreso}} en plantillas (ADR-0080)
 
 - Pedido (CONFIG): dos marcadores de fecha/hora para la OT.

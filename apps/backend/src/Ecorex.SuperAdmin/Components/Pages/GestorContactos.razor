@@ -1431,7 +1431,9 @@
         _filtroMenu = null;
         _activeFiltro = f;          // marca el filtro activo (resalta la tarjeta + filtra la lista)
         _contactSearch = null;      // el "Filtrar ahora" manda; se limpia la busqueda rapida
-        _prospFuente = f.Fuente;
+        // Universo COMPLETO (Todas): el conteo de la tarjeta es distinto sobre todo el universo
+        // (terceros + prospectos), asi que la lista aplicada tambien debe mostrarlo completo para cuadrar.
+        _prospFuente = null;
         _tab = Tab.Prospectos;
         _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
     }

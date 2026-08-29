@@ -733,12 +733,14 @@ public sealed class GestorContactosService : IGestorContactosService
             .OrderBy(f => f.SortOrder).ThenBy(f => f.Nombre)
             .ToListAsync(cancellationToken);
 
-        // Se cargan las filas del universo una sola vez y cada filtro se evalua en memoria.
+        // Se cargan las filas del universo una sola vez y cada filtro se evalua en memoria. El conteo es el
+        // DISTINTO (terceros + prospectos-aun-no-tercero), para cuadrar con lo que muestra "Filtrar ahora".
         var rows = await LoadTerceroRowsAsync(cancellationToken);
+        var prospectos = await LoadProspectoRowsAsync(cancellationToken);
         return filtros.Select(f =>
         {
             var criterios = DeserializeCriterios(f.CriteriosJson);
-            var conteo = CountMatching(rows, criterios);
+            var conteo = CountDistinctMatching(rows, prospectos, criterios);
             return new FiltroDto(
                 f.Id, f.Nombre, f.Descripcion, f.Fuente, conteo, f.ConteoAnterior,
                 Crecimiento(conteo, f.ConteoAnterior), criterios);
@@ -765,7 +767,8 @@ public sealed class GestorContactosService : IGestorContactosService
         var criteriosJson = JsonSerializer.Serialize(criterios, JsonOpts);
 
         var rows = await LoadTerceroRowsAsync(cancellationToken);
-        var conteo = CountMatching(rows, criterios);
+        var prospectos = await LoadProspectoRowsAsync(cancellationToken);
+        var conteo = CountDistinctMatching(rows, prospectos, criterios);
 
         TerceroFiltro entity;
         if (id is Guid filtroId)
@@ -830,10 +833,11 @@ public sealed class GestorContactosService : IGestorContactosService
     public async Task<int> ContarAsync(
         IReadOnlyList<FiltroCriterio> criterios, string? fuente, CancellationToken cancellationToken = default)
     {
-        // El parametro fuente se reserva para cuando el contacto lleve columna de origen; hoy el
-        // universo del conteo es el Tercero (sin columna Fuente), asi que fuente no filtra aqui.
+        // El universo es DISTINTO (terceros + prospectos-aun-no-tercero), igual que la lista del gestor.
+        // fuente se reserva para cuando el conteo deba acotarse por origen; hoy no filtra aqui.
         var rows = await LoadTerceroRowsAsync(cancellationToken);
-        return CountMatching(rows, criterios ?? Array.Empty<FiltroCriterio>());
+        var prospectos = await LoadProspectoRowsAsync(cancellationToken);
+        return CountDistinctMatching(rows, prospectos, criterios ?? Array.Empty<FiltroCriterio>());
     }
 
     // ---- Demo seed (columnas por defecto compartidas) ----
@@ -923,6 +927,34 @@ public sealed class GestorContactosService : IGestorContactosService
                 row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
             criterios));
 
+    /// <summary>Prospectos scrapeados (todas las fuentes) proyectados para el conteo. TerceroId != null =&gt;
+    /// el prospecto ya es un Tercero (promovido): NO se cuenta aparte, para dedup con el directorio.</summary>
+    private async Task<List<ProspectoRow>> LoadProspectoRowsAsync(CancellationToken cancellationToken)
+        => await _db.ProspectosScrapeados.AsNoTracking()
+            .Select(p => new ProspectoRow(p.NombreCompleto, p.Ciudad, p.Cargo, p.Empresa, p.TerceroId))
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Conteo DISTINTO del segmento de un filtro, con la MISMA semantica que la lista del gestor
+    /// (ContactosFiltrados): terceros que cumplen (directorio) MAS los prospectos scrapeados que cumplen y
+    /// AUN no son terceros (TerceroId == null), para no duplicar los promovidos. Asi la tarjeta cuadra con
+    /// lo que muestra "Filtrar ahora" (vista Todas). Los campos que un prospecto no tiene (vendedor/perfil/
+    /// estado) se ignoran en el evaluador (no excluyen).
+    /// </summary>
+    private static int CountDistinctMatching(
+        IReadOnlyList<TerceroRow> terceros, IReadOnlyList<ProspectoRow> prospectos, IReadOnlyList<FiltroCriterio> criterios)
+    {
+        var terceroHits = terceros.Count(row => ContactFilterEvaluator.MatchesAll(
+            new ContactFilterEvaluator.Row(
+                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
+            criterios));
+        var prospectoHits = prospectos.Count(p => p.TerceroId is null && ContactFilterEvaluator.MatchesAll(
+            new ContactFilterEvaluator.Row(
+                p.Nombre, p.Ciudad, null, p.Empresa, p.Cargo, TerceroPerfil.Ninguno, TerceroEstado.Activo),
+            criterios));
+        return terceroHits + prospectoHits;
+    }
+
     /// <summary>% de crecimiento del conteo frente al snapshot anterior (entero redondeado).</summary>
     private static int Crecimiento(int conteo, int conteoAnterior)
     {
@@ -974,4 +1006,12 @@ public sealed class GestorContactosService : IGestorContactosService
         string? Cargo,
         TerceroPerfil Perfiles,
         TerceroEstado Estado);
+
+    /// <summary>Proyeccion minima de un prospecto scrapeado para el conteo distinto (ver CountDistinctMatching).</summary>
+    private sealed record ProspectoRow(
+        string Nombre,
+        string? Ciudad,
+        string? Cargo,
+        string? Empresa,
+        Guid? TerceroId);
 }

@@ -71,3 +71,31 @@ de administradores).
 - Tenants cuyos usuarios son TODOS Owner/Admin no muestran el estado solo-lectura (bypass): para validarlo
   se necesita un usuario Supervisor/Advisor sin el cargo.
 - Clave COMPUESTA no aplica (es una lista simple de cargos).
+
+## Rework v0.15.125: acceso por DEPENDENCIA/CARGO (organigrama), sin control por rol
+
+Cambio de criterio: el acceso a una seccion NO depende del rol de tenant. El bypass Owner/Admin en
+IsSectionReadonly hacia que el candado nunca aplicara donde todos los usuarios son Admin (p.ej.
+AGROMETALICAS). Ahora es puro por Dependencia/Cargo del organigrama, con el MISMO selector que la
+asignacion de los flujos (ADR-0035).
+
+- Datos: se REUSA `form_containers.allowed_cargos_json` (sin migracion) pero los ids son OrgUnit de
+  clasificador Dependencia O Cargo (no solo Cargo); los ids de cargo ya guardados siguen validos.
+- Render (DynamicFormRenderer.IsSectionReadonly): se ELIMINA el bypass Owner/Admin y la comparacion contra
+  cargos-del-usuario. Nuevo criterio: una seccion con unidades es solo-lectura si el TenantUser actual NO es
+  CANDIDATO de ninguna de esas unidades, resuelto con `OrgAssigneeTree.ResolveForUnits` (funcionarios
+  descendientes + miembros + responsable). Se carga el grafo (IOrgUnitService.LoadAssigneeGraphAsync) y el
+  TenantUser una vez por carga; memoizado por contenedor. Sin unidades = todos operan. `<fieldset disabled>`
+  sigue siendo el unico choke point.
+- LOCKOUT (intencional): sin bypass por rol, una seccion cuyas unidades no incluyan al usuario queda
+  read-only aunque sea Admin/Owner. Recuperable: el FormDesigner se gobierna por permiso de NAVEGACION (no
+  por las unidades de la seccion), asi que un admin siempre puede reabrir el disenador y reasignar. No hay
+  override por Owner.
+- Disenador (FormDesigner): el picker de cargos (checkboxes) se reemplaza por el patron de los flujos:
+  filas de unidades asignadas (punto por clasificador + nombre + badge Dependencia/Cargo + "N cand." + x),
+  <select> "-- Dependencia / Cargo --" (IWorkflowNodePolicyService.ListAssignableUnitsAsync, indentado por
+  Depth) + boton "+ Asignar". Conteo por unidad con IWorkflowNodePolicyService.CountCandidatesAsync. Se
+  muestra para CUALQUIER contenedor (no solo Section/Segment). Etiqueta: "Dependencias / Cargos que pueden
+  operar esta seccion".
+- Verificado (AGROMETALICAS, todos Admin): cargo "Gerente Administrativo" resuelve proyectos@ (edita) y NO
+  direccionventas@ (solo-lectura). Sin migracion.

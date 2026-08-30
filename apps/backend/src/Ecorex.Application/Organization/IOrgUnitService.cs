@@ -31,6 +31,10 @@ public interface IOrgUnitService
     /// </summary>
     Task<IReadOnlyList<Guid>> ListCargoIdsForUserAsync(Guid tenantUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>Grafo plano del organigrama (unidades + miembros) para resolver candidatos EN MEMORIA con
+    /// <see cref="OrgAssigneeTree"/> sin re-consultar por cada unidad. Lo usa el acceso por seccion (ADR-0082).</summary>
+    Task<OrgAssigneeGraph> LoadAssigneeGraphAsync(CancellationToken cancellationToken = default);
+
     /// <summary>KPIs de cabecera: total dependencias activas, usuarios asignados (miembros + responsables distintos) y areas.</summary>
     Task<OrgKpisDto> GetKpisAsync(CancellationToken cancellationToken = default);
 

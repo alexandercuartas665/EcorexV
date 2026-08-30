@@ -20,3 +20,8 @@ public sealed record AssignableOrgUnitDto(
     OrgUnitClassifier Classifier,
     Guid? ParentId,
     int Depth);
+
+/// <summary>Grafo plano del organigrama para resolver candidatos en memoria (OrgAssigneeTree).</summary>
+public sealed record OrgAssigneeGraph(
+    IReadOnlyList<OrgAssigneeTree.UnitRow> Units,
+    IReadOnlyList<OrgAssigneeTree.MemberRow> Members);

@@ -84,6 +84,20 @@ public sealed class WorkflowNodePolicyService : IWorkflowNodePolicyService
         return result;
     }
 
+    public async Task<IReadOnlyDictionary<Guid, int>> CountCandidatesAsync(
+        IReadOnlyCollection<Guid> orgUnitIds, CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<Guid, int>();
+        if (orgUnitIds is null || orgUnitIds.Count == 0) { return result; }
+        var units = await LoadUnitRowsAsync(cancellationToken);
+        var members = await LoadMemberRowsAsync(cancellationToken);
+        foreach (var id in orgUnitIds.Distinct())
+        {
+            result[id] = OrgAssigneeTree.ResolveForUnit(id, units, members).Count;
+        }
+        return result;
+    }
+
     public async Task<OrgResult<NodePolicyDto>> AddNodePolicyAsync(
         Guid nodeId, Guid orgUnitId, CancellationToken cancellationToken = default)
     {

@@ -292,9 +292,12 @@ else
     private string? _currentRole;
     // Nombre del usuario logueado (para el default dinamico "usuario actual": se muestra el NOMBRE, no el Guid).
     private string? _currentUserName;
-    // Acceso por cargo (ADR-0082): cargos (OrgUnit-Cargo) del usuario actual, cacheados por carga. Se usan
-    // para deshabilitar (solo-lectura) las secciones cuyo AllowedCargosJson no incluya ninguno de estos.
-    private HashSet<Guid> _currentUserCargos = new();
+    // Acceso por seccion por DEPENDENCIA/CARGO (ADR-0082, sin control por rol): usuario actual del tenant +
+    // grafo del organigrama, cacheados por carga; una seccion es solo-lectura si sus unidades no incluyen al
+    // usuario como candidato (OrgAssigneeTree). NO hay bypass por Owner/Admin.
+    private Guid? _currentTenantUserId;
+    private Ecorex.Application.Organization.OrgAssigneeGraph? _assigneeGraph;
+    private readonly Dictionary<Guid, bool> _sectionReadonlyCache = new();
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -408,20 +411,19 @@ else
                 }
                 catch { /* si no se puede resolver, queda el Identity.Name */ }
             }
-            // Acceso por cargo (ADR-0082): cargos del usuario actual (PlatformUser -> TenantUser -> cargos),
-            // una vez por carga. Owner/Admin no lo necesitan (bypass), pero resolverlo es barato e idempotente.
-            _currentUserCargos = new();
+            // Acceso por seccion por dependencia/cargo (ADR-0082): resuelve el TenantUser actual y carga el
+            // grafo del organigrama UNA vez. Con esto IsSectionReadonly decide por unidad, sin mirar el rol.
+            _currentTenantUserId = null;
+            _assigneeGraph = null;
+            _sectionReadonlyCache.Clear();
             if (platformUserId is Guid puid3)
             {
                 try
                 {
-                    var tenantUserId = await TenantUsersSvc.ResolveTenantUserIdAsync(puid3);
-                    if (tenantUserId is Guid tuid)
-                    {
-                        _currentUserCargos = (await OrgUnitsSvc.ListCargoIdsForUserAsync(tuid)).ToHashSet();
-                    }
+                    _currentTenantUserId = await TenantUsersSvc.ResolveTenantUserIdAsync(puid3);
+                    _assigneeGraph = await OrgUnitsSvc.LoadAssigneeGraphAsync();
                 }
-                catch { /* sin cargos resueltos: las secciones restringidas quedan en solo-lectura */ }
+                catch { /* sin grafo: las secciones restringidas quedan en solo-lectura (fail-safe) */ }
             }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
@@ -2903,19 +2905,28 @@ else
         return false;
     }
 
-    // Acceso por CARGO a la seccion (ADR-0082): una seccion con AllowedCargosJson no vacio solo la operan
-    // los usuarios cuyo cargo este en la lista; los demas la ven en SOLO-LECTURA. Bypass: Owner/Admin del
-    // tenant operan todas las secciones. Sin cargos declarados = sin restriccion (todos operan).
+    // Acceso por DEPENDENCIA/CARGO a la seccion (ADR-0082): una seccion con AllowedCargosJson no vacio
+    // (ids de OrgUnit Dependencia|Cargo) solo la operan los usuarios que son CANDIDATOS de alguna de esas
+    // unidades (OrgAssigneeTree: funcionarios descendientes + miembros + responsable); los demas la ven en
+    // SOLO-LECTURA. NO hay bypass por rol (Owner/Admin tambien quedan read-only si no son candidatos; el
+    // diseñador se gobierna por permiso de navegacion, asi que un admin siempre puede reabrir y reasignar).
+    // Sin unidades declaradas = todos operan.
     private bool IsSectionReadonly(FormContainerDto container)
     {
         if (string.IsNullOrWhiteSpace(container.AllowedCargosJson)) { return false; }
-        // Bypass de administradores.
-        if (string.Equals(_currentRole, "Owner", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(_currentRole, "Admin", StringComparison.OrdinalIgnoreCase)) { return false; }
-        var allowed = ParseCargoIds(container.AllowedCargosJson);
-        if (allowed.Count == 0) { return false; }
-        // Solo-lectura si el usuario NO tiene ninguno de los cargos autorizados.
-        return !allowed.Any(_currentUserCargos.Contains);
+        if (_sectionReadonlyCache.TryGetValue(container.Id, out var cached)) { return cached; }
+        var units = ParseCargoIds(container.AllowedCargosJson);
+        bool ro;
+        if (units.Count == 0) { ro = false; }
+        else if (_currentTenantUserId is not Guid me || _assigneeGraph is null) { ro = true; } // fail-safe
+        else
+        {
+            var candidates = Ecorex.Application.Organization.OrgAssigneeTree.ResolveForUnits(
+                units, _assigneeGraph.Units, _assigneeGraph.Members);
+            ro = !candidates.Contains(me);
+        }
+        _sectionReadonlyCache[container.Id] = ro;
+        return ro;
     }
 
     private static List<Guid> ParseCargoIds(string? json)

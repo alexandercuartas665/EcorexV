@@ -15,6 +15,10 @@ public interface IWorkflowNodePolicyService
     /// <summary>Unidades asignables (Classifier Dependencia|Cargo, no archivadas) para el selector.</summary>
     Task<IReadOnlyList<AssignableOrgUnitDto>> ListAssignableUnitsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Conteo de candidatos (TenantUserIds distintos) por unidad, para las filas asignadas de un
+    /// selector fuera de un nodo (p.ej. acceso por seccion, ADR-0082). Resuelve el grafo UNA vez.</summary>
+    Task<IReadOnlyDictionary<Guid, int>> CountCandidatesAsync(IReadOnlyCollection<Guid> orgUnitIds, CancellationToken cancellationToken = default);
+
     /// <summary>Asigna una Dependencia|Cargo al nodo. Rechaza Funcionario y duplicados.</summary>
     Task<OrgResult<NodePolicyDto>> AddNodePolicyAsync(Guid nodeId, Guid orgUnitId, CancellationToken cancellationToken = default);
 

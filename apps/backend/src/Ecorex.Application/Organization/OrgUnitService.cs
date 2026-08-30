@@ -124,6 +124,19 @@ public sealed class OrgUnitService : IOrgUnitService
         return cargos.ToList();
     }
 
+    public async Task<OrgAssigneeGraph> LoadAssigneeGraphAsync(CancellationToken cancellationToken = default)
+    {
+        var units = await _db.OrgUnits.AsNoTracking()
+            .Where(u => !u.IsArchived)
+            .Select(u => new OrgAssigneeTree.UnitRow(
+                u.Id, u.ParentId, u.Classifier, u.ResponsibleTenantUserId, u.TenantUserId))
+            .ToListAsync(cancellationToken);
+        var members = await _db.OrgUnitMembers.AsNoTracking()
+            .Select(m => new OrgAssigneeTree.MemberRow(m.OrgUnitId, m.TenantUserId))
+            .ToListAsync(cancellationToken);
+        return new OrgAssigneeGraph(units, members);
+    }
+
     public async Task<OrgKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
     {
         var totalUnits = await _db.OrgUnits.CountAsync(u => !u.IsArchived, cancellationToken);

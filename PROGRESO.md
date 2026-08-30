@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-30 - v0.15.125: Acceso a secciones por DEPENDENCIA/CARGO (rework ADR-0082, sin control por rol)
+
+- Hand-off: el acceso por seccion NO debe depender del ROL. El bypass Owner/Admin hacia que el candado nunca
+  aplicara donde todos son Admin (AGROMETALICAS). Ahora es puro por Dependencia/Cargo del organigrama, con el
+  MISMO selector que la asignacion de flujos (ADR-0035). Sin migracion (reusa allowed_cargos_json; ahora los
+  ids son OrgUnit Dependencia|Cargo).
+- Render (DynamicFormRenderer.IsSectionReadonly): se elimina el bypass Owner/Admin y la comparacion por cargos
+  del usuario. Solo-lectura si el TenantUser actual NO es candidato de ninguna unidad de la seccion
+  (OrgAssigneeTree.ResolveForUnits: funcionarios descendientes + miembros + responsable). Grafo cargado 1 vez
+  (IOrgUnitService.LoadAssigneeGraphAsync) + memoizado por contenedor. Sin unidades = todos operan. Lockout
+  intencional (admins tambien), recuperable por permiso de navegacion del disenador.
+- Disenador (FormDesigner): picker estilo flujos (filas asignadas con badge + N cand. + x, <select>
+  Dependencia/Cargo indentado por Depth + "+ Asignar"), para CUALQUIER contenedor. Backing:
+  IWorkflowNodePolicyService.ListAssignableUnitsAsync + nuevo CountCandidatesAsync.
+- Servicios nuevos: IOrgUnitService.LoadAssigneeGraphAsync, IWorkflowNodePolicyService.CountCandidatesAsync,
+  DTO OrgAssigneeGraph. ADR-0082 actualizado.
+- Verificado (AGROMETALICAS, todos Admin): cargo "Gerente Administrativo" resuelve proyectos@ (edita) y NO
+  direccionventas@ (solo-lectura). Build verde. Sin migracion.
+
+---
+
 ## 2026-08-30 - v0.15.124: Formularios - ESTADO calculado del registro (escalon/status ladder) (P1#5 SOLDARCO)
 
 - Hand-off SOLDARCO P1#5: badge de estado del lead Inicial->Perfilado->Prospectado->Cerrado, automatico por

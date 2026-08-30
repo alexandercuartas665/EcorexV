@@ -18,6 +18,7 @@
 @inject IFormLookupService LookupSvc
 @inject IMenuConfigService MenuSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
+@inject Ecorex.Application.Organization.IWorkflowNodePolicyService NodePolicySvc
 @inject NavigationManager Nav
 
 @* ============================================================
@@ -789,18 +790,34 @@ else
     // ---- Ciclo de vida ----
 
     private IReadOnlyList<FormDefinitionListItemDto> _allDefs = [];
-    // Cargos del tenant (OrgUnit-Cargo) para el picker de acceso por seccion (ADR-0082).
-    private IReadOnlyList<Ecorex.Application.Actividades.CargoOptionDto> _cargoOptions = [];
+    // Acceso por seccion (ADR-0082): unidades asignables (Dependencia|Cargo) del organigrama + conteo de
+    // candidatos por unidad, para el selector estilo flujos. _addUnitId es el valor del <select> "Asignar".
+    private IReadOnlyList<Ecorex.Application.Organization.AssignableOrgUnitDto> _assignableUnits = [];
+    private IReadOnlyDictionary<Guid, int> _unitCandidateCounts = new Dictionary<Guid, int>();
+    private string _addUnitId = "";
 
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
         // Definiciones para el selector de formulario hijo (Subform, ola F5).
         _allDefs = await FormsSvc.ListAsync();
-        // Cargos del tenant para el picker "Cargos que pueden operar esta seccion" (ADR-0082).
-        try { _cargoOptions = await OrgUnitsSvc.ListCargoOptionsAsync(); }
-        catch { _cargoOptions = Array.Empty<Ecorex.Application.Actividades.CargoOptionDto>(); }
+        // Unidades asignables + conteo de candidatos para el picker de acceso por seccion (ADR-0082).
+        await LoadAssignableUnitsAsync();
         _loading = false;
+    }
+
+    private async Task LoadAssignableUnitsAsync()
+    {
+        try
+        {
+            _assignableUnits = await NodePolicySvc.ListAssignableUnitsAsync();
+            _unitCandidateCounts = await NodePolicySvc.CountCandidatesAsync(_assignableUnits.Select(u => u.Id).ToList());
+        }
+        catch
+        {
+            _assignableUnits = Array.Empty<Ecorex.Application.Organization.AssignableOrgUnitDto>();
+            _unitCandidateCounts = new Dictionary<Guid, int>();
+        }
     }
 
     private async Task ReloadAsync()
@@ -1328,25 +1345,43 @@ else
     private Task SetVisibleWhenContainerAsync(FormContainerDto c, string? field, string? op, string? value)
         => PatchContainerAsync(c, r => r with { VisibleWhenJson = BuildVisibleWhen(field, op, value) });
 
-    // Acceso por cargo de la seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit-Cargo.
-    private static List<Guid> ParseCargoIds(string? json)
+    // Acceso por seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit (Dependencia|Cargo).
+    private static List<Guid> ParseUnitIds(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) { return new(); }
         try { return (JsonSerializer.Deserialize<List<Guid>>(json) ?? new()).ToList(); }
         catch (JsonException) { return new(); }
     }
 
-    private static bool ContainerCargoHas(FormContainerDto c, Guid cargoId)
-        => ParseCargoIds(c.AllowedCargosJson).Contains(cargoId);
-
-    private Task ToggleContainerCargoAsync(FormContainerDto c, Guid cargoId, bool on)
+    private async Task AddContainerUnitAsync(FormContainerDto c)
     {
-        var ids = ParseCargoIds(c.AllowedCargosJson);
-        ids.RemoveAll(x => x == cargoId);
-        if (on) { ids.Add(cargoId); }
+        if (!Guid.TryParse(_addUnitId, out var unitId)) { return; }
+        var ids = ParseUnitIds(c.AllowedCargosJson);
+        if (!ids.Contains(unitId)) { ids.Add(unitId); }
+        _addUnitId = "";
+        await PatchContainerAsync(c, r => r with { AllowedCargosJson = JsonSerializer.Serialize(ids) });
+    }
+
+    private Task RemoveContainerUnitAsync(FormContainerDto c, Guid unitId)
+    {
+        var ids = ParseUnitIds(c.AllowedCargosJson);
+        ids.RemoveAll(x => x == unitId);
         var json = ids.Count == 0 ? null : JsonSerializer.Serialize(ids);
         return PatchContainerAsync(c, r => r with { AllowedCargosJson = json });
     }
+
+    private static string ClassifierTone(Ecorex.Domain.Enums.OrgUnitClassifier? c) => c switch
+    {
+        Ecorex.Domain.Enums.OrgUnitClassifier.Dependencia => "var(--t-violet)",
+        Ecorex.Domain.Enums.OrgUnitClassifier.Cargo => "var(--t-blue)",
+        _ => "var(--ink-3)"
+    };
+    private static string ClassifierLabel(Ecorex.Domain.Enums.OrgUnitClassifier? c) => c switch
+    {
+        Ecorex.Domain.Enums.OrgUnitClassifier.Dependencia => "Dependencia",
+        Ecorex.Domain.Enums.OrgUnitClassifier.Cargo => "Cargo",
+        _ => "Unidad"
+    };
 
     private async void OpenFormProps()
     {
@@ -2007,28 +2042,43 @@ else
                         node.C!.InlineLabels,
                         () => PatchContainerAsync(node.C!, r => r with { InlineLabels = !node.C!.InlineLabels }))
                 }
-                @* Acceso por cargo (ADR-0082): solo para secciones. Sin cargos = todos operan; con cargos,
-                   quien no tenga uno de esos cargos ve la seccion en solo-lectura (Owner/Admin siempre operan). *@
-                @if (node.IsContainer && node.C!.ContainerType is FormContainerType.Section or FormContainerType.Segment)
+                @* Acceso por DEPENDENCIA/CARGO (ADR-0082, sin control por rol): mismo selector que la asignacion
+                   de los flujos. Para CUALQUIER contenedor. Sin unidades = todos operan; con unidades, quien no
+                   sea candidato de ninguna la ve en solo-lectura (Owner/Admin incluidos, sin bypass). *@
+                @if (node.IsContainer)
                 {
+                    var assigned = ParseUnitIds(node.C!.AllowedCargosJson);
                     <div class="fb-field" style="margin-top:8px;">
-                        <label>Cargos que pueden operar esta seccion</label>
-                        @if (_cargoOptions.Count == 0)
-                        {
-                            <div class="fb-hint">No hay cargos en el organigrama del tenant (modulo Dependencias).</div>
-                        }
-                        else
-                        {
-                            <div class="fb-chkgrid">
-                                @foreach (var cargo in _cargoOptions)
+                        <label>Dependencias / Cargos que pueden operar esta seccion</label>
+                        <div class="fb-rows">
+                            @foreach (var uid in assigned)
+                            {
+                                var u = _assignableUnits.FirstOrDefault(x => x.Id == uid);
+                                var uidLocal = uid;
+                                <div class="fb-row">
+                                    <span class="fb-row-dot" style="background:@ClassifierTone(u?.Classifier)"></span>
+                                    <span class="fb-row-verb">@(u?.Name ?? "(unidad)")</span>
+                                    <span class="fb-row-badge" style="color:@ClassifierTone(u?.Classifier)">@ClassifierLabel(u?.Classifier)</span>
+                                    <span class="fb-row-auto" title="Usuarios que resolveria esta unidad">@(_unitCandidateCounts.GetValueOrDefault(uid)) cand.</span>
+                                    <span class="fb-row-x" @onclick="@(() => RemoveContainerUnitAsync(node.C!, uidLocal))">x</span>
+                                </div>
+                            }
+                            @if (assigned.Count == 0)
+                            {
+                                <div class="fb-hint">Sin dependencias ni cargos: todos operan la seccion.</div>
+                            }
+                        </div>
+                        <div class="fb-gcp-row" style="margin-top:6px;">
+                            <select class="fb-select" value="@_addUnitId" @onchange="@(e => _addUnitId = e.Value?.ToString() ?? string.Empty)">
+                                <option value="">-- Dependencia / Cargo --</option>
+                                @foreach (var au in _assignableUnits.Where(x => !assigned.Contains(x.Id)))
                                 {
-                                    <label class="pl-toggle"><input type="checkbox"
-                                        checked="@ContainerCargoHas(node.C!, cargo.Id)"
-                                        @onchange="@(e => ToggleContainerCargoAsync(node.C!, cargo.Id, (bool)e.Value!))" /> @cargo.Nombre</label>
+                                    <option value="@au.Id">@(new string(' ', au.Depth * 2))@au.Name (@ClassifierLabel(au.Classifier))</option>
                                 }
-                            </div>
-                            <div class="fb-hint">Sin marcar ninguno: todos la operan. Owner/Admin siempre operan.</div>
-                        }
+                            </select>
+                            <button type="button" class="fb-btn-ghost" disabled="@string.IsNullOrEmpty(_addUnitId)"
+                                    @onclick="@(() => AddContainerUnitAsync(node.C!))">+ Asignar</button>
+                        </div>
                     </div>
                 }
                 @* Visibilidad condicional de la SECCION por valor de una pregunta (mismo motor que los campos). *@

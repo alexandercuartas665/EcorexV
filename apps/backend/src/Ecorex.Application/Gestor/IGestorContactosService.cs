@@ -83,7 +83,14 @@ public interface IGestorContactosService
 
     Task<TerceroResult<bool>> DeleteFiltroAsync(Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>Conteo en vivo de terceros que cumplen los criterios (segmento).</summary>
+    /// <summary>Conteo en vivo de contactos que cumplen los criterios (segmento) sobre el universo
+    /// UNIFICADO (prospectos scrapeados + directorio); alimenta el conteo en vivo del constructor.</summary>
     Task<int> ContarAsync(
         IReadOnlyList<FiltroCriterio> criterios, string? fuente, CancellationToken cancellationToken = default);
+
+    /// <summary>Evalua los criterios sobre el universo UNIFICADO (prospectos + directorio, dedup) y
+    /// devuelve el conteo y las CLAVES de los contactos que cumplen, para que la lista muestre EXACTAMENTE
+    /// esos (chip == filas). Es la misma evaluacion con que <see cref="ListFiltrosAsync"/> calcula el chip.</summary>
+    Task<FiltroMatchDto> EvaluarFiltroAsync(
+        IReadOnlyList<FiltroCriterio> criterios, CancellationToken cancellationToken = default);
 }

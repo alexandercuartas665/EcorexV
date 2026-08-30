@@ -125,6 +125,15 @@ public sealed record FiltroDto(
     int Crecimiento,
     IReadOnlyList<FiltroCriterio> Criterios);
 
+/// <summary>
+/// Resultado de evaluar un filtro sobre el universo UNIFICADO de contactos (prospectos scrapeados +
+/// directorio de primer nivel, deduplicado por el Tercero cuando el prospecto ya fue promovido).
+/// <see cref="Conteo"/> == cantidad de <see cref="Claves"/>: el MISMO numero que muestra el chip del
+/// filtro guardado y que las filas que la lista despliega al aplicarlo (invariante chip == filas).
+/// Cada clave es el <c>TerceroId</c> del contacto si esta promovido, o el <c>Id</c> del prospecto si aun no.
+/// </summary>
+public sealed record FiltroMatchDto(int Conteo, IReadOnlyCollection<Guid> Claves);
+
 /// <summary>Alta/edicion de un filtro dinamico.</summary>
 public sealed record SaveFiltroRequest(
     string Nombre,

@@ -733,8 +733,10 @@ public sealed class GestorContactosService : IGestorContactosService
             .OrderBy(f => f.SortOrder).ThenBy(f => f.Nombre)
             .ToListAsync(cancellationToken);
 
-        // Se cargan las filas del universo una sola vez y cada filtro se evalua en memoria.
-        var rows = await LoadTerceroRowsAsync(cancellationToken);
+        // Se carga el universo UNIFICADO una sola vez y cada filtro se evalua en memoria. Es el MISMO
+        // universo y la MISMA evaluacion que usa EvaluarFiltroAsync al "Filtrar ahora": por eso el
+        // conteo del chip coincide exactamente con las filas que la lista muestra al aplicarlo.
+        var rows = await LoadUnifiedRowsAsync(cancellationToken);
         return filtros.Select(f =>
         {
             var criterios = DeserializeCriterios(f.CriteriosJson);
@@ -764,7 +766,7 @@ public sealed class GestorContactosService : IGestorContactosService
         var criterios = req.Criterios ?? Array.Empty<FiltroCriterio>();
         var criteriosJson = JsonSerializer.Serialize(criterios, JsonOpts);
 
-        var rows = await LoadTerceroRowsAsync(cancellationToken);
+        var rows = await LoadUnifiedRowsAsync(cancellationToken);
         var conteo = CountMatching(rows, criterios);
 
         TerceroFiltro entity;
@@ -821,10 +823,24 @@ public sealed class GestorContactosService : IGestorContactosService
     public async Task<int> ContarAsync(
         IReadOnlyList<FiltroCriterio> criterios, string? fuente, CancellationToken cancellationToken = default)
     {
-        // El parametro fuente se reserva para cuando el contacto lleve columna de origen; hoy el
-        // universo del conteo es el Tercero (sin columna Fuente), asi que fuente no filtra aqui.
-        var rows = await LoadTerceroRowsAsync(cancellationToken);
+        // El parametro fuente se reserva para cuando el segmento se restrinja por origen; hoy el
+        // conteo corre sobre el universo UNIFICADO (prospectos + directorio) sin distinguir fuente,
+        // igual que EvaluarFiltroAsync, para que el conteo en vivo cuadre con el chip y con la lista.
+        var rows = await LoadUnifiedRowsAsync(cancellationToken);
         return CountMatching(rows, criterios ?? Array.Empty<FiltroCriterio>());
+    }
+
+    public async Task<FiltroMatchDto> EvaluarFiltroAsync(
+        IReadOnlyList<FiltroCriterio> criterios, CancellationToken cancellationToken = default)
+    {
+        var crit = criterios ?? Array.Empty<FiltroCriterio>();
+        var rows = await LoadUnifiedRowsAsync(cancellationToken);
+        // Claves de los contactos que cumplen; la lista mostrara EXACTAMENTE estas filas (chip == filas).
+        var claves = rows
+            .Where(u => ContactFilterEvaluator.MatchesAll(u.Row, crit))
+            .Select(u => u.Clave)
+            .ToList();
+        return new FiltroMatchDto(claves.Count, claves);
     }
 
     // ---- Demo seed (columnas por defecto compartidas) ----
@@ -896,23 +912,78 @@ public sealed class GestorContactosService : IGestorContactosService
             entity.Tipo, entity.Inicio, entity.DuracionMinutos, entity.Nota, entity.Completada);
     }
 
-    /// <summary>Universo del conteo de filtros: terceros no inactivos, proyectados a memoria.</summary>
-    private async Task<List<TerceroRow>> LoadTerceroRowsAsync(CancellationToken cancellationToken)
-        => await _db.Terceros.AsNoTracking()
-            .Where(t => t.Estado != TerceroEstado.Inactivo)
-            .Select(t => new TerceroRow(
-                t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado))
+    /// <summary>
+    /// Universo UNIFICADO del conteo/aplicacion de filtros: los MISMOS contactos que la pestana
+    /// "Prospectos scrapeados" muestra = prospectos scrapeados (todas las fuentes) + directorio de
+    /// primer nivel (Tercero con EmpresaId null y no inactivo, igual predicado que
+    /// <c>TerceroService.ListAsync</c> por defecto), deduplicado por el Tercero cuando el prospecto ya
+    /// fue promovido (gana el prospecto, igual que la lista). Cada fila lleva su CLAVE (TerceroId si
+    /// promovido; si no, el Id del prospecto) para que conteo y lista coincidan.
+    /// El prospecto PROMOVIDO se evalua con los campos de SU Tercero (mas ricos: sector, vendedor,
+    /// estado, perfil); el no promovido, con los del prospecto (sin esos campos).
+    /// </summary>
+    private async Task<List<UnifiedRow>> LoadUnifiedRowsAsync(CancellationToken cancellationToken)
+    {
+        var prospectos = await _db.ProspectosScrapeados.AsNoTracking()
+            .Select(p => new
+            {
+                p.Id,
+                p.TerceroId,
+                p.NombreCompleto,
+                p.Ciudad,
+                p.Cargo,
+                TNombre = p.Tercero != null ? p.Tercero.Nombre : null,
+                TCiudad = p.Tercero != null ? p.Tercero.Ciudad : null,
+                TVendedor = p.Tercero != null ? p.Tercero.Vendedor : null,
+                TSector = p.Tercero != null ? p.Tercero.Sector : null,
+                TCargo = p.Tercero != null ? p.Tercero.Cargo : null,
+                TPerfiles = p.Tercero != null ? (TerceroPerfil?)p.Tercero.Perfiles : null,
+                TEstado = p.Tercero != null ? (TerceroEstado?)p.Tercero.Estado : null
+            })
             .ToListAsync(cancellationToken);
 
+        var unified = new List<UnifiedRow>(prospectos.Count);
+        var promovidos = new HashSet<Guid>();   // TerceroId ya representado por un prospecto.
+        var vistos = new HashSet<Guid>();        // Dedup por clave (igual que la lista dedup por TerceroId).
+        foreach (var p in prospectos)
+        {
+            var clave = p.TerceroId ?? p.Id;
+            if (p.TerceroId is Guid tid) { promovidos.Add(tid); }
+            if (!vistos.Add(clave)) { continue; }
+            var row = p.TerceroId != null
+                ? new ContactFilterEvaluator.Row(
+                    p.TNombre ?? p.NombreCompleto, p.TCiudad, p.TVendedor, p.TSector, p.TCargo,
+                    p.TPerfiles ?? TerceroPerfil.Ninguno, p.TEstado ?? TerceroEstado.Activo)
+                : new ContactFilterEvaluator.Row(
+                    p.NombreCompleto, p.Ciudad, null, null, p.Cargo,
+                    TerceroPerfil.Ninguno, TerceroEstado.Activo);
+            unified.Add(new UnifiedRow(clave, row));
+        }
+
+        var terceros = await _db.Terceros.AsNoTracking()
+            .Where(t => t.EmpresaId == null && t.Estado != TerceroEstado.Inactivo)
+            .Select(t => new
+            {
+                t.Id, t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var t in terceros)
+        {
+            // Ya mostrado via su prospecto promovido (dedup), o clave repetida: no se cuenta dos veces.
+            if (promovidos.Contains(t.Id) || !vistos.Add(t.Id)) { continue; }
+            unified.Add(new UnifiedRow(
+                t.Id,
+                new ContactFilterEvaluator.Row(t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado)));
+        }
+        return unified;
+    }
+
     /// <summary>
-    /// Cuenta las filas que cumplen TODOS los criterios (AND). Los criterios sobre campos no
-    /// soportados (p. ej. campos dinamicos de FichasJson) se IGNORAN (no excluyen filas).
+    /// Cuenta las filas del universo unificado que cumplen TODOS los criterios (AND). Los criterios
+    /// sobre campos no soportados (p. ej. campos dinamicos de FichasJson) se IGNORAN (no excluyen filas).
     /// </summary>
-    private static int CountMatching(IReadOnlyList<TerceroRow> rows, IReadOnlyList<FiltroCriterio> criterios)
-        => rows.Count(row => ContactFilterEvaluator.MatchesAll(
-            new ContactFilterEvaluator.Row(
-                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
-            criterios));
+    private static int CountMatching(IReadOnlyList<UnifiedRow> rows, IReadOnlyList<FiltroCriterio> criterios)
+        => rows.Count(u => ContactFilterEvaluator.MatchesAll(u.Row, criterios));
 
     /// <summary>% de crecimiento del conteo frente al snapshot anterior (entero redondeado).</summary>
     private static int Crecimiento(int conteo, int conteoAnterior)
@@ -956,13 +1027,7 @@ public sealed class GestorContactosService : IGestorContactosService
             : null;
     }
 
-    /// <summary>Proyeccion en memoria de un tercero para evaluar los criterios de filtro.</summary>
-    private sealed record TerceroRow(
-        string Nombre,
-        string? Ciudad,
-        string? Vendedor,
-        string? Sector,
-        string? Cargo,
-        TerceroPerfil Perfiles,
-        TerceroEstado Estado);
+    /// <summary>Fila del universo unificado: la CLAVE del contacto (TerceroId si promovido; si no, el
+    /// Id del prospecto) y su proyeccion para evaluar los criterios del filtro.</summary>
+    private sealed record UnifiedRow(Guid Clave, ContactFilterEvaluator.Row Row);
 }

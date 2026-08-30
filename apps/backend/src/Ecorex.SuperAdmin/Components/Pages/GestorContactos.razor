@@ -179,7 +179,16 @@
                             <div class="gc-panel-title">Contactos</div>
                             <div class="gc-panel-sub">
                                 <b>@ContactosFiltrados.Count</b> contactos
-                                <span style="color:var(--ink-3)">&#183; @_prospectos.Count scrapeados &#183; @_contactos.Count del directorio</span>
+                                @if (_activeFiltro is FiltroDto af)
+                                {
+                                    <span style="color:var(--ink-3)">&#183; filtro</span>
+                                    <span class="gc-fuente-chip">@af.Nombre</span>
+                                    <button class="gc-src-clear" title="Quitar filtro" @onclick="ClearFiltroActivo">&times;</button>
+                                }
+                                else
+                                {
+                                    <span style="color:var(--ink-3)">&#183; @_prospectos.Count scrapeados &#183; @_contactos.Count del directorio</span>
+                                }
                             </div>
                         </div>
                         <div class="gc-panel-actions">
@@ -1030,6 +1039,13 @@
         // Cantidad de contactos-persona conectados a esta empresa-prospecto (Maps). >0 => fila expandible.
         int HijosCount = 0);
 
+    // Filtro guardado ACTIVO ("Filtrar ahora"): el servidor evalua los criterios sobre el universo
+    // UNIFICADO y devuelve las CLAVES (TerceroId si promovido, si no el Id del prospecto) de los
+    // contactos que cumplen. La lista muestra EXACTAMENTE esas filas, plana -> el numero del chip y las
+    // filas de la lista coinciden. null = sin filtro aplicado (vista normal por fuente).
+    private HashSet<Guid>? _activeFiltroKeys;
+    private FiltroDto? _activeFiltro;
+
     // Empresas-prospecto (Maps) expandidas en la lista: al expandir se muestran sus contactos conectados.
     private readonly HashSet<Guid> _expandedProsp = new();
 
@@ -1050,6 +1066,41 @@
                 || (r.Ciudad?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
                 || (r.Sub?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false)
                 || (r.Metrica?.Contains(q!, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            // ===== Filtro guardado ACTIVO: lista PLANA con SOLO las claves que el servidor marco como
+            // coincidentes (universo unificado). Asi el total de filas == numero del chip del filtro.
+            // La busqueda rapida sigue actuando ENCIMA como estrechamiento adicional. =====
+            if (_activeFiltroKeys is HashSet<Guid> keys)
+            {
+                var flat = new List<ContactoRow>();
+                // Prospectos primero (todas las fuentes): al deduplicar por TerceroId gana el prospecto,
+                // igual que en la vista normal (conserva fuente/badge/origen).
+                foreach (var p in _prospectos)
+                {
+                    if (!keys.Contains(p.TerceroId ?? p.Id)) { continue; }
+                    flat.Add(new ContactoRow(
+                        p.TerceroId, p.Id, p.NombreCompleto,
+                        string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
+                        p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
+                        p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl));
+                }
+                // Directorio (terceros de primer nivel ya cargados) que coincidieron.
+                foreach (var t in _contactos)
+                {
+                    if (!keys.Contains(t.Id)) { continue; }
+                    flat.Add(new ContactoRow(
+                        t.Id, null, t.Nombre,
+                        t.EsEmpresa ? "Empresa" : "Persona",
+                        t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
+                        FuenteDirectorio, t.Identificacion,
+                        null, false, !t.EsEmpresa, t.ImagenUrl));
+                }
+                // Dedup por TerceroId (un prospecto promovido tambien llega como fila del directorio):
+                // el conteo final == cantidad de claves del filtro == numero del chip.
+                var vistosF = new HashSet<Guid>();
+                flat = flat.Where(r => r.TerceroId is not Guid tid || vistosF.Add(tid)).ToList();
+                return searching ? flat.Where(Match).ToList() : flat;
+            }
 
             var rows = new List<ContactoRow>();
 
@@ -1165,6 +1216,9 @@
 
     private async Task SetProspFuenteAsync(string? fuente)
     {
+        // Elegir una fuente es navegacion normal: sale del filtro guardado activo (si lo habia).
+        _activeFiltroKeys = null;
+        _activeFiltro = null;
         _prospFuente = fuente;
         // "Directorio" no es una fuente de scraping: pedir prospectos con ese filtro
         // devolveria vacio, asi que solo se recargan cuando la fuente es de scraping.
@@ -1404,9 +1458,21 @@
     private async Task ApplyFiltroAsync(FiltroDto f)
     {
         _filtroMenu = null;
-        _prospFuente = f.Fuente;
+        // El universo del filtro es UNIFICADO (prospectos + directorio): el servidor evalua los
+        // criterios y devuelve las claves de los contactos que cumplen. Se muestran TODAS las fuentes
+        // y la lista despliega exactamente esas filas (el conteo == el numero del chip del filtro).
+        var match = await GestorSvc.EvaluarFiltroAsync(f.Criterios);
+        _activeFiltroKeys = match.Claves.ToHashSet();
+        _activeFiltro = f;
+        _prospFuente = null;
         _tab = Tab.Prospectos;
-        _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
+        _prospectos = (await GestorSvc.ListProspectosAsync(null)).ToList();
+    }
+
+    private void ClearFiltroActivo()
+    {
+        _activeFiltroKeys = null;
+        _activeFiltro = null;
     }
 
     private async Task DeleteFiltroAsync(Guid id)

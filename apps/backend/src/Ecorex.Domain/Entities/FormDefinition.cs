@@ -98,4 +98,14 @@ public class FormDefinition : TenantEntity, IVersioned
     /// Es contenido del propio tenant (no de usuarios finales); el CSS no ejecuta JS.
     /// </summary>
     public string? CustomCss { get; set; }
+
+    /// <summary>
+    /// Escalon de ESTADOS calculados del registro (P1#5, config-driven). JSON:
+    /// { "field": "estado_lead", "states": [ { "label": "Inicial", "when": [] },
+    ///   { "label": "Perfilado", "when": [ { "field":"bant_x","op":"equals","value":"true" }, ... ] }, ... ] }.
+    /// Estados ORDENADOS de menor a mayor; al enviar se fija el estado MAS ALTO cuyas condiciones (AND) se
+    /// cumplen, y SOLO AVANZA (nunca retrocede). El valor se escribe en el campo <c>field</c> del registro
+    /// (visible en la bandeja/impresion) y se pinta como badge en el encabezado. Null = sin escalon.
+    /// </summary>
+    public string? StatusLadderJson { get; set; }
 }

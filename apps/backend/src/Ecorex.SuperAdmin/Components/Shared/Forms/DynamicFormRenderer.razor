@@ -87,6 +87,11 @@ else
                             Convertida a @_derivedRecord.FormTitle@(string.IsNullOrWhiteSpace(_derivedRecord.RecordNumber) ? "" : $" {_derivedRecord.RecordNumber}")
                         </button>
                     }
+                    @* Estado calculado del registro (P1#5): badge con el valor del campo destino del escalon. *@
+                    @if (StatusBadge() is { Length: > 0 } stBadge)
+                    {
+                        <span class="dfr-chip dfr-chip-status" title="Estado del registro">@stBadge</span>
+                    }
                 </div>
             </div>
         }
@@ -2779,6 +2784,25 @@ else
     private static bool IsOptionCards(FormQuestionDto q)
         => string.Equals(q.Format, "cards", StringComparison.OrdinalIgnoreCase)
            && q.ControlType is FormControlType.Radio or FormControlType.MultiCheck;
+
+    // Estado calculado (P1#5): valor actual del campo destino del escalon (StatusLadderJson.field). El
+    // servidor lo calcula al enviar; aqui solo se PINTA lo que haya en _values (badge en el encabezado).
+    private string? StatusBadge()
+    {
+        var json = _definition?.StatusLadderJson;
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("field", out var pf) && pf.GetString() is { Length: > 0 } field)
+            {
+                return _values.GetValueOrDefault(field);
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return null;
+    }
 
     // Boton "Mejorar con IA" en un TextArea (opt-in Format=="ai"; Format no aplica a texto largo).
     private readonly HashSet<string> _aiBusy = new(StringComparer.Ordinal);

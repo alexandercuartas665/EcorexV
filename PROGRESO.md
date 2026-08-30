@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-30 - v0.15.124: Formularios - ESTADO calculado del registro (escalon/status ladder) (P1#5 SOLDARCO)
+
+- Hand-off SOLDARCO P1#5: badge de estado del lead Inicial->Perfilado->Prospectado->Cerrado, automatico por
+  datos, avance-only. Config-driven y generico (no hardcode). Badge decidido: en el REGISTRO del formulario.
+- Config en la definicion: FormDefinition.StatusLadderJson (jsonb/nvarchar dual, migracion AddFormStatusLadder).
+  JSON: { field, states:[{label, when:[{field,op,value}...]}] } (estados ordenados; when = AND).
+- Motor FormStatusLadder.Resolve (puro): elige el estado de MAYOR indice cuyas condiciones se cumplen (piso =
+  primer estado con when vacio); avance-only (no baja del estado actual, leido del propio campo). Reutiliza
+  FormVisibilityEvaluator.Test por condicion (misma semantica que visible_when).
+- Wiring: FormResponseService.SaveAsync, al ENVIAR, calcula el estado y lo escribe en el campo destino del
+  documento (queda como valor de campo -> visible en bandeja/impresion). Renderer: badge en el encabezado
+  (dfr-chip-status) con el valor del campo destino. Setter IFormDefinitionService.SetStatusLadderAsync (valida
+  JSON); la sesion de diseno cablea el escalon (SQL) mapeando sus campos BANT/oportunidad/gestion.
+- Verificado determinista (8 casos: piso, 4-BANT, opp+act, gestion, avance-only, etc.). Build verde. Migracion.
+- PENDIENTE: editor visual del escalon en el disenador (hoy se cablea por SQL/API SetStatusLadderAsync).
+
+---
+
 ## 2026-08-30 - v0.15.123: Formularios - boton "Mejorar con IA" en TextArea (P2#7 SOLDARCO)
 
 - Hand-off SOLDARCO P2#7: boton junto a un campo de texto (ej. necesidad en FRM-LEAD) que reescribe/

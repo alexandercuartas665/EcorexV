@@ -246,6 +246,25 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Escalon de ESTADOS (P1#5): al enviar, calcula el estado del registro (badge) desde sus datos y lo
+        // escribe en el campo destino del documento (avance-only). Config en la definicion (StatusLadderJson);
+        // generico, no hardcode. El valor queda como un campo mas -> visible en la bandeja/impresion y de
+        // badge en el encabezado del renderer.
+        if (submit)
+        {
+            var ladderJson = await _db.FormDefinitions.AsNoTracking()
+                .Where(d => d.Id == response.DefinitionId).Select(d => d.StatusLadderJson)
+                .FirstOrDefaultAsync(cancellationToken);
+            var ladder = FormStatusLadder.Resolve(
+                ladderJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null);
+            if (ladder is not null)
+            {
+                var type = questionsByCode.TryGetValue(ladder.TargetField, out var lq)
+                    ? lq.ControlType.ToString() : FormControlType.Text.ToString();
+                document[ladder.TargetField] = new FormFieldValue(ladder.Label, type);
+            }
+        }
+
         // Registro transaccional (ola F3, doc 01 D2/D3): confirmar = enviar. La identidad se
         // resuelve ANTES de abrir la transaccion (patron de ISequenceService: EnsureSequence +
         // NextAsync fuera de la tx del caso de uso, para no abortar por el INSERT del consecutivo).

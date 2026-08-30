@@ -5144,6 +5144,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("status");
 
+                    b.Property<string>("StatusLadderJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("status_ladder_json");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");

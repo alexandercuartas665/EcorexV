@@ -367,6 +367,7 @@
 
 /* ---- Registro transaccional (ola F3) ---- */
 .dfr-chip-record { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); font-weight: 700; }
+.dfr-chip-status { color: var(--brand, #2563EB); background: var(--brand-soft, #EFF4FF); font-weight: 800; text-transform: uppercase; letter-spacing: .02em; }
 .dfr-chip-void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); font-weight: 700; }
 .dfr-chip-pending { color: var(--ink-3, #8a8a8a); background: var(--surface-3, #f0f0f2); font-style: italic; }
 /* ADR-0078: marca "convertida" -clicable- que reabre el registro derivado (Orden de Trabajo). */

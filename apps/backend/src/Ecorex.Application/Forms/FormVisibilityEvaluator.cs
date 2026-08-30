@@ -28,10 +28,17 @@ public static class FormVisibilityEvaluator
             if (string.IsNullOrWhiteSpace(field)) { return true; }
             var op = (root.TryGetProperty("op", out var po) ? po.GetString() : null) ?? "equals";
             var value = root.TryGetProperty("value", out var pv) ? pv.GetString() : null;
-            var actual = getValue(field!);
-            return Eval(op, actual, value);
+            return Test(field, op, value, getValue);
         }
         catch (JsonException) { return true; }
+    }
+
+    /// <summary>Evalua UNA condicion {field, op, value} contra el valor actual resuelto por getValue. Field
+    /// vacio =&gt; true. Compartido por la visibilidad condicional y el escalon de estados (FormStatusLadder).</summary>
+    public static bool Test(string? field, string? op, string? value, Func<string, string?> getValue)
+    {
+        if (string.IsNullOrWhiteSpace(field)) { return true; }
+        return Eval(op ?? "equals", getValue(field!), value);
     }
 
     private static bool Eval(string op, string? actual, string? value)

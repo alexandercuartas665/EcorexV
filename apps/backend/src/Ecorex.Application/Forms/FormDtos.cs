@@ -73,7 +73,9 @@ public sealed record FormDefinitionDetailDto(
     // secuencia (solo lectura, para el preview del disenador). IdentityPrefix null => usar Code.
     string? IdentityPrefix = null, int IdentityPadding = 6, long SequenceNext = 0,
     // Oculta Enviar/Imprimir/autoguardado cuando el formulario se llena dentro del wizard de crear tarea.
-    bool HideSubmitBar = false);
+    bool HideSubmitBar = false,
+    // Escalon de estados calculados del registro (P1#5, config-driven). Null = sin escalon.
+    string? StatusLadderJson = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding

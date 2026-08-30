@@ -36,6 +36,9 @@ public interface IFormDefinitionService
     /// <summary>Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador).</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetCustomCssAsync(Guid definitionId, SetFormCssRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Guarda el escalon de estados calculados del registro (P1#5) como JSON de config. Null/vacio lo quita.</summary>
+    Task<FormResult<FormDefinitionDetailDto>> SetStatusLadderAsync(Guid definitionId, string? statusLadderJson, CancellationToken cancellationToken = default);
+
     /// <summary>Promueve/retira el formulario como modulo (ola F4): crea/borra el nodo de menu en el grupo elegido.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default);
 

@@ -691,7 +691,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
             definition.CardLayout, definition.CustomCss,
             definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
-            definition.HideSubmitBar);
+            definition.HideSubmitBar, definition.StatusLadderJson);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -774,6 +774,29 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
         }
         definition.CustomCss = string.IsNullOrWhiteSpace(request.CustomCss) ? null : request.CustomCss;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    /// <summary>Escalon de estados calculados del registro (P1#5). Guarda el JSON de config (o null); se valida
+    /// que sea JSON de objeto para no romper el evaluador. Vacio/invalido -&gt; se limpia.</summary>
+    public async Task<FormResult<FormDefinitionDetailDto>> SetStatusLadderAsync(
+        Guid definitionId, string? statusLadderJson, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+        var json = statusLadderJson?.Trim();
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try { using var _ = System.Text.Json.JsonDocument.Parse(json); }
+            catch (System.Text.Json.JsonException) { return FormResult<FormDefinitionDetailDto>.Invalid("El escalon de estados no es JSON valido."); }
+        }
+        definition.StatusLadderJson = string.IsNullOrWhiteSpace(json) ? null : json;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

@@ -1502,6 +1502,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.CardLayout).HasDefaultValue(FormCardLayout.Normal);
             // Ocultar barra de envio en el wizard (aditiva): default false = comportamiento actual.
             b.Property(x => x.HideSubmitBar).HasDefaultValue(false);
+            // Escalon de estados calculados (P1#5): JSON dual (jsonb / nvarchar(max)).
+            b.Property(x => x.StatusLadderJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

@@ -165,6 +165,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Rule> Rules => Set<Rule>();
     public DbSet<RuleExecutionLog> RuleExecutionLogs => Set<RuleExecutionLog>();
     public DbSet<FormFieldRule> FormFieldRules => Set<FormFieldRule>();
+    public DbSet<FormSubmitRule> FormSubmitRules => Set<FormSubmitRule>();
     public DbSet<WorkflowNodeRule> WorkflowNodeRules => Set<WorkflowNodeRule>();
 
     // Modulos de sistema (FASE 5, ADR-0017): organigrama del tenant (Dependencias, legacy
@@ -1878,6 +1879,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Rule).WithMany()
                 .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.FormQuestionId, x.RuleId }).IsUnique();
+            b.HasIndex(x => x.RuleId);
+        });
+
+        modelBuilder.Entity<FormSubmitRule>(b =>
+        {
+            // Vinculo on-submit a nivel de definicion; vive y muere con la definicion, NO ACTION a la regla.
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Rule).WithMany()
+                .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.DefinitionId, x.RuleId }).IsUnique();
             b.HasIndex(x => x.RuleId);
         });
 

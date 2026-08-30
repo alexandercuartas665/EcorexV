@@ -32,6 +32,18 @@ public interface IRulesEngine
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ejecuta las reglas ACTIVAS vinculadas a la DEFINICION al ENVIAR el formulario
+    /// (FormSubmitRule) en SortOrder, propagando el FormData. Corre server-side (tambien en el
+    /// envio publico anonimo). No devuelve acciones de UI (el envio ya cerro): solo ejecuta
+    /// (p.ej. crear una actividad). Devuelve el outcome agregado para trazabilidad.
+    /// </summary>
+    Task<FormFieldRulesOutcome> ExecuteForFormSubmitAsync(
+        Guid definitionId, IReadOnlyDictionary<string, string?> formData,
+        Guid? formResponseId = null, Guid? executedByTenantUserId = null,
+        Guid? actorUserId = null, string actorName = "Formulario",
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ejecuta las reglas ACTIVAS y AUTONOMAS de un nodo de flujo (WorkflowNodeRule) en
     /// SortOrder. AutoCompleteStep solo si TODAS tuvieron exito y alguna lo pidio.
     /// </summary>

@@ -107,6 +107,7 @@ public interface IApplicationDbContext
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }
     DbSet<FormFieldRule> FormFieldRules { get; }
+    DbSet<FormSubmitRule> FormSubmitRules { get; }
     DbSet<WorkflowNodeRule> WorkflowNodeRules { get; }
     DbSet<OrgUnit> OrgUnits { get; }
     DbSet<OrgUnitMember> OrgUnitMembers { get; }

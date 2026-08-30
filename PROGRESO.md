@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-29 - v0.15.120: Formularios - regla ON-SUBMIT (crear actividad al enviar) + asignacion (P0#1 SOLDARCO)
+
+- Hand-off SOLDARCO P0#1: al enviar FRM-LEAD (form publico anonimo) crear la actividad "Contacto con el
+  cliente" asignada al comercial. Generico/config-driven.
+- Disparo ON-SUBMIT: nueva entidad FormSubmitRule (DefinitionId -> RuleId, SortOrder), tabla form_submit_rules.
+  Migracion dual AddFormSubmitRule. RuleTriggerKind gana FormSubmit=3.
+- Motor: IRulesEngine.ExecuteForFormSubmitAsync(definitionId, formData, ...) ejecuta las reglas activas de la
+  definicion en SortOrder (espejo de ExecuteForFormFieldAsync). FormResponseService.SaveAsync lo invoca DESPUES
+  de confirmar+commitear el envio (un fallo no revierte el envio; queda en el historial de reglas). Como corre
+  en SaveAsync, cubre TAMBIEN el envio publico anonimo /f/{token} (server-side, sin usuario logueado).
+- Asignacion: el verbo GENERAR_TAREAS_DESDE_TABLA gana param assigneeUserId (Guid TenantUser) -> se pasa como
+  AssigneeTenantUserId en CreateTaskItemRequest (que ya lo soportaba). En form anonimo el actor viene vacio,
+  asi que el comercial sale de este param (opcion (a): comercial por defecto por regla, config, sin hardcode).
+  CreateAsync ya notifica cuando la tarea nace asignada (fix QA).
+- La sesion de diseno cablea por SQL: insert en form_submit_rules (tenant_id, definition_id, rule_id,
+  sort_order) apuntando a una Rule con verbo GENERAR_TAREAS_DESDE_TABLA y params {activityTypeId, rows,
+  assigneeUserId}. Build verde. Requiere deploy (migracion nueva).
+
+---
+
 ## 2026-08-29 - v0.15.119: Formularios - visibilidad condicional por VALOR de otro campo (visible_when_json)
 
 - Hand-off SOLDARCO (diseno de formularios), P0#2: mostrar/ocultar un campo o seccion segun el VALOR de otra

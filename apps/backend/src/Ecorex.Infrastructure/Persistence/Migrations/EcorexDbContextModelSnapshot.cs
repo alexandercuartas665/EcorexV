@@ -5686,6 +5686,58 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("form_responses", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_submit_rules");
+
+                    b.HasIndex("RuleId")
+                        .HasDatabaseName("ix_form_submit_rules_rule_id");
+
+                    b.HasIndex("DefinitionId", "RuleId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_submit_rules_definition_id_rule_id");
+
+                    b.ToTable("form_submit_rules", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -15507,6 +15559,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_form_responses_form_definitions_definition_id");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_submit_rules_form_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.Rule", "Rule")
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_submit_rules_rules_rule_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("Rule");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>

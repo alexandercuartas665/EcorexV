@@ -27,11 +27,12 @@ public sealed class FormResponseService : IFormResponseService
     private readonly Common.ITenantContext _tenant;
     private readonly Tenancy.IFormRecordBroadcaster _recordBroadcaster;
     private readonly Lookups.IFormLookupService _lookup;
+    private readonly Rules.IRulesEngine _rules;
 
     public FormResponseService(
         IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences,
         Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster,
-        Lookups.IFormLookupService lookup)
+        Lookups.IFormLookupService lookup, Rules.IRulesEngine rules)
     {
         _db = db;
         _workflowEngine = workflowEngine;
@@ -39,6 +40,7 @@ public sealed class FormResponseService : IFormResponseService
         _tenant = tenant;
         _recordBroadcaster = recordBroadcaster;
         _lookup = lookup;
+        _rules = rules;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -359,6 +361,28 @@ public sealed class FormResponseService : IFormResponseService
         if (assignRecord && recordFormCode is not null && _tenant.TenantId is Guid tid)
         {
             await _recordBroadcaster.RecordConfirmedAsync(tid, recordFormCode, recordNumber ?? "", cancellationToken);
+        }
+
+        // Reglas ON-SUBMIT (FormSubmitRule): corren DESPUES de que el envio quedo confirmado y commiteado,
+        // asi un fallo al crear (p.ej.) la actividad NO revierte el envio; el motor lo registra en su
+        // historial. Cubre tambien el envio publico anonimo (esta ruta la usan renderer y /f/{token}).
+        if (submit)
+        {
+            try
+            {
+                var submitData = document.ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+                await _rules.ExecuteForFormSubmitAsync(
+                    response.DefinitionId, submitData,
+                    formResponseId: response.Id,
+                    executedByTenantUserId: submittedByTenantUserId,
+                    actorUserId: _tenant.UserId,
+                    actorName: "Formulario",
+                    cancellationToken: cancellationToken);
+            }
+            catch (Exception)
+            {
+                // El envio ya esta confirmado: un fallo de las reglas on-submit no debe tumbarlo.
+            }
         }
 
         return FormResult<FormResponseDto>.Ok(ToDto(response));

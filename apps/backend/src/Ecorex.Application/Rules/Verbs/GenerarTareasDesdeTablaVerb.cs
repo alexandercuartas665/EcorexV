@@ -37,6 +37,9 @@ public sealed class GenerarTareasDesdeTablaVerb : IRuleVerb
                 "Texto antepuesto al titulo de cada tarea creada."),
             new RuleVerbParamDescriptor("rows", "Filas fijas (JSON)", RuleParamType.Json, Required: false,
                 "Arreglo JSON de filas usado cuando no hay campo tabla. Ej: [{\"title\":\"Preparar entrega\"}]"),
+            new RuleVerbParamDescriptor("assigneeUserId", "Asignar a (TenantUser Id)", RuleParamType.Text, Required: false,
+                "Guid del TenantUser al que se asignan las tareas creadas (p.ej. el comercial por defecto). "
+                + "Necesario en formularios anonimos, donde no hay usuario actor. Vacio = sin asignar."),
             new RuleVerbParamDescriptor("autoComplete", "Completar paso", RuleParamType.Boolean, Required: false,
                 "Si es true y la regla es autonoma de un nodo, el paso del flujo se completa solo.")
         ]);
@@ -62,6 +65,9 @@ public sealed class GenerarTareasDesdeTablaVerb : IRuleVerb
 
         var titleKey = context.GetStringParam("titleKey") ?? "title";
         var titlePrefix = context.GetStringParam("titlePrefix") ?? "";
+        // Asignacion configurable: en un form anonimo el actor viene vacio, asi que "el comercial" sale de
+        // este param (Guid de TenantUser). CreateAsync ya notifica cuando la tarea nace asignada (fix QA).
+        Guid? assignee = Guid.TryParse(context.GetStringParam("assigneeUserId"), out var asg) ? asg : null;
         var created = 0;
         foreach (var row in rows)
         {
@@ -74,7 +80,7 @@ public sealed class GenerarTareasDesdeTablaVerb : IRuleVerb
             var fullTitle = (titlePrefix + title).Trim();
             fullTitle = fullTitle.Length > 200 ? fullTitle[..200] : fullTitle;
             var result = await _tasks.CreateAsync(
-                new CreateTaskItemRequest(fullTitle, activityTypeId, description),
+                new CreateTaskItemRequest(fullTitle, activityTypeId, description, AssigneeTenantUserId: assignee),
                 context.ActorUserId ?? Guid.Empty, context.ActorName, cancellationToken);
             if (!result.IsOk)
             {

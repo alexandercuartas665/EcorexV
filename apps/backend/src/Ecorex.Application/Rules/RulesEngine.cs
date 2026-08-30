@@ -175,6 +175,48 @@ public sealed class RulesEngine : IRulesEngine
         return new FormFieldRulesOutcome(executions, actions, currentData);
     }
 
+    public async Task<FormFieldRulesOutcome> ExecuteForFormSubmitAsync(
+        Guid definitionId, IReadOnlyDictionary<string, string?> formData,
+        Guid? formResponseId = null, Guid? executedByTenantUserId = null,
+        Guid? actorUserId = null, string actorName = "Formulario",
+        CancellationToken cancellationToken = default)
+    {
+        var ruleIds = await _db.FormSubmitRules
+            .Where(l => l.DefinitionId == definitionId)
+            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l.SortOrder, Rule = r })
+            .Where(x => x.Rule.Status == RuleStatus.Active)
+            .Join(_db.RuleDocuments, x => x.Rule.DocumentId, d => d.Id,
+                (x, d) => new { x.SortOrder, x.Rule.Id, Document = d })
+            .Where(x => x.Document.Status == RuleStatus.Active && !x.Document.IsArchived)
+            .OrderBy(x => x.SortOrder)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var executions = new List<RuleExecutionOutcome>();
+        var actions = new List<RuleAction>();
+        var currentData = new Dictionary<string, string?>(formData, StringComparer.Ordinal);
+        foreach (var ruleId in ruleIds)
+        {
+            var result = await ExecuteRuleAsync(ruleId, new RuleInvocation(
+                RuleTriggerKind.FormSubmit, currentData,
+                FormResponseId: formResponseId,
+                ExecutedByTenantUserId: executedByTenantUserId,
+                ActorUserId: actorUserId, ActorName: actorName), cancellationToken);
+            if (result.Value is not RuleExecutionOutcome outcome)
+            {
+                continue;
+            }
+            executions.Add(outcome);
+            actions.AddRange(outcome.Actions);
+            foreach (var action in outcome.Actions.Where(a => a.Kind == RuleActionKind.SetFieldValue))
+            {
+                currentData[action.FieldCode] = action.Value;
+            }
+        }
+
+        return new FormFieldRulesOutcome(executions, actions, currentData);
+    }
+
     public async Task<WorkflowNodeRulesOutcome> ExecuteForWorkflowNodeAsync(
         Guid workflowNodeId, Guid? workflowInstanceId = null, Guid? taskItemId = null,
         CancellationToken cancellationToken = default)

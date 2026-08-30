@@ -8,5 +8,8 @@ public enum RuleTriggerKind
     /// <summary>Disparada por el cambio de un campo de formulario (FormFieldRule).</summary>
     FormField = 1,
     /// <summary>Disparada al activarse un nodo de flujo (WorkflowNodeRule autonoma).</summary>
-    WorkflowNode = 2
+    WorkflowNode = 2,
+    /// <summary>Disparada al ENVIAR un formulario (FormSubmitRule, a nivel de definicion). Corre server-side
+    /// tambien en el envio publico anonimo /f/{token}.</summary>
+    FormSubmit = 3
 }

@@ -174,3 +174,23 @@ merge principal Y en el cabezote/pie del Canvas (ResolveHeaderTokens), igual que
   Gemelo con hora de {{fecha}}.
 - `{{impreso}}`: fecha y hora ACTUAL de impresion (DateTimeOffset.Now del render).
 Helper compartido `ResolveDateTokens(html, fecha)` (fecha/fechahora/impreso). Texto plano (no markup).
+
+## Extension v0.15.121: paleta de FORMAS predefinidas con COTAS clicables
+
+El dibujante puede insertar PIEZAS TIPICAS de lamina en vez de dibujar desde cero. Todo es cliente
+(form-canvas.js), sin cambiar el formato de guardado (Type=Canvas, SVG multipagina).
+
+- LIBRERIA de formas parametricas: `var SHAPES` (mapa kind -> {label, w, h, geom(w,h)->{parts, cotas}}) +
+  `SHAPE_ORDER`. Agregar una forma = una entrada mas; la paleta, el dibujo, las cotas, el export/import y la
+  edicion son genericos. Set inicial: lamina, brida cuadrada/circular, angulo, canal U/CE/omega, bandeja
+  sencilla/doble, cilindro, perfil rolado, cono.
+- Nuevo tipo de shape `group`: se serializa como `<g data-ecx-kind data-ecx-dims data-ecx-w data-ecx-h
+  transform="translate() rotate()">` con el contorno + por cada cota un punto AMARILLO clicable
+  (`data-ecx-cota`) y su etiqueta. Reusa el pipeline existente (seleccion/mover/rotar/escalar).
+- COTAS: un clic en el punto amarillo abre un input inline; el valor se guarda en `sh.dims[key]` y la
+  etiqueta muestra "label: valor". Marcador elegido: punto amarillo (alto contraste, claramente "editable").
+- Round-trip: `parseSvgToScene` itera los hijos DIRECTOS del contenedor `[data-ecx-shapes]`; un
+  `<g data-ecx-kind>` reconstruye UN `group` (sin re-parsear sus primitivas hijas). Compatible con croquis
+  viejos (sin grupos). El grupo se guarda e imprime como cualquier dibujo (1 pagina y multipagina).
+- UI: boton "Formas" en la barra del croquis -> `ecorexFormCanvas.togglePalette(id)` (panel de miniaturas
+  `miniSvg`, misma libreria) -> `addShape(id, kind)`. Cache-bust form-canvas.js?v=6.

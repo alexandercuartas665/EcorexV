@@ -53,6 +53,214 @@ window.ecorexFormCanvas = (function () {
         return { id: 'sh' + s.nextId + '_' + Math.round(performance.now() % 1e6), type: type };
     }
 
+    // ==================== LIBRERIA DE FORMAS PARAMETRICAS (piezas de lamina) ====================
+    // Cada forma define su tamano base y una funcion geom(w,h) -> { parts, cotas }.
+    //   parts: primitivas del contorno en coords LOCALES (0..w, 0..h): {t:'line'|'rect'|'ellipse'|'circle'|'path'}.
+    //   cotas: puntos de medida clicables {key, label, x, y}. El valor se guarda en sh.dims[key].
+    // Para AGREGAR una forma: anade una entrada a SHAPES con {label, w, h, geom}. Nada mas (paleta, dibujo,
+    // cotas, export/import y edicion son genericos). El SVG se reconstruye desde data-ecx-kind/dims (round-trip).
+    var SHAPES = {
+        lamina: {
+            label: 'Lamina', w: 220, h: 140,
+            geom: function (w, h) {
+                return {
+                    parts: [{ t: 'rect', x: 0, y: 0, w: w, h: h }],
+                    cotas: [
+                        { key: 'ancho', label: 'ancho', x: w / 2, y: h + 14 },
+                        { key: 'largo', label: 'largo', x: w + 14, y: h / 2 },
+                        { key: 'espesor', label: 'espesor', x: 0, y: -12 }
+                    ]
+                };
+            }
+        },
+        brida_cuadrada: {
+            label: 'Brida cuadrada', w: 160, h: 160,
+            geom: function (w, h) {
+                var r = Math.max(5, Math.min(w, h) * 0.07), m = Math.min(w, h) * 0.18;
+                return {
+                    parts: [
+                        { t: 'rect', x: 0, y: 0, w: w, h: h },
+                        { t: 'circle', cx: m, cy: m, r: r }, { t: 'circle', cx: w - m, cy: m, r: r },
+                        { t: 'circle', cx: m, cy: h - m, r: r }, { t: 'circle', cx: w - m, cy: h - m, r: r }
+                    ],
+                    cotas: [
+                        { key: 'lado', label: 'lado', x: w / 2, y: h + 14 },
+                        { key: 'perforacion', label: 'perf', x: m, y: m }
+                    ]
+                };
+            }
+        },
+        brida_circular: {
+            label: 'Brida circular', w: 170, h: 170,
+            geom: function (w, h) {
+                var cx = w / 2, cy = h / 2, re = Math.min(w, h) / 2, ri = re * 0.55, rp = re * 0.08;
+                var holes = [];
+                for (var i = 0; i < 6; i++) { var a = i / 6 * Math.PI * 2; holes.push({ t: 'circle', cx: cx + Math.cos(a) * (re + ri) / 2, cy: cy + Math.sin(a) * (re + ri) / 2, r: rp }); }
+                return {
+                    parts: [{ t: 'ellipse', cx: cx, cy: cy, rx: re, ry: re }, { t: 'ellipse', cx: cx, cy: cy, rx: ri, ry: ri }].concat(holes),
+                    cotas: [
+                        { key: 'diam_ext', label: 'D ext', x: cx, y: -12 },
+                        { key: 'diam_int', label: 'D int', x: cx, y: cy },
+                        { key: 'perforaciones', label: 'perfs', x: cx + re, y: cy }
+                    ]
+                };
+            }
+        },
+        angulo: {
+            label: 'Angulo / L', w: 180, h: 180,
+            geom: function (w, h) {
+                var t = Math.min(w, h) * 0.22;
+                return {
+                    parts: [{ t: 'path', d: 'M 0 0 L ' + t + ' 0 L ' + t + ' ' + (h - t) + ' L ' + w + ' ' + (h - t) + ' L ' + w + ' ' + h + ' L 0 ' + h + ' Z' }],
+                    cotas: [
+                        { key: 'ala1', label: 'ala', x: w / 2, y: h + 14 },
+                        { key: 'ala2', label: 'ala', x: -14, y: h / 2 },
+                        { key: 'angulo', label: 'ang', x: t + 8, y: h - t + 8 },
+                        { key: 'largo', label: 'largo', x: w + 14, y: h - t }
+                    ]
+                };
+            }
+        },
+        canal_u: {
+            label: 'Canal U/C', w: 180, h: 150,
+            geom: function (w, h) {
+                var t = Math.min(w, h) * 0.16;
+                return {
+                    parts: [{ t: 'path', d: 'M 0 0 L 0 ' + h + ' L ' + w + ' ' + h + ' L ' + w + ' 0 L ' + (w - t) + ' 0 L ' + (w - t) + ' ' + (h - t) + ' L ' + t + ' ' + (h - t) + ' L ' + t + ' 0 Z' }],
+                    cotas: [
+                        { key: 'altura', label: 'altura', x: -14, y: h / 2 },
+                        { key: 'ala', label: 'ala', x: t / 2, y: -12 },
+                        { key: 'angulo', label: 'ang', x: t + 8, y: h - t + 8 }
+                    ]
+                };
+            }
+        },
+        canal_ce: {
+            label: 'Canal CE', w: 180, h: 150,
+            geom: function (w, h) {
+                var t = Math.min(w, h) * 0.16, lip = t * 0.9;
+                return {
+                    parts: [{ t: 'path', d: 'M ' + lip + ' 0 L 0 0 L 0 ' + h + ' L ' + lip + ' ' + h + ' L ' + lip + ' ' + (h - t) + ' L ' + t + ' ' + (h - t) + ' L ' + t + ' ' + t + ' L ' + lip + ' ' + t + ' Z' }],
+                    cotas: [
+                        { key: 'altura', label: 'altura', x: -14, y: h / 2 },
+                        { key: 'ala1', label: 'a1', x: lip / 2, y: -12 },
+                        { key: 'ala2', label: 'a2', x: lip / 2, y: h + 14 },
+                        { key: 'ala3', label: 'a3', x: t, y: t },
+                        { key: 'ala4', label: 'a4', x: t, y: h - t },
+                        { key: 'angulo', label: 'ang', x: t + 8, y: h / 2 }
+                    ]
+                };
+            }
+        },
+        canal_omega: {
+            label: 'Canal Omega', w: 200, h: 130,
+            geom: function (w, h) {
+                var f = w * 0.18, up = h * 0.55;
+                return {
+                    parts: [{ t: 'path', d: 'M 0 ' + h + ' L 0 ' + up + ' L ' + f + ' ' + up + ' L ' + f + ' 0 L ' + (w - f) + ' 0 L ' + (w - f) + ' ' + up + ' L ' + w + ' ' + up + ' L ' + w + ' ' + h }],
+                    cotas: [
+                        { key: 'ancho', label: 'ancho', x: w / 2, y: -12 },
+                        { key: 'altura', label: 'altura', x: (w - f), y: up / 2 },
+                        { key: 'ala1', label: 'a1', x: 0, y: (up + h) / 2 },
+                        { key: 'ala2', label: 'a2', x: w, y: (up + h) / 2 }
+                    ]
+                };
+            }
+        },
+        bandeja_sencilla: {
+            label: 'Bandeja sencilla', w: 210, h: 150,
+            geom: function (w, h) {
+                var t = h * 0.28;
+                return {
+                    parts: [{ t: 'path', d: 'M 0 0 L 0 ' + h + ' L ' + w + ' ' + h + ' L ' + w + ' 0 M 0 ' + t + ' L ' + w + ' ' + t }],
+                    cotas: [
+                        { key: 'ancho', label: 'ancho', x: w / 2, y: h + 14 },
+                        { key: 'altura', label: 'altura', x: -14, y: h / 2 },
+                        { key: 'a1', label: 'a1', x: 0, y: t / 2 }, { key: 'a2', label: 'a2', x: w, y: t / 2 },
+                        { key: 'a3', label: 'a3', x: w / 4, y: t }, { key: 'a4', label: 'a4', x: 3 * w / 4, y: t }
+                    ]
+                };
+            }
+        },
+        bandeja_doble: {
+            label: 'Bandeja doble ala', w: 230, h: 160,
+            geom: function (w, h) {
+                var t = h * 0.25, f = w * 0.12;
+                return {
+                    parts: [{ t: 'path', d: 'M ' + f + ' 0 L 0 0 L 0 ' + h + ' L ' + w + ' ' + h + ' L ' + w + ' 0 L ' + (w - f) + ' 0 M ' + f + ' ' + t + ' L ' + (w - f) + ' ' + t }],
+                    cotas: [
+                        { key: 'ancho', label: 'ancho', x: w / 2, y: h + 14 },
+                        { key: 'altura', label: 'altura', x: -14, y: h / 2 },
+                        { key: 'a1', label: 'a1', x: f / 2, y: 0 }, { key: 'a2', label: 'a2', x: 0, y: t },
+                        { key: 'a3', label: 'a3', x: w / 3, y: t }, { key: 'a4', label: 'a4', x: 2 * w / 3, y: t },
+                        { key: 'b1', label: 'b1', x: w - f / 2, y: 0 }, { key: 'b2', label: 'b2', x: w, y: t },
+                        { key: 'b3', label: 'b3', x: w / 4, y: h }, { key: 'b4', label: 'b4', x: 3 * w / 4, y: h }
+                    ]
+                };
+            }
+        },
+        cilindro: {
+            label: 'Cilindro', w: 130, h: 190,
+            geom: function (w, h) {
+                var ry = w * 0.18;
+                return {
+                    parts: [
+                        { t: 'ellipse', cx: w / 2, cy: ry, rx: w / 2, ry: ry },
+                        { t: 'path', d: 'M 0 ' + ry + ' L 0 ' + (h - ry) + ' M ' + w + ' ' + ry + ' L ' + w + ' ' + (h - ry) },
+                        { t: 'path', d: 'M 0 ' + (h - ry) + ' A ' + (w / 2) + ' ' + ry + ' 0 0 0 ' + w + ' ' + (h - ry) }
+                    ],
+                    cotas: [
+                        { key: 'diametro', label: 'diam', x: w / 2, y: ry },
+                        { key: 'altura', label: 'altura', x: w + 14, y: h / 2 },
+                        { key: 'radio', label: 'radio', x: 0, y: ry }
+                    ]
+                };
+            }
+        },
+        perfil_rolado: {
+            label: 'Perfil rolado', w: 190, h: 150,
+            geom: function (w, h) {
+                return {
+                    parts: [{ t: 'ellipse', cx: w / 2, cy: h / 2, rx: w / 2, ry: h / 2 }],
+                    cotas: [
+                        { key: 'diam_mayor', label: 'D mayor', x: w / 2, y: -12 },
+                        { key: 'diam_menor', label: 'D menor', x: -14, y: h / 2 }
+                    ]
+                };
+            }
+        },
+        cono: {
+            label: 'Cono / transicion', w: 190, h: 170,
+            geom: function (w, h) {
+                var top = w * 0.28, tx = (w - top) / 2, ry = w * 0.10;
+                return {
+                    parts: [
+                        { t: 'ellipse', cx: w / 2, cy: ry, rx: top / 2, ry: ry * (top / w) },
+                        { t: 'path', d: 'M ' + tx + ' ' + ry + ' L 0 ' + (h - ry) + ' M ' + (tx + top) + ' ' + ry + ' L ' + w + ' ' + (h - ry) },
+                        { t: 'path', d: 'M 0 ' + (h - ry) + ' A ' + (w / 2) + ' ' + ry + ' 0 0 0 ' + w + ' ' + (h - ry) }
+                    ],
+                    cotas: [
+                        { key: 'diam_sup', label: 'D sup', x: w / 2, y: ry },
+                        { key: 'diam_inf', label: 'D inf', x: w / 2, y: h },
+                        { key: 'altura', label: 'altura', x: w + 14, y: h / 2 }
+                    ]
+                };
+            }
+        }
+    };
+    var SHAPE_ORDER = ['lamina', 'brida_cuadrada', 'brida_circular', 'angulo', 'canal_u', 'canal_ce',
+        'canal_omega', 'bandeja_sencilla', 'bandeja_doble', 'cilindro', 'perfil_rolado', 'cono'];
+
+    // Geometria efectiva de un grupo (escala la base a w,h actuales; dims solo alimentan las etiquetas).
+    function groupGeom(sh) {
+        var def = SHAPES[sh.kind]; if (!def) { return { parts: [], cotas: [] }; }
+        return def.geom(sh.w, sh.h, sh.dims || {});
+    }
+    function cotaText(sh, cota) {
+        var v = (sh.dims || {})[cota.key];
+        return (v != null && String(v).trim() !== '') ? (cota.label + ': ' + v) : cota.label;
+    }
+
     // ---- Render de la escena al <svg> de edicion ----
     function el(tag, attrs) {
         var e = document.createElementNS(SVGNS, tag);
@@ -60,7 +268,40 @@ window.ecorexFormCanvas = (function () {
         return e;
     }
 
+    // Grupo (forma predefinida): <g> con el contorno + marcadores de cota (punto amarillo + etiqueta).
+    // Se serializa con data-ecx-kind/dims/w/h para reconstruirlo al recargar (round-trip) e imprimir.
+    function groupToNode(sh) {
+        var g = el('g', {
+            'data-ecx': sh.id, 'data-ecx-kind': sh.kind,
+            'data-ecx-dims': JSON.stringify(sh.dims || {}),
+            'data-ecx-w': r2(sh.w), 'data-ecx-h': r2(sh.h)
+        });
+        var tr = 'translate(' + r2(sh.x) + ' ' + r2(sh.y) + ')';
+        if (sh.rot) { tr += ' rotate(' + r2(sh.rot) + ' ' + r2(sh.w / 2) + ' ' + r2(sh.h / 2) + ')'; }
+        g.setAttribute('transform', tr);
+        var stroke = sh.stroke || '#1B1B1E', sw = sh.sw || 2;
+        var geom = groupGeom(sh);
+        geom.parts.forEach(function (p) {
+            var e = null;
+            if (p.t === 'rect') { e = el('rect', { x: p.x, y: p.y, width: p.w, height: p.h, fill: 'none', stroke: stroke, 'stroke-width': sw }); }
+            else if (p.t === 'line') { e = el('line', { x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, stroke: stroke, 'stroke-width': sw }); }
+            else if (p.t === 'ellipse') { e = el('ellipse', { cx: p.cx, cy: p.cy, rx: Math.abs(p.rx), ry: Math.abs(p.ry), fill: 'none', stroke: stroke, 'stroke-width': sw }); }
+            else if (p.t === 'circle') { e = el('circle', { cx: p.cx, cy: p.cy, r: Math.abs(p.r), fill: 'none', stroke: stroke, 'stroke-width': sw }); }
+            else if (p.t === 'path') { e = el('path', { d: p.d, fill: 'none', stroke: stroke, 'stroke-width': sw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }); }
+            if (e) { g.appendChild(e); }
+        });
+        // Cotas: etiqueta + punto amarillo clicable (data-ecx-cota). Se exportan e imprimen con el grupo.
+        geom.cotas.forEach(function (c) {
+            var label = el('text', { x: c.x + 8, y: c.y - 6, fill: '#7a5b00', 'font-size': 12, 'font-family': 'Inter, Arial, sans-serif', 'data-ecx-cotalabel': c.key });
+            label.textContent = cotaText(sh, c);
+            g.appendChild(label);
+            g.appendChild(el('circle', { cx: c.x, cy: c.y, r: 5, fill: '#FFC400', stroke: '#7a5b00', 'stroke-width': 1.2, 'data-ecx-cota': c.key, style: 'cursor:pointer' }));
+        });
+        return g;
+    }
+
     function shapeToNode(sh) {
+        if (sh.type === 'group') { return groupToNode(sh); }
         var n = null;
         if (sh.type === 'rect') {
             n = el('rect', { x: sh.x, y: sh.y, width: sh.w, height: sh.h, rx: 2, fill: 'none', stroke: sh.stroke, 'stroke-width': sh.sw || 2 });
@@ -92,7 +333,7 @@ window.ecorexFormCanvas = (function () {
     }
 
     // Figuras que admiten rotacion por manija (objetos e imagenes).
-    function rotatable(sh) { return sh && (sh.type === 'rect' || sh.type === 'ellipse' || sh.type === 'image' || sh.type === 'text' || sh.type === 'path'); }
+    function rotatable(sh) { return sh && (sh.type === 'rect' || sh.type === 'ellipse' || sh.type === 'image' || sh.type === 'text' || sh.type === 'path' || sh.type === 'group'); }
     // Pasa un punto de pantalla al espacio LOCAL sin rotar (gira -deg alrededor del centro).
     function unrotate(px, py, cx, cy, deg) {
         var r = -deg * Math.PI / 180, cos = Math.cos(r), sin = Math.sin(r), dx = px - cx, dy = py - cy;
@@ -127,8 +368,8 @@ window.ecorexFormCanvas = (function () {
             var grp = el('g');
             if (rot) { grp.setAttribute('transform', 'rotate(' + r2(rot) + ' ' + r2(cx) + ' ' + r2(cy) + ')'); }
             grp.appendChild(el('rect', { x: b.x - 3, y: b.y - 3, width: b.w + 6, height: b.h + 6, fill: 'none', stroke: '#2563EB', 'stroke-width': 1.2, 'stroke-dasharray': '5 4' }));
-            // manija de redimension (esquina inf-der) para rect/ellipse/image
-            if (selSh.type === 'rect' || selSh.type === 'ellipse' || selSh.type === 'image') {
+            // manija de redimension (esquina inf-der) para rect/ellipse/image/group (escala la forma)
+            if (selSh.type === 'rect' || selSh.type === 'ellipse' || selSh.type === 'image' || selSh.type === 'group') {
                 grp.appendChild(el('rect', { x: b.x + b.w - 4, y: b.y + b.h - 4, width: 10, height: 10, fill: '#2563EB', stroke: '#fff', 'stroke-width': 1.5, 'data-handle': '1', style: 'cursor:nwse-resize' }));
             }
             // manija de ROTACION: linea + circulo arriba del centro.
@@ -160,6 +401,15 @@ window.ecorexFormCanvas = (function () {
         var p = pt(s, evt);
         s.svg.setPointerCapture && s.svg.setPointerCapture(evt.pointerId);
         if (s.tool === 'select') {
+            // Cota clicable de una forma predefinida: un clic en el punto amarillo abre el input inline
+            // para escribir la medida (no mueve el grupo).
+            var cotaEl = evt.target && evt.target.closest ? evt.target.closest('[data-ecx-cota]') : null;
+            if (cotaEl) {
+                var gEl = cotaEl.closest('[data-ecx-kind]');
+                var gid = gEl && gEl.getAttribute('data-ecx');
+                var gsh = gid ? s.scene.find(function (x) { return x.id === gid; }) : null;
+                if (gsh) { s.sel = gsh.id; openCotaInput(s, gsh, cotaEl.getAttribute('data-ecx-cota'), evt); render(s); return; }
+            }
             var cur = s.scene.find(function (x) { return x.id === s.sel; });
             // manija de ROTACION?
             if (cur && evt.target && evt.target.getAttribute && evt.target.getAttribute('data-rothandle')) {
@@ -299,6 +549,88 @@ window.ecorexFormCanvas = (function () {
         inp.addEventListener('blur', commit);
     }
 
+    // ---- Cota: input flotante para escribir la medida de un punto de una forma ----
+    function openCotaInput(s, sh, key, evt) {
+        var rootRect = s.root.getBoundingClientRect();
+        var px = (evt && evt.clientX ? evt.clientX - rootRect.left : 10);
+        var py = (evt && evt.clientY ? evt.clientY - rootRect.top : 10);
+        var inp = document.createElement('input');
+        inp.type = 'text'; inp.placeholder = 'medida';
+        inp.value = (sh.dims && sh.dims[key] != null) ? sh.dims[key] : '';
+        inp.className = 'ecx-cota-input';
+        inp.style.cssText = 'position:absolute;left:' + px + 'px;top:' + py + 'px;width:76px;z-index:30;'
+            + 'font:12px Inter,Arial,sans-serif;padding:2px 5px;border:1px solid #7a5b00;border-radius:5px;background:#FFF8E1;';
+        s.root.appendChild(inp);
+        var done = false;
+        setTimeout(function () { inp.focus(); inp.select(); }, 10);
+        function commit() {
+            if (done) { return; } done = true;
+            pushUndo(s);
+            sh.dims = sh.dims || {};
+            var v = inp.value.trim();
+            if (v === '') { delete sh.dims[key]; } else { sh.dims[key] = v; }
+            if (inp.parentNode) { inp.parentNode.removeChild(inp); }
+            render(s);
+        }
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { commit(); } else if (e.key === 'Escape') { done = true; if (inp.parentNode) { inp.parentNode.removeChild(inp); } } });
+        inp.addEventListener('blur', commit);
+    }
+
+    // ---- Insertar una forma predefinida al centro del lienzo ----
+    function addShape(id, kind) {
+        var s = ed(id); if (!s) { return; }
+        var def = SHAPES[kind]; if (!def) { return; }
+        pushUndo(s);
+        var sh = newShape(s, 'group');
+        sh.kind = kind; sh.w = def.w; sh.h = def.h;
+        sh.x = r2((s.vw - def.w) / 2); sh.y = r2((s.vh - def.h) / 2);
+        sh.stroke = s.color || '#1B1B1E'; sh.sw = 2; sh.rot = 0; sh.dims = {};
+        s.scene.push(sh); s.sel = sh.id; s.tool = 'select';
+        if (s.onTool) { try { s.onTool('select'); } catch (e) { } }
+        render(s);
+        closePalette(s);
+    }
+
+    // ---- Paleta de formas: panel flotante con miniaturas (una sola fuente: SHAPES) ----
+    function miniSvg(kind) {
+        var def = SHAPES[kind]; if (!def) { return ''; }
+        var pad = 14, geom = def.geom(def.w, def.h, {});
+        var body = '';
+        geom.parts.forEach(function (p) {
+            if (p.t === 'rect') { body += '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" fill="none" stroke="#1B1B1E" stroke-width="3"/>'; }
+            else if (p.t === 'line') { body += '<line x1="' + p.x1 + '" y1="' + p.y1 + '" x2="' + p.x2 + '" y2="' + p.y2 + '" stroke="#1B1B1E" stroke-width="3"/>'; }
+            else if (p.t === 'ellipse') { body += '<ellipse cx="' + p.cx + '" cy="' + p.cy + '" rx="' + Math.abs(p.rx) + '" ry="' + Math.abs(p.ry) + '" fill="none" stroke="#1B1B1E" stroke-width="3"/>'; }
+            else if (p.t === 'circle') { body += '<circle cx="' + p.cx + '" cy="' + p.cy + '" r="' + Math.abs(p.r) + '" fill="none" stroke="#1B1B1E" stroke-width="3"/>'; }
+            else if (p.t === 'path') { body += '<path d="' + p.d + '" fill="none" stroke="#1B1B1E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'; }
+        });
+        return '<svg viewBox="' + (-pad) + ' ' + (-pad) + ' ' + (def.w + pad * 2) + ' ' + (def.h + pad * 2) + '" width="100%" height="100%">' + body + '</svg>';
+    }
+    function closePalette(s) { if (s.palette && s.palette.parentNode) { s.palette.parentNode.removeChild(s.palette); } s.palette = null; }
+    function togglePalette(id) {
+        var s = ed(id); if (!s) { return; }
+        if (s.palette) { closePalette(s); return; }
+        var panel = document.createElement('div');
+        panel.className = 'ecx-shape-palette';
+        panel.style.cssText = 'position:absolute;left:8px;top:8px;z-index:40;width:min(420px,92%);max-height:78%;overflow:auto;'
+            + 'background:#fff;border:1px solid #C3C7CF;border-radius:12px;box-shadow:0 10px 30px rgba(15,15,18,.18);padding:10px;'
+            + 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;';
+        SHAPE_ORDER.forEach(function (kind) {
+            var def = SHAPES[kind]; if (!def) { return; }
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border:1px solid #E4E6EB;'
+                + 'border-radius:9px;background:#fff;cursor:pointer;';
+            btn.innerHTML = '<div style="width:100%;height:56px">' + miniSvg(kind) + '</div>'
+                + '<span style="font:600 11px Inter,Arial,sans-serif;color:#1B1B1E;text-align:center">' + def.label + '</span>';
+            btn.addEventListener('mouseenter', function () { btn.style.borderColor = '#2563EB'; });
+            btn.addEventListener('mouseleave', function () { btn.style.borderColor = '#E4E6EB'; });
+            btn.addEventListener('click', function () { addShape(id, kind); });
+            panel.appendChild(btn);
+        });
+        s.root.appendChild(panel);
+        s.palette = panel;
+    }
+
     // ---- Construccion del editor ----
     function init(id, optsJson, existingSvg) {
         var root = document.getElementById(id);
@@ -363,15 +695,46 @@ window.ecorexFormCanvas = (function () {
         var scene = [];
         try {
             var doc = new DOMParser().parseFromString(svgStr, 'image/svg+xml');
-            var g = doc.querySelector('[data-ecx-shapes]') || doc.documentElement;
-            var nodes = g.querySelectorAll('rect,ellipse,text,image,path');
-            nodes.forEach(function (n) {
-                if (n.getAttribute('data-ecx-grid') || n.getAttribute('data-ecx-bg')) { return; }
-                var sh = nodeToShape(s, n);
-                if (sh) { scene.push(sh); }
-            });
+            var container = doc.querySelector('[data-ecx-shapes]');
+            if (container) {
+                // Se iteran los hijos DIRECTOS y se despacha: un <g data-ecx-kind> es una forma predefinida
+                // (no se re-parsean sus hijos primitivos); lo demas son primitivas sueltas.
+                Array.prototype.slice.call(container.children).forEach(function (n) {
+                    var tag = n.tagName.toLowerCase();
+                    if (tag === 'g' && n.getAttribute('data-ecx-kind')) {
+                        var gs = groupNodeToShape(s, n); if (gs) { scene.push(gs); }
+                    } else if (['rect', 'ellipse', 'text', 'image', 'path'].indexOf(tag) >= 0) {
+                        if (n.getAttribute('data-ecx-grid') || n.getAttribute('data-ecx-bg')) { return; }
+                        var sh = nodeToShape(s, n); if (sh) { scene.push(sh); }
+                    }
+                });
+            } else {
+                // Legacy sin contenedor: primitivas sueltas (no habia formas predefinidas antes).
+                doc.documentElement.querySelectorAll('rect,ellipse,text,image,path').forEach(function (n) {
+                    if (n.getAttribute('data-ecx-grid') || n.getAttribute('data-ecx-bg')) { return; }
+                    var sh = nodeToShape(s, n); if (sh) { scene.push(sh); }
+                });
+            }
         } catch (e) { /* svg invalido: escena vacia */ }
         return scene;
+    }
+
+    // <g data-ecx-kind> -> shape 'group' (reconstruye desde los data-attributes; ignora sus hijos SVG).
+    function groupNodeToShape(s, n) {
+        var kind = n.getAttribute('data-ecx-kind'); if (!SHAPES[kind]) { return null; }
+        var sh = newShape(s, 'group'); sh.kind = kind;
+        sh.w = parseFloat(n.getAttribute('data-ecx-w')) || SHAPES[kind].w;
+        sh.h = parseFloat(n.getAttribute('data-ecx-h')) || SHAPES[kind].h;
+        try { sh.dims = JSON.parse(n.getAttribute('data-ecx-dims') || '{}') || {}; } catch (e) { sh.dims = {}; }
+        var tr = n.getAttribute('transform') || '';
+        var mt = tr.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
+        sh.x = mt ? parseFloat(mt[1]) : 0; sh.y = mt ? parseFloat(mt[2]) : 0;
+        var mr = tr.match(/rotate\(\s*(-?[\d.]+)/);
+        sh.rot = mr ? parseFloat(mr[1]) : 0;
+        var strokeEl = n.querySelector('[stroke]');
+        sh.stroke = strokeEl ? (strokeEl.getAttribute('stroke') || '#1B1B1E') : '#1B1B1E';
+        sh.sw = strokeEl ? (parseFloat(strokeEl.getAttribute('stroke-width')) || 2) : 2;
+        return sh;
     }
 
     // Valor guardado -> lista de paginas [{scene, nextId}]. Compatibilidad: '<svg' = 1 pagina (legacy);
@@ -493,6 +856,7 @@ window.ecorexFormCanvas = (function () {
         init: init, getSvg: getSvg, setTool: setTool, setColor: setColor,
         undo: undo, redo: redo, del: del, addImage: addImage, clearAll: clearAll,
         addPage: addPage, deletePage: deletePage, prevPage: prevPage, nextPage: nextPage,
-        gotoPage: gotoPage, pageInfo: pageInfo
+        gotoPage: gotoPage, pageInfo: pageInfo,
+        addShape: addShape, togglePalette: togglePalette
     };
 })();

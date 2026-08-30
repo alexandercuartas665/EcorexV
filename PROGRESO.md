@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-29 - v0.15.121: Canvas - paleta de FORMAS predefinidas con COTAS clicables (ADR-0080)
+
+- Hand-off CONFIG (AGROMETALICAS): el dibujante no dibuja desde cero; un menu de formas de lamina cae al
+  croquis como esquema 2D editable con cotas que se llenan con un clic.
+- Libreria de formas parametricas en form-canvas.js (var SHAPES + SHAPE_ORDER): cada forma define
+  {label, w, h, geom(w,h)->{parts, cotas}}. 12 formas iniciales (lamina, brida cuad/circ, angulo, canal
+  U/CE/omega, bandeja sencilla/doble, cilindro, perfil rolado, cono). Agregar una = una entrada mas en SHAPES.
+- Nuevo tipo de shape 'group': se pinta como <g data-ecx-kind/dims/w/h transform> con el contorno + un punto
+  AMARILLO clicable por cota (data-ecx-cota) + etiqueta. Reusa el pipeline: seleccionable/movible/rotable/
+  escalable (boundsOf/moveShape/resize/rotate ya cubren group). addShape(id,kind) lo cae al centro.
+- Cotas: clic en el punto amarillo -> input inline (openCotaInput) -> el valor se guarda en sh.dims[key] y la
+  etiqueta pasa a "label: valor". Un clic para poner la medida.
+- Persistencia/impresion: el grupo va en el MISMO SVG multipagina; round-trip por data-ecx-kind/dims/w/h/
+  transform (parseSvgToScene itera hijos DIRECTOS del contenedor: <g data-ecx-kind> = 1 forma, sin re-parsear
+  sus primitivas hijas). No cambia el formato de guardado (Type=Canvas). Compatible con croquis viejos.
+- Paleta: boton "Formas" en la barra (DynamicFormRenderer) -> ecorexFormCanvas.togglePalette abre un panel con
+  miniaturas (miniSvg, misma libreria) y al hacer clic inserta la forma. form-canvas.js?v=6.
+- Verificado en navegador real: export->reparse = 1 grupo (sin duplicar hijos), cotas y dims persisten
+  ("ala: 50"), 12 miniaturas, toggle abrir/cerrar. Build verde. SIN migracion.
+
+---
+
 ## 2026-08-29 - v0.15.120: Formularios - regla ON-SUBMIT (crear actividad al enviar) + asignacion (P0#1 SOLDARCO)
 
 - Hand-off SOLDARCO P0#1: al enviar FRM-LEAD (form publico anonimo) crear la actividad "Contacto con el

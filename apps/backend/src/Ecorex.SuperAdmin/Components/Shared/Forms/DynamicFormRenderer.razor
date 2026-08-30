@@ -1026,6 +1026,7 @@ else
                     <button type="button" class="dfr-canvas-tool" title="Texto / anotacion" @onclick="@(() => CanvasToolAsync(q, "text"))">Texto</button>
                     <button type="button" class="dfr-canvas-tool" title="Lapiz libre" @onclick="@(() => CanvasToolAsync(q, "pen"))">Lapiz</button>
                     <button type="button" class="dfr-canvas-tool" title="Linea recta (manten Shift para horizontal/vertical/45 grados)" @onclick="@(() => CanvasToolAsync(q, "line"))">Linea</button>
+                    <button type="button" class="dfr-canvas-tool" title="Formas predefinidas (piezas de lamina con cotas)" @onclick="@(() => CanvasCmdAsync(q, "togglePalette"))">Formas</button>
                     <label class="dfr-canvas-tool dfr-canvas-img" title="Insertar imagen">
                         Imagen
                         <InputFile OnChange="@(e => OnCanvasImageSelectedAsync(q, e))" accept="image/*" style="display:none" />

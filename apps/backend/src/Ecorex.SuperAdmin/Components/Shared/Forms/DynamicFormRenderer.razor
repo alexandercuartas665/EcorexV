@@ -876,28 +876,54 @@ else
                 </select>
                 break;
             case FormControlType.Radio:
-                <div class="dfr-options">
+                @* Estilo "tarjetas" (opt-card) opt-in por Format=="cards": bordes/check/hover en vez de la
+                   lista estandar. Solo presentacion; el valor guardado sigue siendo el id de la opcion. *@
+                <div class="@(IsOptionCards(q) ? "dfr-optcards" : "dfr-options")">
                     @foreach (var option in FormFieldValidator.ParseOptions(q.OptionsJson))
                     {
-                        <label class="dfr-check">
-                            <input type="radio" name="@($"dfr-{q.Id}")" checked="@(option.Id == value)"
-                                   disabled="@IsDisabled"
-                                   @onchange="@(() => SetValue(q, option.Id))" />
-                            <span>@option.Label</span>
-                        </label>
+                        if (IsOptionCards(q))
+                        {
+                            <label class="dfr-optcard @(option.Id == value ? "on" : "")">
+                                <input type="radio" name="@($"dfr-{q.Id}")" checked="@(option.Id == value)" disabled="@IsDisabled"
+                                       @onchange="@(() => SetValue(q, option.Id))" />
+                                <span class="dfr-optcard-tick">@(option.Id == value ? "✓" : "")</span>
+                                <span class="dfr-optcard-label">@option.Label</span>
+                            </label>
+                        }
+                        else
+                        {
+                            <label class="dfr-check">
+                                <input type="radio" name="@($"dfr-{q.Id}")" checked="@(option.Id == value)"
+                                       disabled="@IsDisabled"
+                                       @onchange="@(() => SetValue(q, option.Id))" />
+                                <span>@option.Label</span>
+                            </label>
+                        }
                     }
                 </div>
                 break;
             case FormControlType.MultiCheck:
                 var selected = FormFieldValidator.ParseMultiValues(value).ToHashSet(StringComparer.Ordinal);
-                <div class="dfr-options">
+                <div class="@(IsOptionCards(q) ? "dfr-optcards" : "dfr-options")">
                     @foreach (var option in FormFieldValidator.ParseOptions(q.OptionsJson))
                     {
-                        <label class="dfr-check">
-                            <input type="checkbox" checked="@selected.Contains(option.Id)" disabled="@IsDisabled"
-                                   @onchange="@(e => ToggleMulti(q, option.Id, (bool)e.Value!))" />
-                            <span>@option.Label</span>
-                        </label>
+                        if (IsOptionCards(q))
+                        {
+                            <label class="dfr-optcard @(selected.Contains(option.Id) ? "on" : "")">
+                                <input type="checkbox" checked="@selected.Contains(option.Id)" disabled="@IsDisabled"
+                                       @onchange="@(e => ToggleMulti(q, option.Id, (bool)e.Value!))" />
+                                <span class="dfr-optcard-tick">@(selected.Contains(option.Id) ? "✓" : "")</span>
+                                <span class="dfr-optcard-label">@option.Label</span>
+                            </label>
+                        }
+                        else
+                        {
+                            <label class="dfr-check">
+                                <input type="checkbox" checked="@selected.Contains(option.Id)" disabled="@IsDisabled"
+                                       @onchange="@(e => ToggleMulti(q, option.Id, (bool)e.Value!))" />
+                                <span>@option.Label</span>
+                            </label>
+                        }
                     }
                 </div>
                 break;
@@ -2731,6 +2757,12 @@ else
     // Permisos por campo (ola F6, doc 01 D8): FieldVisibilityJson = { "hide":[...], "readonly":[...] }.
     private bool IsFieldHidden(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "hide");
     private bool IsFieldReadonly(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "readonly");
+
+    // Estilo "tarjetas" para Radio/MultiCheck (opt-in): se guarda en Format=="cards" (Format no aplica a
+    // controles de opcion, asi que se reutiliza sin migracion). Solo cambia la presentacion.
+    private static bool IsOptionCards(FormQuestionDto q)
+        => string.Equals(q.Format, "cards", StringComparison.OrdinalIgnoreCase)
+           && q.ControlType is FormControlType.Radio or FormControlType.MultiCheck;
 
     // Visibilidad condicional por VALOR de otra pregunta (visible_when_json). Se evalua EN VIVO contra
     // _values; el renderer re-renderiza al cambiar un campo, asi que aparece/desaparece al instante.

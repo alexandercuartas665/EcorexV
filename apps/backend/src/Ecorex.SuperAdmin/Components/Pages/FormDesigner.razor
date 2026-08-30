@@ -2531,20 +2531,31 @@ else
                     <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
                 </select>
             </div>
-            <div class="fb-field">
-                <label>Formato (presentacion)</label>
-                <select class="fb-select" value="@(node.Q!.Format ?? "")"
-                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { Format = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
-                    <option value="">Sin formato</option>
-                    <option value="currency">Moneda ($)</option>
-                    <option value="percent">Porcentaje (%)</option>
-                    <option value="integer">Entero (miles)</option>
-                    <option value="decimal">Decimal</option>
-                    <option value="phone">Telefono (mascara)</option>
-                    <option value="document">Documento (miles)</option>
-                </select>
-                <div class="fb-hint">En campos de texto, la mascara reformatea al perder el foco.</div>
-            </div>
+            @* El formato de mascara (moneda/telefono/...) no aplica a controles de OPCION; para Radio/MultiCheck
+               se ofrece en su lugar el estilo "tarjetas" (opt-card), guardado en el mismo campo Format. *@
+            @if (node.Q!.ControlType is FormControlType.Radio or FormControlType.MultiCheck)
+            {
+                @RenderToggleRow("Mostrar opciones como tarjetas", "Estilo opt-card (borde, check, hover) en vez de la lista",
+                    string.Equals(node.Q!.Format, "cards", StringComparison.OrdinalIgnoreCase),
+                    () => PatchQuestionAsync(node.Q!, r => r with { Format = string.Equals(node.Q!.Format, "cards", StringComparison.OrdinalIgnoreCase) ? null : "cards" }))
+            }
+            else
+            {
+                <div class="fb-field">
+                    <label>Formato (presentacion)</label>
+                    <select class="fb-select" value="@(node.Q!.Format ?? "")"
+                            @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { Format = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
+                        <option value="">Sin formato</option>
+                        <option value="currency">Moneda ($)</option>
+                        <option value="percent">Porcentaje (%)</option>
+                        <option value="integer">Entero (miles)</option>
+                        <option value="decimal">Decimal</option>
+                        <option value="phone">Telefono (mascara)</option>
+                        <option value="document">Documento (miles)</option>
+                    </select>
+                    <div class="fb-hint">En campos de texto, la mascara reformatea al perder el foco.</div>
+                </div>
+            }
             <div class="fb-field">
                 <label>Ocultar para roles</label>
                 <div class="fb-chkgrid">

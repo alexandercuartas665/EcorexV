@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-08-30 - v0.15.122: Formularios - Radio/MultiCheck como TARJETAS (opt-card) (P2#6 SOLDARCO)
+
+- Hand-off SOLDARCO P2#6: mostrar Radio/MultiCheck como tarjetas (borde, check, hover) estilo opt-card del
+  mockup, en vez de la lista estandar (para area en FRM-LEAD y tipo_gestion en la persona).
+- Opt-in por campo SIN migracion: se reusa Format=="cards" (Format no aplica a controles de opcion). El
+  renderer (DynamicFormRenderer) pinta .dfr-optcards/.dfr-optcard cuando IsOptionCards(q); el valor guardado
+  sigue siendo el id de la opcion. CSS opt-card en DynamicFormRenderer.razor.css.
+- Disenador: para Radio/MultiCheck se oculta el dropdown de formato numerico y se ofrece el toggle "Mostrar
+  opciones como tarjetas" (setea Format=cards/null). Sin regresion (los campos sin cards siguen como lista).
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-08-29 - v0.15.121: Canvas - paleta de FORMAS predefinidas con COTAS clicables (ADR-0080)
 
 - Hand-off CONFIG (AGROMETALICAS): el dibujante no dibuja desde cero; un menu de formas de lamina cae al

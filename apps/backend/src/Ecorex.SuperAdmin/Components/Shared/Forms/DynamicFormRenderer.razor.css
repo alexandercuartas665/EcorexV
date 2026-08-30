@@ -68,6 +68,24 @@
 .dfr-check:hover { border-color: var(--line-2, rgba(20,20,25,.12)); }
 .dfr-check input { accent-color: var(--brand, #1B1B1E); }
 
+/* Opciones como TARJETAS (opt-card): Radio/MultiCheck con Format=="cards". */
+.dfr-optcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.dfr-optcard {
+    position: relative; display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;
+    padding: 12px 12px; border: 1.5px solid var(--line, rgba(20,20,25,.10));
+    border-radius: 12px; background: var(--surface, #fff); font-size: 13.5px; color: var(--ink, #1B1B1E);
+    transition: border-color .12s, background .12s, box-shadow .12s;
+}
+.dfr-optcard:hover { border-color: var(--brand, #2563EB); }
+.dfr-optcard input { position: absolute; opacity: 0; pointer-events: none; }
+.dfr-optcard-tick {
+    flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center;
+    border: 1.5px solid var(--line-2, rgba(20,20,25,.18)); font-size: 12px; color: #fff; background: transparent;
+}
+.dfr-optcard-label { font-weight: 600; }
+.dfr-optcard.on { border-color: var(--brand, #2563EB); background: var(--brand-soft, #EFF4FF); box-shadow: inset 0 0 0 1px var(--brand, #2563EB); }
+.dfr-optcard.on .dfr-optcard-tick { background: var(--brand, #2563EB); border-color: var(--brand, #2563EB); }
+
 .dfr-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; margin: 0; }
 .dfr-toggle input { width: 34px; height: 18px; accent-color: var(--brand, #1B1B1E); }
 

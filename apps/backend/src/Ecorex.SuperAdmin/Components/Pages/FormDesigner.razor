@@ -2539,6 +2539,13 @@ else
                     string.Equals(node.Q!.Format, "cards", StringComparison.OrdinalIgnoreCase),
                     () => PatchQuestionAsync(node.Q!, r => r with { Format = string.Equals(node.Q!.Format, "cards", StringComparison.OrdinalIgnoreCase) ? null : "cards" }))
             }
+            else if (node.Q!.ControlType is FormControlType.TextArea)
+            {
+                @* Boton "Mejorar con IA" opt-in (Format=="ai"): reescribe/estructura el texto via el AI Gateway. *@
+                @RenderToggleRow("Boton \"Mejorar con IA\"", "Muestra un boton que reescribe/estructura el texto con el asistente del tenant",
+                    string.Equals(node.Q!.Format, "ai", StringComparison.OrdinalIgnoreCase),
+                    () => PatchQuestionAsync(node.Q!, r => r with { Format = string.Equals(node.Q!.Format, "ai", StringComparison.OrdinalIgnoreCase) ? null : "ai" }))
+            }
             else
             {
                 <div class="fb-field">

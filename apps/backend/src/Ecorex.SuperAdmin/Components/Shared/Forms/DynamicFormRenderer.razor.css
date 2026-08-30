@@ -86,6 +86,17 @@
 .dfr-optcard.on { border-color: var(--brand, #2563EB); background: var(--brand-soft, #EFF4FF); box-shadow: inset 0 0 0 1px var(--brand, #2563EB); }
 .dfr-optcard.on .dfr-optcard-tick { background: var(--brand, #2563EB); border-color: var(--brand, #2563EB); }
 
+/* Boton "Mejorar con IA" bajo un TextArea (opt-in Format=="ai"). */
+.dfr-ai-assist { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.dfr-ai-btn {
+    font-size: 12.5px; font-weight: 600; color: var(--brand, #2563EB);
+    background: var(--brand-soft, #EFF4FF); border: 1px solid var(--brand, #2563EB);
+    border-radius: 8px; padding: 5px 11px; cursor: pointer;
+}
+.dfr-ai-btn:hover { filter: brightness(.97); }
+.dfr-ai-btn:disabled { opacity: .6; cursor: default; }
+.dfr-ai-err { font-size: 12px; color: var(--danger, #DC2626); }
+
 .dfr-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; margin: 0; }
 .dfr-toggle input { width: 34px; height: 18px; accent-color: var(--brand, #1B1B1E); }
 

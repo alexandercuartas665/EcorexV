@@ -18,6 +18,7 @@
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
+@inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -841,6 +842,21 @@ else
             case FormControlType.TextArea:
                 <textarea class="form-control" rows="3" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                           @onchange="@(e => SetValue(q, e.Value?.ToString()))">@value</textarea>
+                @* Boton "Mejorar con IA" opt-in por campo (Format=="ai"): reescribe/estructura el texto via el
+                   AI Gateway del tenant (AiUsageLog). Solo al LLENAR (no en preview/solo-lectura). *@
+                @if (IsAiAssist(q) && !IsDisabled)
+                {
+                    <div class="dfr-ai-assist">
+                        <button type="button" class="dfr-ai-btn" disabled="@_aiBusy.Contains(q.FieldCode)"
+                                @onclick="@(() => ImproveWithAiAsync(q))">
+                            @(_aiBusy.Contains(q.FieldCode) ? "Mejorando..." : "✨ Mejorar con Asistente IA")
+                        </button>
+                        @if (_aiError.TryGetValue(q.FieldCode, out var aiErr) && !string.IsNullOrEmpty(aiErr))
+                        {
+                            <span class="dfr-ai-err">@aiErr</span>
+                        }
+                    </div>
+                }
                 break;
             case FormControlType.Number:
                 <input type="number" step="any" class="form-control" value="@value" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
@@ -2763,6 +2779,41 @@ else
     private static bool IsOptionCards(FormQuestionDto q)
         => string.Equals(q.Format, "cards", StringComparison.OrdinalIgnoreCase)
            && q.ControlType is FormControlType.Radio or FormControlType.MultiCheck;
+
+    // Boton "Mejorar con IA" en un TextArea (opt-in Format=="ai"; Format no aplica a texto largo).
+    private readonly HashSet<string> _aiBusy = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _aiError = new(StringComparer.Ordinal);
+    private static bool IsAiAssist(FormQuestionDto q)
+        => string.Equals(q.Format, "ai", StringComparison.OrdinalIgnoreCase)
+           && q.ControlType is FormControlType.TextArea;
+
+    private async Task ImproveWithAiAsync(FormQuestionDto q)
+    {
+        var current = _values.GetValueOrDefault(q.FieldCode);
+        if (string.IsNullOrWhiteSpace(current)) { _aiError[q.FieldCode] = "Escribe algo primero."; return; }
+        if (!_aiBusy.Add(q.FieldCode)) { return; }
+        _aiError[q.FieldCode] = null;
+        try
+        {
+            await _dbGate.WaitAsync();
+            FormTextAssistResult res;
+            try
+            {
+                using var ambient = BeginAmbient();
+                res = await AiTextSvc.ImproveAsync(current!, q.Label);
+            }
+            finally { _dbGate.Release(); }
+            if (res.Ok && !string.IsNullOrWhiteSpace(res.Text))
+            {
+                _values[q.FieldCode] = res.Text;
+                _dirty = true;
+                ValidateField(q);
+            }
+            else { _aiError[q.FieldCode] = res.Error ?? "No se pudo mejorar el texto."; }
+        }
+        catch (Exception ex) { _aiError[q.FieldCode] = "Error: " + ex.Message; }
+        finally { _aiBusy.Remove(q.FieldCode); }
+    }
 
     // Visibilidad condicional por VALOR de otra pregunta (visible_when_json). Se evalua EN VIVO contra
     // _values; el renderer re-renderiza al cambiar un campo, asi que aparece/desaparece al instante.

@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-30 - v0.15.123: Formularios - boton "Mejorar con IA" en TextArea (P2#7 SOLDARCO)
+
+- Hand-off SOLDARCO P2#7: boton junto a un campo de texto (ej. necesidad en FRM-LEAD) que reescribe/
+  estructura el contenido via el AI Gateway del tenant, respetando cupos/AiUsageLog.
+- Servicio nuevo IFormTextAssistService/FormTextAssistService (Ecorex.Application.Forms): espeja el patron de
+  AiReportSpecGenerator (IAiProviderClient + IAiUsageService), source "form-assist". Prompt de sistema:
+  reescribir/estructurar conservando idioma y hechos; devuelve solo el texto. Registra consumo (AiUsageLog).
+- Opt-in por campo SIN migracion: Format=="ai" en un TextArea (Format no aplica a texto largo). Renderer:
+  boton "Mejorar con Asistente IA" bajo el textarea (solo al llenar), con estado ocupado/error; al volver
+  reemplaza el valor del campo. Llama server-side bajo _dbGate + BeginAmbient (no hay interop JS).
+- Disenador: para TextArea, toggle "Boton Mejorar con IA" (setea Format=ai/null); oculta el formato numerico.
+- Build verde. Sin migracion. Requiere agente de IA activo + proveedor habilitado en el tenant.
+
+---
+
 ## 2026-08-30 - v0.15.122: Formularios - Radio/MultiCheck como TARJETAS (opt-card) (P2#6 SOLDARCO)
 
 - Hand-off SOLDARCO P2#6: mostrar Radio/MultiCheck como tarjetas (borde, check, hover) estilo opt-card del

@@ -1140,12 +1140,28 @@ public sealed class FormResponseService : IFormResponseService
         // Idempotencia (ADR-0078): si ESTE origen ya fue convertido a ESTE formulario destino, no se crea otro
         // registro; se devuelve el existente para que el boton simplemente lo REABRA (re-clic seguro). El
         // filtro global de tenant aplica.
-        var existingId = await _db.FormResponses.AsNoTracking()
+        var existing = await _db.FormResponses
             .Where(r => r.DerivedFromResponseId == sourceResponseId && r.DefinitionId == targetDefinitionId)
             .OrderBy(r => r.CreatedAt)
-            .Select(r => (Guid?)r.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        if (existingId is Guid already) { return FormResult<Guid>.Ok(already); }
+        if (existing is not null)
+        {
+            // RE-ANCLAJE (ADR-0078): si el origen YA esta anclado a una tarea pero la derivada existente nacio
+            // suelta (se creo antes de que el origen se anclara), se le fija la referencia AHORA. Sin esto la OT
+            // queda fuera de la pestana Formularios de la tarea y el boton "convertir", al reabrirla (idempotente),
+            // no encuentra donde mostrarla. Solo se toca si la referencia estaba vacia.
+            if (string.IsNullOrEmpty(existing.Reference))
+            {
+                var tn = StripOrdinal(src.Reference);
+                if (!string.IsNullOrEmpty(tn))
+                {
+                    var nx = await NextFormOrdinalAsync(targetDefinitionId, tn!, cancellationToken);
+                    existing.Reference = $"{tn}-{nx}";
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+            }
+            return FormResult<Guid>.Ok(existing.Id);
+        }
 
         // Solo se copian los field_codes que el destino CONOCE (auto-copiado por codigo), aplicando el mapeo
         // explicito {origen: destino} para los campos que cambian de nombre. La grilla 'items' se copia como

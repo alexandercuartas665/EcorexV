@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-31 - v0.15.126: Fix "Convertir a Orden de Trabajo" - re-anclar la OT derivada suelta (ADR-0078)
+
+- Sintoma: en T00058 (Simulador Cotizaciones/COT) el boton "Convertir a Orden de Trabajo" "no funcia": el
+  rule CONVERTIR_A_FORMULARIO corria con Success (idempotente) pero la OT no se abria.
+- Causa: la OT derivada (FT-C-008) se habia creado con Reference VACIA (nacio antes de que la COT se anclara
+  a la tarea). La pestana Formularios lista los generos por Reference == "{tarea}"/"{tarea}-{n}"; una OT sin
+  referencia no aparece -> OnConvertToFormAsync/FindGeneroItem no la encuentra -> no la abre. La idempotencia
+  de CreateDerivedFormAsync devolvia esa OT suelta sin re-anclarla, asi que reintentar no ayudaba.
+- Fix (FormResponseService.CreateDerivedFormAsync): en la rama de idempotencia, si el origen YA esta anclado
+  pero la derivada existente tiene Reference vacia, se le fija ahora la referencia ("{tarea}-{n}") antes de
+  devolverla. Asi reabrir la conversion re-ancla la OT y aparece/abre en la pestana Formularios. Solo toca
+  referencias vacias; no afecta OTs ya ancladas. Build verde. Sin migracion.
+
+---
+
 ## 2026-08-30 - v0.15.125: Acceso a secciones por DEPENDENCIA/CARGO (rework ADR-0082, sin control por rol)
 
 - Hand-off: el acceso por seccion NO debe depender del ROL. El bypass Owner/Admin hacia que el candado nunca

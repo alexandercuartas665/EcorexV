@@ -22,8 +22,15 @@ public static class FormStatusLadder
     public sealed record LadderResult(string TargetField, string Label);
 
     /// <summary>Devuelve el campo destino y la etiqueta de estado calculada. El estado ACTUAL se lee del
-    /// propio campo destino via getValue (avance-only). Null si no hay escalon valido / sin campo destino.</summary>
-    public static LadderResult? Resolve(string? ladderJson, Func<string, string?> getValue)
+    /// propio campo destino via getValue (avance-only). Null si no hay escalon valido / sin campo destino.
+    ///
+    /// <paramref name="getChildCount"/> (opcional) resuelve el numero de registros HIJO de un campo Subform
+    /// (FormRecordLink) del registro actual, para las condiciones con op "hasChildren" / "childCount":
+    /// <code>{"field":"gestion_oportunidad","op":"hasChildren"}</code> (>=1 hijo) o
+    /// <code>{"field":"gestion_oportunidad","op":"childCount","min":2}</code> (>= min, min por defecto 1).
+    /// Cuenta SOLO hijos directos del subform (no nietos ni filas de GridDetail). Sin resolver = cuenta 0.</summary>
+    public static LadderResult? Resolve(
+        string? ladderJson, Func<string, string?> getValue, Func<string, int>? getChildCount = null)
     {
         if (string.IsNullOrWhiteSpace(ladderJson)) { return null; }
         try
@@ -53,6 +60,19 @@ public static class FormStatusLadder
                         var cf = cond.TryGetProperty("field", out var cfp) ? cfp.GetString() : null;
                         var co = cond.TryGetProperty("op", out var cop) ? cop.GetString() : "equals";
                         var cv = cond.TryGetProperty("value", out var cvp) ? cvp.GetString() : null;
+
+                        // Operadores de HIJOS de subform (FormRecordLink): cuentan registros hijos, no leen el doc.
+                        var opNorm = (co ?? "equals").Trim().ToLowerInvariant();
+                        if (opNorm is "haschildren" or "childcount")
+                        {
+                            var min = 1;
+                            if (cond.TryGetProperty("min", out var mp) && mp.TryGetInt32(out var mv)) { min = mv; }
+                            else if (int.TryParse(cv, out var cvi)) { min = cvi; } // permite value como umbral
+                            var n = string.IsNullOrWhiteSpace(cf) ? 0 : (getChildCount?.Invoke(cf!) ?? 0);
+                            if (n < min) { whenOk = false; break; }
+                            continue;
+                        }
+
                         if (!FormVisibilityEvaluator.Test(cf, co, cv, getValue)) { whenOk = false; break; }
                     }
                 }

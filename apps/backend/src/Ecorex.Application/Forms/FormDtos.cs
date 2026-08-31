@@ -241,7 +241,10 @@ public sealed record TaskConceptFormsDto(
     Guid DefinitionId, string FormCode, string FormTitle,
     IReadOnlyList<TaskConceptFormItemDto> Items,
     // Ancho de tarjeta del formulario (Normal/Ancho/Completo), para dimensionar el modal del detalle.
-    FormCardLayout CardLayout = FormCardLayout.Normal);
+    FormCardLayout CardLayout = FormCardLayout.Normal,
+    // HEREDADO de la tarea PADRE (salto de flujo, ADR-0076): estos formularios pertenecen al padre y en la
+    // tarea hija se muestran SOLO para consulta (sin +Agregar / activar / copiar / eliminar).
+    bool Inherited = false);
 
 /// <summary>Formulario DERIVADO anclado a la tarea (ADR-0078): de OTRA definicion (no la del concepto),
 /// creado por transformacion (p.ej. Orden de Trabajo desde una cotizacion). Tarjeta extra en Formularios.</summary>

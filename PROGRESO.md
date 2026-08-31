@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-31 - v0.15.129: operador de subform-hijos en el escalon + formularios de la tarea PADRE en la hija
+
+- ESCALON (status ladder) - operador de HIJOS de subform (para Prospectado/Cerrado por leads con oportunidad):
+  nuevos ops de condicion 'hasChildren' y 'childCount' (min, def 1) que cuentan registros HIJO de un campo
+  Subform (FormRecordLink) del registro actual. Shape: {"field":"gestion_oportunidad","op":"hasChildren"} o
+  {"field":"...","op":"childCount","min":2}. Cuenta SOLO hijos directos (no nietos ni filas de GridDetail).
+  FormStatusLadder.Resolve recibe getChildCount; FormResponseService.SaveAsync precarga el conteo por
+  ParentFieldCode (FormRecordLinks del registro) y lo pasa. Se evalua al ENVIAR el registro padre (no al
+  agregar el hijo). Config pura: solo StatusLadderJson, sin columnas nuevas.
+- TAREAS (salto de flujo, ADR-0076): en la tarea HIJA ahora se visualizan los formularios que contiene la
+  tarea PADRE. GetTaskFormGenerosAsync, si la tarea tiene ParentId, anexa los generos del padre (respuestas
+  ancladas a su numero) marcados Inherited=true; solo con items. UI: badge "Tarea padre", SOLO consulta
+  (sin +Agregar/activar/copiar/reabrir/eliminar). TaskConceptFormsDto gana flag Inherited (default false).
+- DEV (datos de prueba para el llenado a la OT): se cargo Nit/E-mail en la COT de T00058 (estaban vacios) y
+  el rule del boton tiene mapping (incl. croquis) + defaults {vendedor:@usuario.nombre}.
+- Build verde. Sin migracion. REQUIERE DEPLOY para que el operador este en la imagen de prod (la sesion de
+  formularios cablea Prospectado/Cerrado por SQL con este operador).
+
+---
+
 ## 2026-08-31 - v0.15.128: Convertir a OT - valores por defecto / TRANSFORMACION configurable (ADR-0078)
 
 - Pedido: al convertir COT->OT, poder LLENAR campos que NO vienen del origen, p.ej. Vendedor = usuario

@@ -255,8 +255,23 @@ public sealed class FormResponseService : IFormResponseService
             var ladderJson = await _db.FormDefinitions.AsNoTracking()
                 .Where(d => d.Id == response.DefinitionId).Select(d => d.StatusLadderJson)
                 .FirstOrDefaultAsync(cancellationToken);
+
+            // Conteo de HIJOS por campo Subform (FormRecordLink) del registro actual, para los operadores
+            // hasChildren/childCount del escalon (p.ej. Prospectado = tiene >=1 oportunidad). Se precarga UNA
+            // vez y solo si hay escalon configurado. En un registro NUEVO aun sin Id no hay hijos -> cuenta 0.
+            Dictionary<string, int> childCounts = new(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(ladderJson) && response.Id != Guid.Empty)
+            {
+                childCounts = await _db.FormRecordLinks.AsNoTracking()
+                    .Where(l => l.ParentResponseId == response.Id)
+                    .GroupBy(l => l.ParentFieldCode)
+                    .Select(gp => new { Field = gp.Key, N = gp.Count() })
+                    .ToDictionaryAsync(x => x.Field, x => x.N, StringComparer.Ordinal, cancellationToken);
+            }
+
             var ladder = FormStatusLadder.Resolve(
-                ladderJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null);
+                ladderJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null,
+                code => childCounts.TryGetValue(code, out var n) ? n : 0);
             if (ladder is not null)
             {
                 var type = questionsByCode.TryGetValue(ladder.TargetField, out var lq)
@@ -951,7 +966,7 @@ public sealed class FormResponseService : IFormResponseService
     /// compartida por el genero del concepto y los generos del flujo: toda la logica es agnostica del origen.
     /// </summary>
     private async Task<TaskConceptFormsDto> BuildGeneroAsync(
-        TaskItem task, FormDefinition def, ISet<Guid> excludeResponseIds, CancellationToken ct)
+        TaskItem task, FormDefinition def, ISet<Guid> excludeResponseIds, CancellationToken ct, bool inherited = false)
     {
         var prefix = task.Number + "-";
         var responses = (await _db.FormResponses.AsNoTracking()
@@ -977,7 +992,7 @@ public sealed class FormResponseService : IFormResponseService
             r.Reference, ExtractDataField(r.Data, cliCode), r.CreatedAt,
             r.Id == activeId)).ToList();
 
-        return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items, def.CardLayout);
+        return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items, def.CardLayout, inherited);
     }
 
     public async Task<IReadOnlyList<TaskConceptFormsDto>> GetTaskFormGenerosAsync(Guid taskItemId, CancellationToken cancellationToken = default)
@@ -1044,6 +1059,34 @@ public sealed class FormResponseService : IFormResponseService
         {
             if (!defById.TryGetValue(defId, out var def)) { continue; } // archivada/inactiva -> no se ofrece
             result.Add(await BuildGeneroAsync(task, def, noExclude, cancellationToken));
+        }
+
+        // Formularios HEREDADOS de la tarea PADRE (salto de flujo, ADR-0076): cuando esta tarea nacio de un
+        // salto (ParentId), se anexan los formularios que el PADRE contiene (respuestas ancladas a su numero)
+        // como generos de SOLO consulta, para poder visualizarlos sin salir a la tarea padre. Solo generos con
+        // items (no se pintan vacios), y NO entran al selector "+ Agregar" (Inherited=true los excluye).
+        if (task.ParentId is Guid parentId)
+        {
+            var parent = await _db.TaskItems.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == parentId, cancellationToken);
+            if (parent is not null && !string.IsNullOrEmpty(parent.Number))
+            {
+                var pprefix = parent.Number + "-";
+                var parentDefIds = await _db.FormResponses.AsNoTracking()
+                    .Where(r => r.Reference == parent.Number || (r.Reference != null && r.Reference.StartsWith(pprefix)))
+                    .Select(r => r.DefinitionId).Distinct().ToListAsync(cancellationToken);
+                if (parentDefIds.Count > 0)
+                {
+                    var parentDefs = await _db.FormDefinitions.AsNoTracking()
+                        .Where(d => parentDefIds.Contains(d.Id) && d.Status == FormStatus.Active && !d.IsArchived)
+                        .ToListAsync(cancellationToken);
+                    foreach (var pdef in parentDefs)
+                    {
+                        var g = await BuildGeneroAsync(parent, pdef, noExclude, cancellationToken, inherited: true);
+                        if (g.Items.Count > 0) { result.Add(g); }
+                    }
+                }
+            }
         }
         return result;
     }

@@ -747,6 +747,10 @@
                                                     <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Sin numero" : it.Titulo)</strong>
                                                     <span class="tk-quote-sub">
                                                         <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:var(--surface-3,#f0f0f2);color:var(--ink-2,#5C5C66);font-size:11px;font-weight:600;">@g.FormTitle</span>
+                                                        @if (g.Inherited)
+                                                        {
+                                                            <span style="display:inline-block;padding:1px 8px;border-radius:999px;background:#eef2ff;color:#4338ca;font-size:11px;font-weight:600;" title="Formulario de la tarea padre (salto de flujo). Solo consulta.">&#128279; Tarea padre</span>
+                                                        }
                                                         @if (isStep)
                                                         {
                                                             <span>&nbsp;&middot; Paso: @(sf!.NodeName ?? "(sin nombre)")</span>
@@ -773,25 +777,29 @@
                                                     </span>
                                                 </div>
                                                 <div class="tk-quote-actions">
-                                                    @{ var primaryActive = isStep ? (stepPending && !taskClosed) : (!finalized && !taskClosed); }
+                                                    @{ var primaryActive = !g.Inherited && (isStep ? (stepPending && !taskClosed) : (!finalized && !taskClosed)); }
                                                     <button class="btn btn-xs @(primaryActive ? "btn-primary" : "")" @onclick="@(() => OpenFormItem(g, it, sf))" disabled="@_busy">@(primaryActive ? "Diligenciar" : "Ver")</button>
-                                                    @* "Marcar activo" en CUALQUIER formulario NO activo del genero (incluido el del paso
-                                                       actual): asi se puede volver a activar el otro. Un solo activo por (genero, tarea). *@
-                                                    @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
+                                                    @* Los HEREDADOS del padre son SOLO consulta: sin activar / copiar / reabrir / eliminar. *@
+                                                    @if (!g.Inherited)
                                                     {
-                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
-                                                    }
-                                                    @if (!taskClosed)
-                                                    {
-                                                        <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
-                                                    }
-                                                    @if (!isStep && finalized && !taskClosed)
-                                                    {
-                                                        <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
-                                                    }
-                                                    @if (!finalized && !taskClosed)
-                                                    {
-                                                        <button class="btn btn-xs tk-btn-danger" @onclick="@(() => DeleteConceptFormAsync(it))" disabled="@_busy" title="Eliminar formulario">Eliminar</button>
+                                                        @* "Marcar activo" en CUALQUIER formulario NO activo del genero (incluido el del paso
+                                                           actual): asi se puede volver a activar el otro. Un solo activo por (genero, tarea). *@
+                                                        @if (!it.IsActive && g.Items.Count > 1 && !taskClosed)
+                                                        {
+                                                            <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de este tipo">Marcar activo</button>
+                                                        }
+                                                        @if (!taskClosed)
+                                                        {
+                                                            <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
+                                                        }
+                                                        @if (!isStep && finalized && !taskClosed)
+                                                        {
+                                                            <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
+                                                        }
+                                                        @if (!finalized && !taskClosed)
+                                                        {
+                                                            <button class="btn btn-xs tk-btn-danger" @onclick="@(() => DeleteConceptFormAsync(it))" disabled="@_busy" title="Eliminar formulario">Eliminar</button>
+                                                        }
                                                     }
                                                 </div>
                                             </div>
@@ -1588,8 +1596,8 @@
             // Formularios de la tarea por GENERO (concepto + flujo + derivados), incluidos los vacios y el del
             // paso actual (que se pinta como una tarjeta mas, cruzado por ResponseId con _stepForms).
             _generos = (await formsSvc.GetTaskFormGenerosAsync(taskId)).ToList();
-            // Tipos que ofrece el boton "+ Agregar" (todos los generos configurados, aunque esten vacios).
-            _addableGeneros = _generos.Select(g => (g.DefinitionId, g.FormTitle)).ToList();
+            // Tipos que ofrece el boton "+ Agregar" (generos configurados; los HEREDADOS del padre no se agregan aqui).
+            _addableGeneros = _generos.Where(g => !g.Inherited).Select(g => (g.DefinitionId, g.FormTitle)).ToList();
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await tasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;

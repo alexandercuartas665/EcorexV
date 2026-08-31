@@ -584,6 +584,8 @@ else
     private PaletteKey? _dragPalette;
     private Guid? _dragNodeId;
     private bool _dragNodeIsQuestion;
+    // Menu "Mover a contenedor" (alternativa fiable al arrastre): nodo con el menu abierto.
+    private Guid? _moveMenuFor;
 
     // Vista previa y tokens.
     private bool _showPreview;
@@ -1149,6 +1151,66 @@ else
         {
             if (n.IsQuestion) { await FormsSvc.MoveQuestionAsync(n.Id, up); }
             else { await FormsSvc.MoveContainerAsync(n.Id, up); }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ToggleMoveMenu(Node node) => _moveMenuFor = _moveMenuFor == node.Id ? (Guid?)null : node.Id;
+
+    /// <summary>Contenedores validos a los que se puede mover el nodo (mas la raiz si esta anidado). Excluye
+    /// el contenedor actual, y si el nodo es contenedor tambien a si mismo y a sus descendientes (evita ciclos).
+    /// Ordenado como arbol (padre antes que hijos) con profundidad para indentar el menu.</summary>
+    private List<(Guid? Id, string Label, int Depth)> MoveTargets(Node node)
+    {
+        var currentParent = ParentOf(node);
+        var banned = new HashSet<Guid>();
+        if (node.IsContainer)
+        {
+            banned.Add(node.Id);
+            CollectDescendantContainers(node.Id, banned);
+        }
+        var result = new List<(Guid?, string, int)>();
+        if (currentParent is not null) { result.Add((null, "Raiz (sin contenedor)", 0)); }
+        void Walk(Guid? parentId, int depth)
+        {
+            foreach (var c in _def!.Containers.Where(x => x.ParentId == parentId).OrderBy(x => x.SortOrder))
+            {
+                if (!banned.Contains(c.Id) && c.Id != currentParent)
+                {
+                    result.Add((c.Id, string.IsNullOrWhiteSpace(c.Name) ? c.ContainerType.ToString() : c.Name, depth));
+                }
+                if (!banned.Contains(c.Id)) { Walk(c.Id, depth + 1); }
+            }
+        }
+        Walk(null, 0);
+        return result;
+    }
+
+    private void CollectDescendantContainers(Guid id, HashSet<Guid> acc)
+    {
+        foreach (var ch in _def!.Containers.Where(c => c.ParentId == id))
+        {
+            if (acc.Add(ch.Id)) { CollectDescendantContainers(ch.Id, acc); }
+        }
+    }
+
+    /// <summary>Mueve el nodo al contenedor destino (o a la raiz si null), al final de sus hijos.</summary>
+    private async Task MoveIntoContainerAsync(Node node, Guid? targetContainerId)
+    {
+        _moveMenuFor = null;
+        if (node.Locked || _busy) { return; }
+        _pageError = null;
+        _busy = true;
+        try
+        {
+            var result = node.IsQuestion
+                ? await FormsSvc.MoveQuestionToAsync(node.Id, targetContainerId, int.MaxValue)
+                : await FormsSvc.MoveContainerToAsync(node.Id, targetContainerId, int.MaxValue);
+            if (!result.IsOk) { _pageError = result.Error; return; }
             await ReloadAsync();
         }
         finally
@@ -1834,12 +1896,17 @@ else
 
     private RenderFragment RenderNodeActions(Node node) => __builder =>
     {
-        <div class="fb-node-actions" @onclick:stopPropagation="true">
+        <div class="fb-node-actions" @onclick:stopPropagation="true" style="position:relative;">
             <button title="Subir" disabled="@node.Locked" @onclick="@(() => MoveNodeAsync(node, true))">
                 @((MarkupString)IconSvg("M18 15l-6-6-6 6", 15))
             </button>
             <button title="Bajar" disabled="@node.Locked" @onclick="@(() => MoveNodeAsync(node, false))">
                 @((MarkupString)IconSvg("m6 9 6 6 6-6", 15))
+            </button>
+            @* Mover el elemento DENTRO de un contenedor existente (o sacarlo a la raiz) sin depender del
+               arrastre nativo (poco fiable en Blazor Server): abre un menu con los contenedores disponibles. *@
+            <button title="Mover a contenedor" @onclick="@(() => ToggleMoveMenu(node))">
+                @((MarkupString)IconSvg("<path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/><path d=\"M12 11v6M9 14h6\"/>", 15))
             </button>
             <button title="Duplicar" @onclick="@(() => DuplicateNodeAsync(node))">
                 @((MarkupString)IconSvg("<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V5a2 2 0 0 1 2-2h8\"/>", 15))
@@ -1847,6 +1914,26 @@ else
             <button class="danger" title="Eliminar" @onclick="@(() => DeleteNodeAsync(node))">
                 @((MarkupString)IconSvg("<path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"m5 6 1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14\"/>", 15))
             </button>
+            @if (_moveMenuFor == node.Id)
+            {
+                var targets = MoveTargets(node);
+                <div class="fb-move-menu" @onclick:stopPropagation="true"
+                     style="position:absolute;top:calc(100% + 4px);right:0;z-index:60;background:var(--surface-1,#fff);border:1px solid var(--border,#e2e2e6);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.16);padding:6px;min-width:210px;max-height:280px;overflow:auto;">
+                    <div style="font-size:11px;font-weight:700;color:var(--ink-3,#8a8a92);padding:4px 8px 6px;">MOVER A...</div>
+                    @if (targets.Count == 0)
+                    {
+                        <div style="padding:6px 8px;color:var(--ink-3,#8a8a92);font-size:12px;">No hay otro contenedor disponible.</div>
+                    }
+                    @foreach (var t in targets)
+                    {
+                        <button type="button"
+                                style="display:block;width:100%;text-align:left;padding:6px 8px;border:0;background:none;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink-1,#1e1e24);"
+                                @onclick="@(() => MoveIntoContainerAsync(node, t.Id))">
+                            <span style="padding-left:@(t.Depth * 12)px;">@t.Label</span>
+                        </button>
+                    }
+                </div>
+            }
         </div>
     };
 

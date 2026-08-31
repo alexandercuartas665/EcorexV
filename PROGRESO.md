@@ -5,6 +5,19 @@
 
 ---
 
+## 2026-08-31 - v0.15.131: diseñador de formularios - "Mover a contenedor" (alternativa fiable al arrastre)
+
+- Pedido: forma FACIL de meter un campo suelto (o mover cualquier elemento) dentro de un contenedor que ya
+  existe, sin depender del arrastre nativo (poco fiable en Blazor Server). Se DECIDIO NO cambiar el orden del
+  motor (sigue "campos primero, luego contenedores"); en su lugar una accion por clic.
+- FormDesigner: nuevo boton "Mover a contenedor" en la barra de acciones del nodo (junto a subir/bajar/
+  duplicar/eliminar). Abre un menu con los contenedores disponibles en arbol (indentados) + "Raiz (sin
+  contenedor)" si el nodo esta anidado. Excluye el contenedor actual y, si el nodo es contenedor, a si mismo
+  y a sus descendientes (evita ciclos). Al elegir destino: MoveQuestionToAsync/MoveContainerToAsync al final.
+- Sin backend nuevo (reusa los move-to existentes, que ya hacen clamp del indice). Sin migracion. Build verde.
+
+---
+
 ## 2026-08-31 - v0.15.130: FIX eliminar tablero de actividades - desacoplar conceptos + campos del tablero
 
 - Bug (prod): "Eliminar tablero" reventaba el circuito Blazor con PostgresException 23503

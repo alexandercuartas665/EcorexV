@@ -106,10 +106,19 @@ public interface IFormResponseService
     /// mapeo explicito {origen: destino} para los que cambian de nombre) y heredando el ANCLAJE a la tarea del
     /// origen (misma tarea, ordinal nuevo) o sin anclaje si el origen es suelto. Devuelve el id del nuevo
     /// registro (borrador). Lo usa el verbo CONVERTIR_A_FORMULARIO (p.ej. Cotizacion -> Orden de Trabajo).
+    ///
+    /// <paramref name="contextDefaults"/> (opcional, configurable en la regla): valores por defecto/transformacion
+    /// { campoDestino: token } que RELLENAN campos del destino SIN origen (solo si quedan vacios). Un token que
+    /// empieza por '@' se resuelve desde el contexto (p.ej. '@usuario.nombre' = nombre del usuario que ejecuta,
+    /// '@usuario.email', '@fecha.hoy', '@fecha.hora'); cualquier otro valor se toma como constante literal.
+    /// <paramref name="actorTenantUserId"/> es el TenantUser que dispara la conversion (para resolver '@usuario.*').
     /// </summary>
     Task<FormResult<Guid>> CreateDerivedFormAsync(
         Guid sourceResponseId, Guid targetDefinitionId,
-        IReadOnlyDictionary<string, string>? fieldMapping, CancellationToken cancellationToken = default);
+        IReadOnlyDictionary<string, string>? fieldMapping,
+        IReadOnlyDictionary<string, string>? contextDefaults = null,
+        Guid? actorTenantUserId = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Formularios DERIVADOS anclados a la tarea (ADR-0078): respuestas cuyo Reference es el numero de la

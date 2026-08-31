@@ -44,6 +44,11 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
             new RuleVerbParamDescriptor("mapping", "Mapeo de campos", RuleParamType.Json, Required: false,
                 "Opcional. JSON { campoOrigen: campoDestino } solo para los campos que cambian de nombre. Los "
                 + "campos con el MISMO codigo en ambos formularios se copian automaticamente."),
+            new RuleVerbParamDescriptor("defaults", "Valores por defecto / transformacion", RuleParamType.Json, Required: false,
+                "Opcional. JSON { campoDestino: valor } que RELLENA campos del destino que NO vienen del origen "
+                + "(solo si quedan vacios). El valor puede ser una constante o un token de contexto: "
+                + "'@usuario.nombre' (nombre del usuario que convierte), '@usuario.email', '@fecha.hoy', "
+                + "'@fecha.hora'. Ej: { \"vendedor\": \"@usuario.nombre\" }."),
             new RuleVerbParamDescriptor("openMode", "Como abrir", RuleParamType.Text, Required: false,
                 "Opcional. 'modal' (por defecto): el host abre el registro creado en un modal.")
         ]);
@@ -70,9 +75,11 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
             return RuleVerbResult.Fail($"No existe un formulario activo con codigo '{targetCode}'.");
         }
 
-        var mapping = ParseMapping(context);
+        var mapping = ParseMapping(context, "mapping");
+        var defaults = ParseMapping(context, "defaults");
 
-        var result = await _forms.CreateDerivedFormAsync(sourceId, targetDef.Id, mapping, cancellationToken);
+        var result = await _forms.CreateDerivedFormAsync(
+            sourceId, targetDef.Id, mapping, defaults, context.ExecutedByTenantUserId, cancellationToken);
         if (!result.IsOk)
         {
             return RuleVerbResult.Fail(result.Error ?? "No se pudo crear el formulario destino.");
@@ -85,10 +92,11 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
             actions: [RuleAction.OpenForm(newId.ToString())]);
     }
 
-    /// <summary>Lee el parametro 'mapping' como { origen: destino }. Acepta un objeto JSON o una cadena con JSON.</summary>
-    private static IReadOnlyDictionary<string, string>? ParseMapping(RuleContext context)
+    /// <summary>Lee un parametro JSON de mapa { clave: valor }. Acepta un objeto JSON o una cadena con JSON.
+    /// Se reusa para 'mapping' (origen->destino) y 'defaults' (destino->valor/token).</summary>
+    private static IReadOnlyDictionary<string, string>? ParseMapping(RuleContext context, string paramName)
     {
-        if (!context.Params.TryGetValue("mapping", out var el)) { return null; }
+        if (!context.Params.TryGetValue(paramName, out var el)) { return null; }
         if (el.ValueKind == JsonValueKind.Object) { return ReadMap(el); }
         if (el.ValueKind == JsonValueKind.String)
         {

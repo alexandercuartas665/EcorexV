@@ -1123,6 +1123,8 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<FormResult<Guid>> CreateDerivedFormAsync(
         Guid sourceResponseId, Guid targetDefinitionId,
         IReadOnlyDictionary<string, string>? fieldMapping,
+        IReadOnlyDictionary<string, string>? contextDefaults = null,
+        Guid? actorTenantUserId = null,
         CancellationToken cancellationToken = default)
     {
         var src = await _db.FormResponses.AsNoTracking()
@@ -1157,6 +1159,12 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Valores por defecto / TRANSFORMACION configurable (contextDefaults): rellenan campos del destino SIN
+        // origen (p.ej. Vendedor = nombre del usuario actual) resolviendo tokens '@...' desde el contexto. Son
+        // "fill-if-empty": nunca pisan un dato ya mapeado del origen ni lo que el usuario haya escrito luego.
+        var resolvedDefaults = await ResolveContextDefaultsAsync(
+            contextDefaults, targetCodes, actorTenantUserId, cancellationToken);
+
         // Idempotencia (ADR-0078): si ESTE origen ya fue convertido a ESTE destino, no se crea otro. Se REABRE
         // el existente y, mientras siga en BORRADOR, se REFRESCAN sus campos heredados con los datos ACTUALES
         // del origen (cliente, items, croquis, ...); los campos PROPIOS de la OT (vendedor, fechas de entrega,
@@ -1178,10 +1186,11 @@ public sealed class FormResponseService : IFormResponseService
                     changed = true;
                 }
             }
-            if (existing.Status == FormResponseStatus.Draft && mapped.Count > 0)
+            if (existing.Status == FormResponseStatus.Draft && (mapped.Count > 0 || resolvedDefaults.Count > 0))
             {
                 var doc = new Dictionary<string, FormFieldValue>(ParseDocument(existing.Data), StringComparer.Ordinal);
                 foreach (var (code, val) in mapped) { doc[code] = val; }
+                ApplyDefaultsFillEmpty(doc, resolvedDefaults);
                 existing.Data = JsonSerializer.Serialize(doc, JsonOptions);
                 changed = true;
             }
@@ -1192,6 +1201,9 @@ public sealed class FormResponseService : IFormResponseService
         // Anclaje a tarea: si el origen esta anclado (Reference "{tarea}-{n}" o "{tarea}"), la derivada cae en
         // la MISMA tarea con un ordinal nuevo -> aparece en su pestana Formularios. Si el origen es suelto
         // (sin Reference), la derivada nace sin anclaje (flujo standalone).
+        // Rellenar los campos por defecto (transformacion) en el borrador nuevo, sin pisar lo ya copiado.
+        ApplyDefaultsFillEmpty(mapped, resolvedDefaults);
+
         var taskNumber = StripOrdinal(src.Reference);
         string? reference = null;
         if (!string.IsNullOrEmpty(taskNumber))
@@ -1234,6 +1246,86 @@ public sealed class FormResponseService : IFormResponseService
         _db.FormResponses.Add(response);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<Guid>.Ok(response.Id);
+    }
+
+    /// <summary>Copia los valores por defecto (transformacion) al documento solo donde el campo destino esta
+    /// vacio o ausente: nunca pisa un dato heredado del origen ni lo que el usuario haya escrito.</summary>
+    private static void ApplyDefaultsFillEmpty(
+        IDictionary<string, FormFieldValue> doc, IReadOnlyDictionary<string, FormFieldValue> defaults)
+    {
+        foreach (var (code, val) in defaults)
+        {
+            if (!doc.TryGetValue(code, out var cur) || string.IsNullOrWhiteSpace(cur.Value))
+            {
+                doc[code] = val;
+            }
+        }
+    }
+
+    /// <summary>Resuelve el mapa configurable { campoDestino: token } a valores concretos. Un token que empieza
+    /// por '@' se resuelve desde el contexto de ejecucion (usuario actual, fecha); cualquier otro texto se toma
+    /// como constante literal. Solo se resuelven campos que EXISTEN en el destino. El nombre/correo del usuario
+    /// requiere <paramref name="actorTenantUserId"/> (el TenantUser que dispara la conversion).</summary>
+    private async Task<Dictionary<string, FormFieldValue>> ResolveContextDefaultsAsync(
+        IReadOnlyDictionary<string, string>? defaults, ISet<string> targetCodes,
+        Guid? actorTenantUserId, CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, FormFieldValue>(StringComparer.Ordinal);
+        if (defaults is null || defaults.Count == 0) { return result; }
+
+        // Datos del usuario actual: se resuelven UNA vez y solo si algun token los pide (evita el join si no aplica).
+        var wantsUser = defaults.Values.Any(v => v.TrimStart().StartsWith("@usuario", StringComparison.OrdinalIgnoreCase)
+            || v.TrimStart().StartsWith("@user", StringComparison.OrdinalIgnoreCase));
+        string? userName = null;
+        string? userEmail = null;
+        if (wantsUser && actorTenantUserId is Guid tuId && tuId != Guid.Empty)
+        {
+            var u = await _db.TenantUsers.AsNoTracking()
+                .Where(tu => tu.Id == tuId)
+                .Join(_db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(),
+                    tu => tu.PlatformUserId, pu => pu.Id,
+                    (tu, pu) => new { pu.DisplayName, tu.Email })
+                .FirstOrDefaultAsync(cancellationToken);
+            userName = u?.DisplayName;
+            userEmail = u?.Email;
+        }
+
+        var nowUtc = DateTimeOffset.UtcNow;
+        foreach (var (destCode, rawToken) in defaults)
+        {
+            if (!targetCodes.Contains(destCode)) { continue; }
+            var token = rawToken?.Trim();
+            if (string.IsNullOrEmpty(token)) { continue; }
+
+            string? value;
+            string type = "Text";
+            if (token.StartsWith('@'))
+            {
+                switch (token.ToLowerInvariant())
+                {
+                    case "@usuario.nombre" or "@usuario" or "@user.nombre" or "@user.name":
+                        value = userName; break;
+                    case "@usuario.email" or "@usuario.correo" or "@user.email":
+                        value = userEmail; break;
+                    case "@fecha.hoy" or "@hoy" or "@today":
+                        value = nowUtc.ToString("yyyy-MM-dd"); type = "Date"; break;
+                    case "@fecha.hora" or "@hora" or "@now":
+                        value = nowUtc.ToString("HH:mm"); type = "Time"; break;
+                    default:
+                        value = null; break; // token desconocido -> no rellena
+                }
+            }
+            else
+            {
+                value = token; // constante literal configurada
+            }
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                result[destCode] = new FormFieldValue(value, type);
+            }
+        }
+        return result;
     }
 
     public async Task<IReadOnlyList<TaskRelatedFormDto>> GetTaskRelatedFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default)

@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-31 - v0.15.128: Convertir a OT - valores por defecto / TRANSFORMACION configurable (ADR-0078)
+
+- Pedido: al convertir COT->OT, poder LLENAR campos que NO vienen del origen, p.ej. Vendedor = usuario
+  actual, pero con el NOMBRE de la persona (no el login). Debe ser CONFIGURABLE en la regla.
+- Nuevo parametro configurable del verbo CONVERTIR_A_FORMULARIO: 'defaults' = JSON { campoDestino: valor }.
+  El valor puede ser una CONSTANTE literal o un TOKEN de contexto: '@usuario.nombre' (DisplayName del
+  usuario que convierte), '@usuario.email', '@fecha.hoy', '@fecha.hora'. Semantica FILL-IF-EMPTY: solo
+  rellena si el campo destino esta vacio, nunca pisa datos del origen ni lo que el usuario ya escribio.
+- CODE: CreateDerivedFormAsync recibe contextDefaults + actorTenantUserId; resuelve tokens una sola vez
+  (join TenantUser->PlatformUser.DisplayName para '@usuario.*'); aplica en el create y en el refresh del
+  borrador. El verbo pasa context.ExecutedByTenantUserId (el TenantUser que dispara el boton, ya cableado
+  por TaskDetailModal). ConvertirAFormularioVerb.ParseMapping ahora es generico (mapping + defaults).
+- CONFIG (SQL, dev): regla del boton del Simulador -> defaults { "vendedor": "@usuario.nombre" }.
+  Aclaracion: el Nit/E-mail de la OT llegaban vacios porque estan VACIOS en la COT origen (el mapeo si
+  funciona); no es un bug. PENDIENTE aplicar el mismo defaults en PROD.
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-08-31 - v0.15.127: Convertir a OT - REFRESCAR datos heredados al reconvertir (ADR-0078)
 
 - Pedido: al convertir COT->OT, la OT no traia los datos del cliente ni el croquis (items si). Causa doble:

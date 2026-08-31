@@ -182,7 +182,7 @@
 @if (_deleteId is not null)
 {
     <div class="fl-overlay" @onclick="@(() => _deleteId = null)">
-        <div class="fl-modal" style="width:min(420px,94vw)" @onclick:stopPropagation>
+        <div class="fl-modal" style="width:min(520px,94vw)" @onclick:stopPropagation>
             <div class="fl-modal-head">
                 <h3 style="margin:0;">Eliminar flujo</h3>
                 <button class="fl-modal-x" @onclick="@(() => _deleteId = null)">&times;</button>
@@ -190,7 +190,24 @@
             <div style="padding:8px 2px 12px;font-size:14px;color:var(--ink-2,#475569);">
                 @if (_deleteRunning > 0)
                 {
-                    <p>El flujo <strong>@_deleteName</strong> tiene <strong>@_deleteRunning</strong> instancia(s) en marcha. Deten o cancela esas instancias antes de eliminarlo.</p>
+                    <p>El flujo <strong>@_deleteName</strong> tiene <strong>@_deleteRunning</strong> tarea(s) con una instancia del proceso <strong>en marcha</strong>. Cancela la instancia de cada tarea para poder eliminar el flujo.</p>
+                    <div style="border:1px solid var(--border,#e2e8f0);border-radius:10px;overflow:hidden;margin-top:8px;">
+                        @foreach (var inst in _deleteInstances)
+                        {
+                            <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--surface-3,#f1f5f9);">
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-weight:600;color:var(--ink-1,#0f172a);">
+                                        @(inst.TaskNumber ?? "(sin tarea)")@(inst.FlowVersion > 0 ? $"  ·  v{inst.FlowVersion}" : "")
+                                    </div>
+                                    <div style="font-size:12px;color:var(--ink-3,#94a3b8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        @(string.IsNullOrWhiteSpace(inst.TaskTitle) ? "Instancia sin tarea vinculada" : inst.TaskTitle)
+                                    </div>
+                                </div>
+                                <button class="fl-btn-ghost" style="border-color:var(--t-red,#dc2626);color:var(--t-red,#dc2626);"
+                                        @onclick="@(() => CancelInstanceAsync(inst.InstanceId))" disabled="@_busy">Cancelar instancia</button>
+                            </div>
+                        }
+                    </div>
                 }
                 else
                 {
@@ -202,7 +219,7 @@
                 }
             </div>
             <div style="display:flex;justify-content:flex-end;gap:8px;">
-                <button class="fl-btn-ghost" @onclick="@(() => _deleteId = null)" disabled="@_busy">Cancelar</button>
+                <button class="fl-btn-ghost" @onclick="@(() => _deleteId = null)" disabled="@_busy">Cerrar</button>
                 @if (_deleteRunning == 0)
                 {
                     <button class="fl-btn-brand" style="background:var(--t-red,#dc2626);border-color:var(--t-red,#dc2626);" @onclick="ConfirmDeleteAsync" disabled="@_busy">Eliminar</button>
@@ -240,10 +257,40 @@
     private string? _deleteName;
     private int _deleteRunning;
     private string? _deleteError;
+    private IReadOnlyList<FlowRunningInstanceDto> _deleteInstances = [];
 
-    private void AskDelete(Guid id, string name, int running)
+    private async Task AskDelete(Guid id, string name, int running)
     {
         _deleteId = id; _deleteName = name; _deleteRunning = running; _deleteError = null;
+        _deleteInstances = [];
+        if (running > 0) { await LoadDeleteInstancesAsync(); }
+    }
+
+    // Carga (o recarga) las instancias en marcha del flujo y sincroniza el contador con lo real.
+    private async Task LoadDeleteInstancesAsync()
+    {
+        if (_deleteId is not Guid id) { return; }
+        await _gate.WaitAsync();
+        try
+        {
+            var res = await DesignSvc.ListRunningInstancesAsync(id);
+            if (res.IsOk) { _deleteInstances = res.Value ?? []; _deleteRunning = _deleteInstances.Count; }
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task CancelInstanceAsync(Guid instanceId)
+    {
+        _busy = true;
+        _deleteError = null;
+        await _gate.WaitAsync();
+        bool ok; string? err = null;
+        try { var res = await DesignSvc.CancelInstanceAsync(instanceId); ok = res.IsOk; err = res.Error; }
+        finally { _gate.Release(); }
+        _busy = false;
+        if (!ok) { _deleteError = err ?? "No se pudo cancelar la instancia."; return; }
+        await LoadDeleteInstancesAsync();   // refresca la lista + contador (si llega a 0, aparece "Eliminar")
+        await ReloadAsync();                // actualiza las tarjetas del indice (RunningInstances)
     }
 
     // Serializa el acceso a la BD desde esta pagina: el DbContext del circuito lo comparten el indice y

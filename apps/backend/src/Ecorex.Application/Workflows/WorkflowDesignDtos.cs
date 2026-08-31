@@ -21,6 +21,11 @@ public sealed record FlowCardDto(
 
 public sealed record FlowIndexDto(FlowIndexKpisDto Kpis, IReadOnlyList<FlowCardDto> Cards);
 
+/// <summary>Instancia EN MARCHA (Running) de un flujo que impide eliminarlo. Se lista en el modal de
+/// borrado para poder cancelarla una por una (junto con la tarea que la ejecuta, si la hay).</summary>
+public sealed record FlowRunningInstanceDto(
+    Guid InstanceId, int FlowVersion, Guid? TaskId, string? TaskNumber, string? TaskTitle, DateTimeOffset StartedAt);
+
 /// <summary>Regla vinculada a un nodo (fila del acordeon Reglas).</summary>
 public sealed record FlowNodeRuleDto(
     Guid LinkId, Guid RuleId, string RuleName, string VerbName, RuleStatus Status, bool IsAutonomous);

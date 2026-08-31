@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-31 - v0.15.132: eliminar flujo - listar tareas con instancia en marcha y cancelarlas una a una
+
+- Pedido: el control de "no eliminar flujos con instancias activas" se mantiene, pero el modal de borrado
+  debe LISTAR las tareas con instancia en marcha y permitir CANCELAR la instancia de cada una (una por una);
+  al quedar en cero, se habilita "Eliminar".
+- Backend (IWorkflowDesignService): 2 metodos nuevos.
+  - ListRunningInstancesAsync(defId): instancias Running de TODAS las versiones del ProcessCode + la tarea
+    que las ejecuta (LEFT JOIN task_items, numero/titulo). DTO FlowRunningInstanceDto.
+  - CancelInstanceAsync(instanceId): Status Running -> Cancelled (idempotente; no toca la tarea ni historial).
+  - Se conserva el guard de DeleteDefinitionAsync (solo borra con 0 instancias Running).
+- UI (Flujos.razor): al abrir el modal con instancias en marcha se cargan y muestran como lista
+  (numero de tarea + titulo + version) con boton "Cancelar instancia" por fila; tras cancelar se refresca la
+  lista y las tarjetas; cuando el contador llega a 0 aparece "Eliminar".
+- Nota: la UI de tareas NO tiene borrado permanente (solo archivar), por eso el flujo antes quedaba
+  bloqueado; cancelar la instancia es la via correcta para liberar el flujo.
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-08-31 - v0.15.131: diseñador de formularios - "Mover a contenedor" (alternativa fiable al arrastre)
 
 - Pedido: forma FACIL de meter un campo suelto (o mover cualquier elemento) dentro de un contenedor que ya

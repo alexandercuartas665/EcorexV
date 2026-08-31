@@ -73,6 +73,14 @@ public interface IWorkflowDesignService
     /// (IsArchived=true, sale del indice). Falla si hay instancias en marcha (hay que detenerlas antes).</summary>
     Task<WorkflowResult<bool>> DeleteDefinitionAsync(Guid definitionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Instancias EN MARCHA (Running) del flujo (todas las versiones del ProcessCode) que impiden
+    /// eliminarlo, con la tarea que las ejecuta. Para listarlas en el modal de borrado y cancelarlas una a una.</summary>
+    Task<WorkflowResult<IReadOnlyList<FlowRunningInstanceDto>>> ListRunningInstancesAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Cancela UNA instancia en marcha (Status -> Cancelled). Solo actua si sigue Running (idempotente).
+    /// Al quedar 0 instancias en marcha, el flujo ya se puede eliminar. No borra la tarea ni su historial.</summary>
+    Task<WorkflowResult<bool>> CancelInstanceAsync(Guid instanceId, CancellationToken cancellationToken = default);
+
     /// <summary>Condicion de la arista (formato del motor: "approval == 'Approved'"; vacio = rama default).</summary>
     Task<WorkflowResult<bool>> SetEdgeConditionAsync(Guid edgeId, string? conditionExpression, CancellationToken cancellationToken = default);
 

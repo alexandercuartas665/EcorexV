@@ -607,6 +607,51 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<IReadOnlyList<FlowRunningInstanceDto>>> ListRunningInstancesAsync(
+        Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var def = await _db.WorkflowDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (def is null) { return WorkflowResult<IReadOnlyList<FlowRunningInstanceDto>>.NotFound("El flujo no existe."); }
+
+        // El "flujo" son TODAS las versiones del mismo ProcessCode (igual que el guard de borrado).
+        var versionById = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.ProcessCode == def.ProcessCode)
+            .Select(d => new { d.Id, d.Version })
+            .ToDictionaryAsync(x => x.Id, x => x.Version, cancellationToken);
+        var versionIds = versionById.Keys.ToList();
+
+        // Instancias en marcha + la tarea que las ejecuta (si la hay). LEFT JOIN: una instancia podria no
+        // tener tarea. Filtro global de tenant aplica en ambos lados.
+        var rows = await (
+            from i in _db.WorkflowInstances.AsNoTracking()
+            where versionIds.Contains(i.DefinitionId) && i.Status == WorkflowInstanceStatus.Running
+            join t in _db.TaskItems.AsNoTracking() on i.Id equals t.WorkflowInstanceId into tj
+            from t in tj.DefaultIfEmpty()
+            orderby i.StartedAt
+            select new { i.Id, i.DefinitionId, i.StartedAt, TaskId = (Guid?)t.Id, t.Number, t.Title })
+            .ToListAsync(cancellationToken);
+
+        var list = rows.Select(r => new FlowRunningInstanceDto(
+            r.Id, versionById.TryGetValue(r.DefinitionId, out var v) ? v : 0,
+            r.TaskId, r.Number, r.Title, r.StartedAt)).ToList();
+        return WorkflowResult<IReadOnlyList<FlowRunningInstanceDto>>.Ok(list);
+    }
+
+    public async Task<WorkflowResult<bool>> CancelInstanceAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        var instance = await _db.WorkflowInstances.FirstOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+        if (instance is null) { return WorkflowResult<bool>.NotFound("La instancia no existe."); }
+        if (instance.Status != WorkflowInstanceStatus.Running)
+        {
+            // Ya no esta en marcha: idempotente, nada que hacer.
+            return WorkflowResult<bool>.Ok(true);
+        }
+        instance.Status = WorkflowInstanceStatus.Cancelled;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<bool>> DeleteNodeAsync(Guid nodeId, CancellationToken cancellationToken = default)
     {
         var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);

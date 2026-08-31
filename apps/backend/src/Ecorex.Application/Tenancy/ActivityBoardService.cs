@@ -323,6 +323,31 @@ public sealed class ActivityBoardService : IActivityBoardService
                 .SetProperty(t => t.BoardId, (Guid?)null)
                 .SetProperty(t => t.ColumnId, (Guid?)null)
                 .SetProperty(t => t.BoardSortOrder, 0), cancellationToken);
+
+        // Conceptos (ActividadSubcategoria) que apuntan a este tablero o a alguna de sus columnas como
+        // "estado terminado": tambien son FK NO ACTION -> hay que DESACOPLARLOS antes de borrar el tablero,
+        // o la cascada que elimina las columnas viola fk_actividad_subcategorias_task_board_columns. El
+        // concepto sobrevive sin tablero (queda sin tablero por defecto, se reconfigura luego).
+        var columnIds = await _db.TaskBoardColumns
+            .Where(c => c.BoardId == boardId).Select(c => c.Id).ToListAsync(cancellationToken);
+        if (columnIds.Count > 0)
+        {
+            await _db.ActividadSubcategorias
+                .Where(s => s.TaskBoardColumnId != null && columnIds.Contains(s.TaskBoardColumnId.Value))
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.TaskBoardColumnId, (Guid?)null), cancellationToken);
+        }
+        await _db.ActividadSubcategorias
+            .Where(s => s.TaskBoardId == boardId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.TaskBoardId, (Guid?)null)
+                .SetProperty(x => x.TaskBoardColumnId, (Guid?)null), cancellationToken);
+
+        // Campos personalizados del tablero (TaskFieldDefinition.BoardId es requerido): pertenecen al tablero,
+        // se ELIMINAN con el (su FK -> task_boards es NO ACTION y bloquearia el borrado). Nada los referencia.
+        await _db.TaskFieldDefinitions
+            .Where(f => f.BoardId == boardId)
+            .ExecuteDeleteAsync(cancellationToken);
+
         _db.TaskBoards.Remove(board);
         _audit.Write(actorUserId, "activity-board.delete", nameof(TaskBoard), board.Id,
             previousValue: new { board.Code, board.Name }, newValue: null, tenantId: board.TenantId);

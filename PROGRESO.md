@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-31 - v0.15.130: FIX eliminar tablero de actividades - desacoplar conceptos + campos del tablero
+
+- Bug (prod): "Eliminar tablero" reventaba el circuito Blazor con PostgresException 23503
+  (fk_actividad_subcategorias_task_board_columns): al borrar el tablero, la cascada elimina sus columnas y
+  un CONCEPTO (ActividadSubcategoria) que apuntaba a una columna del tablero como "estado terminado"
+  violaba la FK NO ACTION. ActivityBoardService.DeleteBoardAsync solo desacoplaba TaskItems.
+- Fix: antes de borrar el tablero (misma transaccion) se DESACOPLAN los conceptos que apuntan al tablero o a
+  sus columnas (TaskBoardId / TaskBoardColumnId -> null) y se ELIMINAN los campos personalizados del tablero
+  (TaskFieldDefinition, BoardId requerido; nada los referencia). Revisadas TODAS las FK a task_boards/
+  task_board_columns: task_cards no aplica a tableros de actividades (0 filas), el resto es cascade.
+- Verificado en dev (copia de prod) con la secuencia exacta en transaccion + ROLLBACK sobre "PRUEBAS OT":
+  22 tareas + 1 concepto(columna) + 1 concepto(tablero) desacoplados, tablero borrado, sin violacion de FK.
+- Build verde. Sin migracion. Neutro entre motores (ExecuteUpdate/ExecuteDelete). REQUIERE DEPLOY.
+
+---
+
 ## 2026-08-31 - v0.15.129: operador de subform-hijos en el escalon + formularios de la tarea PADRE en la hija
 
 - ESCALON (status ladder) - operador de HIJOS de subform (para Prospectado/Cerrado por leads con oportunidad):

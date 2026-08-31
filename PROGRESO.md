@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-31 - v0.15.127: Convertir a OT - REFRESCAR datos heredados al reconvertir (ADR-0078)
+
+- Pedido: al convertir COT->OT, la OT no traia los datos del cliente ni el croquis (items si). Causa doble:
+  (1) la OT existente quedaba con datos VIEJOS porque la idempotencia solo reabria sin refrescar; (2) el
+  croquis no estaba mapeado (COT 'croquis' -> OT 'croquis_pieza').
+- CODE (FormResponseService.CreateDerivedFormAsync): se calcula el mapeo ANTES de la idempotencia y, si la
+  OT existente sigue en BORRADOR, se REFRESCAN sus campos heredados (cliente, items, croquis, ...) con los
+  datos actuales del origen; los campos PROPIOS de la OT (vendedor, fechas de entrega, procesos) se conservan.
+  Si la OT ya fue enviada, no se toca. (El mapeo real de campos es config del rule CONVERTIR_A_FORMULARIO.)
+- CONFIG (cableado por SQL): se agrego 'croquis'->'croquis_pieza' al mapping del rule del boton en el
+  Simulador (COT). PENDIENTE aplicar el mismo mapping en PROD.
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-08-31 - v0.15.126: Fix "Convertir a Orden de Trabajo" - re-anclar la OT derivada suelta (ADR-0078)
 
 - Sintoma: en T00058 (Simulador Cotizaciones/COT) el boton "Convertir a Orden de Trabajo" "no funcia": el

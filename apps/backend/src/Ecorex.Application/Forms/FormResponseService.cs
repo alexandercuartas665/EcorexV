@@ -1137,40 +1137,13 @@ public sealed class FormResponseService : IFormResponseService
             return FormResult<Guid>.Invalid("El formulario destino no esta activo.");
         }
 
-        // Idempotencia (ADR-0078): si ESTE origen ya fue convertido a ESTE formulario destino, no se crea otro
-        // registro; se devuelve el existente para que el boton simplemente lo REABRA (re-clic seguro). El
-        // filtro global de tenant aplica.
-        var existing = await _db.FormResponses
-            .Where(r => r.DerivedFromResponseId == sourceResponseId && r.DefinitionId == targetDefinitionId)
-            .OrderBy(r => r.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (existing is not null)
-        {
-            // RE-ANCLAJE (ADR-0078): si el origen YA esta anclado a una tarea pero la derivada existente nacio
-            // suelta (se creo antes de que el origen se anclara), se le fija la referencia AHORA. Sin esto la OT
-            // queda fuera de la pestana Formularios de la tarea y el boton "convertir", al reabrirla (idempotente),
-            // no encuentra donde mostrarla. Solo se toca si la referencia estaba vacia.
-            if (string.IsNullOrEmpty(existing.Reference))
-            {
-                var tn = StripOrdinal(src.Reference);
-                if (!string.IsNullOrEmpty(tn))
-                {
-                    var nx = await NextFormOrdinalAsync(targetDefinitionId, tn!, cancellationToken);
-                    existing.Reference = $"{tn}-{nx}";
-                    await _db.SaveChangesAsync(cancellationToken);
-                }
-            }
-            return FormResult<Guid>.Ok(existing.Id);
-        }
-
-        // Solo se copian los field_codes que el destino CONOCE (auto-copiado por codigo), aplicando el mapeo
-        // explicito {origen: destino} para los campos que cambian de nombre. La grilla 'items' se copia como
-        // un campo mas si el destino tambien la tiene (las columnas que no coincidan se ignoran al renderizar).
+        // Campos a copiar del origen: auto por codigo + mapeo explicito {origen: destino} para los que cambian
+        // de nombre (ej. croquis -> croquis_pieza). La grilla 'items' se copia como un campo mas si el destino
+        // la tiene. Se calcula ANTES de la idempotencia para poder REFRESCAR la derivada si sigue en borrador.
         var targetCodes = (await _db.FormQuestions.AsNoTracking()
             .Where(q => q.DefinitionId == targetDefinitionId)
             .Select(q => q.FieldCode)
             .ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
-
         var sourceDoc = ParseDocument(src.Data);
         var mapped = new Dictionary<string, FormFieldValue>(StringComparer.Ordinal);
         foreach (var (srcCode, val) in sourceDoc)
@@ -1182,6 +1155,38 @@ public sealed class FormResponseService : IFormResponseService
             {
                 mapped[targetCode] = val;
             }
+        }
+
+        // Idempotencia (ADR-0078): si ESTE origen ya fue convertido a ESTE destino, no se crea otro. Se REABRE
+        // el existente y, mientras siga en BORRADOR, se REFRESCAN sus campos heredados con los datos ACTUALES
+        // del origen (cliente, items, croquis, ...); los campos PROPIOS de la OT (vendedor, fechas de entrega,
+        // procesos...) se conservan. Ademas se re-ancla si nacio suelto. Si la OT ya fue ENVIADA, no se toca.
+        var existing = await _db.FormResponses
+            .Where(r => r.DerivedFromResponseId == sourceResponseId && r.DefinitionId == targetDefinitionId)
+            .OrderBy(r => r.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (existing is not null)
+        {
+            var changed = false;
+            if (string.IsNullOrEmpty(existing.Reference))
+            {
+                var tn = StripOrdinal(src.Reference);
+                if (!string.IsNullOrEmpty(tn))
+                {
+                    var nx = await NextFormOrdinalAsync(targetDefinitionId, tn!, cancellationToken);
+                    existing.Reference = $"{tn}-{nx}";
+                    changed = true;
+                }
+            }
+            if (existing.Status == FormResponseStatus.Draft && mapped.Count > 0)
+            {
+                var doc = new Dictionary<string, FormFieldValue>(ParseDocument(existing.Data), StringComparer.Ordinal);
+                foreach (var (code, val) in mapped) { doc[code] = val; }
+                existing.Data = JsonSerializer.Serialize(doc, JsonOptions);
+                changed = true;
+            }
+            if (changed) { await _db.SaveChangesAsync(cancellationToken); }
+            return FormResult<Guid>.Ok(existing.Id);
         }
 
         // Anclaje a tarea: si el origen esta anclado (Reference "{tarea}-{n}" o "{tarea}"), la derivada cae en

@@ -650,6 +650,68 @@ public sealed class FormResponseService : IFormResponseService
         return FormResult<Guid>.Ok(child.Id);
     }
 
+    // ---- Gestion por FILA del GridDetail (ADR-0085) ----
+
+    public async Task<FormResult<Guid>> AddRowChildAsync(
+        Guid parentResponseId, string parentFieldCode, string parentRowId, Guid childDefinitionId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return FormResult<Guid>.Invalid("No hay tenant activo."); }
+        if (string.IsNullOrWhiteSpace(parentRowId)) { return FormResult<Guid>.Invalid("Falta el identificador de fila."); }
+        var parentExists = await _db.FormResponses.AsNoTracking().AnyAsync(r => r.Id == parentResponseId, cancellationToken);
+        if (!parentExists) { return FormResult<Guid>.NotFound("Registro padre no encontrado."); }
+        var childDefExists = await _db.FormDefinitions.AsNoTracking().AnyAsync(d => d.Id == childDefinitionId, cancellationToken);
+        if (!childDefExists) { return FormResult<Guid>.NotFound("Definicion hija no encontrada."); }
+
+        var child = new FormResponse { TenantId = tenantId, DefinitionId = childDefinitionId, Data = "{}" };
+        _db.FormResponses.Add(child);
+        var order = await _db.FormRecordLinks
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId == parentRowId)
+            .CountAsync(cancellationToken);
+        _db.FormRecordLinks.Add(new FormRecordLink
+        {
+            TenantId = tenantId,
+            ParentResponseId = parentResponseId,
+            ParentFieldCode = parentFieldCode,
+            ParentRowId = parentRowId,
+            ChildResponseId = child.Id,
+            SortOrder = order,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<Guid>.Ok(child.Id);
+    }
+
+    public async Task<IReadOnlyList<FormRecordListItemDto>> ListRowChildrenAsync(
+        Guid parentResponseId, string parentFieldCode, string parentRowId, CancellationToken cancellationToken = default)
+    {
+        var children = await _db.FormRecordLinks.AsNoTracking()
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId == parentRowId)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .ToListAsync(cancellationToken);
+
+        return children.Select(r =>
+        {
+            var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            return new FormRecordListItemDto(r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, fields);
+        }).ToList();
+    }
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(
+        Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.FormRecordLinks.AsNoTracking()
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId != null)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => new { l.ParentRowId, r.DefinitionId })
+            .ToListAsync(cancellationToken);
+
+        var map = new Dictionary<string, IReadOnlyDictionary<Guid, int>>(StringComparer.Ordinal);
+        foreach (var g in rows.GroupBy(x => x.ParentRowId!))
+        {
+            map[g.Key] = g.GroupBy(x => x.DefinitionId).ToDictionary(gg => gg.Key, gg => gg.Count());
+        }
+        return map;
+    }
+
     public async Task<FormResult<bool>> UnlinkChildAsync(
         Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default)
     {

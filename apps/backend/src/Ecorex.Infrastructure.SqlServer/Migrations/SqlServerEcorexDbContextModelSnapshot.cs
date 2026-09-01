@@ -5558,6 +5558,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("parent_response_id");
 
+                    b.Property<string>("ParentRowId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("parent_row_id");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
@@ -5583,6 +5588,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("ParentResponseId", "ParentFieldCode", "ChildResponseId")
                         .IsUnique()
                         .HasDatabaseName("ix_form_record_links_parent_response_id_parent_field_code_child_response_id");
+
+                    b.HasIndex("ParentResponseId", "ParentFieldCode", "ParentRowId")
+                        .HasDatabaseName("ix_form_record_links_parent_response_id_parent_field_code_parent_row_id");
 
                     b.ToTable("form_record_links", (string)null);
                 });

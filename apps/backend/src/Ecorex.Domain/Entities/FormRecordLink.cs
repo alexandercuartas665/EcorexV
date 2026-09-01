@@ -17,6 +17,15 @@ public class FormRecordLink : TenantEntity
     /// <summary>FieldCode del campo Subform en el padre (un padre puede tener varios subformularios).</summary>
     public string ParentFieldCode { get; set; } = null!;
 
+    /// <summary>
+    /// Identidad ESTABLE de la FILA del GridDetail a la que cuelga el hijo (ADR-0085). Null = enlace de
+    /// Subform clasico (a nivel del campo, no de una fila). Con valor = "gestion" por fila: el hijo (una
+    /// gestion: cotizacion, oportunidad, PQR...) pertenece a UNA fila/persona del grid del padre. El id se
+    /// guarda en la propia fila del jsonb del padre (clave <c>__rowId</c>), asi el vinculo sobrevive a
+    /// reordenar/insertar/borrar filas. Longitud acotada (GUID en texto).
+    /// </summary>
+    public string? ParentRowId { get; set; }
+
     /// <summary>Registro hijo (respuesta de la definicion hija).</summary>
     public Guid ChildResponseId { get; set; }
     public FormResponse? ChildResponse { get; set; }

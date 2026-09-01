@@ -1619,6 +1619,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<FormRecordLink>(b =>
         {
             b.Property(x => x.ParentFieldCode).HasMaxLength(60).IsRequired();
+            // Fila del GridDetail a la que cuelga el hijo (ADR-0085); null = subform clasico a nivel de campo.
+            b.Property(x => x.ParentRowId).HasMaxLength(64);
             // Restrict en ambos lados: los FormResponse sobreviven (soft-delete del agregado); el
             // servicio decide que pasa con los enlaces. Evita la doble ruta de cascada en SQL Server.
             b.HasOne(x => x.ParentResponse).WithMany()
@@ -1626,6 +1628,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ChildResponse).WithMany()
                 .HasForeignKey(x => x.ChildResponseId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.ParentResponseId, x.ParentFieldCode, x.ChildResponseId }).IsUnique();
+            // Consulta por fila: gestiones de una persona/fila del grid.
+            b.HasIndex(x => new { x.ParentResponseId, x.ParentFieldCode, x.ParentRowId });
         });
 
         // Motor de programaciones (000889): cabecera + reglas 1:N + canales N + bitacora.

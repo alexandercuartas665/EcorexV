@@ -17,6 +17,22 @@
 
 ---
 
+## 2026-09-01 - v0.15.140: base motor "gestion por fila de GridDetail" (ADR-0085) - identidad de fila + vinculo
+
+- Hand-off diseno: CRM Contacto Cliente pasa a tabla ligera (GridDetail `personas`); cada fila/persona abre
+  gestiones (Cotizacion/Oportunidad/PQR/...) por pildoras, ligadas a ESA fila.
+- Punto duro (motor): las filas viven en el jsonb (no son FormResponse). Resuelto:
+  - Identidad de fila: clave estable `__rowId` (GUID) en el objeto de la fila del jsonb.
+  - Vinculo: FormRecordLink += ParentRowId (string?, max 64; null=subform clasico). Migracion dual
+    AddFormRecordLinkParentRowId (aplicada en dev). Indice por (parent, field, rowId).
+  - Servicio: AddRowChildAsync / ListRowChildrenAsync / CountRowChildrenAsync (badges por fila y def).
+- Config a cablear: columna del grid { "type":"gestion", "pills":[{label,def(codigo),color},...] }.
+- PENDIENTE (UI, siguiente): renderer de la celda "gestion" (pildoras + badges) + modal + asignar __rowId al
+  crear fila. Aplica tambien al visor publico /f/{token} (mismo DynamicFormRenderer). ADR-0085.
+- Build verde. Requiere DEPLOY (migracion) cuando aterrice el renderer.
+
+---
+
 ## 2026-09-01 - v0.15.139: TaskItemReportSource - campos por nombre (Concepto/Categoria/Asignado/Tablero/Etapa)
 
 - Hand-off de reportes: la fuente nativa 'Actividades' exponia poco para reportes por area/tablero/asignado.

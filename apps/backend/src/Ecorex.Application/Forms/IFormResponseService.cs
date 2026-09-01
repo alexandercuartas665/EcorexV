@@ -193,4 +193,17 @@ public interface IFormResponseService
 
     /// <summary>Quita el enlace de un hijo (el registro hijo se conserva, se desengancha del padre).</summary>
     Task<FormResult<bool>> UnlinkChildAsync(Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default);
+
+    // ---- Gestion por FILA del GridDetail (ADR-0085): el hijo cuelga de UNA fila/persona del padre ----
+
+    /// <summary>Crea un registro-hijo (una gestion) ligado a la FILA parentRowId del campo GridDetail del
+    /// padre. Igual que AddChildAsync pero el enlace guarda ParentRowId. El padre debe existir (estar guardado).</summary>
+    Task<FormResult<Guid>> AddRowChildAsync(Guid parentResponseId, string parentFieldCode, string parentRowId, Guid childDefinitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Gestiones (hijos) de una FILA concreta del grid del padre.</summary>
+    Task<IReadOnlyList<FormRecordListItemDto>> ListRowChildrenAsync(Guid parentResponseId, string parentFieldCode, string parentRowId, CancellationToken cancellationToken = default);
+
+    /// <summary>Conteo de gestiones por fila y por definicion-hija: rowId -> (childDefinitionId -> conteo).
+    /// Para pintar los badges de las pildoras sin N consultas.</summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default);
 }

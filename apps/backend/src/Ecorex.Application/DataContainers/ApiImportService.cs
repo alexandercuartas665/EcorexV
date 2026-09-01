@@ -28,7 +28,7 @@ public sealed class ApiImportService : IApiImportService
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
     private const int MaxFieldScan = 50;
-    private const int MaxImportRows = 5000;
+    private const int MaxImportRows = 50000;
 
     public ApiImportService(HttpClient http, IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector, IRowIngestService ingest)
     {

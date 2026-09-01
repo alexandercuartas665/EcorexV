@@ -10591,3 +10591,13 @@ Pasos:
 - Programacion: PUT /connectors/{id}/schedule en los 11 -> ScheduleKind=Cron "0 5 * * *" (05:00 Bogota =
   10:00 UTC), Mode=Upsert, KeyColumn="Alegra Id", IsActive=true. nextRunAt 2026-08-30 10:00 UTC.
 Nota: paginado Offset start/limit pageSize=30 maxPages=500 (Alegra tope 30/pagina). Sin secretos en el repo.
+
+## 2026-09-01 - Importador: sube tope de filas por corrida (Alegra Pagos)
+
+Validacion del sync Alegra en BITCODE: 33 corridas Scheduled todas Ok (30-ago a 01-sep, diario 05:00
+Bogota). Unico pero: la corrida de Pagos (6253 filas) topaba en MaxImportRows=5000 por corrida
+(ApiImportService.cs), dejando ~1250 filas mas nuevas sin refrescar en el sync automatico.
+Cambio: MaxImportRows 5000 -> 50000 (constante global del importador server-direct; el corte es total
+por corrida y guarda por pagina, asi que no arriesga memoria). Afecta a todas las importaciones de todos
+los tenants (limite de seguridad). Build Release verde. Pendiente: deploy por el usuario; tras el deploy,
+la proxima corrida de Pagos cubrira las 6253 completas.

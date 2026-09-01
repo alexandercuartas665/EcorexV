@@ -4684,6 +4684,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AgentEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("agent_enabled");
+
                     b.Property<string>("CommandText")
                         .IsRequired()
                         .HasColumnType("text")

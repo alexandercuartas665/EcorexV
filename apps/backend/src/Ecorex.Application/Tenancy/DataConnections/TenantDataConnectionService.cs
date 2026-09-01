@@ -171,18 +171,18 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         if (s is null) { return Array.Empty<TenantDatasetSummary>(); }
         var rows = await _db.ExternalDataSets.AsNoTracking()
             .Where(d => d.ExternalDataSourceId == connectionId).OrderBy(d => d.Name)
-            .Select(d => new { d.Id, d.Name, d.Description, d.IsEnabled, d.ParametersJson })
+            .Select(d => new { d.Id, d.Name, d.Description, d.IsEnabled, d.ParametersJson, d.AgentEnabled })
             .ToListAsync(ct);
         return rows.Select(d => new TenantDatasetSummary(
             d.Id, d.Name, d.Description, d.IsEnabled,
-            ExternalDataJson.DeserializeParameters(d.ParametersJson).Count)).ToList();
+            ExternalDataJson.DeserializeParameters(d.ParametersJson).Count, d.AgentEnabled)).ToList();
     }
 
     public async Task<TenantDatasetDetail?> GetDatasetAsync(Guid id, CancellationToken ct = default)
     {
         var d = await OwnedDatasetAsync(id, tracking: false, ct);
         return d is null ? null : new TenantDatasetDetail(
-            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson);
+            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson, d.AgentEnabled);
     }
 
     public async Task<Guid?> SaveDatasetAsync(SaveTenantDatasetRequest request, Guid actorUserId, CancellationToken ct = default)
@@ -200,6 +200,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             d.CommandText = request.CommandText.Trim();
             d.ParametersJson = Trim(request.ParametersJson);
             d.IsEnabled = request.IsEnabled;
+            d.AgentEnabled = request.AgentEnabled;
             _audit.Write(actorUserId, "tenant-data-dataset.update", nameof(ExternalDataSet), d.Id,
                 previousValue: null, newValue: new { d.Name, d.IsEnabled }, tenantId: Tenant);
             await _db.SaveChangesAsync(ct);
@@ -214,7 +215,8 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             Description = Trim(request.Description),
             CommandText = request.CommandText.Trim(),
             ParametersJson = Trim(request.ParametersJson),
-            IsEnabled = request.IsEnabled
+            IsEnabled = request.IsEnabled,
+            AgentEnabled = request.AgentEnabled
         };
         _db.ExternalDataSets.Add(ds);
         _audit.Write(actorUserId, "tenant-data-dataset.create", nameof(ExternalDataSet), ds.Id,
@@ -257,6 +259,56 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
 
         return await ExecuteOnAsync(s, d.CommandText, maxRows, actorUserId, "run-dataset:" + d.Name, ct, bound);
     }
+
+    // ---- superficie para AGENTES (solo datasets AgentEnabled + IsEnabled) ----
+
+    public async Task<IReadOnlyList<AgentDatasetInfo>> AgentListDatasetsAsync(CancellationToken ct = default)
+    {
+        var tenant = Tenant;
+        if (tenant == Guid.Empty) { return Array.Empty<AgentDatasetInfo>(); }
+        var rows = await (
+            from d in _db.ExternalDataSets.AsNoTracking()
+            join s in _db.ExternalDataSources.AsNoTracking() on d.ExternalDataSourceId equals s.Id
+            where s.OwnerTenantId == tenant && s.IsEnabled && d.IsEnabled && d.AgentEnabled
+            orderby s.Name, d.Name
+            select new { d.Id, d.Name, d.Description, d.ParametersJson, ConnName = s.Name })
+            .ToListAsync(ct);
+        return rows.Select(r => new AgentDatasetInfo(
+            r.Id, r.Name, r.Description, r.ConnName,
+            ExternalDataJson.DeserializeParameters(r.ParametersJson).Count)).ToList();
+    }
+
+    public async Task<AgentDatasetDetail?> AgentGetDatasetAsync(Guid datasetId, CancellationToken ct = default)
+    {
+        var row = await AgentDatasetRowAsync(datasetId, ct);
+        if (row is null) { return null; }
+        var ps = ExternalDataJson.DeserializeParameters(row.ParametersJson)
+            .Select(p => new AgentDatasetParam(p.Name, p.Type.ToString(), p.Description, p.DefaultValue)).ToList();
+        return new AgentDatasetDetail(row.Id, row.Name, row.Description, row.ConnName, ps);
+    }
+
+    public async Task<TenantQueryResult> AgentRunDatasetAsync(Guid datasetId, IReadOnlyDictionary<string, string?>? inputs, int maxRows, Guid actorUserId, CancellationToken ct = default)
+    {
+        // Gate del agente: el dataset debe estar EXPUESTO (AgentEnabled) y habilitado. Luego reusa la
+        // ejecucion normal (que respeta el AllowWrite de la conexion, segun lo decidido).
+        var row = await AgentDatasetRowAsync(datasetId, ct);
+        if (row is null) { return new TenantQueryResult(false, null, "Dataset no disponible para agentes."); }
+        return await RunDatasetAsync(datasetId, inputs, maxRows, actorUserId, ct);
+    }
+
+    private async Task<AgentDatasetRow?> AgentDatasetRowAsync(Guid datasetId, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        if (tenant == Guid.Empty) { return null; }
+        return await (
+            from d in _db.ExternalDataSets.AsNoTracking()
+            join s in _db.ExternalDataSources.AsNoTracking() on d.ExternalDataSourceId equals s.Id
+            where d.Id == datasetId && s.OwnerTenantId == tenant && s.IsEnabled && d.IsEnabled && d.AgentEnabled
+            select new AgentDatasetRow(d.Id, d.Name, d.Description, d.ParametersJson, s.Name))
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private sealed record AgentDatasetRow(Guid Id, string Name, string? Description, string? ParametersJson, string ConnName);
 
     // ---- helpers ----
 

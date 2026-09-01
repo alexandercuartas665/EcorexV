@@ -27,4 +27,16 @@ public interface ITenantDataConnectionService
     /// <summary>Ejecuta el CommandText de un dataset guardado, enlazando sus parametros con los valores
     /// provistos (inputs por Name; los que falten usan el DefaultValue declarado).</summary>
     Task<TenantQueryResult> RunDatasetAsync(Guid datasetId, IReadOnlyDictionary<string, string?>? inputs, int maxRows, Guid actorUserId, CancellationToken ct = default);
+
+    // ---- Superficie para AGENTES: solo opera sobre datasets marcados AgentEnabled (y habilitados) ----
+
+    /// <summary>Datasets del tenant EXPUESTOS a agentes (AgentEnabled + IsEnabled), con su conexion.</summary>
+    Task<IReadOnlyList<AgentDatasetInfo>> AgentListDatasetsAsync(CancellationToken ct = default);
+
+    /// <summary>Detalle (nombre, descripcion, parametros con descripcion) de un dataset expuesto a agentes.
+    /// Null si no existe o no esta expuesto.</summary>
+    Task<AgentDatasetDetail?> AgentGetDatasetAsync(Guid datasetId, CancellationToken ct = default);
+
+    /// <summary>Ejecuta un dataset EXPUESTO a agentes con los valores dados. Rechaza si no esta expuesto.</summary>
+    Task<TenantQueryResult> AgentRunDatasetAsync(Guid datasetId, IReadOnlyDictionary<string, string?>? inputs, int maxRows, Guid actorUserId, CancellationToken ct = default);
 }

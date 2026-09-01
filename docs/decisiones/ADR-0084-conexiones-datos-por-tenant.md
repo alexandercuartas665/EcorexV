@@ -53,3 +53,15 @@ escritura opcional por conexion, gestionadas desde el menu del tenant (grupo Sis
 - Que los AGENTES listen las conexiones del tenant y ejecuten sus datasets (siguiente fase).
 - Parametros tipados en los datasets del tenant (hoy son consultas planas; la infra de params de ADR-0064
   esta disponible si se necesita).
+
+## Adenda v0.15.138: parametros con descripcion + acceso de AGENTES (toolset "datos")
+
+- ExternalDataSetParameter += Description (opcional): la leen las personas y los agentes para saber que
+  llenar. UI: columna Descripcion en el editor de parametros + hint al ejecutar.
+- ExternalDataSet += AgentEnabled (bool, default false): opt-in por dataset para exponerlo a agentes.
+  Migracion dual AddExternalDataSetAgentEnabled.
+- Toolset IAgentToolset "datos" (DataConnectionsToolset): listar_datasets, ver_dataset (params con
+  descripcion), ejecutar_dataset (parametros {nombre:valor} -> filas). Reusa ITenantDataConnectionService
+  con superficie de agente (AgentList/AgentGet/AgentRunDatasetAsync) que exige AgentEnabled + IsEnabled +
+  propiedad del tenant. La ejecucion respeta el AllowWrite de la conexion (decidido con el usuario). Tope
+  200 filas. Se habilita/deshabilita por agente como el resto de toolsets.

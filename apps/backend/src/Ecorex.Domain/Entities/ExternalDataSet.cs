@@ -40,4 +40,11 @@ public class ExternalDataSet : BaseEntity
 
     /// <summary>Si el dataset esta habilitado para ejecutarse.</summary>
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Expuesto a los AGENTES de IA (toolset "datos"): cuando es true, el agente puede listar, ver sus
+    /// parametros y EJECUTAR este dataset. Por defecto false (opt-in explicito del dueño). Independiente de
+    /// las fuentes/datasets globales de reportes (ADR-0064), que no se exponen a agentes.
+    /// </summary>
+    public bool AgentEnabled { get; set; }
 }

@@ -256,6 +256,11 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.InventarioToolset>();
         services.AddScoped<Tenancy.IInventarioToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
+        // Toolset de Datos externos (ADR-0084): el agente lista, ve parametros y EJECUTA los datasets que el
+        // tenant expuso (AgentEnabled). Reusa ITenantDataConnectionService (aislado por tenant, gate del flag).
+        services.AddScoped<Tenancy.DataConnectionsToolset>();
+        services.AddScoped<Tenancy.IDataConnectionsToolset>(sp => sp.GetRequiredService<Tenancy.DataConnectionsToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.DataConnectionsToolset>());
         // Toolset de Autoria de formularios (ADR-0058): construye formularios/plantillas/enlaces/modulos sin
         // SQL, delegando en los servicios de aplicacion. Se expone externo por /api/mgmt/agent/tools.
         services.AddScoped<Tenancy.FormAuthoringToolset>();

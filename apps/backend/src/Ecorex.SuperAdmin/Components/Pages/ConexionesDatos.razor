@@ -125,13 +125,14 @@ else
                     {
                         <div style="overflow-x:auto;">
                             <table class="table table-sm" style="margin-top:10px;">
-                                <thead><tr><th>Nombre</th><th>Descripcion</th><th>Params</th><th>Estado</th><th></th></tr></thead>
+                                <thead><tr><th>Nombre</th><th>Descripcion</th><th>Params</th><th>Agentes</th><th>Estado</th><th></th></tr></thead>
                                 <tbody>
                                     @foreach (var d in _datasets)
                                     {
                                         <tr>
                                             <td>@d.Name</td><td>@d.Description</td>
                                             <td>@d.ParameterCount</td>
+                                            <td>@(d.AgentEnabled ? "Si" : "-")</td>
                                             <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
                                             <td>
                                                 <button class="btn btn-sm btn-outline-primary" @onclick="() => RunDataset(d.Id)" disabled="@_busy">Ejecutar</button>
@@ -177,7 +178,7 @@ else
                             {
                                 <div style="overflow-x:auto;margin-top:6px;">
                                     <table class="table table-sm" style="margin:0;">
-                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th></th></tr></thead>
+                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th>Descripcion</th><th></th></tr></thead>
                                         <tbody>
                                             @foreach (var p in _dsForm.Params)
                                             {
@@ -192,6 +193,7 @@ else
                                                         </select>
                                                     </td>
                                                     <td><input class="form-control form-control-sm" @bind="p.Default" /></td>
+                                                    <td><input class="form-control form-control-sm" @bind="p.Description" placeholder="Que significa / que espera el agente" /></td>
                                                     <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveParam(p)" disabled="@_busy">x</button></td>
                                                 </tr>
                                             }
@@ -204,6 +206,14 @@ else
                                 <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
                                 <label class="form-check-label" for="dsEnabled">Habilitado</label>
                             </div>
+                            <div class="form-check form-switch" style="margin-top:6px;">
+                                <input class="form-check-input" type="checkbox" id="dsAgent" @bind="_dsForm.AgentEnabled" />
+                                <label class="form-check-label" for="dsAgent">Disponible para agentes de IA</label>
+                            </div>
+                            @if (_dsForm.AgentEnabled)
+                            {
+                                <div class="page-sub" style="margin:2px 0 0;font-size:.78rem;">Los agentes podran listar, ver los parametros y EJECUTAR este dataset. Pon descripciones claras en los parametros.</div>
+                            }
                             @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <div class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:8px;">@_dsMsg</div> }
                             <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
                                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null" disabled="@_busy">Cancelar</button>
@@ -224,7 +234,13 @@ else
                                         @foreach (var p in _runParams)
                                         {
                                             <tr>
-                                                <td>@p.Name</td>
+                                                <td>
+                                                    @p.Name
+                                                    @if (!string.IsNullOrWhiteSpace(p.Description))
+                                                    {
+                                                        <div class="page-sub" style="margin:0;font-size:.75rem;">@p.Description</div>
+                                                    }
+                                                </td>
                                                 <td>@p.Type</td>
                                                 <td><input class="form-control form-control-sm" @bind="p.Value" /></td>
                                             </tr>
@@ -411,9 +427,10 @@ else
         if (d is null) { return; }
         _dsForm = new DsForm
         {
-            Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText, IsEnabled = d.IsEnabled,
+            Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText,
+            IsEnabled = d.IsEnabled, AgentEnabled = d.AgentEnabled,
             Params = ExternalDataJson.DeserializeParameters(d.ParametersJson)
-                .Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue }).ToList()
+                .Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue, Description = p.Description }).ToList()
         };
         _editingDs = _dsForm;
         _runDsId = null;
@@ -432,13 +449,15 @@ else
             var declared = _dsForm.Params
                 .Where(p => !string.IsNullOrWhiteSpace(p.Name))
                 .Select(p => new ExternalDataSetParameter(p.Name!.Trim(), p.Type,
-                    ExternalDataParameterBinding.Input, null, string.IsNullOrWhiteSpace(p.Default) ? null : p.Default!.Trim()))
+                    ExternalDataParameterBinding.Input, null,
+                    string.IsNullOrWhiteSpace(p.Default) ? null : p.Default!.Trim(),
+                    string.IsNullOrWhiteSpace(p.Description) ? null : p.Description!.Trim()))
                 .ToList();
             var paramsJson = declared.Count == 0 ? null : ExternalDataJson.SerializeParameters(declared);
 
             var req = new SaveTenantDatasetRequest(
                 _dsForm.Id, connId, _dsForm.Name?.Trim() ?? "", _dsForm.Description,
-                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson);
+                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson, _dsForm.AgentEnabled);
             var id = await Conns.SaveDatasetAsync(req, await ActorAsync());
             if (id is null) { _dsOk = false; _dsMsg = "Revisa nombre y consulta."; return; }
             _dsOk = true; _dsMsg = "Guardado.";
@@ -477,7 +496,7 @@ else
             {
                 _runDsId = id;
                 _runDsName = d.Name;
-                _runParams = declared.Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue, Value = p.DefaultValue }).ToList();
+                _runParams = declared.Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue, Description = p.Description, Value = p.DefaultValue }).ToList();
                 return;
             }
             await RunDatasetNow(id, null);
@@ -531,6 +550,7 @@ else
         public string? Description { get; set; }
         public string? CommandText { get; set; }
         public bool IsEnabled { get; set; } = true;
+        public bool AgentEnabled { get; set; }
         public List<ParamRow> Params { get; set; } = new();
     }
 
@@ -539,6 +559,7 @@ else
         public string? Name { get; set; }
         public ExternalDataParameterType Type { get; set; } = ExternalDataParameterType.String;
         public string? Default { get; set; }
+        public string? Description { get; set; }
         public string? Value { get; set; }   // valor al ejecutar
     }
 }

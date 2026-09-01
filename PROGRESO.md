@@ -17,6 +17,21 @@
 
 ---
 
+## 2026-09-01 - v0.15.138: datasets con descripcion de parametros + acceso de AGENTES (toolset "datos")
+
+- Descripcion de parametros: ExternalDataSetParameter += Description; editor con columna Descripcion; al
+  ejecutar se muestra como ayuda. La leen personas y agentes.
+- Acceso de agentes (ADR-0084 adenda): ExternalDataSet += AgentEnabled (opt-in por dataset, default off,
+  toggle en la UI). Migracion dual AddExternalDataSetAgentEnabled (aplicada en dev).
+- Toolset de agente "datos" (DataConnectionsToolset, IAgentToolset): listar_datasets, ver_dataset (nombre,
+  descripcion, conexion, parametros con tipo/descripcion/default), ejecutar_dataset (dataset_id +
+  parametros {nombre:valor} -> columnas/filas). Aislado por tenant; gate AgentEnabled+IsEnabled+propiedad;
+  respeta AllowWrite de la conexion; tope 200 filas. Registrado como IAgentToolset (se habilita por agente
+  y sale por /api/mgmt/agent/tools). Servicio: AgentList/AgentGet/AgentRunDatasetAsync.
+- Build verde. Requiere DEPLOY (aplica migracion). Prod: los datasets existentes quedan AgentEnabled=false.
+
+---
+
 ## 2026-09-01 - v0.15.137: Conexiones de datos - parametros en datasets + fix autofill + quitar consola
 
 - Autofill: el navegador rellenaba Descripcion (email) y la Cadena de conexion (clave del gestor), y por eso

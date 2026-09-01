@@ -19,7 +19,10 @@ public sealed record ExternalDataSetParameter(
     ExternalDataParameterType Type,
     ExternalDataParameterBinding Binding = ExternalDataParameterBinding.Input,
     string? ContextKey = null,
-    string? DefaultValue = null);
+    string? DefaultValue = null,
+    // Descripcion legible del parametro: que significa / que se espera. La leen las personas en la UI y los
+    // AGENTES para saber como llenarlo. Opcional; backward-compatible en el JSON.
+    string? Description = null);
 
 /// <summary>Metadato de un campo de salida del dataset (nombre + tipo logico).</summary>
 public sealed record ExternalDataSetField(string Name, ExternalDataParameterType Type);

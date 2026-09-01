@@ -17,6 +17,15 @@
 
 ---
 
+## 2026-09-01 - v0.15.135: Conexiones de datos - el editor de DATASETS tambien abre en modal
+
+- Pedido: crear/editar datasets tambien dentro de un modal (antes se desplegaba inline debajo, se veia feo).
+- Fix (ConexionesDatos.razor): el editor de dataset (_editingDs) se movio a un modal overlay centrado (igual
+  que el de conexion). La tabla de datasets, "Ejecutar/Editar/Borrar" y la consola de "Consulta directa"
+  siguen debajo. Solo UI. Build verde.
+
+---
+
 ## 2026-09-01 - v0.15.134: Conexiones de datos - el formulario de conexion es un MODAL (fix layout)
 
 - Bug (reportado en prod): el formulario "Editar/Nueva conexion" estaba como panel lateral y se DESBORDABA

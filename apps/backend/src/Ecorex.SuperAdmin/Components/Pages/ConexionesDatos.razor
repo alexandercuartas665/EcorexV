@@ -115,6 +115,34 @@ else
         </div>
     }
 
+    @* ===== Modal de dataset (nuevo / editar) ===== *@
+    @if (_editingDs is not null && _selectedId is Guid dsConnId)
+    {
+        <div style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1050;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
+            <div class="card-soft" style="width:min(620px,96vw);max-height:88vh;overflow:auto;padding:22px;background:var(--surface-1,#fff);box-shadow:0 24px 60px rgba(0,0,0,.28);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <h2 style="font-size:1.05rem;margin:0;">@(_dsForm.Id is null ? "Nuevo dataset" : "Editar dataset")</h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _editingDs = null" disabled="@_busy" style="line-height:1;">&times;</button>
+                </div>
+                <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Name" /></div>
+                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Description" /></div>
+                <div class="auth-field" style="margin-top:10px;">
+                    <label>Consulta SQL</label>
+                    <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="6" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
+                </div>
+                <div class="form-check form-switch" style="margin-top:10px;">
+                    <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
+                    <label class="form-check-label" for="dsEnabled">Habilitado</label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <div class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:10px;">@_dsMsg</div> }
+                <div style="margin-top:16px;display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null" disabled="@_busy">Cancelar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="() => SaveDataset(dsConnId)" disabled="@_busy">Guardar dataset</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_selectedId is Guid sid)
     {
         <div class="card-soft" style="margin-top:20px;padding:18px;">
@@ -139,27 +167,6 @@ else
                         }
                     </tbody>
                 </table>
-            }
-
-            @if (_editingDs is not null)
-            {
-                <div class="card-soft" style="margin-top:12px;padding:14px;background:rgba(0,0,0,.02);">
-                    <div class="auth-field"><label>Nombre</label><input class="form-control" @bind="_dsForm.Name" /></div>
-                    <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" @bind="_dsForm.Description" /></div>
-                    <div class="auth-field" style="margin-top:10px;">
-                        <label>Consulta SQL</label>
-                        <textarea class="form-control" rows="4" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
-                    </div>
-                    <div class="form-check form-switch" style="margin-top:10px;">
-                        <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
-                        <label class="form-check-label" for="dsEnabled">Habilitado</label>
-                    </div>
-                    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                        <button class="btn btn-primary btn-sm" @onclick="() => SaveDataset(sid)" disabled="@_busy">Guardar dataset</button>
-                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null">Cancelar</button>
-                        @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <span class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_dsMsg</span> }
-                    </div>
-                </div>
             }
 
             <h2 style="font-size:1rem;margin-top:22px;">Consulta directa</h2>

@@ -1,0 +1,394 @@
+@page "/conexiones-datos"
+@attribute [Authorize(Policy = "Conexiones.Editar")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Tenancy.DataConnections
+@using Ecorex.Domain.Enums
+@inject ITenantDataConnectionService Conns
+@inject AuthenticationStateProvider AuthProvider
+
+@* Conexiones de datos externas PROPIAS del tenant (tenant-scoped, ADR-0084). Cada empresa gestiona SOLO
+   las suyas; la cadena se cifra; la escritura se habilita por conexion. Consola de consulta directa +
+   datasets guardados. *@
+
+<PageTitle>Conexiones de datos - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+            </div>
+            <span>Sistema / Desarrollo</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Conexiones de <span>datos</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Registra servidores SQL externos de esta empresa. La cadena de conexion se cifra y nunca se vuelve a mostrar. Define datasets (consultas guardadas) o usa la consola directa. La escritura se habilita por conexion.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <div class="card-soft" style="flex:1;min-width:340px;padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h2 style="font-size:1rem;margin:0;">Conexiones</h2>
+                <button class="btn btn-sm btn-primary" @onclick="NewConn">Nueva conexion</button>
+            </div>
+            @if (_conns.Count == 0)
+            {
+                <p class="page-sub" style="margin:0;">No hay conexiones registradas.</p>
+            }
+            else
+            {
+                <table class="table table-sm" style="margin:0;">
+                    <thead><tr><th>Nombre</th><th>Motor</th><th>Acceso</th><th>Estado</th><th>Datasets</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var c in _conns)
+                        {
+                            <tr class="@(c.Id == _selectedId ? "table-active" : "")">
+                                <td>@c.Name @(c.HasConnectionString ? "" : "(sin cadena)")</td>
+                                <td>@c.Provider</td>
+                                <td>@(c.AllowWrite ? "Lectura/Escritura" : "Solo lectura")</td>
+                                <td>@(c.IsEnabled ? "Habilitada" : "Deshabilitada")</td>
+                                <td>@c.DatasetCount</td>
+                                <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectConn(c.Id)">Abrir</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        @if (_editing is not null)
+        {
+            <div class="card-soft" style="flex:1;min-width:340px;padding:18px;">
+                <h2 style="font-size:1rem;margin-top:0;">@(_form.Id is null ? "Nueva conexion" : "Editar conexion")</h2>
+                <div class="auth-field"><label>Nombre</label><input class="form-control" @bind="_form.Name" /></div>
+                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" @bind="_form.Description" /></div>
+                <div class="auth-field" style="margin-top:10px;">
+                    <label>Motor</label>
+                    <select class="form-control" @bind="_form.Provider">
+                        <option value="@ExternalDataProvider.SqlServer">SQL Server</option>
+                        <option value="@ExternalDataProvider.Postgres">PostgreSQL</option>
+                    </select>
+                </div>
+                <div class="auth-field" style="margin-top:10px;">
+                    <label>Cadena de conexion @(_form.HasConnectionString ? "(guardada; deja vacio para conservarla)" : "")</label>
+                    <input class="form-control" type="password" @bind="_form.ConnectionString" placeholder="@(_form.HasConnectionString ? "(sin cambios)" : "Server=host,puerto;Database=..;User Id=..;Password=..")" />
+                </div>
+                <div class="form-check form-switch" style="margin-top:12px;">
+                    <input class="form-check-input" type="checkbox" id="cnEnabled" @bind="_form.IsEnabled" />
+                    <label class="form-check-label" for="cnEnabled">Habilitada</label>
+                </div>
+                <div class="form-check form-switch" style="margin-top:6px;">
+                    <input class="form-check-input" type="checkbox" id="cnWrite" @bind="_form.AllowWrite" />
+                    <label class="form-check-label" for="cnWrite">Permitir escritura (INSERT/UPDATE/DELETE)</label>
+                </div>
+                @if (_form.AllowWrite)
+                {
+                    <div class="text-danger" style="font-size:.8rem;margin-top:4px;">Con escritura habilitada, las consultas de esta conexion pueden MODIFICAR el servidor externo.</div>
+                }
+                <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveConn" disabled="@_busy">Guardar</button>
+                    @if (_form.Id is not null)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="TestConn" disabled="@_busy">Probar conexion</button>
+                        <button class="btn btn-outline-danger btn-sm" @onclick="DeleteConn" disabled="@_busy">Eliminar</button>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_connMsg)) { <span class="@(_connOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_connMsg</span> }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (_selectedId is Guid sid)
+    {
+        <div class="card-soft" style="margin-top:20px;padding:18px;">
+            <h2 style="font-size:1rem;margin-top:0;">Datasets (consultas guardadas)</h2>
+            <button class="btn btn-sm btn-primary" @onclick="NewDataset">Nuevo dataset</button>
+            @if (_datasets.Count > 0)
+            {
+                <table class="table table-sm" style="margin-top:12px;">
+                    <thead><tr><th>Nombre</th><th>Descripcion</th><th>Estado</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _datasets)
+                        {
+                            <tr>
+                                <td>@d.Name</td><td>@d.Description</td>
+                                <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => RunDataset(d.Id)" disabled="@_busy">Ejecutar</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditDataset(d.Id)">Editar</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDataset(d.Id)">Borrar</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            @if (_editingDs is not null)
+            {
+                <div class="card-soft" style="margin-top:12px;padding:14px;background:rgba(0,0,0,.02);">
+                    <div class="auth-field"><label>Nombre</label><input class="form-control" @bind="_dsForm.Name" /></div>
+                    <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" @bind="_dsForm.Description" /></div>
+                    <div class="auth-field" style="margin-top:10px;">
+                        <label>Consulta SQL</label>
+                        <textarea class="form-control" rows="4" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
+                    </div>
+                    <div class="form-check form-switch" style="margin-top:10px;">
+                        <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
+                        <label class="form-check-label" for="dsEnabled">Habilitado</label>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-primary btn-sm" @onclick="() => SaveDataset(sid)" disabled="@_busy">Guardar dataset</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null">Cancelar</button>
+                        @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <span class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_dsMsg</span> }
+                    </div>
+                </div>
+            }
+
+            <h2 style="font-size:1rem;margin-top:22px;">Consulta directa</h2>
+            <textarea class="form-control" rows="4" @bind="_directSql" placeholder="Escribe SQL y pulsa Ejecutar"></textarea>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-primary btn-sm" @onclick="() => RunDirect(sid)" disabled="@_busy">Ejecutar</button>
+                <span class="page-sub" style="margin:0;">Maximo @MaxRows filas.</span>
+            </div>
+        </div>
+
+        @if (_result is not null)
+        {
+            <div class="card-soft" style="margin-top:20px;padding:18px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2 style="font-size:1rem;margin:0;">Resultado</h2>
+                    <span class="page-sub" style="margin:0;">@_resultCaption</span>
+                </div>
+                @if (!_result.Ok)
+                {
+                    <div class="text-danger" style="margin-top:10px;white-space:pre-wrap;">@_result.Error</div>
+                }
+                else if (_result.Grid is { } grid)
+                {
+                    <div style="overflow-x:auto;margin-top:10px;">
+                        <table class="table table-sm" style="margin:0;">
+                            <thead><tr>@foreach (var col in grid.Columns) { <th>@col</th> }</tr></thead>
+                            <tbody>
+                                @foreach (var row in grid.Rows)
+                                {
+                                    <tr>@foreach (var cell in row) { <td>@cell</td> }</tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (grid.RowCount == 0)
+                    {
+                        <p class="page-sub" style="margin-top:10px;">Sin filas (o comando de escritura ejecutado correctamente).</p>
+                    }
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    private const int MaxRows = 500;
+
+    private bool _loading = true, _busy;
+    private IReadOnlyList<TenantDataConnectionSummary> _conns = Array.Empty<TenantDataConnectionSummary>();
+    private IReadOnlyList<TenantDatasetSummary> _datasets = Array.Empty<TenantDatasetSummary>();
+
+    private Guid? _selectedId;
+    private object? _editing, _editingDs;
+    private ConnForm _form = new();
+    private DsForm _dsForm = new();
+    private string? _directSql;
+
+    private string? _connMsg, _dsMsg;
+    private bool _connOk, _dsOk;
+
+    private TenantQueryResult? _result;
+    private string? _resultCaption;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadConns();
+        _loading = false;
+    }
+
+    private async Task ReloadConns() => _conns = await Conns.ListAsync();
+
+    private void NewConn()
+    {
+        _form = new ConnForm();
+        _editing = _form;
+        _connMsg = null;
+    }
+
+    private async Task SelectConn(Guid id)
+    {
+        _selectedId = id;
+        var d = await Conns.GetAsync(id);
+        if (d is not null)
+        {
+            _form = new ConnForm
+            {
+                Id = d.Id, Name = d.Name, Description = d.Description, Provider = d.Provider,
+                IsEnabled = d.IsEnabled, AllowWrite = d.AllowWrite, HasConnectionString = d.HasConnectionString
+            };
+            _editing = _form;
+        }
+        _datasets = await Conns.ListDatasetsAsync(id);
+        _editingDs = null;
+        _result = null;
+        _connMsg = null;
+    }
+
+    private async Task SaveConn()
+    {
+        _busy = true; _connMsg = null;
+        try
+        {
+            var req = new SaveTenantDataConnectionRequest(
+                _form.Name?.Trim() ?? "", _form.Description, _form.Provider,
+                _form.ConnectionString, _form.AllowWrite, _form.IsEnabled);
+            var id = await Conns.SaveAsync(_form.Id, req, await ActorAsync());
+            if (id is null) { _connOk = false; _connMsg = "No se pudo guardar (revisa el nombre)."; return; }
+            _connOk = true; _connMsg = "Guardada.";
+            await ReloadConns();
+            await SelectConn(id.Value);
+        }
+        catch { _connOk = false; _connMsg = "No se pudo guardar."; }
+        finally { _busy = false; }
+    }
+
+    private async Task TestConn()
+    {
+        if (_form.Id is not Guid id) { return; }
+        _busy = true; _connMsg = null;
+        try
+        {
+            var req = new SaveTenantDataConnectionRequest(
+                _form.Name?.Trim() ?? "", _form.Description, _form.Provider,
+                _form.ConnectionString, _form.AllowWrite, _form.IsEnabled);
+            var err = await Conns.TestConnectionAsync(id, req, await ActorAsync());
+            _connOk = err is null;
+            _connMsg = err is null ? "Conexion OK." : err;
+        }
+        catch { _connOk = false; _connMsg = "No se pudo probar."; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteConn()
+    {
+        if (_form.Id is not Guid id) { return; }
+        _busy = true;
+        try
+        {
+            await Conns.DeleteAsync(id, await ActorAsync());
+            _selectedId = null; _editing = null; _result = null;
+            await ReloadConns();
+        }
+        finally { _busy = false; }
+    }
+
+    private void NewDataset()
+    {
+        _dsForm = new DsForm();
+        _editingDs = _dsForm;
+        _dsMsg = null;
+    }
+
+    private async Task EditDataset(Guid id)
+    {
+        var d = await Conns.GetDatasetAsync(id);
+        if (d is null) { return; }
+        _dsForm = new DsForm { Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText, IsEnabled = d.IsEnabled };
+        _editingDs = _dsForm;
+        _dsMsg = null;
+    }
+
+    private async Task SaveDataset(Guid connId)
+    {
+        _busy = true; _dsMsg = null;
+        try
+        {
+            var req = new SaveTenantDatasetRequest(
+                _dsForm.Id, connId, _dsForm.Name?.Trim() ?? "", _dsForm.Description,
+                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled);
+            var id = await Conns.SaveDatasetAsync(req, await ActorAsync());
+            if (id is null) { _dsOk = false; _dsMsg = "Revisa nombre y consulta."; return; }
+            _dsOk = true; _dsMsg = "Guardado.";
+            _datasets = await Conns.ListDatasetsAsync(connId);
+            _editingDs = null;
+            await ReloadConns();
+        }
+        catch { _dsOk = false; _dsMsg = "No se pudo guardar."; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteDataset(Guid id)
+    {
+        if (_selectedId is not Guid connId) { return; }
+        _busy = true;
+        try
+        {
+            await Conns.DeleteDatasetAsync(id, await ActorAsync());
+            _datasets = await Conns.ListDatasetsAsync(connId);
+            await ReloadConns();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RunDataset(Guid id)
+    {
+        _busy = true; _result = null;
+        try
+        {
+            _result = await Conns.RunDatasetAsync(id, MaxRows, await ActorAsync());
+            _resultCaption = _result.Ok && _result.Grid is { } g ? $"{g.RowCount} fila(s)" + (g.Truncated ? " (truncado)" : "") : "";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RunDirect(Guid connId)
+    {
+        _busy = true; _result = null;
+        try
+        {
+            _result = await Conns.RunQueryAsync(connId, _directSql ?? "", MaxRows, await ActorAsync());
+            _resultCaption = _result.Ok && _result.Grid is { } g ? $"{g.RowCount} fila(s)" + (g.Truncated ? " (truncado)" : "") : "";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private sealed class ConnForm
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public ExternalDataProvider Provider { get; set; } = ExternalDataProvider.SqlServer;
+        public string? ConnectionString { get; set; }
+        public bool IsEnabled { get; set; } = true;
+        public bool AllowWrite { get; set; }
+        public bool HasConnectionString { get; set; }
+    }
+
+    private sealed class DsForm
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public string? CommandText { get; set; }
+        public bool IsEnabled { get; set; } = true;
+    }
+}

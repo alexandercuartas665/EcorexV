@@ -22,8 +22,12 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
 {
     public async Task<ReportDataSet> ExecuteAsync(ExternalQuery query, CancellationToken ct = default)
     {
-        // Defensa en profundidad: rechaza cualquier cosa que no sea una lectura antes de abrir conexion.
-        ExternalReadOnlyGuard.EnsureReadOnly(query.CommandText);
+        // Solo lectura por defecto (reportes, ADR-0064): defensa en profundidad antes de abrir conexion.
+        // Con escritura habilitada (conexion PROPIA del tenant con AllowWrite) se OMITE el guard.
+        if (!query.AllowWrite)
+        {
+            ExternalReadOnlyGuard.EnsureReadOnly(query.CommandText);
+        }
 
         await using var conn = CreateConnection(query.Provider, query.ConnectionString);
         await conn.OpenAsync(ct);
@@ -32,7 +36,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             ? await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct)
             : null;
 
-        if (tx is not null && query.Provider == ExternalDataProvider.Postgres)
+        if (tx is not null && query.Provider == ExternalDataProvider.Postgres && !query.AllowWrite)
         {
             // Transaccion READ ONLY real: el servidor rechaza cualquier escritura.
             await using var readOnly = conn.CreateCommand();

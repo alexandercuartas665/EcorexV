@@ -1685,6 +1685,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.Description).HasMaxLength(1000);
             b.Property(x => x.ConnectionStringEncrypted).HasColumnType(longTextColumnType);
+            // OwnerTenantId: NULL = fuente global de plataforma; con valor = conexion propia de un tenant.
+            // NO se usa HasQueryFilter (la entidad es de plataforma); el aislamiento por tenant es explicito
+            // en TenantDataConnectionService.
+            b.HasIndex(x => x.OwnerTenantId);
             b.HasIndex(x => x.Name);
             b.HasIndex(x => x.IsEnabled);
         });

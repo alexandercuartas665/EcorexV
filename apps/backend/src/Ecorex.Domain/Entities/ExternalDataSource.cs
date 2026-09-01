@@ -27,6 +27,22 @@ public class ExternalDataSource : BaseEntity
     /// <summary>Motor de la base de datos externa. Acota el driver del conector.</summary>
     public ExternalDataProvider Provider { get; set; } = ExternalDataProvider.SqlServer;
 
+    /// <summary>
+    /// Dueño de la conexion. NULL = fuente GLOBAL de plataforma (comportamiento ADR-0064 original,
+    /// administrada por PlatformAdmin y concedida a tenants por grant). Con valor = conexion PROPIA de
+    /// ese tenant (cada empresa gestiona SOLO las suyas; SOLDARCO tiene conexiones que otras no). El
+    /// aislamiento se aplica explicitamente en el servicio de tenant por esta columna.
+    /// </summary>
+    public Guid? OwnerTenantId { get; set; }
+
+    /// <summary>
+    /// Permite ESCRITURA (INSERT/UPDATE/DELETE) contra el servidor externo. Por defecto FALSE: el
+    /// ejecutor fuerza solo lectura (guard + tx read-only). Solo cuando el dueño lo enciende
+    /// explicitamente por conexion, el ejecutor omite el guard y permite escribir. Las fuentes globales
+    /// de reportes lo dejan en false (sin regresion en el motor de reportes).
+    /// </summary>
+    public bool AllowWrite { get; set; }
+
     /// <summary>Cadena de conexion cifrada en reposo. NUNCA en claro ni versionada ni loggeada.</summary>
     public string? ConnectionStringEncrypted { get; set; }
 

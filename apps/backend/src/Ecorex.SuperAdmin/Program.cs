@@ -99,6 +99,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ExtraccionDatos.Editar", p => p.RequireClaim("tenant_id"))
+    // Conexiones de datos externas propias del tenant (tenant-scoped, con escritura por conexion).
+    .AddPolicy("Conexiones.Editar", p => p.RequireClaim("tenant_id"))
     // Inventarios (grupo Sistema - Inventarios, ADR-0027): items 000066 + catalogos
     // 000556/000502/000506/000606/000498. Paso 1: mismo requisito que TenantMember.
     .AddPolicy("Inventario.Ver", p => p.RequireClaim("tenant_id"))

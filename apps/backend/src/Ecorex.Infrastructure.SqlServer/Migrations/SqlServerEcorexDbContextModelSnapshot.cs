@@ -4749,6 +4749,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AllowWrite")
+                        .HasColumnType("bit")
+                        .HasColumnName("allow_write");
+
                     b.Property<string>("ConnectionStringEncrypted")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("connection_string_encrypted");
@@ -4784,6 +4788,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
 
+                    b.Property<Guid?>("OwnerTenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("owner_tenant_id");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -4806,6 +4814,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("Name")
                         .HasDatabaseName("ix_external_data_sources_name");
+
+                    b.HasIndex("OwnerTenantId")
+                        .HasDatabaseName("ix_external_data_sources_owner_tenant_id");
 
                     b.ToTable("external_data_sources", (string)null);
                 });

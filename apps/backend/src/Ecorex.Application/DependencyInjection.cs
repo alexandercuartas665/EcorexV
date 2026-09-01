@@ -290,6 +290,8 @@ public static class DependencyInjection
         // datos externos. El executor ADO.NET de solo lectura lo aporta Infrastructure (tiene drivers).
         services.AddScoped<Reporting.External.ExternalReportReader>();
         services.AddScoped<Reporting.External.IExternalDataSourceService, Reporting.External.ExternalDataSourceService>();
+        // Conexiones de datos externas PROPIAS del tenant (tenant-scoped, con escritura por conexion).
+        services.AddScoped<Tenancy.DataConnections.ITenantDataConnectionService, Tenancy.DataConnections.TenantDataConnectionService>();
         services.AddScoped<Reporting.External.IExternalReportBindingService, Reporting.External.ExternalReportBindingService>();
         return services;
     }

@@ -39,7 +39,10 @@ public sealed record ExternalQuery(
     string CommandText,
     IReadOnlyList<ExternalBoundParameter> Parameters,
     int MaxRows = 50_000,
-    int TimeoutSeconds = 30);
+    int TimeoutSeconds = 30,
+    // Cuando es true (conexion propia del tenant con escritura habilitada) el ejecutor OMITE el guard de
+    // solo lectura y confirma la transaccion. Por defecto false: se fuerza lectura (reportes, ADR-0064).
+    bool AllowWrite = false);
 
 /// <summary>
 /// Contexto de CONFIANZA para resolver parametros de alcance (userid, sucursal, tenant...). Los valores

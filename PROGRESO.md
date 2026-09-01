@@ -1,7 +1,38 @@
 # PROGRESO - ECOREX Sistema de Tareas
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
+
+## 2026-09-01 - Usuarios AGROMETALICAS (Lilian tel + Beatriz)
+
+- Lilian Loaiza: correccion de telefono en su login temporal 31656416@agrometalicas.com
+  (3007057939 -> 3007957939). No se toco ventas1@ (cuenta real "Lilian Yoleydi Loaiza" / plantilla).
+  Backup ecorex-2026-08-27-1143.sql.gz.
+- Beatriz Stella Londono Londono: alta en produccion, login diseno@agrometalicas.com, rol Admin,
+  clave = cedula 1113650430, document_code 1113650430. Clonando plantilla ventas1@ (menu_view_id,
+  lead_visibility, auth_provider local, status Active). Sin duplicado previo. Login POST /auth/login
+  -> HTTP 302 /inicio (OK). Backup ecorex-2026-09-01-0909.sql.gz.
+- Natalia Guerrero Guetia: alta previa, login diseno2@agrometalicas.com (corregido typo agrometalica->
+  agrometalicas), rol Admin, clave = cedula 1114875322. Backup ecorex-2026-08-20-1601.sql.gz.
 > Complementa (no reemplaza) los ADRs de `docs/decisiones/` y el vault Obsidian.
+
+---
+
+## 2026-09-01 - v0.15.133: Conexiones de datos externas PROPIAS del tenant (ADR-0084, extension de ADR-0064)
+
+- Pedido: cada empresa (tenant) gestiona SUS propias conexiones a servidores SQL externos (SOLDARCO tiene
+  conexiones que otras no), con lectura Y escritura por conexion, desde el menu del tenant (Sistema/Desarrollo).
+  El modelo previo (ADR-0064) era de PLATAFORMA + grants + solo lectura, no encajaba.
+- Datos (reusa ExternalDataSource/ExternalDataSet): +OwnerTenantId (null=global plataforma; con valor=propia
+  del tenant, aislada explicitamente) y +AllowWrite (default false). Migracion DUAL aditiva (PG + SqlServer).
+- Ejecutor: ExternalQuery.AllowWrite -> cuando true omite ExternalReadOnlyGuard y confirma la tx (permite
+  escritura); default false conserva solo-lectura (reportes ADR-0064 sin regresion).
+- Servicio ITenantDataConnectionService (tenant-scoped): CRUD conexiones + datasets, prueba de conexion,
+  ejecucion de dataset y CONSULTA DIRECTA (SQL ad-hoc). Aislado por OwnerTenantId, secreto cifrado
+  (ISecretProtector), cada ejecucion auditada.
+- UI /conexiones-datos (policy Conexiones.Editar), en grupo de menu "Sistema / Desarrollo" (nodo agregado por
+  tenant via SQL; en dev ya para AGROMETALICAS). Toggle "permitir escritura" + grilla de resultados.
+- Verificado en dev (Chrome): pagina carga aislada por tenant y el link aparece en el menu. Build verde.
+- PENDIENTE prod: aplicar migracion (deploy) + insertar el nodo de menu para SOLDARCO. Futuro: acceso de agentes.
 
 ---
 

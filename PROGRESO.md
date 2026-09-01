@@ -17,6 +17,17 @@
 
 ---
 
+## 2026-09-01 - v0.15.134: Conexiones de datos - el formulario de conexion es un MODAL (fix layout)
+
+- Bug (reportado en prod): el formulario "Editar/Nueva conexion" estaba como panel lateral y se DESBORDABA
+  sobre el modulo (campos se regaban/combinaban), no abria como modal.
+- Fix (ConexionesDatos.razor): la lista de conexiones va a ancho completo; el formulario se movio a un MODAL
+  overlay centrado (position:fixed, z-index 1050, inputs width:100% box-sizing) con X/Cancelar/Guardar.
+  "Abrir" selecciona (datasets+consola abajo) sin modal; "Editar" abre el modal. Sin cambios de backend.
+- Build verde. Sin migracion.
+
+---
+
 ## 2026-09-01 - v0.15.133: Conexiones de datos externas PROPIAS del tenant (ADR-0084, extension de ADR-0064)
 
 - Pedido: cada empresa (tenant) gestiona SUS propias conexiones a servidores SQL externos (SOLDARCO tiene

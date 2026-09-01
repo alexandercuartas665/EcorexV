@@ -32,18 +32,18 @@
 }
 else
 {
-    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
-        <div class="card-soft" style="flex:1;min-width:340px;padding:18px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                <h2 style="font-size:1rem;margin:0;">Conexiones</h2>
-                <button class="btn btn-sm btn-primary" @onclick="NewConn">Nueva conexion</button>
-            </div>
-            @if (_conns.Count == 0)
-            {
-                <p class="page-sub" style="margin:0;">No hay conexiones registradas.</p>
-            }
-            else
-            {
+    <div class="card-soft" style="padding:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 style="font-size:1rem;margin:0;">Conexiones</h2>
+            <button class="btn btn-sm btn-primary" @onclick="NewConn">Nueva conexion</button>
+        </div>
+        @if (_conns.Count == 0)
+        {
+            <p class="page-sub" style="margin:0;">No hay conexiones registradas.</p>
+        }
+        else
+        {
+            <div style="overflow-x:auto;">
                 <table class="table table-sm" style="margin:0;">
                     <thead><tr><th>Nombre</th><th>Motor</th><th>Acceso</th><th>Estado</th><th>Datasets</th><th></th></tr></thead>
                     <tbody>
@@ -55,30 +55,39 @@ else
                                 <td>@(c.AllowWrite ? "Lectura/Escritura" : "Solo lectura")</td>
                                 <td>@(c.IsEnabled ? "Habilitada" : "Deshabilitada")</td>
                                 <td>@c.DatasetCount</td>
-                                <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectConn(c.Id)">Abrir</button></td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectConn(c.Id)">Abrir</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditConn(c.Id)">Editar</button>
+                                </td>
                             </tr>
                         }
                     </tbody>
                 </table>
-            }
-        </div>
+            </div>
+        }
+    </div>
 
-        @if (_editing is not null)
-        {
-            <div class="card-soft" style="flex:1;min-width:340px;padding:18px;">
-                <h2 style="font-size:1rem;margin-top:0;">@(_form.Id is null ? "Nueva conexion" : "Editar conexion")</h2>
-                <div class="auth-field"><label>Nombre</label><input class="form-control" @bind="_form.Name" /></div>
-                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" @bind="_form.Description" /></div>
+    @* ===== Modal de conexion (nueva / editar) ===== *@
+    @if (_editing is not null)
+    {
+        <div style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1050;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
+            <div class="card-soft" style="width:min(560px,96vw);max-height:88vh;overflow:auto;padding:22px;background:var(--surface-1,#fff);box-shadow:0 24px 60px rgba(0,0,0,.28);" @onclick:stopPropagation="true">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <h2 style="font-size:1.05rem;margin:0;">@(_form.Id is null ? "Nueva conexion" : "Editar conexion")</h2>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="CloseModal" disabled="@_busy" style="line-height:1;">&times;</button>
+                </div>
+                <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Name" /></div>
+                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Description" /></div>
                 <div class="auth-field" style="margin-top:10px;">
                     <label>Motor</label>
-                    <select class="form-control" @bind="_form.Provider">
+                    <select class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Provider">
                         <option value="@ExternalDataProvider.SqlServer">SQL Server</option>
                         <option value="@ExternalDataProvider.Postgres">PostgreSQL</option>
                     </select>
                 </div>
                 <div class="auth-field" style="margin-top:10px;">
                     <label>Cadena de conexion @(_form.HasConnectionString ? "(guardada; deja vacio para conservarla)" : "")</label>
-                    <input class="form-control" type="password" @bind="_form.ConnectionString" placeholder="@(_form.HasConnectionString ? "(sin cambios)" : "Server=host,puerto;Database=..;User Id=..;Password=..")" />
+                    <input class="form-control" style="width:100%;box-sizing:border-box;" type="password" @bind="_form.ConnectionString" placeholder="@(_form.HasConnectionString ? "(sin cambios)" : "Server=host,puerto;Database=..;User Id=..;Password=..")" />
                 </div>
                 <div class="form-check form-switch" style="margin-top:12px;">
                     <input class="form-check-input" type="checkbox" id="cnEnabled" @bind="_form.IsEnabled" />
@@ -92,18 +101,19 @@ else
                 {
                     <div class="text-danger" style="font-size:.8rem;margin-top:4px;">Con escritura habilitada, las consultas de esta conexion pueden MODIFICAR el servidor externo.</div>
                 }
-                <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                    <button class="btn btn-primary btn-sm" @onclick="SaveConn" disabled="@_busy">Guardar</button>
+                @if (!string.IsNullOrWhiteSpace(_connMsg)) { <div class="@(_connOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:10px;">@_connMsg</div> }
+                <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;">
                     @if (_form.Id is not null)
                     {
+                        <button class="btn btn-outline-danger btn-sm" @onclick="DeleteConn" disabled="@_busy" style="margin-right:auto;">Eliminar</button>
                         <button class="btn btn-outline-secondary btn-sm" @onclick="TestConn" disabled="@_busy">Probar conexion</button>
-                        <button class="btn btn-outline-danger btn-sm" @onclick="DeleteConn" disabled="@_busy">Eliminar</button>
                     }
-                    @if (!string.IsNullOrWhiteSpace(_connMsg)) { <span class="@(_connOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_connMsg</span> }
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CloseModal" disabled="@_busy">Cancelar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="SaveConn" disabled="@_busy">Guardar</button>
                 </div>
             </div>
-        }
-    </div>
+        </div>
+    }
 
     @if (_selectedId is Guid sid)
     {
@@ -228,6 +238,13 @@ else
         _connMsg = null;
     }
 
+    private void CloseModal()
+    {
+        _editing = null;
+        _connMsg = null;
+    }
+
+    // "Abrir": selecciona la conexion (muestra datasets + consola abajo) SIN abrir el modal.
     private async Task SelectConn(Guid id)
     {
         _selectedId = id;
@@ -239,12 +256,18 @@ else
                 Id = d.Id, Name = d.Name, Description = d.Description, Provider = d.Provider,
                 IsEnabled = d.IsEnabled, AllowWrite = d.AllowWrite, HasConnectionString = d.HasConnectionString
             };
-            _editing = _form;
         }
         _datasets = await Conns.ListDatasetsAsync(id);
         _editingDs = null;
         _result = null;
         _connMsg = null;
+    }
+
+    // "Editar": carga la conexion y ABRE el modal.
+    private async Task EditConn(Guid id)
+    {
+        await SelectConn(id);
+        _editing = _form;
     }
 
     private async Task SaveConn()
@@ -257,9 +280,10 @@ else
                 _form.ConnectionString, _form.AllowWrite, _form.IsEnabled);
             var id = await Conns.SaveAsync(_form.Id, req, await ActorAsync());
             if (id is null) { _connOk = false; _connMsg = "No se pudo guardar (revisa el nombre)."; return; }
-            _connOk = true; _connMsg = "Guardada.";
             await ReloadConns();
             await SelectConn(id.Value);
+            _editing = _form;   // SelectConn no abre modal; lo mantenemos abierto para ver el resultado
+            _connOk = true; _connMsg = "Guardada.";
         }
         catch { _connOk = false; _connMsg = "No se pudo guardar."; }
         finally { _busy = false; }

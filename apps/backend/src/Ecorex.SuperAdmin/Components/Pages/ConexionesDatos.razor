@@ -55,10 +55,7 @@ else
                                 <td>@(c.AllowWrite ? "Lectura/Escritura" : "Solo lectura")</td>
                                 <td>@(c.IsEnabled ? "Habilitada" : "Deshabilitada")</td>
                                 <td>@c.DatasetCount</td>
-                                <td>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectConn(c.Id)">Abrir</button>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditConn(c.Id)">Editar</button>
-                                </td>
+                                <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenConn(c.Id)">Abrir</button></td>
                             </tr>
                         }
                     </tbody>
@@ -67,15 +64,17 @@ else
         }
     </div>
 
-    @* ===== Modal de conexion (nueva / editar) ===== *@
+    @* ===== Modal HUB de la conexion: config + SUS datasets + consola directa ===== *@
     @if (_editing is not null)
     {
         <div style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1050;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
-            <div class="card-soft" style="width:min(560px,96vw);max-height:88vh;overflow:auto;padding:22px;background:var(--surface-1,#fff);box-shadow:0 24px 60px rgba(0,0,0,.28);" @onclick:stopPropagation="true">
+            <div class="card-soft" style="width:min(780px,96vw);max-height:90vh;overflow:auto;padding:22px;background:var(--surface-1,#fff);box-shadow:0 24px 60px rgba(0,0,0,.28);" @onclick:stopPropagation="true">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                    <h2 style="font-size:1.05rem;margin:0;">@(_form.Id is null ? "Nueva conexion" : "Editar conexion")</h2>
+                    <h2 style="font-size:1.05rem;margin:0;">@(_form.Id is null ? "Nueva conexion" : $"Conexion: {_form.Name}")</h2>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="CloseModal" disabled="@_busy" style="line-height:1;">&times;</button>
                 </div>
+
+                @* --- Configuracion de la conexion --- *@
                 <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Name" /></div>
                 <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Description" /></div>
                 <div class="auth-field" style="margin-top:10px;">
@@ -108,106 +107,114 @@ else
                         <button class="btn btn-outline-danger btn-sm" @onclick="DeleteConn" disabled="@_busy" style="margin-right:auto;">Eliminar</button>
                         <button class="btn btn-outline-secondary btn-sm" @onclick="TestConn" disabled="@_busy">Probar conexion</button>
                     }
-                    <button class="btn btn-outline-secondary btn-sm" @onclick="CloseModal" disabled="@_busy">Cancelar</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CloseModal" disabled="@_busy">Cerrar</button>
                     <button class="btn btn-primary btn-sm" @onclick="SaveConn" disabled="@_busy">Guardar</button>
                 </div>
-            </div>
-        </div>
-    }
 
-    @* ===== Modal de dataset (nuevo / editar) ===== *@
-    @if (_editingDs is not null && _selectedId is Guid dsConnId)
-    {
-        <div style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1050;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;">
-            <div class="card-soft" style="width:min(620px,96vw);max-height:88vh;overflow:auto;padding:22px;background:var(--surface-1,#fff);box-shadow:0 24px 60px rgba(0,0,0,.28);">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                    <h2 style="font-size:1.05rem;margin:0;">@(_dsForm.Id is null ? "Nuevo dataset" : "Editar dataset")</h2>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => _editingDs = null" disabled="@_busy" style="line-height:1;">&times;</button>
-                </div>
-                <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Name" /></div>
-                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Description" /></div>
-                <div class="auth-field" style="margin-top:10px;">
-                    <label>Consulta SQL</label>
-                    <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="6" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
-                </div>
-                <div class="form-check form-switch" style="margin-top:10px;">
-                    <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
-                    <label class="form-check-label" for="dsEnabled">Habilitado</label>
-                </div>
-                @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <div class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:10px;">@_dsMsg</div> }
-                <div style="margin-top:16px;display:flex;gap:8px;align-items:center;justify-content:flex-end;">
-                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null" disabled="@_busy">Cancelar</button>
-                    <button class="btn btn-primary btn-sm" @onclick="() => SaveDataset(dsConnId)" disabled="@_busy">Guardar dataset</button>
-                </div>
-            </div>
-        </div>
-    }
-
-    @if (_selectedId is Guid sid)
-    {
-        <div class="card-soft" style="margin-top:20px;padding:18px;">
-            <h2 style="font-size:1rem;margin-top:0;">Datasets (consultas guardadas)</h2>
-            <button class="btn btn-sm btn-primary" @onclick="NewDataset">Nuevo dataset</button>
-            @if (_datasets.Count > 0)
-            {
-                <table class="table table-sm" style="margin-top:12px;">
-                    <thead><tr><th>Nombre</th><th>Descripcion</th><th>Estado</th><th></th></tr></thead>
-                    <tbody>
-                        @foreach (var d in _datasets)
-                        {
-                            <tr>
-                                <td>@d.Name</td><td>@d.Description</td>
-                                <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
-                                <td>
-                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => RunDataset(d.Id)" disabled="@_busy">Ejecutar</button>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditDataset(d.Id)">Editar</button>
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDataset(d.Id)">Borrar</button>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
-
-            <h2 style="font-size:1rem;margin-top:22px;">Consulta directa</h2>
-            <textarea class="form-control" rows="4" @bind="_directSql" placeholder="Escribe SQL y pulsa Ejecutar"></textarea>
-            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-                <button class="btn btn-primary btn-sm" @onclick="() => RunDirect(sid)" disabled="@_busy">Ejecutar</button>
-                <span class="page-sub" style="margin:0;">Maximo @MaxRows filas.</span>
-            </div>
-        </div>
-
-        @if (_result is not null)
-        {
-            <div class="card-soft" style="margin-top:20px;padding:18px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <h2 style="font-size:1rem;margin:0;">Resultado</h2>
-                    <span class="page-sub" style="margin:0;">@_resultCaption</span>
-                </div>
-                @if (!_result.Ok)
+                @* --- Datasets ligados a ESTA conexion (solo tras guardar la conexion) --- *@
+                @if (_form.Id is Guid connId)
                 {
-                    <div class="text-danger" style="margin-top:10px;white-space:pre-wrap;">@_result.Error</div>
-                }
-                else if (_result.Grid is { } grid)
-                {
-                    <div style="overflow-x:auto;margin-top:10px;">
-                        <table class="table table-sm" style="margin:0;">
-                            <thead><tr>@foreach (var col in grid.Columns) { <th>@col</th> }</tr></thead>
-                            <tbody>
-                                @foreach (var row in grid.Rows)
-                                {
-                                    <tr>@foreach (var cell in row) { <td>@cell</td> }</tr>
-                                }
-                            </tbody>
-                        </table>
+                    <hr style="margin:20px 0;" />
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="font-size:.95rem;margin:0;">Datasets de esta conexion</h3>
+                        <button class="btn btn-sm btn-primary" @onclick="NewDataset" disabled="@_busy">+ Nuevo dataset</button>
                     </div>
-                    @if (grid.RowCount == 0)
+                    @if (_datasets.Count > 0)
                     {
-                        <p class="page-sub" style="margin-top:10px;">Sin filas (o comando de escritura ejecutado correctamente).</p>
+                        <div style="overflow-x:auto;">
+                            <table class="table table-sm" style="margin-top:10px;">
+                                <thead><tr><th>Nombre</th><th>Descripcion</th><th>Estado</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var d in _datasets)
+                                    {
+                                        <tr>
+                                            <td>@d.Name</td><td>@d.Description</td>
+                                            <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="() => RunDataset(d.Id)" disabled="@_busy">Ejecutar</button>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditDataset(d.Id)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDataset(d.Id)" disabled="@_busy">Borrar</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="page-sub" style="margin:8px 0 0;">Aun no hay datasets. Crea uno con "+ Nuevo dataset".</p>
+                    }
+
+                    @* Editor de dataset INLINE dentro del modal (no otra ventana) *@
+                    @if (_editingDs is not null)
+                    {
+                        <div class="card-soft" style="margin-top:12px;padding:14px;background:rgba(15,23,42,.03);border:1px solid var(--border,#e2e8f0);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <strong style="font-size:.9rem;">@(_dsForm.Id is null ? "Nuevo dataset" : "Editar dataset")</strong>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _editingDs = null" disabled="@_busy" style="line-height:1;">&times;</button>
+                            </div>
+                            <div class="auth-field" style="margin-top:10px;"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Name" /></div>
+                            <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Description" /></div>
+                            <div class="auth-field" style="margin-top:10px;">
+                                <label>Consulta SQL</label>
+                                <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="5" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
+                            </div>
+                            <div class="form-check form-switch" style="margin-top:10px;">
+                                <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
+                                <label class="form-check-label" for="dsEnabled">Habilitado</label>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <div class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:8px;">@_dsMsg</div> }
+                            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null" disabled="@_busy">Cancelar</button>
+                                <button class="btn btn-primary btn-sm" @onclick="() => SaveDataset(connId)" disabled="@_busy">Guardar dataset</button>
+                            </div>
+                        </div>
+                    }
+
+                    @* --- Consulta directa (SQL ad-hoc) --- *@
+                    <h3 style="font-size:.95rem;margin:20px 0 8px;">Consulta directa</h3>
+                    <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="4" @bind="_directSql" placeholder="Escribe SQL y pulsa Ejecutar"></textarea>
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-primary btn-sm" @onclick="() => RunDirect(connId)" disabled="@_busy">Ejecutar</button>
+                        <span class="page-sub" style="margin:0;">Maximo @MaxRows filas.</span>
+                    </div>
+
+                    @* --- Resultado --- *@
+                    @if (_result is not null)
+                    {
+                        <div style="margin-top:16px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <strong style="font-size:.9rem;">Resultado</strong>
+                                <span class="page-sub" style="margin:0;">@_resultCaption</span>
+                            </div>
+                            @if (!_result.Ok)
+                            {
+                                <div class="text-danger" style="margin-top:8px;white-space:pre-wrap;">@_result.Error</div>
+                            }
+                            else if (_result.Grid is { } grid)
+                            {
+                                <div style="overflow-x:auto;margin-top:8px;max-height:320px;">
+                                    <table class="table table-sm" style="margin:0;">
+                                        <thead><tr>@foreach (var col in grid.Columns) { <th>@col</th> }</tr></thead>
+                                        <tbody>
+                                            @foreach (var row in grid.Rows)
+                                            {
+                                                <tr>@foreach (var cell in row) { <td>@cell</td> }</tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                                @if (grid.RowCount == 0)
+                                {
+                                    <p class="page-sub" style="margin-top:8px;">Sin filas (o comando de escritura ejecutado correctamente).</p>
+                                }
+                            }
+                        </div>
                     }
                 }
             </div>
-        }
+        </div>
     }
 }
 
@@ -241,18 +248,25 @@ else
     private void NewConn()
     {
         _form = new ConnForm();
-        _editing = _form;
+        _selectedId = null;
+        _datasets = Array.Empty<TenantDatasetSummary>();
+        _editingDs = null;
+        _result = null;
         _connMsg = null;
+        _editing = _form;
     }
 
     private void CloseModal()
     {
         _editing = null;
+        _editingDs = null;
+        _result = null;
         _connMsg = null;
+        _dsMsg = null;
     }
 
-    // "Abrir": selecciona la conexion (muestra datasets + consola abajo) SIN abrir el modal.
-    private async Task SelectConn(Guid id)
+    // Carga la conexion (form + sus datasets) y ABRE el modal hub.
+    private async Task OpenConn(Guid id)
     {
         _selectedId = id;
         var d = await Conns.GetAsync(id);
@@ -268,12 +282,7 @@ else
         _editingDs = null;
         _result = null;
         _connMsg = null;
-    }
-
-    // "Editar": carga la conexion y ABRE el modal.
-    private async Task EditConn(Guid id)
-    {
-        await SelectConn(id);
+        _dsMsg = null;
         _editing = _form;
     }
 
@@ -288,8 +297,7 @@ else
             var id = await Conns.SaveAsync(_form.Id, req, await ActorAsync());
             if (id is null) { _connOk = false; _connMsg = "No se pudo guardar (revisa el nombre)."; return; }
             await ReloadConns();
-            await SelectConn(id.Value);
-            _editing = _form;   // SelectConn no abre modal; lo mantenemos abierto para ver el resultado
+            await OpenConn(id.Value);   // recarga el form (ahora con Id) + sus datasets, deja el modal abierto
             _connOk = true; _connMsg = "Guardada.";
         }
         catch { _connOk = false; _connMsg = "No se pudo guardar."; }

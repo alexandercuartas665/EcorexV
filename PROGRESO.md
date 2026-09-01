@@ -17,6 +17,17 @@
 
 ---
 
+## 2026-09-01 - v0.15.136: Conexiones de datos - modal HUB (config + datasets + consola en un solo modal)
+
+- Pedido: al abrir una conexion, gestionar SUS datasets DENTRO del mismo modal (crear varios ligados a esa
+  conexion), no en una seccion aparte por fuera.
+- Fix (ConexionesDatos.razor): el modal de la conexion pasa a ser el HUB. Al guardar/abrir una conexion
+  (con Id) muestra, dentro del mismo modal: "Datasets de esta conexion" (lista + "+ Nuevo dataset" + editor
+  INLINE dentro del modal) y "Consulta directa" + resultado. La fila tiene un solo boton "Abrir". Se
+  eliminaron la seccion inferior suelta y el segundo modal de dataset. Solo UI. Build verde.
+
+---
+
 ## 2026-09-01 - v0.15.135: Conexiones de datos - el editor de DATASETS tambien abre en modal
 
 - Pedido: crear/editar datasets tambien dentro de un modal (antes se desplegaba inline debajo, se veia feo).

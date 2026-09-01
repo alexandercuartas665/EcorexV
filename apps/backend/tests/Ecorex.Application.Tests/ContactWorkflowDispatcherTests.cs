@@ -232,6 +232,8 @@ public class ContactWorkflowDispatcherTests
         public DbSet<FormContainer> FormContainers => NotUsed<FormContainer>();
         public DbSet<FormQuestion> FormQuestions => NotUsed<FormQuestion>();
         public DbSet<FormResponse> FormResponses => NotUsed<FormResponse>();
+        public DbSet<WorkflowNodeNote> WorkflowNodeNotes => NotUsed<WorkflowNodeNote>();
+        public DbSet<FormSubmitRule> FormSubmitRules => NotUsed<FormSubmitRule>();
         public DbSet<FormFlowLink> FormFlowLinks => NotUsed<FormFlowLink>();
         public DbSet<FormToken> FormTokens => NotUsed<FormToken>();
         public DbSet<FormRecordLink> FormRecordLinks => NotUsed<FormRecordLink>();

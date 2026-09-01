@@ -132,6 +132,8 @@ public class RowIngestServiceTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<WorkflowNodeNote> WorkflowNodeNotes => throw new NotSupportedException();
+        public DbSet<FormSubmitRule> FormSubmitRules => throw new NotSupportedException();
         public DbSet<FormFlowLink> FormFlowLinks => throw new NotSupportedException();
         public DbSet<FormToken> FormTokens => throw new NotSupportedException();
         public DbSet<FormRecordLink> FormRecordLinks => throw new NotSupportedException();

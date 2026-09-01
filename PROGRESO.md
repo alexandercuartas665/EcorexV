@@ -17,6 +17,23 @@
 
 ---
 
+## 2026-09-01 - v0.15.139: TaskItemReportSource - campos por nombre (Concepto/Categoria/Asignado/Tablero/Etapa)
+
+- Hand-off de reportes: la fuente nativa 'Actividades' exponia poco para reportes por area/tablero/asignado.
+- Se agregan campos reportables por NOMBRE (tenant-safe, sin SQL crudo): Concepto (subcategoria.nombre),
+  Categoria (subcategoria->categoria.nombre), Asignado (TenantUser->PlatformUser.DisplayName ?? Email),
+  Tablero (TaskBoard.name), Etapa (TaskBoardColumn.name). Se conservan los existentes; AssigneeUserId pasa a
+  etiqueta "Asignado (ID)". Todos CanGroup/CanFilter=true.
+- Implementacion: catalogos id->nombre cargados de tablas con filtro global (tenant-safe); nombre mapeado en
+  memoria para pintar/ordenar; agrupar = GROUP BY por id en BD + re-suma por nombre; filtrar por nombre =
+  resolver ids que casan + WHERE id IN (List.Contains, traducible en PG y SqlServer). Nunca cross-tenant.
+- Tests: TaskItemReportSourceCatalogTests (unitario, sin BD): expone los campos nuevos + un PanelSpec puede
+  agrupar/filtrar por ellos. De paso se arreglaron 4 fakes de test desactualizados (faltaban WorkflowNodeNotes
+  y FormSubmitRules en IApplicationDbContext) que rompian la compilacion del proyecto de tests.
+- Build verde; 8/8 tests de catalogo pasan. Sin migracion.
+
+---
+
 ## 2026-09-01 - v0.15.138: datasets con descripcion de parametros + acceso de AGENTES (toolset "datos")
 
 - Descripcion de parametros: ExternalDataSetParameter += Description; editor con columna Descripcion; al

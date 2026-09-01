@@ -17,6 +17,21 @@
 
 ---
 
+## 2026-09-01 - v0.15.137: Conexiones de datos - parametros en datasets + fix autofill + quitar consola
+
+- Autofill: el navegador rellenaba Descripcion (email) y la Cadena de conexion (clave del gestor), y por eso
+  "Probar" fallaba con "Format of the initialization string...". Fix: autocomplete=off en nombre/descripcion
+  y autocomplete=new-password + name generico en la cadena.
+- Se QUITA la consola de "Consulta directa"; el modal deja solo la gestion de datasets (Ejecutar/Editar/Borrar).
+- PARAMETROS en datasets (reusa infra ADR-0064): el editor de dataset tiene una tabla de parametros
+  (Nombre sin @, Tipo, Valor por defecto). El SQL los referencia como @nombre; se guardan en
+  ExternalDataSet.ParametersJson (Binding=Input). Al Ejecutar un dataset con parametros, se piden los valores
+  (prefill del default) y se enlazan TIPADOS (ExternalParameterBinder) -> DbParameter (sin concatenacion).
+- Servicio: SaveTenantDatasetRequest/TenantDatasetDetail +ParametersJson; RunDatasetAsync recibe inputs y
+  enlaza; TenantDatasetSummary +ParameterCount. Solo UI + servicio (sin migracion; la columna ya existia). Build verde.
+
+---
+
 ## 2026-09-01 - v0.15.136: Conexiones de datos - modal HUB (config + datasets + consola en un solo modal)
 
 - Pedido: al abrir una conexion, gestionar SUS datasets DENTRO del mismo modal (crear varios ligados a esa

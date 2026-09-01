@@ -21,13 +21,17 @@ public sealed record SaveTenantDataConnectionRequest(
     string Name, string? Description, ExternalDataProvider Provider, string? ConnectionString,
     bool AllowWrite, bool IsEnabled);
 
-public sealed record TenantDatasetSummary(Guid Id, string Name, string? Description, bool IsEnabled);
+public sealed record TenantDatasetSummary(Guid Id, string Name, string? Description, bool IsEnabled, int ParameterCount);
 
 public sealed record TenantDatasetDetail(
-    Guid Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled);
+    Guid Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled,
+    // Parametros del dataset (JSON de ExternalDataSetParameter: Name, Type, Binding, DefaultValue). El SQL
+    // los referencia como @Name; se enlazan TIPADOS (nunca concatenacion).
+    string? ParametersJson);
 
 public sealed record SaveTenantDatasetRequest(
-    Guid? Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled);
+    Guid? Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled,
+    string? ParametersJson = null);
 
 /// <summary>Resultado tabular de una consulta (columnas + filas como texto para pintar la grilla).</summary>
 public sealed record ExternalQueryGrid(

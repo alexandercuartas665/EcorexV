@@ -3,6 +3,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @using Ecorex.Application.Tenancy.DataConnections
+@using Ecorex.Application.Reporting.External
 @using Ecorex.Domain.Enums
 @inject ITenantDataConnectionService Conns
 @inject AuthenticationStateProvider AuthProvider
@@ -75,8 +76,8 @@ else
                 </div>
 
                 @* --- Configuracion de la conexion --- *@
-                <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Name" /></div>
-                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Description" /></div>
+                <div class="auth-field"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" autocomplete="off" @bind="_form.Name" /></div>
+                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" autocomplete="off" @bind="_form.Description" /></div>
                 <div class="auth-field" style="margin-top:10px;">
                     <label>Motor</label>
                     <select class="form-control" style="width:100%;box-sizing:border-box;" @bind="_form.Provider">
@@ -86,7 +87,8 @@ else
                 </div>
                 <div class="auth-field" style="margin-top:10px;">
                     <label>Cadena de conexion @(_form.HasConnectionString ? "(guardada; deja vacio para conservarla)" : "")</label>
-                    <input class="form-control" style="width:100%;box-sizing:border-box;" type="password" @bind="_form.ConnectionString" placeholder="@(_form.HasConnectionString ? "(sin cambios)" : "Server=host,puerto;Database=..;User Id=..;Password=..")" />
+                    @* autocomplete=new-password + name generico evitan que el gestor de contrasenas rellene la cadena. *@
+                    <input class="form-control" style="width:100%;box-sizing:border-box;" type="password" name="ecorex-conn-string" autocomplete="new-password" @bind="_form.ConnectionString" placeholder="@(_form.HasConnectionString ? "(sin cambios)" : "Server=host,puerto;Database=..;User Id=..;Password=..")" />
                 </div>
                 <div class="form-check form-switch" style="margin-top:12px;">
                     <input class="form-check-input" type="checkbox" id="cnEnabled" @bind="_form.IsEnabled" />
@@ -123,12 +125,13 @@ else
                     {
                         <div style="overflow-x:auto;">
                             <table class="table table-sm" style="margin-top:10px;">
-                                <thead><tr><th>Nombre</th><th>Descripcion</th><th>Estado</th><th></th></tr></thead>
+                                <thead><tr><th>Nombre</th><th>Descripcion</th><th>Params</th><th>Estado</th><th></th></tr></thead>
                                 <tbody>
                                     @foreach (var d in _datasets)
                                     {
                                         <tr>
                                             <td>@d.Name</td><td>@d.Description</td>
+                                            <td>@d.ParameterCount</td>
                                             <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
                                             <td>
                                                 <button class="btn btn-sm btn-outline-primary" @onclick="() => RunDataset(d.Id)" disabled="@_busy">Ejecutar</button>
@@ -157,9 +160,46 @@ else
                             <div class="auth-field" style="margin-top:10px;"><label>Nombre</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Name" /></div>
                             <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" style="width:100%;box-sizing:border-box;" @bind="_dsForm.Description" /></div>
                             <div class="auth-field" style="margin-top:10px;">
-                                <label>Consulta SQL</label>
-                                <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="5" @bind="_dsForm.CommandText" placeholder="SELECT TOP (200) * FROM ..."></textarea>
+                                <label>Consulta SQL (usa @@nombre para los parametros)</label>
+                                <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="5" @bind="_dsForm.CommandText" placeholder="SELECT * FROM M700_INV.dbo.ITEMS WHERE Codigo = @@codigo"></textarea>
                             </div>
+
+                            @* --- Parametros del dataset --- *@
+                            <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
+                                <label style="margin:0;font-weight:600;font-size:.82rem;color:var(--ink-2,#475569);">PARAMETROS</label>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddParam" disabled="@_busy">+ Parametro</button>
+                            </div>
+                            @if (_dsForm.Params.Count == 0)
+                            {
+                                <p class="page-sub" style="margin:4px 0 0;font-size:.8rem;">Sin parametros. La consulta corre tal cual.</p>
+                            }
+                            else
+                            {
+                                <div style="overflow-x:auto;margin-top:6px;">
+                                    <table class="table table-sm" style="margin:0;">
+                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th></th></tr></thead>
+                                        <tbody>
+                                            @foreach (var p in _dsForm.Params)
+                                            {
+                                                <tr>
+                                                    <td><input class="form-control form-control-sm" @bind="p.Name" placeholder="codigo" /></td>
+                                                    <td>
+                                                        <select class="form-control form-control-sm" @bind="p.Type">
+                                                            @foreach (var t in Enum.GetValues<ExternalDataParameterType>())
+                                                            {
+                                                                <option value="@t">@t</option>
+                                                            }
+                                                        </select>
+                                                    </td>
+                                                    <td><input class="form-control form-control-sm" @bind="p.Default" /></td>
+                                                    <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveParam(p)" disabled="@_busy">x</button></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+
                             <div class="form-check form-switch" style="margin-top:10px;">
                                 <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
                                 <label class="form-check-label" for="dsEnabled">Habilitado</label>
@@ -172,13 +212,32 @@ else
                         </div>
                     }
 
-                    @* --- Consulta directa (SQL ad-hoc) --- *@
-                    <h3 style="font-size:.95rem;margin:20px 0 8px;">Consulta directa</h3>
-                    <textarea class="form-control" style="width:100%;box-sizing:border-box;" rows="4" @bind="_directSql" placeholder="Escribe SQL y pulsa Ejecutar"></textarea>
-                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-                        <button class="btn btn-primary btn-sm" @onclick="() => RunDirect(connId)" disabled="@_busy">Ejecutar</button>
-                        <span class="page-sub" style="margin:0;">Maximo @MaxRows filas.</span>
-                    </div>
+                    @* --- Valores de parametros para ejecutar un dataset --- *@
+                    @if (_runDsId is not null)
+                    {
+                        <div class="card-soft" style="margin-top:12px;padding:14px;background:rgba(37,99,235,.05);border:1px solid var(--border,#e2e8f0);">
+                            <strong style="font-size:.9rem;">Ejecutar "@_runDsName" - valores de parametros</strong>
+                            <div style="overflow-x:auto;margin-top:8px;">
+                                <table class="table table-sm" style="margin:0;">
+                                    <thead><tr><th>Parametro</th><th>Tipo</th><th>Valor</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var p in _runParams)
+                                        {
+                                            <tr>
+                                                <td>@p.Name</td>
+                                                <td>@p.Type</td>
+                                                <td><input class="form-control form-control-sm" @bind="p.Value" /></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end;">
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _runDsId = null" disabled="@_busy">Cancelar</button>
+                                <button class="btn btn-primary btn-sm" @onclick="RunDatasetWithParams" disabled="@_busy">Ejecutar</button>
+                            </div>
+                        </div>
+                    }
 
                     @* --- Resultado --- *@
                     @if (_result is not null)
@@ -229,7 +288,11 @@ else
     private object? _editing, _editingDs;
     private ConnForm _form = new();
     private DsForm _dsForm = new();
-    private string? _directSql;
+
+    // Ejecucion de un dataset con parametros: se piden los valores antes de correr.
+    private Guid? _runDsId;
+    private string? _runDsName;
+    private List<ParamRow> _runParams = new();
 
     private string? _connMsg, _dsMsg;
     private bool _connOk, _dsOk;
@@ -338,6 +401,7 @@ else
     {
         _dsForm = new DsForm();
         _editingDs = _dsForm;
+        _runDsId = null;
         _dsMsg = null;
     }
 
@@ -345,19 +409,36 @@ else
     {
         var d = await Conns.GetDatasetAsync(id);
         if (d is null) { return; }
-        _dsForm = new DsForm { Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText, IsEnabled = d.IsEnabled };
+        _dsForm = new DsForm
+        {
+            Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText, IsEnabled = d.IsEnabled,
+            Params = ExternalDataJson.DeserializeParameters(d.ParametersJson)
+                .Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue }).ToList()
+        };
         _editingDs = _dsForm;
+        _runDsId = null;
         _dsMsg = null;
     }
+
+    private void AddParam() => _dsForm.Params.Add(new ParamRow());
+    private void RemoveParam(ParamRow p) => _dsForm.Params.Remove(p);
 
     private async Task SaveDataset(Guid connId)
     {
         _busy = true; _dsMsg = null;
         try
         {
+            // Parametros (todos de entrada) -> JSON de ExternalDataSetParameter. Se ignoran los sin nombre.
+            var declared = _dsForm.Params
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
+                .Select(p => new ExternalDataSetParameter(p.Name!.Trim(), p.Type,
+                    ExternalDataParameterBinding.Input, null, string.IsNullOrWhiteSpace(p.Default) ? null : p.Default!.Trim()))
+                .ToList();
+            var paramsJson = declared.Count == 0 ? null : ExternalDataJson.SerializeParameters(declared);
+
             var req = new SaveTenantDatasetRequest(
                 _dsForm.Id, connId, _dsForm.Name?.Trim() ?? "", _dsForm.Description,
-                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled);
+                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson);
             var id = await Conns.SaveDatasetAsync(req, await ActorAsync());
             if (id is null) { _dsOk = false; _dsMsg = "Revisa nombre y consulta."; return; }
             _dsOk = true; _dsMsg = "Guardado.";
@@ -377,31 +458,52 @@ else
         {
             await Conns.DeleteDatasetAsync(id, await ActorAsync());
             _datasets = await Conns.ListDatasetsAsync(connId);
+            if (_runDsId == id) { _runDsId = null; }
             await ReloadConns();
         }
         finally { _busy = false; }
     }
 
+    // Ejecutar: si el dataset tiene parametros, pide sus valores primero; si no, corre directo.
     private async Task RunDataset(Guid id)
     {
-        _busy = true; _result = null;
+        _busy = true; _result = null; _runDsId = null;
         try
         {
-            _result = await Conns.RunDatasetAsync(id, MaxRows, await ActorAsync());
-            _resultCaption = _result.Ok && _result.Grid is { } g ? $"{g.RowCount} fila(s)" + (g.Truncated ? " (truncado)" : "") : "";
+            var d = await Conns.GetDatasetAsync(id);
+            if (d is null) { return; }
+            var declared = ExternalDataJson.DeserializeParameters(d.ParametersJson);
+            if (declared.Count > 0)
+            {
+                _runDsId = id;
+                _runDsName = d.Name;
+                _runParams = declared.Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue, Value = p.DefaultValue }).ToList();
+                return;
+            }
+            await RunDatasetNow(id, null);
         }
         finally { _busy = false; }
     }
 
-    private async Task RunDirect(Guid connId)
+    private async Task RunDatasetWithParams()
     {
-        _busy = true; _result = null;
+        if (_runDsId is not Guid id) { return; }
+        _busy = true;
         try
         {
-            _result = await Conns.RunQueryAsync(connId, _directSql ?? "", MaxRows, await ActorAsync());
-            _resultCaption = _result.Ok && _result.Grid is { } g ? $"{g.RowCount} fila(s)" + (g.Truncated ? " (truncado)" : "") : "";
+            var inputs = _runParams
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
+                .ToDictionary(p => p.Name!, p => (string?)p.Value, StringComparer.Ordinal);
+            await RunDatasetNow(id, inputs);
+            _runDsId = null;
         }
         finally { _busy = false; }
+    }
+
+    private async Task RunDatasetNow(Guid id, IReadOnlyDictionary<string, string?>? inputs)
+    {
+        _result = await Conns.RunDatasetAsync(id, inputs, MaxRows, await ActorAsync());
+        _resultCaption = _result.Ok && _result.Grid is { } g ? $"{g.RowCount} fila(s)" + (g.Truncated ? " (truncado)" : "") : "";
     }
 
     private async Task<Guid> ActorAsync()
@@ -429,5 +531,14 @@ else
         public string? Description { get; set; }
         public string? CommandText { get; set; }
         public bool IsEnabled { get; set; } = true;
+        public List<ParamRow> Params { get; set; } = new();
+    }
+
+    private sealed class ParamRow
+    {
+        public string? Name { get; set; }
+        public ExternalDataParameterType Type { get; set; } = ExternalDataParameterType.String;
+        public string? Default { get; set; }
+        public string? Value { get; set; }   // valor al ejecutar
     }
 }

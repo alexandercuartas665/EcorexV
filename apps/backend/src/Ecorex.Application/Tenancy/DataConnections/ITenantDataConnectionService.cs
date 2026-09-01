@@ -24,6 +24,7 @@ public interface ITenantDataConnectionService
     /// <summary>Ejecuta SQL ad-hoc ("conexion directa") contra la conexion. Respeta AllowWrite de la conexion.</summary>
     Task<TenantQueryResult> RunQueryAsync(Guid connectionId, string sql, int maxRows, Guid actorUserId, CancellationToken ct = default);
 
-    /// <summary>Ejecuta el CommandText de un dataset guardado.</summary>
-    Task<TenantQueryResult> RunDatasetAsync(Guid datasetId, int maxRows, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Ejecuta el CommandText de un dataset guardado, enlazando sus parametros con los valores
+    /// provistos (inputs por Name; los que falten usan el DefaultValue declarado).</summary>
+    Task<TenantQueryResult> RunDatasetAsync(Guid datasetId, IReadOnlyDictionary<string, string?>? inputs, int maxRows, Guid actorUserId, CancellationToken ct = default);
 }

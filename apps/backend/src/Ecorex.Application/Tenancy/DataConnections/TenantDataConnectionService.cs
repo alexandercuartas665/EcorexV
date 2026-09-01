@@ -169,17 +169,20 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
     {
         var s = await OwnedSourceAsync(connectionId, tracking: false, ct);
         if (s is null) { return Array.Empty<TenantDatasetSummary>(); }
-        return await _db.ExternalDataSets.AsNoTracking()
+        var rows = await _db.ExternalDataSets.AsNoTracking()
             .Where(d => d.ExternalDataSourceId == connectionId).OrderBy(d => d.Name)
-            .Select(d => new TenantDatasetSummary(d.Id, d.Name, d.Description, d.IsEnabled))
+            .Select(d => new { d.Id, d.Name, d.Description, d.IsEnabled, d.ParametersJson })
             .ToListAsync(ct);
+        return rows.Select(d => new TenantDatasetSummary(
+            d.Id, d.Name, d.Description, d.IsEnabled,
+            ExternalDataJson.DeserializeParameters(d.ParametersJson).Count)).ToList();
     }
 
     public async Task<TenantDatasetDetail?> GetDatasetAsync(Guid id, CancellationToken ct = default)
     {
         var d = await OwnedDatasetAsync(id, tracking: false, ct);
         return d is null ? null : new TenantDatasetDetail(
-            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled);
+            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson);
     }
 
     public async Task<Guid?> SaveDatasetAsync(SaveTenantDatasetRequest request, Guid actorUserId, CancellationToken ct = default)
@@ -195,6 +198,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             d.Name = request.Name.Trim();
             d.Description = Trim(request.Description);
             d.CommandText = request.CommandText.Trim();
+            d.ParametersJson = Trim(request.ParametersJson);
             d.IsEnabled = request.IsEnabled;
             _audit.Write(actorUserId, "tenant-data-dataset.update", nameof(ExternalDataSet), d.Id,
                 previousValue: null, newValue: new { d.Name, d.IsEnabled }, tenantId: Tenant);
@@ -209,6 +213,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             Name = request.Name.Trim(),
             Description = Trim(request.Description),
             CommandText = request.CommandText.Trim(),
+            ParametersJson = Trim(request.ParametersJson),
             IsEnabled = request.IsEnabled
         };
         _db.ExternalDataSets.Add(ds);
@@ -236,19 +241,28 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         return await ExecuteOnAsync(s, sql, maxRows, actorUserId, "run-query", ct);
     }
 
-    public async Task<TenantQueryResult> RunDatasetAsync(Guid datasetId, int maxRows, Guid actorUserId, CancellationToken ct = default)
+    public async Task<TenantQueryResult> RunDatasetAsync(Guid datasetId, IReadOnlyDictionary<string, string?>? inputs, int maxRows, Guid actorUserId, CancellationToken ct = default)
     {
         var d = await OwnedDatasetAsync(datasetId, tracking: false, ct);
         if (d is null) { return new TenantQueryResult(false, null, "Dataset no encontrado."); }
         var s = await OwnedSourceAsync(d.ExternalDataSourceId, tracking: false, ct);
         if (s is null) { return new TenantQueryResult(false, null, "Conexion no encontrada."); }
-        return await ExecuteOnAsync(s, d.CommandText, maxRows, actorUserId, "run-dataset:" + d.Name, ct);
+
+        // Parametros declarados -> enlazados TIPADOS con los valores provistos (o el DefaultValue).
+        var declared = ExternalDataJson.DeserializeParameters(d.ParametersJson);
+        var context = new ExternalRunContext(Tenant, actorUserId == Guid.Empty ? null : actorUserId);
+        IReadOnlyList<ExternalBoundParameter> bound;
+        try { bound = ExternalParameterBinder.Bind(declared, context, inputs); }
+        catch (Exception ex) { return new TenantQueryResult(false, null, "Parametro invalido: " + ex.Message); }
+
+        return await ExecuteOnAsync(s, d.CommandText, maxRows, actorUserId, "run-dataset:" + d.Name, ct, bound);
     }
 
     // ---- helpers ----
 
     private async Task<TenantQueryResult> ExecuteOnAsync(
-        ExternalDataSource s, string sql, int maxRows, Guid actorUserId, string what, CancellationToken ct)
+        ExternalDataSource s, string sql, int maxRows, Guid actorUserId, string what, CancellationToken ct,
+        IReadOnlyList<ExternalBoundParameter>? boundParams = null)
     {
         if (string.IsNullOrWhiteSpace(sql)) { return new TenantQueryResult(false, null, "La consulta esta vacia."); }
         if (!s.IsEnabled) { return new TenantQueryResult(false, null, "La conexion esta deshabilitada."); }
@@ -267,7 +281,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         try
         {
             var query = new ExternalQuery(
-                s.Provider, conn, sql.Trim(), Array.Empty<ExternalBoundParameter>(),
+                s.Provider, conn, sql.Trim(), boundParams ?? Array.Empty<ExternalBoundParameter>(),
                 MaxRows: cap, TimeoutSeconds: 60, AllowWrite: s.AllowWrite);
             var data = await _executor.ExecuteAsync(query, ct);
 

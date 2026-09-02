@@ -3,8 +3,12 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IActivityBoardService BoardsSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IFormResponseService FormsSvc
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -126,6 +130,42 @@
     </div>
 }
 
+@* ---- Modal del PASO ACTUAL del flujo (cuando la actividad escaneada esta gobernada por un flujo) ----
+   Abre SOLO el punto donde esta el proceso (formulario del paso pendiente) para que el operario CONCRETE
+   la accion; si el paso lleva a una compuerta exclusiva, el propio formulario ofrece las rutas (ApprovalOptions)
+   y al enviar avanza el flujo (que mueve la tarjeta a la columna del siguiente nodo). Pensado para celular. *@
+@if (_stepCard is { } sc && _stepForm is { } sf)
+{
+    <div style="position:fixed;inset:0;z-index:88;background:rgba(2,6,23,.7);display:flex;flex-direction:column;" @onclick="CloseStepAsync">
+        <div style="margin-top:auto;background:var(--surface-1,#fff);border-radius:18px 18px 0 0;max-height:94vh;display:flex;flex-direction:column;box-shadow:0 -12px 40px rgba(0,0,0,.35);" @onclick:stopPropagation="true">
+            <div style="width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:10px auto 4px;"></div>
+            <div style="padding:6px 16px 10px;border-bottom:1px solid var(--line,#e2e8f0);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                    <div style="min-width:0;">
+                        <div style="font-size:.72rem;font-weight:800;letter-spacing:.05em;color:#4f46e5;">PASO DEL PROCESO</div>
+                        <div style="font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sc.Number · @(sf.NodeName ?? sf.FormTitle)</div>
+                    </div>
+                    <button style="background:transparent;border:0;font-size:1.6rem;line-height:1;color:var(--ink-3,#94a3b8);cursor:pointer;" @onclick="CloseStepAsync">&times;</button>
+                </div>
+                @if (sf.IsGatewayAhead && sf.ApprovalOptions is { Count: > 0 })
+                {
+                    <div style="margin-top:6px;font-size:.8rem;color:var(--ink-3,#64748b);">Al enviar elegiras la ruta del proceso.</div>
+                }
+            </div>
+            <div style="padding:14px 16px;overflow:auto;-webkit-overflow-scrolling:touch;">
+                <DynamicFormRenderer DefinitionId="@sf.DefinitionId"
+                                     ResponseId="@sf.ResponseId"
+                                     Reference="@sf.Reference"
+                                     Mode="FormRenderMode.Fill"
+                                     SubmittedByTenantUserId="@_actorTenantUserId"
+                                     EmbeddedInTask="true"
+                                     ApprovalOptions="@(sf.IsGatewayAhead ? sf.ApprovalOptions : null)"
+                                     OnSubmitted="@OnStepSubmittedAsync" />
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Hoja para cambiar estado ---- *@
 @if (_moveCard is { } mcard)
 {
@@ -203,13 +243,23 @@
     private bool _toastOk;
 
     private Guid _actorId;
+    private Guid? _actorTenantUserId;
     private string _actorName = "Movil";
+
+    // Paso ACTUAL del flujo de la actividad escaneada (si la gobierna un flujo): se abre en un modal
+    // para concretar la accion (formulario del paso + eventual compuerta exclusiva).
+    private ActivityCardDto? _stepCard;
+    private TaskStepFormDto? _stepForm;
 
     protected override async Task OnInitializedAsync()
     {
         var st = await AuthProvider.GetAuthenticationStateAsync();
         Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _actorId);
         _actorName = st.User.Identity?.Name ?? st.User.FindFirst("name")?.Value ?? "Movil";
+
+        // TenantUserId del operario (para firmar el envio del formulario del paso).
+        _actorTenantUserId = (await TenantUsersSvc.ListAsync())
+            .FirstOrDefault(u => u.PlatformUserId == _actorId)?.Id;
 
         var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter());
         _boards = index.Boards;
@@ -310,14 +360,41 @@
             if (m is not null) { found = m; colIdx = i; break; }
         }
         if (found is null) { ShowToast($"No se encontro '{raw}' en este tablero.", false); return; }
-        if (colIdx >= cols.Count - 1) { ShowToast($"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).", false); return; }
 
-        // No se avanza en seco: se muestra una TARJETA de confirmacion con la actividad y la transicion.
-        // (Iteracion siguiente: aqui correran las reglas antes de confirmar el avance.)
+        // Si la actividad esta gobernada por un FLUJO, el escaneo abre EL PUNTO donde esta el proceso
+        // (el formulario del paso pendiente), no un simple avance de columna: el operario concreta la
+        // accion ahi (incluida una compuerta exclusiva). Al enviar, el flujo avanza y mueve la tarjeta.
+        try
+        {
+            var steps = await FormsSvc.GetTaskStepFormsAsync(found.Id);
+            var pending = steps.FirstOrDefault(s => s.LinkStatus == FormFlowLinkStatus.Pending);
+            if (pending is not null)
+            {
+                _stepCard = found;
+                _stepForm = pending;
+                return;
+            }
+        }
+        catch { /* si falla la lectura del paso, se cae al avance por columna */ }
+
+        // Sin flujo (o sin paso con formulario pendiente): avance lineal por tablero con confirmacion.
+        if (colIdx >= cols.Count - 1) { ShowToast($"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).", false); return; }
         _pendingCard = found;
         _pendingFrom = cols[colIdx];
         _pendingTo = cols[colIdx + 1];
     }
+
+    // El formulario del paso se envio: el flujo ya avanzo (movio la tarjeta a la columna del siguiente
+    // nodo). Cerramos el modal, refrescamos el tablero y avisamos.
+    private async Task OnStepSubmittedAsync(FormResponseDto _)
+    {
+        var num = _stepCard?.Number ?? "";
+        _stepCard = null; _stepForm = null;
+        await ReloadAsync();
+        ShowToast($"{num}: paso completado.", true);
+    }
+
+    private void CloseStepAsync() { _stepCard = null; _stepForm = null; }
 
     // Confirmar el avance desde la tarjeta de escaneo. Aqui, mas adelante, se ejecutan las reglas.
     private async Task ConfirmAdvanceAsync()

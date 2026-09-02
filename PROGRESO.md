@@ -17,6 +17,26 @@
 
 ---
 
+## 2026-09-02 - v0.15.144: modulo movil - escaneo abre EL PASO DEL FLUJO en el modal (compuerta exclusiva) (ADR-0086)
+
+- Ajuste pedido: si la actividad escaneada esta gobernada por un FLUJO, el escaneo NO avanza columna: abre en
+  un modal EL PUNTO donde esta el proceso (formulario del paso PENDIENTE, "solo ese punto") para que el
+  operario concrete la accion desde el celular. Si el paso lleva a una COMPUERTA EXCLUSIVA, el formulario
+  ofrece las rutas (ApprovalOptions) y al enviar el flujo avanza (mueve la tarjeta a la columna del sig. nodo).
+- MovilTablero.HandleCodeAsync: tras localizar la card, consulta GetTaskStepFormsAsync(taskId); si hay paso
+  con LinkStatus=Pending -> abre el modal de paso (DynamicFormRenderer con DefinitionId/ResponseId/Reference,
+  Mode=Fill, SubmittedByTenantUserId=TenantUser del operario, ApprovalOptions del paso, OnSubmitted->reload).
+  Si NO hay paso pendiente (tarea plana) -> cae a la tarjeta de confirmacion + avance por columna (v0.15.143).
+- Reusa la MISMA maquinaria del detalle de tarea (paso PENDING + renderer); sin duplicar reglas de flujo.
+- Resuelto de paso: el server dev debe correr con ASPNETCORE_ENVIRONMENT=Development (si no, entorno=Production
+  -> UseStaticWebAssets no se aplica -> _framework/blazor.web.js y el bundle scoped-css dan 500, y /dev/login 404).
+- v0.15.143 previo (misma sesion): tarjeta de CONFIRMACION antes de avanzar por escaneo + scanner no-bloqueante
+  (start() arranca la camara en 2do plano y devuelve ya; OnScanUnavailable -> entrada manual).
+- Build verde. Sin migracion. Verificado en dev (mobile 375x812): tablero PRUEBAS OT, cards T00056/T00058,
+  boton de escaneo. Camera + flujo real los prueba el usuario en el telefono (HTTPS). NO desplegado aun.
+
+---
+
 ## 2026-09-02 - v0.15.142: modulo MOVIL de tablero (primera vista) - estados + escaneo de codigo de barras (ADR-0086)
 
 - Nuevo modulo web mobile-first /movil/tablero (policy TenantMember): consultar un tablero de actividades,

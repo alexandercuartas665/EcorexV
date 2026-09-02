@@ -1,12 +1,19 @@
 # ADR-0086: Modulo movil de tablero (consulta + cambio de estado + escaneo de codigo de barras)
 
-- Estado: Aceptado (Opcion A: el escaneo AVANZA A LA SIGUIENTE COLUMNA del tablero). Se itera lo demas.
+- Estado: Aceptado (Opcion A para tareas SIN flujo + Opcion B/C para tareas CON flujo, ver abajo). Se itera lo demas.
 - Fecha: 2026-09-02
 - Deciden: Alexander (producto) + sesion de codigo
 
-> DECISION (2026-09-02): Opcion A elegida por el usuario. El escaneo mueve la actividad a la siguiente
-> columna del tablero (MoveTaskAsync), ya implementado. La evolucion a flujo (Opcion C, flag por tablero)
-> queda como futuro si aparecen OT gobernadas por WorkflowEngine.
+> DECISION (2026-09-02): Opcion A elegida por el usuario para actividades planas. El escaneo muestra una
+> TARJETA DE CONFIRMACION y, al confirmar, mueve la actividad a la siguiente columna del tablero
+> (MoveTaskAsync). Ahi correran mas adelante las reglas del avance.
+>
+> DECISION (2026-09-02, iteracion): para actividades GOBERNADAS POR UN FLUJO, el escaneo NO avanza columna:
+> abre EN UN MODAL el PUNTO donde esta el proceso (el formulario del paso PENDIENTE, "solo ese punto") para
+> que el operario CONCRETE la accion desde el celular. Si el paso lleva a una COMPUERTA EXCLUSIVA, el propio
+> formulario ofrece las rutas (ApprovalOptions) y al enviar el flujo avanza (mueve la tarjeta a la columna
+> del siguiente nodo). Reusa la MISMA maquinaria del detalle de tarea (GetTaskStepFormsAsync + paso PENDING +
+> DynamicFormRenderer), sin duplicar reglas de flujo. (v0.15.144)
 
 ## Contexto
 
@@ -66,11 +73,14 @@ selector manual queda disponible tocando la card (cubre correcciones y saltos no
 ## Pendientes / a definir con el usuario (iteracion)
 
 1. Que trae exactamente el codigo (numero de actividad T#, id, o un codigo de la OT). Hoy: numero.
-2. "Paso" = columna del tablero vs **nodo del flujo** (avanzar el WorkflowEngine). Hoy: columna. Si es flujo,
-   se cambia la accion del escaneo a "avanzar paso del flujo".
-3. Motivo de cierre al pasar a una columna final (pedirlo en la hoja movil).
+2. [RESUELTO v0.15.144] "Paso" = columna (tareas planas) O **nodo del flujo** (tareas con flujo: se abre el
+   paso PENDIENTE en el modal y se concreta ahi, incl. compuerta exclusiva).
+3. Motivo de cierre al pasar a una columna final (pedirlo en la hoja movil). Solo aplica a tareas planas.
 4. Ubicacion en el menu (nodo por tenant), alcance de permiso (operarios), y si filtra por asignado/mias.
-5. Confirmacion antes de avanzar por escaneo (evitar saltos por lecturas erroneas).
+5. [RESUELTO v0.15.143] Confirmacion antes de avanzar por escaneo (tarjeta de confirmacion en tareas planas).
+6. Paso de flujo SIN formulario (nodo Task puro / compuerta sin form previo): hoy cae al avance por columna;
+   pendiente exponer boton "Completar paso" / rutas via IWorkflowInboxService si aparece el caso.
+7. Reglas de negocio en el avance (tarjeta de confirmacion): hook dejado en ConfirmAdvanceAsync.
 
 ## Action Items
 

@@ -119,6 +119,7 @@
     align-items: center;
     gap: 9px;
     padding: 18px 16px 8px;
+    animation: mv-item-in .34s ease backwards;
 }
 
 .mv-col-name { font-weight: 700; color: var(--ink); font-size: .98rem; }
@@ -160,6 +161,7 @@
     cursor: pointer;
     box-shadow: var(--sh-sm);
     transition: transform .12s ease, box-shadow .18s ease;
+    animation: mv-item-in .34s ease backwards;
 }
 
 .mv-card:hover { box-shadow: var(--sh-md); }
@@ -343,6 +345,7 @@
 @keyframes mv-slide-up { from { transform: translateY(30px); opacity: .3; } to { transform: translateY(0); opacity: 1; } }
 @keyframes mv-pop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes mv-toast-in { from { transform: translate(-50%, 8px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+@keyframes mv-item-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
 .mv-sheet {
     width: 100%;
@@ -562,5 +565,5 @@
 .mv-toast.err { background: var(--danger); }
 
 @media (prefers-reduced-motion: reduce) {
-    .mv-overlay, .mv-sheet, .mv-confirm, .mv-step, .mv-toast, .mv-card, .mv-hero, .mv-change svg, .mv-fab { animation: none !important; transition: none !important; }
+    .mv-overlay, .mv-sheet, .mv-confirm, .mv-step, .mv-toast, .mv-card, .mv-col-head, .mv-hero, .mv-change svg, .mv-fab { animation: none !important; transition: none !important; }
 }

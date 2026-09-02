@@ -55,6 +55,7 @@
         var cols = _detail.Columns.OrderBy(c => c.SortOrder).ToList();
         var totalCards = cols.Sum(c => c.Cards.Count);
         var lastCol = cols.LastOrDefault();
+        var animIdx = 0; // stagger de entrada (fade + slide) por columna/tarjeta
 
         @* ---- Hero: resumen del tablero (tarjeta oscura) ---- *@
         <div class="mv-hero">
@@ -78,7 +79,7 @@
         @foreach (var col in cols)
         {
             var color = string.IsNullOrWhiteSpace(col.Color) ? "#64748b" : col.Color!;
-            <div class="mv-col-head" style="--dot:@color">
+            <div class="mv-col-head" style="--dot:@color;animation-delay:@(Math.Min(animIdx++, 12) * 30)ms">
                 <span class="mv-dot"></span>
                 <span class="mv-col-name">@col.Name</span>
                 <span class="mv-col-count">@col.Cards.Count</span>
@@ -89,7 +90,7 @@
             }
             @foreach (var card in col.Cards)
             {
-                <div class="mv-card" style="--dot:@color" @onclick="@(() => OpenMove(card))">
+                <div class="mv-card" style="--dot:@color;animation-delay:@(Math.Min(animIdx++, 12) * 30)ms" @onclick="@(() => OpenMove(card))">
                     <div class="mv-card-top">
                         <span class="mv-num">@card.Number</span>
                         <span class="mv-prio" style="--prio-fg:@PriorityColor(card.Priority);--prio-bg:@PriorityBg(card.Priority)">@PriorityLabel(card.Priority)</span>

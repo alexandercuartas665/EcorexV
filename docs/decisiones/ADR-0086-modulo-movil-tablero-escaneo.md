@@ -1,8 +1,12 @@
 # ADR-0086: Modulo movil de tablero (consulta + cambio de estado + escaneo de codigo de barras)
 
-- Estado: Propuesto (primera vista entregada; se itera con el usuario)
+- Estado: Aceptado (Opcion A: el escaneo AVANZA A LA SIGUIENTE COLUMNA del tablero). Se itera lo demas.
 - Fecha: 2026-09-02
 - Deciden: Alexander (producto) + sesion de codigo
+
+> DECISION (2026-09-02): Opcion A elegida por el usuario. El escaneo mueve la actividad a la siguiente
+> columna del tablero (MoveTaskAsync), ya implementado. La evolucion a flujo (Opcion C, flag por tablero)
+> queda como futuro si aparecen OT gobernadas por WorkflowEngine.
 
 ## Contexto
 

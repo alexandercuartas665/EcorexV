@@ -981,14 +981,35 @@
                                     <strong>Sin proyecto</strong>
                                 }
                             </div>
-                            <div class="tk-summary-row"><span>Solicitante</span><strong>@(_detail.RequesterName ?? "-")</strong></div>
+                            <div class="tk-summary-row">
+                                <span>Contacto</span>
+                                <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">
+                                    <strong style="overflow:hidden;text-overflow:ellipsis;">@(_detail.RequesterName ?? "-")</strong>
+                                    @if (!string.IsNullOrWhiteSpace(_detail.RequesterName))
+                                    {
+                                        @CopyButton(_detail.RequesterName, "Copiar nombre")
+                                    }
+                                </span>
+                            </div>
                             @if (!string.IsNullOrWhiteSpace(_detail.RequesterEmail))
                             {
-                                <div class="tk-summary-row"><span>Email</span><strong>@_detail.RequesterEmail</strong></div>
+                                <div class="tk-summary-row">
+                                    <span>Email</span>
+                                    <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">
+                                        <a href="mailto:@_detail.RequesterEmail" class="tk-link" style="overflow:hidden;text-overflow:ellipsis;">@_detail.RequesterEmail</a>
+                                        @CopyButton(_detail.RequesterEmail, "Copiar correo")
+                                    </span>
+                                </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(_detail.RequesterPhone))
                             {
-                                <div class="tk-summary-row"><span>Telefono</span><strong>@_detail.RequesterPhone</strong></div>
+                                <div class="tk-summary-row">
+                                    <span>Telefono</span>
+                                    <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">
+                                        <a href="tel:@_detail.RequesterPhone" class="tk-link" style="overflow:hidden;text-overflow:ellipsis;">@_detail.RequesterPhone</a>
+                                        @CopyButton(_detail.RequesterPhone, "Copiar telefono")
+                                    </span>
+                                </div>
                             }
                             @if (_detail.CcEmails.Count > 0)
                             {
@@ -1436,6 +1457,9 @@
     private int? _manualMinutes;
     private string? _workLogError;
 
+    // Valor recien copiado al portapapeles (email/telefono/nombre del contacto): muestra "Copiado" ~1.4s.
+    private string? _copiedValue;
+
     private string _newComment = "";
     private string _attName = "";
     private string _attUrl = "";
@@ -1518,6 +1542,10 @@
         _conflict = _actionError = _workLogError = _attError = _moveNote = null;
         _openMenu = null;
         _timerRunning = false;
+        // El cronometro vive en un singleton JS a nivel de PAGINA: si no se reinicia al abrir, un valor
+        // acumulado de OTRA tarea (o de una sesion anterior) sobrevive y luego PISA el tiempo manual al
+        // guardar. Se reinicia a 0 en cada apertura para que cada tarea arranque limpia.
+        try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* aun sin render: best-effort */ }
         _timerNote = _newComment = _attName = _attUrl = "";
         _newCheckText = "";
         _addAssigneeId = "";
@@ -2860,18 +2888,21 @@
         if (_detail is null) { return; }
         _workLogError = null;
 
-        var timerSeconds = await JS.InvokeAsync<int>("ecorexTaskTimer.getSeconds");
+        // El tiempo MANUAL (HH:MM que el usuario escribio) es AUTORITATIVO: si tecleo algo, se guarda eso.
+        // El cronometro solo se usa cuando NO hay manual. Antes el cronometro (>0) tenia precedencia y un
+        // valor acumulado/corriendo pisaba silenciosamente los minutos escritos (p.ej. 35m -> guardaba horas).
+        var manualSeconds = (_manualHours ?? 0) * 3600 + (_manualMinutes ?? 0) * 60;
         int seconds;
         WorkLogKind kind;
-        if (timerSeconds > 0)
+        if (manualSeconds > 0)
         {
-            seconds = timerSeconds;
-            kind = WorkLogKind.Timer;
+            seconds = manualSeconds;
+            kind = WorkLogKind.Manual;
         }
         else
         {
-            seconds = (_manualHours ?? 0) * 3600 + (_manualMinutes ?? 0) * 60;
-            kind = WorkLogKind.Manual;
+            seconds = await JS.InvokeAsync<int>("ecorexTaskTimer.getSeconds");
+            kind = WorkLogKind.Timer;
         }
         if (seconds <= 0)
         {
@@ -2921,6 +2952,37 @@
         {
             _busy = false;
         }
+    }
+
+    // ===== Copiar datos del contacto (email/telefono/nombre) desde el Resumen =====
+
+    // Boton pequeno "copiar" (icono de dos cuadritos) para comunicarse rapido con el contacto: copia el
+    // valor al portapapeles y muestra "Copiado" ~1.4s en su lugar.
+    private RenderFragment CopyButton(string? value, string title) => @<button type="button" title="@title"
+            style="background:transparent;border:0;padding:2px;cursor:pointer;display:inline-flex;align-items:center;color:var(--ink-3, var(--muted-foreground));flex:none;"
+            @onclick="() => CopyContactAsync(value)">
+        @if (_copiedValue == value && !string.IsNullOrEmpty(value))
+        {
+            <span style="font-size:11px;font-weight:700;color:var(--ok,#0f766e);white-space:nowrap;">Copiado</span>
+        }
+        else
+        {
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        }
+    </button>;
+
+    private async Task CopyContactAsync(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { return; }
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", value); } catch { /* portapapeles bloqueado */ }
+        _copiedValue = value;
+        _ = ClearCopiedAsync(value);
+    }
+
+    private async Task ClearCopiedAsync(string value)
+    {
+        await Task.Delay(1400);
+        if (_copiedValue == value) { _copiedValue = null; await InvokeAsync(StateHasChanged); }
     }
 
     // ===== Comentarios y adjuntos =====

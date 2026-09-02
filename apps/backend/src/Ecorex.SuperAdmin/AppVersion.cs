@@ -8,7 +8,7 @@ namespace Ecorex.SuperAdmin;
 public static class AppVersion
 {
     /// <summary>Numero semantico actual (sin la 'v').</summary>
-    public const string Current = "0.15.144";
+    public const string Current = "0.15.145";
 
     /// <summary>Como se muestra en la UI (ej. "v0.1.0").</summary>
     public static string Display => "v" + Current;

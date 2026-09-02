@@ -17,6 +17,22 @@
 
 ---
 
+## 2026-09-02 - v0.15.145: fix detalle de tarea - tiempo manual autoritativo + contacto con boton de copiar
+
+- BUG tiempo: al registrar tiempo manual (HH:MM) se guardaba un valor equivocado (p.ej. 35m -> horas). Causa:
+  el cronometro (singleton JS a nivel de PAGINA) NO se reiniciaba al abrir la tarea, y ademas su valor
+  acumulado tenia PRECEDENCIA sobre el manual en SaveWorkLogAsync. Fix: (1) reset del cronometro en OpenAsync
+  (cada tarea arranca en 0); (2) el tiempo MANUAL es autoritativo -> el cronometro solo se usa si no hay manual.
+- Contacto en el Resumen: relabel "Solicitante" -> "Contacto"; email y telefono ahora son enlaces mailto:/tel:
+  (un toque para escribir/llamar) y CADA fila (nombre/email/telefono) trae un boton COPIAR (icono de dos
+  cuadritos) que copia al portapapeles (navigator.clipboard) y muestra "Copiado" ~1.4s. Facilita comunicarse
+  con el contacto desde la ficha. La data ya se captura para tareas de CONCEPTO (requester_name/email/phone);
+  las tareas SIN concepto siguen sin contacto (fuera de alcance de este fix, se anota).
+- Solo UI (TaskDetailModal.razor). Build verde. Sin migracion. Verificado en dev (T00056: contacto Consorcio
+  La Carbonera + email + telefono con copiar; timer en 00:00:00). NO desplegado aun.
+
+---
+
 ## 2026-09-02 - v0.15.144: modulo movil - escaneo abre EL PASO DEL FLUJO en el modal (compuerta exclusiva) (ADR-0086)
 
 - Ajuste pedido: si la actividad escaneada esta gobernada por un FLUJO, el escaneo NO avanza columna: abre en

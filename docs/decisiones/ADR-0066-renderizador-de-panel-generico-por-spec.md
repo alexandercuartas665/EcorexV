@@ -149,3 +149,20 @@ Listos para pegar en "Nuevo panel". Los nombres de campo son los DisplayName del
 (ajustar al nombre real del contenedor). Ver tambien `docs/decisiones/ADR-0066-ejemplos/`.
 
 Ver los 3 archivos JSON (ocs / tareas / siigo) en `docs/decisiones/ADR-0066-ejemplos/`.
+
+## Nota (v0.15.155) - fuentes EXTERNAS como Main del panel
+
+Un PanelSpec puede usar como fuente principal (o lookup) un **dataset EXTERNO** del conector gobernado
+(ADR-0064): el panel muestra los datos EN VIVO del servidor ajeno. El unico ajuste fue que
+`PanelSpecValidator.FindSource` dejo de excluir `ReportSourceKind.External`; el resto ya estaba:
+`ReportDataSource.QueryAsync` despacha External a `ExternalReportReader` (concesion + descifrado en
+memoria + solo lectura) e `IReportCatalog` publica las externas concedidas/propias del tenant.
+
+- Los campos salen de `fields_json` del ExternalDataSet; se declaran `CanFilter/Group/Aggregate=false`
+  porque el panel filtra/agrupa/lista EN MEMORIA sobre las filas en vivo (como con cualquier Main).
+- Parametros: el dispatch corre con inputs=null, asi que los parametros Input toman su `DefaultValue`
+  (p.ej. `@limite`) y los Context vienen del contexto de confianza (tenant/usuario). El tope duro de
+  filas lo aplica `ExternalQuery.MaxRows`.
+- Tenant-safe: el catalogo solo expone datasets propios/concedidos; la cadena de conexion nunca se expone.
+- Colision de nombre: las externas van al FINAL del catalogo, asi que ante DisplayName repetido gana la
+  fuente nativa/contenedor previa (los paneles existentes no cambian).

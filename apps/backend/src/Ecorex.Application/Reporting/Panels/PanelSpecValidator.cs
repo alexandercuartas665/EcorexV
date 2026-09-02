@@ -269,12 +269,15 @@ public static class PanelSpecValidator
         }
     }
 
-    /// <summary>Resuelve una fuente por su nombre de negocio (DisplayName) entre nativas y contenedores.
-    /// Preferencia: coincidencia exacta; luego case-insensitive. Ignora fuentes externas (no filtrables).</summary>
+    /// <summary>Resuelve una fuente por su nombre de negocio (DisplayName) entre nativas, contenedores y
+    /// fuentes EXTERNAS concedidas/propias del tenant (ADR-0064). Preferencia: coincidencia exacta; luego
+    /// case-insensitive. El catalogo ya es tenant-safe (IReportCatalog solo publica lo del tenant activo),
+    /// y las externas se agregan al final del catalogo, asi que ante una colision de nombre gana la fuente
+    /// nativa/contenedor previa. Un panel External hace su agregado/filtrado en memoria, por eso no importa
+    /// que los campos externos declaren CanFilter=false.</summary>
     public static ReportSourceDescriptor? FindSource(IReadOnlyList<ReportSourceDescriptor> catalog, string name)
     {
-        var candidates = catalog.Where(s => s.Kind != ReportSourceKind.External).ToList();
-        return candidates.FirstOrDefault(s => string.Equals(s.DisplayName, name, StringComparison.Ordinal))
-            ?? candidates.FirstOrDefault(s => string.Equals(s.DisplayName, name, StringComparison.OrdinalIgnoreCase));
+        return catalog.FirstOrDefault(s => string.Equals(s.DisplayName, name, StringComparison.Ordinal))
+            ?? catalog.FirstOrDefault(s => string.Equals(s.DisplayName, name, StringComparison.OrdinalIgnoreCase));
     }
 }

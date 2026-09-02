@@ -176,6 +176,80 @@ public class PanelSpecValidatorTests
         Assert.Empty(errors);
     }
 
+    // ---- Fuentes EXTERNAS como Main del panel (ADR-0064) ----
+    // Los campos de una fuente externa se publican con CanFilter/CanGroup/CanAggregate=false (el filtrado y
+    // la agregacion del panel ocurren EN MEMORIA sobre las filas en vivo del conector), y las externas se
+    // agregan al FINAL del catalogo del tenant. FindSource ya no debe excluirlas.
+
+    private static ReportField Ext(string name, ReportFieldType type) =>
+        new(name, name, type, CanFilter: false, CanGroup: false, CanAggregate: false);
+
+    private static ReportSourceDescriptor ItemsDemo(string key = "external:11111111-1111-1111-1111-111111111111") =>
+        new(key, "items_demo", ReportSourceKind.External, new[]
+        {
+            Ext("Codigo", ReportFieldType.Text),
+            Ext("Nombre", ReportFieldType.Text)
+        });
+
+    // Externa AL FINAL, como la arma ReportCatalog.GetSourcesAsync (nativas -> contenedores -> externas).
+    private static IReadOnlyList<ReportSourceDescriptor> CatalogWithExternal()
+    {
+        var list = Catalog().ToList();
+        list.Add(ItemsDemo());
+        return list;
+    }
+
+    private static PanelSpec ItemsDemoSpec() => PanelSpec.FromJson(@"{
+      ""title"": ""Items en vivo"",
+      ""sources"": { ""main"": { ""container"": ""items_demo"" } },
+      ""kpis"": [ { ""label"": ""Items"", ""agg"": ""count"", ""format"": ""int"" } ],
+      ""widgets"": [
+        { ""type"": ""bar"", ""dim"": ""Codigo"", ""agg"": ""count"" },
+        { ""type"": ""table"", ""groupBy"": ""Nombre"",
+          ""columns"": [ { ""label"": ""Nombre"", ""field"": ""Nombre"" }, { ""label"": ""Items"", ""agg"": ""count"" } ] }
+      ]
+    }")!;
+
+    [Fact]
+    public void FindSource_ResolvesExternalByDisplayName()
+    {
+        var found = PanelSpecValidator.FindSource(CatalogWithExternal(), "items_demo");
+        Assert.NotNull(found);
+        Assert.Equal(ReportSourceKind.External, found!.Kind);
+    }
+
+    [Fact]
+    public void ExternalSourceAsMain_ProducesNoErrors()
+    {
+        // Panel cuya Main es una fuente externa, listando/agrupando por sus campos (Codigo, Nombre).
+        var errors = PanelSpecValidator.Validate(ItemsDemoSpec(), CatalogWithExternal());
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void ExternalMain_UnknownField_IsReported()
+    {
+        var spec = ItemsDemoSpec();
+        spec.Widgets[0].Dim = "NoEsCampoExterno";
+        var errors = PanelSpecValidator.Validate(spec, CatalogWithExternal());
+        Assert.Contains(errors, e => e.Contains("NoEsCampoExterno"));
+    }
+
+    [Fact]
+    public void FindSource_PrefersNonExternalOnNameCollision()
+    {
+        // Un contenedor y una externa comparten DisplayName. La externa va al final del catalogo, asi que
+        // gana la no-externa previa (no se cambia el comportamiento de los paneles existentes).
+        var catalog = new List<ReportSourceDescriptor>
+        {
+            new("container:items", "items_demo", ReportSourceKind.Container, new[] { F("Codigo", ReportFieldType.Text) }),
+            ItemsDemo()
+        };
+        var found = PanelSpecValidator.FindSource(catalog, "items_demo");
+        Assert.NotNull(found);
+        Assert.Equal(ReportSourceKind.Container, found!.Kind);
+    }
+
     [Fact]
     public void InvalidJson_ReturnsNullSpec()
     {

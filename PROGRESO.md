@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-02 - v0.15.155: fuentes EXTERNAS como Main de un panel (datos en vivo del conector, ADR-0064)
+
+- Hand-off de la sesion de reportes: un PanelSpec/dashboard debe poder tener como fuente principal (Main)
+  un dataset EXTERNO del conector gobernado (p.ej. "items_demo"), renderizando sus datos EN VIVO. Hoy el
+  renderizador excluia las fuentes External.
+- CAMBIO UNICO de codigo: `PanelSpecValidator.FindSource` deja de excluir `ReportSourceKind.External`.
+  Ahora Main (y los lookups) resuelven una fuente External por DisplayName (el nombre del ExternalDataSet).
+  El resto de la cadena YA soportaba External: `ReportDataSource.QueryAsync` despacha a `ExternalReportReader`
+  (verifica concesion, descifra la cadena SOLO en memoria, ejecuta el dataset curado de solo lectura) e
+  `IReportCatalog` ya publica las externas concedidas/propias del tenant. Sigue tenant-safe.
+- PARAMETROS: el dispatch a External corre con inputs=null, y `ExternalParameterBinder` cae al DefaultValue
+  de cada parametro Input (p.ej. @limite) y resuelve los Context desde el contexto de confianza (tenant/
+  usuario). Para esta primera capacidad basta el default de @limite; el tope duro de filas lo aplica ademas
+  ExternalQuery.MaxRows.
+- CAMPOS: la fuente External expone los campos del ExternalDataSet (fields_json) como ReportField
+  (CanFilter/Group/Aggregate=false, porque el panel agrupa/filtra/lista EN MEMORIA sobre las filas en vivo).
+  El validador valida el panel contra esos campos. La cadena de conexion NUNCA se expone.
+- Colision de nombre: las externas se agregan al FINAL del catalogo, asi que FindSource sigue prefiriendo
+  la fuente nativa/contenedor previa (sin cambiar el comportamiento de los paneles existentes).
+- Tests `PanelSpecValidatorTests` (18/18 verdes, +5 nuevos): FindSource resuelve External por DisplayName;
+  panel con Main External valida por sus campos; campo externo inexistente se reporta; preferencia por la
+  no-External ante colision. `dotnet build` -> 0 errores.
+- NOTA: el escenario "items_demo" con fields_json + @limite + concesion se configura por datos (UI del
+  conector, ADR-0064); en el snapshot local el dataset ITEMS aun no trae fields_json ni parametros, y el
+  servidor externo no es alcanzable desde dev -> el render EN VIVO se verifica en prod.
+
+---
+
 ## 2026-09-02 - v0.15.153: ExternalDataSourceReportSource - reportar servidores SQL externos (ADR-0084)
 
 - Correccion de la sesion de reportes: el reporte de "servidores y conexiones" debe leer

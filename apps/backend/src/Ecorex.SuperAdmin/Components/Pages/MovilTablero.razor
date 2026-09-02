@@ -1,0 +1,311 @@
+@page "/movil/tablero"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IActivityBoardService BoardsSvc
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* Modulo MOVIL (primera vista): consultar un tablero, cambiar el estado con toques grandes, y un lector
+   de codigo de barras que hace SALTAR la actividad al siguiente estado. Vista pensada para celular
+   (una columna, targets grandes, barra inferior con el boton de escaneo). *@
+
+<PageTitle>Tablero movil - ECOREX.tareas</PageTitle>
+
+<div style="max-width:540px;margin:0 auto;min-height:100vh;background:var(--surface-2,#f1f5f9);padding-bottom:92px;">
+
+    @* ---- Encabezado + selector de tablero ---- *@
+    <div style="position:sticky;top:0;z-index:20;background:var(--surface-1,#fff);padding:12px 14px;box-shadow:0 1px 8px rgba(0,0,0,.07);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:22px;">📋</span>
+            <div style="font-weight:800;font-size:1.15rem;">Tablero movil</div>
+        </div>
+        <select style="width:100%;box-sizing:border-box;font-size:1rem;padding:11px 12px;border-radius:10px;border:1px solid var(--border,#cbd5e1);"
+                @onchange="OnBoardChanged">
+            <option value="">-- Elige un tablero --</option>
+            @foreach (var b in _boards)
+            {
+                <option value="@b.Id" selected="@(b.Id == _boardId)">@b.Name (@b.TaskCount)</option>
+            }
+        </select>
+    </div>
+
+    @if (_loading)
+    {
+        <p style="text-align:center;color:var(--ink-3,#94a3b8);margin-top:30px;">Cargando...</p>
+    }
+    else if (_detail is null)
+    {
+        <p style="text-align:center;color:var(--ink-3,#94a3b8);margin-top:30px;padding:0 24px;">Elige un tablero para ver sus actividades por estado.</p>
+    }
+    else
+    {
+        @* ---- Actividades agrupadas por ESTADO (columna) ---- *@
+        @foreach (var col in _detail.Columns.OrderBy(c => c.SortOrder))
+        {
+            var color = string.IsNullOrWhiteSpace(col.Color) ? "#64748b" : col.Color!;
+            <div style="padding:14px 14px 4px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="width:11px;height:11px;border-radius:50%;background:@color;display:inline-block;"></span>
+                    <span style="font-weight:700;">@col.Name</span>
+                    <span style="color:var(--ink-3,#94a3b8);font-size:.85rem;">@col.Cards.Count</span>
+                </div>
+            </div>
+            @if (col.Cards.Count == 0)
+            {
+                <div style="padding:0 14px 6px;color:var(--ink-3,#cbd5e1);font-size:.85rem;">Sin actividades.</div>
+            }
+            @foreach (var card in col.Cards)
+            {
+                <div @onclick="@(() => OpenMove(card))"
+                     style="margin:0 14px 10px;background:var(--surface-1,#fff);border:1px solid var(--border,#e2e8f0);border-left:4px solid @color;border-radius:12px;padding:12px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.05);">
+                    <div style="display:flex;justify-content:space-between;gap:8px;">
+                        <span style="font-weight:700;color:var(--ink-2,#475569);font-size:.82rem;">@card.Number</span>
+                        <span style="font-size:.72rem;padding:1px 8px;border-radius:999px;background:@PriorityBg(card.Priority);color:@PriorityColor(card.Priority);font-weight:700;">@PriorityLabel(card.Priority)</span>
+                    </div>
+                    <div style="font-weight:600;margin-top:3px;line-height:1.3;">@card.Title</div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                        <span style="font-size:.78rem;color:var(--ink-3,#94a3b8);">@(card.Assignee?.DisplayName ?? "Sin asignar")</span>
+                        <span style="margin-left:auto;font-size:.78rem;font-weight:700;color:@color;">Cambiar estado ›</span>
+                    </div>
+                </div>
+            }
+        }
+        <div style="height:8px;"></div>
+    }
+
+    @if (_toast is not null)
+    {
+        <div style="position:fixed;left:50%;transform:translateX(-50%);bottom:100px;z-index:60;background:@(_toastOk ? "#0f766e" : "#b91c1c");color:#fff;padding:10px 16px;border-radius:999px;font-size:.9rem;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;text-align:center;">
+            @_toast
+        </div>
+    }
+</div>
+
+@* ---- Barra inferior: ESCANEAR ---- *@
+<div style="position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;justify-content:center;background:linear-gradient(to top, var(--surface-2,#f1f5f9) 60%, transparent);padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));">
+    <button style="width:100%;max-width:512px;font-size:1.05rem;font-weight:800;padding:15px;border-radius:14px;border:0;background:#4f46e5;color:#fff;box-shadow:0 8px 24px rgba(79,70,229,.4);cursor:pointer;"
+            @onclick="OpenScanAsync" disabled="@(_busy || _detail is null)">
+        📷 Escanear codigo
+    </button>
+</div>
+
+@* ---- Hoja para cambiar estado ---- *@
+@if (_moveCard is { } mcard)
+{
+    <div style="position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.5);display:flex;align-items:flex-end;justify-content:center;" @onclick="CloseMove">
+        <div style="width:100%;max-width:540px;background:var(--surface-1,#fff);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:82vh;overflow:auto;" @onclick:stopPropagation="true">
+            <div style="width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto 12px;"></div>
+            <div style="font-weight:800;">@mcard.Number</div>
+            <div style="color:var(--ink-2,#475569);margin-bottom:12px;">@mcard.Title</div>
+            <div style="font-size:.8rem;color:var(--ink-3,#94a3b8);margin-bottom:8px;">Mover a estado:</div>
+            @foreach (var col in _detail!.Columns.OrderBy(c => c.SortOrder))
+            {
+                var c = string.IsNullOrWhiteSpace(col.Color) ? "#64748b" : col.Color!;
+                var current = col.Id == mcard.ColumnId;
+                <button style="width:100%;text-align:left;font-size:1rem;padding:14px 14px;margin-bottom:8px;border-radius:12px;border:1px solid @(current ? c : "var(--border,#e2e8f0)");background:@(current ? c + "18" : "transparent");font-weight:600;cursor:pointer;display:flex;align-items:center;gap:10px;"
+                        disabled="@(_busy || current)" @onclick="@(() => MoveToAsync(mcard, col))">
+                    <span style="width:11px;height:11px;border-radius:50%;background:@c;display:inline-block;"></span>
+                    @col.Name
+                    @if (current) { <span style="margin-left:auto;font-size:.8rem;color:@c;font-weight:700;">actual</span> }
+                </button>
+            }
+            <button style="width:100%;padding:12px;border:0;background:transparent;color:var(--ink-3,#64748b);font-weight:600;cursor:pointer;" @onclick="CloseMove">Cerrar</button>
+        </div>
+    </div>
+}
+
+@* ---- Hoja de escaneo ---- *@
+@if (_scanOpen)
+{
+    <div style="position:fixed;inset:0;z-index:90;background:rgba(2,6,23,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;">
+        <div style="width:100%;max-width:512px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#fff;">
+                <div style="font-weight:800;font-size:1.05rem;">Escanear codigo</div>
+                <button style="background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;" @onclick="CloseScanAsync">Cerrar</button>
+            </div>
+            @if (_scanSupported)
+            {
+                <div style="position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;">
+                    <video @ref="_videoEl" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
+                    <div style="position:absolute;inset:12% 8%;border:3px solid rgba(255,255,255,.85);border-radius:12px;"></div>
+                </div>
+                <div style="color:#cbd5e1;text-align:center;font-size:.85rem;margin-top:8px;">Apunta al codigo de barras de la actividad.</div>
+            }
+            else
+            {
+                <div style="color:#fca5a5;font-size:.85rem;margin-bottom:8px;">Este dispositivo no tiene lector de camara; escribe el numero de la actividad.</div>
+            }
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <input style="flex:1;font-size:1rem;padding:12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#fff;" placeholder="Numero (ej. T00058)"
+                       @bind="_scanManual" @bind:event="oninput" @onkeydown="OnManualKey" />
+                <button style="padding:12px 16px;border-radius:10px;border:0;background:#4f46e5;color:#fff;font-weight:700;cursor:pointer;" @onclick="@(() => HandleCodeAsync(_scanManual))" disabled="@_busy">Buscar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<ActivityBoardSummaryDto> _boards = Array.Empty<ActivityBoardSummaryDto>();
+    private Guid? _boardId;
+    private ActivityBoardDetailDto? _detail;
+    private bool _loading, _busy;
+
+    private ActivityCardDto? _moveCard;
+
+    private bool _scanOpen, _scanSupported;
+    private string? _scanManual;
+    private ElementReference _videoEl;
+    private DotNetObjectReference<MovilTablero>? _selfRef;
+
+    private string? _toast;
+    private bool _toastOk;
+
+    private Guid _actorId;
+    private string _actorName = "Movil";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var st = await AuthProvider.GetAuthenticationStateAsync();
+        Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _actorId);
+        _actorName = st.User.Identity?.Name ?? st.User.FindFirst("name")?.Value ?? "Movil";
+
+        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter());
+        _boards = index.Boards;
+    }
+
+    private async Task OnBoardChanged(ChangeEventArgs e)
+    {
+        _detail = null;
+        if (Guid.TryParse(e.Value?.ToString(), out var id))
+        {
+            _boardId = id;
+            await ReloadAsync();
+        }
+        else { _boardId = null; }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (_boardId is not Guid id) { return; }
+        _loading = true;
+        try
+        {
+            var res = await BoardsSvc.GetBoardDetailAsync(id, new ActivityBoardDetailFilter(Scope: ActivityBoardScope.Team));
+            _detail = res.IsOk ? res.Value : null;
+        }
+        finally { _loading = false; }
+    }
+
+    private void OpenMove(ActivityCardDto card) => _moveCard = card;
+    private void CloseMove() => _moveCard = null;
+
+    private async Task MoveToAsync(ActivityCardDto card, ActivityBoardColumnDto target)
+    {
+        if (card.ColumnId == target.Id) { return; }
+        _busy = true;
+        try
+        {
+            var res = await BoardsSvc.MoveTaskAsync(card.Id, target.Id, 0, _actorId, _actorName);
+            if (res.IsOk) { ShowToast($"{card.Number} -> {target.Name}", true); await ReloadAsync(); }
+            else { ShowToast(res.Error ?? "No se pudo mover.", false); }
+        }
+        finally { _busy = false; _moveCard = null; }
+    }
+
+    // ---- Escaneo ----
+
+    private async Task OpenScanAsync()
+    {
+        _scanManual = null;
+        _scanOpen = true;
+        _scanSupported = false;
+        _selfRef ??= DotNetObjectReference.Create(this);
+        StateHasChanged();
+        await Task.Yield();
+        try
+        {
+            _scanSupported = await JS.InvokeAsync<bool>("ecorexScan.supported");
+            if (_scanSupported)
+            {
+                var r = await JS.InvokeAsync<ScanStartResult>("ecorexScan.start", _videoEl, _selfRef);
+                if (!r.Ok) { _scanSupported = false; }
+            }
+        }
+        catch { _scanSupported = false; }
+        StateHasChanged();
+    }
+
+    private async Task CloseScanAsync()
+    {
+        _scanOpen = false;
+        try { await JS.InvokeVoidAsync("ecorexScan.stop"); } catch { }
+    }
+
+    [JSInvokable]
+    public async Task OnScanned(string value)
+    {
+        await HandleCodeAsync(value);
+    }
+
+    private async Task OnManualKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { await HandleCodeAsync(_scanManual); }
+    }
+
+    // Localiza la actividad por su NUMERO en el tablero y la HACE SALTAR al siguiente estado.
+    private async Task HandleCodeAsync(string? code)
+    {
+        var raw = (code ?? "").Trim();
+        if (raw.Length == 0 || _detail is null) { return; }
+        await CloseScanAsync();
+
+        var cols = _detail.Columns.OrderBy(c => c.SortOrder).ToList();
+        ActivityCardDto? found = null;
+        int colIdx = -1;
+        for (var i = 0; i < cols.Count; i++)
+        {
+            var m = cols[i].Cards.FirstOrDefault(c => string.Equals(c.Number, raw, StringComparison.OrdinalIgnoreCase));
+            if (m is not null) { found = m; colIdx = i; break; }
+        }
+        if (found is null) { ShowToast($"No se encontro '{raw}' en este tablero.", false); return; }
+        if (colIdx >= cols.Count - 1) { ShowToast($"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).", false); return; }
+
+        var target = cols[colIdx + 1];
+        _busy = true;
+        try
+        {
+            var res = await BoardsSvc.MoveTaskAsync(found.Id, target.Id, 0, _actorId, _actorName);
+            if (res.IsOk) { ShowToast($"{found.Number}: {cols[colIdx].Name} -> {target.Name}", true); await ReloadAsync(); }
+            else { ShowToast(res.Error ?? "No se pudo avanzar.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    private void ShowToast(string msg, bool ok) { _toast = msg; _toastOk = ok; }
+
+    // ---- Etiquetas de prioridad ----
+    private static string PriorityLabel(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "Alta", TaskPriority.Low => "Baja", _ => "Media"
+    };
+    private static string PriorityColor(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "#c2410c", TaskPriority.Low => "#0369a1", _ => "#475569"
+    };
+    private static string PriorityBg(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "#ffedd5", TaskPriority.Low => "#e0f2fe", _ => "#f1f5f9"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexScan.stop"); } catch { }
+        _selfRef?.Dispose();
+    }
+
+    private sealed record ScanStartResult(bool Ok, string? Reason);
+}

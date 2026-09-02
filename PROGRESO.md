@@ -17,6 +17,19 @@
 
 ---
 
+## 2026-09-02 - v0.15.142: modulo MOVIL de tablero (primera vista) - estados + escaneo de codigo de barras (ADR-0086)
+
+- Nuevo modulo web mobile-first /movil/tablero (policy TenantMember): consultar un tablero de actividades,
+  ver las cards por ESTADO (columna), cambiar estado con toques grandes (hoja inferior -> MoveTaskAsync), y
+  un LECTOR DE CODIGO DE BARRAS (BarcodeDetector nativo + getUserMedia; fallback manual) que localiza la
+  actividad por su numero y la AVANZA al siguiente estado. Reusa IActivityBoardService (sin modelo nuevo).
+- JS wwwroot/js/movil-scan.js (registrado en App.razor). Sin dependencias externas.
+- Primera vista verificada en dev (mobile 375x812): selector, estados con cards, boton de escaneo. Se itera
+  con el usuario (pendientes en ADR-0086: que trae el codigo, paso=columna vs flujo, motivo de cierre, menu).
+- Build verde. Sin migracion. NO desplegado aun (iterando la vista).
+
+---
+
 ## 2026-09-01 - v0.15.141: renderer de "gestion por fila" - pildoras que abren subformularios ligados a la fila (ADR-0085)
 
 - UI de la base v0.15.140: columna de GridDetail type "gestion" que pinta PILDORAS por fila (una por tipo de

@@ -108,3 +108,26 @@
     .cw-call { grid-template-columns: repeat(2, 1fr); }
     .cw-sched-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Paso Llamada modo IA (ADR-0056): select/textarea + checklist de formularios. */
+.cw-call .cw-field select,
+.cw-call .cw-field textarea {
+    width: 100%;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    color: var(--ink);
+    background: var(--surface);
+    font-family: inherit;
+}
+
+.cw-call .cw-field select:focus,
+.cw-call .cw-field textarea:focus { outline: none; border-color: var(--brand); }
+.cw-call .cw-field textarea { resize: vertical; min-height: 56px; }
+
+.cw-hint { font-size: 12px; color: var(--ink-3); }
+
+.cw-checklist { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.cw-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.cw-check input { width: auto; }

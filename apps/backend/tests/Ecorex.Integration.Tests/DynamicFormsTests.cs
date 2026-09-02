@@ -702,7 +702,8 @@ public abstract class DynamicFormsTestsBase
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         return new(ctx, engine ?? BuildEngine(ctx, seed),
             new SequenceService(ctx, tenant), tenant, new NoOpFormRecordBroadcaster(),
-            new Ecorex.Application.Forms.Lookups.FormLookupService(System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()));
+            new Ecorex.Application.Forms.Lookups.FormLookupService(System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()),
+            new NoOpRulesEngine());
     }
 
     private static FormTokenService BuildTokenService(EcorexDbContext ctx, SeedData seed)

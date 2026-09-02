@@ -348,6 +348,13 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     {
         const string channel = "crm";
         var call = DeserializeCall(paramsJson);
+        // Llamada IA (ADR-0056): la config referencia un AiAgent reutilizado + prompt extra + objetivo +
+        // formularios. El motor de voz es de la fase siguiente; aqui NO se coloca ninguna llamada.
+        if (call?.Modo == "ia")
+        {
+            return (ContactWorkflowRunStatus.Skipped, "voz-ia", null,
+                "Llamada IA pendiente de motor (fase siguiente).");
+        }
         if (call is null || !Guid.TryParse(call.Subcategoria, out var subcategoriaId))
         {
             // Categoria/Subcategoria mapean al concepto 000270 (SubcategoriaId); sin uno valido no hay

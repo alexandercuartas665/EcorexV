@@ -17,6 +17,32 @@
 
 ---
 
+## 2026-09-02 - Contactos: config de LLAMADA IA en el paso "Llamada" del disenador (ADR-0056, sin migracion)
+
+- Hand-off de la sesion de spec: dejar listo el paso "Llamada" para configurar una llamada IA (no se
+  coloca ninguna llamada ni se integra proveedor de voz en esta entrega). REUSA los agentes existentes
+  (IAiAgentService.ListAsync -> AiAgentDto; su SystemPrompt es el prompt base), no crea modelo nuevo.
+- Domain: enum `ContactCallObjetivo { OfrecerProducto, LlenarFormulario, Personalizado }`.
+- DTO `ContactWorkflowCallParams` += Modo("crm"/"ia") + AgenteId + PromptExtra + Objetivo +
+  FormulariosPermitidos (lista). Persistido como JSON en params_json (SIN migracion). SerializeCall ya no
+  anula cuando la config es IA (guard ampliado). Test `ContactWorkflowCallParamsTests` (2/2 verdes):
+  round-trip IA con la lista + CRM intacto.
+- Disenador `ContactWorkflowDesigner.razor`: toggle "Gestion CRM / Llamada IA". En IA: select de agente
+  (marca inactivos), select de objetivo, textarea de instruccion adicional al prompt, y checklist de
+  formularios (IFormDefinitionService.ListAsync). Carga/guardado mapean los campos nuevos. Validacion
+  minima: IA exige agente; objetivo "Llenar formulario" exige >=1 formulario. Modo CRM sin cambios.
+- Dispatcher `ContactWorkflowDispatcher.ExecuteLlamadaAsync`: si Modo=="ia" -> Skipped/"voz-ia"
+  ("Llamada IA pendiente de motor (fase siguiente)."); cualquier otro caso, CRM sin cambios.
+- Build: SuperAdmin + Application.Tests en verde; tests nuevos 2/2. Ademas se arreglaron 2 errores de
+  compilacion PRE-EXISTENTES y ajenos en Ecorex.Integration.Tests (FormResponseService requiere IRulesEngine
+  desde v0.15.120): RulesEngineTests pasa el `engine` REAL ya en alcance; DynamicFormsTests usa un doble
+  `NoOpRulesEngine` (nuevo helper compartido; FormResponseService solo invoca ExecuteForFormSubmitAsync).
+  `dotnet build Ecorex.sln` -> Compilacion correcta, 0 errores.
+- Entrega tipo spec/hand-off: sin deploy (lo decide la sesion principal). Multi-tenant intacto (ambos
+  servicios listan tenant-scoped). Sin credenciales, sin HTTP de voz, sin migracion.
+
+---
+
 ## 2026-09-02 - v0.15.150: flag por tablero "Disponible en el escaner movil" + rediseno del modulo movil (ADR-0086)
 
 - Config por tablero: nuevo flag `TaskBoard.MobileScanEnabled` (default FALSE). En Tableros (config del

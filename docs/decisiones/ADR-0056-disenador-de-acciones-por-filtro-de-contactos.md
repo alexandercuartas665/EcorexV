@@ -310,3 +310,20 @@ Estado: IMPLEMENTADA. Piezas entregadas:
 Limites documentados (anti-spam): por corrida se envia a lo sumo `PackageSize` (o 50) contactos por ventana;
 `RepeatEvery` espacia las corridas; el dedupe garantiza una entrega por contacto/ventana/dia. Consentimiento/
 opt-out (decision abierta 7) sigue pendiente antes de uso masivo en produccion.
+
+## Adenda 2026-09-02: config de LLAMADA IA en el paso "Llamada" (solo configuracion)
+
+El paso "Llamada" del disenador ahora admite dos modos:
+
+- **Gestion CRM** (default, `Modo` null/"crm"): comportamiento actual intacto (4 campos ->
+  puente Concepto->Tarea).
+- **Llamada IA** (`Modo` "ia"): configura una llamada con un **AiAgent REUTILIZADO** (no se crea un
+  modelo de agente nuevo; se referencia por `Id` y su `SystemPrompt` es el prompt base). Campos:
+  agente, `PromptExtra` (texto que se anexa al prompt para esa llamada), `Objetivo`
+  (`ContactCallObjetivo`: OfrecerProducto | LlenarFormulario | Personalizado) y
+  `FormulariosPermitidos` (formularios que el agente puede llenar).
+
+Todo se persiste como JSON en `params_json` (sin migracion). El motor de voz IA es de la fase
+siguiente: el dispatcher, ante `Modo == "ia"`, devuelve `Skipped/"voz-ia"` con nota "pendiente de
+motor". Validacion minima en el disenador: modo IA exige agente; objetivo "Llenar formulario" exige
+al menos un formulario permitido. Round-trip cubierto por `ContactWorkflowCallParamsTests`.

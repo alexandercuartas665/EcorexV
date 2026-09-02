@@ -197,8 +197,14 @@ public sealed class ContactWorkflowService : IContactWorkflowService
     private static string? SerializeCall(ContactWorkflowCallParams? call)
     {
         if (call is null) { return null; }
-        if (string.IsNullOrWhiteSpace(call.Comercial) && string.IsNullOrWhiteSpace(call.Prioridad)
-            && string.IsNullOrWhiteSpace(call.Categoria) && string.IsNullOrWhiteSpace(call.Subcategoria))
+        var vacioCrm = string.IsNullOrWhiteSpace(call.Comercial) && string.IsNullOrWhiteSpace(call.Prioridad)
+            && string.IsNullOrWhiteSpace(call.Categoria) && string.IsNullOrWhiteSpace(call.Subcategoria);
+        // Config IA: modo/agente/prompt extra/objetivo/formularios. Si tambien esta vacia, el paso no
+        // tiene parametros (se guarda null); si hay algo (CRM O IA), se serializa completo.
+        var vacioIa = string.IsNullOrWhiteSpace(call.Modo) && call.AgenteId is null
+            && string.IsNullOrWhiteSpace(call.PromptExtra) && string.IsNullOrWhiteSpace(call.Objetivo)
+            && (call.FormulariosPermitidos is null || call.FormulariosPermitidos.Count == 0);
+        if (vacioCrm && vacioIa)
         {
             return null;
         }

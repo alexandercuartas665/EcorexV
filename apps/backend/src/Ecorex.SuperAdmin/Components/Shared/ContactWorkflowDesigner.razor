@@ -8,9 +8,12 @@
    Solo ASCII. *@
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Gestor
+@using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
 @inject IContactWorkflowService WorkflowSvc
 @inject IEmailTemplateService EmailTemplateSvc
+@inject IAiAgentService AiAgentSvc
+@inject IFormDefinitionService FormDefSvc
 
 @if (_open)
 {
@@ -93,26 +96,88 @@
                                 </div>
                             </div>
 
-                            @* Campos CRM: SOLO el paso Llamada *@
+                            @* Config del paso Llamada: modo CRM (gestion, comportamiento actual) o IA (llamada con agente). *@
                             @if (st.StepType == ContactWorkflowStepType.Llamada)
                             {
                                 <div class="cw-call">
-                                    <div class="cw-field">
-                                        <label>Comercial</label>
-                                        <input @bind="st.Comercial" placeholder="Responsable" />
+                                    <div class="cw-field" style="grid-column:1/-1;">
+                                        <label>Tipo de llamada</label>
+                                        <select value="@(st.Modo == "ia" ? "ia" : "crm")"
+                                                @onchange="e => SetModo(st, e.Value)">
+                                            <option value="crm">Gestion CRM</option>
+                                            <option value="ia">Llamada IA</option>
+                                        </select>
                                     </div>
-                                    <div class="cw-field">
-                                        <label>Prioridad</label>
-                                        <input @bind="st.Prioridad" placeholder="Alta / Media / Baja" />
-                                    </div>
-                                    <div class="cw-field">
-                                        <label>Categoria</label>
-                                        <input @bind="st.Categoria" placeholder="Categoria de la gestion" />
-                                    </div>
-                                    <div class="cw-field">
-                                        <label>Subcategoria</label>
-                                        <input @bind="st.Subcategoria" placeholder="Subcategoria / concepto" />
-                                    </div>
+
+                                    @if (st.Modo == "ia")
+                                    {
+                                        <div class="cw-field">
+                                            <label>Agente</label>
+                                            <select value="@(st.AgenteId?.ToString() ?? "")"
+                                                    @onchange="e => st.AgenteId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null">
+                                                <option value="">-- Elige un agente --</option>
+                                                @foreach (var a in _agents)
+                                                {
+                                                    <option value="@a.Id">@a.Name@(a.IsActive ? "" : " (inactivo)")</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="cw-field">
+                                            <label>Objetivo</label>
+                                            <select @bind="st.Objetivo">
+                                                <option value="">-- Elige objetivo --</option>
+                                                @foreach (var o in Enum.GetValues<ContactCallObjetivo>())
+                                                {
+                                                    <option value="@o">@ObjetivoLabel(o)</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="cw-field" style="grid-column:1/-1;">
+                                            <label>Instruccion adicional al prompt</label>
+                                            <textarea @bind="st.PromptExtra" rows="3"
+                                                      placeholder="Se anexa al prompt del agente para esta llamada: producto, tono, oferta..."></textarea>
+                                        </div>
+                                        <div class="cw-field" style="grid-column:1/-1;">
+                                            <label>Formularios que puede llenar</label>
+                                            @if (_forms.Count == 0)
+                                            {
+                                                <span class="cw-hint">No hay formularios disponibles.</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="cw-checklist">
+                                                    @foreach (var f in _forms)
+                                                    {
+                                                        var on = st.FormulariosPermitidos.Contains(f.Id);
+                                                        <label class="cw-check">
+                                                            <input type="checkbox" checked="@on"
+                                                                   @onchange="e => ToggleForm(st, f.Id, (bool)(e.Value ?? false))" />
+                                                            <span>@f.Title</span>
+                                                        </label>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="cw-field">
+                                            <label>Comercial</label>
+                                            <input @bind="st.Comercial" placeholder="Responsable" />
+                                        </div>
+                                        <div class="cw-field">
+                                            <label>Prioridad</label>
+                                            <input @bind="st.Prioridad" placeholder="Alta / Media / Baja" />
+                                        </div>
+                                        <div class="cw-field">
+                                            <label>Categoria</label>
+                                            <input @bind="st.Categoria" placeholder="Categoria de la gestion" />
+                                        </div>
+                                        <div class="cw-field">
+                                            <label>Subcategoria</label>
+                                            <input @bind="st.Subcategoria" placeholder="Subcategoria / concepto" />
+                                        </div>
+                                    }
                                 </div>
                             }
 
@@ -247,6 +312,9 @@
     private bool _activo = true;
     private readonly List<StepVM> _steps = new();
     private List<EmailTemplateDto> _templates = new();
+    // Llamada IA (ADR-0056): agentes REUTILIZADOS y formularios que el agente puede llenar.
+    private List<AiAgentDto> _agents = new();
+    private List<FormDefinitionListItemDto> _forms = new();
 
     // Datos de ejemplo para la vista previa del correo (no se envian; solo ilustran el merge).
     private static readonly EmailMergeFields SampleFields =
@@ -268,6 +336,9 @@
         _activo = true;
         _steps.Clear();
         _templates = (await EmailTemplateSvc.ListAsync(soloActivas: true)).ToList();
+        // Para el modo IA del paso Llamada: agentes existentes (se reutilizan) y formularios disponibles.
+        _agents = (await AiAgentSvc.ListAsync()).ToList();
+        _forms = (await FormDefSvc.ListAsync()).ToList();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
         if (wf is not null)
@@ -282,8 +353,16 @@
                     Comercial = s.Call?.Comercial,
                     Prioridad = s.Call?.Prioridad,
                     Categoria = s.Call?.Categoria,
-                    Subcategoria = s.Call?.Subcategoria
+                    Subcategoria = s.Call?.Subcategoria,
+                    Modo = s.Call?.Modo,
+                    AgenteId = s.Call?.AgenteId,
+                    PromptExtra = s.Call?.PromptExtra,
+                    Objetivo = s.Call?.Objetivo
                 };
+                if (s.Call?.FormulariosPermitidos is { Count: > 0 } forms)
+                {
+                    vm.FormulariosPermitidos.AddRange(forms);
+                }
                 foreach (var h in s.Schedules)
                 {
                     vm.Schedules.Add(new ScheduleVM
@@ -346,17 +425,27 @@
 
     private async Task SaveAsync()
     {
-        _busy = true;
         _error = null;
         _saved = false;
+        // Validacion minima del modo IA (ADR-0056): agente obligatorio; si el objetivo es "Llenar
+        // formulario", exige al menos un formulario permitido. El modo CRM no cambia.
+        var invalido = _steps.FirstOrDefault(s => s.StepType == ContactWorkflowStepType.Llamada && s.Modo == "ia"
+            && (s.AgenteId is null
+                || (s.Objetivo == nameof(ContactCallObjetivo.LlenarFormulario) && s.FormulariosPermitidos.Count == 0)));
+        if (invalido is not null)
+        {
+            _error = invalido.AgenteId is null
+                ? "En una llamada IA debes elegir un agente."
+                : "El objetivo 'Llenar formulario' requiere al menos un formulario permitido.";
+            return;
+        }
+        _busy = true;
         try
         {
             var steps = _steps.Select(s => new SaveContactWorkflowStepRequest(
                 s.StepType,
                 s.Label,
-                s.StepType == ContactWorkflowStepType.Llamada
-                    ? new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria)
-                    : null,
+                s.StepType == ContactWorkflowStepType.Llamada ? BuildCall(s) : null,
                 s.Schedules.Select(h => new SaveContactWorkflowScheduleRequest(
                     ParseDate(h.StartDate),
                     ParseDate(h.EndDate),
@@ -426,6 +515,40 @@
         new(4, "J", "Jueves"), new(5, "V", "Viernes"), new(6, "S", "Sabado"), new(7, "D", "Domingo")
     };
 
+    // Construye los parametros del paso Llamada segun el modo. IA: referencia el agente REUTILIZADO +
+    // prompt extra + objetivo + formularios; CRM: los 4 campos historicos (comportamiento actual).
+    private static ContactWorkflowCallParams BuildCall(StepVM s)
+        => s.Modo == "ia"
+            ? new ContactWorkflowCallParams(
+                Modo: "ia",
+                AgenteId: s.AgenteId,
+                PromptExtra: string.IsNullOrWhiteSpace(s.PromptExtra) ? null : s.PromptExtra.Trim(),
+                Objetivo: string.IsNullOrWhiteSpace(s.Objetivo) ? null : s.Objetivo,
+                FormulariosPermitidos: s.FormulariosPermitidos.Count > 0 ? s.FormulariosPermitidos.ToList() : null)
+            : new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria);
+
+    private static void SetModo(StepVM s, object? val) => s.Modo = val?.ToString() == "ia" ? "ia" : "crm";
+
+    private static string ObjetivoLabel(ContactCallObjetivo o) => o switch
+    {
+        ContactCallObjetivo.OfrecerProducto => "Ofrecer producto",
+        ContactCallObjetivo.LlenarFormulario => "Llenar formulario",
+        ContactCallObjetivo.Personalizado => "Personalizado",
+        _ => o.ToString()
+    };
+
+    private static void ToggleForm(StepVM s, Guid formId, bool on)
+    {
+        if (on)
+        {
+            if (!s.FormulariosPermitidos.Contains(formId)) { s.FormulariosPermitidos.Add(formId); }
+        }
+        else
+        {
+            s.FormulariosPermitidos.Remove(formId);
+        }
+    }
+
     private sealed class StepVM
     {
         public ContactWorkflowStepType StepType { get; set; }
@@ -434,6 +557,12 @@
         public string? Prioridad { get; set; }
         public string? Categoria { get; set; }
         public string? Subcategoria { get; set; }
+        // Paso Llamada, modo IA (ADR-0056): "crm" (null/default) | "ia".
+        public string? Modo { get; set; }
+        public Guid? AgenteId { get; set; }
+        public string? PromptExtra { get; set; }
+        public string? Objetivo { get; set; }
+        public List<Guid> FormulariosPermitidos { get; } = new();
         // Paso E-mail: plantilla seleccionada (Id como texto). Se replica a todas sus ventanas al guardar.
         public string? EmailTemplateId { get; set; }
         public List<ScheduleVM> Schedules { get; } = new();

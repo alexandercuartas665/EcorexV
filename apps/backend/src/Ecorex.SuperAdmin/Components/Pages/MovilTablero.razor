@@ -19,16 +19,17 @@
 
 <PageTitle>Tablero movil - ECOREX.tareas</PageTitle>
 
-<div style="max-width:540px;margin:0 auto;min-height:100vh;background:var(--surface-2,#f1f5f9);padding-bottom:92px;">
+<div class="mv-wrap">
 
     @* ---- Encabezado + selector de tablero ---- *@
-    <div style="position:sticky;top:0;z-index:20;background:var(--surface-1,#fff);padding:12px 14px;box-shadow:0 1px 8px rgba(0,0,0,.07);">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-            <span style="font-size:22px;">📋</span>
-            <div style="font-weight:800;font-size:1.15rem;">Tablero movil</div>
+    <div class="mv-head">
+        <div class="mv-head-title">
+            <span class="mv-head-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h6"/></svg>
+            </span>
+            <h1>Tablero movil</h1>
         </div>
-        <select style="width:100%;box-sizing:border-box;font-size:1rem;padding:11px 12px;border-radius:10px;border:1px solid var(--border,#cbd5e1);"
-                @onchange="OnBoardChanged">
+        <select class="mv-select" @onchange="OnBoardChanged">
             <option value="">-- Elige un tablero --</option>
             @foreach (var b in _boards)
             {
@@ -39,11 +40,11 @@
 
     @if (_loading)
     {
-        <p style="text-align:center;color:var(--ink-3,#94a3b8);margin-top:30px;">Cargando...</p>
+        <p class="mv-hint">Cargando...</p>
     }
     else if (_detail is null)
     {
-        <p style="text-align:center;color:var(--ink-3,#94a3b8);margin-top:30px;padding:0 24px;">Elige un tablero para ver sus actividades por estado.</p>
+        <p class="mv-hint">Elige un tablero para ver sus actividades por estado.</p>
     }
     else
     {
@@ -51,29 +52,29 @@
         @foreach (var col in _detail.Columns.OrderBy(c => c.SortOrder))
         {
             var color = string.IsNullOrWhiteSpace(col.Color) ? "#64748b" : col.Color!;
-            <div style="padding:14px 14px 4px;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="width:11px;height:11px;border-radius:50%;background:@color;display:inline-block;"></span>
-                    <span style="font-weight:700;">@col.Name</span>
-                    <span style="color:var(--ink-3,#94a3b8);font-size:.85rem;">@col.Cards.Count</span>
-                </div>
+            <div class="mv-col-head" style="--dot:@color">
+                <span class="mv-dot"></span>
+                <span class="mv-col-name">@col.Name</span>
+                <span class="mv-col-count">@col.Cards.Count</span>
             </div>
             @if (col.Cards.Count == 0)
             {
-                <div style="padding:0 14px 6px;color:var(--ink-3,#cbd5e1);font-size:.85rem;">Sin actividades.</div>
+                <div class="mv-empty">Sin actividades.</div>
             }
             @foreach (var card in col.Cards)
             {
-                <div @onclick="@(() => OpenMove(card))"
-                     style="margin:0 14px 10px;background:var(--surface-1,#fff);border:1px solid var(--border,#e2e8f0);border-left:4px solid @color;border-radius:12px;padding:12px 14px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.05);">
-                    <div style="display:flex;justify-content:space-between;gap:8px;">
-                        <span style="font-weight:700;color:var(--ink-2,#475569);font-size:.82rem;">@card.Number</span>
-                        <span style="font-size:.72rem;padding:1px 8px;border-radius:999px;background:@PriorityBg(card.Priority);color:@PriorityColor(card.Priority);font-weight:700;">@PriorityLabel(card.Priority)</span>
+                <div class="mv-card" style="--dot:@color" @onclick="@(() => OpenMove(card))">
+                    <div class="mv-card-top">
+                        <span class="mv-num">@card.Number</span>
+                        <span class="mv-prio" style="--prio-fg:@PriorityColor(card.Priority);--prio-bg:@PriorityBg(card.Priority)">@PriorityLabel(card.Priority)</span>
                     </div>
-                    <div style="font-weight:600;margin-top:3px;line-height:1.3;">@card.Title</div>
-                    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-                        <span style="font-size:.78rem;color:var(--ink-3,#94a3b8);">@(card.Assignee?.DisplayName ?? "Sin asignar")</span>
-                        <span style="margin-left:auto;font-size:.78rem;font-weight:700;color:@color;">Cambiar estado ›</span>
+                    <div class="mv-title">@card.Title</div>
+                    <div class="mv-meta">
+                        <span class="mv-assignee">@(card.Assignee?.DisplayName ?? "Sin asignar")</span>
+                        <span class="mv-change">
+                            Cambiar estado
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+                        </span>
                     </div>
                 </div>
             }
@@ -83,17 +84,15 @@
 
     @if (_toast is not null)
     {
-        <div style="position:fixed;left:50%;transform:translateX(-50%);bottom:100px;z-index:60;background:@(_toastOk ? "#0f766e" : "#b91c1c");color:#fff;padding:10px 16px;border-radius:999px;font-size:.9rem;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90vw;text-align:center;">
-            @_toast
-        </div>
+        <div class="mv-toast @(_toastOk ? "ok" : "err")">@_toast</div>
     }
 </div>
 
 @* ---- Barra inferior: ESCANEAR ---- *@
-<div style="position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;justify-content:center;background:linear-gradient(to top, var(--surface-2,#f1f5f9) 60%, transparent);padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));">
-    <button style="width:100%;max-width:512px;font-size:1.05rem;font-weight:800;padding:15px;border-radius:14px;border:0;background:#4f46e5;color:#fff;box-shadow:0 8px 24px rgba(79,70,229,.4);cursor:pointer;"
-            @onclick="OpenScanAsync" disabled="@(_busy || _detail is null)">
-        📷 Escanear codigo
+<div class="mv-scanbar">
+    <button class="mv-scan-btn" @onclick="OpenScanAsync" disabled="@(_busy || _detail is null)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+        Escanear codigo
     </button>
 </div>
 
@@ -101,30 +100,30 @@
 @if (_pendingCard is { } pc)
 {
     var fromC = string.IsNullOrWhiteSpace(_pendingFrom?.Color) ? "#64748b" : _pendingFrom!.Color!;
-    var toC = string.IsNullOrWhiteSpace(_pendingTo?.Color) ? "#4f46e5" : _pendingTo!.Color!;
-    <div style="position:fixed;inset:0;z-index:85;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:18px;" @onclick="ClearPending">
-        <div style="width:100%;max-width:460px;background:var(--surface-1,#fff);border-radius:18px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.35);" @onclick:stopPropagation="true">
-            <div style="text-align:center;font-size:.8rem;font-weight:700;color:var(--ink-3,#94a3b8);letter-spacing:.04em;">CONFIRMAR AVANCE</div>
-            <div style="display:flex;justify-content:space-between;gap:8px;margin-top:10px;">
-                <span style="font-weight:800;color:var(--ink-2,#475569);">@pc.Number</span>
-                <span style="font-size:.72rem;padding:1px 8px;border-radius:999px;background:@PriorityBg(pc.Priority);color:@PriorityColor(pc.Priority);font-weight:700;">@PriorityLabel(pc.Priority)</span>
+    var toC = string.IsNullOrWhiteSpace(_pendingTo?.Color) ? "#64748b" : _pendingTo!.Color!;
+    <div class="mv-overlay center" @onclick="ClearPending">
+        <div class="mv-confirm" style="--to:@toC" @onclick:stopPropagation="true">
+            <div class="mv-confirm-kicker">CONFIRMAR AVANCE</div>
+            <div class="mv-confirm-top">
+                <span class="mv-num">@pc.Number</span>
+                <span class="mv-prio" style="--prio-fg:@PriorityColor(pc.Priority);--prio-bg:@PriorityBg(pc.Priority)">@PriorityLabel(pc.Priority)</span>
             </div>
-            <div style="font-weight:700;font-size:1.05rem;line-height:1.3;margin-top:2px;">@pc.Title</div>
-            <div style="font-size:.82rem;color:var(--ink-3,#94a3b8);margin-top:4px;">@(pc.Assignee?.DisplayName ?? "Sin asignar")</div>
+            <div class="mv-confirm-title">@pc.Title</div>
+            <div class="mv-confirm-assignee">@(pc.Assignee?.DisplayName ?? "Sin asignar")</div>
 
-            <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:16px 0 18px;flex-wrap:wrap;">
-                <span style="font-size:.9rem;font-weight:700;padding:5px 12px;border-radius:999px;background:@(fromC + "18");color:@fromC;">@_pendingFrom?.Name</span>
-                <span style="font-size:1.2rem;color:var(--ink-3,#94a3b8);">→</span>
-                <span style="font-size:.9rem;font-weight:800;padding:5px 12px;border-radius:999px;background:@(toC + "22");color:@toC;">@_pendingTo?.Name</span>
+            <div class="mv-transition">
+                <span class="mv-chip" style="--chip:@fromC">@_pendingFrom?.Name</span>
+                <span class="mv-arrow">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </span>
+                <span class="mv-chip to" style="--chip:@toC">@_pendingTo?.Name</span>
             </div>
 
             @* Aqui, en la siguiente iteracion, se pintaran/ejecutaran las reglas del avance. *@
 
-            <div style="display:flex;gap:10px;">
-                <button style="flex:1;padding:14px;border-radius:12px;border:1px solid var(--border,#cbd5e1);background:transparent;font-weight:700;font-size:1rem;cursor:pointer;color:var(--ink-2,#475569);"
-                        @onclick="ClearPending" disabled="@_busy">Cancelar</button>
-                <button style="flex:2;padding:14px;border-radius:12px;border:0;background:@toC;color:#fff;font-weight:800;font-size:1rem;cursor:pointer;"
-                        @onclick="ConfirmAdvanceAsync" disabled="@_busy">Avanzar</button>
+            <div class="mv-confirm-actions">
+                <button class="mv-btn mv-btn-ghost" @onclick="ClearPending" disabled="@_busy">Cancelar</button>
+                <button class="mv-btn mv-btn-primary" @onclick="ConfirmAdvanceAsync" disabled="@_busy">Avanzar</button>
             </div>
         </div>
     </div>
@@ -136,23 +135,25 @@
    y al enviar avanza el flujo (que mueve la tarjeta a la columna del siguiente nodo). Pensado para celular. *@
 @if (_stepCard is { } sc && _stepForm is { } sf)
 {
-    <div style="position:fixed;inset:0;z-index:88;background:rgba(2,6,23,.7);display:flex;flex-direction:column;" @onclick="CloseStepAsync">
-        <div style="margin-top:auto;background:var(--surface-1,#fff);border-radius:18px 18px 0 0;max-height:94vh;display:flex;flex-direction:column;box-shadow:0 -12px 40px rgba(0,0,0,.35);" @onclick:stopPropagation="true">
-            <div style="width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:10px auto 4px;"></div>
-            <div style="padding:6px 16px 10px;border-bottom:1px solid var(--line,#e2e8f0);">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+    <div class="mv-overlay bottom" style="z-index:88" @onclick="CloseStepAsync">
+        <div class="mv-step" @onclick:stopPropagation="true">
+            <div class="mv-grip"></div>
+            <div class="mv-step-head">
+                <div class="mv-step-head-row">
                     <div style="min-width:0;">
-                        <div style="font-size:.72rem;font-weight:800;letter-spacing:.05em;color:#4f46e5;">PASO DEL PROCESO</div>
-                        <div style="font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sc.Number · @(sf.NodeName ?? sf.FormTitle)</div>
+                        <div class="mv-step-kicker">PASO DEL PROCESO</div>
+                        <div class="mv-step-title">@sc.Number · @(sf.NodeName ?? sf.FormTitle)</div>
                     </div>
-                    <button style="background:transparent;border:0;font-size:1.6rem;line-height:1;color:var(--ink-3,#94a3b8);cursor:pointer;" @onclick="CloseStepAsync">&times;</button>
+                    <button class="mv-close" @onclick="CloseStepAsync" aria-label="Cerrar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
                 </div>
                 @if (sf.IsGatewayAhead && sf.ApprovalOptions is { Count: > 0 })
                 {
-                    <div style="margin-top:6px;font-size:.8rem;color:var(--ink-3,#64748b);">Al enviar elegiras la ruta del proceso.</div>
+                    <div class="mv-step-note">Al enviar elegiras la ruta del proceso.</div>
                 }
             </div>
-            <div style="padding:14px 16px;overflow:auto;-webkit-overflow-scrolling:touch;">
+            <div class="mv-step-body">
                 <DynamicFormRenderer DefinitionId="@sf.DefinitionId"
                                      ResponseId="@sf.ResponseId"
                                      Reference="@sf.Reference"
@@ -169,24 +170,24 @@
 @* ---- Hoja para cambiar estado ---- *@
 @if (_moveCard is { } mcard)
 {
-    <div style="position:fixed;inset:0;z-index:80;background:rgba(15,23,42,.5);display:flex;align-items:flex-end;justify-content:center;" @onclick="CloseMove">
-        <div style="width:100%;max-width:540px;background:var(--surface-1,#fff);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:82vh;overflow:auto;" @onclick:stopPropagation="true">
-            <div style="width:40px;height:4px;border-radius:2px;background:#cbd5e1;margin:0 auto 12px;"></div>
-            <div style="font-weight:800;">@mcard.Number</div>
-            <div style="color:var(--ink-2,#475569);margin-bottom:12px;">@mcard.Title</div>
-            <div style="font-size:.8rem;color:var(--ink-3,#94a3b8);margin-bottom:8px;">Mover a estado:</div>
+    <div class="mv-overlay bottom" @onclick="CloseMove">
+        <div class="mv-sheet" @onclick:stopPropagation="true">
+            <div class="mv-grip"></div>
+            <div class="mv-sheet-title">@mcard.Number</div>
+            <div class="mv-sheet-sub">@mcard.Title</div>
+            <div class="mv-sheet-lbl">Mover a estado:</div>
             @foreach (var col in _detail!.Columns.OrderBy(c => c.SortOrder))
             {
                 var c = string.IsNullOrWhiteSpace(col.Color) ? "#64748b" : col.Color!;
                 var current = col.Id == mcard.ColumnId;
-                <button style="width:100%;text-align:left;font-size:1rem;padding:14px 14px;margin-bottom:8px;border-radius:12px;border:1px solid @(current ? c : "var(--border,#e2e8f0)");background:@(current ? c + "18" : "transparent");font-weight:600;cursor:pointer;display:flex;align-items:center;gap:10px;"
+                <button class="mv-state-btn @(current ? "current" : "")" style="--dot:@c"
                         disabled="@(_busy || current)" @onclick="@(() => MoveToAsync(mcard, col))">
-                    <span style="width:11px;height:11px;border-radius:50%;background:@c;display:inline-block;"></span>
+                    <span class="mv-dot"></span>
                     @col.Name
-                    @if (current) { <span style="margin-left:auto;font-size:.8rem;color:@c;font-weight:700;">actual</span> }
+                    @if (current) { <span class="mv-state-cur">actual</span> }
                 </button>
             }
-            <button style="width:100%;padding:12px;border:0;background:transparent;color:var(--ink-3,#64748b);font-weight:600;cursor:pointer;" @onclick="CloseMove">Cerrar</button>
+            <button class="mv-sheet-close" @onclick="CloseMove">Cerrar</button>
         </div>
     </div>
 }
@@ -194,29 +195,30 @@
 @* ---- Hoja de escaneo ---- *@
 @if (_scanOpen)
 {
-    <div style="position:fixed;inset:0;z-index:90;background:rgba(2,6,23,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;">
-        <div style="width:100%;max-width:512px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#fff;">
-                <div style="font-weight:800;font-size:1.05rem;">Escanear codigo</div>
-                <button style="background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;" @onclick="CloseScanAsync">Cerrar</button>
+    <div class="mv-overlay dark">
+        <div class="mv-scan-head">
+            <div class="mv-scan-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>
+                Escanear codigo
             </div>
-            @if (_scanSupported)
-            {
-                <div style="position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;">
-                    <video @ref="_videoEl" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
-                    <div style="position:absolute;inset:12% 8%;border:3px solid rgba(255,255,255,.85);border-radius:12px;"></div>
-                </div>
-                <div style="color:#cbd5e1;text-align:center;font-size:.85rem;margin-top:8px;">Apunta al codigo de barras de la actividad.</div>
-            }
-            else
-            {
-                <div style="color:#fca5a5;font-size:.85rem;margin-bottom:8px;">Este dispositivo no tiene lector de camara; escribe el numero de la actividad.</div>
-            }
-            <div style="display:flex;gap:8px;margin-top:12px;">
-                <input style="flex:1;font-size:1rem;padding:12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#fff;" placeholder="Numero (ej. T00058)"
-                       @bind="_scanManual" @bind:event="oninput" @onkeydown="OnManualKey" />
-                <button style="padding:12px 16px;border-radius:10px;border:0;background:#4f46e5;color:#fff;font-weight:700;cursor:pointer;" @onclick="@(() => HandleCodeAsync(_scanManual))" disabled="@_busy">Buscar</button>
+            <button class="mv-scan-x" @onclick="CloseScanAsync">Cerrar</button>
+        </div>
+        @if (_scanSupported)
+        {
+            <div class="mv-video-wrap">
+                <video @ref="_videoEl" muted playsinline></video>
+                <div class="mv-reticle"></div>
             </div>
+            <div class="mv-scan-help">Apunta al codigo de barras de la actividad.</div>
+        }
+        else
+        {
+            <div class="mv-scan-unsupported">Este dispositivo no tiene lector de camara; escribe el numero de la actividad.</div>
+        }
+        <div class="mv-scan-manual">
+            <input class="mv-scan-input" placeholder="Numero (ej. T00058)"
+                   @bind="_scanManual" @bind:event="oninput" @onkeydown="OnManualKey" />
+            <button class="mv-scan-go" @onclick="@(() => HandleCodeAsync(_scanManual))" disabled="@_busy">Buscar</button>
         </div>
     </div>
 }

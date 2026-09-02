@@ -17,6 +17,24 @@
 
 ---
 
+## 2026-09-01 - v0.15.141: renderer de "gestion por fila" - pildoras que abren subformularios ligados a la fila (ADR-0085)
+
+- UI de la base v0.15.140: columna de GridDetail type "gestion" que pinta PILDORAS por fila (una por tipo de
+  gestion, def por codigo + color + badge de conteo) y al clic abre el subformulario ligado a ESA fila.
+- FormGridColumn += Pills (FormGridPill: label/defCode/color); ParseColumns parsea "pills"; IsGestion.
+- Renderer (DynamicFormRenderer): celda "gestion" con pildoras + badges; th no ordenable; al crear/duplicar
+  fila se asigna __rowId; al clic OpenGestionAsync: asigna __rowId si falta -> SaveAsync(borrador) para
+  persistir -> resuelve def por codigo -> AddRowChildAsync (link con ParentRowId) -> abre modal (renderer
+  anidado). Conteos por fila via CountRowChildrenAsync. Servicio: ResolveDefinitionIdByCodeAsync.
+  __rowId sobrevive el recalculo (Compute copia keys) y el guardado (ParseGridRows preserva keys).
+- Verificado en dev (SIMULADOR COT, columna de prueba): las pildoras pintan con su color; clic en "+ Oportunidad"
+  guardo el padre, creo la gestion y abrio el modal de FRM-CRM-OPP; FormRecordLink con parent_row_id=GUID
+  confirmado en BD. Aplica igual al visor publico /f/{token} (mismo renderer).
+- Build verde. REQUIERE DEPLOY (migracion ParentRowId v0.15.140 + este renderer). Luego la sesion de diseno
+  cablea la columna gestion en FRM-CONTACTO (SOLDARCO) y verifica.
+
+---
+
 ## 2026-09-01 - v0.15.140: base motor "gestion por fila de GridDetail" (ADR-0085) - identidad de fila + vinculo
 
 - Hand-off diseno: CRM Contacto Cliente pasa a tabla ligera (GridDetail `personas`); cada fila/persona abre

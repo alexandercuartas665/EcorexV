@@ -235,6 +235,22 @@ else
     </div>
 }
 
+@* ===== Modal de GESTION por fila (ADR-0085): abre el subformulario de la gestion ligado a la fila ===== *@
+@if (_gestionOpen && _gestionChildDef is Guid gestionDef && _gestionChildResponse is Guid gestionResp)
+{
+    <div style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1200;display:flex;align-items:flex-start;justify-content:center;padding:32px 12px;overflow:auto;">
+        <div class="card-soft" style="width:min(820px,97vw);max-height:92vh;overflow:auto;background:var(--surface-1,#fff);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.3);padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <h3 style="margin:0;font-size:1.05rem;">@_gestionTitle</h3>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseGestion" style="line-height:1;">&times;</button>
+            </div>
+            <DynamicFormRenderer DefinitionId="gestionDef" ResponseId="gestionResp" Mode="FormRenderMode.Fill"
+                                 SubmittedByTenantUserId="SubmittedByTenantUserId" AmbientTenantId="AmbientTenantId"
+                                 ShowHeader="false" OnSubmitted="@(_ => OnGestionSubmittedAsync())" />
+        </div>
+    </div>
+}
+
 @code {
     /// <summary>Definicion a renderizar.</summary>
     [Parameter, EditorRequired] public Guid DefinitionId { get; set; }
@@ -496,6 +512,8 @@ else
                 RecomputeCalculatedFields();
                 // Maestro-detalle (ola F5): registros hijos de los subformularios.
                 await LoadSubformChildrenAsync();
+                // Gestiones por fila (ADR-0085): conteos para los badges de las pildoras.
+                await LoadGestionCountsAsync();
             }
             }
             finally { _dbGate.Release(); }
@@ -1798,18 +1816,25 @@ else
                         @foreach (var col in columns)
                         {
                             var colId = col.Id;
-                            <th class="dfr-grid-th-sort" title="Ordenar por @col.Label"
-                                @onclick="@(() => SortGridBy(q, colId))">
-                                <span class="dfr-th-label">@col.Label</span>
-                                @if (sort.col == colId && sort.asc)
-                                {
-                                    <span class="dfr-th-arrow">&#8593;</span>
-                                }
-                                else if (sort.col == colId)
-                                {
-                                    <span class="dfr-th-arrow">&#8595;</span>
-                                }
-                            </th>
+                            @if (col.IsGestion)
+                            {
+                                <th><span class="dfr-th-label">@col.Label</span></th>
+                            }
+                            else
+                            {
+                                <th class="dfr-grid-th-sort" title="Ordenar por @col.Label"
+                                    @onclick="@(() => SortGridBy(q, colId))">
+                                    <span class="dfr-th-label">@col.Label</span>
+                                    @if (sort.col == colId && sort.asc)
+                                    {
+                                        <span class="dfr-th-arrow">&#8593;</span>
+                                    }
+                                    else if (sort.col == colId)
+                                    {
+                                        <span class="dfr-th-arrow">&#8595;</span>
+                                    }
+                                </th>
+                            }
                         }
                     </tr>
                 </thead>
@@ -1876,7 +1901,12 @@ else
                                 var cell = rows[rowIndex].GetValueOrDefault(colId);
                                 var colExtras = extras.GetValueOrDefault(colId);
                                 <td>
-                                    @if (colExtras?.Lookup is { } lkCfg && col.Calc is null)
+                                    @if (col.IsGestion)
+                                    {
+                                        @* Columna de GESTIONES (ADR-0085): pildoras que abren subformularios ligados a la fila. *@
+                                        @RenderGestionCell(q, rowIndex, col, rows[rowIndex])
+                                    }
+                                    else if (colExtras?.Lookup is { } lkCfg && col.Calc is null)
                                     {
                                         @* Columna lookup con autollenado en la misma fila (generica:
                                            Item / Tercero / DataContainer, la fuente la dice el JSON). *@
@@ -2352,6 +2382,124 @@ else
     // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----
 
     private readonly Dictionary<string, IReadOnlyList<FormRecordListItemDto>> _subformChildren = new(StringComparer.Ordinal);
+
+    // ---- Gestion por FILA del GridDetail (ADR-0085): pildoras que abren subformularios ligados a la fila ----
+    private const string GestionRowIdKey = "__rowId";
+    // fieldCode -> rowId -> (childDefinitionId -> conteo), para los badges de las pildoras.
+    private readonly Dictionary<string, IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> _gestionCounts = new(StringComparer.Ordinal);
+    // Cache de resolucion codigo-def -> id (evita N consultas por render).
+    private readonly Dictionary<string, Guid?> _pillDefCache = new(StringComparer.Ordinal);
+    // Modal de la gestion abierta.
+    private bool _gestionOpen;
+    private Guid? _gestionChildDef;
+    private Guid? _gestionChildResponse;
+    private string? _gestionTitle;
+
+    private async Task LoadGestionCountsAsync()
+    {
+        _gestionCounts.Clear();
+        if (_definition is null || _response is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+        {
+            var gestionCols = GridColumnsOf(q).Where(c => c.IsGestion).ToList();
+            if (gestionCols.Count == 0) { continue; }
+            _gestionCounts[q.FieldCode] = await ResponsesSvc.CountRowChildrenAsync(_response.Id, q.FieldCode);
+            // Resuelve (y cachea) los codigos de def de las pildoras para poder cruzar los badges por defId.
+            foreach (var pill in gestionCols.SelectMany(c => c.Pills ?? Array.Empty<FormGridPill>()))
+            {
+                if (!_pillDefCache.ContainsKey(pill.DefCode))
+                {
+                    _pillDefCache[pill.DefCode] = await ResponsesSvc.ResolveDefinitionIdByCodeAsync(pill.DefCode);
+                }
+            }
+        }
+    }
+
+    private int CountForPill(IReadOnlyDictionary<Guid, int>? counts, string defCode)
+        => counts is not null && _pillDefCache.TryGetValue(defCode, out var id) && id is Guid g && counts.TryGetValue(g, out var n)
+            ? n : 0;
+
+    private RenderFragment RenderGestionCell(FormQuestionDto q, int rowIndex, FormGridColumn col, IReadOnlyDictionary<string, string?> row) => __builder =>
+    {
+        var pills = col.Pills ?? Array.Empty<FormGridPill>();
+        var rowId = row.GetValueOrDefault(GestionRowIdKey);
+        IReadOnlyDictionary<Guid, int>? counts = rowId is { Length: > 0 }
+            && _gestionCounts.TryGetValue(q.FieldCode, out var byRow) && byRow.TryGetValue(rowId!, out var byDef)
+            ? byDef : null;
+
+        <div class="dfr-gestion-cell" style="display:flex;flex-wrap:wrap;gap:5px;">
+            @foreach (var pill in pills)
+            {
+                var color = string.IsNullOrWhiteSpace(pill.Color) ? "#334155" : pill.Color!;
+                var n = CountForPill(counts, pill.DefCode);
+                <button type="button"
+                        style="border:1px solid @color;color:@color;background:transparent;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;"
+                        disabled="@(_busy || _response is null)"
+                        @onclick="@(() => OpenGestionAsync(q, rowIndex, pill))">
+                    + @pill.Label@(n > 0 ? $" ({n})" : "")
+                </button>
+            }
+            @if (_response is null)
+            {
+                <span class="dfr-gestion-hint" style="font-size:11px;color:var(--ink-3,#94a3b8);align-self:center;">guarda para gestionar</span>
+            }
+        </div>
+    };
+
+    // Click en una pildora: asegura el rowId, persiste el padre, crea la gestion ligada a la fila y abre el modal.
+    private async Task OpenGestionAsync(FormQuestionDto q, int rowIndex, FormGridPill pill)
+    {
+        if (_response is null) { _globalError = "Guarda el registro antes de gestionar las filas."; return; }
+
+        // 1) Identidad estable de la fila + persistir el padre (borrador) para que el vinculo sea estable.
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var rowId = rows[rowIndex].GetValueOrDefault(GestionRowIdKey);
+        if (string.IsNullOrWhiteSpace(rowId))
+        {
+            rowId = Guid.NewGuid().ToString("N");
+            rows[rowIndex][GestionRowIdKey] = rowId;
+            _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+        }
+        await SaveAsync(submit: false);
+        if (_response is null) { return; }
+
+        // 2) Resolver la def-detalle por codigo.
+        if (!_pillDefCache.TryGetValue(pill.DefCode, out var defId))
+        {
+            defId = await ResponsesSvc.ResolveDefinitionIdByCodeAsync(pill.DefCode);
+            _pillDefCache[pill.DefCode] = defId;
+        }
+        if (defId is not Guid childDef) { _globalError = $"No existe (o no esta activa) la definicion '{pill.DefCode}'."; return; }
+
+        // 3) Crear la gestion ligada a la fila y abrir el modal.
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var res = await ResponsesSvc.AddRowChildAsync(_response.Id, q.FieldCode, rowId!, childDef);
+            if (!res.IsOk) { _globalError = res.Error; return; }
+            _gestionChildDef = childDef;
+            _gestionChildResponse = res.Value;
+            _gestionTitle = pill.Label;
+            _gestionOpen = true;
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task OnGestionSubmittedAsync()
+    {
+        await LoadGestionCountsAsync();
+        CloseGestion();
+    }
+
+    private void CloseGestion()
+    {
+        _gestionOpen = false;
+        _gestionChildDef = null;
+        _gestionChildResponse = null;
+        _gestionTitle = null;
+    }
     private string? _activeChildField;
     private Guid? _activeChildResponseId;
 
@@ -2576,6 +2724,8 @@ else
         {
             row[col.Id] = extras.GetValueOrDefault(col.Id)?.Default;
         }
+        // Identidad estable de la fila (ADR-0085): permite colgar gestiones por fila via FormRecordLink.ParentRowId.
+        row[GestionRowIdKey] = Guid.NewGuid().ToString("N");
         rows.Add(row);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
     }
@@ -2735,6 +2885,8 @@ else
         }
         // Copia exacta de la fila (mismos valores capturados), insertada justo debajo.
         var copy = new Dictionary<string, string?>(rows[rowIndex], StringComparer.Ordinal);
+        // La copia es una fila NUEVA: identidad propia (no arrastra gestiones de la original).
+        copy[GestionRowIdKey] = Guid.NewGuid().ToString("N");
         rows.Insert(rowIndex + 1, copy);
         // Al insertar, los indices de fila se corren; el estado de lookup por fila quedaria desalineado.
         ClearGridLookupState(q);

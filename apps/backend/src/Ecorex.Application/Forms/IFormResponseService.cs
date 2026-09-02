@@ -206,4 +206,8 @@ public interface IFormResponseService
     /// <summary>Conteo de gestiones por fila y por definicion-hija: rowId -> (childDefinitionId -> conteo).
     /// Para pintar los badges de las pildoras sin N consultas.</summary>
     Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Resuelve el Id de una definicion ACTIVA por su codigo (tenant-scoped). Para las pildoras de
+    /// gestion, que referencian la def-detalle por codigo (FRM-CRM-COT...). Null si no existe/activa.</summary>
+    Task<Guid?> ResolveDefinitionIdByCodeAsync(string code, CancellationToken cancellationToken = default);
 }

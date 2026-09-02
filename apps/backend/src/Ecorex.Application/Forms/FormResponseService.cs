@@ -712,6 +712,16 @@ public sealed class FormResponseService : IFormResponseService
         return map;
     }
 
+    public async Task<Guid?> ResolveDefinitionIdByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code)) { return null; }
+        var c = code.Trim();
+        return await _db.FormDefinitions.AsNoTracking()
+            .Where(d => d.Code == c && d.Status == FormStatus.Active && !d.IsArchived)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<FormResult<bool>> UnlinkChildAsync(
         Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default)
     {

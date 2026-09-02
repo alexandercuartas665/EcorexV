@@ -37,11 +37,20 @@ public sealed record FormGridColumn(
     // CAP 3 (render agrupado): marca esta columna como la CLAVE por la que la grilla se pinta AGRUPADA
     // (encabezado de grupo + filas + fila de subtotal por grupo), en pantalla y en impresion. A lo sumo una
     // columna por grilla la lleva. Es SOLO presentacion (el calculo no cambia). False = grilla plana (default).
-    bool GroupRender = false)
+    bool GroupRender = false,
+    // Columna de GESTIONES (ADR-0085, Kind="gestion"): pildoras que abren subformularios LIGADOS A LA FILA.
+    // Cada pildora apunta a una def-detalle por CODIGO. Null/vacio si la columna no es de tipo gestion.
+    IReadOnlyList<FormGridPill>? Pills = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>La columna es de gestiones (pildoras que abren subformularios por fila).</summary>
+    public bool IsGestion => string.Equals(Kind, "gestion", StringComparison.OrdinalIgnoreCase);
 }
+
+/// <summary>Una pildora de la columna "gestion": abre la def-detalle <see cref="DefCode"/> ligada a la fila.</summary>
+public sealed record FormGridPill(string Label, string DefCode, string? Color);
 
 /// <summary>
 /// Resultado del recalculo de una tabla. Ademas de las filas computadas y los roll-ups, expone
@@ -119,6 +128,22 @@ public static class FormGridCalculator
                     }
                 }
 
+                // ADR-0085: pildoras de la columna "gestion" (def por codigo + color).
+                List<FormGridPill>? pills = null;
+                if (el.TryGetProperty("pills", out var pp) && pp.ValueKind == JsonValueKind.Array)
+                {
+                    pills = new List<FormGridPill>();
+                    foreach (var pe in pp.EnumerateArray())
+                    {
+                        if (pe.ValueKind != JsonValueKind.Object) { continue; }
+                        var pdef = pe.TryGetProperty("def", out var pd) ? pd.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(pdef)) { continue; }
+                        var plabel = pe.TryGetProperty("label", out var ppl) ? ppl.GetString() ?? pdef : pdef;
+                        var pcolor = pe.TryGetProperty("color", out var pcol) ? pcol.GetString() : null;
+                        pills.Add(new FormGridPill(plabel!, pdef!.Trim(), string.IsNullOrWhiteSpace(pcolor) ? null : pcolor));
+                    }
+                }
+
                 list.Add(new FormGridColumn(
                     id!, label,
                     string.IsNullOrWhiteSpace(calc) ? null : calc,
@@ -131,7 +156,8 @@ public static class FormGridCalculator
                     width,
                     string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant(),
                     string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim(),
-                    groupRender));
+                    groupRender,
+                    pills));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

@@ -63,5 +63,21 @@ window.ecorexScan = (function () {
         if (stream) { stream.getTracks().forEach(t => { try { t.stop(); } catch (e) { } }); stream = null; }
     }
 
-    return { supported, start, stop };
+    // Sube al inicio (boton "Ir arriba" de la barra flotante). Intenta el scroller mas probable y
+    // cae a window; suave si el navegador lo soporta.
+    function scrollTop() {
+        try {
+            var opts = { top: 0, left: 0, behavior: 'smooth' };
+            var el = document.querySelector('.mv-wrap');
+            var sc = el;
+            while (sc && sc !== document.body) {
+                if (sc.scrollHeight > sc.clientHeight + 4 &&
+                    getComputedStyle(sc).overflowY.match(/auto|scroll/)) { sc.scrollTo(opts); return; }
+                sc = sc.parentElement;
+            }
+            window.scrollTo(opts);
+        } catch (e) { try { window.scrollTo(0, 0); } catch (_) { } }
+    }
+
+    return { supported, start, stop, scrollTop };
 })();

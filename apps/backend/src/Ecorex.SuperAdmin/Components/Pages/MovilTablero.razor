@@ -93,6 +93,39 @@
     </button>
 </div>
 
+@* ---- Tarjeta de confirmacion de avance (tras escanear) ---- *@
+@if (_pendingCard is { } pc)
+{
+    var fromC = string.IsNullOrWhiteSpace(_pendingFrom?.Color) ? "#64748b" : _pendingFrom!.Color!;
+    var toC = string.IsNullOrWhiteSpace(_pendingTo?.Color) ? "#4f46e5" : _pendingTo!.Color!;
+    <div style="position:fixed;inset:0;z-index:85;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;padding:18px;" @onclick="ClearPending">
+        <div style="width:100%;max-width:460px;background:var(--surface-1,#fff);border-radius:18px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.35);" @onclick:stopPropagation="true">
+            <div style="text-align:center;font-size:.8rem;font-weight:700;color:var(--ink-3,#94a3b8);letter-spacing:.04em;">CONFIRMAR AVANCE</div>
+            <div style="display:flex;justify-content:space-between;gap:8px;margin-top:10px;">
+                <span style="font-weight:800;color:var(--ink-2,#475569);">@pc.Number</span>
+                <span style="font-size:.72rem;padding:1px 8px;border-radius:999px;background:@PriorityBg(pc.Priority);color:@PriorityColor(pc.Priority);font-weight:700;">@PriorityLabel(pc.Priority)</span>
+            </div>
+            <div style="font-weight:700;font-size:1.05rem;line-height:1.3;margin-top:2px;">@pc.Title</div>
+            <div style="font-size:.82rem;color:var(--ink-3,#94a3b8);margin-top:4px;">@(pc.Assignee?.DisplayName ?? "Sin asignar")</div>
+
+            <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin:16px 0 18px;flex-wrap:wrap;">
+                <span style="font-size:.9rem;font-weight:700;padding:5px 12px;border-radius:999px;background:@(fromC + "18");color:@fromC;">@_pendingFrom?.Name</span>
+                <span style="font-size:1.2rem;color:var(--ink-3,#94a3b8);">→</span>
+                <span style="font-size:.9rem;font-weight:800;padding:5px 12px;border-radius:999px;background:@(toC + "22");color:@toC;">@_pendingTo?.Name</span>
+            </div>
+
+            @* Aqui, en la siguiente iteracion, se pintaran/ejecutaran las reglas del avance. *@
+
+            <div style="display:flex;gap:10px;">
+                <button style="flex:1;padding:14px;border-radius:12px;border:1px solid var(--border,#cbd5e1);background:transparent;font-weight:700;font-size:1rem;cursor:pointer;color:var(--ink-2,#475569);"
+                        @onclick="ClearPending" disabled="@_busy">Cancelar</button>
+                <button style="flex:2;padding:14px;border-radius:12px;border:0;background:@toC;color:#fff;font-weight:800;font-size:1rem;cursor:pointer;"
+                        @onclick="ConfirmAdvanceAsync" disabled="@_busy">Avanzar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Hoja para cambiar estado ---- *@
 @if (_moveCard is { } mcard)
 {
@@ -155,6 +188,11 @@
     private bool _loading, _busy;
 
     private ActivityCardDto? _moveCard;
+
+    // Avance pendiente de confirmar (tras escanear): la actividad y la transicion propuesta.
+    private ActivityCardDto? _pendingCard;
+    private ActivityBoardColumnDto? _pendingFrom;
+    private ActivityBoardColumnDto? _pendingTo;
 
     private bool _scanOpen, _scanSupported;
     private string? _scanManual;
@@ -222,22 +260,22 @@
     {
         _scanManual = null;
         _scanOpen = true;
-        _scanSupported = false;
         _selfRef ??= DotNetObjectReference.Create(this);
-        StateHasChanged();
-        await Task.Yield();
-        try
-        {
-            _scanSupported = await JS.InvokeAsync<bool>("ecorexScan.supported");
-            if (_scanSupported)
-            {
-                var r = await JS.InvokeAsync<ScanStartResult>("ecorexScan.start", _videoEl, _selfRef);
-                if (!r.Ok) { _scanSupported = false; }
-            }
-        }
+        try { _scanSupported = await JS.InvokeAsync<bool>("ecorexScan.supported"); }
         catch { _scanSupported = false; }
-        StateHasChanged();
+        StateHasChanged();                 // pinta el area de video si hay soporte; la entrada manual siempre
+        if (_scanSupported)
+        {
+            await Task.Delay(60);          // deja montar el <video> antes de arrancar la camara
+            // start() arranca la camara en 2do plano y devuelve de inmediato (no bloquea el circuito).
+            try { await JS.InvokeAsync<ScanStartResult>("ecorexScan.start", _videoEl, _selfRef); }
+            catch { _scanSupported = false; StateHasChanged(); }
+        }
     }
+
+    // La camara no esta disponible (permiso negado / sin camara): caer a la entrada manual.
+    [JSInvokable]
+    public Task OnScanUnavailable() => InvokeAsync(() => { _scanSupported = false; StateHasChanged(); });
 
     private async Task CloseScanAsync()
     {
@@ -274,16 +312,29 @@
         if (found is null) { ShowToast($"No se encontro '{raw}' en este tablero.", false); return; }
         if (colIdx >= cols.Count - 1) { ShowToast($"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).", false); return; }
 
-        var target = cols[colIdx + 1];
+        // No se avanza en seco: se muestra una TARJETA de confirmacion con la actividad y la transicion.
+        // (Iteracion siguiente: aqui correran las reglas antes de confirmar el avance.)
+        _pendingCard = found;
+        _pendingFrom = cols[colIdx];
+        _pendingTo = cols[colIdx + 1];
+    }
+
+    // Confirmar el avance desde la tarjeta de escaneo. Aqui, mas adelante, se ejecutan las reglas.
+    private async Task ConfirmAdvanceAsync()
+    {
+        if (_pendingCard is not { } card || _pendingTo is not { } to) { return; }
         _busy = true;
         try
         {
-            var res = await BoardsSvc.MoveTaskAsync(found.Id, target.Id, 0, _actorId, _actorName);
-            if (res.IsOk) { ShowToast($"{found.Number}: {cols[colIdx].Name} -> {target.Name}", true); await ReloadAsync(); }
+            // TODO (siguiente iteracion): ejecutar aqui las reglas de negocio ANTES/DESPUES de avanzar.
+            var res = await BoardsSvc.MoveTaskAsync(card.Id, to.Id, 0, _actorId, _actorName);
+            if (res.IsOk) { ShowToast($"{card.Number}: {_pendingFrom?.Name} -> {to.Name}", true); await ReloadAsync(); }
             else { ShowToast(res.Error ?? "No se pudo avanzar.", false); }
         }
-        finally { _busy = false; }
+        finally { _busy = false; ClearPending(); }
     }
+
+    private void ClearPending() { _pendingCard = null; _pendingFrom = null; _pendingTo = null; }
 
     private void ShowToast(string msg, bool ok) { _toast = msg; _toastOk = ok; }
 

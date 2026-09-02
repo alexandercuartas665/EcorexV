@@ -13,43 +13,48 @@ window.ecorexScan = (function () {
             && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     }
 
-    async function start(videoEl, dotnetRef) {
+    // Arranca la camara en SEGUNDO PLANO y devuelve de inmediato (no bloquea el circuito Blazor esperando
+    // el permiso de camara). Si la camara falla / se niega el permiso, invoca OnScanUnavailable para que la
+    // vista caiga a la entrada manual. Al leer el primer codigo invoca OnScanned(valor).
+    function start(videoEl, dotnetRef) {
         if (!supported()) { return { ok: false, reason: 'unsupported' }; }
-        try {
-            const formats = ['code_128', 'ean_13', 'ean_8', 'code_39', 'code_93',
-                'upc_a', 'upc_e', 'itf', 'codabar', 'qr_code', 'data_matrix'];
-            let use = formats;
+        (async () => {
             try {
-                const supp = await window.BarcodeDetector.getSupportedFormats();
-                if (Array.isArray(supp) && supp.length) { use = formats.filter(f => supp.includes(f)); }
-            } catch (e) { /* usar la lista completa */ }
-            detector = new window.BarcodeDetector({ formats: use });
-
-            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
-            videoEl.setAttribute('playsinline', 'true');
-            videoEl.srcObject = stream;
-            await videoEl.play();
-            active = true;
-
-            const tick = async () => {
-                if (!active) { return; }
+                const formats = ['code_128', 'ean_13', 'ean_8', 'code_39', 'code_93',
+                    'upc_a', 'upc_e', 'itf', 'codabar', 'qr_code', 'data_matrix'];
+                let use = formats;
                 try {
-                    const codes = await detector.detect(videoEl);
-                    if (codes && codes.length && codes[0].rawValue) {
-                        const val = codes[0].rawValue;
-                        stop();
-                        dotnetRef.invokeMethodAsync('OnScanned', val);
-                        return;
-                    }
-                } catch (e) { /* frame no legible: seguir */ }
+                    const supp = await window.BarcodeDetector.getSupportedFormats();
+                    if (Array.isArray(supp) && supp.length) { use = formats.filter(f => supp.includes(f)); }
+                } catch (e) { /* usar la lista completa */ }
+                detector = new window.BarcodeDetector({ formats: use });
+
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+                videoEl.setAttribute('playsinline', 'true');
+                videoEl.srcObject = stream;
+                await videoEl.play();
+                active = true;
+
+                const tick = async () => {
+                    if (!active) { return; }
+                    try {
+                        const codes = await detector.detect(videoEl);
+                        if (codes && codes.length && codes[0].rawValue) {
+                            const val = codes[0].rawValue;
+                            stop();
+                            dotnetRef.invokeMethodAsync('OnScanned', val);
+                            return;
+                        }
+                    } catch (e) { /* frame no legible: seguir */ }
+                    timer = setTimeout(tick, 250);
+                };
                 timer = setTimeout(tick, 250);
-            };
-            timer = setTimeout(tick, 250);
-            return { ok: true };
-        } catch (e) {
-            stop();
-            return { ok: false, reason: (e && e.name) || 'error' };
-        }
+            } catch (e) {
+                stop();
+                try { dotnetRef.invokeMethodAsync('OnScanUnavailable'); } catch (_) { }
+            }
+        })();
+        return { ok: true };
     }
 
     function stop() {

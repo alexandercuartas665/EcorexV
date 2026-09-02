@@ -436,6 +436,8 @@ else
     // "Infraestructura IA" en toda vista de menu existente. Corre tras cualquiera de las dos
     // ramas (skip/demo) porque EnsureDefaultMenuAsync no reprocesa tenants ya sembrados.
     await seeder.EnsureAgentesColmenaMenuItemAsync();
+    // Backfill idempotente (voz IA, ADR-0056): item "Configuracion de voz" bajo Infraestructura IA.
+    await seeder.EnsureVozMenuItemAsync();
 }
 
 // Onboarding one-shot desde db3dev (ECOREX_RUN_ONBOARDING=true). Corre despues de migraciones/seed,
@@ -747,6 +749,7 @@ app.MapHub<Ecorex.SuperAdmin.RealTime.AgenteHub>(AgentChannel.HubPath);
 app.MapAgentEndpoints();
 // Motor de Reportes y BI (ADR-0051, Ola 1): catalogo + datasource tenant-safe como JSON.
 Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
+Ecorex.SuperAdmin.Endpoints.RetellWebhookEndpoints.MapRetellWebhook(app);
 // Web Reporting API de Bold (Ola 2): controllers del visor/diseniador RDL.
 app.MapControllers();
 

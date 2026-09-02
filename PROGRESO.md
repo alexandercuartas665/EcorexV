@@ -37,6 +37,47 @@
 
 ---
 
+## 2026-09-02 - v0.15.154: Motor de voz IA (Retell/Telnyx) + varias LINEAS por tenant (ADR-0056, sin deploy)
+
+- Hand-off de la sesion de spec (Fase B): construir el motor de voz que coloca las llamadas IA de la Fase A.
+  Retell (agente de voz) sobre Telnyx (Elastic SIP Trunking). Doc oficial confirmada (create-phone-call,
+  import-phone-number, create-retell-llm, create-agent, webhook x-retell-signature HMAC-SHA256).
+- REQUISITO CLAVE: el prompt de ECOREX REEMPLAZA el del agente Retell. Como agent_override NO permite pisar
+  el prompt por-llamada, el prompt vive en el Retell LLM del agente. Se provisiona un agente Retell keyed por
+  HASH del prompt compuesto (SystemPrompt+PromptExtra+objetivo+voz+idioma) -> reutiliza para prompts iguales.
+- VARIAS LINEAS por tenant (pedido del usuario): RetellVoiceLine (con Name, IsDefault) reemplaza al singleton
+  TenantRetellConfig. Cada linea tiene su nombre, numero saliente y credenciales cifradas propias. PlaceCallAsync
+  elige la linea habilitada por defecto (o la primera completa). VoiceCall.RetellVoiceLineId ancla que linea
+  coloco la llamada (el webhook resuelve la key de firma por esa linea).
+- Domain: RetellVoiceLine (secretos cifrados: RetellApiKey/SipPassword; Name; IsDefault), VoiceCall (call_id,
+  status, transcripcion, analisis, costo, whitelist de formularios, RetellVoiceLineId), RetellAgentMap
+  (hash->agente), enum VoiceCallStatus.
+- Application/Voice: IRetellApiClient + DTOs; IRetellVoiceService/RetellVoiceService (compone prompt puro,
+  asegura agente, coloca llamada por la linea elegida, persiste VoiceCall); IRetellVoiceLineService (CRUD;
+  DTO expone solo HasApiKey/HasSipPassword; EnsureSingleDefault desmarca las otras); RetellSignatureVerifier
+  (puro, HMAC + anti-replay 5 min); RetellWebhookProcessor (verifica firma con la key de la LINEA de la llamada,
+  actualiza VoiceCall/run, vuelca a FormResponse con whitelist DURA).
+- Infrastructure: RetellApiClient (AddHttpClient, key por-llamada, 4xx!=5xx, sin throw, retry solo transitorios
+  y NUNCA en create-phone-call); EF config + DbSets (retell_voice_lines indice por TenantId NO unico -> varias);
+  migracion DUAL AddVoiceCalls (PG + SQL Server, 3 tablas).
+- SuperAdmin: webhook publico POST /api/voice/retell/webhook (resuelve tenant por call_id -> AmbientTenantContext
+  -> verifica firma); pagina /config-voz reescrita a TARJETAS (una por linea) + MODAL de edicion (nombre, key,
+  numero, voz, idioma, Telnyx, Habilitada/Por-defecto); nunca muestra secretos. Item de menu "Configuracion de
+  voz" sembrado bajo "Infraestructura IA" (seed + backfill idempotente EnsureVozMenuItemAsync).
+- Enganche: ExecuteLlamadaAsync rama Modo=="ia" -> valida E.164 -> IRetellVoiceService.PlaceCallAsync ->
+  run con ExternalRef=call_id (dedup evita re-llamar). Secretos SOLO cifrados, cero en logs.
+- Quitada la fuente reportable ANTIGUA DataConnectorReportSource (+ su test); la reemplazo definitiva
+  ExternalDataSourceReportSource ya esta en prod (v0.15.153).
+- Build: dotnet build -> 0 errores. Tests (mock, CERO llamadas reales): RetellSignatureVerifierTests +
+  RetellVoicePureTests + RetellWebhookPeekTests = 28 verdes; suite Application 720/721. Actualizados los 4 fakes
+  de IApplicationDbContext (+3 DbSets, RetellVoiceLines) y el ctor del dispatcher (stub FakeVoice). NOTA: el test
+  pre-existente ContactWorkflowDispatcherTests.Corre_una_vez (NRE en ResolveSegmentAsync por navegacion
+  Tercero.Empresa en EF InMemory) YA fallaba en el commit base (ajeno a esta entrega).
+- VERIFICADO EN LOCAL (dev 5234, AGROMETALICAS): dos lineas "Ventas"/"Cobranzas" como tarjetas; default
+  exclusivo; key cifrada (CfDJ8...); menu presente; migracion aplica en limpio. SIN DEPLOY (a senal del usuario).
+
+---
+
 ## 2026-09-02 - v0.15.152: DataConnectorReportSource - fuente reportable de conexiones/servidores (ADR-0051/0084)
 
 - Hand-off de la sesion de reportes: nueva IReportableSource NATIVA `DataConnectorReportSource`

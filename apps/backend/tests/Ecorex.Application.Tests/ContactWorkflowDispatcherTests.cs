@@ -81,6 +81,14 @@ public class ContactWorkflowDispatcherTests
             => Task.FromResult(new EmailSendResult(true, null));
     }
 
+    // Doble de voz IA: estos tests no ejercitan el paso Llamada IA; basta para construir el dispatcher.
+    private sealed class FakeVoice : Ecorex.Application.Voice.IRetellVoiceService
+    {
+        public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
+            Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no usado en test", false));
+    }
+
     // Doble de tareas: el paso Llamada no se ejercita en estos tests (solo WhatsApp), asi que todos los
     // metodos lanzan; basta para construir el dispatcher.
     private sealed class FakeTasks : ITaskItemService
@@ -139,6 +147,9 @@ public class ContactWorkflowDispatcherTests
         public bool HasActiveTransaction => false;
 
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => NotUsed<Ecorex.Domain.Entities.RetellVoiceLine>();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => NotUsed<Ecorex.Domain.Entities.VoiceCall>();
+        public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => NotUsed<Ecorex.Domain.Entities.RetellAgentMap>();
         public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
@@ -367,7 +378,7 @@ public class ContactWorkflowDispatcherTests
         var db = new FakeAppDb(inner);
         var whatsapp = new FakeWhatsApp();
         var dispatcher = new ContactWorkflowDispatcher(
-            db, new FakeTenantContext(TenantId), whatsapp, new FakeEmail(), new FakeTasks(),
+            db, new FakeTenantContext(TenantId), whatsapp, new FakeEmail(), new FakeTasks(), new FakeVoice(),
             TimeProvider.System, NullLogger<ContactWorkflowDispatcher>.Instance);
         return (dispatcher, whatsapp, db, inner);
     }

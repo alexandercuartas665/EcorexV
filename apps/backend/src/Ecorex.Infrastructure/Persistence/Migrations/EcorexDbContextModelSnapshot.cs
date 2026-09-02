@@ -8903,6 +8903,157 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("report_templates", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RetellAgentMap", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AiAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_agent_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<string>("PromptHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prompt_hash");
+
+                    b.Property<string>("RetellAgentId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("retell_agent_id");
+
+                    b.Property<string>("RetellLlmId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("retell_llm_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_retell_agent_maps");
+
+                    b.HasIndex("TenantId", "PromptHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_retell_agent_maps_tenant_id_prompt_hash");
+
+                    b.ToTable("retell_agent_maps", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RetellVoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FromNumber")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("from_number");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_default");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("language");
+
+                    b.Property<DateTimeOffset?>("LastValidatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_validated_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("RetellApiKeyEncrypted")
+                        .HasColumnType("text")
+                        .HasColumnName("retell_api_key_encrypted");
+
+                    b.Property<string>("SipPasswordEncrypted")
+                        .HasColumnType("text")
+                        .HasColumnName("sip_password_encrypted");
+
+                    b.Property<string>("SipUsername")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("sip_username");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TerminationUri")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("termination_uri");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("VoiceId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("voice_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_retell_voice_lines");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("ix_retell_voice_lines_tenant_id");
+
+                    b.ToTable("retell_voice_lines", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Rol", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13509,6 +13660,119 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_tercero_notas_tenant_id_tercero_id");
 
                     b.ToTable("tercero_notas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.VoiceCall", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AiAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_agent_id");
+
+                    b.Property<string>("AnalysisJson")
+                        .HasColumnType("text")
+                        .HasColumnName("analysis_json");
+
+                    b.Property<string>("CallId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("call_id");
+
+                    b.Property<Guid?>("ContactWorkflowRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contact_workflow_run_id");
+
+                    b.Property<decimal?>("CostUsd")
+                        .HasColumnType("numeric")
+                        .HasColumnName("cost_usd");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<string>("ErrorText")
+                        .HasColumnType("text")
+                        .HasColumnName("error_text");
+
+                    b.Property<string>("FormulariosPermitidosJson")
+                        .HasColumnType("text")
+                        .HasColumnName("formularios_permitidos_json");
+
+                    b.Property<string>("FromNumber")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("from_number");
+
+                    b.Property<string>("Objetivo")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("objetivo");
+
+                    b.Property<string>("RetellAgentId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("retell_agent_id");
+
+                    b.Property<Guid?>("RetellVoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("retell_voice_line_id");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToNumber")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("to_number");
+
+                    b.Property<string>("TranscriptText")
+                        .HasColumnType("text")
+                        .HasColumnName("transcript_text");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_voice_calls");
+
+                    b.HasIndex("TenantId", "CallId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_voice_calls_tenant_id_call_id");
+
+                    b.ToTable("voice_calls", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Warehouse", b =>

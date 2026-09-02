@@ -90,6 +90,7 @@ public static class DependencyInjection
         services.AddHttpClient<Ecorex.Application.Admin.IEvolutionApiClient, Evolution.EvolutionApiClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IYCloudApiClient, YCloud.YCloudApiClient>();
+        services.AddHttpClient<Ecorex.Application.Voice.IRetellApiClient, Retell.RetellApiClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>();
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
         // Importacion manual desde API REST del Contenedor de datos (disparo por el usuario).

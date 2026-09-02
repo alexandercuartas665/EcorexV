@@ -69,6 +69,9 @@ public class TenantUserServiceTests
 
         public DbSet<Tenant> Tenants => throw new NotSupportedException();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => throw new NotSupportedException();
         public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
         public DbSet<Asesor> Asesores => throw new NotSupportedException();
         public DbSet<TenantConfiguration> TenantConfigurations => throw new NotSupportedException();

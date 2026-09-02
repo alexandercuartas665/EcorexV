@@ -3096,6 +3096,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(ia.Id, "Conversaciones", "conversaciones");
         Item(ia.Id, "Bitacora del agente", "bitacora-agente");
         Item(ia.Id, "Plantillas WhatsApp", "plantillas-whatsapp");
+        Item(ia.Id, "Configuracion de voz", "config-voz");
 
         // ---- Seccion: CRM (heredado) (slug crm) ----
         var crm = Add(MenuNodeKind.Section, "CRM (heredado)", null, "crm", iconKey: "crm");
@@ -3140,6 +3141,48 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 IconKey = null,
                 LegacyCode = "000868",
                 Route = "agentes-colmena",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxSort + 1
+            });
+            added = true;
+        }
+
+        if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Configuracion de voz" (ruta config-voz) bajo la seccion
+    /// Infraestructura IA en los menus YA sembrados (voz IA, ADR-0056). Corre en cada arranque; no duplica.
+    /// </summary>
+    public async Task EnsureVozMenuItemAsync(CancellationToken cancellationToken = default)
+    {
+        var iaSections = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Section && n.Route == "ia")
+            .ToListAsync(cancellationToken);
+
+        var added = false;
+        foreach (var ia in iaSections)
+        {
+            var exists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == ia.MenuViewId && n.Route == "config-voz", cancellationToken);
+            if (exists) { continue; }
+
+            var maxSort = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.ParentId == ia.Id)
+                .Select(n => (int?)n.SortOrder)
+                .MaxAsync(cancellationToken) ?? ia.SortOrder;
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = ia.TenantId,
+                MenuViewId = ia.MenuViewId,
+                ParentId = ia.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Configuracion de voz",
+                IconKey = null,
+                LegacyCode = null,
+                Route = "config-voz",
                 State = MenuNodeState.Ready,
                 IsVisible = true,
                 SortOrder = maxSort + 1

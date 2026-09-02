@@ -250,6 +250,12 @@ public interface IApplicationDbContext
     // (paso, ventana, contacto) disparado. Clave de idempotencia/dedupe.
     DbSet<ContactWorkflowRun> ContactWorkflowRuns { get; }
 
+    // Voz IA (Retell/Telnyx, ADR-0056): config por tenant cifrada, llamadas persistidas, y el mapa
+    // idempotente prompt-compuesto -> agente Retell (el prompt de ECOREX reemplaza el del agente).
+    DbSet<RetellVoiceLine> RetellVoiceLines { get; }
+    DbSet<VoiceCall> VoiceCalls { get; }
+    DbSet<RetellAgentMap> RetellAgentMaps { get; }
+
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto) con flags RQ07, vinculos opcionales (flujo/formulario/tablero)
     // y relaciones M:N (cargos/terceros) en tablas hijas.

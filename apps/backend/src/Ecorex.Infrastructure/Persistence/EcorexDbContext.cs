@@ -262,6 +262,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
     public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => Set<ContactWorkflowSchedule>();
     public DbSet<ContactWorkflowRun> ContactWorkflowRuns => Set<ContactWorkflowRun>();
+    public DbSet<RetellVoiceLine> RetellVoiceLines => Set<RetellVoiceLine>();
+    public DbSet<VoiceCall> VoiceCalls => Set<VoiceCall>();
+    public DbSet<RetellAgentMap> RetellAgentMaps => Set<RetellAgentMap>();
 
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
@@ -560,6 +563,35 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.FromEmail).HasMaxLength(200);
             b.Property(x => x.FromName).HasMaxLength(160);
             b.HasIndex(x => x.TenantId).IsUnique();
+        });
+
+        // Voz IA (Retell/Telnyx, ADR-0056): config por tenant (unica), llamadas, y mapa de agentes.
+        modelBuilder.Entity<RetellVoiceLine>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.FromNumber).HasMaxLength(24);
+            b.Property(x => x.TerminationUri).HasMaxLength(200);
+            b.Property(x => x.SipUsername).HasMaxLength(120);
+            b.Property(x => x.VoiceId).HasMaxLength(120);
+            b.Property(x => x.Language).HasMaxLength(16);
+            // Varias lineas por tenant (no unico); indice por tenant para el listado.
+            b.HasIndex(x => x.TenantId);
+        });
+        modelBuilder.Entity<VoiceCall>(b =>
+        {
+            b.Property(x => x.CallId).HasMaxLength(120).IsRequired();
+            b.Property(x => x.RetellAgentId).HasMaxLength(120);
+            b.Property(x => x.FromNumber).HasMaxLength(24);
+            b.Property(x => x.ToNumber).HasMaxLength(24);
+            b.Property(x => x.Objetivo).HasMaxLength(40);
+            b.HasIndex(x => new { x.TenantId, x.CallId }).IsUnique();
+        });
+        modelBuilder.Entity<RetellAgentMap>(b =>
+        {
+            b.Property(x => x.PromptHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.RetellLlmId).HasMaxLength(120).IsRequired();
+            b.Property(x => x.RetellAgentId).HasMaxLength(120).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.PromptHash }).IsUnique();
         });
 
         modelBuilder.Entity<PasswordResetToken>(b =>

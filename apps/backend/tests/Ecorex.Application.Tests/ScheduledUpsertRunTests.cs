@@ -48,6 +48,9 @@ public class ScheduledUpsertRunTests
         // El nucleo de ingesta solo necesita las tres tablas EAV de arriba; el resto de la interfaz no
         // se toca en esta prueba (igual criterio que FakeAppDb de RowIngestServiceTests).
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => NotUsed<Ecorex.Domain.Entities.RetellVoiceLine>();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => NotUsed<Ecorex.Domain.Entities.VoiceCall>();
+        public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => NotUsed<Ecorex.Domain.Entities.RetellAgentMap>();
         public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
         public DbSet<EmailTemplate> EmailTemplates => NotUsed<EmailTemplate>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();

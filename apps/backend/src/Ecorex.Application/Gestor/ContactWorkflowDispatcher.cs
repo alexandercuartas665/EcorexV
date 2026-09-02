@@ -56,12 +56,13 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private readonly IWhatsAppConnectorService _whatsapp;
     private readonly IEmailSender _email;
     private readonly ITaskItemService _tasks;
+    private readonly Voice.IRetellVoiceService _voice;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ContactWorkflowDispatcher> _logger;
 
     public ContactWorkflowDispatcher(
         IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService whatsapp,
-        IEmailSender email, ITaskItemService tasks, TimeProvider timeProvider,
+        IEmailSender email, ITaskItemService tasks, Voice.IRetellVoiceService voice, TimeProvider timeProvider,
         ILogger<ContactWorkflowDispatcher> logger)
     {
         _db = db;
@@ -69,6 +70,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         _whatsapp = whatsapp;
         _email = email;
         _tasks = tasks;
+        _voice = voice;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -348,12 +350,34 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     {
         const string channel = "crm";
         var call = DeserializeCall(paramsJson);
-        // Llamada IA (ADR-0056): la config referencia un AiAgent reutilizado + prompt extra + objetivo +
-        // formularios. El motor de voz es de la fase siguiente; aqui NO se coloca ninguna llamada.
+        // Llamada IA (ADR-0056): coloca la llamada con Retell reutilizando el AiAgent (su SystemPrompt +
+        // PromptExtra + objetivo componen el prompt que REEMPLAZA el del agente Retell). El dedupe del
+        // ContactWorkflowRun evita re-llamar; nunca se reintenta a ciegas.
         if (call?.Modo == "ia")
         {
-            return (ContactWorkflowRunStatus.Skipped, "voz-ia", null,
-                "Llamada IA pendiente de motor (fase siguiente).");
+            const string voiceChannel = "voz-ia";
+            if (!Voice.RetellVoiceService.IsE164(contact.Telefono))
+            {
+                return (ContactWorkflowRunStatus.Skipped, voiceChannel, null, "Contacto sin telefono en formato E.164.");
+            }
+            var contactVars = new Dictionary<string, string?>
+            {
+                ["nombre"] = contact.Nombre,
+                ["empresa"] = contact.Empresa,
+                ["cargo"] = contact.Cargo,
+                ["ciudad"] = contact.Ciudad
+            };
+            var voiceRes = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
+                ToNumber: contact.Telefono!,
+                AiAgentId: call.AgenteId,
+                PromptExtra: call.PromptExtra,
+                Objetivo: call.Objetivo,
+                FormulariosPermitidos: call.FormulariosPermitidos ?? Array.Empty<Guid>(),
+                ContactVariables: contactVars), cancellationToken);
+
+            return voiceRes.Placed
+                ? (ContactWorkflowRunStatus.Sent, voiceChannel, voiceRes.CallId, null)
+                : (ContactWorkflowRunStatus.Failed, voiceChannel, null, voiceRes.Error ?? "No se pudo colocar la llamada IA.");
         }
         if (call is null || !Guid.TryParse(call.Subcategoria, out var subcategoriaId))
         {

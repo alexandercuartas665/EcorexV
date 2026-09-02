@@ -327,3 +327,26 @@ Todo se persiste como JSON en `params_json` (sin migracion). El motor de voz IA 
 siguiente: el dispatcher, ante `Modo == "ia"`, devuelve `Skipped/"voz-ia"` con nota "pendiente de
 motor". Validacion minima en el disenador: modo IA exige agente; objetivo "Llenar formulario" exige
 al menos un formulario permitido. Round-trip cubierto por `ContactWorkflowCallParamsTests`.
+
+## Adenda 2026-09-02: MOTOR DE VOZ IA (Retell/Telnyx) - Fase B
+
+La Fase A dejo la config del paso "Llamada IA" y un hook en `ContactWorkflowDispatcher.ExecuteLlamadaAsync`
+(rama `Modo=="ia"`). La Fase B implementa el motor que coloca la llamada:
+
+- **Proveedor**: Retell (agente de voz) sobre Telnyx (Elastic SIP Trunking). Salientes exigen el header
+  `X-Telnyx-Username` en `custom_sip_headers`.
+- **El prompt de ECOREX reemplaza el del agente Retell** (requisito). Como `agent_override` NO permite pisar
+  el prompt por-llamada, el prompt compuesto (`AiAgent.SystemPrompt` + `PromptExtra` + directiva de objetivo)
+  se materializa como el `general_prompt` del Retell LLM. Se provisiona un agente Retell **keyed por hash del
+  prompt** (`RetellAgentMap`) y se reutiliza para prompts identicos.
+- **Secretos por tenant cifrados** (`TenantRetellConfig`: RetellApiKey/SipPassword con `ISecretProtector`).
+  El DTO solo expone `HasApiKey`/`HasSipPassword`; jamas se loguean ni se muestran.
+- **Persistencia** de cada llamada en `VoiceCall` (call_id, status, transcripcion, analisis, costo, whitelist
+  de formularios). El **webhook** (`/api/voice/retell/webhook`) verifica la firma (HMAC-SHA256 con la key del
+  tenant, anti-replay) y, si el objetivo era LlenarFormulario, vuelca los datos capturados a `FormResponse`
+  usando SOLO los `FormulariosPermitidos` (whitelist dura).
+- **Dedup/idempotencia**: el `ContactWorkflowRun` (ExternalRef = call_id) evita re-llamar; `create-phone-call`
+  NUNCA se reintenta (un 5xx pudo haber colocado la llamada).
+
+Migracion DUAL aditiva `AddVoiceCalls` (PG + SQL Server): `tenant_retell_configs`, `voice_calls`,
+`retell_agent_maps`. El motor de voz no coloca ninguna llamada hasta que un tenant configure y habilite Retell.

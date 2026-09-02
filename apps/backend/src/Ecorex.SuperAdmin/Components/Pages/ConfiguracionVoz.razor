@@ -1,0 +1,221 @@
+@page "/config-voz"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Voice
+@inject IRetellVoiceLineService VozSvc
+
+<PageTitle>Lineas de voz IA (Retell) - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">CONFIGURACION - VOZ IA</div>
+        <h1>Lineas de voz con IA (Retell / Telnyx)</h1>
+        <p class="module-sub">Cada linea tiene su nombre, numero saliente y credenciales cifradas. La API key y la clave SIP nunca se muestran ni salen del servidor.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenNew">+ Nueva linea</button>
+</div>
+
+@if (_loading)
+{
+    <p style="color:var(--ink-3);">Cargando...</p>
+}
+else if (_lines.Count == 0)
+{
+    <p style="color:var(--ink-3);max-width:560px;">No hay lineas de voz aun. Crea una con "+ Nueva linea" para poder colocar llamadas IA desde el motor de acciones.</p>
+}
+else
+{
+    <div class="cv-grid">
+        @foreach (var l in _lines)
+        {
+            <div class="cv-card">
+                <div class="cv-card-head">
+                    <div class="cv-card-name">
+                        <span class="cv-dot @(l.IsEnabled ? "on" : "off")"></span>
+                        @l.Name
+                    </div>
+                    @if (l.IsDefault) { <span class="cv-badge def">Por defecto</span> }
+                </div>
+                <div class="cv-card-row"><span>Numero</span><strong>@(l.FromNumber ?? "-")</strong></div>
+                <div class="cv-card-row"><span>Voz</span><strong>@(l.VoiceId ?? "-")</strong></div>
+                <div class="cv-card-row"><span>Idioma</span><strong>@l.Language</strong></div>
+                <div class="cv-card-row"><span>API key</span><strong>@(l.HasApiKey ? "configurada" : "sin configurar")</strong></div>
+                <div class="cv-card-row"><span>Estado</span><strong>@(l.IsEnabled ? "Habilitada" : "Deshabilitada")</strong></div>
+                @if (l.LastValidatedAt is DateTimeOffset v)
+                {
+                    <div class="cv-card-row"><span>Validada</span><strong>@v.ToLocalTime().ToString("dd MMM HH:mm")</strong></div>
+                }
+                <div class="cv-card-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(l)">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ValidateAsync(l.Id)" disabled="@_busy">Validar</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(l.Id)" disabled="@_busy">Eliminar</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_msg is not null)
+{
+    <p style="margin-top:12px;color:@(_ok ? "var(--ok)" : "var(--danger)");font-weight:600;">@_msg</p>
+}
+
+@* ---- Modal de edicion ---- *@
+@if (_editOpen)
+{
+    <div class="modal-overlay" @onclick="Close">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editId is null ? "Nueva linea" : "Editar linea")</h3>
+                <button class="modal-close" @onclick="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre de la linea</label>
+                    <input class="form-control" @bind="_fName" placeholder="Ej. Ventas, Cobranzas" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">API key de Retell</label>
+                    <input class="form-control" type="password" autocomplete="new-password" @bind="_fApiKey"
+                           placeholder="@(_hasApiKey ? "**** configurada (deja vacio para conservar)" : "Pega la API key de Retell")" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Numero saliente (E.164)</label>
+                    <input class="form-control" @bind="_fFromNumber" placeholder="+57XXXXXXXXXX" autocomplete="off" />
+                </div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div class="field" style="flex:1;min-width:200px;">
+                        <label class="form-label">Voz (voice_id)</label>
+                        <input class="form-control" @bind="_fVoiceId" placeholder="ej. 11labs-Adrian" autocomplete="off" />
+                    </div>
+                    <div class="field" style="flex:1;min-width:120px;">
+                        <label class="form-label">Idioma</label>
+                        <input class="form-control" @bind="_fLanguage" placeholder="es-419" autocomplete="off" />
+                    </div>
+                </div>
+
+                <h4 style="margin:8px 0 4px;">Telnyx</h4>
+                <div class="field">
+                    <label class="form-label">Termination URI (FQDN)</label>
+                    <input class="form-control" @bind="_fTerminationUri" placeholder="ej. sip.telnyx.com" autocomplete="off" />
+                </div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <div class="field" style="flex:1;min-width:200px;">
+                        <label class="form-label">Usuario SIP</label>
+                        <input class="form-control" @bind="_fSipUsername" placeholder="usuario del trunk" autocomplete="off" />
+                    </div>
+                    <div class="field" style="flex:1;min-width:200px;">
+                        <label class="form-label">Clave SIP</label>
+                        <input class="form-control" type="password" autocomplete="new-password" @bind="_fSipPassword"
+                               placeholder="@(_hasSipPassword ? "**** configurada" : "clave del trunk")" />
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;">
+                    <label style="display:inline-flex;align-items:center;gap:8px;">
+                        <input type="checkbox" checked="@_fEnabled" @onchange="e => _fEnabled = (bool)(e.Value ?? false)" />
+                        <span>Habilitada</span>
+                    </label>
+                    <label style="display:inline-flex;align-items:center;gap:8px;">
+                        <input type="checkbox" checked="@_fDefault" @onchange="e => _fDefault = (bool)(e.Value ?? false)" />
+                        <span>Por defecto</span>
+                    </label>
+                </div>
+
+                @if (_editError is not null)
+                {
+                    <p style="color:var(--danger);font-weight:600;margin-top:8px;">@_editError</p>
+                }
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--line);">
+                <button class="btn btn-outline-secondary" @onclick="Close">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _ok;
+    private string? _msg;
+    private List<RetellVoiceLineDto> _lines = new();
+
+    private bool _editOpen;
+    private Guid? _editId;
+    private string? _editError;
+    private bool _hasApiKey, _hasSipPassword;
+    private string _fName = "";
+    private string? _fApiKey, _fFromNumber, _fVoiceId, _fTerminationUri, _fSipUsername, _fSipPassword;
+    private string _fLanguage = "es-419";
+    private bool _fEnabled = true;
+    private bool _fDefault;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _lines = (await VozSvc.ListAsync()).ToList();
+
+    private void OpenNew()
+    {
+        _editId = null; _editError = null; _hasApiKey = false; _hasSipPassword = false;
+        _fName = ""; _fApiKey = null; _fFromNumber = null; _fVoiceId = null; _fTerminationUri = null;
+        _fSipUsername = null; _fSipPassword = null; _fLanguage = "es-419"; _fEnabled = true;
+        _fDefault = _lines.Count == 0; // la primera linea es por defecto
+        _editOpen = true;
+    }
+
+    private void OpenEdit(RetellVoiceLineDto l)
+    {
+        _editId = l.Id; _editError = null; _hasApiKey = l.HasApiKey; _hasSipPassword = l.HasSipPassword;
+        _fName = l.Name; _fApiKey = null; _fFromNumber = l.FromNumber; _fVoiceId = l.VoiceId;
+        _fTerminationUri = l.TerminationUri; _fSipUsername = l.SipUsername; _fSipPassword = null;
+        _fLanguage = l.Language; _fEnabled = l.IsEnabled; _fDefault = l.IsDefault;
+        _editOpen = true;
+    }
+
+    private void Close() => _editOpen = false;
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_fName)) { _editError = "La linea necesita un nombre."; return; }
+        _busy = true; _editError = null;
+        try
+        {
+            var req = new SaveRetellVoiceLineRequest(
+                Name: _fName, ApiKey: _fApiKey, FromNumber: _fFromNumber, TerminationUri: _fTerminationUri,
+                SipUsername: _fSipUsername, SipPassword: _fSipPassword, VoiceId: _fVoiceId,
+                Language: _fLanguage, IsEnabled: _fEnabled, IsDefault: _fDefault);
+            if (_editId is Guid id) { await VozSvc.UpdateAsync(id, req); }
+            else { await VozSvc.CreateAsync(req); }
+            await ReloadAsync();
+            _ok = true; _msg = "Linea guardada."; _editOpen = false;
+        }
+        catch (Exception ex) { _editError = "No se pudo guardar: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ValidateAsync(Guid id)
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var res = await VozSvc.ValidateAsync(id);
+            _ok = res.Ok;
+            _msg = res.Ok ? "Key valida contra Retell." : ("Validacion fallo: " + (res.Error ?? "error"));
+            if (res.Ok) { await ReloadAsync(); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true; _msg = null;
+        try { await VozSvc.DeleteAsync(id); await ReloadAsync(); _ok = true; _msg = "Linea eliminada."; }
+        finally { _busy = false; }
+    }
+}

@@ -277,6 +277,7 @@ public static class DependencyInjection
         // global del DbContext). Sumar una entidad nativa reportable = registrar otro IReportableSource.
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TaskItemReportSource>();
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.DataConnectorReportSource>();
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.ExternalDataSourceReportSource>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         services.AddScoped<Reporting.IReportCatalog, Reporting.ReportCatalog>();
         services.AddScoped<Reporting.IReportDataSource, Reporting.ReportDataSource>();

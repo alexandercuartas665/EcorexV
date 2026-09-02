@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-02 - v0.15.153: ExternalDataSourceReportSource - reportar servidores SQL externos (ADR-0084)
+
+- Correccion de la sesion de reportes: el reporte de "servidores y conexiones" debe leer
+  external_data_sources (servidores SQL de "Conexiones de datos"), NO data_connectors. Nueva
+  IReportableSource NATIVA `ExternalDataSourceReportSource` (SourceKey "native:externalsource",
+  DisplayName "Servidores de datos", Kind=Native).
+- Aislamiento EXPLICITO: ExternalDataSource es BaseEntity (owner_tenant_id nullable, SIN filtro global);
+  se filtra por OwnerTenantId == ctx.TenantId (owner nulo = plataforma NO se muestra). Todo en memoria
+  (conjunto chico): tabular + agregado (1 group + Count).
+- Campos: Nombre, Motor(Provider), Acceso(computed: AllowWrite -> Lectura/Escritura, si no Lectura),
+  Estado(IsEnabled -> Habilitada/Deshabilitada), Datasets(conteo de external_data_sets), UltimaValidacion,
+  Descripcion, Creada, Actualizada. SEGURIDAD: NUNCA expone ConnectionStringEncrypted (test lo verifica).
+- Agrupables/filtrables: Motor/Acceso/Estado. Registrada en DI. Coexiste con DataConnectorReportSource
+  ("Conexiones", sobre data_connectors) por ahora.
+- Tests de catalogo `ExternalDataSourceReportSourceCatalogTests` (15/15 verdes): campos, Motor/Acceso/Estado
+  agrupables/filtrables, NUNCA cadena de conexion, PanelSpec Main "Servidores de datos" agrupa por Motor y
+  filtra por Estado. `dotnet build Ecorex.sln` -> Compilacion correcta, 0 errores.
+
+---
+
 ## 2026-09-01 - Usuarios AGROMETALICAS (Lilian tel + Beatriz)
 
 - Lilian Loaiza: correccion de telefono en su login temporal 31656416@agrometalicas.com

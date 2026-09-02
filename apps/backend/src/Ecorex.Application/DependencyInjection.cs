@@ -276,6 +276,7 @@ public static class DependencyInjection
         // (traduce el spec declarativo a EF parametrizado; el aislamiento lo garantiza el filtro
         // global del DbContext). Sumar una entidad nativa reportable = registrar otro IReportableSource.
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TaskItemReportSource>();
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.DataConnectorReportSource>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         services.AddScoped<Reporting.IReportCatalog, Reporting.ReportCatalog>();
         services.AddScoped<Reporting.IReportDataSource, Reporting.ReportDataSource>();

@@ -17,6 +17,24 @@
 
 ---
 
+## 2026-09-02 - v0.15.152: DataConnectorReportSource - fuente reportable de conexiones/servidores (ADR-0051/0084)
+
+- Hand-off de la sesion de reportes: nueva IReportableSource NATIVA `DataConnectorReportSource`
+  (SourceKey "native:dataconnector", DisplayName "Conexiones", Kind=Native) analoga a TaskItemReportSource.
+  Consulta LINQ sobre _db.DataConnectors (filtro global -> tenant-safe por construccion).
+- Campos: Nombre, Tipo(Kind), Motor(DbEngine), Host, Puerto(Port,Number), BaseDatos, Endpoint, Metodo,
+  Auth(AuthKind), Contenedor(ContainerId->DataContainers.name, por nombre), Activa(IsActive), Creada,
+  Actualizada. SEGURIDAD: NUNCA expone CredentialsEncrypted ni Username (test lo verifica).
+- Agrupables/filtrables: Tipo/Motor/Auth/Metodo/Activa/Contenedor (Count). Filtros: enum(Kind/DbEngine/
+  AuthKind), bool(IsActive), texto(Name/Host/DatabaseName/EndpointUrl/HttpMethod), numero(Port),
+  fecha(CreatedAt/UpdatedAt), y por nombre(Contenedor). Modo tabular + agregado (1 group + Count).
+- Registrada en DI (Ecorex.Application/DependencyInjection.cs) junto a TaskItemReportSource.
+- Tests de catalogo `DataConnectorReportSourceCatalogTests` (19/19 verdes): campos + Tipo/Motor/Activa
+  agrupables/filtrables + NUNCA credenciales + PanelSpec Main "Conexiones" agrupa por Tipo y filtra por
+  Motor/Activa contra el catalogo. `dotnet build Ecorex.sln` -> Compilacion correcta, 0 errores.
+
+---
+
 ## 2026-09-02 - Contactos: config de LLAMADA IA en el paso "Llamada" del disenador (ADR-0056, sin migracion)
 
 - Hand-off de la sesion de spec: dejar listo el paso "Llamada" para configurar una llamada IA (no se

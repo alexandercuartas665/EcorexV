@@ -19,7 +19,9 @@ public sealed record ActivityBoardSummaryDto(
     Guid Id, string? Code, string Name, string? Description, string? Color,
     TaskBoardStatus Status, DateTimeOffset? DueDate, bool IsArchived, int SortOrder,
     IReadOnlyList<string> ColumnNames, int ProgressPct, int TaskCount,
-    IReadOnlyList<ActivityBoardMemberDto> Members);
+    IReadOnlyList<ActivityBoardMemberDto> Members,
+    // Habilitado para el modulo movil con lector de codigo de barras (/movil/tablero).
+    bool MobileScanEnabled = false);
 
 public sealed record ActivityBoardIndexDto(
     IReadOnlyList<ActivityBoardSummaryDto> Boards, ActivityBoardKpisDto Kpis);
@@ -40,7 +42,9 @@ public sealed record ActivityBoardIndexFilter(
     bool? HasDueDate = null,
     // Dropdown "Categoria" del indice: agrupador de tipos de actividad (ActivityType.Category).
     // Filtra los tableros con alguna tarea cuyo tipo esta en esa categoria. Null = todas.
-    string? CategoryName = null);
+    string? CategoryName = null,
+    // Solo tableros habilitados (true) / deshabilitados (false) para el modulo movil. Null = todos.
+    bool? MobileScanEnabled = null);
 
 public sealed record CreateActivityBoardRequest(
     string Name, string? Description = null, string? Color = null,
@@ -52,7 +56,9 @@ public sealed record UpdateActivityBoardRequest(
     string Name, string? Description, string? Color,
     TaskBoardStatus Status, DateTimeOffset? DueDate, bool IsArchived,
     // Motivos de cierre del tablero (null = no tocar; lista vacia = borrar).
-    IReadOnlyList<string>? CloseReasons = null);
+    IReadOnlyList<string>? CloseReasons = null,
+    // Habilitar el tablero para el modulo movil con lector de codigo de barras.
+    bool MobileScanEnabled = false);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope

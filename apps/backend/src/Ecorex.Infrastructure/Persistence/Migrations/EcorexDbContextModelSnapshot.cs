@@ -10696,6 +10696,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("list_view_config_json");
 
+                    b.Property<bool>("MobileScanEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mobile_scan_enabled");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)

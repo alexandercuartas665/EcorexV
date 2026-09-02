@@ -45,6 +45,10 @@
     {
         <p class="mv-hint">Cargando...</p>
     }
+    else if (_boards.Count == 0)
+    {
+        <p class="mv-hint">No hay tableros habilitados para el escaner movil. Habilitalos en <strong>Tableros</strong> (configuracion del tablero, opcion "Disponible en el escaner movil").</p>
+    }
     else if (_detail is null)
     {
         <p class="mv-hint">Elige un tablero para ver sus actividades por estado.</p>
@@ -306,7 +310,8 @@
         _actorTenantUserId = (await TenantUsersSvc.ListAsync())
             .FirstOrDefault(u => u.PlatformUserId == _actorId)?.Id;
 
-        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter());
+        // Solo los tableros habilitados para el modulo movil (flag por tablero en su configuracion).
+        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(MobileScanEnabled: true));
         _boards = index.Boards;
     }
 

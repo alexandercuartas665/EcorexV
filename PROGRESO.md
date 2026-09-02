@@ -17,6 +17,23 @@
 
 ---
 
+## 2026-09-02 - v0.15.150: flag por tablero "Disponible en el escaner movil" + rediseno del modulo movil (ADR-0086)
+
+- Config por tablero: nuevo flag `TaskBoard.MobileScanEnabled` (default FALSE). En Tableros (config del
+  tablero) toggle "Disponible en el escaner movil"; SOLO los tableros marcados aparecen en el selector del
+  modulo movil (/movil/tablero). ActivityBoardIndexFilter += MobileScanEnabled; ListBoardsAsync filtra;
+  UpdateActivityBoardRequest/ActivityBoardSummaryDto += el flag; MovilTablero pide MobileScanEnabled:true y
+  muestra empty-state si no hay ninguno. Migraciones DUALES aditivas AddBoardMobileScanEnabled (PG +
+  SQL Server, defaultValue:false, backfill seguro; auto-aplican al arranque).
+- Rediseno del modulo movil (v0.15.146-149) hacia app de tareas moderna (referencia del usuario): iconos
+  SVG del sistema (grid de tablero, chevron, barcode), tokens del prototipo, tarjeta HERO oscura con el
+  resumen del tablero, tarjetas amplias con avatar, barra inferior flotante con FAB central de escaneo, y
+  transiciones (hojas slide-up, hero pop, entrada escalonada de columnas/tarjetas, press feedback).
+- Build verde. Verificado en dev: toggle marca/desmarca, filtro end-to-end (solo ORDENES DE TRABAJO tras
+  habilitarlo), empty-state. Desplegado v0.15.149; el flag (v0.15.150) pendiente de deploy.
+
+---
+
 ## 2026-09-02 - v0.15.145: fix detalle de tarea - tiempo manual autoritativo + contacto con boton de copiar
 
 - BUG tiempo: al registrar tiempo manual (HH:MM) se guardaba un valor equivocado (p.ej. 35m -> horas). Causa:

@@ -57,4 +57,9 @@ public class TaskBoard : TenantEntity
     /// <summary>Motivos de cierre configurables de este tablero (arreglo JSON de textos). Al mover una
     /// tarea a una columna final (IsDone) se ofrece elegir uno (OPCIONAL). Null/vacio = no se pregunta.</summary>
     public string? CloseReasonsJson { get; set; }
+
+    /// <summary>Si el tablero esta habilitado para el MODULO MOVIL con lector de codigo de barras
+    /// (/movil/tablero). Solo los tableros con este flag aparecen en el selector del modulo movil.
+    /// Por defecto FALSE: hay que habilitarlo explicitamente en la configuracion del tablero.</summary>
+    public bool MobileScanEnabled { get; set; }
 }

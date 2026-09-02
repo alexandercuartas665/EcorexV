@@ -132,6 +132,10 @@ else
                                 <input type="checkbox" checked="@_fArchived" @onchange="@(e => _fArchived = (bool)(e.Value ?? false))" />
                                 <span>Archivado</span>
                             </label>
+                            <label class="tb-state-done" title="Solo los tableros marcados aparecen en el modulo movil /movil/tablero con lector de codigo de barras.">
+                                <input type="checkbox" checked="@_fScanEnabled" @onchange="@(e => _fScanEnabled = (bool)(e.Value ?? false))" />
+                                <span>Disponible en el escaner movil</span>
+                            </label>
                         </div>
                     </div>
                 }
@@ -340,6 +344,7 @@ else
     private string _fName = "";
     private TaskBoardStatus _fStatus = TaskBoardStatus.InProgress;
     private bool _fArchived;
+    private bool _fScanEnabled;
     private string? _fDescription;
     private string? _fColor;
     private string? _error;
@@ -373,6 +378,7 @@ else
         _fColor = null;
         _fStatus = TaskBoardStatus.InProgress;
         _fArchived = false;
+        _fScanEnabled = false;
         _error = null;
         _columns.Clear();
         _tagEditColId = null;
@@ -387,6 +393,7 @@ else
         _fColor = b.Color;
         _fStatus = b.Status;
         _fArchived = b.IsArchived;
+        _fScanEnabled = b.MobileScanEnabled;
         _error = null;
         _tagEditColId = null;
         _modalOpen = true;
@@ -609,7 +616,7 @@ else
             {
                 var upd = await BoardsSvc.UpdateBoardAsync(
                     id,
-                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived),
+                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, MobileScanEnabled: _fScanEnabled),
                     actor, actorName);
                 if (!upd.IsOk) { _error = upd.Error ?? "No se pudo guardar el tablero."; return; }
             }

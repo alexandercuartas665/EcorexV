@@ -95,6 +95,11 @@ public sealed class ActivityBoardService : IActivityBoardService
                 ? query.Where(b => b.DueDate != null)
                 : query.Where(b => b.DueDate == null);
         }
+        // Modulo movil: solo los tableros habilitados para el lector de codigo de barras.
+        if (filter.MobileScanEnabled is bool scanEnabled)
+        {
+            query = query.Where(b => b.MobileScanEnabled == scanEnabled);
+        }
 
         var boards = await query
             .OrderBy(b => b.SortOrder).ThenBy(b => b.Name)
@@ -180,7 +185,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                 board.Id, board.Code, board.Name, board.Description, board.Color,
                 board.Status, board.DueDate, board.IsArchived, board.SortOrder,
                 columns.Where(c => c.BoardId == board.Id).Select(c => c.Name).ToList(),
-                progress, boardTasks.Count, members));
+                progress, boardTasks.Count, members, board.MobileScanEnabled));
         }
 
         return new ActivityBoardIndexDto(summaries,
@@ -281,6 +286,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         board.Status = request.Status;
         board.DueDate = request.DueDate;
         board.IsArchived = request.IsArchived;
+        board.MobileScanEnabled = request.MobileScanEnabled;
         // Motivos de cierre: null = no tocar; lista (vacia o no) = reemplazar. Se limpian y deduplican.
         if (request.CloseReasons is not null)
         {
@@ -302,7 +308,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         return TaskCoreResult<ActivityBoardSummaryDto>.Ok(new ActivityBoardSummaryDto(
             board.Id, board.Code, board.Name, board.Description, board.Color,
             board.Status, board.DueDate, board.IsArchived, board.SortOrder,
-            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>()));
+            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteBoardAsync(Guid boardId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)

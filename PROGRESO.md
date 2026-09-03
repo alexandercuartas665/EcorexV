@@ -11011,3 +11011,19 @@ Cambio: MaxImportRows 5000 -> 50000 (constante global del importador server-dire
 por corrida y guarda por pagina, asi que no arriesga memoria). Afecta a todas las importaciones de todos
 los tenants (limite de seguridad). Build Release verde. Pendiente: deploy por el usuario; tras el deploy,
 la proxima corrida de Pagos cubrira las 6253 completas.
+
+## 2026-09-03 - BITCODE: Directorio General poblado con clientes de Alegra (contenedor ALEGRA)
+
+Peticion: llenar el Directorio General (terceros) de BITCODE con los clientes del contenedor ALEGRA
+(tabla Contactos, 437 filas). Alcance elegido por el usuario: clientes + sin-tipo (excluye proveedores).
+ETL server-side (SQL) del contenedor a terceros, sin re-consultar Alegra:
+- Fuente: data_containers 'Contactos' (26225056-...) del modelo ALEGRA. Pivot EAV -> columnas.
+- Filtro: Tipo LIKE '%client%' OR Tipo vacio/[] (207 candidatos); excluidos 230 proveedores.
+- Dedup: DISTINCT ON (identificacion) por 1 duplicado interno; NOT EXISTS contra id_valor de los
+  terceros ya existentes (2 coincidencias omitidas). Resultado: INSERT 204 terceros nuevos.
+- Mapeo: Nombre->nombre; kindOfPerson LEGAL_ENTITY->tipo Empresa/id_tipo Nit, else Persona/Identificacion;
+  Identificacion->id_valor; Estado active/inactive->Activo/Inactivo; Email, Telefono||Celular, Ciudad,
+  Vendedor; Perfiles=Cliente(1). (Direccion/Departamento/DV/Regimen NO cargados: irian en fichas_json y
+  dependen de las fichas del tenant; se dejaron fuera por ahora.)
+BITCODE terceros: 37 -> 241 (204 con perfil Cliente). Backup ecorex-2026-09-03-1028. SQL directo (ETL).
+Nota: algunos contactos personas traen telefono como "identificacion" en Alegra (calidad del dato origen).

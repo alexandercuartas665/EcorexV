@@ -25,11 +25,16 @@ public static class ExternalParameterBinder
     /// entrada tipados-como-texto por nombre de parametro (los provee el runtime del reporte). Si falta
     /// uno, se usa el <see cref="ExternalDataSetParameter.DefaultValue"/>. Los parametros Context IGNORAN
     /// <paramref name="inputs"/> por completo: su valor solo puede venir del contexto de confianza.
+    /// <paramref name="reportRowLimit"/>: cuando NO es null (contexto de REPORTE), un parametro
+    /// <see cref="ExternalDataParameterBinding.RowLimit"/> se enlaza a ESE tope (el MaxRows del sistema) en
+    /// vez de a su DefaultValue de autoria, para que el default no cape la salida del panel. En la consola
+    /// (reportRowLimit null) un RowLimit se comporta como Input (valor tecleado o su DefaultValue).
     /// </summary>
     public static IReadOnlyList<ExternalBoundParameter> Bind(
         IEnumerable<ExternalDataSetParameter> declared,
         ExternalRunContext context,
-        IReadOnlyDictionary<string, string?>? inputs = null)
+        IReadOnlyDictionary<string, string?>? inputs = null,
+        int? reportRowLimit = null)
     {
         var result = new List<ExternalBoundParameter>();
 
@@ -41,9 +46,14 @@ public static class ExternalParameterBinder
                 // Alcance: SOLO del contexto de confianza. Entrada libre jamas alcanza estos parametros.
                 raw = ResolveContext(p.ContextKey, context);
             }
+            else if (p.Binding == ExternalDataParameterBinding.RowLimit && reportRowLimit is int cap)
+            {
+                // En reporte: forzar el tope duro del sistema; el default de autoria NO capa la salida.
+                raw = cap.ToString(CultureInfo.InvariantCulture);
+            }
             else
             {
-                // Entrada del reporte (o default). Se convierte y enlaza como parametro tipado.
+                // Entrada del reporte/consola (o default). Se convierte y enlaza como parametro tipado.
                 raw = inputs is not null && inputs.TryGetValue(p.Name, out var v) && v is not null
                     ? v
                     : p.DefaultValue;

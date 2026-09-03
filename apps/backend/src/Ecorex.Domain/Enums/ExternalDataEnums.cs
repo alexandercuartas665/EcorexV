@@ -30,9 +30,14 @@ public enum ExternalDataParameterType
 ///   nunca de entrada libre. La clave de contexto la resuelve el conector.
 /// - <see cref="Input"/>: parametro de reporte tipado que el usuario provee al ejecutar (fechas,
 ///   filtros). Se enlaza igualmente como parametro tipado (cero concatenacion).
+/// - <see cref="RowLimit"/>: parametro que acota el NUMERO DE FILAS (p.ej. TOP/LIMIT). En un REPORTE se
+///   enlaza al tope duro del sistema (ExternalQuery.MaxRows), NO al DefaultValue de autoria: asi el default
+///   pensado para probar en el editor no capa la salida de un panel. En la consola "Ejecutar" del editor
+///   sigue tomando el valor que teclee el usuario (o su DefaultValue).
 /// </summary>
 public enum ExternalDataParameterBinding
 {
     Input,
-    Context
+    Context,
+    RowLimit
 }

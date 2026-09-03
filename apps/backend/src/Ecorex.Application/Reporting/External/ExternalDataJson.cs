@@ -37,7 +37,7 @@ public static class ExternalDataJson
         new[] { "String", "Int", "Decimal", "Date", "Boolean", "Guid" };
 
     /// <summary>Tokens validos del enum <see cref="ExternalDataParameterBinding"/>.</summary>
-    public static readonly IReadOnlyList<string> ValidBindingTokens = new[] { "Input", "Context" };
+    public static readonly IReadOnlyList<string> ValidBindingTokens = new[] { "Input", "Context", "RowLimit" };
 
     /// <summary>Valida el JSON de PARAMETROS: lista de objetos con Type valido (y Binding valido si viene).
     /// Devuelve el mensaje de error legible, o null si es valido. Evita el guardado silencioso vacio cuando

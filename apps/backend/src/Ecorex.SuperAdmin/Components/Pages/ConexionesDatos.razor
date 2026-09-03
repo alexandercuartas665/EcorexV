@@ -178,7 +178,7 @@ else
                             {
                                 <div style="overflow-x:auto;margin-top:6px;">
                                     <table class="table table-sm" style="margin:0;">
-                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th>Descripcion</th><th></th></tr></thead>
+                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th title="Marca el parametro que acota el numero de filas (TOP/LIMIT). En un reporte NO usa su default: trae hasta el tope del sistema.">Limite de filas</th><th>Descripcion</th><th></th></tr></thead>
                                         <tbody>
                                             @foreach (var p in _dsForm.Params)
                                             {
@@ -193,8 +193,44 @@ else
                                                         </select>
                                                     </td>
                                                     <td><input class="form-control form-control-sm" @bind="p.Default" /></td>
+                                                    <td style="text-align:center;"><input type="checkbox" @bind="p.IsRowLimit" title="Limite de filas: en reportes trae todo (hasta el tope del sistema), ignorando el default." /></td>
                                                     <td><input class="form-control form-control-sm" @bind="p.Description" placeholder="Que significa / que espera el agente" /></td>
                                                     <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveParam(p)" disabled="@_busy">x</button></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+
+                            @* --- Campos de salida (REPORTABLES) --- *@
+                            <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <label style="margin:0;font-weight:600;font-size:.82rem;color:var(--ink-2,#475569);">CAMPOS DE SALIDA (REPORTABLES)</label>
+                                <div style="display:flex;gap:6px;">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="DetectFields" disabled="@_busy" title="Ejecuta el dataset y prellena las columnas con su tipo inferido.">Detectar campos</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddField" disabled="@_busy">+ Campo</button>
+                                </div>
+                            </div>
+                            <p class="page-sub" style="margin:4px 0 0;font-size:.8rem;">Definen que columnas ve un reporte. Sin campos, el dataset NO aparece en "Nuevo panel".</p>
+                            @if (_dsForm.Fields.Count > 0)
+                            {
+                                <div style="overflow-x:auto;margin-top:6px;">
+                                    <table class="table table-sm" style="margin:0;">
+                                        <thead><tr><th>Nombre de columna</th><th>Tipo</th><th></th></tr></thead>
+                                        <tbody>
+                                            @foreach (var f in _dsForm.Fields)
+                                            {
+                                                <tr>
+                                                    <td><input class="form-control form-control-sm" @bind="f.Name" placeholder="Codigo" /></td>
+                                                    <td>
+                                                        <select class="form-control form-control-sm" @bind="f.Type">
+                                                            @foreach (var t in Enum.GetValues<ExternalDataParameterType>())
+                                                            {
+                                                                <option value="@t">@t</option>
+                                                            }
+                                                        </select>
+                                                    </td>
+                                                    <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveField(f)" disabled="@_busy">x</button></td>
                                                 </tr>
                                             }
                                         </tbody>
@@ -430,7 +466,13 @@ else
             Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText,
             IsEnabled = d.IsEnabled, AgentEnabled = d.AgentEnabled,
             Params = ExternalDataJson.DeserializeParameters(d.ParametersJson)
-                .Select(p => new ParamRow { Name = p.Name, Type = p.Type, Default = p.DefaultValue, Description = p.Description }).ToList()
+                .Select(p => new ParamRow
+                {
+                    Name = p.Name, Type = p.Type, Default = p.DefaultValue, Description = p.Description,
+                    IsRowLimit = p.Binding == ExternalDataParameterBinding.RowLimit
+                }).ToList(),
+            Fields = ExternalDataJson.DeserializeFields(d.FieldsJson)
+                .Select(f => new FieldRow { Name = f.Name, Type = f.Type }).ToList()
         };
         _editingDs = _dsForm;
         _runDsId = null;
@@ -439,25 +481,70 @@ else
 
     private void AddParam() => _dsForm.Params.Add(new ParamRow());
     private void RemoveParam(ParamRow p) => _dsForm.Params.Remove(p);
+    private void AddField() => _dsForm.Fields.Add(new FieldRow());
+    private void RemoveField(FieldRow f) => _dsForm.Fields.Remove(f);
+
+    // Ejecuta el dataset guardado y prellena los "Campos de salida" con las columnas + tipo inferido.
+    private async Task DetectFields()
+    {
+        if (_dsForm.Id is not Guid dsId)
+        {
+            _dsOk = false; _dsMsg = "Guarda el dataset antes de detectar sus campos.";
+            return;
+        }
+
+        _busy = true; _dsMsg = null;
+        try
+        {
+            // Para datasets con parametros, se ejecuta con sus defaults (solo interesan columnas/tipos).
+            var inputs = _dsForm.Params
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
+                .ToDictionary(p => p.Name!.Trim(), p => (string?)p.Default, StringComparer.Ordinal);
+            var res = await Conns.RunDatasetAsync(dsId, inputs.Count == 0 ? null : inputs, 50, await ActorAsync());
+            if (!res.Ok || res.Grid is not { } g || g.Columns.Count == 0)
+            {
+                _dsOk = false; _dsMsg = "No se pudieron detectar columnas: " + (res.Error ?? "sin columnas.");
+                return;
+            }
+
+            _dsForm.Fields = g.Columns.Select((c, i) => new FieldRow
+            {
+                Name = c,
+                Type = g.ColumnTypes is { } types && i < types.Count ? types[i] : ExternalDataParameterType.String
+            }).ToList();
+            _dsOk = true; _dsMsg = $"{_dsForm.Fields.Count} campo(s) detectado(s). Ajusta el tipo si hace falta y Guarda.";
+        }
+        catch (Exception ex) { _dsOk = false; _dsMsg = "No se pudo detectar: " + ex.Message; }
+        finally { _busy = false; }
+    }
 
     private async Task SaveDataset(Guid connId)
     {
         _busy = true; _dsMsg = null;
         try
         {
-            // Parametros (todos de entrada) -> JSON de ExternalDataSetParameter. Se ignoran los sin nombre.
+            // Parametros -> JSON de ExternalDataSetParameter (Input, o RowLimit si se marco). Se ignoran los sin nombre.
             var declared = _dsForm.Params
                 .Where(p => !string.IsNullOrWhiteSpace(p.Name))
                 .Select(p => new ExternalDataSetParameter(p.Name!.Trim(), p.Type,
-                    ExternalDataParameterBinding.Input, null,
+                    p.IsRowLimit ? ExternalDataParameterBinding.RowLimit : ExternalDataParameterBinding.Input, null,
                     string.IsNullOrWhiteSpace(p.Default) ? null : p.Default!.Trim(),
                     string.IsNullOrWhiteSpace(p.Description) ? null : p.Description!.Trim()))
                 .ToList();
             var paramsJson = declared.Count == 0 ? null : ExternalDataJson.SerializeParameters(declared);
 
+            // Campos de salida (reportables) -> JSON de ExternalDataSetField. Se ignoran los sin nombre.
+            var fields = _dsForm.Fields
+                .Where(f => !string.IsNullOrWhiteSpace(f.Name))
+                .Select(f => new ExternalDataSetField(f.Name!.Trim(), f.Type))
+                .ToList();
+            var fieldsJson = fields.Count == 0 ? null : ExternalDataJson.SerializeFields(fields);
+            var fErr = ExternalDataJson.ValidateFieldsJson(fieldsJson);
+            if (fErr is not null) { _dsOk = false; _dsMsg = "Campos de salida: " + fErr; return; }
+
             var req = new SaveTenantDatasetRequest(
                 _dsForm.Id, connId, _dsForm.Name?.Trim() ?? "", _dsForm.Description,
-                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson, _dsForm.AgentEnabled);
+                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson, _dsForm.AgentEnabled, fieldsJson);
             var id = await Conns.SaveDatasetAsync(req, await ActorAsync());
             if (id is null) { _dsOk = false; _dsMsg = "Revisa nombre y consulta."; return; }
             _dsOk = true; _dsMsg = "Guardado.";
@@ -552,6 +639,7 @@ else
         public bool IsEnabled { get; set; } = true;
         public bool AgentEnabled { get; set; }
         public List<ParamRow> Params { get; set; } = new();
+        public List<FieldRow> Fields { get; set; } = new();
     }
 
     private sealed class ParamRow
@@ -560,6 +648,13 @@ else
         public ExternalDataParameterType Type { get; set; } = ExternalDataParameterType.String;
         public string? Default { get; set; }
         public string? Description { get; set; }
-        public string? Value { get; set; }   // valor al ejecutar
+        public bool IsRowLimit { get; set; }   // binding RowLimit (en reporte -> tope del sistema)
+        public string? Value { get; set; }     // valor al ejecutar
+    }
+
+    private sealed class FieldRow
+    {
+        public string? Name { get; set; }
+        public ExternalDataParameterType Type { get; set; } = ExternalDataParameterType.String;
     }
 }

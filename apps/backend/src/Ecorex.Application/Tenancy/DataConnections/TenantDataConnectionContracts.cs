@@ -27,11 +27,14 @@ public sealed record TenantDatasetDetail(
     Guid Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled,
     // Parametros del dataset (JSON de ExternalDataSetParameter: Name, Type, Binding, DefaultValue). El SQL
     // los referencia como @Name; se enlazan TIPADOS (nunca concatenacion).
-    string? ParametersJson, bool AgentEnabled);
+    string? ParametersJson, bool AgentEnabled,
+    // Campos de salida (JSON de ExternalDataSetField: Name, Type). Definen que columnas son REPORTABLES:
+    // sin ellos el dataset no aparece en el catalogo de reportes (ADR-0084 self-service).
+    string? FieldsJson = null);
 
 public sealed record SaveTenantDatasetRequest(
     Guid? Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled,
-    string? ParametersJson = null, bool AgentEnabled = false);
+    string? ParametersJson = null, bool AgentEnabled = false, string? FieldsJson = null);
 
 // ---- Superficie para AGENTES (toolset "datos"): solo datasets con AgentEnabled + IsEnabled ----
 
@@ -42,9 +45,12 @@ public sealed record AgentDatasetParam(string Name, string Type, string? Descrip
 public sealed record AgentDatasetDetail(
     Guid Id, string Name, string? Description, string ConnectionName, IReadOnlyList<AgentDatasetParam> Parameters);
 
-/// <summary>Resultado tabular de una consulta (columnas + filas como texto para pintar la grilla).</summary>
+/// <summary>Resultado tabular de una consulta (columnas + filas como texto para pintar la grilla).
+/// <see cref="ColumnTypes"/> lleva el tipo inferido de cada columna (paralelo a <see cref="Columns"/>),
+/// para prellenar los "Campos de salida" con "Detectar campos".</summary>
 public sealed record ExternalQueryGrid(
-    IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string?>> Rows, int RowCount, bool Truncated);
+    IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string?>> Rows, int RowCount, bool Truncated,
+    IReadOnlyList<ExternalDataParameterType>? ColumnTypes = null);
 
 /// <summary>Envoltura de ejecucion: Ok con grilla, o error legible (conexion/SQL/solo-lectura).</summary>
 public sealed record TenantQueryResult(bool Ok, ExternalQueryGrid? Grid, string? Error);

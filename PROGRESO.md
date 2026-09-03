@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.157: conexiones de datos del tenant reportables self-service (ADR-0064/0084)
+
+- Hand-off de la sesion de reportes: al usar un dataset externo PROPIO (SOLDARCO_MULTISYS -> items_demo)
+  como Main de un panel aparecieron 3 fricciones que obligaban a escribir la BD a mano. Se cierran para que
+  el tenant haga todo por UI.
+- CAMBIO 1 (el default de autoria NO capa el reporte): nuevo binding ExternalDataParameterBinding.RowLimit.
+  ExternalParameterBinder.Bind gana `reportRowLimit`: en REPORTE un RowLimit se enlaza al tope duro del
+  sistema (ExternalReportReader.ReportMaxRows=50000, y la query usa ese MaxRows), NO a su DefaultValue; en la
+  consola "Ejecutar" sigue tomando el valor tecleado/Default. "RowLimit" agregado a ValidBindingTokens.
+- CAMBIO 2 (editor de "Campos de salida" en /conexiones-datos): SaveTenantDatasetRequest/TenantDatasetDetail
+  ganan FieldsJson; TenantDataConnectionService.SaveDatasetAsync lo persiste (antes quedaba NULL -> 0 campos
+  -> el panel no validaba). ConexionesDatos.razor edita Name+Type por campo (validado con ValidateFieldsJson)
+  + boton "Detectar campos" que ejecuta el dataset (RunDatasetAsync) y prellena columnas+tipo inferido
+  (ExternalQueryGrid.ColumnTypes, mapeado del tipo reportable). Tambien checkbox "Limite de filas" por param.
+- CAMBIO 3 (fuente propia reportable sin grant): ExternalReportReader.IsGranted/ListGranted incluyen las
+  fuentes con OwnerTenantId==tenantId ademas de las concedidas. Tenant-safe; cadena nunca expuesta.
+- Tests: ExternalParameterBinderTests +2 (RowLimit -> MaxRows en reporte; input/Default en consola). Suite
+  Application verde salvo la NRE pre-existente Corre_una_vez (ajena). Build Application + SuperAdmin verde.
+- VERIFICADO en dev (AGROMETALICAS, que posee MULTISYS con 0 grants): editar dataset ITEMS -> seccion "Campos
+  de salida" + "Detectar campos" renderizan; agregar Codigo/Nombre y Guardar -> fields_json persiste; en
+  "Nuevo panel" un spec Main="ITEMS" valida ("Spec valido") SIN grant manual (Cambio 2+3). Cambio 1 unit-
+  testeado (el server SQL externo no es alcanzable desde dev; el render en vivo/Detectar es de prod). Datos
+  de prueba revertidos. Desplegado v0.15.156 (previo) a peticion del usuario; este cambio queda para su senal.
+
+---
+
 ## 2026-09-03 - v0.15.156: respuestas de formulario reportables + monto por estado del tablero (ADR-0068)
 
 - Hand-off de la sesion de reportes: poder sumar un valor numerico de un modulo de formulario agrupado por

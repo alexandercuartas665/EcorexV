@@ -97,3 +97,12 @@ piezas (todas nuevas, sin tocar el camino tenant-safe existente):
 - `ExternalConnectorGovernanceTests` (integracion dual PG + SQL Server): tenant concedido ve/describe
   la fuente; tenant sin concesion no la ve y ejecutar LANZA (sin invocar el executor); revocar quita
   el acceso; la cadena se guarda cifrada (nunca en claro en la tabla).
+
+## Nota (v0.15.157) - el default de autoria de un RowLimit NO capa el reporte
+
+Un parametro que acota filas (TOP/LIMIT) suele llevar un DefaultValue pequeno para probar en el editor
+(p.ej. @limite=5). Si un PANEL cae a ese default, el reporte se trunca. Se agrego el binding
+`ExternalDataParameterBinding.RowLimit`: en contexto de REPORTE, `ExternalParameterBinder.Bind` lo enlaza
+al tope duro del sistema (`ExternalReportReader.ReportMaxRows`, y la query usa el mismo MaxRows), NO a su
+DefaultValue. La consola "Ejecutar" del editor (que no pasa `reportRowLimit`) sigue tomando el valor
+tecleado o el DefaultValue. Asi el default de autoria no limita la salida de un dashboard.

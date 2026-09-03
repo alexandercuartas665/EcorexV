@@ -182,7 +182,8 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
     {
         var d = await OwnedDatasetAsync(id, tracking: false, ct);
         return d is null ? null : new TenantDatasetDetail(
-            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson, d.AgentEnabled);
+            d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson, d.AgentEnabled,
+            d.FieldsJson);
     }
 
     public async Task<Guid?> SaveDatasetAsync(SaveTenantDatasetRequest request, Guid actorUserId, CancellationToken ct = default)
@@ -199,6 +200,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             d.Description = Trim(request.Description);
             d.CommandText = request.CommandText.Trim();
             d.ParametersJson = Trim(request.ParametersJson);
+            d.FieldsJson = Trim(request.FieldsJson);
             d.IsEnabled = request.IsEnabled;
             d.AgentEnabled = request.AgentEnabled;
             _audit.Write(actorUserId, "tenant-data-dataset.update", nameof(ExternalDataSet), d.Id,
@@ -215,6 +217,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             Description = Trim(request.Description),
             CommandText = request.CommandText.Trim(),
             ParametersJson = Trim(request.ParametersJson),
+            FieldsJson = Trim(request.FieldsJson),
             IsEnabled = request.IsEnabled,
             AgentEnabled = request.AgentEnabled
         };
@@ -338,10 +341,11 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             var data = await _executor.ExecuteAsync(query, ct);
 
             var columns = data.Columns.Select(c => string.IsNullOrWhiteSpace(c.DisplayName) ? c.Key : c.DisplayName).ToList();
+            var columnTypes = data.Columns.Select(c => MapReportType(c.Type)).ToList();
             var rows = data.Rows
                 .Select(r => (IReadOnlyList<string?>)r.Select(v => v?.ToString()).ToList())
                 .ToList();
-            var grid = new ExternalQueryGrid(columns, rows, data.RowCount, data.RowCount >= cap);
+            var grid = new ExternalQueryGrid(columns, rows, data.RowCount, data.RowCount >= cap, columnTypes);
             return new TenantQueryResult(true, grid, null);
         }
         catch (Exception ex)
@@ -349,6 +353,16 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             return new TenantQueryResult(false, null, ex.Message);
         }
     }
+
+    /// <summary>Mapea el tipo reportable de una columna al tipo de campo externo (para "Detectar campos").</summary>
+    private static Ecorex.Domain.Enums.ExternalDataParameterType MapReportType(Ecorex.Application.Reporting.ReportFieldType type) => type switch
+    {
+        Ecorex.Application.Reporting.ReportFieldType.Number => Ecorex.Domain.Enums.ExternalDataParameterType.Int,
+        Ecorex.Application.Reporting.ReportFieldType.Decimal => Ecorex.Domain.Enums.ExternalDataParameterType.Decimal,
+        Ecorex.Application.Reporting.ReportFieldType.Date => Ecorex.Domain.Enums.ExternalDataParameterType.Date,
+        Ecorex.Application.Reporting.ReportFieldType.Boolean => Ecorex.Domain.Enums.ExternalDataParameterType.Boolean,
+        _ => Ecorex.Domain.Enums.ExternalDataParameterType.String
+    };
 
     private async Task<ExternalDataSource?> OwnedSourceAsync(Guid id, bool tracking, CancellationToken ct)
     {

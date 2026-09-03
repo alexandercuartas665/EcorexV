@@ -65,3 +65,19 @@ escritura opcional por conexion, gestionadas desde el menu del tenant (grupo Sis
   con superficie de agente (AgentList/AgentGet/AgentRunDatasetAsync) que exige AgentEnabled + IsEnabled +
   propiedad del tenant. La ejecucion respeta el AllowWrite de la conexion (decidido con el usuario). Tope
   200 filas. Se habilita/deshabilita por agente como el resto de toolsets.
+
+## Nota (v0.15.157) - conexiones PROPIAS reportables self-service (sin grant, con campos por UI)
+
+Para que un tenant vuelva reportable su conexion propia desde /conexiones-datos SIN tocar la BD:
+
+1. **Fuente propia reportable sin grant**: `ExternalReportReader.IsGrantedAsync`/`ListGrantedAsync` ahora
+   tratan como accesible toda fuente con `OwnerTenantId == tenantId`, ademas de las de
+   `ExternalDataSourceGrants`. Sigue tenant-safe (nada cross-tenant; la cadena nunca se expone). Asi el
+   dataset del tenant aparece en "Nuevo panel" sin insertar un grant a mano.
+2. **Editor de "Campos de salida" en el flujo tenant**: `SaveTenantDatasetRequest`/`TenantDatasetDetail`
+   ganan `FieldsJson`; `TenantDataConnectionService.SaveDatasetAsync` lo persiste (antes quedaba NULL ->
+   0 campos -> el panel no validaba). La pagina `ConexionesDatos.razor` edita Name+Type de cada campo
+   (validado con `ExternalDataJson.ValidateFieldsJson`) y ofrece "Detectar campos", que ejecuta el dataset
+   (via `RunDatasetAsync`) y prellena columnas + tipo inferido (`ExternalQueryGrid.ColumnTypes`, mapeado
+   desde el tipo reportable de cada columna). Tambien permite marcar un parametro como "Limite de filas"
+   (binding RowLimit, ver ADR-0064).

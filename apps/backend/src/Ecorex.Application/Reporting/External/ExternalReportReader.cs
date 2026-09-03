@@ -18,6 +18,10 @@ public sealed class ExternalReportReader
 {
     public const string KeyPrefix = "external:";
 
+    /// <summary>Tope duro de filas de un dataset externo EN CONTEXTO DE REPORTE. Los parametros RowLimit
+    /// se enlazan a este valor (no a su DefaultValue de autoria) y la query lo aplica como MaxRows.</summary>
+    public const int ReportMaxRows = 50_000;
+
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _protector;
     private readonly IExternalQueryExecutor _executor;
@@ -47,17 +51,19 @@ public sealed class ExternalReportReader
     };
 
     /// <summary>
-    /// True si el tenant tiene acceso concedido y vigente a ese dataset (fuente + dataset habilitados y
-    /// concesion activa). Es la unica puerta de acceso; el resto del pipeline confia en esta.
+    /// True si el tenant puede leer ese dataset (fuente + dataset habilitados) y, ademas, la fuente es
+    /// PROPIA del tenant (owner_tenant_id, ADR-0084) O tiene una concesion vigente (ADR-0064). Es la unica
+    /// puerta de acceso; el resto del pipeline confia en esta. Sigue tenant-safe: nada cross-tenant.
     /// </summary>
     public async Task<bool> IsGrantedAsync(Guid dataSetId, Guid tenantId, CancellationToken ct = default)
     {
         return await _db.ExternalDataSets.AsNoTracking()
             .Where(ds => ds.Id == dataSetId && ds.IsEnabled)
             .AnyAsync(ds =>
-                _db.ExternalDataSources.Any(src => src.Id == ds.ExternalDataSourceId && src.IsEnabled)
-                && _db.ExternalDataSourceGrants.Any(g =>
-                    g.ExternalDataSourceId == ds.ExternalDataSourceId && g.TenantId == tenantId && g.IsEnabled),
+                _db.ExternalDataSources.Any(src => src.Id == ds.ExternalDataSourceId && src.IsEnabled
+                    && (src.OwnerTenantId == tenantId
+                        || _db.ExternalDataSourceGrants.Any(g =>
+                            g.ExternalDataSourceId == ds.ExternalDataSourceId && g.TenantId == tenantId && g.IsEnabled))),
                 ct);
     }
 
@@ -83,22 +89,29 @@ public sealed class ExternalReportReader
         return new ReportSourceDescriptor(KeyFor(dataSetId), ds.Name, ReportSourceKind.External, fields);
     }
 
-    /// <summary>Datasets externos CONCEDIDOS al tenant activo, como descriptores de catalogo.</summary>
+    /// <summary>Datasets externos accesibles al tenant activo (PROPIOS por owner_tenant_id + CONCEDIDOS por
+    /// grant), como descriptores de catalogo. Asi una conexion creada por el tenant en /conexiones-datos es
+    /// reportable sin insertar un grant a mano (ADR-0084).</summary>
     public async Task<IReadOnlyList<ReportSourceDescriptor>> ListGrantedAsync(Guid tenantId, CancellationToken ct = default)
     {
         var grantedSourceIds = await _db.ExternalDataSourceGrants.AsNoTracking()
             .Where(g => g.TenantId == tenantId && g.IsEnabled)
             .Select(g => g.ExternalDataSourceId)
-            .Distinct()
             .ToListAsync(ct);
 
-        if (grantedSourceIds.Count == 0)
+        var ownedSourceIds = await _db.ExternalDataSources.AsNoTracking()
+            .Where(s => s.OwnerTenantId == tenantId && s.IsEnabled)
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+
+        var sourceIds = grantedSourceIds.Concat(ownedSourceIds).Distinct().ToList();
+        if (sourceIds.Count == 0)
         {
             return Array.Empty<ReportSourceDescriptor>();
         }
 
         var datasets = await _db.ExternalDataSets.AsNoTracking()
-            .Where(ds => ds.IsEnabled && grantedSourceIds.Contains(ds.ExternalDataSourceId)
+            .Where(ds => ds.IsEnabled && sourceIds.Contains(ds.ExternalDataSourceId)
                 && _db.ExternalDataSources.Any(src => src.Id == ds.ExternalDataSourceId && src.IsEnabled))
             .OrderBy(ds => ds.Name)
             .Select(ds => new { ds.Id, ds.Name, ds.FieldsJson })
@@ -151,9 +164,11 @@ public sealed class ExternalReportReader
         }
 
         var declared = ExternalDataJson.DeserializeParameters(ds.ParametersJson);
-        var bound = ExternalParameterBinder.Bind(declared, context, inputs);
+        // Contexto de REPORTE: un parametro RowLimit se enlaza al tope duro del sistema (no al DefaultValue
+        // de autoria), y la query aplica el mismo MaxRows. Asi un default pensado para probar no capa el panel.
+        var bound = ExternalParameterBinder.Bind(declared, context, inputs, reportRowLimit: ReportMaxRows);
 
-        var query = new ExternalQuery(source.Provider, connectionString, ds.CommandText, bound);
+        var query = new ExternalQuery(source.Provider, connectionString, ds.CommandText, bound, MaxRows: ReportMaxRows);
         return await _executor.ExecuteAsync(query, ct);
     }
 }

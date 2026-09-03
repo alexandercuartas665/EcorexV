@@ -93,4 +93,37 @@ public class ExternalParameterBinderTests
         var bound = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant), null));
         Assert.Null(bound.Value);
     }
+
+    // ---- RowLimit (ADR-0068/0084): el default de autoria NO capa el reporte ----
+
+    [Fact]
+    public void RowLimit_InReportContext_BindsToMaxRows_IgnoringAuthorDefault()
+    {
+        // @limite con DefaultValue=5 (pensado para probar en el editor). En un REPORTE debe traer hasta el
+        // tope del sistema, no 5.
+        var declared = new[]
+        {
+            new ExternalDataSetParameter("limite", ExternalDataParameterType.Int, ExternalDataParameterBinding.RowLimit, DefaultValue: "5")
+        };
+        var bound = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant), inputs: null, reportRowLimit: 50_000));
+        Assert.Equal(50_000L, bound.Value);
+    }
+
+    [Fact]
+    public void RowLimit_InConsoleContext_UsesTypedInputThenDefault()
+    {
+        var declared = new[]
+        {
+            new ExternalDataSetParameter("limite", ExternalDataParameterType.Int, ExternalDataParameterBinding.RowLimit, DefaultValue: "5")
+        };
+
+        // Consola con valor tecleado: usa ese valor (no el tope de reporte).
+        var typed = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant),
+            new Dictionary<string, string?> { ["limite"] = "20" }));
+        Assert.Equal(20L, typed.Value);
+
+        // Consola sin valor: usa el DefaultValue de autoria.
+        var def = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant), inputs: null));
+        Assert.Equal(5L, def.Value);
+    }
 }

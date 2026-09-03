@@ -98,7 +98,7 @@
                     <span style="position:absolute;right:-2px;bottom:-2px;width:17px;height:17px;border-radius:50%;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font-size:10px;pointer-events:none;box-shadow:0 0 0 2px var(--surface)">@(_fotoBusy ? "…" : "✎")</span>
                 </label>
                 <div style="flex:1;min-width:0">
-                    <div class="dg-m-kicker">@(_prospectoId is not null ? $"PROSPECTO SCRAPEADO{(string.IsNullOrWhiteSpace(_prospectoFuente) ? "" : " - " + _prospectoFuente)}" : _editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")</div>
+                    <div class="dg-m-kicker">@(_prospectoId is not null ? $"PROSPECTO SCRAPEADO{(string.IsNullOrWhiteSpace(_prospectoFuente) ? "" : " - " + _prospectoFuente)}" : _editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")@(Especializado ? " · ESPECIALIZADO" : "")</div>
                     <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
                 </div>
                 <button class="dg-close" @onclick="BackOrCloseAsync">
@@ -863,6 +863,10 @@
     /// abierto en este modal (modo <see cref="_prospectoId"/>). El host promueve el prospecto (crea el
     /// Tercero rico) y reabre el modal en edicion sobre ese tercero. La incorporacion es EXPLICITA.</summary>
     [Parameter] public EventCallback<Guid> OnIncorporarProspecto { get; set; }
+
+    /// <summary>Variante Especializada del Directorio (ADR-0088): solo cambia detalles visuales de este
+    /// modal (marcador en el encabezado). La logica es la MISMA para ambas variantes.</summary>
+    [Parameter] public bool Especializado { get; set; }
 
     // Actor para el alta de tareas-proceso (quien registra la gestion).
     [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }

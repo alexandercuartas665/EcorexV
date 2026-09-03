@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.159: Directorio - refactor a CAPA COMPARTIDA + fronts delgados (ADR-0088)
+
+- El usuario acepto la nota de mantenimiento de v0.15.158 (duplicacion) y pidio "que cada front consuma la
+  misma capa de backend y luego vamos ajustando los cambios". Se refactoriza la variante del Directorio.
+- Logica compartida: NUEVA clase base `DirectorioSharedBase` (ComponentBase) con TODO el estado, los
+  servicios [Inject] y los handlers (extraido del @code de DirectorioGeneral, ~1030 lineas, private->protected).
+- Dos fronts delgados: DirectorioGeneral.razor (Ligero) y DirectorioEspecializado.razor (Especializado)
+  ahora son SOLO markup + su CSS scoped + `@inherits DirectorioSharedBase` + un `ViewVariant` de una linea.
+  Cero duplicacion de logica; cada front ajusta solo su presentacion.
+- Modal UNICO: se ELIMINO la copia TerceroModalEspecializado; el TerceroModal compartido gana
+  [Parameter] bool Especializado (solo marcador visual). Lo usan Directorio, GestorContactos y TaskWizard.
+- Guard por ViewVariant en la base: cada vista atiende su variante; si el tenant configuro la otra, redirige.
+  La eleccion sigue en /configuracion-entidad -> TenantConfiguration (IDirectoryVariantService), default Ligero.
+- Build SuperAdmin verde a la primera. VERIFICADO en dev (AGROMETALICAS): Ligero (default) -> /directorio-general
+  (KPIs 1209 cargan via la base compartida), modal sin marcador; Especializado -> /directorio-general redirige a
+  /directorio-especializado ("Directorio Especializado") y el modal muestra "NUEVO CLIENTE . ESPECIALIZADO";
+  guard inverso tambien redirige; config de prueba revertida. NO desplegado (a senal del usuario).
+- Queda duplicacion solo de PRESENTACION (markup + CSS por vista), que es lo que debe divergir por variante.
+
+---
+
 ## 2026-09-03 - v0.15.158: variante del Directorio General elegible por el tenant (ADR-0088)
 
 - Pedido del usuario: a unos clientes no les gusta como se ve el Directorio General (000232), a otros si.

@@ -44,6 +44,10 @@ public interface IReportDefinitionService
     /// <summary>Admin (Reportes.Administrar): TODOS los reportes del tenant, activos y archivados.</summary>
     Task<IReadOnlyList<ReportDefinitionSummary>> ListAllAsync(CancellationToken ct = default);
 
+    /// <summary>Reportes ARCHIVADos del tenant activo (Status=Archived), para la pestana "Archivados" desde
+    /// la que se reactivan. Tenant-scoped por el filtro global.</summary>
+    Task<IReadOnlyList<ReportDefinitionSummary>> ListArchivedAsync(CancellationToken ct = default);
+
     /// <summary>Roles asignados a un reporte (ids). Vacio = visible para todos.</summary>
     Task<IReadOnlyList<Guid>> GetAssignedRolesAsync(Guid reportId, CancellationToken ct = default);
 
@@ -259,6 +263,15 @@ public sealed class ReportDefinitionService : IReportDefinitionService
     public async Task<IReadOnlyList<ReportDefinitionSummary>> ListAllAsync(CancellationToken ct = default)
     {
         return await _db.ReportDefinitions.AsNoTracking()
+            .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
+            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ReportDefinitionSummary>> ListArchivedAsync(CancellationToken ct = default)
+    {
+        return await _db.ReportDefinitions.AsNoTracking()
+            .Where(d => d.Status == ReportDefinitionStatus.Archived)
             .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
             .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
             .ToListAsync(ct);

@@ -44,25 +44,45 @@
         }
     </div>
 
-    @if (_cards.Count == 0)
+    @* Pestanas Activos / Archivados (los archivados se pueden reactivar). *@
+    <div style="display:flex;gap:6px;margin:16px 0 6px;border-bottom:1px solid #eef0f3;">
+        <button type="button" @onclick='() => _tab = "activos"'
+                style="border:none;background:none;border-bottom:2px solid @(_tab == "activos" ? "#4f46e5" : "transparent");color:@(_tab == "activos" ? "#4f46e5" : "#6b7280");padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;">
+            Activos (@_cards.Count)
+        </button>
+        <button type="button" @onclick='() => _tab = "archivados"'
+                style="border:none;background:none;border-bottom:2px solid @(_tab == "archivados" ? "#4f46e5" : "transparent");color:@(_tab == "archivados" ? "#4f46e5" : "#6b7280");padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;">
+            Archivados (@_archived.Count)
+        </button>
+    </div>
+
+    @{ var _list = _tab == "archivados" ? _archived : _cards; }
+    @if (_list.Count == 0)
     {
         <div style="text-align:center;color:#9ca3af;padding:48px 0;">
-            <p style="font-size:14px;">Aun no hay reportes visibles para ti.</p>
-            @if (_canCreate)
+            @if (_tab == "archivados")
             {
-                <button style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;"
-                        @onclick="CreateExamplesAsync" disabled="@_busy">Generar reportes de ejemplo</button>
+                <p style="font-size:14px;">No hay reportes archivados.</p>
+            }
+            else
+            {
+                <p style="font-size:14px;">Aun no hay reportes visibles para ti.</p>
+                @if (_canCreate)
+                {
+                    <button style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;"
+                            @onclick="CreateExamplesAsync" disabled="@_busy">Generar reportes de ejemplo</button>
+                }
             }
         </div>
     }
     else
     {
         <div class="rg-grid">
-            @foreach (var c in _cards)
+            @foreach (var c in _list)
             {
                 var card = c;
                 var printable = card.Kind == ReportDefinitionKind.Printable;
-                <button class="rg-card" @onclick="() => OpenAsync(card)">
+                <div class="rg-card" role="button" tabindex="0" style="cursor:pointer;" @onclick="() => OpenAsync(card)">
                     <span class="rg-accent @(printable ? "print" : "dash")"></span>
                     <div class="rg-card-top">
                         <span class="rg-icon @(printable ? "print" : "dash")">
@@ -81,13 +101,44 @@
                     <div class="rg-src">@card.SourceKey</div>
                     <div class="rg-foot">
                         <span>@(card.UpdatedAt?.LocalDateTime.ToString("yyyy-MM-dd") ?? "")</span>
-                        <span class="rg-open">Abrir &rarr;</span>
+                        @if (_tab == "archivados")
+                        {
+                            <button type="button" title="Reactivar este reporte (vuelve a Activos)"
+                                    style="border:1px solid #bbf7d0;background:#fff;color:#15803d;border-radius:6px;padding:2px 10px;font-size:11.5px;font-weight:700;cursor:pointer;"
+                                    @onclick:stopPropagation="true" @onclick="() => UnarchiveAsync(card)">Activar</button>
+                        }
+                        else
+                        {
+                            <button type="button" title="Archivar (pide confirmacion; no se borra, se puede reactivar)"
+                                    style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:6px;padding:2px 10px;font-size:11.5px;font-weight:700;cursor:pointer;"
+                                    @onclick:stopPropagation="true" @onclick="() => AskArchive(card)">Archivar</button>
+                        }
                     </div>
-                </button>
+                </div>
             }
         </div>
     }
 </div>
+
+@* ===================== CONFIRMACION DE ARCHIVAR (doble confirmacion: accion + este dialogo) ============ *@
+@if (_confirmArchive is not null)
+{
+    <div class="modal-overlay" style="z-index:60;" @onclick="CancelArchive">
+        <div class="modal-dialog" style="max-width:420px;width:92vw;" @onclick:stopPropagation="true">
+            <div class="modal-body" style="padding:22px 24px;">
+                <h3 style="margin:0 0 8px;font-size:16px;">Archivar reporte</h3>
+                <p style="margin:0 0 4px;font-size:13.5px;color:#374151;">
+                    Se archivara <strong>@_confirmArchive.Name</strong>. No se borra: queda en la pestana
+                    <strong>Archivados</strong> y podras reactivarlo cuando quieras.
+                </p>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid #eef0f3;">
+                <button class="btn btn-outline-secondary" style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;" @onclick="CancelArchive">Cancelar</button>
+                <button style="border:1px solid #b91c1c;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;" @onclick="ConfirmArchiveAsync" disabled="@_busy">Si, archivar</button>
+            </div>
+        </div>
+    </div>
+}
 
 @* ===================== MODAL GIGANTE: doble vista ===================== *@
 @if (_open is not null)
@@ -109,7 +160,7 @@
                     {
                         <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="EditOpenPanel">Editar</button>
                         <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="DuplicateOpenPanel">Duplicar</button>
-                        <button style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="ArchiveOpenPanel">Archivar</button>
+                        <button style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="() => AskArchive(_open)">Archivar</button>
                     }
                     <button class="modal-close" @onclick="Close">&times;</button>
                 </div>
@@ -336,6 +387,9 @@
 
 @code {
     private IReadOnlyList<ReportDefinitionSummary> _cards = Array.Empty<ReportDefinitionSummary>();
+    private IReadOnlyList<ReportDefinitionSummary> _archived = Array.Empty<ReportDefinitionSummary>();
+    private string _tab = "activos";                        // "activos" | "archivados"
+    private ReportDefinitionSummary? _confirmArchive;       // reporte pendiente de confirmar archivado (doble confirmacion)
     private bool _canCreate;
     private bool _busy;
 
@@ -372,6 +426,42 @@
         var eff = await Perms.GetAsync();
         var seeAll = eff.Unrestricted || eff.Can("reportes/admin", PermissionAction.View);
         _cards = await Defs.ListAsync(seeAll, eff.RolId);
+        // Archivados siempre cargados: alimentan el contador de la pestana y su listado. Tenant-scoped.
+        _archived = await Defs.ListArchivedAsync();
+    }
+
+    // ---- Archivar / reactivar (soft-archive, recuperable) ----
+    // La accion en la tarjeta/viewer abre este dialogo (doble confirmacion: click + confirmar aqui).
+    private void AskArchive(ReportDefinitionSummary? card)
+    {
+        if (card is not null) { _confirmArchive = card; }
+    }
+
+    private void CancelArchive() => _confirmArchive = null;
+
+    private async Task ConfirmArchiveAsync()
+    {
+        if (_confirmArchive is null) { return; }
+        _busy = true;
+        try
+        {
+            await Defs.ArchiveAsync(_confirmArchive.Id);
+            _confirmArchive = null;
+            if (_open is not null) { Close(); }   // si se archivo desde el viewer, cierralo
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; _confirmArchive = null; }
+        finally { _busy = false; }
+    }
+
+    private async Task UnarchiveAsync(ReportDefinitionSummary card)
+    {
+        try
+        {
+            await Defs.UnarchiveAsync(card.Id);
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
     }
 
     private async Task CreateExamplesAsync()
@@ -628,18 +718,6 @@
         try
         {
             await Defs.DuplicatePanelSpecAsync(_open.Id, _open.Name + " (copia)");
-            Close();
-            await ReloadAsync();
-        }
-        catch (Exception ex) { _error = ex.Message; }
-    }
-
-    private async Task ArchiveOpenPanel()
-    {
-        if (_open is null) { return; }
-        try
-        {
-            await Defs.ArchiveAsync(_open.Id);
             Close();
             await ReloadAsync();
         }

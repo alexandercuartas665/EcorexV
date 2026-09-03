@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.164: galeria de reportes: archivar por tarjeta con doble confirmacion + pestana Archivados
+
+- Problema: el boton "Archivar" solo vivia en el visor abierto (arriba a la derecha) y NO pedia confirmacion;
+  un click por error "borraba" el reporte de la vista, sin forma de verlo ni recuperarlo (aunque el archivado
+  siempre fue SOFT: Status=Archived, recuperable via UnarchiveAsync).
+- Cambios (solo UI, sin migracion):
+  1. ReportGallery.razor: pestanas "Activos (N)" | "Archivados (N)" arriba del grid. La tarjeta paso de
+     <button> a <div role=button> para poder llevar un boton de accion en el pie (stopPropagation, no abre).
+  2. Cada tarjeta ACTIVA lleva "Archivar" (rojo) que abre un dialogo de confirmacion (doble confirmacion:
+     click + "Si, archivar"); el mismo dialogo cubre el "Archivar" del visor.
+  3. Cada tarjeta ARCHIVADA lleva "Activar" (verde) que llama UnarchiveAsync y la devuelve a Activos.
+  4. IReportDefinitionService.ListArchivedAsync(): reportes Status=Archived del tenant (filtro global),
+     orden por UpdatedAt desc. ReloadAsync carga activos Y archivados (contadores siempre vivos).
+- VERIFICADO en dev (BITCODE, Panel OCS): Archivar -> confirmacion -> pasa a Archivados (1) -> Activar ->
+  vuelve a Activos (1). Build Release verde.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.163: columnas 'resolve' con captura manual (hibrido VLOOKUP + manual)
 
 - Problema: una columna de grid con 'resolve' (VLOOKUP contra DataContainer) se renderizaba readonly y

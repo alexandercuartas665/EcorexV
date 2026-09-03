@@ -26,6 +26,7 @@ public sealed class ReportCatalog : IReportCatalog
     private readonly IEnumerable<IReportableSource> _nativeSources;
     private readonly ContainerReportReader _containers;
     private readonly ExternalReportReader _external;
+    private readonly Sources.FormResponseReportReader _forms;
     private readonly ITenantContext _tenantContext;
     private readonly IApplicationDbContext _db;
 
@@ -33,12 +34,14 @@ public sealed class ReportCatalog : IReportCatalog
         IEnumerable<IReportableSource> nativeSources,
         ContainerReportReader containers,
         ExternalReportReader external,
+        Sources.FormResponseReportReader forms,
         ITenantContext tenantContext,
         IApplicationDbContext db)
     {
         _nativeSources = nativeSources;
         _containers = containers;
         _external = external;
+        _forms = forms;
         _tenantContext = tenantContext;
         _db = db;
     }
@@ -68,6 +71,10 @@ public sealed class ReportCatalog : IReportCatalog
             }
         }
 
+        // MODULOS de formulario del tenant activo (ADR-0068): una fuente reportable por modulo. El filtro
+        // global limita a los modulos propios; un tenant sin modulos no ve ninguno.
+        result.AddRange(await _forms.ListModulesAsync(ct));
+
         // Fuentes EXTERNAS concedidas al tenant activo (ADR-0064). Un tenant sin concesion no ve ninguna.
         if (_tenantContext.TenantId is Guid tenantId)
         {
@@ -95,6 +102,14 @@ public sealed class ReportCatalog : IReportCatalog
         if (ContainerReportReader.Handles(sourceKey) && ContainerReportReader.ParseId(sourceKey) is Guid id)
         {
             return await _containers.DescribeAsync(id, ct);
+        }
+
+        // Fuente de MODULO de formulario (ADR-0068): "form:{code}", resuelta en el tenant activo.
+        if (Sources.FormResponseReportReader.Handles(sourceKey)
+            && Sources.FormResponseReportReader.ParseCode(sourceKey) is string moduleCode
+            && moduleCode.Length > 0)
+        {
+            return await _forms.DescribeAsync(moduleCode, ct);
         }
 
         // Fuente EXTERNA: solo se describe si el tenant activo tiene concesion (el reader lo verifica).

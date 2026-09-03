@@ -107,6 +107,61 @@ public static class PanelDataEngine
         };
     }
 
+    // ---- Normalizacion de clave de cruce + filtros fijos (ADR-0068) ----
+
+    /// <summary>Transforma una clave de cruce antes de comparar. "beforeDash" toma lo anterior al primer
+    /// '-' (ej. "T00016-1" -> "T00016"). Vacio/desconocido = sin cambio.</summary>
+    public static string TransformKey(string? raw, string? transform)
+    {
+        var s = raw ?? "";
+        return (transform ?? "").Trim().ToLowerInvariant() switch
+        {
+            "beforedash" => s.Split('-', 2)[0],
+            _ => s
+        };
+    }
+
+    /// <summary>Evalua una condicion fija (Where/When) sobre una fila. Ops: eq | ne | contains | gt | gte |
+    /// lt | lte. Para gt/lt intenta numero y luego fecha. Puro (sin EF).</summary>
+    public static bool Matches(PanelRow row, string field, string? op, string? value)
+    {
+        var cell = row.GetValueOrDefault(field);
+        var target = value ?? "";
+        switch ((op ?? "eq").Trim().ToLowerInvariant())
+        {
+            case "eq":
+                return string.Equals(Norm(cell), target, StringComparison.OrdinalIgnoreCase);
+            case "ne":
+                return !string.Equals(Norm(cell), target, StringComparison.OrdinalIgnoreCase);
+            case "contains":
+                return Norm(cell).Contains(target, StringComparison.OrdinalIgnoreCase);
+            case "gt" or "gte" or "lt" or "lte":
+            {
+                var a = AsDecimal(cell);
+                var b = AsDecimal(target);
+                if (a is not null && b is not null)
+                {
+                    return CompareOp(a.Value.CompareTo(b.Value), op!);
+                }
+
+                var da = AsDate(cell);
+                var db = AsDate(target);
+                return da is not null && db is not null && CompareOp(da.Value.CompareTo(db.Value), op!);
+            }
+            default:
+                return true;
+        }
+    }
+
+    private static bool CompareOp(int c, string op) => op.Trim().ToLowerInvariant() switch
+    {
+        "gt" => c > 0,
+        "gte" => c >= 0,
+        "lt" => c < 0,
+        "lte" => c <= 0,
+        _ => false
+    };
+
     // ---- Agregaciones ----
 
     /// <summary>Agrega un conjunto de filas: count / sum / countDistinct / avg. countDistinct y count

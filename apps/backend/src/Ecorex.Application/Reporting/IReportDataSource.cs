@@ -30,6 +30,7 @@ public sealed class ReportDataSource : IReportDataSource
     private readonly IEnumerable<IReportableSource> _nativeSources;
     private readonly ContainerReportReader _containers;
     private readonly ExternalReportReader _external;
+    private readonly Sources.FormResponseReportReader _forms;
     private readonly ITenantContext _tenantContext;
 
     public ReportDataSource(
@@ -37,12 +38,14 @@ public sealed class ReportDataSource : IReportDataSource
         IEnumerable<IReportableSource> nativeSources,
         ContainerReportReader containers,
         ExternalReportReader external,
+        Sources.FormResponseReportReader forms,
         ITenantContext tenantContext)
     {
         _catalog = catalog;
         _nativeSources = nativeSources;
         _containers = containers;
         _external = external;
+        _forms = forms;
         _tenantContext = tenantContext;
     }
 
@@ -65,6 +68,12 @@ public sealed class ReportDataSource : IReportDataSource
         if (descriptor.Kind == ReportSourceKind.Container)
         {
             return await _containers.QueryAsync(descriptor, spec, effectiveCtx, ct);
+        }
+
+        // Fuente de MODULO de formulario (ADR-0068): clave "form:{code}". Tenant-safe via filtro global.
+        if (Sources.FormResponseReportReader.Handles(descriptor.Key))
+        {
+            return await _forms.QueryAsync(descriptor, spec, effectiveCtx, ct);
         }
 
         if (descriptor.Kind == ReportSourceKind.External)

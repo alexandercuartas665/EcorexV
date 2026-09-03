@@ -204,10 +204,13 @@
             }
 
             var sources = await Catalog.GetSourcesAsync();
-            var main = PanelSpecValidator.FindSource(sources, _spec.Sources.Main.Container);
+            var mainRefName = !string.IsNullOrWhiteSpace(_spec.Sources.Main.Source)
+                ? _spec.Sources.Main.Source
+                : _spec.Sources.Main.Container;
+            var main = PanelSpecValidator.FindByRef(sources, _spec.Sources.Main.Source, _spec.Sources.Main.Container);
             if (main is null)
             {
-                _error = $"Este tenant no tiene la fuente requerida '{_spec.Sources.Main.Container}'. El panel no se puede mostrar aqui.";
+                _error = $"Este tenant no tiene la fuente requerida '{mainRefName}'. El panel no se puede mostrar aqui.";
                 return;
             }
 
@@ -225,13 +228,15 @@
                 var row = new PanelRow();
                 for (var i = 0; i < mainCols.Count && i < raw.Count; i++)
                 {
+                    // Indexa por DisplayName Y por Key: el spec puede referir un campo por cualquiera (ADR-0068).
                     row[mainCols[i].DisplayName] = raw[i];
+                    row[mainCols[i].Key] = raw[i];
                 }
 
                 _rows.Add(row);
             }
 
-            // 2) Lookups + join en memoria (codigo -> nombre).
+            // 2) Lookups + join en memoria (codigo -> nombre; trae valores incl. numericos agregables).
             await ApplyLookupsAsync(sources);
 
             // 3) Derivados (buckets de fecha).
@@ -243,7 +248,13 @@
                 }
             }
 
-            // 4) Filtros: opciones distintas para dropdown; vacio para el resto.
+            // 4) Where FIJO (ADR-0068): acota el panel SIEMPRE (no es control de UI), antes de poblar dropdowns.
+            if (_spec.Where.Count > 0)
+            {
+                _rows.RemoveAll(row => !_spec.Where.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value)));
+            }
+
+            // 5) Filtros: opciones distintas para dropdown; vacio para el resto.
             BuildFilters();
 
             Recompute();
@@ -269,7 +280,7 @@
         // autocontenido via su MainKey; si no lo trae, cae al Join por compatibilidad (SIIGO actual).
         foreach (var lookupSpec in _spec!.Sources.Lookups)
         {
-            if (string.IsNullOrWhiteSpace(lookupSpec.Container))
+            if (string.IsNullOrWhiteSpace(lookupSpec.Container) && string.IsNullOrWhiteSpace(lookupSpec.Source))
             {
                 continue;
             }
@@ -290,12 +301,14 @@
         }
     }
 
-    /// <summary>Aplica UN lookup: consulta la fuente de lookup, mapea Key -> (Bring) y asigna los alias a
-    /// cada fila principal usando <paramref name="mainKey"/>. Sin efecto si falta la fuente/clave/Bring.</summary>
+    /// <summary>Aplica UN lookup: consulta la fuente (por Source/clave o Container/nombre), opcionalmente
+    /// deduplica (Reduce, latest por Reference) y normaliza la clave (KeyTransform, beforeDash), mapea
+    /// Key -> (Bring) y asigna los alias a cada fila principal usando <paramref name="mainKey"/>. Los valores
+    /// numericos traidos quedan agregables (Sum). Sin efecto si falta la fuente/clave/Bring.</summary>
     private async Task ApplyOneLookupAsync(
         IReadOnlyList<ReportSourceDescriptor> sources, PanelLookup lookupSpec, string mainKey)
     {
-        var lookupSrc = PanelSpecValidator.FindSource(sources, lookupSpec.Container);
+        var lookupSrc = PanelSpecValidator.FindByRef(sources, lookupSpec.Source, lookupSpec.Container);
         if (lookupSrc is null)
         {
             return;
@@ -303,7 +316,7 @@
 
         var keyField = FieldKeyByName(lookupSrc, lookupSpec.Key);
         var bringFields = lookupSpec.Bring
-            .Select(b => (Src: b.Key, Alias: b.Value, Key: FieldKeyByName(lookupSrc, b.Key)))
+            .Select(b => (Alias: string.IsNullOrWhiteSpace(b.Value) ? b.Key : b.Value, Key: FieldKeyByName(lookupSrc, b.Key)))
             .Where(x => x.Key is not null)
             .ToList();
         if (keyField is null || bringFields.Count == 0)
@@ -314,18 +327,64 @@
         var fieldKeys = new List<string> { keyField };
         fieldKeys.AddRange(bringFields.Select(b => b.Key!));
 
+        // Reduce (dedupe): pide el campo 'By' + marcas de tiempo conocidas para elegir la mas reciente.
+        string? reduceByKey = null;
+        var tsKeys = new List<string>();
+        if (lookupSpec.Reduce is not null)
+        {
+            reduceByKey = FieldKeyByName(lookupSrc, lookupSpec.Reduce.By);
+            if (reduceByKey is not null)
+            {
+                fieldKeys.Add(reduceByKey);
+            }
+
+            foreach (var tk in new[] { "TransactionDate", "SubmittedAt", "CreatedAt" })
+            {
+                var k = lookupSrc.Fields.FirstOrDefault(f => string.Equals(f.Key, tk, StringComparison.OrdinalIgnoreCase))?.Key;
+                if (k is not null)
+                {
+                    tsKeys.Add(k);
+                    fieldKeys.Add(k);
+                }
+            }
+        }
+
         var ds = await ReportDs.QueryAsync(new ReportQuerySpec
         {
             SourceKey = lookupSrc.Key,
-            Fields = fieldKeys.ToArray()
+            Fields = fieldKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         }, new ReportContext(Guid.Empty));
 
         var idx = ds.Columns.Select((c, i) => (c.Key, i))
             .ToDictionary(x => x.Key, x => x.i, StringComparer.OrdinalIgnoreCase);
-        var map = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var raw in ds.Rows)
+
+        // Materializa filas del lookup a dicts por Key de columna.
+        var lkRows = ds.Rows.Select(raw =>
         {
-            var key = PanelDataEngine.Norm(raw[idx[keyField]]);
+            var d = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in idx)
+            {
+                d[kv.Key] = kv.Value < raw.Count ? raw[kv.Value] : null;
+            }
+
+            return d;
+        }).ToList();
+
+        // Dedupe por Reduce.By: una fila por grupo (latest por timestamp, o first).
+        if (lookupSpec.Reduce is not null && reduceByKey is not null)
+        {
+            var keepLatest = !string.Equals(lookupSpec.Reduce.Keep, "first", StringComparison.OrdinalIgnoreCase);
+            lkRows = lkRows
+                .GroupBy(r => PanelDataEngine.Norm(r.GetValueOrDefault(reduceByKey)))
+                .Select(g => keepLatest ? g.OrderByDescending(r => RowStamp(r, tsKeys)).First() : g.First())
+                .ToList();
+        }
+
+        var transform = lookupSpec.KeyTransform;
+        var map = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in lkRows)
+        {
+            var key = PanelDataEngine.TransformKey(PanelDataEngine.Norm(r.GetValueOrDefault(keyField)), transform);
             if (key.Length == 0 || map.ContainsKey(key))
             {
                 continue;
@@ -334,7 +393,7 @@
             var brought = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             foreach (var b in bringFields)
             {
-                brought[b.Alias] = raw[idx[b.Key!]];
+                brought[b.Alias] = r.GetValueOrDefault(b.Key!);
             }
 
             map[key] = brought;
@@ -342,7 +401,7 @@
 
         foreach (var row in _rows)
         {
-            var mainKeyVal = PanelDataEngine.Norm(row.GetValueOrDefault(mainKey));
+            var mainKeyVal = PanelDataEngine.TransformKey(PanelDataEngine.Norm(row.GetValueOrDefault(mainKey)), transform);
             if (map.TryGetValue(mainKeyVal, out var brought))
             {
                 foreach (var kv in brought)
@@ -351,6 +410,22 @@
                 }
             }
         }
+    }
+
+    /// <summary>Marca de tiempo de una fila de lookup para "latest": primer timestamp no nulo en orden de
+    /// preferencia (TransactionDate, SubmittedAt, CreatedAt).</summary>
+    private static DateTimeOffset RowStamp(Dictionary<string, object?> row, List<string> tsKeys)
+    {
+        foreach (var k in tsKeys)
+        {
+            var d = PanelDataEngine.AsDate(row.GetValueOrDefault(k));
+            if (d is not null)
+            {
+                return d.Value;
+            }
+        }
+
+        return DateTimeOffset.MinValue;
     }
 
     private void BuildFilters()
@@ -436,7 +511,11 @@
         _kpis.Clear();
         foreach (var k in _spec!.Kpis)
         {
-            var value = PanelDataEngine.Aggregate(_filtered, k.Agg, k.Field);
+            // KPI condicional (ADR-0068): agrega solo el subconjunto que cumple When (AND). Vacio = todo.
+            var subset = k.When.Count == 0
+                ? (IReadOnlyList<PanelRow>)_filtered
+                : _filtered.Where(row => k.When.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value))).ToList();
+            var value = PanelDataEngine.Aggregate(subset, k.Agg, k.Field);
             _kpis.Add(new KpiValue(k.Label, PanelDataEngine.Format(value, k.Format)));
         }
     }
@@ -580,8 +659,10 @@
     private static DateTimeOffset? ParseDate(string? s) =>
         DateTimeOffset.TryParse(s, Inv, DateTimeStyles.AssumeUniversal, out var d) ? d : null;
 
-    private static string? FieldKeyByName(ReportSourceDescriptor d, string displayName) =>
-        d.Fields.FirstOrDefault(f => string.Equals(f.DisplayName, displayName, StringComparison.OrdinalIgnoreCase))?.Key;
+    private static string? FieldKeyByName(ReportSourceDescriptor d, string nameOrKey) =>
+        d.Fields.FirstOrDefault(f =>
+            string.Equals(f.DisplayName, nameOrKey, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(f.Key, nameOrKey, StringComparison.OrdinalIgnoreCase))?.Key;
 
     private static string KpiAccent(int i) => i switch
     {

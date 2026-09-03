@@ -27,6 +27,11 @@ public sealed class PanelSpec
     /// <summary>Campos derivados en memoria (buckets de fecha: year / yyyymm / month / date).</summary>
     public List<PanelDerived> Derived { get; set; } = new();
 
+    /// <summary>Filtros FIJOS del spec (ADR-0068): se aplican SIEMPRE, no son controles de UI. Acotan el
+    /// panel a un subconjunto (p.ej. Tablero eq "GESTION COMERCIAL"). Ops: eq | ne | contains | gt | gte |
+    /// lt | lte. Se evaluan tras el join/derivados y antes de poblar los dropdowns.</summary>
+    public List<PanelWhere> Where { get; set; } = new();
+
     /// <summary>Filtros que se auto-pueblan (distinct) o por tipo (dropdown / daterange / text).</summary>
     public List<PanelFilter> Filters { get; set; } = new();
 
@@ -79,6 +84,11 @@ public sealed class PanelSource
     /// <summary>Nombre de negocio de la fuente en el catalogo del tenant (DisplayName: un contenedor o
     /// una entidad nativa como "Actividades"). El renderizador la resuelve por nombre en el tenant.</summary>
     public string Container { get; set; } = "";
+
+    /// <summary>Alternativa/preferente a <see cref="Container"/>: la CLAVE de la fuente en el catalogo
+    /// (ej. "native:taskitem", "form:COT", "container:{guid}"). Estable entre entornos (util para modulos:
+    /// el code no cambia, el titulo si). Si viene, se resuelve por clave; si no, por DisplayName.</summary>
+    public string? Source { get; set; }
 }
 
 public sealed class PanelLookup
@@ -86,17 +96,53 @@ public sealed class PanelLookup
     /// <summary>Nombre de negocio del contenedor/entidad de lookup en el catalogo.</summary>
     public string Container { get; set; } = "";
 
-    /// <summary>Campo de la fuente PRINCIPAL que cruza con <see cref="Key"/> de ESTE lookup (DisplayName).
-    /// Deja cada lookup autocontenido (MainKey -> Key, trae Bring), permitiendo 2+ lookups. Si falta, por
-    /// compatibilidad se usa <see cref="PanelJoin.MainKey"/> cuando <see cref="PanelJoin.Lookup"/> apunta a
-    /// este lookup (asi el reporte SIIGO actual, que solo usa Join, no se rompe).</summary>
+    /// <summary>Alternativa/preferente a <see cref="Container"/>: la CLAVE de la fuente (ej. "form:COT").</summary>
+    public string? Source { get; set; }
+
+    /// <summary>Campo de la fuente PRINCIPAL que cruza con <see cref="Key"/> de ESTE lookup (DisplayName o
+    /// Key del campo). Deja cada lookup autocontenido (MainKey -> Key, trae Bring), permitiendo 2+ lookups.
+    /// Si falta, por compatibilidad se usa <see cref="PanelJoin.MainKey"/> cuando <see cref="PanelJoin.Lookup"/>
+    /// apunta a este lookup (asi el reporte SIIGO actual, que solo usa Join, no se rompe).</summary>
     public string? MainKey { get; set; }
 
-    /// <summary>Campo clave del lookup con el que se cruza (DisplayName).</summary>
+    /// <summary>Campo clave del lookup con el que se cruza (DisplayName o Key del campo).</summary>
     public string Key { get; set; } = "";
 
-    /// <summary>Campos a traer del lookup: campoOrigen -> aliasDestino (nombre logico en la fila).</summary>
+    /// <summary>Normalizacion de la clave del lookup antes de comparar con <see cref="MainKey"/> (ADR-0068).
+    /// "beforeDash" toma lo anterior al primer '-' (ej. "T00016-1" -> "T00016"), para cruzar el numero de
+    /// tarea con la referencia de una respuesta de formulario. Vacio = sin transformacion.</summary>
+    public string? KeyTransform { get; set; }
+
+    /// <summary>Dedupe del lookup antes de cruzar (ADR-0068): si una clave tiene varias filas (revisiones),
+    /// conserva una sola. Ej. { By: "Reference", Keep: "latest" } se queda con la mas reciente.</summary>
+    public PanelReduce? Reduce { get; set; }
+
+    /// <summary>Campos a traer del lookup: campoOrigen -> aliasDestino (nombre logico en la fila). El origen
+    /// puede referirse al DisplayName o al Key del campo. Un alias numerico se puede AGREGAR (Sum) despues.</summary>
     public Dictionary<string, string> Bring { get; set; } = new();
+}
+
+/// <summary>Dedupe de un lookup por una clave, conservando una fila (ADR-0068).</summary>
+public sealed class PanelReduce
+{
+    /// <summary>Campo del lookup por el que se agrupa para deduplicar (DisplayName o Key).</summary>
+    public string By { get; set; } = "";
+
+    /// <summary>Cual conservar por grupo: "latest" (mayor fecha) | "first" (la primera vista). Default latest.</summary>
+    public string Keep { get; set; } = "latest";
+}
+
+/// <summary>Filtro FIJO del spec (ADR-0068): campo + operador + valor. No es un control de UI.</summary>
+public sealed class PanelWhere
+{
+    /// <summary>Campo sobre el que aplica (de la fuente, un alias de lookup o un derivado).</summary>
+    public string Field { get; set; } = "";
+
+    /// <summary>Operador: eq | ne | contains | gt | gte | lt | lte.</summary>
+    public string Op { get; set; } = "eq";
+
+    /// <summary>Valor de comparacion (texto; para gt/lt se interpreta numerico o fecha si aplica).</summary>
+    public string? Value { get; set; }
 }
 
 public sealed class PanelJoin
@@ -144,6 +190,10 @@ public sealed class PanelKpi
 
     /// <summary>Formato: money | moneyM | percent | int.</summary>
     public string Format { get; set; } = "int";
+
+    /// <summary>KPI CONDICIONAL opcional (ADR-0068): agrega SOLO las filas que cumplen estas condiciones
+    /// (todas, AND). Vacio = sobre todas las filas del panel.</summary>
+    public List<PanelWhere> When { get; set; } = new();
 }
 
 public sealed class PanelWidget

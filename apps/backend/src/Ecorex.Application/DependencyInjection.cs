@@ -283,6 +283,9 @@ public static class DependencyInjection
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TaskItemReportSource>();
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.ExternalDataSourceReportSource>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
+        // ADR-0068: fuente reportable de RESPUESTAS DE FORMULARIO (una por modulo, clave "form:{code}").
+        // El catalogo la enumera como los contenedores; el datasource despacha "form:" a este lector.
+        services.AddScoped<Reporting.Sources.FormResponseReportReader>();
         services.AddScoped<Reporting.IReportCatalog, Reporting.ReportCatalog>();
         services.AddScoped<Reporting.IReportDataSource, Reporting.ReportDataSource>();
         // Ola 4: definiciones guardadas (ReportDefinition) + autoria por IA (instruccion -> JSON-spec

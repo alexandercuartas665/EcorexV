@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.156: respuestas de formulario reportables + monto por estado del tablero (ADR-0068)
+
+- Hand-off de la sesion de reportes: poder sumar un valor numerico de un modulo de formulario agrupado por
+  un atributo de la tarea (estado del tablero, concepto, asignado). Caso: monto de cotizacion (modulo COT,
+  campo tot_total) por columna del tablero comercial. Capacidad REUSABLE, no un reporte a medida.
+- NUEVA fuente `FormResponseReportReader` (Application/Reporting/Sources), espejo de ContainerReportReader
+  sobre _db.FormResponses. UNA fuente por MODULO (is_module=true), clave "form:{code}" (estable entre
+  entornos, no el definitionId). ReportCatalog la enumera; ReportDataSource despacha "form:". Tenant-safe.
+- Campos = FormQuestions escalares (FormFieldValidator.IsCapture) + sinteticos (Reference, RecordNumber,
+  Status, IsActive, TransactionDate, SubmittedAt, CreatedAt). Number->Decimal (montos: preserva y agrega).
+  Lee el jsonb {value,type} con FormResponseService.ParseDocument. Excluye por defecto SOLO Voided; expone
+  Status/IsActive como campos para filtrar (no fuerza is_active=true, que dejaria casi todo fuera).
+- PanelSpec extendido (solo JSON, sin migracion): Source (clave de fuente, ademas de Container/nombre),
+  KeyTransform ("beforeDash": T00016-1 -> T00016), Reduce ({By,Keep} dedupe latest por Reference), Sum sobre
+  alias numerico traido por lookup, Where FIJO ([{Field,Op,Value}], ops eq/ne/contains/gt/gte/lt/lte;
+  cierra el Where fijo de ADR-0066) y When condicional en KPI. Referencias de campo tolerantes a DisplayName
+  O Key (util porque Number->"Numero", Board->"Tablero", Stage->"Etapa" en Actividades).
+- SpecPanelRenderer aplica todo en memoria (reusa PanelDataEngine; nuevos helpers puros TransformKey/Matches).
+  PanelSpecValidator valida las claves nuevas (FindByRef por clave o nombre).
+- Tests: PanelSpecValidatorTests (+pipeline COT: Source/KeyTransform/Reduce/Where/When), PanelDataEngineWhereTests,
+  FormResponseReportReaderTests. Suite Application 755/756 (el unico fallo es la NRE pre-existente Corre_una_vez,
+  ajena). Build Application + SuperAdmin verde.
+- VERIFICADO END-TO-END en dev (AGROMETALICAS): "Nuevo panel" -> pegar PanelSpec -> Validar ("Spec valido") ->
+  Guardar -> render EN VIVO. Suma de tot_total por Etapa coincide AL PESO con la SQL tenant-scoped (Completado
+  $2.939.259, En progreso $840.735, Requerimiento $252.221, En revision $201.776; total ~$4,23M / KPI "$4 M").
+  La version cross-tenant de la SQL inflaba a $22,7M con tareas de OTRO tenant que comparten numero: el panel
+  las excluye (aislamiento por construccion). Panel de prueba borrado del local. NO desplegado (deploy = Alexander).
+
+---
+
 ## 2026-09-02 - v0.15.155: fuentes EXTERNAS como Main de un panel (datos en vivo del conector, ADR-0064)
 
 - Hand-off de la sesion de reportes: un PanelSpec/dashboard debe poder tener como fuente principal (Main)

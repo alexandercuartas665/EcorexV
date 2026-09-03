@@ -250,6 +250,120 @@ public class PanelSpecValidatorTests
         Assert.Equal(ReportSourceKind.Container, found!.Kind);
     }
 
+    // ---- Pipeline comercial: Main native + lookup de MODULO de formulario (ADR-0068) ----
+    // Ejercita: resolucion por Source/clave (native:taskitem, form:COT), MainKey por Key ("Number" cuyo
+    // DisplayName es "Numero"), Where fijo, lookup con KeyTransform + Reduce, y Sum sobre un alias traido.
+
+    private static IReadOnlyList<ReportSourceDescriptor> PipelineCatalog() => new[]
+    {
+        // Actividades: Key != DisplayName en varios campos (Number->Numero, Board->Tablero, Stage->Etapa).
+        new ReportSourceDescriptor("native:taskitem", "Actividades", ReportSourceKind.Native, new[]
+        {
+            new ReportField("Number", "Numero", ReportFieldType.Text),
+            new ReportField("Board", "Tablero", ReportFieldType.Text),
+            new ReportField("Stage", "Etapa", ReportFieldType.Text),
+            new ReportField("CreatedAt", "Creada", ReportFieldType.Date)
+        }),
+        // Modulo COT: campo numerico (Decimal, agregable) + sinteticos Reference/TransactionDate.
+        new ReportSourceDescriptor("form:COT", "SIMULADOR COTIZACIONES", ReportSourceKind.Native, new[]
+        {
+            new ReportField("tot_total", "Total", ReportFieldType.Decimal, CanFilter: true, CanGroup: true, CanAggregate: true),
+            new ReportField("Reference", "Referencia", ReportFieldType.Text),
+            new ReportField("TransactionDate", "Fecha de transaccion", ReportFieldType.Date)
+        })
+    };
+
+    private static PanelSpec PipelineSpec() => PanelSpec.FromJson(@"{
+      ""Title"": ""Pipeline comercial - monto por estado"",
+      ""Sources"": { ""Main"": { ""Source"": ""native:taskitem"" },
+        ""Lookups"": [
+          { ""Source"": ""form:COT"", ""MainKey"": ""Number"", ""Key"": ""Reference"",
+            ""KeyTransform"": ""beforeDash"", ""Reduce"": { ""By"": ""Reference"", ""Keep"": ""latest"" },
+            ""Bring"": { ""tot_total"": ""MontoCotizacion"" } }
+        ] },
+      ""Where"": [ { ""Field"": ""Tablero"", ""Op"": ""eq"", ""Value"": ""GESTION COMERCIAL"" } ],
+      ""Filters"": [ { ""Field"": ""Etapa"", ""Label"": ""Estado"", ""Control"": ""dropdown"" } ],
+      ""Kpis"": [
+        { ""Label"": ""Monto total"", ""Agg"": ""sum"", ""Field"": ""MontoCotizacion"", ""Format"": ""moneyM"" },
+        { ""Label"": ""Cotizaciones"", ""Agg"": ""count"", ""Format"": ""int"" }
+      ],
+      ""Widgets"": [
+        { ""Type"": ""bar"", ""Title"": ""Monto por estado"", ""Dim"": ""Etapa"", ""Agg"": ""sum"", ""Field"": ""MontoCotizacion"" },
+        { ""Type"": ""table"", ""Title"": ""Detalle"", ""GroupBy"": ""Etapa"",
+          ""Columns"": [ { ""Field"": ""Etapa"", ""Label"": ""Estado"" },
+                       { ""Agg"": ""count"", ""Label"": ""Cotizaciones"" },
+                       { ""Agg"": ""sum"", ""AggField"": ""MontoCotizacion"", ""Label"": ""Monto"", ""Format"": ""money"" } ] }
+      ]
+    }")!;
+
+    [Fact]
+    public void PipelineSpec_ProducesNoErrors()
+    {
+        var errors = PanelSpecValidator.Validate(PipelineSpec(), PipelineCatalog());
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void FindByRef_ResolvesByKey()
+    {
+        var found = PanelSpecValidator.FindByRef(PipelineCatalog(), "form:COT", null);
+        Assert.NotNull(found);
+        Assert.Equal("SIMULADOR COTIZACIONES", found!.DisplayName);
+    }
+
+    [Fact]
+    public void FindByRef_FallsBackToDisplayName()
+    {
+        var found = PanelSpecValidator.FindByRef(PipelineCatalog(), null, "Actividades");
+        Assert.NotNull(found);
+        Assert.Equal("native:taskitem", found!.Key);
+    }
+
+    [Fact]
+    public void Where_UnknownField_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Where[0].Field = "NoExisteCampo";
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("NoExisteCampo"));
+    }
+
+    [Fact]
+    public void Where_UnknownOp_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Where[0].Op = "between"; // no soportado en Where fijo
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("operador desconocido"));
+    }
+
+    [Fact]
+    public void Lookup_UnknownKeyTransform_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Sources.Lookups[0].KeyTransform = "afterColon";
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("keyTransform"));
+    }
+
+    [Fact]
+    public void Reduce_ByNotALookupField_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Sources.Lookups[0].Reduce!.By = "NoEsCampoDelLookup";
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("NoEsCampoDelLookup"));
+    }
+
+    [Fact]
+    public void Kpi_When_UnknownField_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Kpis[0].When.Add(new PanelWhere { Field = "CampoQueNoEsta", Op = "eq", Value = "x" });
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("CampoQueNoEsta"));
+    }
+
     [Fact]
     public void InvalidJson_ReturnsNullSpec()
     {

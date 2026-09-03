@@ -1,10 +1,14 @@
 namespace Ecorex.Application.Reporting.Panels;
 
-// Validador del PanelSpec contra el catalogo tenant-safe (ADR-0066). Es el limite de seguridad de la
+// Validador del PanelSpec contra el catalogo tenant-safe (ADR-0066/0068). Es el limite de seguridad de la
 // AUTORIA: un spec solo puede referenciar fuentes y campos de NEGOCIO que existen en el catalogo del
 // tenant (mas los alias traidos por lookup y los campos derivados que el propio spec declara). No toca
 // la BD: valida sobre los descriptores ya publicados por IReportCatalog. Devuelve mensajes claros para
 // que el editor los muestre. Puro y testeable.
+//
+// Una fuente puede referenciarse por CLAVE (PanelSource.Source, ej. "native:taskitem", "form:COT") o por
+// nombre de negocio (PanelSource.Container = DisplayName). Los campos se referencian por DisplayName O por
+// Key (tolerante), para que un spec autorizado con nombres tecnicos estables funcione igual entre entornos.
 
 public static class PanelSpecValidator
 {
@@ -23,6 +27,15 @@ public static class PanelSpecValidator
     private static readonly HashSet<string> KnownControls =
         new(new[] { "dropdown", "daterange", "text" }, StringComparer.OrdinalIgnoreCase);
 
+    private static readonly HashSet<string> KnownWhereOps =
+        new(new[] { "eq", "ne", "contains", "gt", "gte", "lt", "lte" }, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> KnownKeyTransforms =
+        new(new[] { "beforedash" }, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> KnownReduceKeep =
+        new(new[] { "latest", "first" }, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Valida el spec contra las fuentes del catalogo. Lista vacia = valido.</summary>
     public static IReadOnlyList<string> Validate(PanelSpec spec, IReadOnlyList<ReportSourceDescriptor> catalog)
     {
@@ -33,43 +46,48 @@ public static class PanelSpecValidator
             return new[] { "El PanelSpec es nulo o no se pudo interpretar como JSON." };
         }
 
-        // 1) Fuente principal.
-        var mainName = spec.Sources?.Main?.Container;
-        if (string.IsNullOrWhiteSpace(mainName))
+        // 1) Fuente principal (por Source/clave o Container/nombre).
+        var mainRef = SourceRef(spec.Sources?.Main);
+        if (string.IsNullOrWhiteSpace(mainRef))
         {
-            errors.Add("sources.main.container es obligatorio (nombre de la fuente principal).");
+            errors.Add("sources.main es obligatorio (source/clave o container/nombre de la fuente principal).");
             return errors;
         }
 
-        var main = FindSource(catalog, mainName!);
+        var main = FindByRef(catalog, spec.Sources!.Main.Source, spec.Sources.Main.Container);
         if (main is null)
         {
-            errors.Add($"La fuente principal '{mainName}' no existe en el catalogo de este tenant.");
+            errors.Add($"La fuente principal '{mainRef}' no existe en el catalogo de este tenant.");
             return errors;
         }
 
-        var mainFields = new HashSet<string>(main.Fields.Select(f => f.DisplayName), StringComparer.OrdinalIgnoreCase);
+        var mainFields = NamesOf(main);
 
         // 2) Lookups + campos traidos (alias disponibles).
         var available = new HashSet<string>(mainFields, StringComparer.OrdinalIgnoreCase);
         var lookupsByName = new Dictionary<string, ReportSourceDescriptor>(StringComparer.OrdinalIgnoreCase);
         foreach (var lk in spec.Sources?.Lookups ?? new List<PanelLookup>())
         {
-            if (string.IsNullOrWhiteSpace(lk.Container))
+            var lkRef = SourceRef(lk);
+            if (string.IsNullOrWhiteSpace(lkRef))
             {
-                errors.Add("Un lookup no tiene 'container'.");
+                errors.Add("Un lookup no tiene 'source' ni 'container'.");
                 continue;
             }
 
-            var src = FindSource(catalog, lk.Container);
+            var src = FindByRef(catalog, lk.Source, lk.Container);
             if (src is null)
             {
-                errors.Add($"El lookup '{lk.Container}' no existe en el catalogo de este tenant.");
+                errors.Add($"El lookup '{lkRef}' no existe en el catalogo de este tenant.");
                 continue;
             }
 
-            lookupsByName[lk.Container] = src;
-            var lkFields = new HashSet<string>(src.Fields.Select(f => f.DisplayName), StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(lk.Container))
+            {
+                lookupsByName[lk.Container] = src;
+            }
+
+            var lkFields = NamesOf(src);
 
             // MainKey autocontenido del lookup; si falta, cae al Join (compatibilidad) cuando Join.Lookup
             // apunta a este lookup. Sin ninguno de los dos, el lookup no se aplicaria.
@@ -81,23 +99,45 @@ public static class PanelSpecValidator
                         : null);
             if (string.IsNullOrWhiteSpace(effMainKey))
             {
-                errors.Add($"El lookup '{lk.Container}' no declara 'mainKey' y no hay un join que lo cruce: no se aplicaria.");
+                errors.Add($"El lookup '{lkRef}' no declara 'mainKey' y no hay un join que lo cruce: no se aplicaria.");
             }
             else if (!mainFields.Contains(effMainKey))
             {
-                errors.Add($"El lookup '{lk.Container}' usa mainKey '{effMainKey}', que no es un campo de la fuente principal.");
+                errors.Add($"El lookup '{lkRef}' usa mainKey '{effMainKey}', que no es un campo de la fuente principal.");
             }
 
             if (!string.IsNullOrWhiteSpace(lk.Key) && !lkFields.Contains(lk.Key))
             {
-                errors.Add($"El lookup '{lk.Container}' no tiene el campo clave '{lk.Key}'.");
+                errors.Add($"El lookup '{lkRef}' no tiene el campo clave '{lk.Key}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(lk.KeyTransform) && !KnownKeyTransforms.Contains(lk.KeyTransform))
+            {
+                errors.Add($"El lookup '{lkRef}' tiene un keyTransform desconocido: '{lk.KeyTransform}' (beforeDash).");
+            }
+
+            if (lk.Reduce is not null)
+            {
+                if (string.IsNullOrWhiteSpace(lk.Reduce.By))
+                {
+                    errors.Add($"El reduce del lookup '{lkRef}' no declara 'by'.");
+                }
+                else if (!lkFields.Contains(lk.Reduce.By))
+                {
+                    errors.Add($"El reduce del lookup '{lkRef}' usa by '{lk.Reduce.By}', que no es un campo del lookup.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(lk.Reduce.Keep) && !KnownReduceKeep.Contains(lk.Reduce.Keep))
+                {
+                    errors.Add($"El reduce del lookup '{lkRef}' tiene un keep desconocido: '{lk.Reduce.Keep}' (latest|first).");
+                }
             }
 
             foreach (var bring in lk.Bring)
             {
                 if (!lkFields.Contains(bring.Key))
                 {
-                    errors.Add($"El lookup '{lk.Container}' no tiene el campo '{bring.Key}' que se intenta traer.");
+                    errors.Add($"El lookup '{lkRef}' no tiene el campo '{bring.Key}' que se intenta traer.");
                 }
 
                 if (!string.IsNullOrWhiteSpace(bring.Value))
@@ -106,7 +146,7 @@ public static class PanelSpecValidator
                     // colision silenciosa mezclaria datos de dos fuentes bajo el mismo nombre logico.
                     if (!available.Add(bring.Value))
                     {
-                        errors.Add($"El alias '{bring.Value}' del lookup '{lk.Container}' choca con un campo ya existente (fuente principal u otro lookup).");
+                        errors.Add($"El alias '{bring.Value}' del lookup '{lkRef}' choca con un campo ya existente (fuente principal u otro lookup).");
                     }
                 }
             }
@@ -141,8 +181,10 @@ public static class PanelSpecValidator
             }
             else
             {
-                var field = main.Fields.First(f => string.Equals(f.DisplayName, d.From, StringComparison.OrdinalIgnoreCase));
-                if (field.Type != ReportFieldType.Date)
+                var field = main.Fields.FirstOrDefault(f =>
+                    string.Equals(f.DisplayName, d.From, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(f.Key, d.From, StringComparison.OrdinalIgnoreCase));
+                if (field is not null && field.Type != ReportFieldType.Date)
                 {
                     errors.Add($"El derivado '{d.Name}' exige un campo de fecha; '{d.From}' es {field.Type}.");
                 }
@@ -156,7 +198,21 @@ public static class PanelSpecValidator
             available.Add(d.Name);
         }
 
-        // 5) Filtros.
+        // 5) Where FIJO (ADR-0068): se aplica siempre; el campo debe existir y el operador ser conocido.
+        foreach (var w in spec.Where)
+        {
+            if (!available.Contains(w.Field))
+            {
+                errors.Add($"El where sobre '{w.Field}' no es un campo disponible (fuente, alias de lookup o derivado).");
+            }
+
+            if (!KnownWhereOps.Contains(w.Op ?? ""))
+            {
+                errors.Add($"El where sobre '{w.Field}' tiene un operador desconocido: '{w.Op}' (eq|ne|contains|gt|gte|lt|lte).");
+            }
+        }
+
+        // 6) Filtros.
         foreach (var f in spec.Filters)
         {
             if (!available.Contains(f.Field))
@@ -170,7 +226,7 @@ public static class PanelSpecValidator
             }
         }
 
-        // 6) KPIs.
+        // 7) KPIs (+ When condicional).
         foreach (var k in spec.Kpis)
         {
             if (!KnownAggs.Contains(k.Agg ?? ""))
@@ -184,9 +240,22 @@ public static class PanelSpecValidator
             {
                 errors.Add($"El KPI '{k.Label}' tiene un formato desconocido: '{k.Format}' (money|moneyM|percent|int).");
             }
+
+            foreach (var w in k.When)
+            {
+                if (!available.Contains(w.Field))
+                {
+                    errors.Add($"El KPI '{k.Label}' tiene un when sobre '{w.Field}', que no es un campo disponible.");
+                }
+
+                if (!KnownWhereOps.Contains(w.Op ?? ""))
+                {
+                    errors.Add($"El KPI '{k.Label}' tiene un when con operador desconocido: '{w.Op}'.");
+                }
+            }
         }
 
-        // 7) Widgets.
+        // 8) Widgets.
         foreach (var w in spec.Widgets)
         {
             var label = string.IsNullOrWhiteSpace(w.Title) ? w.Type : w.Title;
@@ -269,12 +338,49 @@ public static class PanelSpecValidator
         }
     }
 
-    /// <summary>Resuelve una fuente por su nombre de negocio (DisplayName) entre nativas, contenedores y
-    /// fuentes EXTERNAS concedidas/propias del tenant (ADR-0064). Preferencia: coincidencia exacta; luego
-    /// case-insensitive. El catalogo ya es tenant-safe (IReportCatalog solo publica lo del tenant activo),
-    /// y las externas se agregan al final del catalogo, asi que ante una colision de nombre gana la fuente
-    /// nativa/contenedor previa. Un panel External hace su agregado/filtrado en memoria, por eso no importa
-    /// que los campos externos declaren CanFilter=false.</summary>
+    // ---- Resolucion de fuentes y campos ----
+
+    private static string? SourceRef(PanelSource? s)
+        => s is null ? null : (!string.IsNullOrWhiteSpace(s.Source) ? s.Source : s.Container);
+
+    private static string? SourceRef(PanelLookup lk)
+        => !string.IsNullOrWhiteSpace(lk.Source) ? lk.Source : lk.Container;
+
+    /// <summary>Nombres referenciables de una fuente: DisplayName Y Key de cada campo (tolerante).</summary>
+    private static HashSet<string> NamesOf(ReportSourceDescriptor descriptor)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in descriptor.Fields)
+        {
+            set.Add(f.DisplayName);
+            set.Add(f.Key);
+        }
+
+        return set;
+    }
+
+    /// <summary>Resuelve una fuente por su CLAVE (source) y, si no, por su nombre de negocio (container).</summary>
+    public static ReportSourceDescriptor? FindByRef(IReadOnlyList<ReportSourceDescriptor> catalog, string? source, string? container)
+    {
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            var byKey = catalog.FirstOrDefault(s => string.Equals(s.Key, source, StringComparison.Ordinal))
+                ?? catalog.FirstOrDefault(s => string.Equals(s.Key, source, StringComparison.OrdinalIgnoreCase));
+            if (byKey is not null)
+            {
+                return byKey;
+            }
+        }
+
+        var name = !string.IsNullOrWhiteSpace(container) ? container : source;
+        return string.IsNullOrWhiteSpace(name) ? null : FindSource(catalog, name!);
+    }
+
+    /// <summary>Resuelve una fuente por su nombre de negocio (DisplayName) entre nativas, contenedores,
+    /// modulos de formulario y fuentes EXTERNAS concedidas/propias del tenant (ADR-0064/0068). Preferencia:
+    /// coincidencia exacta; luego case-insensitive. El catalogo ya es tenant-safe (IReportCatalog solo
+    /// publica lo del tenant activo), y las externas se agregan al final del catalogo, asi que ante una
+    /// colision de nombre gana la fuente nativa/contenedor previa.</summary>
     public static ReportSourceDescriptor? FindSource(IReadOnlyList<ReportSourceDescriptor> catalog, string name)
     {
         return catalog.FirstOrDefault(s => string.Equals(s.DisplayName, name, StringComparison.Ordinal))

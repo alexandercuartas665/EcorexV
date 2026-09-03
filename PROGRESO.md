@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.165: KPI percentOfTotal (porcentaje del total) para tasas de conversion (ADR-0089)
+
+- Pedido de la sesion de reportes: un KPI headline de % de conversion ("18% conversion" = cuanto del
+  pipeline llega a "Cierre"). Un PanelKpi hoy solo calcula UNA agregacion; una tasa es una RAZON (num/den).
+- Nueva agregacion de KPI **percentOfTotal** (SOLO KPI): num/den*100. Numerador = subconjunto que cumple
+  el When (ADR-0068); denominador = conjunto filtrado COMPLETO del panel. Sub-agg: sum si hay Field, count
+  si no (asi cubre "por cantidad" y "por monto"). Format "percent" (reusado). Denominador 0 -> 0 (sin
+  division por cero).
+- Cambios: (1) PanelDataEngine.PercentOfTotal(num, den, field) - helper PURO y testeable;
+  (2) SpecPanelRenderer.BuildKpis despacha percentOfTotal (subset=num, _filtered=den);
+  (3) PanelSpecValidator acepta percentOfTotal solo en KPIs con Field OPCIONAL (validado si viene), sin
+  tocar KnownAggs (no se habilita en widgets); (4) doc de PanelKpi.Agg.
+- Tests unitarios: motor (75% por conteo, 18M/22M por monto, den=0 -> 0) y validador (2 KPIs de conversion
+  del Pipeline comercial validan; percentOfTotal con Field inexistente se reporta). 40/40 verdes.
+- ADR-0089 (extiende ADR-0066/0068). Nota: la sesion de reportes lo llamo "ADR-0069" pero ese numero ya
+  estaba tomado; se uso el siguiente libre (0089).
+- Sin migracion. Los 2 KPIs de conversion del panel AGROMETALICAS los agrega la sesion de reportes como DATO.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.164: galeria de reportes: archivar por tarjeta con doble confirmacion + pestana Archivados
 
 - Problema: el boton "Archivar" solo vivia en el visor abierto (arriba a la derecha) y NO pedia confirmacion;

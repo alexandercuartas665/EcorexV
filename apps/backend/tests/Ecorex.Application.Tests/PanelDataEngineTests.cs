@@ -39,6 +39,23 @@ public class PanelDataEngineTests
     }
 
     [Fact]
+    public void PercentOfTotal_ByCount_BySum_AndZeroDenominator()
+    {
+        var rows = Facturas();
+        var aceptados = rows.Where(r => PanelDataEngine.Norm(r["Estado"]) == "Aceptado").ToList();
+
+        // Por CANTIDAD (sin Field -> sub-agg count): 3 aceptados de 4 = 75%.
+        Assert.Equal(75m, PanelDataEngine.PercentOfTotal(aceptados, rows, null));
+
+        // Por MONTO (con Field -> sub-agg sum): (10+6+2)/22 * 100 = 81.81...%.
+        Assert.Equal(18_000_000m / 22_000_000m * 100m, PanelDataEngine.PercentOfTotal(aceptados, rows, "Total"));
+
+        // Denominador vacio -> 0 (sin division por cero), con y sin Field.
+        Assert.Equal(0m, PanelDataEngine.PercentOfTotal(aceptados, new List<PanelRow>(), "Total"));
+        Assert.Equal(0m, PanelDataEngine.PercentOfTotal(aceptados, new List<PanelRow>(), null));
+    }
+
+    [Fact]
     public void GroupAggregate_ByVendor_SumScaledMillions_OrderedDesc()
     {
         var slices = PanelDataEngine.GroupAggregate(Facturas(), "Vendedor", "sum", "Total", scale: 1_000_000d);

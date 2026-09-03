@@ -218,6 +218,19 @@ public static class PanelDataEngine
         }
     }
 
+    /// <summary>Porcentaje del total (ADR-0089): razon numerador/denominador * 100. Ambos lados se agregan
+    /// con la MISMA sub-agregacion, elegida por el campo: <c>sum</c> si hay <paramref name="field"/>,
+    /// <c>count</c> si no. Uso tipico: el numerador es el subconjunto que cumple el When del KPI y el
+    /// denominador es el conjunto filtrado COMPLETO del panel (asi "Cierre / total" da el % de conversion).
+    /// Denominador 0 -> 0 (sin division por cero). Puro y testeable.</summary>
+    public static decimal PercentOfTotal(IEnumerable<PanelRow> numerator, IEnumerable<PanelRow> denominator, string? field)
+    {
+        var subAgg = string.IsNullOrWhiteSpace(field) ? "count" : "sum";
+        var num = Aggregate(numerator, subAgg, field);
+        var den = Aggregate(denominator, subAgg, field);
+        return den == 0m ? 0m : num / den * 100m;
+    }
+
     /// <summary>Agrupa por una dimension y agrega la medida; aplica escala (divisor), orden y top N.</summary>
     public static List<PanelSlice> GroupAggregate(
         IEnumerable<PanelRow> rows, string dim, string? agg, string? field,

@@ -365,6 +365,41 @@ public class PanelSpecValidatorTests
     }
 
     [Fact]
+    public void Kpi_PercentOfTotal_ByCount_And_ByAmount_ProducesNoErrors()
+    {
+        // ADR-0089: % conversion por cantidad (sin Field -> count) y por monto (Field agregable). Ambos con
+        // When Etapa=Cierre. Debe validar sin errores contra el catalogo del Pipeline.
+        var spec = PipelineSpec();
+        spec.Kpis.Add(new PanelKpi
+        {
+            Label = "% Conversion (cant.)",
+            Agg = "percentOfTotal",
+            Format = "percent",
+            When = { new PanelWhere { Field = "Etapa", Op = "eq", Value = "Cierre" } }
+        });
+        spec.Kpis.Add(new PanelKpi
+        {
+            Label = "% Conversion (monto)",
+            Agg = "percentOfTotal",
+            Field = "MontoCotizacion",
+            Format = "percent",
+            When = { new PanelWhere { Field = "Etapa", Op = "eq", Value = "Cierre" } }
+        });
+
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Kpi_PercentOfTotal_OnNonExistingField_IsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Kpis.Add(new PanelKpi { Label = "% raro", Agg = "percentOfTotal", Field = "NoExiste", Format = "percent" });
+        var errors = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(errors, e => e.Contains("NoExiste"));
+    }
+
+    [Fact]
     public void InvalidJson_ReturnsNullSpec()
     {
         Assert.Null(PanelSpec.FromJson("{ esto no es json "));

@@ -182,10 +182,13 @@ public sealed class PanelKpi
 {
     public string Label { get; set; } = "";
 
-    /// <summary>Agregacion: sum | count | countDistinct | avg.</summary>
+    /// <summary>Agregacion: sum | count | countDistinct | avg | percentOfTotal. percentOfTotal (ADR-0089,
+    /// SOLO KPI) devuelve numerador/denominador*100: numerador = subconjunto que cumple <see cref="When"/>,
+    /// denominador = conjunto filtrado completo del panel; sub-agg sum-si-hay-Field / count-si-no. Usa
+    /// Format "percent". Denominador 0 -> 0%.</summary>
     public string Agg { get; set; } = "count";
 
-    /// <summary>Campo objeto de la agregacion (no requerido para count).</summary>
+    /// <summary>Campo objeto de la agregacion (no requerido para count ni para percentOfTotal-por-conteo).</summary>
     public string? Field { get; set; }
 
     /// <summary>Formato: money | moneyM | percent | int.</summary>

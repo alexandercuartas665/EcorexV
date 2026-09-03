@@ -229,12 +229,16 @@ public static class PanelSpecValidator
         // 7) KPIs (+ When condicional).
         foreach (var k in spec.Kpis)
         {
-            if (!KnownAggs.Contains(k.Agg ?? ""))
+            // percentOfTotal (ADR-0089) es una agregacion SOLO de KPI (razon num/den*100): no esta en el set
+            // compartido con widgets. Su sub-agg es sum-si-hay-campo / count-si-no, asi que el Field es
+            // OPCIONAL (se valida como 'count': existe si viene, no se exige si falta).
+            var isPercentOfTotal = string.Equals(k.Agg, "percentOfTotal", StringComparison.OrdinalIgnoreCase);
+            if (!isPercentOfTotal && !KnownAggs.Contains(k.Agg ?? ""))
             {
                 errors.Add($"El KPI '{k.Label}' tiene una agregacion desconocida: '{k.Agg}'.");
             }
 
-            RequireMeasureField(errors, $"El KPI '{k.Label}'", k.Agg, k.Field, available);
+            RequireMeasureField(errors, $"El KPI '{k.Label}'", isPercentOfTotal ? "count" : k.Agg, k.Field, available);
 
             if (!KnownFormats.Contains(k.Format ?? ""))
             {

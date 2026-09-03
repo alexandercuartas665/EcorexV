@@ -515,7 +515,12 @@
             var subset = k.When.Count == 0
                 ? (IReadOnlyList<PanelRow>)_filtered
                 : _filtered.Where(row => k.When.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value))).ToList();
-            var value = PanelDataEngine.Aggregate(subset, k.Agg, k.Field);
+
+            // percentOfTotal (ADR-0089): razon numerador/denominador*100. El subconjunto When es el numerador
+            // y el conjunto filtrado COMPLETO del panel es el denominador (ej. Cierre / total = % conversion).
+            var value = string.Equals(k.Agg, "percentOfTotal", StringComparison.OrdinalIgnoreCase)
+                ? PanelDataEngine.PercentOfTotal(subset, _filtered, k.Field)
+                : PanelDataEngine.Aggregate(subset, k.Agg, k.Field);
             _kpis.Add(new KpiValue(k.Label, PanelDataEngine.Format(value, k.Format)));
         }
     }

@@ -119,7 +119,7 @@ public abstract class ExternalConnectorGovernanceTestsBase
     private ReportCatalog BuildCatalog(EcorexDbContext ctx, Guid tenantId)
     {
         var native = new IReportableSource[] { new TaskItemReportSource(ctx) };
-        return new ReportCatalog(native, new ContainerReportReader(ctx), ExternalTestDoubles.Reader(ctx), new TestTenantContext(tenantId), ctx);
+        return new ReportCatalog(native, new ContainerReportReader(ctx), ExternalTestDoubles.Reader(ctx), new FormResponseReportReader(ctx), new TestTenantContext(tenantId), ctx);
     }
 
     private async Task<Guid> SeedTenantAsync(string name)

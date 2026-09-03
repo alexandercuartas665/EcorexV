@@ -171,15 +171,16 @@ public abstract class ReportDataSourceTestsBase
         var native = new IReportableSource[] { new TaskItemReportSource(ctx) };
         var containers = new ContainerReportReader(ctx);
         var external = ExternalTestDoubles.Reader(ctx);
-        var catalog = new ReportCatalog(native, containers, external, tenantCtx, ctx);
-        var datasource = new ReportDataSource(catalog, native, containers, external, tenantCtx);
+        var forms = new FormResponseReportReader(ctx);
+        var catalog = new ReportCatalog(native, containers, external, forms, tenantCtx, ctx);
+        var datasource = new ReportDataSource(catalog, native, containers, external, forms, tenantCtx);
         return await action(datasource);
     }
 
     private ReportCatalog BuildCatalog(EcorexDbContext ctx, Guid tenantId)
     {
         var native = new IReportableSource[] { new TaskItemReportSource(ctx) };
-        return new ReportCatalog(native, new ContainerReportReader(ctx), ExternalTestDoubles.Reader(ctx), new TestTenantContext(tenantId), ctx);
+        return new ReportCatalog(native, new ContainerReportReader(ctx), ExternalTestDoubles.Reader(ctx), new FormResponseReportReader(ctx), new TestTenantContext(tenantId), ctx);
     }
 
     private async Task<Guid> SeedTasksAsync(string tenantName, (string Number, string Title, TaskItemStatus Status)[] tasks)

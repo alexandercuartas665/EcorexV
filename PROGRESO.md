@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.161: fix lookup de columna GridDetail (blur vs click) en DynamicFormRenderer
+
+- Bug: seleccionar un resultado del lookup de una columna de GridDetail (p.ej. buscador de productos del
+  cotizador BITCODE) fallaba con "Codigo no encontrado" y no autollenaba. Causa: el <input> del panel tenia
+  @onchange=GridLookupCommitAsync; al clicar un resultado, el input hacia blur ANTES del click -> el commit
+  corria con el texto PARCIAL, cerraba el panel, y el @onclick=GridLookupChooseAsync del boton nunca corria.
+- Fix principal: @onmousedown:preventDefault + stopPropagation en el <button class="dfr-lookup-opt"> de cada
+  resultado en RenderGridLookupCell -> el clic ya no desenfoca el input, y GridLookupChooseAsync corre (patron
+  estandar de autocomplete). El <select>/Dropdown del grid es nativo (sin el bug); el lookup normal (campo
+  suelto) NO tiene @onchange de commit, asi que no sufria el bug -> no se toco.
+- Fix secundario (robustez): en GridLookupCommitAsync el match del texto tecleado, ademas de por cfg.KeyOf,
+  cae por Display (DisplayField), para que teclear el nombre resuelva aunque el autor no configure valueField.
+- VERIFICADO en dev (COT AGROMETALICAS, columna de lookup en modo panel): teclear "CAL" (parcial) -> clic en
+  "CAL 14" -> la celda queda "CAL 14", el panel cierra, SIN "Codigo no encontrado". (COT-BIT no es modulo y el
+  token publico esta hasheado; se reprodujo el MISMO code path con el COT de AGROMETALICAS.) Build verde.
+  Sin migracion. NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.160: buscador de texto libre en el tablero de tareas
 
 - Pedido del usuario: en el modulo de tareas, un filtro de texto que busque en todos los campos (la

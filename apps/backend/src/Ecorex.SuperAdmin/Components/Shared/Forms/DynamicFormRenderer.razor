@@ -2254,7 +2254,11 @@ else
                         {
                             var item = it;
                             var sub = GridResultSubLabel(cfg, item);
+                            @* preventDefault en mousedown: el clic NO debe desenfocar el input antes del click,
+                               si no @onchange (GridLookupCommitAsync) corre con el texto parcial y cierra el panel
+                               antes de que dispare GridLookupChooseAsync (patron estandar de autocomplete). *@
                             <button type="button" class="dfr-lookup-opt"
+                                    @onmousedown:preventDefault="true" @onmousedown:stopPropagation="true"
                                     @onclick="@(() => GridLookupChooseAsync(q, rowIndex, extras, cfg, item))">
                                 <span class="dfr-lookup-main">@item.Display</span>
                                 @if (!string.IsNullOrEmpty(sub))
@@ -2355,7 +2359,10 @@ else
             // negocio (SKU/documento), no el id de la entidad que espera ResolveAsync.
             var page = await LookupSvc.SearchAsync(new FormLookupRequest(
                 cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
-            match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase));
+            // Match exacto por la clave (SKU/documento); si no, por el TEXTO MOSTRADO (DisplayField), para
+            // que teclear el nombre resuelva aunque el autor no haya configurado valueField.
+            match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase))
+                ?? page.Items.FirstOrDefault(i => string.Equals(i.Display, text, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex)
         {

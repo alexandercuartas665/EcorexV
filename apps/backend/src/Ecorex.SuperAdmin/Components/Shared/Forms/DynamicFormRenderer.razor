@@ -1912,16 +1912,30 @@ else
                                            Item / Tercero / DataContainer, la fuente la dice el JSON). *@
                                         @RenderGridLookupCell(q, rowIndex, colExtras, lkCfg, cell)
                                     }
-                                    else if (colExtras?.Resolve is not null && col.Calc is null)
+                                    else if (colExtras?.Resolve is { } rslvCfg && col.Calc is null)
                                     {
-                                        @* Columna auto-resuelta (VLOOKUP multi-clave): solo lectura; se re-resuelve
-                                           al cambiar sus dependencias (match/when) de la MISMA fila. Si las claves
-                                           estan completas pero no hay fila en la fuente -> aviso "sin tarifa". *@
-                                        <input class="@ResolveCellClass(q, rowIndex, colId, col.Format)" tabindex="-1" readonly disabled
-                                               value="@FormatValue(col.Format, cell)" />
-                                        @if (_gridResolveNote.GetValueOrDefault(GridCellKey(q, rowIndex, colId)) is { Length: > 0 } _rnote)
+                                        @* Columna auto-resuelta (VLOOKUP multi-clave): se re-resuelve al cambiar sus
+                                           dependencias (match/when) de la MISMA fila. Modo HIBRIDO (allowManual): donde
+                                           la matriz tiene match autollena; donde NO, la celda queda EDITABLE y lo
+                                           tecleado se conserva. Sin allowManual: solo lectura y "sin tarifa" si no hay match. *@
+                                        @if (rslvCfg.AllowManual)
                                         {
-                                            <div class="dfr-gridlk-note dfr-resolve-note" title="@_rnote">sin tarifa</div>
+                                            <input class="@ResolveCellClass(q, rowIndex, colId, col.Format)"
+                                                   value="@cell"
+                                                   @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                            @if (_gridResolveNote.GetValueOrDefault(GridCellKey(q, rowIndex, colId)) is { Length: > 0 } _mnote)
+                                            {
+                                                <div class="dfr-gridlk-note dfr-resolve-note" title="@_mnote">manual</div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <input class="@ResolveCellClass(q, rowIndex, colId, col.Format)" tabindex="-1" readonly disabled
+                                                   value="@FormatValue(col.Format, cell)" />
+                                            @if (_gridResolveNote.GetValueOrDefault(GridCellKey(q, rowIndex, colId)) is { Length: > 0 } _rnote)
+                                            {
+                                                <div class="dfr-gridlk-note dfr-resolve-note" title="@_rnote">sin tarifa</div>
+                                            }
                                         }
                                     }
                                     else if (col.Calc is not null)
@@ -2671,15 +2685,29 @@ else
             string? result;
             try { result = await LookupSvc.MatchAsync(rc.SourceKind, rc.SourceRef!, match, rc.ReturnField); }
             catch { result = null; }
-            row[ex.Id] = result ?? string.Empty;
-            // Todas las claves con valor pero SIN fila en la fuente = "sin tarifa" (aviso UX no bloqueante).
-            if (string.IsNullOrWhiteSpace(result))
+            if (!string.IsNullOrWhiteSpace(result))
             {
-                _gridResolveNote[noteKey] = "No hay tarifa para " + string.Join(", ", match.Select(kv => $"{kv.Key}={kv.Value}"));
+                // La matriz es AUTORITATIVA donde hay match: pone el valor y limpia el aviso.
+                row[ex.Id] = result!;
+                _gridResolveNote.Remove(noteKey);
+            }
+            else if (rc.AllowManual)
+            {
+                // Hibrido, sin match: NO sobrescribir (se conserva lo tecleado). Aviso "manual" solo si esta vacia.
+                if (string.IsNullOrWhiteSpace(row.GetValueOrDefault(ex.Id)))
+                {
+                    _gridResolveNote[noteKey] = "Sin tarifa en la matriz: captura el valor manualmente.";
+                }
+                else
+                {
+                    _gridResolveNote.Remove(noteKey);
+                }
             }
             else
             {
-                _gridResolveNote.Remove(noteKey);
+                // Clasico: claves con valor pero SIN fila en la fuente = vacio + "sin tarifa".
+                row[ex.Id] = string.Empty;
+                _gridResolveNote[noteKey] = "No hay tarifa para " + string.Join(", ", match.Select(kv => $"{kv.Key}={kv.Value}"));
             }
         }
     }

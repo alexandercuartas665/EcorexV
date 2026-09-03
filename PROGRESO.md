@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.163: columnas 'resolve' con captura manual (hibrido VLOOKUP + manual)
+
+- Problema: una columna de grid con 'resolve' (VLOOKUP contra DataContainer) se renderizaba readonly y
+  SIEMPRE sobrescribia: con match ponia el valor de la matriz, sin match la dejaba vacia. Caso cotizador
+  AGRO (precio_corte/precio_doblez): si la matriz no tiene la combinacion (Lamina, Espesor), el usuario no
+  podia teclear y el servicio quedaba en 0.
+- Nueva bandera opcional 'allowManual' en el resolve (default false): modo HIBRIDO. La matriz autollena
+  donde HAY match (autoritativa); donde NO, la celda queda EDITABLE y el valor tecleado no se borra.
+- 4 cambios: (1) FormGridResolveConfig + ParseResolve leen allowManual del JSON; (2) DynamicFormRenderer
+  renderiza <input> editable con @onchange->SetGridCell si AllowManual (si no, readonly como hoy);
+  (3) ResolveGridRowAsync (cliente): sin match + AllowManual NO sobrescribe (nota "manual" solo si vacia);
+  (4) FormResponseService.ResolveGridColumnsAsync (servidor, recalculo al guardar): igual, no borra lo tecleado.
+- Semantica: la matriz gana con match; sin match se conserva lo manual. Borde aceptado: cambiar una clave
+  con tarifa a una sin tarifa deja el ultimo valor (no se limpia). Sin migracion.
+- La bandera allowManual:true ya esta en precio_corte/precio_doblez del COT AGRO (prod y en el copy local).
+- VERIFICADO en dev (COT AGRO, HR+9 sin tarifa): las celdas quedan editables con nota "manual"; teclear 7777
+  persiste en cliente Y en el borrador del servidor (precio_corte/doblez='7777'); al cambiar a HR+8 (con
+  tarifa) la matriz sobrescribe (gana). Draft de prueba borrado. Build Release verde.
+- PARALELO pendiente (a completar por el usuario): cargar en la matriz (container 41eae926) las combinaciones
+  faltantes (HR: 9/CAL10/12/CAL12/15/19/25/32/38; CR: CAL18; INOX: 4.5; sin lamina: CAL14) — FALTA que el
+  usuario pase los VALORES de precio_corte y precio_doblez de cada combo. Mientras, allowManual las cubre.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.162: telefono de contacto mas grande + buscador de tareas compacto en la barra
 
 - Bug (creacion de actividad, paso Contacto): pegar varios telefonos en el campo (ej.

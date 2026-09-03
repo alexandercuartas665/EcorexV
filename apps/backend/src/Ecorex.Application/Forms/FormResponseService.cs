@@ -480,7 +480,16 @@ public sealed class FormResponseService : IFormResponseService
                     continue;
                 }
                 var result = await _lookup.MatchAsync(rc.SourceKind, rc.SourceRef!, match, rc.ReturnField, ct);
-                row[ex.Id] = result ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    // La matriz es autoritativa donde hay match.
+                    row[ex.Id] = result!;
+                }
+                else if (!rc.AllowManual)
+                {
+                    // Clasico: sin match -> vacio. Con allowManual se CONSERVA lo tecleado (no se sobrescribe).
+                    row[ex.Id] = string.Empty;
+                }
             }
         }
     }

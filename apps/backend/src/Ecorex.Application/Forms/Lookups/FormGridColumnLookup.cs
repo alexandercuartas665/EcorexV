@@ -74,7 +74,11 @@ public sealed record FormGridResolveConfig(
     string? SourceRef,
     IReadOnlyDictionary<string, string> Match,
     string ReturnField,
-    IReadOnlyDictionary<string, string> When);
+    IReadOnlyDictionary<string, string> When,
+    // Modo HIBRIDO (allowManual): la matriz autollena donde HAY match; donde NO hay match la celda queda
+    // EDITABLE y el valor tecleado no se borra (ni en el recalculo autoritativo al guardar). Default false
+    // = comportamiento clasico (readonly, se vacia si no hay match).
+    bool AllowManual = false);
 
 /// <summary>
 /// CAP 2 (referencia ENTRE GRILLAS del mismo registro): esta columna se calcula sola trayendo un valor
@@ -236,7 +240,12 @@ public static class FormGridColumnLookupParser
             }
         }
 
-        return new FormGridResolveConfig(kind, Trimmed(rv, "sourceRef"), match, returnField!, when);
+        // 'allowManual' opcional (default false): modo hibrido VLOOKUP + captura manual.
+        var allowManual = rv.TryGetProperty("allowManual", out var am)
+            && (am.ValueKind == JsonValueKind.True
+                || (am.ValueKind == JsonValueKind.String && bool.TryParse(am.GetString(), out var amb) && amb));
+
+        return new FormGridResolveConfig(kind, Trimmed(rv, "sourceRef"), match, returnField!, when, allowManual);
     }
 
     /// <summary>CAP 2: parsea la referencia cross-grid del options_json de la columna

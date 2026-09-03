@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.160: buscador de texto libre en el tablero de tareas
+
+- Pedido del usuario: en el modulo de tareas, un filtro de texto que busque en todos los campos (la
+  descripcion y el ID de la tarea incluidos).
+- Backend: el filtro Text ahora busca en Number (ID), Title, Description y datos del solicitante
+  (RequesterName/Email/Phone), contains case-insensitive (ToLower ambos lados, portable PG + SQL Server).
+  Se aplico en DOS rutas: ActivityBoardService.GetBoardDetailAsync (el tablero "Administrar actividades",
+  via nuevo campo ActivityBoardDetailFilter.Text; aplica a tarjetas y contadores) y TaskItemService.ListAsync
+  (antes solo Title; ahora los mismos campos) para el resto de vistas.
+- UI: ActivityBoardDetail.razor gana una fila "Buscar" (primera del panel de filtros) con un input
+  type=search enlazado a _fSearch -> ReloadAsync; cuenta en FilterCount y se limpia con "Limpiar". Filtra
+  en las vistas Tablero/Lista/Calendario/Gantt (opera sobre la query base).
+- Alcance: busca en los campos escalares de la tarea; los campos dinamicos (CustomFieldsJson) quedan fuera
+  por ahora (evita falsos positivos con las claves del JSON).
+- Build SuperAdmin verde. VERIFICADO en dev (AGROMETALICAS, tablero PRUEBAS OT): "T00058" -> 1 tarjeta (solo
+  esa); "T00056" -> 1; "test" -> 2; "zzzz" -> 0. Sin migracion. NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.159: Directorio - refactor a CAPA COMPARTIDA + fronts delgados (ADR-0088)
 
 - El usuario acepto la nota de mantenimiento de v0.15.158 (duplicacion) y pidio "que cada front consuma la

@@ -409,6 +409,20 @@ public sealed class ActivityBoardService : IActivityBoardService
             var tagIds = filter.TagIds.ToList();
             query = query.Where(t => _db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && tagIds.Contains(a.TagId)));
         }
+        if (!string.IsNullOrWhiteSpace(filter.Text))
+        {
+            // Busqueda de texto libre a traves de los campos de la tarea: ID (Number), Titulo, Descripcion
+            // y datos del solicitante. ToLower en ambos lados = contains case-insensitive portable
+            // (PG es case-sensitive). Traducible en PG y SQL Server. Aplica tambien a los contadores.
+            var text = filter.Text.Trim().ToLowerInvariant();
+            query = query.Where(t =>
+                t.Number.ToLower().Contains(text)
+                || t.Title.ToLower().Contains(text)
+                || (t.Description != null && t.Description.ToLower().Contains(text))
+                || (t.RequesterName != null && t.RequesterName.ToLower().Contains(text))
+                || (t.RequesterEmail != null && t.RequesterEmail.ToLower().Contains(text))
+                || (t.RequesterPhone != null && t.RequesterPhone.ToLower().Contains(text)));
+        }
 
         // Contadores por alcance (con los demas filtros aplicados, ignorando el alcance).
         // ADR-0038: el alcance Mine incluye ademas las tareas con paso de flujo ruteado al usuario;

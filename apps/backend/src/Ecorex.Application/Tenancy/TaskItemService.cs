@@ -1288,9 +1288,17 @@ public sealed class TaskItemService : ITaskItemService
         }
         if (!string.IsNullOrWhiteSpace(filter.Text))
         {
-            // ToLower en ambos lados: contains case-insensitive portable (PG es case-sensitive).
+            // Busqueda de texto libre a traves de los campos de la tarea: ID (Number), Titulo, Descripcion
+            // y los datos del solicitante. ToLower en ambos lados = contains case-insensitive portable
+            // (PG es case-sensitive). Traducible en PG y SQL Server.
             var text = filter.Text.Trim().ToLowerInvariant();
-            query = query.Where(t => t.Title.ToLower().Contains(text));
+            query = query.Where(t =>
+                t.Number.ToLower().Contains(text)
+                || t.Title.ToLower().Contains(text)
+                || (t.Description != null && t.Description.ToLower().Contains(text))
+                || (t.RequesterName != null && t.RequesterName.ToLower().Contains(text))
+                || (t.RequesterEmail != null && t.RequesterEmail.ToLower().Contains(text))
+                || (t.RequesterPhone != null && t.RequesterPhone.ToLower().Contains(text)));
         }
 
         var total = await query.CountAsync(cancellationToken);

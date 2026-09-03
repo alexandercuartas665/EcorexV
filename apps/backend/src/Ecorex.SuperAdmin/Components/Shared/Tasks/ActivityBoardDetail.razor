@@ -59,6 +59,20 @@
         {
             <div class="ab-frows">
                 <div class="ab-frow-lbl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                    Buscar
+                </div>
+                <div class="ab-chips">
+                    <input type="search" class="ab-due-input" style="min-width:260px;flex:1;max-width:420px;"
+                           placeholder="Buscar por ID, titulo, descripcion o solicitante..."
+                           value="@_fSearch" @onchange="OnSearchChangedAsync" />
+                    @if (!string.IsNullOrWhiteSpace(_fSearch))
+                    {
+                        <button class="ab-chip" @onclick="ClearSearchAsync">Limpiar</button>
+                    }
+                </div>
+
+                <div class="ab-frow-lbl">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
                     Estado
                 </div>
@@ -1334,6 +1348,7 @@
     private readonly HashSet<Guid> _fUsers = new();
     private string? _fDue; // "hoy" | "manana" | "fecha"
     private DateTime? _fDueOn;
+    private string? _fSearch; // busqueda de texto libre (ID, titulo, descripcion, solicitante)
     private readonly HashSet<Guid> _fTags = new();
     private ActivityBoardScope _scope = ActivityBoardScope.Team;
     private bool _onlyArchived;   // true = "papelera" del tablero: muestra solo las archivadas.
@@ -1404,7 +1419,8 @@
     private string? _tenantId;
 
     private int FilterCount =>
-        _fColumns.Count + _fUsers.Count + _fTags.Count + (_fDue is null ? 0 : 1);
+        _fColumns.Count + _fUsers.Count + _fTags.Count + (_fDue is null ? 0 : 1)
+        + (string.IsNullOrWhiteSpace(_fSearch) ? 0 : 1);
 
     // Scope EF propio + semaforo (mismo patron de TaskKanban): el reload puede
     // dispararse por el hub (TaskChanged de otra sesion o el eco propio) mientras el
@@ -1605,7 +1621,8 @@
             TagIds: _fTags.Count == 0 ? null : _fTags.ToList(),
             Scope: _scope,
             CurrentTenantUserId: _meTenantUserId,
-            OnlyArchived: _onlyArchived);
+            OnlyArchived: _onlyArchived,
+            Text: string.IsNullOrWhiteSpace(_fSearch) ? null : _fSearch.Trim());
         await _reloadLock.WaitAsync();
         try
         {
@@ -1681,6 +1698,19 @@
         await ReloadAsync();
     }
 
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString();
+        _fSearch = string.IsNullOrWhiteSpace(text) ? null : text;
+        await ReloadAsync();
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        _fSearch = null;
+        await ReloadAsync();
+    }
+
     private async Task ToggleTagFilterAsync(Guid tagId)
     {
         if (!_fTags.Remove(tagId)) { _fTags.Add(tagId); }
@@ -1690,7 +1720,7 @@
     private async Task ClearFiltersAsync()
     {
         _fColumns.Clear(); _fUsers.Clear(); _fTags.Clear();
-        _fDue = null; _fDueOn = null;
+        _fDue = null; _fDueOn = null; _fSearch = null;
         await ReloadAsync();
     }
 

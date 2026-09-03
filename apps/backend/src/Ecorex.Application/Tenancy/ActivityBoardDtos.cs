@@ -98,7 +98,10 @@ public sealed record ActivityBoardDetailFilter(
     Guid? CurrentTenantUserId = null,
     // true = mostrar SOLO las tareas archivadas (papelera del tablero) para revisarlas/restaurarlas.
     // false (por defecto) = solo las activas, como siempre.
-    bool OnlyArchived = false);
+    bool OnlyArchived = false,
+    // Busqueda de texto libre: filtra las tarjetas por ID (numero), titulo, descripcion o datos del
+    // solicitante (contains, case-insensitive). Null/vacio = sin filtro de texto.
+    string? Text = null);
 
 /// <summary>
 /// Contadores por alcance del detalle (chips "Equipo / Pendientes mias / No asignadas").

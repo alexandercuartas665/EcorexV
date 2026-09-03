@@ -1,0 +1,57 @@
+/* Buscador COMPACTO del tablero: por defecto es una cajita con solo la lupa; al enfocar (clic) o si
+   tiene texto, crece. Mismo alto que los botones de la barra (Filtrar/Campos). */
+.ab-search-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.ab-search-ic {
+    position: absolute;
+    left: 9px;
+    color: var(--ink-3, #94a3b8);
+    pointer-events: none;
+}
+
+.ab-search {
+    width: 36px;
+    height: 32px;
+    box-sizing: border-box;
+    padding: 6px 8px 6px 30px;
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: 8px;
+    background: var(--surface, #fff);
+    color: var(--ink, #0f172a);
+    font-size: 13px;
+    cursor: pointer;
+    transition: width .18s ease, border-color .18s ease;
+}
+
+/* Placeholder oculto mientras esta compacta (solo se ve la lupa). */
+.ab-search::placeholder { color: transparent; }
+
+.ab-search:focus,
+.ab-search-wrap.has-val .ab-search {
+    width: 240px;
+    padding-right: 26px;
+    cursor: text;
+    outline: none;
+    border-color: var(--brand, #7c5cff);
+}
+
+.ab-search:focus::placeholder,
+.ab-search-wrap.has-val .ab-search::placeholder { color: var(--ink-3, #94a3b8); }
+
+.ab-search-clear {
+    position: absolute;
+    right: 7px;
+    border: none;
+    background: transparent;
+    color: var(--ink-3, #94a3b8);
+    font-size: 17px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+
+.ab-search-clear:hover { color: var(--ink, #0f172a); }

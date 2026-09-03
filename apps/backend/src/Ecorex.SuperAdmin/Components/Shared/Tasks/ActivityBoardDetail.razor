@@ -59,20 +59,6 @@
         {
             <div class="ab-frows">
                 <div class="ab-frow-lbl">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-                    Buscar
-                </div>
-                <div class="ab-chips">
-                    <input type="search" class="ab-due-input" style="min-width:260px;flex:1;max-width:420px;"
-                           placeholder="Buscar por ID, titulo, descripcion o solicitante..."
-                           value="@_fSearch" @onchange="OnSearchChangedAsync" />
-                    @if (!string.IsNullOrWhiteSpace(_fSearch))
-                    {
-                        <button class="ab-chip" @onclick="ClearSearchAsync">Limpiar</button>
-                    }
-                </div>
-
-                <div class="ab-frow-lbl">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
                     Estado
                 </div>
@@ -188,6 +174,18 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
             </button>
             <div class="ab-tabs-right">
+                @* Buscador COMPACTO que crece al enfocar (por ID, titulo, descripcion, solicitante). Aplica
+                   al confirmar (Enter) o al salir del campo; visible en todas las vistas. *@
+                <div class="ab-search-wrap @(string.IsNullOrWhiteSpace(_fSearch) ? "" : "has-val")">
+                    <svg class="ab-search-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="search" class="ab-search" placeholder="Buscar tarea..."
+                           value="@_fSearch" @onchange="OnSearchChangedAsync"
+                           title="Busca por ID, titulo, descripcion o solicitante" />
+                    @if (!string.IsNullOrWhiteSpace(_fSearch))
+                    {
+                        <button type="button" class="ab-search-clear" title="Limpiar busqueda" @onclick="ClearSearchAsync">&times;</button>
+                    }
+                </div>
                 @* En la vista Lista el boton Filtrar vive junto a "Agrupar por" (barra de la lista). *@
                 @if (_view != "lista")
                 {

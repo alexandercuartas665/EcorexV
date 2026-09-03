@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.158: variante del Directorio General elegible por el tenant (ADR-0088)
+
+- Pedido del usuario: a unos clientes no les gusta como se ve el Directorio General (000232), a otros si.
+  Dos variantes elegibles por tenant en los parametros del sistema (menu del tenant); tambien afecta el
+  modal de crear/editar Tercero. Hoy la Especializada es una copia con un cambio ligero (base para divergir).
+- Decision del usuario: COPIA COMPLETA INDEPENDIENTE (no un flag). Dos paginas fisicas:
+  DirectorioGeneral.razor (Ligero, /directorio-general, intacto) y DirectorioEspecializado.razor (copia,
+  /directorio-especializado) + su propio TerceroModalEspecializado.razor (copia de TerceroModal). Cada copia
+  con su CSS scoped y un cambio VISIBLE (titulo/eyebrow "Directorio Especializado"; kicker del modal
+  "... ESPECIALIZADO").
+- Eleccion self-service en /configuracion-entidad (menu del tenant): selector Ligero|Especializado guardado
+  en TenantConfiguration (clave "directorio.variante", tenant-scoped) via nuevo IDirectoryVariantService
+  (default Ligero si no hay fila). Un solo punto de menu: cada pagina lee la variante en OnInitializedAsync y
+  redirige (replace) a la otra si no corresponde.
+- Tenant-safe: TenantConfiguration lleva filtro global; SetAsync estampa TenantId. El modal compartido
+  TerceroModal (GestorContactos/TaskWizard) NO cambia; solo la pagina Especializada usa su copia.
+- Build SuperAdmin verde. VERIFICADO en dev (AGROMETALICAS): default -> /directorio-general muestra Ligero;
+  cambiar a Especializado -> /directorio-general redirige a /directorio-especializado ("Directorio
+  Especializado") y el modal muestra "NUEVO CLIENTE . ESPECIALIZADO"; volver a Ligero -> vista actual. El
+  valor persiste con TenantId correcto. Config de prueba revertida. NO desplegado (a senal del usuario).
+- NOTA de mantenimiento: hay duplicacion (~2000 lineas pagina + ~2100 modal + CSS); un fix comun va en ambas
+  hasta que las variantes justifiquen divergir (ADR-0088).
+
+---
+
 ## 2026-09-03 - v0.15.157: conexiones de datos del tenant reportables self-service (ADR-0064/0084)
 
 - Hand-off de la sesion de reportes: al usar un dataset externo PROPIO (SOLDARCO_MULTISYS -> items_demo)

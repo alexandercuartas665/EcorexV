@@ -1,4 +1,4 @@
-@page "/directorio-general"
+@page "/directorio-especializado"
 @attribute [Authorize(Policy = "TenantMember")]
 @* Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
    negocio, contactos y fichas dinamicas por perfil. UI fiel al prototipo ECOREX.dc.html.
@@ -22,22 +22,22 @@
 @inject NavigationManager Nav
 @using Ecorex.Application.DataLookups
 
-<PageTitle>Directorio General - ECOREX.tareas</PageTitle>
+<PageTitle>Directorio Especializado - ECOREX.tareas</PageTitle>
 
 <nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
     <a href="/inicio">Workspace</a>
     <span class="sep">/</span>
     <span>Negocio</span>
     <span class="sep">/</span>
-    <span class="cur">Directorio General</span>
+    <span class="cur">Directorio Especializado</span>
 </nav>
 
-<div class="dg-wrap">
+<div class="dg-wrap dg-especializado">
     <div class="dg-head">
         <div>
-            <div class="dg-eyebrow">CATALOGO 000232 &#183; NEGOCIO</div>
-            <h1 class="dg-title">Directorio General</h1>
-            <p class="dg-sub">Clientes tipo empresa o persona natural. Las empresas agrupan sus contactos asociados.</p>
+            <div class="dg-eyebrow">DIRECTORIO ESPECIALIZADO &#183; NEGOCIO</div>
+            <h1 class="dg-title">Directorio Especializado</h1>
+            <p class="dg-sub">Vista especializada del directorio de terceros (empresas y personas). Configurable por tenant.</p>
         </div>
         <div class="dg-head-actions">
             @if (CanCreateAny)
@@ -364,7 +364,7 @@
 @* Editor de tercero (crear / editar) compartido con el Cargador de contactos (000740): un
    contacto ES un cliente y ambos modulos se alimentan de los MISMOS registros (Tercero). El
    modal grande y el sub-modal de contacto viven en este componente; aqui se invoca por @@ref. *@
-<TerceroModal @ref="_terceroModal" OnChanged="OnModalChangedAsync" />
+<TerceroModalEspecializado @ref="_terceroModal" OnChanged="OnModalChangedAsync" />
 
 @* ===================== MODAL IMPORTAR EXCEL ===================== *@
 @if (_impOpen)
@@ -1001,7 +1001,7 @@
     private TerceroListItemDto? _assignPersona;
 
     // ---- Editor de tercero compartido (crear/editar/contacto). Invocado por @ref. ----
-    private TerceroModal? _terceroModal;
+    private TerceroModalEspecializado? _terceroModal;
 
     /// <summary>Filtros activos por campo configurable: FieldKey -> valor exigido.</summary>
     private readonly Dictionary<string, string> _fieldFilters = new(StringComparer.Ordinal);
@@ -1228,10 +1228,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Variante del tenant: si eligio la Especializada, se atiende esa pagina (copia independiente).
-        if (await DirVariant.GetAsync() == DirectoryVariant.Especializado)
+        // Variante del tenant: si NO eligio la Especializada, se atiende el Directorio General (Ligero).
+        if (await DirVariant.GetAsync() != DirectoryVariant.Especializado)
         {
-            Nav.NavigateTo("/directorio-especializado", forceLoad: false, replace: true);
+            Nav.NavigateTo("/directorio-general", forceLoad: false, replace: true);
             return;
         }
 

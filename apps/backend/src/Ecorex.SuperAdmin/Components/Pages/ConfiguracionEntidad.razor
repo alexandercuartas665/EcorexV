@@ -13,6 +13,8 @@
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
+@inject Ecorex.Application.Directorio.IDirectoryVariantService DirVariant
+@using Ecorex.Application.Directorio
 
 <PageTitle>Configuracion de la entidad - ECOREX.tareas</PageTitle>
 
@@ -43,6 +45,27 @@
         }
     </div>
 </div>
+
+@if (!_loading && _canEdit)
+{
+    @* Ajuste TENANT-WIDE: que variante del Directorio General ve toda la empresa (no es por-entidad). *@
+    <div style="margin-bottom:16px;padding:16px 18px;border:1px solid var(--line,var(--border));border-radius:14px;background:var(--surface,#fff);">
+        <div class="ent-section-title" style="margin-top:0;">Directorio de terceros</div>
+        <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">
+            <div class="field" style="min-width:260px;">
+                <label class="form-label">Vista del Directorio General</label>
+                <select class="form-control" value="@_dirVariant" @onchange="OnDirVariantChangedAsync">
+                    <option value="Ligero">Ligero (por defecto)</option>
+                    <option value="Especializado">Especializado</option>
+                </select>
+            </div>
+            <div class="page-sub" style="max-width:440px;font-size:.85rem;margin-top:22px;">
+                Elige como se ve el Directorio General (y su modal de crear/editar) para TODOS los usuarios de esta empresa. Aplica de inmediato.
+                @if (_dirVariantMsg is not null) { <span class="text-success" style="display:block;margin-top:4px;font-weight:600;">@_dirVariantMsg</span> }
+            </div>
+        </div>
+    </div>
+}
 
 @if (_loading)
 {
@@ -435,7 +458,22 @@ else
 
         _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
         await ReloadAsync();
+        _dirVariant = (await DirVariant.GetAsync()).ToString();
         _loading = false;
+    }
+
+    // Variante del Directorio (Ligero | Especializado) para este tenant. Se guarda de inmediato.
+    private string _dirVariant = nameof(DirectoryVariant.Ligero);
+    private string? _dirVariantMsg;
+
+    private async Task OnDirVariantChangedAsync(ChangeEventArgs e)
+    {
+        var variant = string.Equals(e.Value?.ToString(), nameof(DirectoryVariant.Especializado), StringComparison.OrdinalIgnoreCase)
+            ? DirectoryVariant.Especializado
+            : DirectoryVariant.Ligero;
+        await GuardAsync(() => DirVariant.SetAsync(variant));
+        _dirVariant = variant.ToString();
+        _dirVariantMsg = "Vista del Directorio actualizada. Abre el Directorio General para verla.";
     }
 
     private async Task ReloadAsync()

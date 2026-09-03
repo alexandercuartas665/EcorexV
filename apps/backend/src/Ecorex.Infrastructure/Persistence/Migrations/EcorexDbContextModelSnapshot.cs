@@ -11645,8 +11645,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnName("requester_name");
 
                     b.Property<string>("RequesterPhone")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("requester_phone");
 
                     b.Property<DateTimeOffset?>("StartDate")

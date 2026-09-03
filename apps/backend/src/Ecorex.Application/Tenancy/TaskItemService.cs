@@ -244,9 +244,9 @@ public sealed class TaskItemService : ITaskItemService
             BoardSortOrder = boardSortOrder,
             // Si nace dentro de una columna, el reloj de "tiempo en columna" arranca ahora.
             ColumnEnteredAt = columnId is null ? null : DateTimeOffset.UtcNow,
-            RequesterName = Normalize(request.RequesterName),
-            RequesterEmail = Normalize(request.RequesterEmail),
-            RequesterPhone = Normalize(request.RequesterPhone),
+            RequesterName = Normalize(request.RequesterName, 200),
+            RequesterEmail = Normalize(request.RequesterEmail, 256),
+            RequesterPhone = Normalize(request.RequesterPhone, 200),
             CcEmails = SerializeCcEmails(request.CcEmails),
             ProjectId = request.ProjectId,
             MilestoneId = request.MilestoneId,
@@ -443,9 +443,9 @@ public sealed class TaskItemService : ITaskItemService
         task.Priority = request.Priority;
         task.DueDate = request.DueDate;
         task.StartDate = request.StartDate;
-        task.RequesterName = Normalize(request.RequesterName);
-        task.RequesterEmail = Normalize(request.RequesterEmail);
-        task.RequesterPhone = Normalize(request.RequesterPhone);
+        task.RequesterName = Normalize(request.RequesterName, 200);
+        task.RequesterEmail = Normalize(request.RequesterEmail, 256);
+        task.RequesterPhone = Normalize(request.RequesterPhone, 200);
         task.CcEmails = SerializeCcEmails(request.CcEmails);
         task.ProjectId = request.ProjectId;
         // Al reasignar proyecto, el hito sigue el request (coherente con ProjectId reemplazado).
@@ -1543,6 +1543,14 @@ public sealed class TaskItemService : ITaskItemService
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Normaliza y RECORTA a la longitud maxima de la columna: guard defensivo para que un
+    /// valor largo (p.ej. varios telefonos pegados en el campo de contacto) nunca haga fallar el guardado.</summary>
+    private static string? Normalize(string? value, int maxLength)
+    {
+        var v = Normalize(value);
+        return v is not null && v.Length > maxLength ? v[..maxLength] : v;
+    }
 
     /// <summary>
     /// Renderiza una plantilla de concepto (TituloAuto/DetalleAuto, RQ07) con tokens basicos.

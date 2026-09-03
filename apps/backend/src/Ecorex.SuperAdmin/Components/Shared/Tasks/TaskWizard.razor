@@ -254,12 +254,12 @@
                                                        Placeholder="Nombre completo del solicitante" />
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-                                        <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" />
-                                        <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" />
+                                        <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" maxlength="40" />
+                                        <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" maxlength="256" />
                                     </div>
                                     @if (_errors.TryGetValue("email", out var emailErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@emailErr</div> }
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-                                        <input placeholder="Telefono" style="@InStyle" @bind="_requesterPhone" />
+                                        <input placeholder="Telefono" style="@InStyle" @bind="_requesterPhone" maxlength="200" />
                                         <input placeholder="Numero de actividad (se asigna al crear)" style="@InStyle;opacity:.7" disabled />
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">

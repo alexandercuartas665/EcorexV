@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.162: telefono de contacto mas grande + buscador de tareas compacto en la barra
+
+- Bug (creacion de actividad, paso Contacto): pegar varios telefonos en el campo (ej.
+  "032-26602100-33212 / 602-6510550-000 / ...") hacia fallar el guardado: requester_phone era varchar(40).
+  Fix: columna ampliada a 200 (EF HasMaxLength 200 + migracion DUAL WidenRequesterPhone PG + SQL Server).
+  Control server-side: overload Normalize(value, maxLength) recorta a la longitud de columna en Create y
+  Update (Name 200, Email 256, Phone 200) para que NUNCA explote aunque llegue algo largo por paste/API.
+  UI: maxlength en los inputs del wizard (Identificacion 40, Email 256, Telefono 200).
+  VERIFICADO en dev: crear actividad con telefono de 72 chars -> T00060 guardada con el telefono completo,
+  sin error; tarea de prueba borrada.
+- UX del buscador de tareas (de v0.15.160): a peticion del usuario se movio del panel de filtros a la BARRA
+  del tablero como caja COMPACTA (solo la lupa) que CRECE al enfocar (scoped CSS ActivityBoardDetail.razor.css),
+  con "x" para limpiar; visible en todas las vistas. Se quito la fila "Buscar" del panel para no duplicar.
+- Pendiente (a peticion del usuario, "luego regresamos al tercero"): cerrar el circulo de "Requiere cliente"
+  del concepto (hoy el flag se guarda/muestra pero NO se exige al crear, y TaskItem no persiste TerceroId;
+  ver hallazgo). Requeriria TerceroId en TaskItem (migracion) + gating en el wizard. NO hecho aun.
+- Build Release verde. NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.161: fix lookup de columna GridDetail (blur vs click) en DynamicFormRenderer
 
 - Bug: seleccionar un resultado del lookup de una columna de GridDetail (p.ej. buscador de productos del

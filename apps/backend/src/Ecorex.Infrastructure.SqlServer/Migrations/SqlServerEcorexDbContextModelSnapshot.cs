@@ -3384,6 +3384,155 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("data_model_relation_links", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.DirectorioCategoria", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Areas")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("areas");
+
+                    b.Property<string>("CategoriaKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("categoria_key");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("HomologaSeccion")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("homologa_seccion");
+
+                    b.Property<string>("Icono")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("icono");
+
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_hidden");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_system");
+
+                    b.Property<bool>("Protegido")
+                        .HasColumnType("bit")
+                        .HasColumnName("protegido");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_directorio_categorias");
+
+                    b.HasIndex("TenantId", "CategoriaKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_directorio_categorias_tenant_id_categoria_key");
+
+                    b.HasIndex("TenantId", "SortOrder")
+                        .HasDatabaseName("ix_directorio_categorias_tenant_id_sort_order");
+
+                    b.ToTable("directorio_categorias", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DirectorioCategoriaSeccion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CategoriaKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("categoria_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FichaKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("ficha_key");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_directorio_categoria_secciones");
+
+                    b.HasIndex("TenantId", "CategoriaKey", "FichaKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_directorio_categoria_secciones_tenant_id_categoria_key_ficha_key");
+
+                    b.HasIndex("TenantId", "CategoriaKey", "Orden")
+                        .HasDatabaseName("ix_directorio_categoria_secciones_tenant_id_categoria_key_orden");
+
+                    b.ToTable("directorio_categoria_secciones", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Documento", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13102,6 +13251,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DirectoryEngine")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Clasico")
+                        .HasColumnName("directory_engine");
+
                     b.Property<string>("Email")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
@@ -13213,6 +13370,59 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("terceros", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroCategoria", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CategoriaKey")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("categoria_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TerceroId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tercero_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tercero_categorias");
+
+                    b.HasIndex("TerceroId")
+                        .HasDatabaseName("ix_tercero_categorias_tercero_id");
+
+                    b.HasIndex("TenantId", "CategoriaKey")
+                        .HasDatabaseName("ix_tercero_categorias_tenant_id_categoria_key");
+
+                    b.HasIndex("TenantId", "TerceroId", "CategoriaKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tercero_categorias_tenant_id_tercero_id_categoria_key");
+
+                    b.ToTable("tercero_categorias", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroContacto", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13281,6 +13491,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AplicaA")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("aplica_a");
+
+                    b.Property<string>("Areas")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("areas");
+
                     b.Property<string>("Color")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
@@ -13305,6 +13525,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("ficha_key");
 
+                    b.Property<string>("Icono")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("icono");
+
                     b.Property<bool>("IsHidden")
                         .HasColumnType("bit")
                         .HasColumnName("is_hidden");
@@ -13317,6 +13542,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
                         .HasColumnName("perfil");
+
+                    b.Property<bool>("Protegida")
+                        .HasColumnType("bit")
+                        .HasColumnName("protegida");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
@@ -13419,10 +13648,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(2000)")
                         .HasColumnName("options");
 
+                    b.Property<bool>("ReadOnly")
+                        .HasColumnType("bit")
+                        .HasColumnName("read_only");
+
                     b.Property<string>("RepeatWithFieldKey")
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)")
                         .HasColumnName("repeat_with_field_key");
+
+                    b.Property<string>("RequeridoEn")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("requerido_en");
 
                     b.Property<bool>("ShowInFilter")
                         .HasColumnType("bit")
@@ -16920,6 +17158,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("VendedorAsesor");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroCategoria", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
+                        .WithMany("Categorias")
+                        .HasForeignKey("TerceroId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tercero_categorias_terceros_tercero_id");
+
+                    b.Navigation("Tercero");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroContacto", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
@@ -17285,6 +17535,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Tercero", b =>
                 {
+                    b.Navigation("Categorias");
+
                     b.Navigation("Contactos");
                 });
 #pragma warning restore 612, 618

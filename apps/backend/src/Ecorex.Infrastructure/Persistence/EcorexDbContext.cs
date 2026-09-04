@@ -250,6 +250,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TerceroFichaDefinition> TerceroFichaDefinitions => Set<TerceroFichaDefinition>();
     public DbSet<TerceroFormLink> TerceroFormLinks => Set<TerceroFormLink>();
     public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
+    // 2do motor de contactos (Directorio Modular, Capa 8): categorias componibles + multi-membership.
+    public DbSet<DirectorioCategoria> DirectorioCategorias => Set<DirectorioCategoria>();
+    public DbSet<DirectorioCategoriaSeccion> DirectorioCategoriaSecciones => Set<DirectorioCategoriaSeccion>();
+    public DbSet<TerceroCategoria> TerceroCategorias => Set<TerceroCategoria>();
     // ---- Gestor de Clientes (000740) ----
     public DbSet<BolsaColumna> BolsaColumnas => Set<BolsaColumna>();
     public DbSet<Oportunidad> Oportunidades => Set<Oportunidad>();
@@ -395,6 +399,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TerceroIdTipo>().HaveConversion<string>().HaveMaxLength(40);
         // Campos configurables por ficha (000232): el tipo del campo se guarda como texto legible.
         configurationBuilder.Properties<TerceroFieldType>().HaveConversion<string>().HaveMaxLength(40);
+        // 2do motor de contactos (Directorio Modular, Capa 8): marca de motor como texto legible.
+        configurationBuilder.Properties<DirectoryEngine>().HaveConversion<string>().HaveMaxLength(20);
         // Configuracion de la entidad (000615): naturaleza de la entidad (Sede/Area) como texto.
         configurationBuilder.Properties<EntidadKind>().HaveConversion<string>().HaveMaxLength(20);
         // Contenedor de datos: enums como texto.
@@ -2043,6 +2049,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Telefono).HasMaxLength(80);
             // Fichas dinamicas por perfil: documento JSON (jsonb en PG, nvarchar(max) en SQL Server).
             b.Property(x => x.FichasJson).HasColumnType(jsonColumnType);
+            // 2do motor de contactos (Directorio Modular, Capa 8): marca de motor. Default Clasico para
+            // que las filas existentes (y el motor actual) queden marcadas sin intervencion manual.
+            b.Property(x => x.DirectoryEngine).HasDefaultValue(DirectoryEngine.Clasico);
             // Self-FK opcional persona -> empresa. NO ACTION (Restrict): una empresa con personas
             // asignadas no se borra en cascada, y se evitan rutas multiples de cascada (SQL Server).
             b.HasOne(x => x.Empresa).WithMany()
@@ -2081,6 +2090,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Description).HasMaxLength(600);
             b.Property(x => x.Formula).HasMaxLength(1000);
             b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
+            // 2do motor de contactos (Directorio Modular, Capa 8): obligatorio por naturaleza.
+            b.Property(x => x.RequeridoEn).HasMaxLength(40);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
         });
@@ -2095,8 +2106,46 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Description).HasMaxLength(300);
             b.Property(x => x.Color).HasMaxLength(20);
             b.Property(x => x.Perfil).HasMaxLength(20);
+            // 2do motor de contactos (Directorio Modular, Capa 8): la ficha pasa a ser "seccion" componible.
+            b.Property(x => x.AplicaA).HasMaxLength(40);
+            b.Property(x => x.Areas).HasMaxLength(200);
+            b.Property(x => x.Icono).HasMaxLength(40);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey }).IsUnique();
+        });
+
+        // ---- 2do motor de contactos (Directorio Modular, Capa 8) ----
+        // Categoria componible: arma su ficha con secciones y autoriza areas. CategoriaKey unica por tenant.
+        modelBuilder.Entity<DirectorioCategoria>(b =>
+        {
+            b.Property(x => x.CategoriaKey).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(300);
+            b.Property(x => x.Icono).HasMaxLength(40);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Areas).HasMaxLength(200);
+            b.Property(x => x.HomologaSeccion).HasMaxLength(40);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.CategoriaKey }).IsUnique();
+        });
+
+        // Composicion categoria <-> seccion (que secciones arma cada categoria, en que orden).
+        modelBuilder.Entity<DirectorioCategoriaSeccion>(b =>
+        {
+            b.Property(x => x.CategoriaKey).HasMaxLength(40).IsRequired();
+            b.Property(x => x.FichaKey).HasMaxLength(40).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.CategoriaKey, x.Orden });
+            b.HasIndex(x => new { x.TenantId, x.CategoriaKey, x.FichaKey }).IsUnique();
+        });
+
+        // Pertenencia tercero <-> categoria (multi-membership). Muere con el tercero (cascade).
+        modelBuilder.Entity<TerceroCategoria>(b =>
+        {
+            b.Property(x => x.CategoriaKey).HasMaxLength(40).IsRequired();
+            b.HasOne(x => x.Tercero).WithMany(x => x.Categorias)
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.CategoriaKey });
+            b.HasIndex(x => new { x.TenantId, x.TerceroId, x.CategoriaKey }).IsUnique();
         });
 
         // Formularios ofrecidos en el modal de tercero (config por tenant desde "Configurar campos").

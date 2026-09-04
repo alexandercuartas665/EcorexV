@@ -16,6 +16,10 @@ public interface IDirectorioCategoriaService
     /// <summary>Categorias del tenant, ordenadas por SortOrder y luego Title. Siembra por defecto si no hay.</summary>
     Task<IReadOnlyList<DirectorioCategoriaDto>> ListAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Cuantos terceros pertenecen a cada categoria (por membership). CategoriaKey -> conteo.
+    /// La categoria base (Publico) se cuenta aparte como el total del catalogo en la UI.</summary>
+    Task<IReadOnlyDictionary<string, int>> CountByCategoriaAsync(CancellationToken cancellationToken = default);
+
     Task<DirectorioCategoriaDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>Secciones que componen una categoria (por FichaKey), en orden.</summary>

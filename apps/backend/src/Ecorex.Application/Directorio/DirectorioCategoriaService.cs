@@ -116,6 +116,15 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<string, int>> CountByCategoriaAsync(CancellationToken cancellationToken = default)
+    {
+        var pares = await _db.TerceroCategorias.AsNoTracking()
+            .GroupBy(t => t.CategoriaKey)
+            .Select(g => new { Key = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return pares.ToDictionary(p => p.Key, p => p.Count, StringComparer.Ordinal);
+    }
+
     public async Task<DirectorioCategoriaDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var c = await _db.DirectorioCategorias.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);

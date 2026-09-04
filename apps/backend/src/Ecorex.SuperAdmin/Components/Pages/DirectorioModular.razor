@@ -14,11 +14,16 @@
 <div class="dm-wrap">
     <div class="dm-head">
         <div>
-            <div class="dm-eyebrow">Directorio &middot; motor avanzado</div>
+            <div class="dm-eyebrow">Catalogo 000232 &middot; motor avanzado</div>
             <h1 class="dm-title">Directorio Modular</h1>
             <p class="dm-sub">Catalogo de terceros por categorias. La ficha se arma con las secciones que cada categoria escoge.</p>
         </div>
-        <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)">+ Nuevo en @(_activo?.Title ?? "categoria")</button>
+    </div>
+
+    <div class="dm-toolbar">
+        <button class="dm-btn" disabled title="Proximamente"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
+        <button class="dm-btn" disabled title="Proximamente"><i class="fa fa-gear"></i> Configurar directorio</button>
+        <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
 
     <DirectorioModularFichaModal CategoriaKey="@_nuevoKey" OnClosed="() => _nuevoKey = null" OnSaved="OnCreatedAsync" />
@@ -29,26 +34,44 @@
     }
     else
     {
-        @* --- Pestanas de categorias --- *@
+        @* --- Tarjetas de conteo (sobre la categoria activa), con icono --- *@
+        <div class="dm-cards">
+            @{ var accent = _activo?.Color ?? "#4f46e5"; }
+            <div class="dm-card">
+                <span class="dm-card-ico" style="background:@Tint(accent)"><i class="fa @(_activo?.Icono ?? "fa-address-book")" style="color:@accent"></i></span>
+                <div><div class="dm-card-n" style="color:@accent">@_total</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
+            </div>
+            <div class="dm-card">
+                <span class="dm-card-ico" style="background:@Tint("#0ea5e9")"><i class="fa fa-building" style="color:#0ea5e9"></i></span>
+                <div><div class="dm-card-n" style="color:#0ea5e9">@_orgs</div><div class="dm-card-l">Organizaciones</div></div>
+            </div>
+            <div class="dm-card">
+                <span class="dm-card-ico" style="background:@Tint("#10b981")"><i class="fa fa-user" style="color:#10b981"></i></span>
+                <div><div class="dm-card-n" style="color:#10b981">@_personas</div><div class="dm-card-l">Personas</div></div>
+            </div>
+            <div class="dm-card dm-card-act">
+                <span class="dm-card-ico" style="background:@Tint("#f59e0b")"><i class="fa fa-circle-question" style="color:#f59e0b"></i></span>
+                <div><div class="dm-card-n" style="color:#f59e0b">@_porAsignar</div><div class="dm-card-l">Por asignar</div></div>
+            </div>
+            <div class="dm-card">
+                <span class="dm-card-ico" style="background:@Tint("#8b5cf6")"><i class="fa fa-seedling" style="color:#8b5cf6"></i></span>
+                <div><div class="dm-card-n" style="color:#8b5cf6">@_nuevos</div><div class="dm-card-l">Nuevos (30 dias)</div></div>
+            </div>
+        </div>
+
+        @* --- Pestanas de categorias con conteo --- *@
         <div class="dm-tabs">
+            <span class="dm-tabs-lbl">Categoria:</span>
             @foreach (var c in _cats)
             {
                 var on = _activo?.CategoriaKey == c.CategoriaKey;
                 <button class="dm-tab @(on ? "on" : "")" style="@(on ? $"--dm-accent:{c.Color ?? "#4f46e5"}" : "")"
                         @onclick="() => _activo = c">
                     <i class="fa @c.Icono"></i> @c.Title
+                    <span class="dm-tab-n">@CatCount(c)</span>
                     @if (c.Protegido) { <span class="dm-lock" title="Categoria base (no se elimina)"><i class="fa fa-lock"></i></span> }
                 </button>
             }
-        </div>
-
-        @* --- Tarjetas de conteo (sobre la categoria activa) --- *@
-        <div class="dm-cards">
-            <div class="dm-card"><div class="dm-card-n" style="color:@(_activo?.Color ?? "#4f46e5")">@_total</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
-            <div class="dm-card"><div class="dm-card-n" style="color:#0ea5e9">@_orgs</div><div class="dm-card-l">Organizaciones</div></div>
-            <div class="dm-card"><div class="dm-card-n" style="color:#10b981">@_personas</div><div class="dm-card-l">Personas</div></div>
-            <div class="dm-card dm-card-act"><div class="dm-card-n" style="color:#f59e0b">@_porAsignar</div><div class="dm-card-l">Por asignar</div></div>
-            <div class="dm-card"><div class="dm-card-n" style="color:#8b5cf6">@_nuevos</div><div class="dm-card-l">Nuevos (30 dias)</div></div>
         </div>
 
         @* --- Buscador (visual en este slice) --- *@
@@ -120,11 +143,21 @@
     .dm-tab i { font-size: 12px; }
     .dm-lock { opacity: .6; font-size: 10px; }
 
+    .dm-toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .dm-btn { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .dm-btn:disabled { opacity: .55; cursor: not-allowed; }
+    .dm-toolbar .dm-btn-primary { margin-left: auto; }
+
     .dm-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
-    .dm-card { background: #fff; border: 1px solid #eef0f3; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+    .dm-card { background: #fff; border: 1px solid #eef0f3; border-radius: 12px; padding: 13px 15px; box-shadow: 0 1px 2px rgba(16,24,40,.04); display: flex; align-items: center; gap: 12px; }
+    .dm-card-ico { width: 38px; height: 38px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
     .dm-card-act { border-style: dashed; }
-    .dm-card-n { font-size: 26px; font-weight: 800; line-height: 1; }
-    .dm-card-l { font-size: 12px; color: #6b7280; margin-top: 6px; }
+    .dm-card-n { font-size: 24px; font-weight: 800; line-height: 1; }
+    .dm-card-l { font-size: 12px; color: #6b7280; margin-top: 5px; }
+
+    .dm-tabs-lbl { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; align-self: center; margin-right: 2px; }
+    .dm-tab-n { background: rgba(17,24,39,.06); color: inherit; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 2px; }
+    .dm-tab.on .dm-tab-n { background: color-mix(in srgb, var(--dm-accent) 22%, #fff); }
 
     .dm-search { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 9px 13px; margin-bottom: 14px; color: #9ca3af; }
     .dm-search input { border: none; outline: none; flex: 1; font-size: 13px; color: #374151; background: transparent; }
@@ -151,6 +184,7 @@
     private bool _loading = true;
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
     private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
+    private IReadOnlyDictionary<string, int> _catCounts = new Dictionary<string, int>();
     private DirectorioCategoriaDto? _activo;
     private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
     private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
@@ -159,6 +193,7 @@
     {
         // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
         _cats = await Cats.ListAsync();
+        _catCounts = await Cats.CountByCategoriaAsync();
         _activo = _cats.FirstOrDefault();
 
         _rows = await Terceros.ListAsync(new TerceroListFilter());
@@ -184,5 +219,13 @@
         _orgs = _rows.Count(r => r.EsEmpresa);
         _personas = _rows.Count(r => r.EsPersona);
         _porAsignar = _total;
+        _catCounts = await Cats.CountByCategoriaAsync();
     }
+
+    // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
+    private int CatCount(DirectorioCategoriaDto c)
+        => c.Protegido ? _total : (_catCounts.TryGetValue(c.CategoriaKey, out var n) ? n : 0);
+
+    // Fondo tenue del color de acento para el icono de la tarjeta.
+    private static string Tint(string hex) => $"color-mix(in srgb, {hex} 14%, #fff)";
 }

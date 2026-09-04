@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.174: lector movil - resolver descendiente tambien por ParentId (salto de flujo)
+
+- Bug (usuario): en el tablero movil "Seguimiento O.T.", al escanear T00057 sale "No se encontro 'T00057'
+  (ni un hijo/nieto...)", pese a que T00057 tiene un hijo T00058. T00057 vive en OTRO tablero.
+- Causa: ResolveScannedTaskOnBoardAsync (v0.15.172) recorria descendientes SOLO por SourceTaskId. Pero la
+  hija la habia generado ChildTaskStarter (ADR-0076, "salto de flujo -> tarea hija"), que enlaza por
+  ParentId y NO seteaba SourceTaskId; ademas la hija salta a otro tablero. El BFS por SourceTaskId nunca la
+  encontraba. (GenerarTareasDesdeTablaVerb si seteaba SourceTaskId; ChildTaskStarter era el hueco.)
+- Fix:
+  1. ActivityBoardService.ResolveScannedTaskOnBoardAsync: el BFS ahora sigue AMBAS relaciones,
+     SourceTaskId O ParentId (hijo/nieto = las dos). Arregla los datos EXISTENTES sin backfill (T00058 ya
+     tiene ParentId=T00057) y no depende de como se genero la hija.
+  2. ChildTaskStarter: la hija del salto de flujo ahora tambien nace con SourceTaskId=padre, dejando la
+     cadena origen->generada de primera clase hacia adelante (coherente con el doc de SourceTaskId).
+- Build Release verde. Sin migracion (solo lectura + un campo ya existente). NO desplegado (a senal).
+
+---
+
 ## 2026-09-04 - v0.15.173: conector externo - parametros MULTI-VALOR (SSRS `IN (@p)`) para RDL
 
 - Pedido (sesion de reportes): el RDL "Director Comercial" (dataset director_comercial, conexion

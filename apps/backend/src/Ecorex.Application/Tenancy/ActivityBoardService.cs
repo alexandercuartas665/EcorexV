@@ -563,14 +563,19 @@ public sealed class ActivityBoardService : IActivityBoardService
         // Si la propia tarea vive en el tablero, esa es la tarjeta.
         if (scanned.BoardId == boardId) { return scanned.Id; }
 
-        // Descendientes por SourceTaskId (hijo, nieto, ...). BFS acotado (6 niveles) para no recorrer de mas;
-        // cubre el caso "la tarea genero otro codigo en otro tablero" a cualquier profundidad razonable.
+        // Descendientes por SourceTaskId (generada por regla/flujo) O ParentId (subtarea / salto de flujo a
+        // tarea hija, ADR-0076: la hija nace con ParentId=padre y suele SALTAR a otro tablero con su propio
+        // numero). Se siguen AMBAS relaciones porque "hijo/nieto" incluye las dos: asi el lector localiza al
+        // descendiente en ESTE tablero sin importar como se genero, y funciona con los datos ya existentes
+        // (no todas las hijas tienen SourceTaskId). BFS acotado (6 niveles) para no recorrer de mas.
         var frontier = new List<Guid> { scanned.Id };
         var visited = new HashSet<Guid> { scanned.Id };
         for (var depth = 0; depth < 6 && frontier.Count > 0; depth++)
         {
             var children = await _db.TaskItems.AsNoTracking()
-                .Where(t => t.SourceTaskId != null && frontier.Contains(t.SourceTaskId.Value) && !t.IsArchived)
+                .Where(t => !t.IsArchived
+                    && ((t.SourceTaskId != null && frontier.Contains(t.SourceTaskId.Value))
+                        || (t.ParentId != null && frontier.Contains(t.ParentId.Value))))
                 .Select(t => new { t.Id, t.BoardId })
                 .ToListAsync(cancellationToken);
 

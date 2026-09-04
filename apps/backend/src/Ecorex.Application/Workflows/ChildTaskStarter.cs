@@ -87,6 +87,8 @@ public sealed class ChildTaskStarter : IChildTaskStarter
             Description = parent.Description,
             EntidadId = parent.EntidadId,   // conexion de negocio heredada del padre
             ParentId = parent.Id,           // enlace al padre (la "conexion" padre<->hija)
+            SourceTaskId = parent.Id,       // ademas: cadena origen->generada (el lector movil sigue este salto
+                                            // a otro tablero al escanear el codigo impreso del padre, ADR-0076)
             BoardId = boardId,
             ColumnId = columnId,
             Priority = parent.Priority,

@@ -52,6 +52,27 @@
         </div>
     }
 
+    @* --- Mini-modal: confirmar eliminacion --- *@
+    @if (_delTarget is not null)
+    {
+        <div class="dm-ov" @onclick="() => _delTarget = null">
+            <div class="dm-dlg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Eliminar tercero</div>
+                    <button class="dm-dlg-x" @onclick="() => _delTarget = null">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <p class="dm-dlg-hint">Vas a eliminar a <strong>@_delTarget.Nombre</strong>. Se marca como eliminado (borrado suave) y deja de aparecer en el directorio.</p>
+                    @if (_delError is not null) { <div class="dm-dlg-err">@_delError</div> }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="() => _delTarget = null" disabled="@_busy">Cancelar</button>
+                    <button class="dm-btn-primary dm-btn-danger" @onclick="EliminarConfirmadoAsync" disabled="@_busy">@(_busy ? "Eliminando..." : "Eliminar")</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_loading)
     {
         <p class="dm-muted">Cargando...</p>
@@ -192,7 +213,7 @@
                                 </td>
                                 <td class="dm-acc">
                                     <button class="dm-acc-btn" title="Editar (proximamente)"><i class="fa fa-pen"></i></button>
-                                    <button class="dm-acc-btn dm-acc-del" title="Eliminar (proximamente)"><i class="fa fa-trash"></i></button>
+                                    <button class="dm-acc-btn dm-acc-del" title="Eliminar" @onclick="() => PedirEliminar(t)"><i class="fa fa-trash"></i></button>
                                 </td>
                             </tr>
                             @if (canExpand && _expanded.Contains(tid))
@@ -224,6 +245,7 @@
     .dm-btn-primary { background: #111827; color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
     .dm-btn-primary:hover { background: #0b0f1a; }
     .dm-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .dm-btn-danger { background: #dc2626; } .dm-btn-danger:hover { background: #b91c1c; }
 
     .dm-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #eef0f3; padding-bottom: 12px; margin-bottom: 16px; }
     .dm-tab { --dm-accent: #4f46e5; display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .12s; }
@@ -316,6 +338,8 @@
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
     private bool _configOpen;    // modal "Configurar directorio" abierto
     private string _search = string.Empty;   // texto de busqueda del listado
+    private TerceroListItemDto? _delTarget;   // tercero pendiente de confirmar eliminacion
+    private string? _delError;
     private bool _nuevaCatOpen;
     private string _nuevaCatTitle = string.Empty;
     private string? _nuevaCatError;
@@ -373,6 +397,35 @@
         {
             _activo = _cats.FirstOrDefault(c => c.CategoriaKey == _activo.CategoriaKey) ?? _cats.FirstOrDefault();
         }
+    }
+
+    private void PedirEliminar(TerceroListItemDto t)
+    {
+        _delTarget = t;
+        _delError = null;
+    }
+
+    private async Task EliminarConfirmadoAsync()
+    {
+        if (_delTarget is null) { return; }
+        _delError = null;
+        _busy = true;
+        try
+        {
+            var res = await Terceros.DeleteAsync(_delTarget.Id);
+            if (!res.IsOk) { _delError = res.Error ?? "No se pudo eliminar."; return; }
+            _delTarget = null;
+            // Recarga listado y contadores tras el borrado suave.
+            _rows = await Terceros.ListAsync(new TerceroListFilter());
+            _total = _rows.Count;
+            _orgs = _rows.Count(r => r.EsEmpresa);
+            _personas = _rows.Count(r => r.EsPersona);
+            _porAsignar = _total;
+            _catCounts = await Cats.CountByCategoriaAsync();
+            _memberships = await Cats.MembershipsAsync();
+        }
+        catch (Exception ex) { _delError = ex.Message; }
+        finally { _busy = false; }
     }
 
     // Filas visibles del listado: filtradas por la categoria activa (la base Publico muestra todo) y por

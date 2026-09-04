@@ -3,6 +3,7 @@
 @using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
 @inject IDirectorioModularFichaService Fichas
+@inject IJSRuntime JS
 
 @if (CategoriaKey is not null)
 {
@@ -250,6 +251,33 @@
         return n;
     }
 
+    private static string FieldDomId(string ficha, string field) => $"fld-{ficha}-{field}";
+
+    // Primer obligatorio pendiente (seccion, campo, etiqueta) segun la naturaleza deducida, o null.
+    private (string Ficha, string Field, string Label)? FindFirstMissing()
+    {
+        if (_ficha is null) { return null; }
+        var nat = NatClass;
+        foreach (var sec in _ficha.Secciones)
+        {
+            foreach (var f in sec.Campos)
+            {
+                if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
+                var aplica = nat switch
+                {
+                    "org" => f.RequeridoEn.Contains("empresa", StringComparison.OrdinalIgnoreCase),
+                    "per" => f.RequeridoEn.Contains("contacto", StringComparison.OrdinalIgnoreCase),
+                    _ => true
+                };
+                if (aplica && string.IsNullOrWhiteSpace(GetVal(sec.FichaKey, f.FieldKey)))
+                {
+                    return (sec.FichaKey, f.FieldKey, f.Label);
+                }
+            }
+        }
+        return null;
+    }
+
     private (string, string) NaturalezaPill()
     {
         var emp = Find("nombre_empresa") ?? Find("razon_social") ?? Find("nombre_comercial");
@@ -267,6 +295,7 @@
             case TerceroFieldType.TextArea:
                 builder.OpenElement(0, "textarea");
                 builder.AddAttribute(1, "class", "fm-textarea");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
                 builder.AddAttribute(2, "value", val);
                 builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
                 builder.CloseElement();
@@ -275,6 +304,7 @@
             case TerceroFieldType.MultiSelect:
                 builder.OpenElement(0, "select");
                 builder.AddAttribute(1, "class", "fm-select");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
                 if (f.Type == TerceroFieldType.MultiSelect) { builder.AddAttribute(2, "multiple", true); }
                 builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
                 builder.OpenElement(4, "option"); builder.AddAttribute(5, "value", ""); builder.AddContent(6, "-- seleccionar --"); builder.CloseElement();
@@ -313,6 +343,7 @@
             default:
                 builder.OpenElement(0, "input");
                 builder.AddAttribute(1, "class", "fm-input");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
                 builder.AddAttribute(2, "type", InputType(f.Type));
                 builder.AddAttribute(3, "value", val);
                 builder.AddAttribute(4, "disabled", f.ReadOnly);
@@ -334,22 +365,17 @@
         _error = null;
         if (_ficha is null) { return; }
 
-        // Obligatorios (por naturaleza deducida).
-        var (_, natCls) = NaturalezaPill();
-        if (natCls == "none") { _error = "Escribe al menos un nombre (empresa o contacto)."; return; }
-        var natEmpresa = natCls == "org";
-        foreach (var sec in _ficha.Secciones)
+        // Obligatorios (por naturaleza deducida): al primero que falte, salta a su seccion y lo enfoca
+        // (como el prototipo). Usa la MISMA regla que el contador de las pestanas.
+        var natCls = NatClass;
+        var falta = FindFirstMissing();
+        if (falta is { } m)
         {
-            foreach (var f in sec.Campos)
-            {
-                if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
-                var aplica = f.RequeridoEn.Contains(natEmpresa ? "empresa" : "contacto", StringComparison.OrdinalIgnoreCase);
-                if (aplica && string.IsNullOrWhiteSpace(GetVal(sec.FichaKey, f.FieldKey)))
-                {
-                    _error = $"Falta un campo obligatorio: {f.Label}.";
-                    return;
-                }
-            }
+            _error = natCls == "none"
+                ? "Escribe al menos un nombre (empresa o contacto)."
+                : $"Falta un campo obligatorio: {m.Label}.";
+            await JS.InvokeVoidAsync("dmScrollToField", $"sec-{m.Ficha}", FieldDomId(m.Ficha, m.Field));
+            return;
         }
 
         _saving = true;

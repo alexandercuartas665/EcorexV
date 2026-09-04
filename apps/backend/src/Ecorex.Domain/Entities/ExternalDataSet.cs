@@ -47,4 +47,15 @@ public class ExternalDataSet : BaseEntity
     /// las fuentes/datasets globales de reportes (ADR-0064), que no se exponen a agentes.
     /// </summary>
     public bool AgentEnabled { get; set; }
+
+    /// <summary>
+    /// OPT-IN para consultas MULTI-STATEMENT / BATCH (ADR-0064). Por defecto false: la ruta de reportes exige
+    /// un unico SELECT/WITH (ExternalReadOnlyGuard). Cuando el dueño del tenant lo habilita para ESTE dataset,
+    /// la ruta de reportes OMITE el guard de solo lectura, de modo que un CommandText que es un batch T-SQL
+    /// (DECLARE + INSERT INTO @tabla + EXEC ... + SELECT final, como un RDL real de SSRS) pueda ejecutarse.
+    /// NO relaja nada global; sigue siendo el default estricto para todo lo demas. Los parametros se enlazan
+    /// TIPADOS igual (cero interpolacion): la proteccion anti-inyeccion NO cambia. Uselo solo con consultas
+    /// de confianza: el batch puede ejecutar varias sentencias e incluso modificar el servidor externo.
+    /// </summary>
+    public bool AllowBatch { get; set; }
 }

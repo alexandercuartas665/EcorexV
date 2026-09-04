@@ -4688,6 +4688,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("agent_enabled");
 
+                    b.Property<bool>("AllowBatch")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_batch");
+
                     b.Property<string>("CommandText")
                         .IsRequired()
                         .HasColumnType("text")

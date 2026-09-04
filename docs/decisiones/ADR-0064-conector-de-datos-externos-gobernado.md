@@ -106,3 +106,32 @@ Un parametro que acota filas (TOP/LIMIT) suele llevar un DefaultValue pequeno pa
 al tope duro del sistema (`ExternalReportReader.ReportMaxRows`, y la query usa el mismo MaxRows), NO a su
 DefaultValue. La consola "Ejecutar" del editor (que no pasa `reportRowLimit`) sigue tomando el valor
 tecleado o el DefaultValue. Asi el default de autoria no limita la salida de un dashboard.
+
+## Nota (v0.15.168) - AllowBatch: opt-in por dataset a consultas multi-statement / batch
+
+El guard de solo lectura exige un unico SELECT/WITH; eso rechaza batches T-SQL legitimos de RDL reales
+(SSRS): DECLARE de tablas + INSERT INTO @tabla + EXEC sp_... + WITH + SELECT final. Corren en la consola
+"Ejecutar" cuando la conexion tiene AllowWrite, pero la ruta de REPORTES los rechazaba.
+
+Decision (opcion B): un OPT-IN por dataset, `ExternalDataSet.AllowBatch` (default false). NO es un
+relajamiento global: el guard sigue siendo el default estricto para todo lo demas.
+
+- Cuando `AllowBatch=true`, el ejecutor (AdoExternalQueryExecutor) OMITE el guard de solo lectura y NO
+  fuerza la transaccion read-only (en Postgres no aplica `SET TRANSACTION READ ONLY`). La decision del
+  bypass se centraliza en `ExternalReadOnlyGuard.EnsureReadOnly(cmd, allowWrite, allowBatch)` y la comparte
+  con `AllowWrite` (conexion propia con escritura). Independientes: una conexion de solo lectura puede tener
+  UN dataset con batch habilitado.
+- Los parametros se siguen enlazando como DbParameter TIPADOS (cero interpolacion): la proteccion
+  anti-inyeccion NO cambia. Se mantienen MaxRows y timeout.
+- Lo activa el OWNER del tenant sobre SU conexion (tenant-scoped por OwnerTenantId) en /conexiones-datos,
+  con un checkbox y AVISO en rojo (la consulta puede modificar el servidor externo). La cadena sigue
+  cifrada y nunca se expone.
+- Trazabilidad: al ejecutar en la ruta de reportes un dataset con AllowBatch se registra en auditoria
+  (dataset id + tenant + usuario) via IAuditWriter (ExternalReportReader).
+- Migracion dual aditiva (`allow_batch` bool NOT NULL DEFAULT false) en PG y SQL Server.
+
+## Casos de prueba (gates) - AllowBatch
+
+- `ExternalReadOnlyGuardTests` (unit): el overload con opt-in acepta el batch cuando allowBatch/allowWrite
+  es true y lo rechaza (igual que antes) cuando ambos son false; el caso normal de un SELECT unico sigue
+  intacto.

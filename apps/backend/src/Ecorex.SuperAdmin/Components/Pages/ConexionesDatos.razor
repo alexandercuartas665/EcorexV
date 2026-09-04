@@ -250,6 +250,14 @@ else
                             {
                                 <div class="page-sub" style="margin:2px 0 0;font-size:.78rem;">Los agentes podran listar, ver los parametros y EJECUTAR este dataset. Pon descripciones claras en los parametros.</div>
                             }
+                            <div class="form-check form-switch" style="margin-top:6px;">
+                                <input class="form-check-input" type="checkbox" id="dsBatch" @bind="_dsForm.AllowBatch" />
+                                <label class="form-check-label" for="dsBatch">Permitir consulta multi-statement / batch (avanzado)</label>
+                            </div>
+                            @if (_dsForm.AllowBatch)
+                            {
+                                <div class="text-danger" style="margin:2px 0 0;font-size:.78rem;">La consulta puede ejecutar varias sentencias e incluso MODIFICAR el servidor externo; usela solo con consultas de confianza.</div>
+                            }
                             @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <div class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;margin-top:8px;">@_dsMsg</div> }
                             <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
                                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDs = null" disabled="@_busy">Cancelar</button>
@@ -464,7 +472,7 @@ else
         _dsForm = new DsForm
         {
             Id = d.Id, Name = d.Name, Description = d.Description, CommandText = d.CommandText,
-            IsEnabled = d.IsEnabled, AgentEnabled = d.AgentEnabled,
+            IsEnabled = d.IsEnabled, AgentEnabled = d.AgentEnabled, AllowBatch = d.AllowBatch,
             Params = ExternalDataJson.DeserializeParameters(d.ParametersJson)
                 .Select(p => new ParamRow
                 {
@@ -544,7 +552,8 @@ else
 
             var req = new SaveTenantDatasetRequest(
                 _dsForm.Id, connId, _dsForm.Name?.Trim() ?? "", _dsForm.Description,
-                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson, _dsForm.AgentEnabled, fieldsJson);
+                _dsForm.CommandText?.Trim() ?? "", _dsForm.IsEnabled, paramsJson, _dsForm.AgentEnabled, fieldsJson,
+                _dsForm.AllowBatch);
             var id = await Conns.SaveDatasetAsync(req, await ActorAsync());
             if (id is null) { _dsOk = false; _dsMsg = "Revisa nombre y consulta."; return; }
             _dsOk = true; _dsMsg = "Guardado.";
@@ -638,6 +647,7 @@ else
         public string? CommandText { get; set; }
         public bool IsEnabled { get; set; } = true;
         public bool AgentEnabled { get; set; }
+        public bool AllowBatch { get; set; }
         public List<ParamRow> Params { get; set; } = new();
         public List<FieldRow> Fields { get; set; } = new();
     }

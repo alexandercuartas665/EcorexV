@@ -63,4 +63,20 @@ public static partial class ExternalReadOnlyGuard
                 "El comando del dataset externo no es de solo lectura: solo se admite un unico SELECT/WITH sin verbos de escritura.");
         }
     }
+
+    /// <summary>
+    /// Aplica el guard SALVO que haya un opt-in explicito: <paramref name="allowWrite"/> (conexion propia del
+    /// tenant con escritura) o <paramref name="allowBatch"/> (dataset con batch multi-statement habilitado por
+    /// el dueño, ADR-0064). Centraliza la decision del bypass para que sea unica y testeable. El default
+    /// (ambos false) mantiene el comportamiento estricto: un unico SELECT/WITH sin verbos de escritura.
+    /// </summary>
+    public static void EnsureReadOnly(string? commandText, bool allowWrite, bool allowBatch)
+    {
+        if (allowWrite || allowBatch)
+        {
+            return;
+        }
+
+        EnsureReadOnly(commandText);
+    }
 }

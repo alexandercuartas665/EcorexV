@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,12 +26,17 @@ public sealed class ExternalReportReader
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _protector;
     private readonly IExternalQueryExecutor _executor;
+    private readonly IAuditWriter? _audit;
 
-    public ExternalReportReader(IApplicationDbContext db, ISecretProtector protector, IExternalQueryExecutor executor)
+    // El auditor es OPCIONAL (default null) para no obligar a los dobles de test que solo satisfacen el
+    // catalogo; en produccion DI inyecta el IAuditWriter real. Solo se usa para dejar traza cuando se ejecuta
+    // un dataset con AllowBatch (batch multi-statement) en la ruta de reportes.
+    public ExternalReportReader(IApplicationDbContext db, ISecretProtector protector, IExternalQueryExecutor executor, IAuditWriter? audit = null)
     {
         _db = db;
         _protector = protector;
         _executor = executor;
+        _audit = audit;
     }
 
     public static bool Handles(string sourceKey) => sourceKey.StartsWith(KeyPrefix, StringComparison.OrdinalIgnoreCase);
@@ -168,7 +174,26 @@ public sealed class ExternalReportReader
         // de autoria), y la query aplica el mismo MaxRows. Asi un default pensado para probar no capa el panel.
         var bound = ExternalParameterBinder.Bind(declared, context, inputs, reportRowLimit: ReportMaxRows);
 
-        var query = new ExternalQuery(source.Provider, connectionString, ds.CommandText, bound, MaxRows: ReportMaxRows);
+        // AllowBatch (opt-in por dataset, ADR-0064): si esta habilitado, el executor OMITE el guard de solo
+        // lectura para permitir un batch multi-statement. Se deja TRAZA de la ejecucion (dataset+tenant+usuario)
+        // para trazabilidad: no relaja nada global, pero conviene saber cuando se uso el bypass.
+        if (ds.AllowBatch && _audit is not null)
+        {
+            _audit.Write(
+                context.UserId ?? Guid.Empty,
+                "external-dataset.batch-report-run",
+                nameof(ExternalDataSet),
+                ds.Id,
+                previousValue: null,
+                newValue: new { ds.Name, ds.ExternalDataSourceId },
+                tenantId: context.TenantId,
+                reason: "AllowBatch dataset ejecutado en ruta de reportes");
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var query = new ExternalQuery(
+            source.Provider, connectionString, ds.CommandText, bound,
+            MaxRows: ReportMaxRows, AllowBatch: ds.AllowBatch);
         return await _executor.ExecuteAsync(query, ct);
     }
 }

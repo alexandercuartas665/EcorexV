@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.168: datasets externos "batch" (multi-statement) opt-in por dataset (ADR-0064)
+
+- Pedido de la sesion de reportes: un dataset externo de SOLDARCO (director_comercial) cuyo CommandText es
+  un BATCH T-SQL de RDL real (DECLARE + INSERT INTO @tabla + EXEC sp_... + WITH + SELECT) corria en la
+  consola "Ejecutar" pero la ruta de reportes lo rechazaba con ExternalReadOnlyGuard ("solo un SELECT/WITH").
+- Decision (opcion B): OPT-IN por dataset ExternalDataSet.AllowBatch (default false). No relaja nada global.
+- Cambios (sin cambiar la proteccion anti-inyeccion: parametros DbParameter TIPADOS; MaxRows/timeout intactos):
+  1. Dominio: ExternalDataSet.AllowBatch + migracion DUAL aditiva (allow_batch bool NOT NULL DEFAULT false)
+     en PG y SQL Server.
+  2. ExternalQuery gana AllowBatch. Guard: overload EnsureReadOnly(cmd, allowWrite, allowBatch) centraliza el
+     bypass; el executor lo usa y, en Postgres, omite SET TRANSACTION READ ONLY tambien con AllowBatch.
+  3. ExternalReportReader pasa AllowBatch del dataset y AUDITA (dataset+tenant+usuario) via IAuditWriter
+     opcional cuando ejecuta un dataset AllowBatch en reportes.
+  4. TenantDataConnection (contracts+service): SaveTenantDatasetRequest/TenantDatasetDetail ganan AllowBatch;
+     se persiste; la consola RunDatasetAsync tambien lo honra.
+  5. ConexionesDatos.razor: checkbox "Permitir consulta multi-statement / batch (avanzado)" + aviso rojo.
+  6. ADR-0064 nota + casos de prueba.
+- Seguridad: lo activa el OWNER sobre SU conexion (tenant-scoped OwnerTenantId); cadena cifrada, nunca expuesta.
+- Tests: ExternalReadOnlyGuardTests 23/23 (nuevos para el bypass allowWrite/allowBatch + caso normal intacto).
+  Build Release solucion completa verde.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.167: croquis (Canvas) - compresion ADAPTATIVA de imagenes grandes
 
 - Mejora sobre v0.15.166: la compresion del croquis paso de un solo paso (1600px, q0.85) a ADAPTATIVA.

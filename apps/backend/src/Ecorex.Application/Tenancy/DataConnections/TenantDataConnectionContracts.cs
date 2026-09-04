@@ -30,11 +30,14 @@ public sealed record TenantDatasetDetail(
     string? ParametersJson, bool AgentEnabled,
     // Campos de salida (JSON de ExternalDataSetField: Name, Type). Definen que columnas son REPORTABLES:
     // sin ellos el dataset no aparece en el catalogo de reportes (ADR-0084 self-service).
-    string? FieldsJson = null);
+    string? FieldsJson = null,
+    // Opt-in a consulta multi-statement / batch (ADR-0064): salta el guard de solo lectura de reportes SOLO
+    // para este dataset. Avanzado; el batch puede modificar el servidor externo.
+    bool AllowBatch = false);
 
 public sealed record SaveTenantDatasetRequest(
     Guid? Id, Guid ConnectionId, string Name, string? Description, string CommandText, bool IsEnabled,
-    string? ParametersJson = null, bool AgentEnabled = false, string? FieldsJson = null);
+    string? ParametersJson = null, bool AgentEnabled = false, string? FieldsJson = null, bool AllowBatch = false);
 
 // ---- Superficie para AGENTES (toolset "datos"): solo datasets con AgentEnabled + IsEnabled ----
 

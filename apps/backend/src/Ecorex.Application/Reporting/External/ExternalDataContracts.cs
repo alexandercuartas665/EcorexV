@@ -45,7 +45,11 @@ public sealed record ExternalQuery(
     int TimeoutSeconds = 30,
     // Cuando es true (conexion propia del tenant con escritura habilitada) el ejecutor OMITE el guard de
     // solo lectura y confirma la transaccion. Por defecto false: se fuerza lectura (reportes, ADR-0064).
-    bool AllowWrite = false);
+    bool AllowWrite = false,
+    // Opt-in por DATASET (ExternalDataSet.AllowBatch): permite un CommandText multi-statement / batch en la
+    // ruta de reportes. Comparte el bypass del guard con AllowWrite pero es independiente: una conexion de
+    // solo lectura puede tener UN dataset con batch habilitado. Por defecto false.
+    bool AllowBatch = false);
 
 /// <summary>
 /// Contexto de CONFIANZA para resolver parametros de alcance (userid, sucursal, tenant...). Los valores

@@ -49,11 +49,17 @@
                         <span>@NatText</span>
                     </div>
 
-                    @* Tabs de seccion (llevan a cada seccion del scroll) *@
+                    @* Tabs de seccion (llevan a cada seccion del scroll) con contador de obligatorios faltantes *@
                     <div class="fm-sectabs">
                         @foreach (var s in _ficha.Secciones)
                         {
-                            <a class="fm-sectab" href="#sec-@s.FichaKey"><span class="fm-dot"></span> @s.Title</a>
+                            <a class="fm-sectab" href="#sec-@s.FichaKey">
+                                <span class="fm-dot" style="background:@(SeccionColor(s))"></span> @s.Title
+                                @if (FaltantesEnSeccion(s) > 0)
+                                {
+                                    <span class="fm-tab-badge" title="Campos obligatorios pendientes">@FaltantesEnSeccion(s)</span>
+                                }
+                            </a>
                         }
                     </div>
 
@@ -135,6 +141,7 @@
     .fm-sectabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
     .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
     .fm-sectab .fm-dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; display: inline-block; }
+    .fm-tab-badge { background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 999px; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; margin-left: 3px; }
 
     .fm-sec { margin: 18px 0; }
     .fm-sec-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
@@ -220,6 +227,28 @@
 
     private string NatText => NaturalezaPill().Item1;
     private string NatClass => NaturalezaPill().Item2;
+
+    private static string SeccionColor(ModularSeccionDto s) => string.IsNullOrWhiteSpace(s.Color) ? "#4f46e5" : s.Color!;
+
+    // Obligatorios pendientes en una seccion, segun la naturaleza deducida (empresa/contacto). Sin
+    // naturaleza aun, cuenta todos los requeridos como pendientes (hay que definir un nombre primero).
+    private int FaltantesEnSeccion(ModularSeccionDto sec)
+    {
+        var nat = NatClass;
+        var n = 0;
+        foreach (var f in sec.Campos)
+        {
+            if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
+            var aplica = nat switch
+            {
+                "org" => f.RequeridoEn.Contains("empresa", StringComparison.OrdinalIgnoreCase),
+                "per" => f.RequeridoEn.Contains("contacto", StringComparison.OrdinalIgnoreCase),
+                _ => true
+            };
+            if (aplica && string.IsNullOrWhiteSpace(GetVal(sec.FichaKey, f.FieldKey))) { n++; }
+        }
+        return n;
+    }
 
     private (string, string) NaturalezaPill()
     {

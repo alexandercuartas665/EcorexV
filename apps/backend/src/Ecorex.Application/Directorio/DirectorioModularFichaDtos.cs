@@ -8,7 +8,7 @@ public sealed record ModularFichaDto(string CategoriaKey, string CategoriaTitle,
 
 /// <summary>Una seccion de la ficha (grupo de campos), con su naturaleza y sus campos ordenados.</summary>
 public sealed record ModularSeccionDto(
-    string FichaKey, string Title, string? Icono, string? Descripcion, string? AplicaA, IReadOnlyList<ModularCampoDto> Campos);
+    string FichaKey, string Title, string? Icono, string? Color, string? Descripcion, string? AplicaA, IReadOnlyList<ModularCampoDto> Campos);
 
 /// <summary>Un campo de una seccion, listo para renderizar por tipo.</summary>
 public sealed record ModularCampoDto(

@@ -54,7 +54,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             var flds = campos.Where(c => c.FichaKey == fk)
                 .Select(c => new ModularCampoDto(c.FieldKey, c.Label, c.FieldType, c.Column, c.Options, c.RequeridoEn, c.ReadOnly, c.Description))
                 .ToList();
-            result.Add(new ModularSeccionDto(sec.FichaKey, sec.Title, sec.Icono, sec.Description, sec.AplicaA, flds));
+            result.Add(new ModularSeccionDto(sec.FichaKey, sec.Title, sec.Icono, sec.Color, sec.Description, sec.AplicaA, flds));
         }
 
         return new ModularFichaDto(cat.CategoriaKey, cat.Title, result);

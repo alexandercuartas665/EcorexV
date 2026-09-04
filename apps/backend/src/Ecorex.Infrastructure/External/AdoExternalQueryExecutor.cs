@@ -43,8 +43,12 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             await readOnly.ExecuteNonQueryAsync(ct);
         }
 
+        // Expande los parametros MULTI-VALOR (`IN (@p)` -> `IN (@p__0, @p__1, ...)`) y aplana la lista a
+        // parametros fisicos. Cero interpolacion: cada valor va como DbParameter tipado.
+        var (sql, flatParams) = ExternalCommandBuilder.ExpandInLists(query.CommandText, query.Parameters);
+
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = query.CommandText;
+        cmd.CommandText = sql;
         cmd.CommandType = CommandType.Text;
         cmd.CommandTimeout = query.TimeoutSeconds;
         if (tx is not null)
@@ -52,7 +56,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             cmd.Transaction = tx;
         }
 
-        BindParameters(cmd, query.Parameters);
+        BindParameters(cmd, flatParams);
 
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleResult, ct);
         var dataSet = await MaterializeAsync(reader, query.MaxRows, ct);
@@ -106,7 +110,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
         _ => throw new ReportValidationException($"Proveedor externo no soportado: {provider}.")
     };
 
-    private static void BindParameters(DbCommand cmd, IReadOnlyList<ExternalBoundParameter> parameters)
+    private static void BindParameters(DbCommand cmd, IReadOnlyList<ExternalFlatParameter> parameters)
     {
         foreach (var p in parameters)
         {

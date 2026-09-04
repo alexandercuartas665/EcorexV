@@ -301,10 +301,21 @@
                                         @foreach (var inp in picked.Inputs)
                                         {
                                             var input = inp;
-                                            <label style="font-size:11.5px;font-weight:600;color:#6b7280;">
-                                                @input.Name <span style="font-weight:400;">(@input.Type)</span>
-                                                <input class="form-control" value="@GetInput(rdlName, input.Name)"
-                                                       @onchange="e => SetInput(rdlName, input.Name, e.Value?.ToString())" />
+                                            <label style="font-size:11.5px;font-weight:600;color:#6b7280;@(input.MultiValue ? "grid-column:1/-1;" : "")">
+                                                @input.Name <span style="font-weight:400;">(@input.Type)@(input.MultiValue ? " - multi-valor" : "")</span>
+                                                @if (input.MultiValue)
+                                                {
+                                                    <textarea class="form-control" rows="3" style="font-family:monospace;"
+                                                              placeholder="Un valor (CODIGO) por linea"
+                                                              value="@GetInput(rdlName, input.Name)"
+                                                              @onchange="e => SetInput(rdlName, input.Name, e.Value?.ToString())"></textarea>
+                                                    <span style="font-weight:400;color:#9ca3af;font-size:10.5px;">Un CODIGO por linea; se expande a IN (...).</span>
+                                                }
+                                                else
+                                                {
+                                                    <input class="form-control" value="@GetInput(rdlName, input.Name)"
+                                                           @onchange="e => SetInput(rdlName, input.Name, e.Value?.ToString())" />
+                                                }
                                             </label>
                                         }
                                     </div>

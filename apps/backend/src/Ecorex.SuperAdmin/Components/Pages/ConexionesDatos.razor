@@ -178,7 +178,7 @@ else
                             {
                                 <div style="overflow-x:auto;margin-top:6px;">
                                     <table class="table table-sm" style="margin:0;">
-                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th title="Marca el parametro que acota el numero de filas (TOP/LIMIT). En un reporte NO usa su default: trae hasta el tope del sistema.">Limite de filas</th><th>Descripcion</th><th></th></tr></thead>
+                                        <thead><tr><th>Nombre (sin @@)</th><th>Tipo</th><th>Valor por defecto</th><th title="Marca el parametro que acota el numero de filas (TOP/LIMIT). En un reporte NO usa su default: trae hasta el tope del sistema.">Limite de filas</th><th title="El parametro se usa como ... IN (@@param) y admite varios valores (uno por linea o separados por coma). El motor expande el IN con un parametro tipado por valor.">Multi-valor (IN)</th><th>Descripcion</th><th></th></tr></thead>
                                         <tbody>
                                             @foreach (var p in _dsForm.Params)
                                             {
@@ -194,6 +194,7 @@ else
                                                     </td>
                                                     <td><input class="form-control form-control-sm" @bind="p.Default" /></td>
                                                     <td style="text-align:center;"><input type="checkbox" @bind="p.IsRowLimit" title="Limite de filas: en reportes trae todo (hasta el tope del sistema), ignorando el default." /></td>
+                                                    <td style="text-align:center;"><input type="checkbox" @bind="p.MultiValue" title="Multi-valor (IN): admite varios codigos (uno por linea o por coma); el motor expande el IN con un parametro tipado por valor." /></td>
                                                     <td><input class="form-control form-control-sm" @bind="p.Description" placeholder="Que significa / que espera el agente" /></td>
                                                     <td><button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveParam(p)" disabled="@_busy">x</button></td>
                                                 </tr>
@@ -477,7 +478,8 @@ else
                 .Select(p => new ParamRow
                 {
                     Name = p.Name, Type = p.Type, Default = p.DefaultValue, Description = p.Description,
-                    IsRowLimit = p.Binding == ExternalDataParameterBinding.RowLimit
+                    IsRowLimit = p.Binding == ExternalDataParameterBinding.RowLimit,
+                    MultiValue = p.MultiValue
                 }).ToList(),
             Fields = ExternalDataJson.DeserializeFields(d.FieldsJson)
                 .Select(f => new FieldRow { Name = f.Name, Type = f.Type }).ToList()
@@ -537,7 +539,8 @@ else
                 .Select(p => new ExternalDataSetParameter(p.Name!.Trim(), p.Type,
                     p.IsRowLimit ? ExternalDataParameterBinding.RowLimit : ExternalDataParameterBinding.Input, null,
                     string.IsNullOrWhiteSpace(p.Default) ? null : p.Default!.Trim(),
-                    string.IsNullOrWhiteSpace(p.Description) ? null : p.Description!.Trim()))
+                    string.IsNullOrWhiteSpace(p.Description) ? null : p.Description!.Trim(),
+                    p.MultiValue))
                 .ToList();
             var paramsJson = declared.Count == 0 ? null : ExternalDataJson.SerializeParameters(declared);
 
@@ -659,6 +662,7 @@ else
         public string? Default { get; set; }
         public string? Description { get; set; }
         public bool IsRowLimit { get; set; }   // binding RowLimit (en reporte -> tope del sistema)
+        public bool MultiValue { get; set; }   // usado como IN (@p): admite 1..N valores
         public string? Value { get; set; }     // valor al ejecutar
     }
 

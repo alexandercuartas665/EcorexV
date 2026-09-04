@@ -126,4 +126,51 @@ public class ExternalParameterBinderTests
         var def = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant), inputs: null));
         Assert.Equal(5L, def.Value);
     }
+
+    // ---- MULTI-VALOR (SSRS `IN (@p)`): 1..N valores tipados por parametro ----
+
+    [Fact]
+    public void MultiValueInput_SplitsIntoTypedValues_ByLineAndComma()
+    {
+        // Un parametro multi-valor entero: la entrada trae varios codigos (por linea y por coma). Cada uno se
+        // convierte al tipo declarado y viaja en Values; Value queda null (lo expande el executor).
+        var declared = new[]
+        {
+            new ExternalDataSetParameter("grupo", ExternalDataParameterType.Int, ExternalDataParameterBinding.Input, MultiValue: true)
+        };
+        var inputs = new Dictionary<string, string?> { ["grupo"] = "1\n2,3\r\n4" };
+
+        var bound = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant), inputs));
+        Assert.Null(bound.Value);
+        Assert.NotNull(bound.Values);
+        Assert.Equal(new object?[] { 1L, 2L, 3L, 4L }, bound.Values!);
+    }
+
+    [Fact]
+    public void MultiValueInput_EmptyText_ProducesEmptyValueList()
+    {
+        // Sin valores: lista vacia (el executor lo traduce a IN (NULL) => ninguna fila, sin error de sintaxis).
+        var declared = new[]
+        {
+            new ExternalDataSetParameter("grupo", ExternalDataParameterType.String, ExternalDataParameterBinding.Input, MultiValue: true)
+        };
+        var bound = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant),
+            new Dictionary<string, string?> { ["grupo"] = "   " }));
+        Assert.NotNull(bound.Values);
+        Assert.Empty(bound.Values!);
+    }
+
+    [Fact]
+    public void MultiValueInput_InjectionPerValue_StaysAsTypedValue()
+    {
+        // Cada valor de una lista multi-valor tambien viaja como VALOR (no se concatena).
+        var declared = new[]
+        {
+            new ExternalDataSetParameter("codigo", ExternalDataParameterType.String, ExternalDataParameterBinding.Input, MultiValue: true)
+        };
+        var payload = "01'); DROP TABLE ventas; --";
+        var bound = Assert.Single(ExternalParameterBinder.Bind(declared, new ExternalRunContext(Tenant),
+            new Dictionary<string, string?> { ["codigo"] = $"01\n{payload}" }));
+        Assert.Equal(new object?[] { "01", payload }, bound.Values!);
+    }
 }

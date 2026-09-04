@@ -2,6 +2,38 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.173: conector externo - parametros MULTI-VALOR (SSRS `IN (@p)`) para RDL
+
+- Pedido (sesion de reportes): el RDL "Director Comercial" (dataset director_comercial, conexion
+  SOLDARCO_MULTISYS, tenant SOLDARCO) renderiza pero trae 0 filas. Sus parametros vendedor/grupo/tipo_inven/
+  subgrupo/marca/linea son SSRS MultiValue=true usados como `... IN (@p)`. SSRS auto-expande a IN (v1,v2,...),
+  pero el binder enlazaba UN escalar => `IN ('01,02')` no casa nada.
+- Diseno (aditivo, SIN migracion): los parametros del ExternalDataSet viven como JSON en ParametersJson, asi
+  que agregar la marca no toca la BD (backward-compatible). El valor multi-valor viaja en el mismo diccionario
+  string->string de Inputs, codificado con varios valores (uno por linea o coma). Esto se aparta del
+  `IReadOnlyDictionary<string,IReadOnlyList<string>>` sugerido en el prompt, pero el prompt admite "un tipo
+  equivalente"; se prefirio el enfoque sin migracion ni cambio de contrato de binding.
+- Cambios:
+  1. ExternalDataSetParameter.MultiValue (bool, default false; JSON-only, sin columna). Checkbox "Multi-valor
+     (IN)" por parametro en ConexionesDatos.razor (editor de datasets).
+  2. ExternalParameterBinder.Bind: si MultiValue, parte la entrada (SplitMultiValues por salto de linea/coma),
+     convierte CADA valor al tipo declarado y los deja en ExternalBoundParameter.Values (nuevo); escalar sin
+     cambios. (Ademas arregla valores viejos tipo "01,02" que antes viajaban como un solo string.)
+  3. ExternalCommandBuilder.ExpandInLists (NUEVO, pieza pura): reemplaza el token @p por @p__0, @p__1, ...,
+     @p__{N-1} con limite de palabra (no pisa @p2 ni @precio) y emite un ExternalFlatParameter TIPADO por
+     valor; 0 valores => `IN (NULL)` (ninguna fila, sin error de sintaxis). Cero interpolacion.
+  4. AdoExternalQueryExecutor: llama ExpandInLists y enlaza la lista PLANA de parametros (cada valor como
+     DbParameter). Misma proteccion anti-inyeccion que un escalar, tambien por valor de una lista.
+  5. GrantedDataSetInputDto.MultiValue expuesto y poblado; el dialogo de importacion RDL (ReportGallery.razor)
+     pinta un textarea (un CODIGO=ValueField por linea) para los parametros multi-valor; el binding guarda esa
+     lista de VALORES (CODIGO, no el label NOMBRE).
+- Tests: ExternalParameterBinderTests (3 nuevos multi-valor: split por linea/coma, lista vacia, inyeccion por
+  valor) + ExternalCommandBuilderTests (NUEVO: escalar intacto, expansion N placeholders, IN (NULL), limite de
+  palabra, inyeccion como valor). 16/16 verde. Build Release verde; sin migracion (matriz dual sin cambios).
+- Nota ADR-0064. NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-04 - v0.15.172: lector del tablero movil - descendientes (hijo/nieto) + flujo siempre al paso
 
 - Pedido: al escanear, la tarea "salto a otro tablero y genero otro codigo"; el lector debe encontrar tambien

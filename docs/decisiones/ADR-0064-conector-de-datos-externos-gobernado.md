@@ -135,3 +135,36 @@ relajamiento global: el guard sigue siendo el default estricto para todo lo dema
 - `ExternalReadOnlyGuardTests` (unit): el overload con opt-in acepta el batch cuando allowBatch/allowWrite
   es true y lo rechaza (igual que antes) cuando ambos son false; el caso normal de un SELECT unico sigue
   intacto.
+
+## Nota (v0.15.173) - Parametros MULTI-VALOR (SSRS `IN (@p)`)
+
+Los RDL de SSRS declaran parametros MultiValue=true usados como `... columna IN (@p)`. SSRS auto-expande
+el multi-valor a `IN (v1, v2, ...)`, pero el binder del conector enlazaba UN escalar: un valor tipo
+"01,02" viajaba como un solo string => `IN ('01,02')` no casa ninguna fila. El dataset
+"director_comercial" (conexion SOLDARCO_MULTISYS) renderizaba con 0 filas por esto.
+
+Decision: soportar 1..N valores por parametro SIN migracion. Los parametros del ExternalDataSet ya viven
+como JSON en `ParametersJson`, asi que la marca nueva es backward-compatible en el JSON (no hay columna).
+
+- `ExternalDataSetParameter.MultiValue` (bool, default false). Lo activa el OWNER por parametro en
+  /conexiones-datos (checkbox "Multi-valor (IN)").
+- El valor de entrada admite varios codigos (uno por linea o separados por coma). `ExternalParameterBinder`
+  los parte (`SplitMultiValues`), CONVIERTE CADA UNO al tipo declarado y los deja en
+  `ExternalBoundParameter.Values`. El escalar no cambia.
+- `ExternalCommandBuilder.ExpandInLists` (pieza pura, testeable sin driver) reemplaza el token `@p` por
+  `@p__0, @p__1, ..., @p__{N-1}` con limite de palabra (no pisa `@p2` ni `@precio`) y emite un
+  `ExternalFlatParameter` TIPADO por valor. Con 0 valores sustituye por `NULL` (`IN (NULL)` => ninguna
+  fila, sin romper la sintaxis). CERO interpolacion: cada valor va como DbParameter, tambien dentro de una
+  lista, misma proteccion anti-inyeccion que un escalar.
+- El visor/binding RDL pasa la LISTA de VALORES seleccionados (el ValueField = CODIGO, no el label NOMBRE):
+  el dialogo de importacion (ReportGallery) captura un textarea con un CODIGO por linea para los parametros
+  multi-valor.
+
+## Casos de prueba (gates) - Multi-valor
+
+- `ExternalParameterBinderTests` (unit): un parametro multi-valor parte la entrada por linea y por coma en
+  varios valores TIPADOS (Values poblado, Value null); entrada vacia => lista vacia; cada valor de la lista
+  con payload de inyeccion queda como VALOR literal (no concatenado).
+- `ExternalCommandBuilderTests` (unit, NUEVO): escalar deja el token intacto y emite 1 parametro; N valores
+  expanden a `@p__0..@p__{N-1}` con N parametros; 0 valores => `IN (NULL)` sin parametros; el reemplazo
+  respeta limite de palabra; un payload de inyeccion viaja como valor y no aparece en el SQL.

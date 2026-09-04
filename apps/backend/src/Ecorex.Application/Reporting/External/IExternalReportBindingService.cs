@@ -14,8 +14,9 @@ namespace Ecorex.Application.Reporting.External;
 public sealed record GrantedExternalDataSetDto(
     Guid Id, string Name, IReadOnlyList<GrantedDataSetInputDto> Inputs);
 
-/// <summary>Un parametro de entrada (Binding=Input) de un dataset concedido: nombre, tipo y valor por defecto.</summary>
-public sealed record GrantedDataSetInputDto(string Name, ExternalDataParameterType Type, string? DefaultValue);
+/// <summary>Un parametro de entrada (Binding=Input) de un dataset concedido: nombre, tipo, valor por defecto
+/// y si es MULTI-VALOR (IN) para que la UI de importacion capture varios codigos (uno por linea).</summary>
+public sealed record GrantedDataSetInputDto(string Name, ExternalDataParameterType Type, string? DefaultValue, bool MultiValue = false);
 
 /// <summary>Mapeo de un dataset del RDL a un <see cref="ExternalDataSet"/> concedido + los valores de
 /// entrada guardados (para los parametros Input; los Context los resuelve el conector).</summary>
@@ -166,7 +167,7 @@ public sealed class ExternalReportBindingService : IExternalReportBindingService
         {
             var inputs = ExternalDataJson.DeserializeParameters(ds.ParametersJson)
                 .Where(p => p.Binding == ExternalDataParameterBinding.Input)
-                .Select(p => new GrantedDataSetInputDto(p.Name, p.Type, p.DefaultValue))
+                .Select(p => new GrantedDataSetInputDto(p.Name, p.Type, p.DefaultValue, p.MultiValue))
                 .ToList();
             return new GrantedExternalDataSetDto(ds.Id, ds.Name, inputs);
         }).ToList();

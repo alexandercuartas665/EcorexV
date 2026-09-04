@@ -59,10 +59,29 @@ public static class ExternalParameterBinder
                     : p.DefaultValue;
             }
 
-            result.Add(new ExternalBoundParameter(p.Name, p.Type, ConvertTyped(raw, p.Type)));
+            if (p.MultiValue)
+            {
+                // MULTI-VALOR: el texto de entrada trae 1..N codigos (uno por linea o separados por coma; esto
+                // ademas arregla un valor viejo tipo "01,02" que antes viajaba como un solo string). Cada valor
+                // se convierte al tipo declarado y se enlaza aparte; el ejecutor expande el `IN (@p)`.
+                var values = SplitMultiValues(raw).Select(v => ConvertTyped(v, p.Type)).ToList();
+                result.Add(new ExternalBoundParameter(p.Name, p.Type, null, values));
+            }
+            else
+            {
+                result.Add(new ExternalBoundParameter(p.Name, p.Type, ConvertTyped(raw, p.Type)));
+            }
         }
 
         return result;
+    }
+
+    /// <summary>Parte un valor de entrada multi-valor en sus codigos: por salto de linea o coma, sin vacios.
+    /// Lista vacia si el texto es nulo/vacio (el ejecutor lo traduce a `IN (NULL)`: ninguna fila).</summary>
+    public static IEnumerable<string> SplitMultiValues(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return Array.Empty<string>(); }
+        return raw.Split(new[] { '\n', '\r', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static string? ResolveContext(string? contextKey, ExternalRunContext context)

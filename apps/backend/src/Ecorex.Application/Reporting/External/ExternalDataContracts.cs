@@ -22,14 +22,24 @@ public sealed record ExternalDataSetParameter(
     string? DefaultValue = null,
     // Descripcion legible del parametro: que significa / que se espera. La leen las personas en la UI y los
     // AGENTES para saber como llenarlo. Opcional; backward-compatible en el JSON.
-    string? Description = null);
+    string? Description = null,
+    // MULTI-VALOR (SSRS): el parametro admite 1..N valores usados como `... IN (@p)`. Cuando es true, el
+    // valor de entrada se parte (por salto de linea o coma) en varios valores y el ejecutor expande el token
+    // @p a `(@p__0, @p__1, ...)` con un DbParameter TIPADO por valor. Default false (escalar, como siempre).
+    bool MultiValue = false);
 
 /// <summary>Metadato de un campo de salida del dataset (nombre + tipo logico).</summary>
 public sealed record ExternalDataSetField(string Name, ExternalDataParameterType Type);
 
 /// <summary>Un parametro YA ENLAZADO: nombre + tipo + valor convertido. Lo consume el executor para
-/// crear un parametro tipado de ADO.NET (jamas concatenacion de texto).</summary>
-public sealed record ExternalBoundParameter(string Name, ExternalDataParameterType Type, object? Value);
+/// crear un parametro tipado de ADO.NET (jamas concatenacion de texto). Si <see cref="Values"/> NO es null,
+/// es MULTI-VALOR (SSRS `IN`): el ejecutor expande el token @Name a @Name__0, @Name__1, ... y enlaza cada
+/// valor de la lista como un DbParameter tipado; <see cref="Value"/> se ignora en ese caso.</summary>
+public sealed record ExternalBoundParameter(string Name, ExternalDataParameterType Type, object? Value, IReadOnlyList<object?>? Values = null);
+
+/// <summary>Parametro ADO YA APLANADO listo para enlazar: un nombre fisico (@p o @p__i) y su valor tipado.
+/// Lo produce <see cref="ExternalCommandBuilder.ExpandInLists"/> tras expandir los multi-valor.</summary>
+public sealed record ExternalFlatParameter(string Name, object? Value);
 
 /// <summary>
 /// Una consulta externa lista para ejecutar por el <see cref="IExternalQueryExecutor"/>: proveedor +

@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.167: croquis (Canvas) - compresion ADAPTATIVA de imagenes grandes
+
+- Mejora sobre v0.15.166: la compresion del croquis paso de un solo paso (1600px, q0.85) a ADAPTATIVA.
+- form-canvas.js prepImage: baja dimension y calidad por pasos [(1600,0.82),(1400,0.75),(1200,0.68),
+  (1024,0.6),(800,0.52),(640,0.45)] hasta caer bajo ~700 KB por imagen; a mayor peso original, mas se
+  comprime. Asi una foto muy pesada -o varias en el mismo croquis- siempre entra en el tope de ~2 MB del
+  guardado. Una imagen ya pequena (<500 KB y <=1600px) se conserva tal cual (mantiene PNG nitido). Helper
+  encodeJpeg extraido.
+- Verificado en dev (AGROMETALICAS, JS servida): un JPEG extremo de 18.83 MB (ruido puro, 4032x3024, peor
+  caso) baja a 1400x1050 / 541 KB (bajo el objetivo, cabe en 2 MB). Build Release verde.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.166: croquis (Canvas) del formulario acepta fotos JPG/JPEG grandes
 
 - Bug (AGROMETALICAS, form Orden de Trabajo): el modulo de carga de diagramas (control Canvas, croquis)

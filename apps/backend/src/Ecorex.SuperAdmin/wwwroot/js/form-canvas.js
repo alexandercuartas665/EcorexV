@@ -854,23 +854,41 @@ window.ecorexFormCanvas = (function () {
         });
     }
 
-    // Reescala/comprime una imagen grande a un maximo de lado (1600 px) y la reencoda a JPEG. Asi una foto
-    // de celular (JPG de varios MB) queda en ~100-400 KB y el SVG guardado no revienta el tope de ~2 MB.
-    // Una imagen ya pequena y liviana se conserva TAL CUAL (mantiene PNG nitido, con su transparencia).
+    // Reencoda la imagen a JPEG a un lado maximo y una calidad dados (fondo blanco: JPEG no tiene alfa,
+    // sin esto una imagen transparente saldria en negro). Devuelve la data-URL resultante.
+    function encodeJpeg(im, maxDim, quality) {
+        var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+        var scale = Math.min(1, maxDim / Math.max(w, h));
+        var tw = Math.max(1, Math.round(w * scale)), th = Math.max(1, Math.round(h * scale));
+        var c = document.createElement('canvas'); c.width = tw; c.height = th;
+        var ctx = c.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, tw, th);
+        ctx.drawImage(im, 0, 0, tw, th);
+        return c.toDataURL('image/jpeg', quality);
+    }
+
+    // Compresion ADAPTATIVA: baja dimension y calidad por pasos hasta caer bajo un presupuesto de bytes
+    // (~700 KB por imagen). Asi una foto muy pesada (o varias en el mismo croquis) siempre entra en el tope
+    // de ~2 MB del guardado. A mayor peso original, mas se comprime. Una imagen ya pequena y liviana
+    // (<500 KB y <=1600 px de lado) se conserva TAL CUAL (mantiene PNG nitido, con su transparencia).
     function prepImage(dataUrl) {
         return loadImageEl(dataUrl).then(function (im) {
             var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
             if (!w || !h) { return dataUrl; }
-            var maxDim = 1600;
-            var scale = Math.min(1, maxDim / Math.max(w, h));
-            if (scale >= 1 && dataUrl.length < 500000) { return dataUrl; }
-            var tw = Math.max(1, Math.round(w * scale)), th = Math.max(1, Math.round(h * scale));
-            var c = document.createElement('canvas'); c.width = tw; c.height = th;
-            var ctx = c.getContext('2d');
-            // Fondo blanco: JPEG no tiene alfa; sin esto una imagen transparente saldria en negro.
-            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, tw, th);
-            ctx.drawImage(im, 0, 0, tw, th);
-            try { return c.toDataURL('image/jpeg', 0.85); } catch (e) { return dataUrl; }
+            if (Math.max(w, h) <= 1600 && dataUrl.length < 500000) { return dataUrl; }
+
+            var TARGET = 700000; // ~700 KB objetivo por imagen (longitud de la data-URL base64)
+            // Pasos de (lado maximo, calidad), del mejor al mas comprimido.
+            var steps = [[1600, 0.82], [1400, 0.75], [1200, 0.68], [1024, 0.6], [800, 0.52], [640, 0.45]];
+            var best = null;
+            for (var i = 0; i < steps.length; i++) {
+                var out;
+                try { out = encodeJpeg(im, steps[i][0], steps[i][1]); }
+                catch (e) { return best || dataUrl; }
+                best = out;
+                if (out.length <= TARGET) { return out; }
+            }
+            return best || dataUrl; // no bajo del objetivo: se usa lo mas comprimido alcanzado
         }).catch(function () { return dataUrl; });
     }
 

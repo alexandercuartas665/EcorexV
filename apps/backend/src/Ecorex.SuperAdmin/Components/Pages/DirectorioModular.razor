@@ -1,0 +1,174 @@
+@page "/directorio-modular"
+@attribute [Authorize(Policy = "TenantMember")]
+@* 2do motor de contactos - "Directorio Modular" (Capa 8), version AVANZADA seleccionable.
+   PRIMER SLICE VISUAL (Fase 2): pestanas de categorias + tarjetas de conteo + listado, alimentados
+   por el seed (opcion A). La ficha por secciones y los modales de configuracion vienen despues. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@inject IDirectorioCategoriaService Cats
+@inject ITerceroService Terceros
+
+<PageTitle>Directorio Modular - ECOREX.tareas</PageTitle>
+
+<div class="dm-wrap">
+    <div class="dm-head">
+        <div>
+            <div class="dm-eyebrow">Directorio &middot; motor avanzado</div>
+            <h1 class="dm-title">Directorio Modular</h1>
+            <p class="dm-sub">Catalogo de terceros por categorias. La ficha se arma con las secciones que cada categoria escoge.</p>
+        </div>
+        <button class="dm-btn-primary" disabled>+ Nuevo en @(_activo?.Title ?? "categoria")</button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="dm-muted">Cargando...</p>
+    }
+    else
+    {
+        @* --- Pestanas de categorias --- *@
+        <div class="dm-tabs">
+            @foreach (var c in _cats)
+            {
+                var on = _activo?.CategoriaKey == c.CategoriaKey;
+                <button class="dm-tab @(on ? "on" : "")" style="@(on ? $"--dm-accent:{c.Color ?? "#4f46e5"}" : "")"
+                        @onclick="() => _activo = c">
+                    <i class="fa @c.Icono"></i> @c.Title
+                    @if (c.Protegido) { <span class="dm-lock" title="Categoria base (no se elimina)"><i class="fa fa-lock"></i></span> }
+                </button>
+            }
+        </div>
+
+        @* --- Tarjetas de conteo (sobre la categoria activa) --- *@
+        <div class="dm-cards">
+            <div class="dm-card"><div class="dm-card-n" style="color:@(_activo?.Color ?? "#4f46e5")">@_total</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
+            <div class="dm-card"><div class="dm-card-n" style="color:#0ea5e9">@_orgs</div><div class="dm-card-l">Organizaciones</div></div>
+            <div class="dm-card"><div class="dm-card-n" style="color:#10b981">@_personas</div><div class="dm-card-l">Personas</div></div>
+            <div class="dm-card dm-card-act"><div class="dm-card-n" style="color:#f59e0b">@_porAsignar</div><div class="dm-card-l">Por asignar</div></div>
+            <div class="dm-card"><div class="dm-card-n" style="color:#8b5cf6">@_nuevos</div><div class="dm-card-l">Nuevos (30 dias)</div></div>
+        </div>
+
+        @* --- Buscador (visual en este slice) --- *@
+        <div class="dm-search"><i class="fa fa-search"></i><input placeholder="Buscar por nombre, NIT, telefono, correo, codigo..." disabled /></div>
+
+        @* --- Listado --- *@
+        @if (_rows.Count == 0)
+        {
+            <div class="dm-empty">Aun no hay terceros en el catalogo.</div>
+        }
+        else
+        {
+            <div class="dm-table-wrap">
+                <table class="dm-table">
+                    <thead><tr><th>Nombre</th><th>Naturaleza</th><th>Identificacion</th><th>Ciudad</th><th>Estado</th></tr></thead>
+                    <tbody>
+                        @foreach (var t in _rows)
+                        {
+                            <tr>
+                                <td class="dm-name">@t.Nombre</td>
+                                <td>
+                                    @if (t.EsEmpresa)
+                                    {
+                                        <span class="dm-chip dm-chip-org"><i class="fa fa-building"></i> Organizacion</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="dm-chip dm-chip-per"><i class="fa fa-user"></i> Persona</span>
+                                    }
+                                </td>
+                                <td class="dm-mono">@(string.IsNullOrWhiteSpace(t.Identificacion) ? "-" : t.Identificacion)</td>
+                                <td>@(t.Ciudad ?? "-")</td>
+                                <td>
+                                    @if (t.Estado == TerceroEstado.Inactivo)
+                                    {
+                                        <span class="dm-chip dm-chip-off">Inactivo</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="dm-chip dm-chip-on">Activo</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="dm-foot">
+            <span class="dm-muted">@_cats.Count categorias &middot; @_secciones secciones &middot; @_campos campos configurados (seed del prototipo)</span>
+        </div>
+    }
+</div>
+
+<style>
+    .dm-wrap { font-family: 'Inter', system-ui, sans-serif; color: #1f2937; padding: 22px 26px; max-width: 1240px; }
+    .dm-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+    .dm-eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6366f1; }
+    .dm-title { font-size: 24px; font-weight: 800; margin: 2px 0 4px; }
+    .dm-sub { font-size: 13px; color: #6b7280; margin: 0; max-width: 640px; }
+    .dm-muted { color: #9ca3af; font-size: 12.5px; }
+    .dm-btn-primary { background: #4f46e5; color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: not-allowed; opacity: .55; white-space: nowrap; }
+
+    .dm-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #eef0f3; padding-bottom: 12px; margin-bottom: 16px; }
+    .dm-tab { --dm-accent: #4f46e5; display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .12s; }
+    .dm-tab:hover { border-color: #c7cbd1; }
+    .dm-tab.on { background: color-mix(in srgb, var(--dm-accent) 12%, #fff); border-color: var(--dm-accent); color: var(--dm-accent); }
+    .dm-tab i { font-size: 12px; }
+    .dm-lock { opacity: .6; font-size: 10px; }
+
+    .dm-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+    .dm-card { background: #fff; border: 1px solid #eef0f3; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+    .dm-card-act { border-style: dashed; }
+    .dm-card-n { font-size: 26px; font-weight: 800; line-height: 1; }
+    .dm-card-l { font-size: 12px; color: #6b7280; margin-top: 6px; }
+
+    .dm-search { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 9px 13px; margin-bottom: 14px; color: #9ca3af; }
+    .dm-search input { border: none; outline: none; flex: 1; font-size: 13px; color: #374151; background: transparent; }
+
+    .dm-table-wrap { border: 1px solid #eef0f3; border-radius: 12px; overflow: hidden; background: #fff; }
+    .dm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dm-table thead th { text-align: left; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 10px 14px; border-bottom: 1px solid #eef0f3; }
+    .dm-table tbody td { padding: 11px 14px; border-bottom: 1px solid #f3f4f6; }
+    .dm-table tbody tr:last-child td { border-bottom: none; }
+    .dm-name { font-weight: 600; color: #111827; }
+    .dm-mono { font-variant-numeric: tabular-nums; color: #4b5563; }
+
+    .dm-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 3px 9px; }
+    .dm-chip-org { background: #eff6ff; color: #1d4ed8; }
+    .dm-chip-per { background: #f0fdf4; color: #15803d; }
+    .dm-chip-on { background: #ecfdf5; color: #059669; }
+    .dm-chip-off { background: #f3f4f6; color: #6b7280; }
+
+    .dm-empty { background: #fff; border: 1px dashed #e5e7eb; border-radius: 12px; padding: 40px; text-align: center; color: #9ca3af; font-size: 13.5px; }
+    .dm-foot { margin-top: 14px; }
+</style>
+
+@code {
+    private bool _loading = true;
+    private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
+    private DirectorioCategoriaDto? _activo;
+    private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
+    private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
+        _cats = await Cats.ListAsync();
+        _activo = _cats.FirstOrDefault();
+
+        _rows = await Terceros.ListAsync(new TerceroListFilter());
+        _total = _rows.Count;
+        _orgs = _rows.Count(r => r.EsEmpresa);
+        _personas = _rows.Count(r => r.EsPersona);
+        // En este slice, "por asignar" = todos (aun no hay pertenencias a categorias); "nuevos" queda en 0.
+        _porAsignar = _total;
+        _nuevos = 0;
+
+        _secciones = DirectorioModularDefaults.Secciones.Length;
+        _campos = DirectorioModularDefaults.Campos.Length;
+
+        _loading = false;
+    }
+}

@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.175: lector movil - avanzar paso de flujo sin form + numero case-insensitive
+
+- Pedido (usuario, probando v0.15.174): al escanear T00057 ya resuelve el descendiente T00058, pero (a) el
+  lector decia "su flujo no tiene un paso pendiente" pese a que el nodo "Recibir OT impresion" esta activo;
+  (b) el numero solo casaba en MAYUSCULA (si tecleaba "t00057" a mano, fallaba la resolucion).
+- Causa (a): el flujo OT reusa el MISMO formulario (FT-C-008) en sus 3 nodos. Al estar ya enviado, el
+  FormFlowLink del paso actual nace Completed, no Pending. El lector solo abria pasos con form Pending, asi
+  que un paso "solo-cerrar" (form ya lleno, o nodo sin form) quedaba sin accion. Causa (b):
+  ResolveScannedTaskOnBoardAsync consultaba t.Number == num exacto (Postgres es case-sensitive).
+- Fix:
+  1. ResolveScannedTaskOnBoardAsync normaliza la entrada a MAYUSCULA (los numeros se generan siempre "T"+
+     relleno; el match directo en memoria ya era case-insensitive).
+  2. IFormResponseService.GetTaskCurrentStepAsync(taskId, actorTenantUserId): devuelve el primer paso
+     current+Pending (con instancia, stepId, nodo, si esta asignado al operario, y rutas si hay compuerta).
+     CloseTaskStepAsync(taskId, stepId, actorTenantUserId, approvalResult): cierra/avanza ese paso via
+     WorkflowEngine.CompleteStepAsync; SOLO si el paso esta asignado al operario (decision del usuario:
+     mismo criterio que la bandeja). approvalResult = ruta elegida cuando adelante hay compuerta.
+  3. MovilTablero: si el paso actual no tiene form Pending, resuelve el paso actual; si esta asignado al
+     operario abre una HOJA de confirmacion "Avanzar" (o un boton por ruta si hay compuerta) que cierra el
+     paso y mueve la tarjeta; si es de otra persona, avisa. DTO nuevo TaskFlowStepDto.
+- Build Release verde. Sin migracion. NO desplegado (a senal).
+
+---
+
 ## 2026-09-04 - v0.15.174: lector movil - resolver descendiente tambien por ParentId (salto de flujo)
 
 - Bug (usuario): en el tablero movil "Seguimiento O.T.", al escanear T00057 sale "No se encontro 'T00057'

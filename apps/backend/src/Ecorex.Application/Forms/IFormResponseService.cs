@@ -49,6 +49,22 @@ public interface IFormResponseService
     Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// El PRIMER paso current+Pending del flujo de una tarea, para atenderlo desde el lector movil cuando no
+    /// hay un formulario por diligenciar (solo hay que CERRAR el paso para avanzar). Marca si el paso esta
+    /// asignado al operario <paramref name="actorTenantUserId"/> y, si adelante hay una compuerta, sus rutas.
+    /// Null si la tarea no tiene flujo vigente o no hay paso current pendiente.
+    /// </summary>
+    Task<TaskFlowStepDto?> GetTaskCurrentStepAsync(Guid taskItemId, Guid? actorTenantUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// CIERRA (avanza) el paso current+Pending <paramref name="stepId"/> del flujo de la tarea desde el lector
+    /// movil. Solo procede si el paso esta ASIGNADO al operario <paramref name="actorTenantUserId"/> (mismo
+    /// criterio que la bandeja: solo su responsable lo cierra). <paramref name="approvalResult"/> es la ruta
+    /// elegida cuando adelante hay una compuerta (null en un paso lineal). Delega en el motor de flujos.
+    /// </summary>
+    Task<FormResult<bool>> CloseTaskStepAsync(Guid taskItemId, Guid stepId, Guid? actorTenantUserId, string? approvalResult, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Formulario del concepto (ActividadSubcategoria.FormDefinitionId) de la tarea + sus cotizaciones
     /// (todas las respuestas ancladas al numero de la tarea, como tarjetas). NO crea ninguna: la primera
     /// la crea el wizard y las demas se agregan con CreateTaskConceptFormAsync. Null si la tarea no tiene

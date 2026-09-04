@@ -983,6 +983,81 @@ public sealed class FormResponseService : IFormResponseService
         return result;
     }
 
+    public async Task<TaskFlowStepDto?> GetTaskCurrentStepAsync(
+        Guid taskItemId, Guid? actorTenantUserId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task?.WorkflowInstanceId is not Guid instanceId)
+        {
+            return null;
+        }
+
+        var currentSteps = await _workflowEngine.GetCurrentStepsAsync(instanceId, cancellationToken);
+        var step = currentSteps.FirstOrDefault(s => s.Status == WorkflowStepStatus.Pending);
+        if (step is null)
+        {
+            return null;
+        }
+
+        // Compuerta adelante (misma logica pura que la bandeja / GetTaskStepFormsAsync): si el nodo desemboca
+        // en una compuerta exclusiva, el operario elige la ruta (que viaja como approvalResult al cerrar).
+        var definitionId = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == instanceId).Select(i => i.DefinitionId)
+            .FirstAsync(cancellationToken);
+        var edges = (await _db.WorkflowEdges.AsNoTracking()
+            .Where(e => e.DefinitionId == definitionId)
+            .Select(e => new { e.SourceNodeId, e.TargetNodeId, e.Name })
+            .ToListAsync(cancellationToken))
+            .Select(e => new WorkflowInboxProjection.EdgeRow(e.SourceNodeId, e.TargetNodeId, e.Name))
+            .ToList();
+        var gatewayNodeIds = (await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.DefinitionId == definitionId && n.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Select(n => n.Id)
+            .ToListAsync(cancellationToken)).ToHashSet();
+        var (isGatewayAhead, approvalOptions) =
+            WorkflowInboxProjection.ResolveGatewayAhead(step.NodeId, edges, gatewayNodeIds);
+
+        var assignedToActor = actorTenantUserId is Guid me && step.AssignedToTenantUserId == me;
+        return new TaskFlowStepDto(instanceId, step.Id, step.NodeName, assignedToActor, isGatewayAhead, approvalOptions);
+    }
+
+    public async Task<FormResult<bool>> CloseTaskStepAsync(
+        Guid taskItemId, Guid stepId, Guid? actorTenantUserId, string? approvalResult,
+        CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task?.WorkflowInstanceId is not Guid instanceId)
+        {
+            return FormResult<bool>.Invalid("La tarea no tiene un flujo vigente.");
+        }
+
+        var currentSteps = await _workflowEngine.GetCurrentStepsAsync(instanceId, cancellationToken);
+        var step = currentSteps.FirstOrDefault(s => s.Id == stepId && s.Status == WorkflowStepStatus.Pending);
+        if (step is null)
+        {
+            return FormResult<bool>.Invalid("El paso ya no esta vigente.");
+        }
+
+        // Autorizacion (decision del usuario): SOLO el responsable del paso puede avanzarlo desde el lector,
+        // igual que en la bandeja. Un paso sin asignar no lo cierra nadie por escaneo.
+        if (actorTenantUserId is not Guid me || step.AssignedToTenantUserId != me)
+        {
+            return FormResult<bool>.Invalid("Este paso esta asignado a otra persona; solo su responsable puede avanzarlo.");
+        }
+
+        var res = await _workflowEngine.CompleteStepAsync(
+            instanceId, stepId, actorTenantUserId, approvalResult, cancellationToken: cancellationToken);
+        // Ok o StuckDetected: el paso SI se cerro (Stuck solo significa que la cascada aguas abajo topo el
+        // limite de 50, pero este paso avanzo). Cualquier otro estado es un error real.
+        if (res.Status is WorkflowEngineStatus.Ok or WorkflowEngineStatus.StuckDetected)
+        {
+            return FormResult<bool>.Ok(true);
+        }
+        return FormResult<bool>.Invalid(res.Error ?? "No se pudo avanzar el paso.");
+    }
+
     public async Task<IReadOnlyList<CreationFlowFormDto>> GetSubcategoriaCreationFlowFormsAsync(
         Guid subcategoriaId, CancellationToken cancellationToken = default)
     {
@@ -1500,8 +1575,17 @@ public sealed class FormResponseService : IFormResponseService
                 && !excludedList.Contains(r.DefinitionId))
             .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
             {
-                r.Id, r.DefinitionId, d.Code, d.Title, r.Reference, r.RecordNumber, r.Status, r.CreatedAt,
-                d.CardLayout, d.IsArchived, r.Data
+                r.Id,
+                r.DefinitionId,
+                d.Code,
+                d.Title,
+                r.Reference,
+                r.RecordNumber,
+                r.Status,
+                r.CreatedAt,
+                d.CardLayout,
+                d.IsArchived,
+                r.Data
             })
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
@@ -1531,7 +1615,11 @@ public sealed class FormResponseService : IFormResponseService
             .OrderBy(r => r.CreatedAt)
             .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
             {
-                r.Id, d.Code, d.Title, r.RecordNumber, r.Status
+                r.Id,
+                d.Code,
+                d.Title,
+                r.RecordNumber,
+                r.Status
             })
             .FirstOrDefaultAsync(cancellationToken);
         return row is null ? null : new DerivedFormRefDto(row.Id, row.Code, row.Title, row.RecordNumber, row.Status);

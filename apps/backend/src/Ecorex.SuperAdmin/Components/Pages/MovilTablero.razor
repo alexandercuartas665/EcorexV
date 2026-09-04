@@ -214,6 +214,48 @@
     </div>
 }
 
+@* ---- Hoja de CIERRE/AVANCE del paso actual (cuando el paso no tiene formulario por diligenciar) ----
+   Muestra el nodo actual y un boton para AVANZAR (cierra el paso -> el flujo mueve la tarjeta al siguiente
+   nodo). Si adelante hay una compuerta, ofrece un boton por cada RUTA (que se pasa como approvalResult). *@
+@if (_closeCard is { } ccard && _closeStep is { } cstep)
+{
+    <div class="mv-overlay center" @onclick="ClearCloseStep">
+        <div class="mv-confirm" @onclick:stopPropagation="true">
+            <div class="mv-confirm-kicker">PASO DEL PROCESO</div>
+            <div class="mv-confirm-top">
+                <span class="mv-num">@ccard.Number</span>
+            </div>
+            <div class="mv-confirm-title">@(cstep.NodeName ?? ccard.Title)</div>
+            <div class="mv-step-note" style="margin:6px 0 14px;">
+                @if (cstep.IsGatewayAhead && cstep.ApprovalOptions.Count > 0)
+                {
+                    <text>Elige la ruta del proceso para avanzar.</text>
+                }
+                else
+                {
+                    <text>Este paso ya no tiene formulario por diligenciar. Avanza para cerrarlo.</text>
+                }
+            </div>
+
+            <div class="mv-confirm-actions" style="flex-wrap:wrap;">
+                <button class="mv-btn mv-btn-ghost" @onclick="ClearCloseStep" disabled="@_busy">Cancelar</button>
+                @if (cstep.IsGatewayAhead && cstep.ApprovalOptions.Count > 0)
+                {
+                    @foreach (var opt in cstep.ApprovalOptions)
+                    {
+                        var route = opt;
+                        <button class="mv-btn mv-btn-primary" @onclick="@(() => CloseFlowStepAsync(route))" disabled="@_busy">@route</button>
+                    }
+                }
+                else
+                {
+                    <button class="mv-btn mv-btn-primary" @onclick="@(() => CloseFlowStepAsync(null))" disabled="@_busy">Avanzar</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Hoja para cambiar estado ---- *@
 @if (_moveCard is { } mcard)
 {
@@ -306,6 +348,10 @@
     // para concretar la accion (formulario del paso + eventual compuerta exclusiva).
     private ActivityCardDto? _stepCard;
     private TaskStepFormDto? _stepForm;
+
+    // Cierre/avance del paso actual cuando NO hay formulario por diligenciar (hoja de confirmacion).
+    private ActivityCardDto? _closeCard;
+    private TaskFlowStepDto? _closeStep;
 
     protected override async Task OnInitializedAsync()
     {
@@ -462,11 +508,31 @@
                 _stepForm = pending;
                 return;
             }
-            // Tiene flujo pero sin paso pendiente que atender desde el lector: se avisa DENTRO de la hoja y NO se
-            // ofrece avance por columna (el flujo manda).
-            _scanError = $"{found.Number}: su flujo no tiene un paso pendiente para atender desde aqui.";
-            _scanManual = null;
-            await RestartCameraAsync();
+
+            // No hay formulario por diligenciar en el paso actual (p.ej. una OT cuyo formulario ya se lleno y
+            // se reusa en cada nodo): el paso solo hay que CERRARLO para avanzar. Se resuelve el paso current.
+            TaskFlowStepDto? step = null;
+            try { step = await FormsSvc.GetTaskCurrentStepAsync(found.Id, _actorTenantUserId); }
+            catch { /* se avisa abajo */ }
+
+            if (step is null)
+            {
+                _scanError = $"{found.Number}: su flujo no tiene un paso pendiente para atender desde aqui.";
+                _scanManual = null;
+                await RestartCameraAsync();
+                return;
+            }
+            if (!step.AssignedToActor)
+            {
+                // Decision: solo el responsable del paso puede avanzarlo desde el lector.
+                _scanError = $"{found.Number}: el paso '{step.NodeName}' esta asignado a otra persona; solo su responsable puede avanzarlo.";
+                _scanManual = null;
+                await RestartCameraAsync();
+                return;
+            }
+            await CloseScanAsync();   // exito: se cierra el lector y aparece la hoja de cierre/avance del paso
+            _closeCard = found;
+            _closeStep = step;
             return;
         }
 
@@ -506,6 +572,31 @@
     }
 
     private void CloseStepAsync() { _stepCard = null; _stepForm = null; }
+
+    // Cierra/avanza el paso actual del flujo (sin formulario). route = la ruta elegida si adelante hay una
+    // compuerta; null en un paso lineal. Al avanzar, el flujo mueve la tarjeta al siguiente nodo.
+    private async Task CloseFlowStepAsync(string? route)
+    {
+        if (_closeCard is not { } card || _closeStep is not { } step) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormsSvc.CloseTaskStepAsync(card.Id, step.StepId, _actorTenantUserId, route);
+            if (res.IsOk)
+            {
+                ShowToast($"{card.Number}: paso '{step.NodeName}' avanzado.", true);
+                await ReloadAsync();
+                ClearCloseStep();
+            }
+            else
+            {
+                ShowToast(res.Error ?? "No se pudo avanzar el paso.", false);
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private void ClearCloseStep() { _closeCard = null; _closeStep = null; }
 
     // Confirmar el avance desde la tarjeta de escaneo. Aqui, mas adelante, se ejecutan las reglas.
     private async Task ConfirmAdvanceAsync()

@@ -550,7 +550,10 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     public async Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default)
     {
-        var num = (scannedNumber ?? string.Empty).Trim();
+        // Los numeros de tarea se generan SIEMPRE en mayuscula (prefijo "T" + relleno). El usuario puede
+        // teclear "t00057" a mano: se normaliza a mayuscula para que el match exacto en BD no falle
+        // (Postgres es sensible a mayusculas). El match directo en memoria ya era case-insensitive.
+        var num = (scannedNumber ?? string.Empty).Trim().ToUpperInvariant();
         if (num.Length == 0) { return null; }
 
         // La tarea escaneada por su numero (filtro global aplica el tenant activo).

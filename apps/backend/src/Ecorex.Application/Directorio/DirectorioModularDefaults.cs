@@ -113,7 +113,21 @@ public static class DirectorioModularDefaults
         new("tributaria", "codigo_actividad_secundaria",  "48 - Codigo actividad secundaria",        TerceroFieldType.Select, 2),
         new("tributaria", "fecha_inicio_secundaria",      "49 - Fecha de inicio",                    TerceroFieldType.Date, 1),
         new("tributaria", "responsabilidades",            "53 - Responsabilidades, calidades y atributos", TerceroFieldType.Table, 3,
-            O("{\"columns\":[{\"key\":\"codigo\",\"label\":\"Codigo\",\"type\":\"select\"},{\"key\":\"descripcion\",\"label\":\"Responsabilidad, calidad o atributo\",\"type\":\"texto\",\"readonly\":true}]}")),
+            Options: """
+            {"columns":[
+              {"key":"codigo","label":"Codigo","type":"select","autollena":"descripcion","options":[
+                {"value":"O-13","label":"Gran contribuyente"},
+                {"value":"O-15","label":"Autorretenedor"},
+                {"value":"O-23","label":"Agente de retencion en la fuente a titulo de renta"},
+                {"value":"O-47","label":"Regimen simple de tributacion - SIMPLE"},
+                {"value":"O-48","label":"Impuesto sobre las ventas - IVA"},
+                {"value":"O-49","label":"No responsable de IVA"},
+                {"value":"O-14","label":"Informante de exogena"},
+                {"value":"O-16","label":"Obligacion de facturar por ingresos de bienes y/o servicios"}
+              ]},
+              {"key":"descripcion","label":"Responsabilidad, calidad o atributo","type":"texto","readonly":true}
+            ]}
+            """),
 
         // ---- cliente ----
         new("cliente", "cupo_credito",          "Cupo de credito",             TerceroFieldType.Currency, 1),

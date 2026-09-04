@@ -2,6 +2,7 @@
    categoria (un solo scroll), la naturaleza se deduce de lo que se llena. Se abre por @ref. *@
 @using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
+@using System.Text.Json
 @inject IDirectorioModularFichaService Fichas
 @inject IJSRuntime JS
 
@@ -84,6 +85,64 @@
                                     {
                                         <div class="fm-sep" style="grid-column: span 3;">@f.Label</div>
                                     }
+                                    else if (f.Type == TerceroFieldType.Table)
+                                    {
+                                        var cols = ParseTablaCols(f.Options);
+                                        var rows = GetTablaRows(sec.FichaKey, f.FieldKey);
+                                        <div class="fm-field" style="grid-column: span 3;">
+                                            <label class="fm-label">@f.Label</label>
+                                            <div class="fm-tabla-wrap">
+                                                <table class="fm-tabla">
+                                                    <thead>
+                                                        <tr>
+                                                            @foreach (var col in cols) { <th>@col.Label</th> }
+                                                            <th class="fm-tabla-acc"></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @if (rows.Count == 0)
+                                                        {
+                                                            <tr><td colspan="@(cols.Count + 1)" class="fm-tabla-empty">Sin filas. Usa "Agregar fila".</td></tr>
+                                                        }
+                                                        @for (var ri = 0; ri < rows.Count; ri++)
+                                                        {
+                                                            var rowIdx = ri;
+                                                            <tr>
+                                                                @foreach (var col in cols)
+                                                                {
+                                                                    <td>
+                                                                        @if (col.Type == "select")
+                                                                        {
+                                                                            <select class="fm-select" @onchange="e => SetTablaCell(sec.FichaKey, f.FieldKey, rowIdx, col, e.Value?.ToString())">
+                                                                                <option value="">-- seleccionar --</option>
+                                                                                @foreach (var op in col.Options)
+                                                                                {
+                                                                                    <option value="@op.Value" selected="@(op.Value == rows[rowIdx].GetValueOrDefault(col.Key, ""))">@op.Value - @op.Label</option>
+                                                                                }
+                                                                            </select>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <input class="fm-input" value="@rows[rowIdx].GetValueOrDefault(col.Key, "")" disabled="@col.ReadOnly"
+                                                                                   @onchange="e => SetTablaCell(sec.FichaKey, f.FieldKey, rowIdx, col, e.Value?.ToString())" />
+                                                                        }
+                                                                    </td>
+                                                                }
+                                                                <td class="fm-tabla-acc">
+                                                                    <button type="button" class="fm-tabla-del" title="Quitar fila" @onclick="() => RemoveTablaRow(sec.FichaKey, f.FieldKey, rowIdx)"><i class="fa fa-trash"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                                <button type="button" class="fm-tabla-add" @onclick="() => AddTablaRow(sec.FichaKey, f.FieldKey)"><i class="fa fa-plus"></i> Agregar fila</button>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(f.Descripcion))
+                                            {
+                                                <div class="fm-hint">@f.Descripcion</div>
+                                            }
+                                        </div>
+                                    }
                                     else
                                     {
                                         <div class="fm-field" style="grid-column: span @(Math.Clamp(f.Column, 1, 3));">
@@ -143,6 +202,17 @@
     .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
     .fm-sectab .fm-dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; display: inline-block; }
     .fm-tab-badge { background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 999px; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; margin-left: 3px; }
+
+    .fm-tabla-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .fm-tabla { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .fm-tabla thead th { text-align: left; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid #eef0f3; }
+    .fm-tabla tbody td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+    .fm-tabla tbody tr:last-child td { border-bottom: none; }
+    .fm-tabla .fm-input, .fm-tabla .fm-select { padding: 6px 8px; font-size: 12.5px; }
+    .fm-tabla-acc { width: 40px; text-align: center; }
+    .fm-tabla-empty { color: #9ca3af; text-align: center; padding: 14px; font-size: 12px; }
+    .fm-tabla-del { border: none; background: none; color: #dc2626; cursor: pointer; font-size: 13px; padding: 4px; }
+    .fm-tabla-add { margin: 8px 10px; background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 
     .fm-sec { margin: 18px 0; }
     .fm-sec-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
@@ -252,6 +322,66 @@
     }
 
     private static string FieldDomId(string ficha, string field) => $"fld-{ficha}-{field}";
+
+    // ---- Campo tipo TABLA (filas dinamicas): la definicion de columnas viene serializada en Options ----
+    private static readonly JsonSerializerOptions _jsonCi = new() { PropertyNameCaseInsensitive = true };
+
+    private sealed class TablaSpec { public List<TablaCol> Columns { get; set; } = new(); }
+    private sealed class TablaCol
+    {
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Type { get; set; } = "texto";
+        public bool ReadOnly { get; set; }
+        public string? Autollena { get; set; }
+        public List<TablaOpt> Options { get; set; } = new();
+    }
+    private sealed class TablaOpt { public string Value { get; set; } = ""; public string Label { get; set; } = ""; }
+
+    private List<TablaCol> ParseTablaCols(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return new(); }
+        try { return JsonSerializer.Deserialize<TablaSpec>(optionsJson, _jsonCi)?.Columns ?? new(); }
+        catch { return new(); }
+    }
+
+    private List<Dictionary<string, string>> GetTablaRows(string ficha, string fieldKey)
+    {
+        var raw = GetVal(ficha, fieldKey);
+        if (string.IsNullOrWhiteSpace(raw)) { return new(); }
+        try { return JsonSerializer.Deserialize<List<Dictionary<string, string>>>(raw) ?? new(); }
+        catch { return new(); }
+    }
+
+    private void SetTablaRows(string ficha, string fieldKey, List<Dictionary<string, string>> rows)
+        => SetVal(ficha, fieldKey, JsonSerializer.Serialize(rows));
+
+    private void AddTablaRow(string ficha, string fieldKey)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        rows.Add(new Dictionary<string, string>(StringComparer.Ordinal));
+        SetTablaRows(ficha, fieldKey, rows);
+    }
+
+    private void RemoveTablaRow(string ficha, string fieldKey, int index)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        if (index >= 0 && index < rows.Count) { rows.RemoveAt(index); SetTablaRows(ficha, fieldKey, rows); }
+    }
+
+    private void SetTablaCell(string ficha, string fieldKey, int index, TablaCol col, string? value)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        if (index < 0 || index >= rows.Count) { return; }
+        rows[index][col.Key] = value ?? "";
+        // Autollenado: al escoger el codigo se completa la columna destino con la etiqueta del catalogo.
+        if (!string.IsNullOrWhiteSpace(col.Autollena))
+        {
+            var opt = col.Options.FirstOrDefault(o => o.Value == value);
+            rows[index][col.Autollena!] = opt?.Label ?? "";
+        }
+        SetTablaRows(ficha, fieldKey, rows);
+    }
 
     // Primer obligatorio pendiente (seccion, campo, etiqueta) segun la naturaleza deducida, o null.
     private (string Ficha, string Field, string Label)? FindFirstMissing()

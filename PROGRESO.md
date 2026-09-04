@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-03 - v0.15.166: croquis (Canvas) del formulario acepta fotos JPG/JPEG grandes
+
+- Bug (AGROMETALICAS, form Orden de Trabajo): el modulo de carga de diagramas (control Canvas, croquis)
+  "no dejaba cargar" imagenes .jpg/.jpeg. Causa: NO habia bloqueo por tipo; el unico gate era el tope de
+  1.5 MB en OnCanvasImageSelectedAsync (DynamicFormRenderer). Las fotos de celular (JPG) pesan varios MB y
+  se rechazaban con "supera 1.5 MB"; un PNG (captura/diagrama) suele pesar menos y si entraba -> se percibia
+  como "el jpg no carga".
+- Fix (2 archivos, sin migracion):
+  1. DynamicFormRenderer.razor / OnCanvasImageSelectedAsync: sube el tope de 1.5 MB a 12 MB (acepta fotos).
+  2. form-canvas.js / addImage: ahora es async y REESCALA+COMPRIME la imagen antes de incrustarla (prepImage:
+     carga en Image, dibuja en canvas a max 1600px de lado sobre fondo blanco, reencoda a JPEG q0.85). Asi
+     una foto grande queda en ~100 KB-1 MB y el SVG guardado no revienta el tope de ~2 MB del croquis. Una
+     imagen ya pequena y liviana (<500 KB) se conserva tal cual (mantiene PNG nitido).
+- Verificado en dev (AGROMETALICAS, v0.15.166 servida): la form-canvas.js servida trae el fix; un JPEG de
+  6.27 MB decodifica y se reescala a 1600x1200 / 983 KB (cabe en el tope de 2 MB). Build Debug verde.
+  Confirmacion final con foto real de celular en el form OT queda a cargo del usuario.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.165: KPI percentOfTotal (porcentaje del total) para tasas de conversion (ADR-0089)
 
 - Pedido de la sesion de reportes: un KPI headline de % de conversion ("18% conversion" = cuanto del

@@ -1291,11 +1291,15 @@ else
         _canvasError = null;
         var file = e.File;
         if (file is null) { return; }
-        if (file.Size > 1_500_000) { _canvasError = "La imagen supera 1.5 MB. Usa una mas liviana."; return; }
+        // Tope generoso (12 MB): acepta fotos de celular (JPG/JPEG suelen pesar varios MB). El motor JS
+        // reescala y comprime la imagen antes de incrustarla, asi que el SVG guardado sigue liviano (el
+        // guardado del dibujo tiene su propio tope de ~2 MB). Antes el tope era 1.5 MB y rechazaba los JPG.
+        const long max = 12L * 1024 * 1024;
+        if (file.Size > max) { _canvasError = $"La imagen supera 12 MB ({file.Size / 1024 / 1024} MB). Usa una mas liviana."; return; }
         try
         {
             using var ms = new MemoryStream();
-            await file.OpenReadStream(1_500_000).CopyToAsync(ms);
+            await file.OpenReadStream(max).CopyToAsync(ms);
             var b64 = Convert.ToBase64String(ms.ToArray());
             var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
             await JS.InvokeVoidAsync("ecorexFormCanvas.addImage", $"croquis-{q.Id}", $"data:{mime};base64,{b64}");

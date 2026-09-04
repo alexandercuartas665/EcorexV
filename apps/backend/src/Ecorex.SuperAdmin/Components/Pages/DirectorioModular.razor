@@ -18,8 +18,10 @@
             <h1 class="dm-title">Directorio Modular</h1>
             <p class="dm-sub">Catalogo de terceros por categorias. La ficha se arma con las secciones que cada categoria escoge.</p>
         </div>
-        <button class="dm-btn-primary" disabled>+ Nuevo en @(_activo?.Title ?? "categoria")</button>
+        <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)">+ Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
+
+    <DirectorioModularFichaModal CategoriaKey="@_nuevoKey" OnClosed="() => _nuevoKey = null" OnSaved="OnCreatedAsync" />
 
     @if (_loading)
     {
@@ -147,6 +149,7 @@
 
 @code {
     private bool _loading = true;
+    private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
     private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
     private DirectorioCategoriaDto? _activo;
     private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
@@ -170,5 +173,16 @@
         _campos = DirectorioModularDefaults.Campos.Length;
 
         _loading = false;
+    }
+
+    private async Task OnCreatedAsync()
+    {
+        _nuevoKey = null; // cierra el modal
+        // Recarga listado y contadores tras crear un tercero.
+        _rows = await Terceros.ListAsync(new TerceroListFilter());
+        _total = _rows.Count;
+        _orgs = _rows.Count(r => r.EsEmpresa);
+        _personas = _rows.Count(r => r.EsPersona);
+        _porAsignar = _total;
     }
 }

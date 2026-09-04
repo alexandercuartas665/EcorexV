@@ -201,6 +201,7 @@ public static class DependencyInjection
         services.AddScoped<Directorio.IDirectoryVariantService, Directorio.DirectoryVariantService>();
         // 2do motor de contactos (Directorio Modular, Capa 8): categorias componibles + multi-membership.
         services.AddScoped<Directorio.IDirectorioCategoriaService, Directorio.DirectorioCategoriaService>();
+        services.AddScoped<Directorio.IDirectorioModularFichaService, Directorio.DirectorioModularFichaService>();
         // Catalogo GLOBAL de ciudades / municipios (Colombia): alimenta el selector de ciudad del
         // Directorio y del modal de Tercero (reemplaza el input libre). No tenant-scoped.
         services.AddScoped<Catalogos.ICiudadCatalogService, Catalogos.CiudadCatalogService>();

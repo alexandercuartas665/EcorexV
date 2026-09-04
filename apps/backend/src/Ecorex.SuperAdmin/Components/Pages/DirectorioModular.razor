@@ -86,24 +86,58 @@
         {
             <div class="dm-table-wrap">
                 <table class="dm-table">
-                    <thead><tr><th>Nombre</th><th>Naturaleza</th><th>Identificacion</th><th>Ciudad</th><th>Estado</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th class="dm-th-exp"></th>
+                            <th>Tercero</th>
+                            <th>Identificacion</th>
+                            <th>Responsable</th>
+                            <th>Estado</th>
+                            <th class="dm-th-acc">Acciones</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         @foreach (var t in _rows)
                         {
+                            var tid = t.Id;
+                            var canExpand = t.EsEmpresa && t.ContadorContactos > 0;
                             <tr>
-                                <td class="dm-name">@t.Nombre</td>
-                                <td>
-                                    @if (t.EsEmpresa)
+                                <td class="dm-td-exp">
+                                    @if (canExpand)
                                     {
-                                        <span class="dm-chip dm-chip-org"><i class="fa fa-building"></i> Organizacion</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="dm-chip dm-chip-per"><i class="fa fa-user"></i> Persona</span>
+                                        <button class="dm-exp @(_expanded.Contains(tid) ? "on" : "")" title="Ver contactos" @onclick="() => ToggleExpand(tid)"><i class="fa fa-chevron-right"></i></button>
                                     }
                                 </td>
+                                <td>
+                                    <div class="dm-tercero">
+                                        <span class="dm-avatar" style="background:@AvatarColor(t.Nombre)">@Initials(t.Nombre)</span>
+                                        <div class="dm-tercero-body">
+                                            <div class="dm-tercero-top">
+                                                <span class="dm-name">@t.Nombre</span>
+                                                @if (t.EsEmpresa)
+                                                {
+                                                    <span class="dm-nat dm-nat-org">Organizacion@(t.ContadorContactos > 0 ? $" · {t.ContadorContactos}" : "")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="dm-nat dm-nat-per">Persona</span>
+                                                }
+                                            </div>
+                                            <div class="dm-chiprow">
+                                                @foreach (var ch in ChipsDe(tid))
+                                                {
+                                                    <span class="dm-catchip" style="background:@Tint(ch.Color);color:@ch.Color">@ch.Title</span>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(t.Sub))
+                                            {
+                                                <div class="dm-tercero-sub">@t.Sub</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
                                 <td class="dm-mono">@(string.IsNullOrWhiteSpace(t.Identificacion) ? "-" : t.Identificacion)</td>
-                                <td>@(t.Ciudad ?? "-")</td>
+                                <td class="dm-resp">@Responsable(t)</td>
                                 <td>
                                     @if (t.Estado == TerceroEstado.Inactivo)
                                     {
@@ -114,7 +148,18 @@
                                         <span class="dm-chip dm-chip-on">Activo</span>
                                     }
                                 </td>
+                                <td class="dm-acc">
+                                    <button class="dm-acc-btn" title="Editar (proximamente)"><i class="fa fa-pen"></i></button>
+                                    <button class="dm-acc-btn dm-acc-del" title="Eliminar (proximamente)"><i class="fa fa-trash"></i></button>
+                                </td>
                             </tr>
+                            @if (canExpand && _expanded.Contains(tid))
+                            {
+                                <tr class="dm-exp-row">
+                                    <td></td>
+                                    <td colspan="5" class="dm-exp-cell"><i class="fa fa-users"></i> @t.ContadorContactos contacto(s) asociado(s). El detalle se listara aqui.</td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -165,14 +210,38 @@
     .dm-table-wrap { border: 1px solid #eef0f3; border-radius: 12px; overflow: hidden; background: #fff; }
     .dm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .dm-table thead th { text-align: left; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 10px 14px; border-bottom: 1px solid #eef0f3; }
-    .dm-table tbody td { padding: 11px 14px; border-bottom: 1px solid #f3f4f6; }
+    .dm-table tbody td { padding: 10px 14px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
     .dm-table tbody tr:last-child td { border-bottom: none; }
-    .dm-name { font-weight: 600; color: #111827; }
+    .dm-th-exp, .dm-td-exp { width: 34px; padding-right: 0 !important; }
+    .dm-th-acc { text-align: right; }
     .dm-mono { font-variant-numeric: tabular-nums; color: #4b5563; }
+    .dm-resp { color: #4b5563; }
+
+    .dm-exp { border: none; background: none; color: #9ca3af; cursor: pointer; padding: 4px; transition: transform .12s; }
+    .dm-exp.on { transform: rotate(90deg); color: #4f46e5; }
+
+    .dm-tercero { display: flex; align-items: center; gap: 11px; }
+    .dm-avatar { width: 34px; height: 34px; border-radius: 9px; color: #fff; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .dm-tercero-body { min-width: 0; }
+    .dm-tercero-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .dm-name { font-weight: 700; color: #111827; }
+    .dm-nat { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; }
+    .dm-nat-org { background: #eff6ff; color: #1d4ed8; }
+    .dm-nat-per { background: #f0fdf4; color: #15803d; }
+    .dm-chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+    .dm-catchip { font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 1px 7px; }
+    .dm-tercero-sub { font-size: 11.5px; color: #9ca3af; margin-top: 3px; }
+
+    .dm-acc { text-align: right; white-space: nowrap; }
+    .dm-acc-btn { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 7px; width: 30px; height: 30px; cursor: pointer; margin-left: 5px; }
+    .dm-acc-btn:hover { background: #f9fafb; }
+    .dm-acc-del:hover { color: #dc2626; border-color: #fecaca; }
+
+    .dm-exp-row td { background: #fafafe; }
+    .dm-exp-cell { color: #6b7280; font-size: 12px; }
+    .dm-exp-cell i { color: #4f46e5; margin-right: 6px; }
 
     .dm-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 3px 9px; }
-    .dm-chip-org { background: #eff6ff; color: #1d4ed8; }
-    .dm-chip-per { background: #f0fdf4; color: #15803d; }
     .dm-chip-on { background: #ecfdf5; color: #059669; }
     .dm-chip-off { background: #f3f4f6; color: #6b7280; }
 
@@ -185,6 +254,8 @@
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
     private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
     private IReadOnlyDictionary<string, int> _catCounts = new Dictionary<string, int>();
+    private IReadOnlyDictionary<Guid, List<string>> _memberships = new Dictionary<Guid, List<string>>();
+    private readonly HashSet<Guid> _expanded = new();
     private DirectorioCategoriaDto? _activo;
     private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
     private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
@@ -194,6 +265,7 @@
         // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
         _cats = await Cats.ListAsync();
         _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
         _activo = _cats.FirstOrDefault();
 
         _rows = await Terceros.ListAsync(new TerceroListFilter());
@@ -220,12 +292,53 @@
         _personas = _rows.Count(r => r.EsPersona);
         _porAsignar = _total;
         _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
     }
 
     // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
     private int CatCount(DirectorioCategoriaDto c)
         => c.Protegido ? _total : (_catCounts.TryGetValue(c.CategoriaKey, out var n) ? n : 0);
 
-    // Fondo tenue del color de acento para el icono de la tarjeta.
+    // Fondo tenue del color de acento para el icono de la tarjeta / chip.
     private static string Tint(string hex) => $"color-mix(in srgb, {hex} 14%, #fff)";
+
+    private void ToggleExpand(Guid id)
+    {
+        if (!_expanded.Add(id)) { _expanded.Remove(id); }
+    }
+
+    // Chips de categoria de una fila: Publico (base, siempre) + sus membresias, mapeadas a titulo/color.
+    private IEnumerable<(string Title, string Color)> ChipsDe(Guid tid)
+    {
+        var keys = new List<string> { "publico" };
+        if (_memberships.TryGetValue(tid, out var ms)) { keys.AddRange(ms); }
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var k in keys)
+        {
+            if (!seen.Add(k)) { continue; }
+            var cat = _cats.FirstOrDefault(c => string.Equals(c.CategoriaKey, k, StringComparison.OrdinalIgnoreCase));
+            yield return (cat?.Title ?? k, cat?.Color ?? "#4f46e5");
+        }
+    }
+
+    private static string Responsable(TerceroListItemDto t)
+        => !string.IsNullOrWhiteSpace(t.VendedorAsesorNombre) ? t.VendedorAsesorNombre!
+         : !string.IsNullOrWhiteSpace(t.Vendedor) ? t.Vendedor! : "—";
+
+    private static string Initials(string? name)
+    {
+        var parts = (name ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        var a = parts[0][..1];
+        var b = parts.Length > 1 ? parts[1][..1] : "";
+        return (a + b).ToUpperInvariant();
+    }
+
+    private static readonly string[] _avPalette = { "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0891b2", "#db2777" };
+    private static string AvatarColor(string? name)
+    {
+        var h = 0;
+        foreach (var ch in name ?? "") { h = (h * 31 + ch) & 0x7fffffff; }
+        return _avPalette[h % _avPalette.Length];
+    }
 }

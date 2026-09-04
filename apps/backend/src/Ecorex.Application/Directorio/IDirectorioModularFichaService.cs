@@ -18,4 +18,12 @@ public interface IDirectorioModularFichaService
     /// DirectoryEngine=Modular, guarda los valores en FichasJson y lo asigna a la categoria. Devuelve el
     /// id del tercero creado, o un mensaje de error.</summary>
     Task<(Guid? Id, string? Error)> CreateTerceroAsync(CreateModularTerceroRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Lee un tercero Modular para editarlo (su categoria, estado y valores guardados). Null si no
+    /// existe o no es del motor Modular.</summary>
+    Task<ModularEditDto?> GetTerceroParaEditarAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Actualiza un tercero Modular existente: re-deduce nombre/naturaleza/campos base de los
+    /// valores, guarda FichasJson y el estado. Devuelve un mensaje de error o null si OK.</summary>
+    Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default);
 }

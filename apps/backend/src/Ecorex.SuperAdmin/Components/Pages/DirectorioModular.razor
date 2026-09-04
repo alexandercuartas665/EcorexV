@@ -26,7 +26,8 @@
         <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
 
-    <DirectorioModularFichaModal CategoriaKey="@_nuevoKey" OnClosed="() => _nuevoKey = null" OnSaved="OnCreatedAsync" />
+    <DirectorioModularFichaModal CategoriaKey="@(_editId is not null ? _editKey : _nuevoKey)" TerceroId="@_editId"
+                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" />
     <DirectorioModularConfigModal Show="_configOpen" OnClosed="OnConfigClosedAsync" />
 
     @* --- Mini-modal: nueva categoria --- *@
@@ -212,7 +213,7 @@
                                     }
                                 </td>
                                 <td class="dm-acc">
-                                    <button class="dm-acc-btn" title="Editar (proximamente)"><i class="fa fa-pen"></i></button>
+                                    <button class="dm-acc-btn" title="Editar" @onclick="() => OpenEditar(t)"><i class="fa fa-pen"></i></button>
                                     <button class="dm-acc-btn dm-acc-del" title="Eliminar" @onclick="() => PedirEliminar(t)"><i class="fa fa-trash"></i></button>
                                 </td>
                             </tr>
@@ -336,6 +337,8 @@
     private bool _loading = true;
     private bool _busy;
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
+    private Guid? _editId;       // tercero en edicion (null = no editando)
+    private string? _editKey;    // categoria base para abrir el modal de edicion
     private bool _configOpen;    // modal "Configurar directorio" abierto
     private string _search = string.Empty;   // texto de busqueda del listado
     private TerceroListItemDto? _delTarget;   // tercero pendiente de confirmar eliminacion
@@ -373,10 +376,29 @@
         _loading = false;
     }
 
-    private async Task OnCreatedAsync()
+    // Abre el modal de ficha en modo EDICION para el tercero dado. La categoria base es su primera
+    // pertenencia (o la activa/Publico como respaldo); el modal re-deduce la real al cargar.
+    private void OpenEditar(TerceroListItemDto t)
     {
-        _nuevoKey = null; // cierra el modal
-        // Recarga listado y contadores tras crear un tercero.
+        _editKey = (_memberships.TryGetValue(t.Id, out var ks) && ks.Count > 0)
+            ? ks[0]
+            : (_activo?.CategoriaKey ?? "publico");
+        _editId = t.Id;
+    }
+
+    private void OnFichaClosed()
+    {
+        _nuevoKey = null;
+        _editId = null;
+        _editKey = null;
+    }
+
+    // Tras crear o editar un tercero: cierra el modal y recarga listado, contadores y membresias.
+    private async Task OnFichaSavedAsync()
+    {
+        _nuevoKey = null;
+        _editId = null;
+        _editKey = null;
         _rows = await Terceros.ListAsync(new TerceroListFilter());
         _total = _rows.Count;
         _orgs = _rows.Count(r => r.EsEmpresa);

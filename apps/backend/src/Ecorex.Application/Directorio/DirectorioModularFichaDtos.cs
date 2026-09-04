@@ -20,6 +20,12 @@ public sealed record CreateModularTerceroRequest(
     string CategoriaKey,
     Dictionary<string, Dictionary<string, string>> Valores);
 
+/// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado
+/// y los valores guardados (seccion -> campo -> valor).</summary>
+public sealed record ModularEditDto(
+    Guid Id, string? CategoriaKey, string Estado,
+    Dictionary<string, Dictionary<string, string>> Valores);
+
 // ---------------------------------------------------------------------------
 // Lectura de estructura para el modal "Configurar directorio" (Capa 8, Fase 2).
 // ---------------------------------------------------------------------------

@@ -125,43 +125,15 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
         var valores = request.Valores ?? new();
 
-        // Naturaleza deducida (v1): nombre de empresa -> Organizacion; contacto -> Persona.
-        var nombreEmpresa = FindValue(valores, "nombre_empresa");
-        var contacto = FindValue(valores, "contacto");
-        // Fiscal (sin seccion publica): cae a razon social / nombre comercial del RUT.
-        nombreEmpresa ??= FindValue(valores, "razon_social") ?? FindValue(valores, "nombre_comercial");
-
-        string nombre;
-        TerceroTipo tipo;
-        if (!string.IsNullOrWhiteSpace(nombreEmpresa))
-        {
-            nombre = nombreEmpresa.Trim();
-            tipo = TerceroTipo.Empresa;
-        }
-        else if (!string.IsNullOrWhiteSpace(contacto))
-        {
-            nombre = contacto.Trim();
-            tipo = TerceroTipo.Persona;
-        }
-        else
-        {
-            return (null, "Falta al menos un nombre (empresa o contacto).");
-        }
-
         var tercero = new Tercero
         {
             TenantId = tenantId,
-            Nombre = nombre,
-            Tipo = tipo,
             Estado = TerceroEstado.Activo,
-            DirectoryEngine = DirectoryEngine.Modular,
-            Ciudad = FindValue(valores, "ciudad"),
-            IdValor = FindValue(valores, "ide") ?? FindValue(valores, "nit") ?? FindValue(valores, "numero_identificacion"),
-            Email = FindValue(valores, "correo"),
-            Telefono = tipo == TerceroTipo.Persona ? FindValue(valores, "telefono_contacto") : FindValue(valores, "telefono_empresa"),
-            Cargo = FindValue(valores, "cargo"),
-            FichasJson = JsonSerializer.Serialize(valores)
+            DirectoryEngine = DirectoryEngine.Modular
         };
+        var err = ApplyValores(tercero, valores);
+        if (err is not null) { return (null, err); }
+
         // Multi-membership: nace en la categoria desde la que se creo. Se enlaza por la navegacion para
         // que EF fije la FK al guardar (sin depender del momento en que se genera el Id).
         tercero.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = key });
@@ -169,6 +141,67 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
         await _app.SaveChangesAsync(cancellationToken);
         return (tercero.Id, null);
+    }
+
+    public async Task<ModularEditDto?> GetTerceroParaEditarAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var t = await _app.Terceros.AsNoTracking()
+            .Include(x => x.Categorias)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (t is null || t.DirectoryEngine != DirectoryEngine.Modular) { return null; }
+
+        Dictionary<string, Dictionary<string, string>> valores;
+        try
+        {
+            valores = string.IsNullOrWhiteSpace(t.FichasJson)
+                ? new()
+                : JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(t.FichasJson) ?? new();
+        }
+        catch { valores = new(); }
+
+        var catKey = t.Categorias.FirstOrDefault()?.CategoriaKey;
+        var estado = t.Estado == TerceroEstado.Inactivo ? "Inactivo" : "Activo";
+        return new ModularEditDto(t.Id, catKey, estado, valores);
+    }
+
+    public async Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default)
+    {
+        var t = await _app.Terceros.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (t is null) { return "El tercero no existe."; }
+        if (t.DirectoryEngine != DirectoryEngine.Modular) { return "Este tercero no pertenece al motor Modular."; }
+
+        var err = ApplyValores(t, request.Valores ?? new());
+        if (err is not null) { return err; }
+        t.Estado = string.Equals(estado, "Inactivo", StringComparison.OrdinalIgnoreCase)
+            ? TerceroEstado.Inactivo : TerceroEstado.Activo;
+
+        await _app.SaveChangesAsync(cancellationToken);
+        return null;
+    }
+
+    /// <summary>Aplica los valores de la ficha a un Tercero (nuevo o existente): deduce la naturaleza y el
+    /// nombre, copia los campos base y serializa FichasJson. Devuelve un mensaje de error o null si OK.</summary>
+    private static string? ApplyValores(Tercero t, Dictionary<string, Dictionary<string, string>> valores)
+    {
+        // Naturaleza deducida (v1): nombre de empresa -> Organizacion; contacto -> Persona.
+        // Fiscal (sin seccion publica): cae a razon social / nombre comercial del RUT.
+        var nombreEmpresa = FindValue(valores, "nombre_empresa")
+            ?? FindValue(valores, "razon_social") ?? FindValue(valores, "nombre_comercial");
+        var contacto = FindValue(valores, "contacto");
+
+        TerceroTipo tipo;
+        if (!string.IsNullOrWhiteSpace(nombreEmpresa)) { t.Nombre = nombreEmpresa.Trim(); tipo = TerceroTipo.Empresa; }
+        else if (!string.IsNullOrWhiteSpace(contacto)) { t.Nombre = contacto.Trim(); tipo = TerceroTipo.Persona; }
+        else { return "Falta al menos un nombre (empresa o contacto)."; }
+
+        t.Tipo = tipo;
+        t.Ciudad = FindValue(valores, "ciudad");
+        t.IdValor = FindValue(valores, "ide") ?? FindValue(valores, "nit") ?? FindValue(valores, "numero_identificacion");
+        t.Email = FindValue(valores, "correo");
+        t.Telefono = tipo == TerceroTipo.Persona ? FindValue(valores, "telefono_contacto") : FindValue(valores, "telefono_empresa");
+        t.Cargo = FindValue(valores, "cargo");
+        t.FichasJson = JsonSerializer.Serialize(valores);
+        return null;
     }
 
     /// <summary>Busca el valor de un campo por su clave en cualquier seccion de la ficha.</summary>

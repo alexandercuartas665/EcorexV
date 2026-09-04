@@ -15,12 +15,12 @@ public static class DirectorioModularDefaults
     /// <summary>Prefijo de las claves de seccion del motor Modular (separacion del Clasico).</summary>
     public const string SeccionPrefix = "mod_";
 
-    /// <summary>Seccion: clave (sin prefijo), titulo, icono, color, aplicaA (null=ambas), areas CSV, protegida.</summary>
-    public sealed record SeccionDef(string Key, string Title, string Icono, string Color, string? AplicaA, string Areas, bool Protegida);
+    /// <summary>Seccion: clave (sin prefijo), titulo, icono, color, aplicaA (null=ambas), areas CSV, protegida, descripcion.</summary>
+    public sealed record SeccionDef(string Key, string Title, string Icono, string Color, string? AplicaA, string Areas, bool Protegida, string Descripcion);
 
-    /// <summary>Campo: seccion, clave, etiqueta, tipo, ancho(1/2/3), opciones (linea por opcion), requeridoEn, soloLectura, filtrable.</summary>
+    /// <summary>Campo: seccion, clave, etiqueta, tipo, ancho(1/2/3), opciones (linea por opcion), requeridoEn, soloLectura, filtrable, descripcion.</summary>
     public sealed record CampoDef(string Seccion, string Key, string Label, TerceroFieldType Type, int Column,
-        string? Options = null, string? RequeridoEn = null, bool ReadOnly = false, bool ShowInFilter = false);
+        string? Options = null, string? RequeridoEn = null, bool ReadOnly = false, bool ShowInFilter = false, string? Descripcion = null);
 
     /// <summary>Categoria: clave, titulo, icono, color, areas CSV, protegido, homologaSeccion (sin prefijo), secciones (sin prefijo, en orden).</summary>
     public sealed record CategoriaDef(string Key, string Title, string Icono, string Color, string Areas,
@@ -30,12 +30,12 @@ public static class DirectorioModularDefaults
 
     public static readonly SeccionDef[] Secciones =
     [
-        new("publica",    "Seccion publica",         "fa-globe",                "#4f46e5", null,       "admin,comercial,contabilidad,logistica", true),
-        new("comercial",  "Seccion comercial",       "fa-chart-line",           "#0ea5e9", null,       "comercial", false),
-        new("tributaria", "Seccion tributaria",      "fa-file-invoice-dollar",  "#f59e0b", null,       "contabilidad", false),
-        new("cliente",    "Condiciones de cliente",  "fa-user-tie",             "#10b981", null,       "comercial,contabilidad", false),
-        new("proveedor",  "Condiciones de proveedor","fa-truck",                "#8b5cf6", null,       "logistica,contabilidad", false),
-        new("empleado",   "Datos laborales",         "fa-id-badge",             "#ef4444", "contacto", "admin", false),
+        new("publica",    "Seccion publica",         "fa-globe",                "#4f46e5", null,       "admin,comercial,contabilidad,logistica", true,  "Datos minimos de identificacion. Visible para todas las areas. Se puede activar o desactivar en cada categoria."),
+        new("comercial",  "Seccion comercial",       "fa-chart-line",           "#0ea5e9", null,       "comercial", false, "Perfilamiento y seguimiento comercial del tercero."),
+        new("tributaria", "Seccion tributaria",      "fa-file-invoice-dollar",  "#f59e0b", null,       "contabilidad", false, "Datos del RUT. La numeracion corresponde a las casillas del formato."),
+        new("cliente",    "Condiciones de cliente",  "fa-user-tie",             "#10b981", null,       "comercial,contabilidad", false, "Condiciones comerciales pactadas con el cliente."),
+        new("proveedor",  "Condiciones de proveedor","fa-truck",                "#8b5cf6", null,       "logistica,contabilidad", false, "Condiciones de abastecimiento y pago al proveedor."),
+        new("empleado",   "Datos laborales",         "fa-id-badge",             "#ef4444", "contacto", "admin", false, "Vinculacion laboral de la persona con la empresa."),
     ];
 
     public static readonly CategoriaDef[] Categorias =
@@ -55,8 +55,8 @@ public static class DirectorioModularDefaults
     public static readonly CampoDef[] Campos =
     [
         // ---- publica ----
-        new("publica", "codigo",            "Codigo",             T, 1, ReadOnly: true),
-        new("publica", "ide",               "IDE",                T, 1, ShowInFilter: true),
+        new("publica", "codigo",            "Codigo",             T, 1, ReadOnly: true, Descripcion: "Consecutivo automatico"),
+        new("publica", "ide",               "IDE",                T, 1, ShowInFilter: true, Descripcion: "Identificacion tributaria o documento"),
         new("publica", "nombre_empresa",    "Nombre empresa",     T, 2, RequeridoEn: "empresa"),
         new("publica", "telefono_empresa",  "Telefono empresa",   TerceroFieldType.Phone, 1),
         new("publica", "contacto",          "Contacto",           T, 2, RequeridoEn: "contacto"),

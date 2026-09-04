@@ -9,11 +9,11 @@
     <div class="fm-overlay" @onclick="Close">
         <div class="fm-dialog" @onclick:stopPropagation="true">
             <div class="fm-head">
-                <div>
-                    <div class="fm-eyebrow">Nuevo tercero &middot; @(_ficha?.CategoriaTitle)</div>
-                    <div class="fm-naturaleza">
-                        @{ var (nat, natCls) = NaturalezaPill(); }
-                        <span class="fm-pill @natCls">@nat</span>
+                <div class="fm-head-l">
+                    <span class="fm-head-ico"><i class="fa fa-address-card"></i></span>
+                    <div>
+                        <div class="fm-eyebrow">DIRECTORIO GENERAL &middot; 000232</div>
+                        <div class="fm-title">Nuevo registro &middot; @(_ficha?.CategoriaTitle)</div>
                     </div>
                 </div>
                 <button class="fm-x" @onclick="Close">&times;</button>
@@ -30,10 +30,46 @@
                 }
                 else
                 {
+                    @* Categoria + Estado *@
+                    <div class="fm-toprow">
+                        <div class="fm-topcat">
+                            <div class="fm-toplbl">Categoria</div>
+                            <span class="fm-catchip"><i class="fa fa-globe"></i> @_ficha.CategoriaTitle</span>
+                            <div class="fm-tophint">Se define al crear el tercero desde una categoria, o con el boton "+ nombre de la categoria" que aparece en el listado al buscarlo.</div>
+                        </div>
+                        <div class="fm-topest">
+                            <div class="fm-toplbl">Estado</div>
+                            <select class="fm-select" @bind="_estado"><option value="Activo">Activo</option><option value="Inactivo">Inactivo</option></select>
+                        </div>
+                    </div>
+
+                    @* Banner de naturaleza deducida *@
+                    <div class="fm-banner @NatClass">
+                        <i class="fa @(NatClass == "none" ? "fa-circle-question" : "fa-circle-check")"></i>
+                        <span>@NatText</span>
+                    </div>
+
+                    @* Tabs de seccion (llevan a cada seccion del scroll) *@
+                    <div class="fm-sectabs">
+                        @foreach (var s in _ficha.Secciones)
+                        {
+                            <a class="fm-sectab" href="#sec-@s.FichaKey"><span class="fm-dot"></span> @s.Title</a>
+                        }
+                    </div>
+
                     @foreach (var sec in _ficha.Secciones)
                     {
-                        <div class="fm-sec">
-                            <div class="fm-sec-head"><i class="fa @sec.Icono"></i> @sec.Title</div>
+                        <div class="fm-sec" id="sec-@sec.FichaKey">
+                            <div class="fm-sec-head">
+                                <span class="fm-sec-ico"><i class="fa @sec.Icono"></i></span>
+                                <div>
+                                    <div class="fm-sec-title">@sec.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(sec.Descripcion))
+                                    {
+                                        <div class="fm-sec-desc">@sec.Descripcion</div>
+                                    }
+                                </div>
+                            </div>
                             <div class="fm-grid">
                                 @foreach (var f in sec.Campos)
                                 {
@@ -49,6 +85,10 @@
                                                 @if (EsRequerido(f)) { <span class="fm-req">*</span> }
                                             </label>
                                             @RenderControl(sec.FichaKey, f)
+                                            @if (!string.IsNullOrWhiteSpace(f.Descripcion))
+                                            {
+                                                <div class="fm-hint">@f.Descripcion</div>
+                                            }
                                         </div>
                                     }
                                 }
@@ -73,17 +113,35 @@
     .fm-overlay { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: flex-start; justify-content: center; z-index: 70; padding: 40px 16px; overflow: auto; }
     .fm-dialog { background: #fff; border-radius: 14px; width: 860px; max-width: 96vw; box-shadow: 0 20px 50px rgba(16,24,40,.25); display: flex; flex-direction: column; max-height: 90vh; font-family: 'Inter', system-ui, sans-serif; }
     .fm-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px; border-bottom: 1px solid #eef0f3; }
-    .fm-eyebrow { font-size: 15px; font-weight: 800; color: #111827; }
-    .fm-naturaleza { margin-top: 6px; }
-    .fm-pill { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 11px; }
-    .fm-pill.org { background: #eff6ff; color: #1d4ed8; }
-    .fm-pill.per { background: #f0fdf4; color: #15803d; }
-    .fm-pill.none { background: #fef3c7; color: #b45309; }
+    .fm-head-l { display: flex; align-items: center; gap: 13px; }
+    .fm-head-ico { width: 42px; height: 42px; border-radius: 11px; background: #eef2ff; color: #4f46e5; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .fm-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #6366f1; }
+    .fm-title { font-size: 18px; font-weight: 800; color: #111827; margin-top: 1px; }
     .fm-x { background: none; border: none; font-size: 24px; color: #9ca3af; cursor: pointer; line-height: 1; }
-    .fm-body { padding: 8px 22px 4px; overflow: auto; }
+    .fm-body { padding: 12px 22px 4px; overflow: auto; }
     .fm-muted { color: #9ca3af; font-size: 13px; padding: 20px 0; }
-    .fm-sec { margin: 16px 0; }
-    .fm-sec-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #4f46e5; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+
+    .fm-toprow { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding-bottom: 14px; border-bottom: 1px solid #f3f4f6; margin-bottom: 12px; }
+    .fm-toplbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 6px; }
+    .fm-catchip { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #4f46e5; font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 4px 12px; }
+    .fm-tophint { font-size: 11.5px; color: #9ca3af; margin-top: 6px; max-width: 560px; }
+    .fm-topest { min-width: 150px; }
+
+    .fm-banner { display: flex; align-items: center; gap: 9px; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; font-weight: 600; margin-bottom: 14px; }
+    .fm-banner.none { background: #f5f3ff; color: #6d28d9; }
+    .fm-banner.org { background: #eff6ff; color: #1d4ed8; }
+    .fm-banner.per { background: #f0fdf4; color: #15803d; }
+
+    .fm-sectabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+    .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
+    .fm-sectab .fm-dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; display: inline-block; }
+
+    .fm-sec { margin: 18px 0; }
+    .fm-sec-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .fm-sec-ico { width: 30px; height: 30px; border-radius: 8px; background: #eef2ff; color: #4f46e5; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .fm-sec-title { font-size: 14px; font-weight: 700; color: #111827; }
+    .fm-sec-desc { font-size: 12px; color: #6b7280; margin-top: 2px; max-width: 640px; }
+    .fm-hint { font-size: 11px; color: #9ca3af; }
     .fm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; }
     .fm-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
     .fm-label { font-size: 12px; font-weight: 600; color: #374151; }
@@ -112,6 +170,7 @@
     private bool _saving;
     private string? _error;
     private string? _loadedFor;
+    private string _estado = "Activo";
     private ModularFichaDto? _ficha;
     // ficha (seccion) -> campo -> valor
     private readonly Dictionary<string, Dictionary<string, string>> _valores = new(StringComparer.Ordinal);
@@ -159,13 +218,16 @@
         return null;
     }
 
+    private string NatText => NaturalezaPill().Item1;
+    private string NatClass => NaturalezaPill().Item2;
+
     private (string, string) NaturalezaPill()
     {
         var emp = Find("nombre_empresa") ?? Find("razon_social") ?? Find("nombre_comercial");
         var per = Find("contacto");
-        if (!string.IsNullOrWhiteSpace(emp)) { return ("Se creara: Organizacion", "org"); }
-        if (!string.IsNullOrWhiteSpace(per)) { return ("Se creara: Persona", "per"); }
-        return ("Falta un nombre (empresa o contacto)", "none");
+        if (!string.IsNullOrWhiteSpace(emp)) { return ("Se creara una Organizacion.", "org"); }
+        if (!string.IsNullOrWhiteSpace(per)) { return ("Se creara una Persona.", "per"); }
+        return ("Sin definir. Escribe el nombre de la empresa, el del contacto o ambos: de eso depende que se crea.", "none");
     }
 
     private RenderFragment RenderControl(string ficha, ModularCampoDto f) => builder =>

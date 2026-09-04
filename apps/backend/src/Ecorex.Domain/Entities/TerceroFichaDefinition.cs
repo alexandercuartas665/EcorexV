@@ -40,4 +40,24 @@ public class TerceroFichaDefinition : TenantEntity
     /// <summary>Ficha sembrada por defecto (del prototipo). Distingue las de sistema de las que crea
     /// el tenant y permite re-sembrar sin duplicar. Las de sistema no se pueden eliminar.</summary>
     public bool IsSystem { get; set; }
+
+    // ---- Atributos del 2do motor de contactos (Directorio Modular, Capa 8) ----
+    // La ficha pasa a ser una "seccion" componible por categorias. Estos campos son NULLABLE/def para
+    // no afectar al motor Clasico, que los ignora. Homologacion del sistema de gestion de columnas.
+
+    /// <summary>Naturaleza a la que aplica la seccion: CSV de "empresa"/"contacto". Null o vacio = ambas.
+    /// (Motor Modular: p.ej. "Datos laborales" solo aplica a contacto.)</summary>
+    public string? AplicaA { get; set; }
+
+    /// <summary>Areas/roles que VEN la seccion: CSV de ids de area (p.ej. "comercial,contabilidad").
+    /// Null/vacio = comportamiento por defecto (admin siempre; ver reglas del motor Modular). No afecta
+    /// al motor Clasico, que usa <see cref="Perfil"/>.</summary>
+    public string? Areas { get; set; }
+
+    /// <summary>Seccion protegida: no se elimina del sistema (p.ej. la "publica", identificacion minima).
+    /// Si se puede activar/desactivar por categoria.</summary>
+    public bool Protegida { get; set; }
+
+    /// <summary>Icono (clase Font Awesome, p.ej. "fa-globe") para la pildora/pestana en el motor Modular.</summary>
+    public string? Icono { get; set; }
 }

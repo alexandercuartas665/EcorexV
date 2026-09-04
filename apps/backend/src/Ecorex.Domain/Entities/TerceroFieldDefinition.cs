@@ -63,4 +63,15 @@ public class TerceroFieldDefinition : TenantEntity
     /// campos de sistema de los que agrega el tenant, y re-sembrar sin duplicar.
     /// </summary>
     public bool IsSystem { get; set; }
+
+    // ---- Atributos del 2do motor de contactos (Directorio Modular, Capa 8) ----
+    // NULLABLE/def para no afectar al motor Clasico. Homologacion del sistema de gestion de columnas.
+
+    /// <summary>Naturaleza(s) en las que el campo es OBLIGATORIO: CSV de "empresa"/"contacto".
+    /// Null/vacio = no obligatorio. (El motor Clasico no tenia flag de obligatorio; lo ignora.)</summary>
+    public string? RequeridoEn { get; set; }
+
+    /// <summary>Campo de solo lectura en la ficha (p.ej. codigo, fecha de creacion, usuario). Distinto de
+    /// <see cref="TerceroFieldType.Calculated"/>, que ademas evalua una formula.</summary>
+    public bool ReadOnly { get; set; }
 }

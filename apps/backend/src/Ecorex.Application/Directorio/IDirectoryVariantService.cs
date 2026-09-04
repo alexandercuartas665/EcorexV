@@ -12,7 +12,11 @@ public enum DirectoryVariant
     Ligero,
 
     /// <summary>Vista alterna (copia independiente), para tenants que prefieren otro layout.</summary>
-    Especializado
+    Especializado,
+
+    /// <summary>2do motor de contactos: "Directorio Modular" (secciones + categorias componibles,
+    /// Capa 8). La logica de seleccion/mapeo de este valor se completa en la capa Application.</summary>
+    Modular
 }
 
 /// <summary>

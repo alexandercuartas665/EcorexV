@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.170: numero de la TAREA en la impresion ({{tarea}} y {{barcode:tarea}})
+
+- Pedido de la sesion de formularios/reportes: exponer en la plantilla de impresion el numero de la TAREA,
+  no solo el numero de registro ({{numero}}). La tarea es la Reference del FormResponse sin el ordinal final
+  ("T00042-1" -> "T00042").
+- FormTemplateRenderService.cs:
+  1. Caller: nuevo StripTrailingOrdinal(response.Reference) (misma logica que FormResponseService.StripOrdinal;
+     fallback a RecordNumber/Reference) -> se pasa como 'tarea' a FormTemplateMerge.Render.
+  2. Render gana parametro string tarea: sb.Replace("{{tarea}}", ...) y lo propaga a EmitField/ResolveHeaderTokens
+     y a ResolveBarcodes.
+  3. ResolveBarcodes: regex ampliado a (numero|tarea|campo.x); target=="tarea" usa data=tarea. Asi tambien
+     {{barcode:tarea}} (incluye cabezotes/pies de croquis).
+  - Doc de marcadores + descripcion del tool create_template actualizadas.
+- Tests: FormTemplateMergeTests 5/5 (nuevo: {{tarea}}->T00042, {{numero}}->T00042-1 intacto, {{barcode:tarea}}->SVG).
+  Build Release completo verde. Sin migracion.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-04 - v0.15.169: tablero movil - el resultado del lector se muestra DENTRO de la hoja de escaneo
 
 - Bug UX (MovilTablero): al escanear/teclear un codigo inexistente, el mensaje "No se encontro '{x}' en este

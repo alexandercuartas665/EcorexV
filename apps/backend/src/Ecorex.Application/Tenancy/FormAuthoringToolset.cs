@@ -169,7 +169,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
 
         // ---------- Plantillas de impresion ----------
         new("create_template",
-            "Crea una plantilla de impresion HTML (usa marcadores {{campo.codigo}}, {{#tabla.x}}...{{/tabla.x}}, {{numero}},{{fecha}},{{empresa}}; ver describe_components). send_as_image=true la envia como imagen en vez de PDF.",
+            "Crea una plantilla de impresion HTML (usa marcadores {{campo.codigo}}, {{#tabla.x}}...{{/tabla.x}}, {{numero}},{{tarea}},{{fecha}},{{empresa}}, y {{barcode:numero|tarea|campo.x}}; ver describe_components). send_as_image=true la envia como imagen en vez de PDF.",
             """{"type":"object","properties":{"name":{"type":"string"},"html":{"type":"string"},"send_as_image":{"type":"boolean"}},"required":["name","html"],"additionalProperties":false}"""),
         new("update_template",
             "Actualiza una plantilla de impresion por su id.",

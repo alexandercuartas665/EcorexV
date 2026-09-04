@@ -27,7 +27,7 @@ public class FormTemplateMergeTests
         var fieldFormat = new Dictionary<string, string?> { ["total"] = "currency" };
         var html = FormTemplateMerge.Render(
             "<h1>{{empresa}}</h1><p>Cliente: {{campo.cliente}} | Total: {{campo.total}} | No {{numero}} | {{fecha}}</p>",
-            Data, fieldFormat, NoGridOptions, NoCanvasOptions, "SKY SYSTEM", Fecha, "COT-000007");
+            Data, fieldFormat, NoGridOptions, NoCanvasOptions, "SKY SYSTEM", Fecha, "COT-000007", "T00042");
 
         Assert.Contains("SKY SYSTEM", html);
         Assert.Contains("Cliente: AGROMETALICAS", html);
@@ -45,7 +45,7 @@ public class FormTemplateMergeTests
         };
         var tpl = "<table>{{#tabla.items}}<tr><td>{{fila}}</td><td>{{col.codigo}}</td><td>{{col.producto}}</td><td>{{col.cantidad}}</td><td>{{col.precio}}</td></tr>{{/tabla.items}}</table>";
 
-        var html = FormTemplateMerge.Render(tpl, Data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1");
+        var html = FormTemplateMerge.Render(tpl, Data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1", "T1");
 
         // Dos filas, numeradas, con la columna precio formateada como moneda.
         Assert.Contains("<td>1</td><td>IMP1</td><td>IMPRESORA</td><td>2</td><td>$ 750,000</td>", html);
@@ -58,7 +58,7 @@ public class FormTemplateMergeTests
     {
         var html = FormTemplateMerge.Render(
             "A[{{campo.no_existe}}]B[{{#tabla.no_existe}}x{{/tabla.no_existe}}]C",
-            Data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1");
+            Data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1", "T1");
         Assert.Equal("A[]B[]C", html); // ambos marcadores se colapsan a vacio, el resto intacto
     }
 
@@ -66,7 +66,21 @@ public class FormTemplateMergeTests
     public void Escapa_html_de_los_valores()
     {
         var data = """{ "x": { "value": "<b>hola</b> & cia", "type": "text" } }""";
-        var html = FormTemplateMerge.Render("{{campo.x}}", data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1");
+        var html = FormTemplateMerge.Render("{{campo.x}}", data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "T", Fecha, "1", "T1");
         Assert.Equal("&lt;b&gt;hola&lt;/b&gt; &amp; cia", html);
+    }
+
+    [Fact]
+    public void Expone_el_numero_de_tarea_como_tarea_y_barcode()
+    {
+        // numero (registro) y tarea son distintos: la tarea es la Reference sin el ordinal (lo calcula el
+        // caller del servicio); aqui se pasan explicitos para fijar los marcadores.
+        var html = FormTemplateMerge.Render(
+            "Tarea {{tarea}} | Registro {{numero}} | BC:<span>{{barcode:tarea}}</span>",
+            Data, NoFieldFormat, NoGridOptions, NoCanvasOptions, "SKY", Fecha, "T00042-1", "T00042");
+
+        Assert.Contains("Tarea T00042 ", html);       // {{tarea}} -> numero de tarea
+        Assert.Contains("Registro T00042-1 ", html);  // {{numero}} -> numero de registro (con ordinal), intacto
+        Assert.Contains("<svg", html);                // {{barcode:tarea}} emitio un codigo de barras SVG
     }
 }

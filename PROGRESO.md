@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.171: webhook ENTRANTE de YCloud (recibir mensajes)
+
+- Gap: YCloud estaba integrado solo para ENVIAR; no habia webhook entrante ni URL en la UI (por eso el
+  usuario no encontraba donde dar su Callback URL a YCloud). Evolution y Meta si tenian entrante.
+- Implementado, calcado del patron de Meta:
+  1. YCloudWebhookParser.cs (SuperAdmin/RealTime): traduce el evento v2 (whatsapp.inbound_message.received,
+     objeto o array) a mensaje normalizado; solo procesa inbound (ignora estados); tolerante a nombres de
+     campo (customerProfile/contact/profile, sendTime/timestamp ISO o unix); soporta text/media(caption)/
+     button/interactive/reaction.
+  2. Endpoint POST /webhooks/ycloud (Program.cs): resuelve la linea por whatsappInboundMessage.to ==
+     WhatsAppLine.YCloudPhoneNumberId (provider=YCloud) y reusa IChatIngestService.IngestTrustedAsync (mismo
+     pipeline que Meta/Evolution: conversacion + agente). Logger de diagnostico sin contenido.
+  3. WebhookConfigDto + WebhookAdminService.Map: nueva YCloudCallbackUrl ({base}/webhooks/ycloud).
+  4. Lineas.razor: seccion "Webhook de YCloud" con la Callback URL para copiar (suscribirse a
+     whatsapp.inbound_message.received en el panel de YCloud).
+- Verificado en dev: POST de un inbound valido -> parser OK (status "no-line" porque no hay linea con ese
+  numero en dev, el warning lo confirma); POST de un evento de estado -> "ignored". Build Release verde.
+- Seguridad: sin firma por ahora (parity con Meta): la puerta es que 'to' coincida con una linea YCloud
+  registrada. Media entrante: fase 2 (por ahora se capta el caption). Sin migracion.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-04 - v0.15.170: numero de la TAREA en la impresion ({{tarea}} y {{barcode:tarea}})
 
 - Pedido de la sesion de formularios/reportes: exponer en la plantilla de impresion el numero de la TAREA,

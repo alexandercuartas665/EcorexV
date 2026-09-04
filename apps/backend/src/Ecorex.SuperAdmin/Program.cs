@@ -1411,6 +1411,48 @@ app.MapPost("/webhooks/meta", async (
     return Results.Ok(new { status = "ok" });
 }).AllowAnonymous().DisableAntiforgery();
 
+// Webhook de YCloud (BSP oficial, api.ycloud.com v2) - mensajes ENTRANTES (POST). YCloud entrega un evento
+// por POST; se resuelve la linea por el numero de negocio (whatsappInboundMessage.to == YCloudPhoneNumberId)
+// y se reutiliza el mismo pipeline de ingesta que Meta/Evolution. Sin firma por ahora: la puerta es que el
+// 'to' corresponda a una linea YCloud registrada (mismo modelo que Meta). NO se loggea el contenido.
+app.MapPost("/webhooks/ycloud", async (
+    HttpRequest request,
+    IApplicationDbContext db,
+    Ecorex.Application.Tenancy.IChatIngestService ingest,
+    ILoggerFactory loggerFactory,
+    CancellationToken ct) =>
+{
+    var log = loggerFactory.CreateLogger("YCloudWebhook");
+    using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+    var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
+    if (messages.Count == 0)
+    {
+        log.LogInformation("Webhook YCloud IGNORADO (evento no procesable o sin mensaje entrante).");
+        return Results.Ok(new { status = "ignored" });
+    }
+
+    var ingested = 0;
+    foreach (var m in messages)
+    {
+        // Sin contexto de tenant aun: la linea YCloud se identifica por su numero de negocio ('to').
+        var line = await db.WhatsAppLines.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
+                && l.YCloudPhoneNumberId == m.To, ct);
+        if (line is null)
+        {
+            log.LogWarning("Webhook YCloud: mensaje para el numero {To} que no corresponde a ninguna linea YCloud registrada.", m.To);
+            continue;
+        }
+
+        var payload = new Ecorex.Application.Tenancy.IngestMessageRequest(
+            m.Phone, m.Name, m.ExternalId, m.Body, "text", m.SentAt, line.Id);
+        var res = await ingest.IngestTrustedAsync(line.TenantId, payload, cancellationToken: ct);
+        if (res != Ecorex.Application.Tenancy.ChatIngestResult.Duplicate) { ingested++; }
+        log.LogInformation("Webhook YCloud INGERIDO. tenant={Tenant} linea={Line} resultado={Result}", line.TenantId, line.Id, res);
+    }
+    return Results.Ok(new { status = ingested > 0 ? "ok" : "no-line" });
+}).AllowAnonymous().DisableAntiforgery();
+
 // ===== Emulador de canal WhatsApp (pruebas) =====
 // Inyecta un mensaje entrante en un canal SIMULADO (linea Provider=Emulator, sin nada externo) y corre
 // la atencion del agente de forma SINCRONA. Toda la comunicacion (entrante, prompts, herramientas,

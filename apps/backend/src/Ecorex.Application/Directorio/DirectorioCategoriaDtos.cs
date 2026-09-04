@@ -26,7 +26,8 @@ public sealed record CreateDirectorioCategoriaRequest(
     string Title,
     string? Icono = null,
     string? Color = null,
-    string? Areas = null);
+    string? Areas = null,
+    string? Description = null);
 
 /// <summary>Edicion de una categoria (no cambia su CategoriaKey).</summary>
 public sealed record UpdateDirectorioCategoriaRequest(
@@ -35,4 +36,5 @@ public sealed record UpdateDirectorioCategoriaRequest(
     string? Color = null,
     string? Areas = null,
     string? HomologaSeccion = null,
-    bool IsHidden = false);
+    bool IsHidden = false,
+    string? Description = null);

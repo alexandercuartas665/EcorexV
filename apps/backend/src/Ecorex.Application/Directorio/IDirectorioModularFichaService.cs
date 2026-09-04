@@ -10,6 +10,10 @@ public interface IDirectorioModularFichaService
     /// <summary>La ficha que arma la categoria: secciones (en orden de composicion) con sus campos.</summary>
     Task<ModularFichaDto?> GetFichaAsync(string categoriaKey, CancellationToken cancellationToken = default);
 
+    /// <summary>Estructura completa del motor (todas las secciones "mod_" con sus campos y las areas del
+    /// catalogo) para el modal "Configurar directorio". Solo lectura.</summary>
+    Task<ModularEstructuraDto> GetEstructuraAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Crea un tercero desde el motor Modular: deduce la naturaleza de lo que se lleno, estampa
     /// DirectoryEngine=Modular, guarda los valores en FichasJson y lo asigna a la categoria. Devuelve el
     /// id del tercero creado, o un mensaje de error.</summary>

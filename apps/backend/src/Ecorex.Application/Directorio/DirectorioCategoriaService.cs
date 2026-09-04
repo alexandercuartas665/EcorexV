@@ -168,6 +168,7 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
             Icono = Clean(request.Icono),
             Color = Clean(request.Color),
             Areas = NormalizeAreas(request.Areas),
+            Description = Clean(request.Description),
             SortOrder = maxOrder + 1,
             IsSystem = false
         };
@@ -187,6 +188,7 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
         c.Icono = Clean(request.Icono);
         c.Color = Clean(request.Color);
         c.Areas = NormalizeAreas(request.Areas);
+        c.Description = Clean(request.Description);
         c.HomologaSeccion = Clean(request.HomologaSeccion);
         c.IsHidden = request.IsHidden;
         await _db.SaveChangesAsync(cancellationToken);

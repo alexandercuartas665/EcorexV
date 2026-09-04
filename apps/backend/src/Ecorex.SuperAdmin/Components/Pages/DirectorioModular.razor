@@ -22,11 +22,12 @@
 
     <div class="dm-toolbar">
         <button class="dm-btn" disabled title="Proximamente"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
-        <button class="dm-btn" disabled title="Proximamente"><i class="fa fa-gear"></i> Configurar directorio</button>
+        <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
         <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
 
     <DirectorioModularFichaModal CategoriaKey="@_nuevoKey" OnClosed="() => _nuevoKey = null" OnSaved="OnCreatedAsync" />
+    <DirectorioModularConfigModal Show="_configOpen" OnClosed="OnConfigClosedAsync" />
 
     @* --- Mini-modal: nueva categoria --- *@
     @if (_nuevaCatOpen)
@@ -295,6 +296,7 @@
     private bool _loading = true;
     private bool _busy;
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
+    private bool _configOpen;    // modal "Configurar directorio" abierto
     private bool _nuevaCatOpen;
     private string _nuevaCatTitle = string.Empty;
     private string? _nuevaCatError;
@@ -339,6 +341,19 @@
         _porAsignar = _total;
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
+    }
+
+    // Al cerrar "Configurar directorio": recarga categorias y conteos (pudo cambiar la composicion).
+    private async Task OnConfigClosedAsync()
+    {
+        _configOpen = false;
+        _cats = await Cats.ListAsync();
+        _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
+        if (_activo is not null)
+        {
+            _activo = _cats.FirstOrDefault(c => c.CategoriaKey == _activo.CategoriaKey) ?? _cats.FirstOrDefault();
+        }
     }
 
     // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.

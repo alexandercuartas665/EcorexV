@@ -250,6 +250,12 @@
             </div>
             <button class="mv-scan-x" @onclick="CloseScanAsync">Cerrar</button>
         </div>
+        @if (_scanError is not null)
+        {
+            @* El resultado del escaneo (ej. "no encontrado") se muestra DENTRO de la hoja para que el
+               operario lo vea de inmediato, sin tener que cerrar el lector. *@
+            <div class="mv-scan-error" role="alert">@_scanError</div>
+        }
         @if (_scanSupported)
         {
             <div class="mv-video-wrap">
@@ -285,6 +291,7 @@
 
     private bool _scanOpen, _scanSupported;
     private string? _scanManual;
+    private string? _scanError;   // feedback (no encontrado / ya en el ultimo estado) MOSTRADO dentro de la hoja
     private ElementReference _videoEl;
     private DotNetObjectReference<MovilTablero>? _selfRef;
 
@@ -359,6 +366,7 @@
     private async Task OpenScanAsync()
     {
         _scanManual = null;
+        _scanError = null;
         _scanOpen = true;
         _selfRef ??= DotNetObjectReference.Create(this);
         try { _scanSupported = await JS.InvokeAsync<bool>("ecorexScan.supported"); }
@@ -380,7 +388,18 @@
     private async Task CloseScanAsync()
     {
         _scanOpen = false;
+        _scanError = null;
         try { await JS.InvokeVoidAsync("ecorexScan.stop"); } catch { }
+    }
+
+    // Re-arma la camara para volver a escanear SIN cerrar la hoja: el lector JS se detiene tras la primera
+    // deteccion, asi que tras un fallo (no encontrado) hay que reiniciarlo para el siguiente intento.
+    private async Task RestartCameraAsync()
+    {
+        if (!_scanSupported) { return; }
+        try { await JS.InvokeVoidAsync("ecorexScan.stop"); } catch { }
+        try { await JS.InvokeAsync<ScanStartResult>("ecorexScan.start", _videoEl, _selfRef); }
+        catch { _scanSupported = false; }
     }
 
     [JSInvokable]
@@ -399,7 +418,7 @@
     {
         var raw = (code ?? "").Trim();
         if (raw.Length == 0 || _detail is null) { return; }
-        await CloseScanAsync();
+        _scanError = null;   // limpia el resultado del intento anterior
 
         var cols = _detail.Columns.OrderBy(c => c.SortOrder).ToList();
         ActivityCardDto? found = null;
@@ -409,7 +428,15 @@
             var m = cols[i].Cards.FirstOrDefault(c => string.Equals(c.Number, raw, StringComparison.OrdinalIgnoreCase));
             if (m is not null) { found = m; colIdx = i; break; }
         }
-        if (found is null) { ShowToast($"No se encontro '{raw}' en este tablero.", false); return; }
+        if (found is null)
+        {
+            // NO se cierra la hoja: el mensaje se muestra DENTRO del lector y se re-arma la camara para que
+            // el operario reintente de inmediato (antes el toast salia detras y solo se veia al cerrar).
+            _scanError = $"No se encontro '{raw}' en este tablero.";
+            _scanManual = null;
+            await RestartCameraAsync();
+            return;
+        }
 
         // Si la actividad esta gobernada por un FLUJO, el escaneo abre EL PUNTO donde esta el proceso
         // (el formulario del paso pendiente), no un simple avance de columna: el operario concreta la
@@ -420,6 +447,7 @@
             var pending = steps.FirstOrDefault(s => s.LinkStatus == FormFlowLinkStatus.Pending);
             if (pending is not null)
             {
+                await CloseScanAsync();   // exito: el lector cede paso al formulario del paso del flujo
                 _stepCard = found;
                 _stepForm = pending;
                 return;
@@ -428,7 +456,15 @@
         catch { /* si falla la lectura del paso, se cae al avance por columna */ }
 
         // Sin flujo (o sin paso con formulario pendiente): avance lineal por tablero con confirmacion.
-        if (colIdx >= cols.Count - 1) { ShowToast($"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).", false); return; }
+        if (colIdx >= cols.Count - 1)
+        {
+            // Tarjeta valida pero sin avance posible: tambien se avisa DENTRO de la hoja y se re-arma la camara.
+            _scanError = $"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).";
+            _scanManual = null;
+            await RestartCameraAsync();
+            return;
+        }
+        await CloseScanAsync();   // exito: se cierra el lector y aparece la tarjeta de confirmacion de avance
         _pendingCard = found;
         _pendingFrom = cols[colIdx];
         _pendingTo = cols[colIdx + 1];

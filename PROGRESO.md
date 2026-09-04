@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.169: tablero movil - el resultado del lector se muestra DENTRO de la hoja de escaneo
+
+- Bug UX (MovilTablero): al escanear/teclear un codigo inexistente, el mensaje "No se encontro '{x}' en este
+  tablero" salia como toast en la pagina principal DETRAS del modal del lector, y solo se veia al cerrar el
+  lector. Causa: HandleCodeAsync llamaba CloseScanAsync() ANTES de resolver y usaba ShowToast (toast global).
+- Fix (MovilTablero.razor + .css): nuevo estado _scanError mostrado DENTRO de la hoja de escaneo (banner rojo
+  .mv-scan-error). HandleCodeAsync ya no cierra la hoja arriba: en "no encontrado" y "ya en el ultimo estado"
+  mantiene la hoja abierta, muestra el error dentro, limpia el input y RE-ARMA la camara (el lector JS se
+  detiene tras la 1ra deteccion) para reintentar; solo cierra en los EXITOS (abre el paso del flujo o la
+  tarjeta de confirmacion de avance).
+- Verificado en dev (AGROMETALICAS, tablero ORDENES DE TRABAJO): al buscar 'qwqwq' el error aparece dentro
+  del lector, la hoja sigue abierta, no hay toast en la pagina principal y el input se limpia. Build verde.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-04 - v0.15.168: datasets externos "batch" (multi-statement) opt-in por dataset (ADR-0064)
 
 - Pedido de la sesion de reportes: un dataset externo de SOLDARCO (director_comercial) cuyo CommandText es

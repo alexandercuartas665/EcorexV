@@ -537,6 +537,23 @@
 .mv-scan-help { color: #cbd5e1; text-align: center; font-size: .85rem; margin-top: 10px; max-width: 512px; }
 .mv-scan-unsupported { color: #fca5a5; font-size: .85rem; margin-bottom: 8px; max-width: 512px; text-align: center; }
 
+/* Resultado del escaneo mostrado DENTRO de la hoja (ej. "no encontrado"): banner rojo, visible al instante. */
+.mv-scan-error {
+    width: 100%;
+    max-width: 512px;
+    margin: 12px 0 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--danger);
+    color: #fff;
+    font-weight: 700;
+    font-size: .95rem;
+    text-align: center;
+    box-shadow: 0 6px 20px oklch(0 0 0 / .35);
+    animation: mv-scan-err-in .18s ease;
+}
+@keyframes mv-scan-err-in { from { transform: translateY(-6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
 .mv-scan-manual { display: flex; gap: 8px; margin-top: 14px; width: 100%; max-width: 512px; }
 .mv-scan-input { flex: 1; font-size: 1rem; font-family: inherit; padding: 13px; border-radius: 14px; border: 1px solid #3a4152; background: #12141c; color: #fff; }
 .mv-scan-input::placeholder { color: #64748b; }

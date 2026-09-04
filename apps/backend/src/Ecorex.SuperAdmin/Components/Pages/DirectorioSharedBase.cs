@@ -301,13 +301,17 @@ public abstract class DirectorioSharedBase : ComponentBase
 
     protected override async Task OnInitializedAsync()
     {
-        // Cada vista ATIENDE solo su variante. Si el tenant configuro la otra, redirige (misma logica base).
+        // Cada vista ATIENDE solo su variante. Si el tenant configuro otra, redirige (misma logica base).
         var configured = await DirVariant.GetAsync();
         if (configured != ViewVariant)
         {
-            Nav.NavigateTo(
-                configured == DirectoryVariant.Especializado ? "/directorio-especializado" : "/directorio-general",
-                forceLoad: false, replace: true);
+            var target = configured switch
+            {
+                DirectoryVariant.Modular => "/directorio-modular",
+                DirectoryVariant.Especializado => "/directorio-especializado",
+                _ => "/directorio-general"
+            };
+            Nav.NavigateTo(target, forceLoad: false, replace: true);
             return;
         }
 

@@ -8,6 +8,8 @@
 @using Ecorex.Domain.Enums
 @inject IDirectorioCategoriaService Cats
 @inject ITerceroService Terceros
+@inject IDirectoryVariantService DirVariant
+@inject NavigationManager Nav
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
 
@@ -356,13 +358,21 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Gate: esta pagina solo la atiende el tenant con la variante Modular (hoy SOLDARCO). Otros,
+        // redirigen al Directorio General clasico. Defensa en profundidad ademas del menu.
+        if (await DirVariant.GetAsync() != DirectoryVariant.Modular)
+        {
+            Nav.NavigateTo("/directorio-general", forceLoad: false, replace: true);
+            return;
+        }
+
         // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
         _cats = await Cats.ListAsync();
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
         _activo = _cats.FirstOrDefault();
 
-        _rows = await Terceros.ListAsync(new TerceroListFilter());
+        _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular));
         _total = _rows.Count;
         _orgs = _rows.Count(r => r.EsEmpresa);
         _personas = _rows.Count(r => r.EsPersona);
@@ -399,7 +409,7 @@
         _nuevoKey = null;
         _editId = null;
         _editKey = null;
-        _rows = await Terceros.ListAsync(new TerceroListFilter());
+        _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular));
         _total = _rows.Count;
         _orgs = _rows.Count(r => r.EsEmpresa);
         _personas = _rows.Count(r => r.EsPersona);
@@ -438,7 +448,7 @@
             if (!res.IsOk) { _delError = res.Error ?? "No se pudo eliminar."; return; }
             _delTarget = null;
             // Recarga listado y contadores tras el borrado suave.
-            _rows = await Terceros.ListAsync(new TerceroListFilter());
+            _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular));
             _total = _rows.Count;
             _orgs = _rows.Count(r => r.EsEmpresa);
             _personas = _rows.Count(r => r.EsPersona);

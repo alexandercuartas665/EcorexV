@@ -35,6 +35,12 @@ public sealed class TerceroService : ITerceroService
             query = query.Where(t => t.Estado != TerceroEstado.Inactivo);
         }
 
+        // Motor de directorio: el listado Modular pide solo sus registros; Clasico no pasa filtro (todos).
+        if (filter.Engine is DirectoryEngine engine)
+        {
+            query = query.Where(t => t.DirectoryEngine == engine);
+        }
+
         query = filter.Naturaleza switch
         {
             TerceroTabNaturaleza.Empresas => query.Where(t => t.Tipo == TerceroTipo.Empresa),

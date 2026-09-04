@@ -161,4 +161,7 @@ public sealed record TerceroListFilter(
     TerceroTabTipo Tipo = TerceroTabTipo.Todos,
     TerceroTabNaturaleza Naturaleza = TerceroTabNaturaleza.Todos,
     string? Busqueda = null,
-    bool IncludeInactive = false);
+    bool IncludeInactive = false,
+    // Motor de directorio del que traer los terceros. Null = todos (comportamiento Clasico sin cambios);
+    // el listado Modular pasa DirectoryEngine.Modular para ver solo sus registros.
+    DirectoryEngine? Engine = null);

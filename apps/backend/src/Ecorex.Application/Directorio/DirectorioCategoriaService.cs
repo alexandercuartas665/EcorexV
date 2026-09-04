@@ -25,8 +25,91 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
         _tenant = tenant;
     }
 
+    public async Task EnsureDefaultsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return; }
+        // Idempotente: si ya hay categorias Modular, no re-siembra.
+        if (await _db.DirectorioCategorias.AnyAsync(cancellationToken)) { return; }
+
+        // 1) Secciones -> TerceroFichaDefinition con clave prefijada "mod_" (separacion del Clasico).
+        var secOrder = 0;
+        foreach (var s in DirectorioModularDefaults.Secciones)
+        {
+            _app.TerceroFichaDefinitions.Add(new TerceroFichaDefinition
+            {
+                TenantId = tenantId,
+                FichaKey = DirectorioModularDefaults.SeccionKey(s.Key),
+                Title = s.Title,
+                Icono = s.Icono,
+                Color = s.Color,
+                AplicaA = s.AplicaA,
+                Areas = s.Areas,
+                Protegida = s.Protegida,
+                SortOrder = secOrder++,
+                IsSystem = true
+            });
+        }
+
+        // 2) Campos -> TerceroFieldDefinition (FichaKey = clave de seccion prefijada).
+        var fieldOrder = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var c in DirectorioModularDefaults.Campos)
+        {
+            var fk = DirectorioModularDefaults.SeccionKey(c.Seccion);
+            var so = fieldOrder.TryGetValue(fk, out var v) ? v : 0;
+            fieldOrder[fk] = so + 1;
+            _app.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+            {
+                TenantId = tenantId,
+                FichaKey = fk,
+                FieldKey = c.Key,
+                Label = c.Label,
+                FieldType = c.Type,
+                Column = c.Column,
+                Options = c.Options,
+                RequeridoEn = c.RequeridoEn,
+                ReadOnly = c.ReadOnly,
+                ShowInFilter = c.ShowInFilter,
+                SortOrder = so,
+                IsSystem = true
+            });
+        }
+
+        // 3) Categorias + composicion (tablas propias del motor Modular).
+        var catOrder = 0;
+        foreach (var cat in DirectorioModularDefaults.Categorias)
+        {
+            _db.DirectorioCategorias.Add(new DirectorioCategoria
+            {
+                TenantId = tenantId,
+                CategoriaKey = cat.Key,
+                Title = cat.Title,
+                Icono = cat.Icono,
+                Color = cat.Color,
+                Areas = cat.Areas,
+                Protegido = cat.Protegido,
+                HomologaSeccion = cat.HomologaSeccion is null ? null : DirectorioModularDefaults.SeccionKey(cat.HomologaSeccion),
+                SortOrder = catOrder++,
+                IsSystem = true
+            });
+            var compOrder = 0;
+            foreach (var sk in cat.Secciones)
+            {
+                _db.DirectorioCategoriaSecciones.Add(new DirectorioCategoriaSeccion
+                {
+                    TenantId = tenantId,
+                    CategoriaKey = cat.Key,
+                    FichaKey = DirectorioModularDefaults.SeccionKey(sk),
+                    Orden = compOrder++
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<DirectorioCategoriaDto>> ListAsync(CancellationToken cancellationToken = default)
     {
+        await EnsureDefaultsAsync(cancellationToken);
         return await _db.DirectorioCategorias.AsNoTracking()
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Title)
             .Select(c => Map(c))

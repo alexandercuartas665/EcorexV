@@ -93,7 +93,8 @@ public sealed class TerceroService : ITerceroService
         // Claves marcadas "ofrecer como filtro" (ADR-0029). Se consultan una vez, no por fila.
         var filterKeys = await _db.TerceroFieldDefinitions
             .AsNoTracking()
-            .Where(f => f.ShowInFilter)
+            // Excluye campos de secciones del motor Modular (clave "mod_"): no aplican al listado Clasico (Capa 8).
+            .Where(f => f.ShowInFilter && !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
             .Select(f => f.FieldKey)
             .ToListAsync(cancellationToken);
 

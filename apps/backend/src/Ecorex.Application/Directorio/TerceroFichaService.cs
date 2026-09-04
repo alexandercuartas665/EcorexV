@@ -56,7 +56,10 @@ public sealed class TerceroFichaService : ITerceroFichaService
     public async Task EnsureDefaultsAsync(CancellationToken cancellationToken = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return; }
-        var existingKeys = await _db.TerceroFichaDefinitions.Select(f => f.FichaKey).ToListAsync(cancellationToken);
+        // Excluye las secciones del motor Modular (clave "mod_"): son espacio aparte (Capa 8, opcion A).
+        var existingKeys = await _db.TerceroFichaDefinitions
+            .Where(f => !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
+            .Select(f => f.FichaKey).ToListAsync(cancellationToken);
         if (existingKeys.Count == 0)
         {
             _db.TerceroFichaDefinitions.AddRange(BuildDefaultFichas(tenantId));
@@ -85,6 +88,7 @@ public sealed class TerceroFichaService : ITerceroFichaService
     {
         await EnsureDefaultsAsync(cancellationToken);
         return await _db.TerceroFichaDefinitions.AsNoTracking()
+            .Where(f => !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix)) // oculta secciones Modular (Capa 8)
             .OrderBy(f => f.SortOrder).ThenBy(f => f.Title)
             .Select(f => new TerceroFichaDto(f.Id, f.FichaKey, f.Title, f.Description, f.Color, f.Perfil, f.SortOrder, f.IsSystem, f.IsHidden))
             .ToListAsync(cancellationToken);

@@ -9,7 +9,11 @@ namespace Ecorex.Application.Directorio;
 /// </summary>
 public interface IDirectorioCategoriaService
 {
-    /// <summary>Categorias del tenant, ordenadas por SortOrder y luego Title.</summary>
+    /// <summary>Siembra idempotente de las categorias/secciones/campos por defecto del prototipo
+    /// (opcion A: secciones con clave prefijada "mod_"). No re-siembra si ya hay categorias.</summary>
+    Task EnsureDefaultsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Categorias del tenant, ordenadas por SortOrder y luego Title. Siembra por defecto si no hay.</summary>
     Task<IReadOnlyList<DirectorioCategoriaDto>> ListAsync(CancellationToken cancellationToken = default);
 
     Task<DirectorioCategoriaDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);

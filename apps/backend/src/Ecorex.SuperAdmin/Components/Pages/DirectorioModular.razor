@@ -28,6 +28,29 @@
 
     <DirectorioModularFichaModal CategoriaKey="@_nuevoKey" OnClosed="() => _nuevoKey = null" OnSaved="OnCreatedAsync" />
 
+    @* --- Mini-modal: nueva categoria --- *@
+    @if (_nuevaCatOpen)
+    {
+        <div class="dm-ov" @onclick="() => _nuevaCatOpen = false">
+            <div class="dm-dlg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Nueva categoria</div>
+                    <button class="dm-dlg-x" @onclick="() => _nuevaCatOpen = false">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <label class="dm-dlg-lbl">Nombre de la categoria</label>
+                    <input class="dm-dlg-input" @bind="_nuevaCatTitle" @bind:event="oninput" placeholder="Ej. Aliados, Transportadores..." />
+                    <p class="dm-dlg-hint">Se creara vacia; luego le agregas secciones desde "Configurar directorio".</p>
+                    @if (_nuevaCatError is not null) { <div class="dm-dlg-err">@_nuevaCatError</div> }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="() => _nuevaCatOpen = false" disabled="@_busy">Cancelar</button>
+                    <button class="dm-btn-primary" @onclick="CrearCategoriaAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear")</button>
+                </div>
+            </div>
+        </div>
+    }
+
     @if (_loading)
     {
         <p class="dm-muted">Cargando...</p>
@@ -39,7 +62,7 @@
             @{ var accent = _activo?.Color ?? "#4f46e5"; }
             <div class="dm-card">
                 <span class="dm-card-ico" style="background:@Tint(accent)"><i class="fa @(_activo?.Icono ?? "fa-address-book")" style="color:@accent"></i></span>
-                <div><div class="dm-card-n" style="color:@accent">@_total</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
+                <div><div class="dm-card-n" style="color:@accent">@(_activo is null ? _total : CatCount(_activo))</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
             </div>
             <div class="dm-card">
                 <span class="dm-card-ico" style="background:@Tint("#0ea5e9")"><i class="fa fa-building" style="color:#0ea5e9"></i></span>
@@ -72,6 +95,7 @@
                     @if (c.Protegido) { <span class="dm-lock" title="Categoria base (no se elimina)"><i class="fa fa-lock"></i></span> }
                 </button>
             }
+            <button class="dm-tab-add" title="Crear categoria" @onclick="() => { _nuevaCatOpen = true; _nuevaCatTitle = string.Empty; _nuevaCatError = null; }"><i class="fa fa-plus"></i></button>
         </div>
 
         @* --- Buscador (visual en este slice) --- *@
@@ -203,6 +227,21 @@
     .dm-tabs-lbl { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; align-self: center; margin-right: 2px; }
     .dm-tab-n { background: rgba(17,24,39,.06); color: inherit; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 2px; }
     .dm-tab.on .dm-tab-n { background: color-mix(in srgb, var(--dm-accent) 22%, #fff); }
+    .dm-tab-add { border: 1px dashed #c7cbd1; background: #fff; color: #6b7280; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+    .dm-tab-add:hover { border-color: #4f46e5; color: #4f46e5; }
+
+    .dm-ov { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 20px; }
+    .dm-dlg { background: #fff; border-radius: 13px; width: 440px; max-width: 94vw; box-shadow: 0 20px 50px rgba(16,24,40,.25); }
+    .dm-dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #eef0f3; }
+    .dm-dlg-title { font-size: 16px; font-weight: 800; color: #111827; }
+    .dm-dlg-x { background: none; border: none; font-size: 22px; color: #9ca3af; cursor: pointer; line-height: 1; }
+    .dm-dlg-body { padding: 18px 20px; }
+    .dm-dlg-lbl { font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 6px; }
+    .dm-dlg-input { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 9px 11px; font-size: 13px; outline: none; }
+    .dm-dlg-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .dm-dlg-hint { font-size: 11.5px; color: #9ca3af; margin: 8px 0 0; }
+    .dm-dlg-err { color: #dc2626; font-size: 12.5px; font-weight: 600; margin-top: 8px; }
+    .dm-dlg-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #eef0f3; }
 
     .dm-search { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 9px 13px; margin-bottom: 14px; color: #9ca3af; }
     .dm-search input { border: none; outline: none; flex: 1; font-size: 13px; color: #374151; background: transparent; }
@@ -251,7 +290,11 @@
 
 @code {
     private bool _loading = true;
+    private bool _busy;
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
+    private bool _nuevaCatOpen;
+    private string _nuevaCatTitle = string.Empty;
+    private string? _nuevaCatError;
     private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
     private IReadOnlyDictionary<string, int> _catCounts = new Dictionary<string, int>();
     private IReadOnlyDictionary<Guid, List<string>> _memberships = new Dictionary<Guid, List<string>>();
@@ -301,6 +344,25 @@
 
     // Fondo tenue del color de acento para el icono de la tarjeta / chip.
     private static string Tint(string hex) => $"color-mix(in srgb, {hex} 14%, #fff)";
+
+    private async Task CrearCategoriaAsync()
+    {
+        _nuevaCatError = null;
+        var title = (_nuevaCatTitle ?? string.Empty).Trim();
+        if (title.Length is 0 or > 80) { _nuevaCatError = "El nombre es obligatorio (maximo 80)."; return; }
+        _busy = true;
+        try
+        {
+            var dto = await Cats.CreateAsync(new CreateDirectorioCategoriaRequest(title));
+            if (dto is null) { _nuevaCatError = "No se pudo crear la categoria."; return; }
+            _nuevaCatOpen = false;
+            _cats = await Cats.ListAsync();
+            _catCounts = await Cats.CountByCategoriaAsync();
+            _activo = _cats.FirstOrDefault(c => c.CategoriaKey == dto.CategoriaKey) ?? _activo;
+        }
+        catch (Exception ex) { _nuevaCatError = ex.Message; }
+        finally { _busy = false; }
+    }
 
     private void ToggleExpand(Guid id)
     {

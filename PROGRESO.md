@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-04 - v0.15.172: lector del tablero movil - descendientes (hijo/nieto) + flujo siempre al paso
+
+- Pedido: al escanear, la tarea "salto a otro tablero y genero otro codigo"; el lector debe encontrar tambien
+  cualquier HIJO/NIETO de la tarea. Y si la tarea tiene FLUJO, debe saltar entre los PASOS del flujo, no columnas.
+- Hallazgo: el unico enlace tarea->tarea era subtarea (ParentId, un nivel); las tareas generadas por regla/flujo
+  NO guardaban enlace a la origen. Decision del usuario: agregar el enlace.
+- Cambios:
+  1. Dominio: TaskItem.SourceTaskId (tarea ORIGEN que la genero, distinto de ParentId; puede encadenarse) +
+     EF config (FK Restrict, indices) + migracion DUAL aditiva (source_task_id nullable).
+  2. CreateTaskItemRequest.SourceTaskId + CreateAsync lo persiste; GenerarTareasDesdeTablaVerb lo setea con
+     context.TaskItemId (la tarea que disparo la regla/flujo).
+  3. ActivityCardDto.HasFlow (WorkflowInstanceId != null), poblado por el board service.
+  4. IActivityBoardService.ResolveScannedTaskOnBoardAsync: dado un numero escaneado, devuelve la tarjeta de
+     ESE tablero que sea la tarea o un DESCENDIENTE (BFS por SourceTaskId, hasta 6 niveles).
+  5. MovilTablero.HandleCodeAsync: match directo -> si no, resolver descendiente en el tablero; y si la tarjeta
+     tiene flujo, SIEMPRE abre el paso pendiente del flujo (si no hay paso, avisa dentro del lector), nunca
+     ofrece avance por columna. Sin flujo: avance por columna como antes.
+- Verificado en dev (AGROMETALICAS): migracion aplica al arrancar; el lector muestra "No se encontro 'X' (ni un
+  hijo/nieto de esa tarea)" dentro de la hoja (ResolveScannedTaskOnBoardAsync corrio sin excepcion). Build
+  Release verde; matriz dual sin cambios de modelo pendientes (PG + SQL Server "No changes").
+- Nota EF: NO usar dotnet ef con --no-build (daba snapshots stale y PendingModelChangesWarning); se regenero
+  con build fresco.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-04 - v0.15.171: webhook ENTRANTE de YCloud (recibir mensajes)
 
 - Gap: YCloud estaba integrado solo para ENVIAR; no habia webhook entrante ni URL en la UI (por eso el

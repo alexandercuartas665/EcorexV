@@ -138,7 +138,10 @@ public sealed record ActivityCardDto(
     // subtareas (mismo criterio que ChecklistPct) para que texto y barra coincidan.
     int SubtaskDone = 0, int SubtaskTotal = 0,
     // Solicitante de la tarea: para agrupar la vista Lista por este campo (ADR-0065).
-    string? RequesterName = null);
+    string? RequesterName = null,
+    // La tarea esta gobernada por un FLUJO (WorkflowInstanceId != null). El lector movil, al escanear una
+    // tarea con flujo, abre su paso ACTUAL en vez de ofrecer avance por columna.
+    bool HasFlow = false);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,

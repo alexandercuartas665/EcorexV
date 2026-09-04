@@ -11656,6 +11656,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("requester_phone");
 
+                    b.Property<Guid?>("SourceTaskId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("source_task_id");
+
                     b.Property<DateTimeOffset?>("StartDate")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("start_date");
@@ -11724,6 +11728,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_task_items_project_id");
 
+                    b.HasIndex("SourceTaskId")
+                        .HasDatabaseName("ix_task_items_source_task_id");
+
                     b.HasIndex("SubcategoriaId")
                         .HasDatabaseName("ix_task_items_subcategoria_id");
 
@@ -11745,6 +11752,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("TenantId", "ProjectId")
                         .HasDatabaseName("ix_task_items_tenant_id_project_id");
+
+                    b.HasIndex("TenantId", "SourceTaskId")
+                        .HasDatabaseName("ix_task_items_tenant_id_source_task_id");
 
                     b.HasIndex("TenantId", "SubcategoriaId")
                         .HasDatabaseName("ix_task_items_tenant_id_subcategoria_id");
@@ -16692,6 +16702,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_projects_project_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "SourceTask")
+                        .WithMany()
+                        .HasForeignKey("SourceTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_task_items_source_task_id");
+
                     b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
                         .WithMany()
                         .HasForeignKey("SubcategoriaId")
@@ -16719,6 +16735,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Parent");
 
                     b.Navigation("Project");
+
+                    b.Navigation("SourceTask");
 
                     b.Navigation("Subcategoria");
 

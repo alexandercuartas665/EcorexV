@@ -535,7 +535,8 @@ public sealed class ActivityBoardService : IActivityBoardService
                     t.ParentId != null,
                     t.ParentId is Guid pnid && parentNumbers.TryGetValue(pnid, out var pnum) ? pnum : null,
                     sub.Done, sub.Total,
-                    t.RequesterName);
+                    t.RequesterName,
+                    t.WorkflowInstanceId != null);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();
@@ -545,6 +546,40 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.IsArchived, columnDtos,
             new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
             board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson)));
+    }
+
+    public async Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default)
+    {
+        var num = (scannedNumber ?? string.Empty).Trim();
+        if (num.Length == 0) { return null; }
+
+        // La tarea escaneada por su numero (filtro global aplica el tenant activo).
+        var scanned = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Number == num)
+            .Select(t => new { t.Id, t.BoardId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (scanned is null) { return null; }
+
+        // Si la propia tarea vive en el tablero, esa es la tarjeta.
+        if (scanned.BoardId == boardId) { return scanned.Id; }
+
+        // Descendientes por SourceTaskId (hijo, nieto, ...). BFS acotado (6 niveles) para no recorrer de mas;
+        // cubre el caso "la tarea genero otro codigo en otro tablero" a cualquier profundidad razonable.
+        var frontier = new List<Guid> { scanned.Id };
+        var visited = new HashSet<Guid> { scanned.Id };
+        for (var depth = 0; depth < 6 && frontier.Count > 0; depth++)
+        {
+            var children = await _db.TaskItems.AsNoTracking()
+                .Where(t => t.SourceTaskId != null && frontier.Contains(t.SourceTaskId.Value) && !t.IsArchived)
+                .Select(t => new { t.Id, t.BoardId })
+                .ToListAsync(cancellationToken);
+
+            var onBoard = children.FirstOrDefault(c => c.BoardId == boardId);
+            if (onBoard is not null) { return onBoard.Id; }
+
+            frontier = children.Select(c => c.Id).Where(id => visited.Add(id)).ToList();
+        }
+        return null;
     }
 
     /// <summary>Deserializa los motivos de cierre del tablero (arreglo JSON de textos); vacio si null/invalido.</summary>

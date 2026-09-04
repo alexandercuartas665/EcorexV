@@ -1289,6 +1289,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Parent).WithMany()
                 .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ParentId });
+            // Tarea origen que genero esta (regla/flujo). Sin cascada (Restrict); indice para seguir la cadena.
+            b.HasOne(x => x.SourceTask).WithMany()
+                .HasForeignKey(x => x.SourceTaskId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.SourceTaskId });
             // Consecutivo legible unico por tenant (emitido por TenantSequence).
             b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });

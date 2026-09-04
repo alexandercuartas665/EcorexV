@@ -80,7 +80,10 @@ public sealed class GenerarTareasDesdeTablaVerb : IRuleVerb
             var fullTitle = (titlePrefix + title).Trim();
             fullTitle = fullTitle.Length > 200 ? fullTitle[..200] : fullTitle;
             var result = await _tasks.CreateAsync(
-                new CreateTaskItemRequest(fullTitle, activityTypeId, description, AssigneeTenantUserId: assignee),
+                // SourceTaskId = la tarea que disparo la regla/flujo: deja la cadena origen->generada para que el
+                // lector del tablero movil pueda localizar la tarjeta descendiente al escanear el codigo origen.
+                new CreateTaskItemRequest(fullTitle, activityTypeId, description, AssigneeTenantUserId: assignee,
+                    SourceTaskId: context.TaskItemId),
                 context.ActorUserId ?? Guid.Empty, context.ActorName, cancellationToken);
             if (!result.IsOk)
             {

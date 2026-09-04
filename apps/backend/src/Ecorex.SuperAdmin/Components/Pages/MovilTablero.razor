@@ -421,44 +421,58 @@
         _scanError = null;   // limpia el resultado del intento anterior
 
         var cols = _detail.Columns.OrderBy(c => c.SortOrder).ToList();
-        ActivityCardDto? found = null;
-        int colIdx = -1;
-        for (var i = 0; i < cols.Count; i++)
+
+        // 1) Match DIRECTO por numero en el tablero cargado.
+        var (found, colIdx) = FindCard(cols, c => string.Equals(c.Number, raw, StringComparison.OrdinalIgnoreCase));
+
+        // 2) Si no esta directo, la tarea pudo haber SALTADO a otro tablero generando un nuevo codigo: se busca
+        //    un DESCENDIENTE (hijo/nieto generado por regla/flujo, via SourceTaskId) que viva en ESTE tablero.
+        if (found is null && _boardId is Guid bid)
         {
-            var m = cols[i].Cards.FirstOrDefault(c => string.Equals(c.Number, raw, StringComparison.OrdinalIgnoreCase));
-            if (m is not null) { found = m; colIdx = i; break; }
+            var tid = await BoardsSvc.ResolveScannedTaskOnBoardAsync(bid, raw);
+            if (tid is Guid g) { (found, colIdx) = FindCard(cols, c => c.Id == g); }
         }
+
         if (found is null)
         {
-            // NO se cierra la hoja: el mensaje se muestra DENTRO del lector y se re-arma la camara para que
-            // el operario reintente de inmediato (antes el toast salia detras y solo se veia al cerrar).
-            _scanError = $"No se encontro '{raw}' en este tablero.";
+            // NO se cierra la hoja: el mensaje se muestra DENTRO del lector y se re-arma la camara para reintentar.
+            _scanError = $"No se encontro '{raw}' (ni un hijo/nieto de esa tarea) en este tablero.";
             _scanManual = null;
             await RestartCameraAsync();
             return;
         }
 
-        // Si la actividad esta gobernada por un FLUJO, el escaneo abre EL PUNTO donde esta el proceso
-        // (el formulario del paso pendiente), no un simple avance de columna: el operario concreta la
-        // accion ahi (incluida una compuerta exclusiva). Al enviar, el flujo avanza y mueve la tarjeta.
-        try
+        // 3) Si la tarea tiene FLUJO: SIEMPRE se va al paso ACTUAL del flujo (nunca avance por columna). El
+        //    operario concreta la accion ahi (formulario del paso + eventual compuerta); al enviar, el flujo
+        //    avanza y mueve la tarjeta.
+        if (found.HasFlow)
         {
-            var steps = await FormsSvc.GetTaskStepFormsAsync(found.Id);
-            var pending = steps.FirstOrDefault(s => s.LinkStatus == FormFlowLinkStatus.Pending);
+            TaskStepFormDto? pending = null;
+            try
+            {
+                var steps = await FormsSvc.GetTaskStepFormsAsync(found.Id);
+                pending = steps.FirstOrDefault(s => s.LinkStatus == FormFlowLinkStatus.Pending);
+            }
+            catch { /* si falla la lectura del paso, se avisa abajo */ }
+
             if (pending is not null)
             {
-                await CloseScanAsync();   // exito: el lector cede paso al formulario del paso del flujo
+                await CloseScanAsync();   // el lector cede paso al formulario del paso del flujo
                 _stepCard = found;
                 _stepForm = pending;
                 return;
             }
+            // Tiene flujo pero sin paso pendiente que atender desde el lector: se avisa DENTRO de la hoja y NO se
+            // ofrece avance por columna (el flujo manda).
+            _scanError = $"{found.Number}: su flujo no tiene un paso pendiente para atender desde aqui.";
+            _scanManual = null;
+            await RestartCameraAsync();
+            return;
         }
-        catch { /* si falla la lectura del paso, se cae al avance por columna */ }
 
-        // Sin flujo (o sin paso con formulario pendiente): avance lineal por tablero con confirmacion.
+        // 4) Sin flujo: avance lineal por columna con confirmacion (como hasta ahora).
         if (colIdx >= cols.Count - 1)
         {
-            // Tarjeta valida pero sin avance posible: tambien se avisa DENTRO de la hoja y se re-arma la camara.
             _scanError = $"{found.Number} ya esta en el ultimo estado ({cols[colIdx].Name}).";
             _scanManual = null;
             await RestartCameraAsync();
@@ -468,6 +482,17 @@
         _pendingCard = found;
         _pendingFrom = cols[colIdx];
         _pendingTo = cols[colIdx + 1];
+    }
+
+    // Primera tarjeta que cumple el predicado (recorriendo columnas en orden) + el indice de su columna.
+    private static (ActivityCardDto? Card, int ColIdx) FindCard(List<ActivityBoardColumnDto> cols, Func<ActivityCardDto, bool> match)
+    {
+        for (var i = 0; i < cols.Count; i++)
+        {
+            var m = cols[i].Cards.FirstOrDefault(match);
+            if (m is not null) { return (m, i); }
+        }
+        return (null, -1);
     }
 
     // El formulario del paso se envio: el flujo ya avanzo (movio la tarjeta a la columna del siguiente

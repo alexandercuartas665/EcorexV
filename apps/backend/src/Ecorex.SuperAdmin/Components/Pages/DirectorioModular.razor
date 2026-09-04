@@ -100,13 +100,29 @@
             <button class="dm-tab-add" title="Crear categoria" @onclick="() => { _nuevaCatOpen = true; _nuevaCatTitle = string.Empty; _nuevaCatError = null; }"><i class="fa fa-plus"></i></button>
         </div>
 
-        @* --- Buscador (visual en este slice) --- *@
-        <div class="dm-search"><i class="fa fa-search"></i><input placeholder="Buscar por nombre, NIT, telefono, correo, codigo..." disabled /></div>
+        @* --- Buscador --- *@
+        <div class="dm-search">
+            <i class="fa fa-search"></i>
+            <input placeholder="Buscar por nombre, NIT, telefono, correo, codigo..." @bind="_search" @bind:event="oninput" />
+            @if (!string.IsNullOrWhiteSpace(_search))
+            {
+                <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>
+            }
+        </div>
 
-        @* --- Listado --- *@
-        @if (_rows.Count == 0)
+        @* --- Listado (filtrado por categoria activa + busqueda) --- *@
+        @if (Visibles().Count == 0)
         {
-            <div class="dm-empty">Aun no hay terceros en el catalogo.</div>
+            <div class="dm-empty">
+                @if (_rows.Count == 0)
+                {
+                    <text>Aun no hay terceros en el catalogo.</text>
+                }
+                else
+                {
+                    <text>Ningun tercero coincide con el filtro actual.</text>
+                }
+            </div>
         }
         else
         {
@@ -123,7 +139,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var t in _rows)
+                        @foreach (var t in Visibles())
                         {
                             var tid = t.Id;
                             var canExpand = t.EsEmpresa && t.ContadorContactos > 0;
@@ -249,6 +265,8 @@
 
     .dm-search { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 9px 13px; margin-bottom: 14px; color: #9ca3af; }
     .dm-search input { border: none; outline: none; flex: 1; font-size: 13px; color: #374151; background: transparent; }
+    .dm-search-x { border: none; background: none; color: #9ca3af; cursor: pointer; padding: 0 2px; font-size: 13px; }
+    .dm-search-x:hover { color: #111827; }
 
     .dm-table-wrap { border: 1px solid #eef0f3; border-radius: 12px; overflow: hidden; background: #fff; }
     .dm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -297,6 +315,7 @@
     private bool _busy;
     private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
     private bool _configOpen;    // modal "Configurar directorio" abierto
+    private string _search = string.Empty;   // texto de busqueda del listado
     private bool _nuevaCatOpen;
     private string _nuevaCatTitle = string.Empty;
     private string? _nuevaCatError;
@@ -355,6 +374,51 @@
             _activo = _cats.FirstOrDefault(c => c.CategoriaKey == _activo.CategoriaKey) ?? _cats.FirstOrDefault();
         }
     }
+
+    // Filas visibles del listado: filtradas por la categoria activa (la base Publico muestra todo) y por
+    // el texto de busqueda (nombre, identificacion, ciudad, subtitulo y valores filtrables).
+    private List<TerceroListItemDto> Visibles()
+    {
+        IEnumerable<TerceroListItemDto> q = _rows;
+
+        // Filtro por categoria: la base (Publico/protegida) no filtra; las demas, por pertenencia.
+        if (_activo is not null && !_activo.Protegido)
+        {
+            var key = _activo.CategoriaKey;
+            q = q.Where(t => _memberships.TryGetValue(t.Id, out var ks) && ks.Contains(key));
+        }
+
+        // Busqueda libre (case/acentos-insensible simple por minusculas).
+        var term = (_search ?? string.Empty).Trim();
+        if (term.Length > 0)
+        {
+            var needle = term.ToLowerInvariant();
+            q = q.Where(t => Coincide(t, needle));
+        }
+
+        return q.ToList();
+    }
+
+    private static bool Coincide(TerceroListItemDto t, string needle)
+    {
+        if (Contiene(t.Nombre, needle) || Contiene(t.Identificacion, needle)
+            || Contiene(t.Ciudad, needle) || Contiene(t.Sub, needle)
+            || Contiene(t.Vendedor, needle) || Contiene(t.VendedorAsesorNombre, needle))
+        {
+            return true;
+        }
+        if (t.Filtrables is not null)
+        {
+            foreach (var v in t.Filtrables.Values)
+            {
+                if (Contiene(v, needle)) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static bool Contiene(string? hay, string needle)
+        => !string.IsNullOrEmpty(hay) && hay.ToLowerInvariant().Contains(needle);
 
     // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
     private int CatCount(DirectorioCategoriaDto c)

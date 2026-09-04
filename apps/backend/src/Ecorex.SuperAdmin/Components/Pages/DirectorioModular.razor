@@ -16,7 +16,7 @@
         <div>
             <div class="dm-eyebrow">Catalogo 000232 &middot; motor avanzado</div>
             <h1 class="dm-title">Directorio Modular</h1>
-            <p class="dm-sub">Catalogo de terceros por categorias. La ficha se arma con las secciones que cada categoria escoge.</p>
+            <p class="dm-sub">Aqui encontraras todas las personas y organizaciones que han tenido y que mantienen relacion con la empresa, clasificadas segun su categoria dentro del directorio.</p>
         </div>
     </div>
 
@@ -85,7 +85,8 @@
         @* --- Pestanas de categorias con conteo --- *@
         <div class="dm-tabs">
             <span class="dm-tabs-lbl">Categoria:</span>
-            @foreach (var c in _cats)
+            @* Orden como el prototipo: Publico (base) primero, el resto alfabetico. *@
+            @foreach (var c in _cats.OrderBy(x => x.CategoriaKey == "publico" ? 0 : 1).ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase))
             {
                 var on = _activo?.CategoriaKey == c.CategoriaKey;
                 <button class="dm-tab @(on ? "on" : "")" style="@(on ? $"--dm-accent:{c.Color ?? "#4f46e5"}" : "")"
@@ -203,12 +204,14 @@
     .dm-title { font-size: 24px; font-weight: 800; margin: 2px 0 4px; }
     .dm-sub { font-size: 13px; color: #6b7280; margin: 0; max-width: 640px; }
     .dm-muted { color: #9ca3af; font-size: 12.5px; }
-    .dm-btn-primary { background: #4f46e5; color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: not-allowed; opacity: .55; white-space: nowrap; }
+    .dm-btn-primary { background: #111827; color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
+    .dm-btn-primary:hover { background: #0b0f1a; }
+    .dm-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 
     .dm-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #eef0f3; padding-bottom: 12px; margin-bottom: 16px; }
     .dm-tab { --dm-accent: #4f46e5; display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .12s; }
     .dm-tab:hover { border-color: #c7cbd1; }
-    .dm-tab.on { background: color-mix(in srgb, var(--dm-accent) 12%, #fff); border-color: var(--dm-accent); color: var(--dm-accent); }
+    .dm-tab.on { background: #111827; border-color: #111827; color: #fff; }
     .dm-tab i { font-size: 12px; }
     .dm-lock { opacity: .6; font-size: 10px; }
 
@@ -226,7 +229,7 @@
 
     .dm-tabs-lbl { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; align-self: center; margin-right: 2px; }
     .dm-tab-n { background: rgba(17,24,39,.06); color: inherit; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 2px; }
-    .dm-tab.on .dm-tab-n { background: color-mix(in srgb, var(--dm-accent) 22%, #fff); }
+    .dm-tab.on .dm-tab-n { background: rgba(255,255,255,.22); color: #fff; }
     .dm-tab-add { border: 1px dashed #c7cbd1; background: #fff; color: #6b7280; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
     .dm-tab-add:hover { border-color: #4f46e5; color: #4f46e5; }
 

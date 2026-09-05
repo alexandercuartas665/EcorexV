@@ -200,7 +200,8 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
     public async Task<int> CountClasicoAsync(CancellationToken cancellationToken = default)
         => await _app.Terceros.CountAsync(
-            t => t.DirectoryEngine == DirectoryEngine.Clasico && t.EmpresaId == null, cancellationToken);
+            t => t.DirectoryEngine == DirectoryEngine.Clasico && t.EmpresaId == null
+                && t.Estado != TerceroEstado.Inactivo, cancellationToken);
 
     public async Task<int> MigrateAllFromClasicoAsync(CancellationToken cancellationToken = default)
     {

@@ -198,6 +198,64 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         return null;
     }
 
+    public async Task<(int Done, int Failed)> ImportAsync(string categoriaKey, IReadOnlyList<TerceroImportXlsx.TerceroImportRow> rows, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return (0, rows.Count(r => r.IsValid)); }
+        var key = (categoriaKey ?? string.Empty).Trim();
+        if (!await _db.DirectorioCategorias.AnyAsync(c => c.CategoriaKey == key, cancellationToken))
+        {
+            return (0, rows.Count(r => r.IsValid));
+        }
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+
+        int done = 0, failed = 0;
+        foreach (var row in rows.Where(r => r.IsValid))
+        {
+            try
+            {
+                var esEmpresa = row.Tipo == TerceroTipo.Empresa;
+                var t = new Tercero
+                {
+                    TenantId = tenantId,
+                    DirectoryEngine = DirectoryEngine.Modular,
+                    Nombre = row.Nombre,
+                    Tipo = row.Tipo,
+                    Perfiles = row.Perfiles,
+                    Estado = row.Estado,
+                    IdTipo = row.IdTipo,
+                    IdValor = row.NumeroId,
+                    Ciudad = row.Ciudad,
+                    Sector = esEmpresa ? row.Sector : null,
+                    Cargo = esEmpresa ? null : row.Cargo,
+                    Email = row.Email,
+                    Telefono = row.Telefono,
+                    Vendedor = row.VendedorAsesorId is null ? row.Vendedor : null,
+                    VendedorAsesorId = row.VendedorAsesorId
+                };
+
+                // Seccion publica mapeada, para que la ficha muestre los datos al editar.
+                var pub = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (esEmpresa) { pub["nombre_empresa"] = row.Nombre; } else { pub["contacto"] = row.Nombre; }
+                if (!string.IsNullOrWhiteSpace(row.NumeroId)) { pub["ide"] = row.NumeroId!; }
+                if (!string.IsNullOrWhiteSpace(row.Email)) { pub["correo"] = row.Email!; }
+                if (!string.IsNullOrWhiteSpace(row.Ciudad)) { pub["ciudad"] = row.Ciudad!; }
+                if (!esEmpresa && !string.IsNullOrWhiteSpace(row.Cargo)) { pub["cargo"] = row.Cargo!; }
+                if (!string.IsNullOrWhiteSpace(row.Telefono))
+                {
+                    pub[esEmpresa ? "telefono_empresa" : "telefono_contacto"] = row.Telefono!;
+                }
+                t.FichasJson = JsonSerializer.Serialize(new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal) { [pubKey] = pub });
+
+                t.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = key });
+                _app.Terceros.Add(t);
+                await _app.SaveChangesAsync(cancellationToken);
+                done++;
+            }
+            catch { failed++; }
+        }
+        return (done, failed);
+    }
+
     public async Task<int> CountClasicoAsync(CancellationToken cancellationToken = default)
         => await _app.Terceros.CountAsync(
             t => t.DirectoryEngine == DirectoryEngine.Clasico && t.EmpresaId == null

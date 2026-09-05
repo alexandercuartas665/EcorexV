@@ -6,10 +6,13 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
 @inject IDirectorioCategoriaService Cats
 @inject ITerceroService Terceros
 @inject IDirectorioModularFichaService Fichas
 @inject IDirectoryVariantService DirVariant
+@inject Ecorex.Application.Asesores.IAsesorService Asesores
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
@@ -24,7 +27,7 @@
     </div>
 
     <div class="dm-toolbar">
-        <button class="dm-btn" disabled title="Proximamente"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
+        <button class="dm-btn" @onclick="OpenImport"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
         <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
         <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
@@ -72,6 +75,58 @@
                 <div class="dm-dlg-foot">
                     <button class="dm-btn" @onclick="() => _delTarget = null" disabled="@_busy">Cancelar</button>
                     <button class="dm-btn-primary dm-btn-danger" @onclick="EliminarConfirmadoAsync" disabled="@_busy">@(_busy ? "Eliminando..." : "Eliminar")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- Modal: Importar por archivo (reusa la plantilla del Directorio basico) --- *@
+    @if (_impOpen)
+    {
+        <div class="dm-ov" @onclick="CloseImport">
+            <div class="dm-dlg dm-dlg-lg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Importar contactos por archivo</div>
+                    <button class="dm-dlg-x" @onclick="CloseImport">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <p class="dm-dlg-hint">Los contactos se crean en la categoria <strong>@(_activo?.Title ?? "Publico")</strong> del motor Modular. Usa la misma plantilla del Directorio basico.</p>
+                    <div class="dm-imp-actions">
+                        <button class="dm-btn" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl">
+                            <i class="fa fa-download"></i> @(_downloadingTpl ? "Generando..." : "Descargar plantilla")
+                        </button>
+                        <label class="dm-btn dm-imp-file">
+                            <i class="fa fa-file-arrow-up"></i> Elegir archivo .xlsx
+                            <InputFile OnChange="OnImportFileAsync" accept=".xlsx" style="display:none" />
+                        </label>
+                        @if (_impFileName is not null) { <span class="dm-muted">@_impFileName</span> }
+                    </div>
+
+                    @if (_impBusy && _impParse is null) { <div class="dm-muted">Leyendo archivo...</div> }
+                    @if (_impFatal is not null) { <div class="dm-dlg-err">@_impFatal</div> }
+
+                    @if (_impParse is not null && _impFatal is null)
+                    {
+                        <div class="dm-imp-sum">
+                            <span class="dm-imp-chip">Total: <strong>@_impParse.Total</strong></span>
+                            <span class="dm-imp-chip dm-imp-ok">A crear: <strong>@ImportableCount</strong></span>
+                            @if (_impParse.Invalid > 0) { <span class="dm-imp-chip dm-imp-bad">Con error: <strong>@_impParse.Invalid</strong></span> }
+                            @if (_impDupRows.Count > 0) { <span class="dm-imp-chip dm-imp-dup">Duplicados (se omiten): <strong>@_impDupRows.Count</strong></span> }
+                        </div>
+                        @if (_impFinished)
+                        {
+                            <div class="dm-dlg-hint">Importacion terminada: <strong>@_impDone creado(s)</strong>@(_impFailed > 0 ? $", {_impFailed} con error" : "")@(_impSkipped > 0 ? $", {_impSkipped} omitido(s)" : "").</div>
+                        }
+                    }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="CloseImport" disabled="@_impBusy">@(_impFinished ? "Cerrar" : "Cancelar")</button>
+                    @if (!_impFinished)
+                    {
+                        <button class="dm-btn-primary" @onclick="RunImportAsync" disabled="@(_impBusy || ImportableCount == 0)">
+                            @(_impBusy && _impParse is not null ? $"Importando... ({_impDone})" : $"Importar {ImportableCount}")
+                        </button>
+                    }
                 </div>
             </div>
         </div>
@@ -354,6 +409,14 @@
 
     .dm-ov { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 20px; }
     .dm-dlg { background: #fff; border-radius: 13px; width: 440px; max-width: 94vw; box-shadow: 0 20px 50px rgba(16,24,40,.25); }
+    .dm-dlg-lg { width: 620px; }
+    .dm-imp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+    .dm-imp-file { cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .dm-imp-sum { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .dm-imp-chip { font-size: 12px; background: #f3f4f6; color: #374151; border-radius: 999px; padding: 4px 11px; }
+    .dm-imp-ok { background: #ecfdf5; color: #047857; }
+    .dm-imp-bad { background: #fef2f2; color: #b91c1c; }
+    .dm-imp-dup { background: #fffbeb; color: #92400e; }
     .dm-dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #eef0f3; }
     .dm-dlg-title { font-size: 16px; font-weight: 800; color: #111827; }
     .dm-dlg-x { background: none; border: none; font-size: 22px; color: #9ca3af; cursor: pointer; line-height: 1; }
@@ -439,6 +502,15 @@
     private int _clasicoCount;               // contactos del motor Clasico pendientes de migrar
     private bool _migrarOpen;
     private string? _migrarError;
+
+    // --- Importar por archivo (reusa el parser/plantilla del Directorio basico) ---
+    private bool _impOpen, _impBusy, _impFinished, _downloadingTpl;
+    private string? _impFileName, _impFatal;
+    private TerceroImportXlsx.TerceroImportParse? _impParse;
+    private readonly HashSet<int> _impDupRows = new();
+    private int _impDone, _impFailed, _impSkipped;
+    private int ImportableCount => _impParse?.Rows.Count(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)) ?? 0;
+    private const long ImpMaxBytes = 12L * 1024 * 1024;
     private bool _nuevaCatOpen;
     private string _nuevaCatTitle = string.Empty;
     private string? _nuevaCatError;
@@ -488,6 +560,81 @@
         // "Por asignar" = terceros sin categoria mas alla de la base (se calcula tras cargar membresias).
         _porAsignar = _rows.Count(r => SoloBase(r.Id));
         _clasicoCount = await Fichas.CountClasicoAsync();
+    }
+
+    private void OpenImport()
+    {
+        _impOpen = true; _impParse = null; _impFatal = null; _impFileName = null;
+        _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+    }
+
+    private void CloseImport() { if (!_impBusy) { _impOpen = false; } }
+
+    private async Task DownloadTemplateAsync()
+    {
+        _downloadingTpl = true;
+        try
+        {
+            var asesores = await Asesores.ListOptionsAsync();
+            var vendedores = asesores.Select(a => a.Nombre);
+            var ciudades = _rows.Select(r => r.Ciudad).Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!);
+            var bytes = TerceroTemplateXlsx.Build(vendedores, ciudades);
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-directorio.xlsx", TerceroTemplateXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _downloadingTpl = false; }
+    }
+
+    private async Task OnImportFileAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _impFileName = file.Name;
+        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+        _impBusy = true;
+        try
+        {
+            if (file.Size > ImpMaxBytes) { _impFatal = "El archivo supera el limite de 12 MB."; return; }
+            using var ms = new System.IO.MemoryStream();
+            await file.OpenReadStream(ImpMaxBytes).CopyToAsync(ms);
+            ms.Position = 0;
+            var asesores = await Asesores.ListOptionsAsync();
+            var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in asesores) { byName[a.Nombre] = a.Id; }
+            _impParse = TerceroImportXlsx.Parse(ms, byName);
+            if (_impParse.FatalError is not null) { _impFatal = _impParse.FatalError; }
+            else { await ComputeDuplicatesAsync(); }
+        }
+        catch (Exception ex) { _impFatal = "No se pudo procesar el archivo: " + ex.Message; }
+        finally { _impBusy = false; }
+    }
+
+    private async Task ComputeDuplicatesAsync()
+    {
+        _impDupRows.Clear();
+        if (_impParse is null) { return; }
+        var keys = await Terceros.GetDedupKeysAsync();
+        var seenDocs = new HashSet<string>(keys.Documentos, StringComparer.Ordinal);
+        var seenNames = new HashSet<string>(keys.Nombres, StringComparer.Ordinal);
+        foreach (var row in _impParse.Rows.Where(r => r.IsValid))
+        {
+            var dup = row.DocKey is not null ? !seenDocs.Add(row.DocKey) : !seenNames.Add(row.NameKey);
+            if (dup) { _impDupRows.Add(row.RowNumber); }
+        }
+    }
+
+    private async Task RunImportAsync()
+    {
+        if (_impParse is null || _impBusy) { return; }
+        var toCreate = _impParse.Rows.Where(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)).ToList();
+        _impSkipped = _impParse.Rows.Count(r => r.IsValid && _impDupRows.Contains(r.RowNumber));
+        if (toCreate.Count == 0) { _impFinished = true; return; }
+        _impBusy = true; _impDone = 0; _impFailed = 0;
+        try
+        {
+            var (done, failed) = await Fichas.ImportAsync(_activo?.CategoriaKey ?? "publico", toCreate);
+            _impDone = done; _impFailed = failed; _impFinished = true;
+            await ReloadListAsync();
+        }
+        finally { _impBusy = false; }
     }
 
     private async Task MigrarAsync()

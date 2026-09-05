@@ -159,6 +159,25 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         }
         catch { valores = new(); }
 
+        // Migrados desde el Clasico no traen la seccion mod_publica: la sintetizamos de las columnas base
+        // para que el modal muestre los datos (nombre/ide/correo/telefono/ciudad/cargo).
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+        if (!valores.TryGetValue(pubKey, out var pub) || pub.Count == 0)
+        {
+            pub = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (t.Tipo == TerceroTipo.Empresa) { pub["nombre_empresa"] = t.Nombre ?? ""; }
+            else { pub["contacto"] = t.Nombre ?? ""; }
+            if (!string.IsNullOrWhiteSpace(t.IdValor)) { pub["ide"] = t.IdValor!; }
+            if (!string.IsNullOrWhiteSpace(t.Email)) { pub["correo"] = t.Email!; }
+            if (!string.IsNullOrWhiteSpace(t.Ciudad)) { pub["ciudad"] = t.Ciudad!; }
+            if (!string.IsNullOrWhiteSpace(t.Cargo)) { pub["cargo"] = t.Cargo!; }
+            if (!string.IsNullOrWhiteSpace(t.Telefono))
+            {
+                pub[t.Tipo == TerceroTipo.Persona ? "telefono_contacto" : "telefono_empresa"] = t.Telefono!;
+            }
+            valores[pubKey] = pub;
+        }
+
         var catKey = t.Categorias.FirstOrDefault()?.CategoriaKey;
         var estado = t.Estado == TerceroEstado.Inactivo ? "Inactivo" : "Activo";
         return new ModularEditDto(t.Id, catKey, estado, valores);
@@ -177,6 +196,48 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
         await _app.SaveChangesAsync(cancellationToken);
         return null;
+    }
+
+    public async Task<int> CountClasicoAsync(CancellationToken cancellationToken = default)
+        => await _app.Terceros.CountAsync(
+            t => t.DirectoryEngine == DirectoryEngine.Clasico && t.EmpresaId == null, cancellationToken);
+
+    public async Task<int> MigrateAllFromClasicoAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return 0; }
+        const string baseCat = "publico";
+
+        // Solo migra si existe la categoria base (el seed ya corrio). Evita dejar terceros sin pestana.
+        if (!await _db.DirectorioCategorias.AnyAsync(c => c.CategoriaKey == baseCat, cancellationToken))
+        {
+            return 0;
+        }
+
+        // 1) Estampa el motor en BLOQUE (ExecuteUpdate): evita el token de concurrencia Version (ADR-0013)
+        //    y respeta el filtro global de tenant. Los campos base (nombre/ide/correo/...) ya viven en las
+        //    columnas del Tercero, asi que el listado Modular los muestra sin tocar FichasJson.
+        var migrados = await _app.Terceros
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Clasico)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.DirectoryEngine, DirectoryEngine.Modular), cancellationToken);
+        if (migrados == 0) { return 0; }
+
+        // 2) Asigna a la categoria base los terceros de nivel raiz que aun no pertenezcan (solo inserts,
+        //    sin token de concurrencia). Idempotente.
+        var yaMiembros = (await _db.TerceroCategorias
+            .Where(tc => tc.CategoriaKey == baseCat)
+            .Select(tc => tc.TerceroId)
+            .ToListAsync(cancellationToken)).ToHashSet();
+        var raiz = await _app.Terceros
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular && t.EmpresaId == null)
+            .Select(t => t.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var id in raiz)
+        {
+            if (yaMiembros.Contains(id)) { continue; }
+            _db.TerceroCategorias.Add(new TerceroCategoria { TenantId = tenantId, TerceroId = id, CategoriaKey = baseCat });
+        }
+        await _app.SaveChangesAsync(cancellationToken);
+        return migrados;
     }
 
     /// <summary>Aplica los valores de la ficha a un Tercero (nuevo o existente): deduce la naturaleza y el

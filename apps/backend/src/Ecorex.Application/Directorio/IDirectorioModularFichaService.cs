@@ -26,4 +26,13 @@ public interface IDirectorioModularFichaService
     /// <summary>Actualiza un tercero Modular existente: re-deduce nombre/naturaleza/campos base de los
     /// valores, guarda FichasJson y el estado. Devuelve un mensaje de error o null si OK.</summary>
     Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default);
+
+    /// <summary>Cuantos terceros de nivel raiz del motor Clasico existen (candidatos a migrar al Modular).</summary>
+    Task<int> CountClasicoAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Migra TODOS los terceros del motor Clasico al Modular (no destructivo): estampa el motor,
+    /// los asigna a la categoria base "publico" y les agrega una seccion "mod_publica" mapeando los campos
+    /// base (nombre/ide/correo/telefono/ciudad/cargo) sin borrar su FichasJson previo. Idempotente.
+    /// Devuelve cuantos migro.</summary>
+    Task<int> MigrateAllFromClasicoAsync(CancellationToken cancellationToken = default);
 }

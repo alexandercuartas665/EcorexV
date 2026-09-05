@@ -200,8 +200,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     {
         var form = context.Node.Form!;
         var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
-        var tools = BuildFormTools(canSearchWeb);
-        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb);
+        // Solo se ofrece llamar si hay agente de voz Y no venimos ya de una llamada (reanudacion): en la
+        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada.
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
+        var tools = BuildFormTools(canSearchWeb, canCall);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -209,6 +212,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         var fields = new Dictionary<string, string?>(StringComparer.Ordinal);
         string? finalComment = null;
         var finished = false;
+        WorkflowAgentCallRequest? callRequest = null;
         int inTokens = 0, outTokens = 0;
 
         for (var round = 0; round < MaxFormRounds && !finished; round++)
@@ -250,6 +254,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                     // acotado). El invoker no escribe BD: solo trae el contenido para que el agente lo use.
                     result = await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
                 }
+                else if (call.Name == "llamar_telefono" && canCall)
+                {
+                    // ADR-0091: el agente pide una llamada. NO se coloca aqui (asincrona): se registra y el
+                    // bucle termina; el runner coloca la llamada y pausa el paso hasta que llegue el resultado.
+                    callRequest = ReadCallRequest(call.ArgumentsJson);
+                    finished = true;
+                    result = callRequest is null
+                        ? """{"error": "falta 'numero' para la llamada"}"""
+                        : """{"ok": true, "mensaje": "llamada solicitada; el paso quedara en espera del resultado"}""";
+                }
                 else
                 {
                     result = call.Name switch
@@ -262,6 +276,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 }
                 messages.Add(new AiToolMessage("tool", result, ToolCallId: call.Id, ToolName: call.Name));
             }
+        }
+
+        // ADR-0091: el agente pidio una llamada -> el runner la coloca y pausa el paso (los campos ya fijados,
+        // si hay, se conservan para completar el llenado cuando la llamada regrese con el dato faltante).
+        if (callRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null,
+                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest);
         }
 
         if (!finished || fields.Count == 0)
@@ -278,7 +302,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
     }
 
-    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb)
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall)
     {
         var tools = new List<AiToolSpec>
         {
@@ -299,10 +323,33 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Abre una URL con el navegador Colmena y devuelve su contenido legible, para CONSEGUIR un dato que no esta en el contexto. 'url' obligatoria (http/https); 'selector' CSS opcional.",
                 """{"type":"object","properties":{"url":{"type":"string"},"selector":{"type":"string"}},"required":["url"]}"""));
         }
+        if (canCall)
+        {
+            // ADR-0091: pedir una llamada telefonica para conseguir un dato. La llamada es asincrona: el paso
+            // queda EN ESPERA y el agente retoma cuando el resultado llegue. Llamala UNA sola vez y al final.
+            tools.Add(new AiToolSpec("llamar_telefono",
+                "Solicita una llamada telefonica (voz IA) para CONSEGUIR un dato faltante (ej. confirmar un telefono o correo con el cliente). 'numero' obligatorio (E.164, ej. +57...); 'objetivo' describe que dato conseguir. El paso quedara EN ESPERA del resultado de la llamada.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"objetivo":{"type":"string"}},"required":["numero"]}"""));
+        }
         return tools;
     }
 
-    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb)
+    /// <summary>Lee los argumentos de 'llamar_telefono'. Null si falta el numero.</summary>
+    private static WorkflowAgentCallRequest? ReadCallRequest(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            var numero = root.TryGetProperty("numero", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            if (string.IsNullOrWhiteSpace(numero)) { return null; }
+            var objetivo = root.TryGetProperty("objetivo", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString() : null;
+            return new WorkflowAgentCallRequest(numero!.Trim(), Clip(objetivo, 1000));
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
@@ -311,6 +358,15 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (canSearchWeb)
         {
             sb.AppendLine("Ademas tienes 'buscar_web' (abre una URL con el navegador Colmena y te devuelve su contenido) para CONSEGUIR un dato que falte antes de fijarlo.");
+        }
+        if (canCall)
+        {
+            sb.AppendLine("Ademas tienes 'llamar_telefono' para CONSEGUIR un dato por una llamada de voz (ej. confirmar telefono/correo). Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera del resultado de la llamada y luego retomaras el llenado.");
+        }
+        if (context.VoiceCallResult is { } vc)
+        {
+            // Reanudacion (ADR-0091): ya hay resultado de una llamada que pediste. Usalo para terminar de llenar.
+            sb.AppendLine("YA tienes el resultado de la llamada que solicitaste (ver 'Resultado de la llamada' en el contexto): usalo para fijar los campos faltantes y envia el formulario. No vuelvas a llamar.");
         }
         sb.AppendLine("Reglas:");
         sb.AppendLine("- Llena SOLO con datos del contexto o que CONSIGAS con las herramientas (ej. buscar_web). NUNCA inventes datos.");

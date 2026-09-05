@@ -21,7 +21,14 @@ public sealed record WorkflowAgentContextDto(
     WorkflowAgentTaskDto? Task,
     WorkflowAgentHistoryDto History,
     // Agente asignado al nodo y su autonomia. Null si el nodo no tiene agente.
-    WorkflowAgentAssignmentDto? Assignment);
+    WorkflowAgentAssignmentDto? Assignment,
+    // ADR-0091: resultado de la llamada que el agente pidio en un intento anterior (reanudacion). No null
+    // cuando el paso esperaba una llamada que ya termino: el agente lo usa para terminar de llenar el form.
+    WorkflowAgentVoiceCallDto? VoiceCallResult = null);
+
+/// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
+/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>
+public sealed record WorkflowAgentVoiceCallDto(string? Transcript, string? CapturedJson);
 
 /// <summary>Agente asignado al nodo del paso, su autonomia y los RECURSOS que se le habilitaron para
 /// conseguir datos (ADR-0091): un cliente Colmena (busqueda web) y/o un agente de voz (llamada Retell).</summary>

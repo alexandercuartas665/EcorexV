@@ -62,6 +62,19 @@ public static class WorkflowAgentContextSerializer
             }
         }
 
+        // Resultado de la llamada solicitada (ADR-0091, reanudacion): el transcript y los datos capturados.
+        if (context.VoiceCallResult is { } vc)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Resultado de la llamada");
+            if (!string.IsNullOrWhiteSpace(vc.CapturedJson)) { sb.AppendLine($"- Datos capturados: {vc.CapturedJson}"); }
+            if (!string.IsNullOrWhiteSpace(vc.Transcript)) { sb.AppendLine($"- Transcripcion: {vc.Transcript}"); }
+            if (string.IsNullOrWhiteSpace(vc.CapturedJson) && string.IsNullOrWhiteSpace(vc.Transcript))
+            {
+                sb.AppendLine("- (la llamada no arrojo datos utiles)");
+            }
+        }
+
         // (b) Lo ya capturado antes: es donde suele estar el dato que decide el paso.
         sb.AppendLine();
         sb.AppendLine("# Datos capturados en pasos anteriores");

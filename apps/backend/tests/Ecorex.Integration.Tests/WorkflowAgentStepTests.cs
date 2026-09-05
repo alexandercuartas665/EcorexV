@@ -376,8 +376,17 @@ public abstract class WorkflowAgentStepTestsBase
             new NodeAssigneeResolver(ctx),
             BuildEngine(ctx, seed),
             forms,
+            new FakeRetellVoiceService(),
             TimeProvider.System,
             NullLogger<WorkflowAgentStepRunner>.Instance);
+    }
+
+    /// <summary>Voz IA de prueba: no coloca llamadas reales (los casos actuales no ejercitan la llamada).</summary>
+    private sealed class FakeRetellVoiceService : Ecorex.Application.Voice.IRetellVoiceService
+    {
+        public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
+            Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no disponible en pruebas", false));
     }
 
     /// <summary>

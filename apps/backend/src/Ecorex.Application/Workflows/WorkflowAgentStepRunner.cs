@@ -39,6 +39,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly INodeAssigneeResolver _assigneeResolver;
     private readonly IWorkflowEngine _engine;
     private readonly IFormResponseService _forms;
+    private readonly Voice.IRetellVoiceService _voice;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
 
@@ -50,6 +51,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         INodeAssigneeResolver assigneeResolver,
         IWorkflowEngine engine,
         IFormResponseService forms,
+        Voice.IRetellVoiceService voice,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -60,6 +62,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _assigneeResolver = assigneeResolver;
         _engine = engine;
         _forms = forms;
+        _voice = voice;
         _clock = clock;
         _logger = logger;
     }
@@ -139,6 +142,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         }
 
         // ---- Fase 3: decidir y persistir (transaccion corta) ----
+
+        // ADR-0091: el agente pidio una llamada para conseguir un dato. Se coloca (asincrona) y el paso queda
+        // EN ESPERA; el webhook de Retell lo reanudara con el resultado. No se toca el resto de la decision.
+        if (invocation.CallRequest is not null)
+        {
+            return await PauseForCallAsync(step, nodeAgent, context, invocation.CallRequest, cancellationToken);
+        }
 
         // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
         // formulario lo LLENA (ola C, Fields != null), y un Task de decision fija un RESULTADO.
@@ -233,6 +243,58 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         return WorkflowAgentStepOutcome.Proposed;
     }
 
+    /// <summary>ADR-0091: el agente pidio una llamada para conseguir un dato. Se coloca via Retell (agente de
+    /// voz del nodo; objetivo LlenarFormulario; whitelist = el formulario del paso) y el paso queda EN ESPERA
+    /// (PendingVoiceCallId). El webhook de Retell, al analizar la llamada, limpiara AgentAttemptedAt para que
+    /// el barrido re-corra al agente con el resultado en el contexto. Si no se puede colocar -> vuelve a humano.</summary>
+    private async Task<WorkflowAgentStepOutcome> PauseForCallAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
+        WorkflowAgentCallRequest callRequest, CancellationToken cancellationToken)
+    {
+        if (context.Assignment?.VoiceAiAgentId is not Guid voiceAgentId)
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, "El paso no tiene un agente de voz configurado para llamar.", cancellationToken);
+        }
+
+        var formIds = context.Node.Form is { } f ? new[] { f.DefinitionId } : Array.Empty<Guid>();
+        var placed = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
+            ToNumber: callRequest.Numero,
+            AiAgentId: voiceAgentId,
+            PromptExtra: callRequest.Objetivo,
+            Objetivo: nameof(ContactCallObjetivo.LlenarFormulario),
+            FormulariosPermitidos: formIds,
+            ContactVariables: new Dictionary<string, string?>()), cancellationToken);
+
+        if (!placed.Placed || string.IsNullOrWhiteSpace(placed.CallId))
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, $"No se pudo colocar la llamada: {placed.Error}", cancellationToken);
+        }
+
+        // PAUSA: el paso sigue vigente y Pending, pero marcado como en espera de esta llamada. AgentAttemptedAt
+        // evita que el barrido lo re-tome hasta que el webhook lo reanude (limpia AgentAttemptedAt).
+        step.AgentAttemptedAt = _clock.GetUtcNow();
+        step.PendingVoiceCallId = placed.CallId;
+        step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
+        step.AgentProposalComment = Clip(callRequest.Objetivo, 2000);
+
+        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        await AddTaskNoteAsync(step,
+            $"el agente solicito una llamada para conseguir un dato ({callRequest.Objetivo}); el paso espera el resultado",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "El agente {AgentId} solicito una llamada ({CallId}) en el paso {StepId}; queda en espera.",
+            nodeAgent.AiAgentId, placed.CallId, step.Id);
+        return WorkflowAgentStepOutcome.WaitingForCall;
+    }
+
     /// <summary>Mapea la 'ruta' que devolvio el agente (clave = BpmnElementId del destino, o su nombre) a un
     /// nodo destino que sea salida DIRECTA de la compuerta. Match unico por clave y, si no, por nombre
     /// (case-insensitive). (null, null) si no hay una unica coincidencia: el runner lo trata como "no pudo".</summary>
@@ -264,6 +326,8 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         CancellationToken cancellationToken)
     {
         var autonomous = nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous;
+        // Si veniamos de una llamada (reanudacion), ya se uso su resultado: el paso deja de esperarla.
+        step.PendingVoiceCallId = null;
 
         var taskId = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);

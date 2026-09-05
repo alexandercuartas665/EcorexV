@@ -43,9 +43,32 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         var (historyDto, stepsById) = await BuildHistoryAsync(step, cancellationToken);
         var priorData = await BuildPriorDataAsync(step, stepsById, cancellationToken);
         var taskDto = await BuildTaskAsync(step.InstanceId, cancellationToken);
+        var voiceCall = await BuildVoiceCallResultAsync(step, cancellationToken);
 
         return WorkflowResult<WorkflowAgentContextDto>.Ok(new WorkflowAgentContextDto(
-            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, assignment));
+            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, assignment, voiceCall));
+    }
+
+    /// <summary>ADR-0091: si el paso esperaba una llamada (PendingVoiceCallId), trae el transcript y los datos
+    /// capturados de esa VoiceCall para que el agente termine de llenar el formulario al reanudarse.</summary>
+    private async Task<WorkflowAgentVoiceCallDto?> BuildVoiceCallResultAsync(
+        Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(step.PendingVoiceCallId))
+        {
+            return null;
+        }
+        var call = await _db.VoiceCalls.AsNoTracking()
+            .Where(c => c.CallId == step.PendingVoiceCallId)
+            .Select(c => new { c.TranscriptText, c.AnalysisJson })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (call is null)
+        {
+            return null;
+        }
+        return new WorkflowAgentVoiceCallDto(
+            Clip(call.TranscriptText, WorkflowAgentContextLimits.MaxValueChars),
+            Clip(call.AnalysisJson, WorkflowAgentContextLimits.MaxValueChars));
     }
 
     // ---- (a) Nodo actual + formulario asociado con la definicion de sus campos ----

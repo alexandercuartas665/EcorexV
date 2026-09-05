@@ -14637,6 +14637,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("autonomy");
 
+                    b.Property<Guid?>("ColmenaClientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("colmena_client_id");
+
+                    b.Property<string>("ColmenaSessionKey")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("colmena_session_key");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -14661,14 +14670,24 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceAiAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voice_ai_agent_id");
+
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");
 
                     b.HasIndex("AiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_ai_agent_id");
 
+                    b.HasIndex("ColmenaClientId")
+                        .HasDatabaseName("ix_workflow_node_agents_colmena_client_id");
+
                     b.HasIndex("NodeId")
                         .HasDatabaseName("ix_workflow_node_agents_node_id");
+
+                    b.HasIndex("VoiceAiAgentId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
 
                     b.HasIndex("TenantId", "NodeId")
                         .IsUnique()
@@ -14989,6 +15008,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("node_id");
+
+                    b.Property<string>("PendingVoiceCallId")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("pending_voice_call_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -17085,6 +17109,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.DataClient", "ColmenaClient")
+                        .WithMany()
+                        .HasForeignKey("ColmenaClientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_data_clients_colmena_client_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
                         .WithMany()
                         .HasForeignKey("NodeId")
@@ -17092,9 +17122,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_workflow_node_agents_workflow_nodes_node_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.AiAgent", "VoiceAiAgent")
+                        .WithMany()
+                        .HasForeignKey("VoiceAiAgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
+
                     b.Navigation("AiAgent");
 
+                    b.Navigation("ColmenaClient");
+
                     b.Navigation("Node");
+
+                    b.Navigation("VoiceAiAgent");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>

@@ -69,6 +69,15 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public string? AgentFailureReason { get; set; }
 
+    /// <summary>
+    /// ADR-0091: cuando el agente PIDIO una llamada (Retell) para conseguir datos, el paso queda EN ESPERA
+    /// con el CallId aqui. La llamada es asincrona (responde por webhook minutos despues): al llegar el
+    /// resultado (VoiceCall Analyzed), el webhook LIMPIA este campo + AgentAttemptedAt para que el barrido
+    /// re-corra al agente con el transcript/datos en el contexto. Null = el paso no espera una llamada.
+    /// Guid suelto (el CallId de Retell), sin FK: el historial es append-only.
+    /// </summary>
+    public string? PendingVoiceCallId { get; set; }
+
     /// <summary>CYCLESTART legacy: primer nodo de un ciclo abierto por reinicio.</summary>
     public bool IsCycleStart { get; set; }
 

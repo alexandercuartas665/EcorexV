@@ -29,4 +29,21 @@ public class WorkflowNodeAgent : TenantEntity
 
     /// <summary>Si el agente cierra el paso o solo propone y una persona confirma.</summary>
     public WorkflowAgentAutonomy Autonomy { get; set; } = WorkflowAgentAutonomy.Proposes;
+
+    // ---- ADR-0091: recursos para CONSEGUIR datos al llenar el formulario del paso ----
+    // Permiso EXPLICITO por nodo: el agente solo obtiene una herramienta si su recurso esta configurado aqui.
+
+    /// <summary>Cliente COLMENA (navegador on-prem) que el agente puede usar para 'buscar_web'. FK a
+    /// <see cref="DataClient"/> (restrict, nullable). Null = sin herramienta de busqueda web.</summary>
+    public Guid? ColmenaClientId { get; set; }
+    public DataClient? ColmenaClient { get; set; }
+
+    /// <summary>Perfil persistente del navegador para scraping LOGUEADO (ej. "linkedin"). Se pasa como
+    /// SessionKey a la orden Colmena. Null = sesion efimera.</summary>
+    public string? ColmenaSessionKey { get; set; }
+
+    /// <summary>Agente de VOZ (prompt de la llamada) que el agente puede usar para 'llamar_telefono' via
+    /// Retell. FK a <see cref="AiAgent"/> (restrict, nullable). Null = sin herramienta de llamada.</summary>
+    public Guid? VoiceAiAgentId { get; set; }
+    public AiAgent? VoiceAiAgent { get; set; }
 }

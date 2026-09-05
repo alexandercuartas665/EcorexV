@@ -1501,6 +1501,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.AgentProposalResult).HasMaxLength(20);
             b.Property(x => x.AgentProposalComment).HasMaxLength(2000);
             b.Property(x => x.AgentFailureReason).HasMaxLength(500);
+            // ADR-0091: CallId de Retell que el paso espera (llamada del agente). Acotado.
+            b.Property(x => x.PendingVoiceCallId).HasMaxLength(120);
             b.HasOne(x => x.Instance).WithMany()
                 .HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el nodo: el historial es append-only y sobrevive a la
@@ -1862,6 +1864,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.AiAgent).WithMany()
                 .HasForeignKey(x => x.AiAgentId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0091: recursos opcionales para conseguir datos (Colmena web + llamada de voz). Restrict:
+            // un cliente/agente en uso por un flujo se apaga, no se borra. SessionKey acotado.
+            b.Property(x => x.ColmenaSessionKey).HasMaxLength(60);
+            b.HasOne(x => x.ColmenaClient).WithMany()
+                .HasForeignKey(x => x.ColmenaClientId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.VoiceAiAgent).WithMany()
+                .HasForeignKey(x => x.VoiceAiAgentId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Notas colaborativas del equipo por nodo de una instancia (ADR-0071): recados entre companeros.

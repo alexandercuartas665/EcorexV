@@ -116,22 +116,22 @@
             </div>
         }
 
-        @* --- Tarjetas de conteo (sobre la categoria activa), con icono --- *@
+        @* --- Tarjetas de conteo: clicables como filtro (org/persona/por asignar), como el prototipo --- *@
         <div class="dm-cards">
             @{ var accent = _activo?.Color ?? "#4f46e5"; }
-            <div class="dm-card">
+            <div class="dm-card dm-card-clic @(_cardFilter is null ? "on" : "")" style="@(_cardFilter is null ? $"border-color:{accent}" : "")" @onclick='() => _cardFilter = null'>
                 <span class="dm-card-ico" style="background:@Tint(accent)"><i class="fa @(_activo?.Icono ?? "fa-address-book")" style="color:@accent"></i></span>
                 <div><div class="dm-card-n" style="color:@accent">@(_activo is null ? _total : CatCount(_activo))</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
             </div>
-            <div class="dm-card">
+            <div class="dm-card dm-card-clic @(_cardFilter == "org" ? "on" : "")" style="@(_cardFilter == "org" ? "border-color:#0ea5e9" : "")" @onclick='() => ToggleCard("org")'>
                 <span class="dm-card-ico" style="background:@Tint("#0ea5e9")"><i class="fa fa-building" style="color:#0ea5e9"></i></span>
                 <div><div class="dm-card-n" style="color:#0ea5e9">@_orgs</div><div class="dm-card-l">Organizaciones</div></div>
             </div>
-            <div class="dm-card">
+            <div class="dm-card dm-card-clic @(_cardFilter == "per" ? "on" : "")" style="@(_cardFilter == "per" ? "border-color:#10b981" : "")" @onclick='() => ToggleCard("per")'>
                 <span class="dm-card-ico" style="background:@Tint("#10b981")"><i class="fa fa-user" style="color:#10b981"></i></span>
                 <div><div class="dm-card-n" style="color:#10b981">@_personas</div><div class="dm-card-l">Personas</div></div>
             </div>
-            <div class="dm-card dm-card-act">
+            <div class="dm-card dm-card-clic @(_cardFilter == "porasignar" ? "on" : "")" style="@(_cardFilter == "porasignar" ? "border-color:#f59e0b" : "")" @onclick='() => ToggleCard("porasignar")'>
                 <span class="dm-card-ico" style="background:@Tint("#f59e0b")"><i class="fa fa-circle-question" style="color:#f59e0b"></i></span>
                 <div><div class="dm-card-n" style="color:#f59e0b">@_porAsignar</div><div class="dm-card-l">Por asignar</div></div>
             </div>
@@ -161,7 +161,7 @@
         @* --- Buscador --- *@
         <div class="dm-search">
             <i class="fa fa-search"></i>
-            <input placeholder="Buscar por nombre, NIT, telefono, correo, codigo..." @bind="_search" @bind:event="oninput" />
+            <input placeholder="Buscar por nombre, contacto, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
             @if (!string.IsNullOrWhiteSpace(_search))
             {
                 <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>
@@ -327,7 +327,9 @@
     .dm-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
     .dm-card { background: #fff; border: 1px solid #eef0f3; border-radius: 12px; padding: 13px 15px; box-shadow: 0 1px 2px rgba(16,24,40,.04); display: flex; align-items: center; gap: 12px; }
     .dm-card-ico { width: 38px; height: 38px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
-    .dm-card-act { border-style: dashed; }
+    .dm-card-clic { cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+    .dm-card-clic:hover { box-shadow: 0 2px 8px rgba(16,24,40,.08); }
+    .dm-card.on { border-width: 1.5px; box-shadow: 0 2px 8px rgba(16,24,40,.08); }
     .dm-card-n { font-size: 24px; font-weight: 800; line-height: 1; }
     .dm-card-l { font-size: 12px; color: #6b7280; margin-top: 5px; }
 
@@ -415,6 +417,7 @@
     private string? _editKey;    // categoria base para abrir el modal de edicion
     private bool _configOpen;    // modal "Configurar directorio" abierto
     private string _search = string.Empty;   // texto de busqueda del listado
+    private string? _cardFilter;             // filtro por tarjeta de conteo: null | "org" | "per" | "porasignar"
     private TerceroListItemDto? _delTarget;   // tercero pendiente de confirmar eliminacion
     private string? _delError;
     private int _clasicoCount;               // contactos del motor Clasico pendientes de migrar
@@ -464,9 +467,10 @@
         _total = _rows.Count;
         _orgs = _rows.Count(r => r.EsEmpresa);
         _personas = _rows.Count(r => r.EsPersona);
-        _porAsignar = _total;
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
+        // "Por asignar" = terceros sin categoria mas alla de la base (se calcula tras cargar membresias).
+        _porAsignar = _rows.Count(r => SoloBase(r.Id));
         _clasicoCount = await Fichas.CountClasicoAsync();
     }
 
@@ -558,6 +562,15 @@
             q = q.Where(t => _memberships.TryGetValue(t.Id, out var ks) && ks.Contains(key));
         }
 
+        // Filtro por tarjeta de conteo (se combina con la categoria y la busqueda).
+        q = _cardFilter switch
+        {
+            "org" => q.Where(t => t.EsEmpresa),
+            "per" => q.Where(t => t.EsPersona),
+            "porasignar" => q.Where(t => SoloBase(t.Id)),
+            _ => q
+        };
+
         // Busqueda libre (case/acentos-insensible simple por minusculas).
         var term = (_search ?? string.Empty).Trim();
         if (term.Length > 0)
@@ -568,6 +581,12 @@
 
         return q.ToList();
     }
+
+    private void ToggleCard(string key) => _cardFilter = _cardFilter == key ? null : key;
+
+    // "Por asignar": el tercero no pertenece a ninguna categoria mas alla de la base "publico".
+    private bool SoloBase(Guid id)
+        => !_memberships.TryGetValue(id, out var ks) || ks.Count == 0 || ks.All(k => k == "publico");
 
     private static bool Coincide(TerceroListItemDto t, string needle)
     {

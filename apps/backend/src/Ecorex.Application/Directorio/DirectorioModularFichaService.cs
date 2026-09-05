@@ -201,7 +201,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     public async Task<byte[]> ExportXlsxAsync(CancellationToken cancellationToken = default)
     {
         var ts = await _app.Terceros.AsNoTracking()
-            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular)
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular && t.Estado != TerceroEstado.Inactivo)
             .OrderBy(t => t.Nombre)
             .Select(t => new
             {

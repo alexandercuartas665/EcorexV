@@ -30,7 +30,11 @@ public sealed record TerceroListItemDto(
     Guid? VendedorAsesorId = null,
     string? VendedorAsesorNombre = null,
     // Foto/logo del tercero (avatar circular; null = iniciales).
-    string? ImagenUrl = null);
+    string? ImagenUrl = null,
+    // Empresa a la que esta vinculada una persona (sub-contacto). El motor Modular muestra estas personas
+    // tambien a nivel raiz con un enlace a su organizacion (como el prototipo); en Clasico van null.
+    Guid? EmpresaId = null,
+    string? EmpresaNombre = null);
 
 /// <summary>Detalle completo de un tercero: campos + fichas dinamicas + contactos.</summary>
 public sealed record TerceroDetailDto(
@@ -164,4 +168,7 @@ public sealed record TerceroListFilter(
     bool IncludeInactive = false,
     // Motor de directorio del que traer los terceros. Null = todos (comportamiento Clasico sin cambios);
     // el listado Modular pasa DirectoryEngine.Modular para ver solo sus registros.
-    DirectoryEngine? Engine = null);
+    DirectoryEngine? Engine = null,
+    // Incluir sub-contactos (personas con EmpresaId) como filas de nivel raiz. Clasico = false (los oculta);
+    // el motor Modular = true, para mostrarlas con enlace a su organizacion, como el prototipo.
+    bool IncludeSubContacts = false);

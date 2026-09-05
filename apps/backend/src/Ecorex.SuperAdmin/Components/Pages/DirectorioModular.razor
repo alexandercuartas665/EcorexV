@@ -224,14 +224,27 @@
                                                 }
                                             </div>
                                             <div class="dm-chiprow">
-                                                @foreach (var ch in ChipsDe(tid))
+                                                @if (!ChipsDe(tid).Any())
                                                 {
-                                                    <span class="dm-catchip" style="background:@Tint(ch.Color);color:@ch.Color">@ch.Title</span>
+                                                    <span class="dm-por-asignar">Por asignar</span>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var ch in ChipsDe(tid))
+                                                    {
+                                                        <span class="dm-catchip" style="background:@Tint(ch.Color);color:@ch.Color">@ch.Title</span>
+                                                    }
                                                 }
                                             </div>
-                                            @if (!string.IsNullOrWhiteSpace(t.Sub))
+                                            @if (!string.IsNullOrWhiteSpace(t.Sub) || (!t.EsEmpresa && !string.IsNullOrWhiteSpace(t.EmpresaNombre)))
                                             {
-                                                <div class="dm-tercero-sub">@t.Sub</div>
+                                                <div class="dm-tercero-sub">
+                                                    @if (!string.IsNullOrWhiteSpace(t.Sub)) { <span>@t.Sub</span> }
+                                                    @if (!t.EsEmpresa && !string.IsNullOrWhiteSpace(t.EmpresaNombre))
+                                                    {
+                                                        <span class="dm-link"><i class="fa fa-link"></i> @t.EmpresaNombre</span>
+                                                    }
+                                                </div>
                                             }
                                         </div>
                                     </div>
@@ -383,7 +396,10 @@
     .dm-nat-per { background: #f0fdf4; color: #15803d; }
     .dm-chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
     .dm-catchip { font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 1px 7px; }
-    .dm-tercero-sub { font-size: 11.5px; color: #9ca3af; margin-top: 3px; }
+    .dm-tercero-sub { font-size: 11.5px; color: #9ca3af; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .dm-tercero-sub .dm-link { color: #6b7280; }
+    .dm-tercero-sub .dm-link i { color: #9ca3af; margin-right: 3px; font-size: 10px; }
+    .dm-por-asignar { font-size: 11.5px; color: #9ca3af; }
 
     .dm-acc { text-align: right; white-space: nowrap; }
     .dm-acc-btn { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 7px; width: 30px; height: 30px; cursor: pointer; margin-left: 5px; }
@@ -463,7 +479,7 @@
     // Recarga listado, contadores por categoria, membresias y el conteo de Clasico pendiente de migrar.
     private async Task ReloadListAsync()
     {
-        _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular));
+        _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular, IncludeSubContacts: true));
         _total = _rows.Count;
         _orgs = _rows.Count(r => r.EsEmpresa);
         _personas = _rows.Count(r => r.EsPersona);
@@ -646,12 +662,13 @@
     }
 
     // Chips de categoria de una fila: Publico (base, siempre) + sus membresias, mapeadas a titulo/color.
+    // Chips de categoria de la fila = sus membresias reales. Sin ninguna (p.ej. una persona vinculada a una
+    // empresa que no esta en categoria), el listado muestra "Por asignar", como el prototipo (chipsTipo).
     private IEnumerable<(string Title, string Color)> ChipsDe(Guid tid)
     {
-        var keys = new List<string> { "publico" };
-        if (_memberships.TryGetValue(tid, out var ms)) { keys.AddRange(ms); }
+        if (!_memberships.TryGetValue(tid, out var ms) || ms.Count == 0) { yield break; }
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var k in keys)
+        foreach (var k in ms)
         {
             if (!seen.Add(k)) { continue; }
             var cat = _cats.FirstOrDefault(c => string.Equals(c.CategoriaKey, k, StringComparison.OrdinalIgnoreCase));

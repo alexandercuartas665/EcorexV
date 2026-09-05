@@ -28,7 +28,12 @@ public sealed class TerceroService : ITerceroService
     {
         // Solo empresas + personas individuales: las personas asignadas a una empresa (EmpresaId
         // != null) se ocultan (cuentan como contacto de la empresa).
-        var query = _db.Terceros.AsNoTracking().Where(t => t.EmpresaId == null);
+        var query = _db.Terceros.AsNoTracking().AsQueryable();
+        // Clasico: solo nivel raiz. Modular (IncludeSubContacts): tambien las personas vinculadas a una empresa.
+        if (!filter.IncludeSubContacts)
+        {
+            query = query.Where(t => t.EmpresaId == null);
+        }
 
         if (!filter.IncludeInactive)
         {
@@ -89,6 +94,11 @@ public sealed class TerceroService : ITerceroService
                 t.Cargo,
                 t.FichasJson,
                 t.ImagenUrl,
+                t.EmpresaId,
+                // Nombre de la empresa a la que esta vinculada la persona (para el enlace del listado Modular).
+                EmpresaNombre = t.EmpresaId != null
+                    ? _db.Terceros.Where(e => e.Id == t.EmpresaId).Select(e => e.Nombre).FirstOrDefault()
+                    : null,
                 // Contactos = contactos embebidos + terceros activos vinculados a esta empresa. El mismo
                 // predicado (activos) que usa ListContactosAsync, para que el contador y la lista coincidan.
                 Contactos = _db.TerceroContactos.Count(c => c.TerceroId == t.Id)
@@ -129,7 +139,9 @@ public sealed class TerceroService : ITerceroService
             ExtractFilterables(t.FichasJson, filterKeys),
             t.VendedorAsesorId,
             t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null,
-            t.ImagenUrl)).ToList();
+            t.ImagenUrl,
+            t.EmpresaId,
+            t.EmpresaNombre)).ToList();
     }
 
     /// <summary>

@@ -166,3 +166,35 @@ memoria + solo lectura) e `IReportCatalog` publica las externas concedidas/propi
 - Tenant-safe: el catalogo solo expone datasets propios/concedidos; la cadena de conexion nunca se expone.
 - Colision de nombre: las externas van al FINAL del catalogo, asi que ante DisplayName repetido gana la
   fuente nativa/contenedor previa (los paneles existentes no cambian).
+
+## Nota (v0.15.177) - Filtros que RE-CONSULTAN una fuente externa (queryParam)
+
+Un panel sobre una fuente EXTERNA (ADR-0064) corria el dataset UNA vez con los DefaultValue de sus
+parametros Input y filtraba EN MEMORIA. Eso sirve para atributos que son COLUMNAS del resultado, pero
+NO para parametros que cambian la AGREGACION en el SQL (Director Comercial: Grupo/Tipo inventario/Linea/
+SubGrupo/Marca + rango de FECHAS acotan las ventas por producto/periodo; no son columnas). Ahora un
+filtro puede RE-CONSULTAR el dataset con esos parametros al cambiarlos.
+
+- `PanelFilter.QueryParam` (bool): el filtro NO acota en memoria; enlaza a un parametro Input del dataset
+  externo Main por `Param` (o `Field`). En un `daterange`, `Param` = fecha inicial y `ParamTo` = fecha
+  final. `Multi` permite varios codigos (multi-valor SSRS, v0.15.173): viajan separados por salto de linea.
+  `Options` declara el origen de un dropdown como un dataset de lookup (codigo->etiqueta) estable; sin el,
+  las opciones se derivan por distinct del Main.
+- `ReportQuerySpec.Inputs` (nombre de parametro -> valor): SOLO lo consume la fuente externa; el binder
+  enlaza unicamente parametros DECLARADOS y TIPADOS (misma proteccion anti-inyeccion; claves desconocidas
+  se ignoran). `ReportDataSource` pasa `spec.Inputs` a `ExternalReportReader.QueryAsync` (antes inputs=null).
+  Las fuentes no externas lo ignoran: un panel sin queryParams se comporta EXACTAMENTE igual que antes.
+- SpecPanelRenderer: si el Main es externo y cambia un filtro queryParam, RE-EJECUTA la consulta del Main
+  con esos Inputs (con DEBOUNCE de 400 ms y estado "Actualizando..."); reconstruye join/derivados/where y
+  recomputa. Los filtros normales siguen en memoria. Se mantienen MaxRows, timeout y la concesion (los
+  aplica el reader); la cadena de conexion nunca se expone. El VALUE de un dropdown es el CODIGO (ValueField).
+- Autoria: el validador acepta un filtro queryParam SOLO si la fuente principal es externa, exige
+  `param`/`field`, y valida la fuente/campos del origen de opciones. Multi-tenant intacto (catalogo
+  tenant-safe). Solo ASCII.
+
+## Casos de prueba (gates) - queryParam
+
+- `PanelSpecValidatorTests` (unit): un spec Director Comercial con dropdown multi (opciones de lookup) +
+  daterange sobre una fuente externa NO produce errores; un queryParam sobre una fuente NO externa se
+  reporta; falta de `param`/`field` se reporta; fuente/campo de opciones inexistente se reporta; round-trip
+  preserva los campos nuevos (queryParam/multi/param/paramTo/options).

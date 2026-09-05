@@ -80,11 +80,13 @@ public sealed class ReportDataSource : IReportDataSource
         {
             // Fuente externa gobernada (ADR-0064): el reader re-verifica la concesion del tenant, descifra
             // en memoria y ejecuta el dataset curado de solo lectura. El alcance viaja por contexto de
-            // confianza; aqui no se admiten filtros libres (los campos externos son CanFilter=false).
+            // confianza; los campos externos son CanFilter=false (no hay filtros libres de COLUMNA), pero un
+            // panel SI puede re-consultar cambiando los PARAMETROS del dataset via spec.Inputs (ADR-0066):
+            // el binder enlaza solo parametros declarados y tipados (misma proteccion anti-inyeccion).
             var externalId = ExternalReportReader.ParseId(descriptor.Key)
                 ?? throw new ReportValidationException($"Clave externa invalida: '{descriptor.Key}'.");
             var runCtx = new ExternalRunContext(tenantId, effectiveCtx.UserId);
-            return await _external.QueryAsync(externalId, runCtx, inputs: null, ct);
+            return await _external.QueryAsync(externalId, runCtx, spec.Inputs, ct);
         }
 
         var source = _nativeSources.FirstOrDefault(s =>

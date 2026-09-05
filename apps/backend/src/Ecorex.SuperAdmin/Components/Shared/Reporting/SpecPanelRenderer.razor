@@ -4,6 +4,7 @@
 @inject IReportCatalog Catalog
 @inject IReportDataSource ReportDs
 @inject IReportDefinitionService Defs
+@implements IDisposable
 
 @* ADR-0066 - Renderizador de panel GENERICO por spec. UN solo componente que interpreta un PanelSpec
    (dato) y pinta KPIs + graficos + matriz + tabla REUSANDO los estilos rpt-* y los MISMOS builders de
@@ -28,17 +29,44 @@
                 {
                     <label>@filter.Label <input type="text" placeholder="contiene..." value="@filter.Value" @onchange="e => SetValue(filter, e.Value?.ToString())" /></label>
                 }
+                else if (filter.Spec.Multi)
+                {
+                    @* Multi-valor (queryParam SSRS, v0.15.173): elegir varios codigos re-consulta con IN (...). *@
+                    <label>@filter.Label
+                        <select multiple size="4" @onchange="e => SetMulti(filter, e.Value)">
+                            @if (filter.OptionPairs.Count > 0)
+                            {
+                                @foreach (var o in filter.OptionPairs) { <option value="@o.Value" selected="@filter.Selected.Contains(o.Value)">@o.Label</option> }
+                            }
+                            else
+                            {
+                                @foreach (var o in filter.Options) { <option value="@o" selected="@filter.Selected.Contains(o)">@o</option> }
+                            }
+                        </select>
+                    </label>
+                }
                 else
                 {
                     <label>@filter.Label
                         <select value="@filter.Value" @onchange="e => SetValue(filter, e.Value?.ToString())">
                             <option value="">(todos)</option>
-                            @foreach (var o in filter.Options) { <option value="@o">@o</option> }
+                            @if (filter.OptionPairs.Count > 0)
+                            {
+                                @foreach (var o in filter.OptionPairs) { <option value="@o.Value">@o.Label</option> }
+                            }
+                            else
+                            {
+                                @foreach (var o in filter.Options) { <option value="@o">@o</option> }
+                            }
                         </select>
                     </label>
                 }
             }
             <button class="rpt-btn ghost" @onclick="ClearFilters">Limpiar</button>
+            @if (_reloading)
+            {
+                <span class="rpt-sub" style="align-self:center;">Actualizando...</span>
+            }
         </div>
     }
 
@@ -167,6 +195,13 @@
     private bool _loading = true;
     private bool _loaded;
 
+    // Fuente principal resuelta: cuando es EXTERNA (ADR-0064) los filtros queryParam RE-CONSULTAN el dataset.
+    private ReportSourceDescriptor? _main;
+    private IReadOnlyList<ReportSourceDescriptor> _sources = Array.Empty<ReportSourceDescriptor>();
+    private bool MainIsExternal => _main?.Kind == ReportSourceKind.External;
+    private bool _reloading;                            // re-consulta externa en curso (estado de carga)
+    private CancellationTokenSource? _reloadCts;        // debounce de la re-consulta por queryParam
+
     private readonly List<PanelRow> _rows = new();     // filas enriquecidas (join + derivados)
     private List<PanelRow> _filtered = new();
     private readonly List<ActiveFilter> _filters = new();
@@ -203,61 +238,24 @@
                 return;
             }
 
-            var sources = await Catalog.GetSourcesAsync();
+            _sources = await Catalog.GetSourcesAsync();
             var mainRefName = !string.IsNullOrWhiteSpace(_spec.Sources.Main.Source)
                 ? _spec.Sources.Main.Source
                 : _spec.Sources.Main.Container;
-            var main = PanelSpecValidator.FindByRef(sources, _spec.Sources.Main.Source, _spec.Sources.Main.Container);
-            if (main is null)
+            _main = PanelSpecValidator.FindByRef(_sources, _spec.Sources.Main.Source, _spec.Sources.Main.Container);
+            if (_main is null)
             {
                 _error = $"Este tenant no tiene la fuente requerida '{mainRefName}'. El panel no se puede mostrar aqui.";
                 return;
             }
 
-            // 1) Fuente principal: UNA consulta tabular con todos sus campos escalares.
-            var mainDs = await ReportDs.QueryAsync(new ReportQuerySpec
-            {
-                SourceKey = main.Key,
-                Fields = main.Fields.Select(f => f.Key).ToArray()
-            }, new ReportContext(Guid.Empty));
-            var mainCols = mainDs.Columns;
+            // Controles de filtro: se construyen UNA vez (conservan la seleccion entre re-consultas). Las
+            // opciones de un dropdown con origen de lookup se cargan aqui (estables, no dependen del Main).
+            await BuildFiltersAsync();
 
-            _rows.Clear();
-            foreach (var raw in mainDs.Rows)
-            {
-                var row = new PanelRow();
-                for (var i = 0; i < mainCols.Count && i < raw.Count; i++)
-                {
-                    // Indexa por DisplayName Y por Key: el spec puede referir un campo por cualquiera (ADR-0068).
-                    row[mainCols[i].DisplayName] = raw[i];
-                    row[mainCols[i].Key] = raw[i];
-                }
-
-                _rows.Add(row);
-            }
-
-            // 2) Lookups + join en memoria (codigo -> nombre; trae valores incl. numericos agregables).
-            await ApplyLookupsAsync(sources);
-
-            // 3) Derivados (buckets de fecha).
-            foreach (var d in _spec.Derived)
-            {
-                foreach (var row in _rows)
-                {
-                    row[d.Name] = PanelDataEngine.Derive(row.GetValueOrDefault(d.From), d.Op);
-                }
-            }
-
-            // 4) Where FIJO (ADR-0068): acota el panel SIEMPRE (no es control de UI), antes de poblar dropdowns.
-            if (_spec.Where.Count > 0)
-            {
-                _rows.RemoveAll(row => !_spec.Where.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value)));
-            }
-
-            // 5) Filtros: opciones distintas para dropdown; vacio para el resto.
-            BuildFilters();
-
-            Recompute();
+            // Carga de la fuente principal (con los parametros queryParam actuales si es externa) + join +
+            // derivados + where + opciones distintas + recompute. Inicialmente sin queryParams -> defaults.
+            await ReloadMainAsync();
         }
         catch (ReportValidationException ex)
         {
@@ -271,6 +269,108 @@
         {
             _loading = false;
         }
+    }
+
+    /// <summary>(Re)carga la fuente PRINCIPAL y reconstruye filas/lookups/derivados/where/opciones y recomputa.
+    /// Si la principal es EXTERNA y hay filtros queryParam con valor, la consulta viaja con esos PARAMETROS
+    /// (Inputs) en vez de los defaults; asi cambiar Grupo/Marca/rango de fechas re-consulta el SQL. Para
+    /// fuentes no externas Inputs va null (identico al comportamiento clasico).</summary>
+    private async Task ReloadMainAsync()
+    {
+        if (_spec is null || _main is null)
+        {
+            return;
+        }
+
+        // 1) Fuente principal: UNA consulta tabular con todos sus campos escalares (+ parametros si externa).
+        var inputs = MainIsExternal ? BuildMainInputs() : null;
+        var mainDs = await ReportDs.QueryAsync(new ReportQuerySpec
+        {
+            SourceKey = _main.Key,
+            Fields = _main.Fields.Select(f => f.Key).ToArray(),
+            Inputs = inputs
+        }, new ReportContext(Guid.Empty));
+        var mainCols = mainDs.Columns;
+
+        _rows.Clear();
+        foreach (var raw in mainDs.Rows)
+        {
+            var row = new PanelRow();
+            for (var i = 0; i < mainCols.Count && i < raw.Count; i++)
+            {
+                // Indexa por DisplayName Y por Key: el spec puede referir un campo por cualquiera (ADR-0068).
+                row[mainCols[i].DisplayName] = raw[i];
+                row[mainCols[i].Key] = raw[i];
+            }
+
+            _rows.Add(row);
+        }
+
+        // 2) Lookups + join en memoria (codigo -> nombre; trae valores incl. numericos agregables).
+        await ApplyLookupsAsync(_sources);
+
+        // 3) Derivados (buckets de fecha).
+        foreach (var d in _spec.Derived)
+        {
+            foreach (var row in _rows)
+            {
+                row[d.Name] = PanelDataEngine.Derive(row.GetValueOrDefault(d.From), d.Op);
+            }
+        }
+
+        // 4) Where FIJO (ADR-0068): acota el panel SIEMPRE (no es control de UI), antes de poblar dropdowns.
+        if (_spec.Where.Count > 0)
+        {
+            _rows.RemoveAll(row => !_spec.Where.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value)));
+        }
+
+        // 5) Opciones DISTINCT de los dropdowns que NO tienen origen de lookup (queryParam o no). Los que ya
+        // tienen opciones de lookup no se tocan (son estables y no dependen de este resultado).
+        RefreshDistinctOptions();
+
+        Recompute();
+    }
+
+    /// <summary>Arma el diccionario de PARAMETROS (nombre -> valor) a partir de los filtros queryParam con
+    /// valor. Multi-valor: los codigos elegidos van separados por salto de linea (SplitMultiValues, v0.15.173).
+    /// daterange: Param = fecha inicial, ParamTo = fecha final. Un filtro sin valor no aporta parametro (el
+    /// dataset usa su DefaultValue). Diccionario vacio -> el dataset corre con sus defaults, como hoy.</summary>
+    private Dictionary<string, string?> BuildMainInputs()
+    {
+        var inputs = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in _filters)
+        {
+            if (!f.Spec.QueryParam)
+            {
+                continue;
+            }
+
+            var param = !string.IsNullOrWhiteSpace(f.Spec.Param) ? f.Spec.Param!.Trim() : f.Spec.Field?.Trim();
+
+            if (f.Spec.Control.Equals("daterange", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(param) && !string.IsNullOrWhiteSpace(f.From)) { inputs[param!] = f.From; }
+                var paramTo = f.Spec.ParamTo?.Trim();
+                if (!string.IsNullOrWhiteSpace(paramTo) && !string.IsNullOrWhiteSpace(f.To)) { inputs[paramTo!] = f.To; }
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(param))
+            {
+                continue;
+            }
+
+            if (f.Spec.Multi)
+            {
+                if (f.Selected.Count > 0) { inputs[param!] = string.Join("\n", f.Selected); }
+            }
+            else if (!string.IsNullOrWhiteSpace(f.Value))
+            {
+                inputs[param!] = f.Value.Trim();
+            }
+        }
+
+        return inputs;
     }
 
     private async Task ApplyLookupsAsync(IReadOnlyList<ReportSourceDescriptor> sources)
@@ -428,7 +528,10 @@
         return DateTimeOffset.MinValue;
     }
 
-    private void BuildFilters()
+    /// <summary>Construye los controles de filtro UNA vez (se conservan entre re-consultas). Un dropdown con
+    /// origen de LOOKUP carga aqui sus opciones codigo->etiqueta (estables). Los demas dropdowns pueblan sus
+    /// opciones por distinct en <see cref="RefreshDistinctOptions"/> tras cada carga del Main.</summary>
+    private async Task BuildFiltersAsync()
     {
         _filters.Clear();
         foreach (var f in _spec!.Filters)
@@ -436,29 +539,172 @@
             var af = new ActiveFilter
             {
                 Spec = f,
-                Label = string.IsNullOrWhiteSpace(f.Label) ? f.Field : f.Label!
+                Label = string.IsNullOrWhiteSpace(f.Label) ? (string.IsNullOrWhiteSpace(f.Param) ? f.Field : f.Param!) : f.Label!
             };
-            if (f.Control.Equals("dropdown", StringComparison.OrdinalIgnoreCase))
+
+            if (f.Control.Equals("dropdown", StringComparison.OrdinalIgnoreCase)
+                && f.Options is not null
+                && (!string.IsNullOrWhiteSpace(f.Options.Source) || !string.IsNullOrWhiteSpace(f.Options.Container)))
             {
-                af.Options = _rows.Select(r => PanelDataEngine.Norm(r.GetValueOrDefault(f.Field)))
-                    .Where(s => s.Length > 0)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                af.OptionPairs = await LoadLookupOptionsAsync(f.Options);
             }
 
             _filters.Add(af);
         }
     }
 
-    private void SetValue(ActiveFilter f, string? value) { f.Value = value ?? ""; Recompute(); }
-    private void SetFrom(ActiveFilter f, string? value) { f.From = value; Recompute(); }
-    private void SetTo(ActiveFilter f, string? value) { f.To = value; Recompute(); }
-
-    private void ClearFilters()
+    /// <summary>Carga las opciones (codigo -> etiqueta) de un dropdown desde un dataset de lookup del catalogo.
+    /// El VALUE es el codigo que viaja al parametro; el Label es presentacion. Deduplica por codigo.</summary>
+    private async Task<List<OptionPair>> LoadLookupOptionsAsync(PanelFilterOptions opt)
     {
-        foreach (var f in _filters) { f.Value = ""; f.From = f.To = null; }
+        var src = PanelSpecValidator.FindByRef(_sources, opt.Source, opt.Container);
+        if (src is null || string.IsNullOrWhiteSpace(opt.Value))
+        {
+            return new List<OptionPair>();
+        }
+
+        string? KeyOf(string name) => src.Fields.FirstOrDefault(x =>
+            string.Equals(x.DisplayName, name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(x.Key, name, StringComparison.OrdinalIgnoreCase))?.Key;
+
+        var valueKey = KeyOf(opt.Value);
+        if (valueKey is null)
+        {
+            return new List<OptionPair>();
+        }
+
+        var labelKey = string.IsNullOrWhiteSpace(opt.Label) ? null : KeyOf(opt.Label!);
+        var fields = labelKey is null ? new[] { valueKey } : new[] { valueKey, labelKey };
+        var ds = await ReportDs.QueryAsync(new ReportQuerySpec
+        {
+            SourceKey = src.Key,
+            Fields = fields.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        }, new ReportContext(Guid.Empty));
+
+        var vi = ds.Columns.Select((c, i) => (c.Key, i))
+            .Where(x => string.Equals(x.Key, valueKey, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.i).DefaultIfEmpty(0).First();
+        var li = labelKey is null ? vi : ds.Columns.Select((c, i) => (c.Key, i))
+            .Where(x => string.Equals(x.Key, labelKey, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.i).DefaultIfEmpty(vi).First();
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pairs = new List<OptionPair>();
+        foreach (var raw in ds.Rows)
+        {
+            var code = PanelDataEngine.Norm(vi < raw.Count ? raw[vi] : null);
+            if (code.Length == 0 || !seen.Add(code)) { continue; }
+            var label = PanelDataEngine.Norm(li < raw.Count ? raw[li] : null);
+            pairs.Add(new OptionPair(code, label.Length > 0 ? label : code));
+        }
+
+        return pairs.OrderBy(p => p.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Refresca las opciones DISTINCT de los dropdowns SIN origen de lookup (se derivan del resultado
+    /// actual del Main). Los dropdowns con OptionPairs (lookup) no se tocan.</summary>
+    private void RefreshDistinctOptions()
+    {
+        foreach (var af in _filters)
+        {
+            if (!af.Spec.Control.Equals("dropdown", StringComparison.OrdinalIgnoreCase) || af.OptionPairs.Count > 0)
+            {
+                continue;
+            }
+
+            var field = string.IsNullOrWhiteSpace(af.Spec.Field) ? af.Spec.Param ?? "" : af.Spec.Field;
+            af.Options = _rows.Select(r => PanelDataEngine.Norm(r.GetValueOrDefault(field)))
+                .Where(s => s.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    // Un filtro queryParam RE-CONSULTA la fuente externa (con debounce); un filtro normal recomputa en memoria.
+    private Task SetValue(ActiveFilter f, string? value) { f.Value = value ?? ""; return OnFilterChangedAsync(f); }
+    private Task SetFrom(ActiveFilter f, string? value) { f.From = value; return OnFilterChangedAsync(f); }
+    private Task SetTo(ActiveFilter f, string? value) { f.To = value; return OnFilterChangedAsync(f); }
+
+    private Task SetMulti(ActiveFilter f, object? value)
+    {
+        // <select multiple> entrega string[] (o un solo string). Se guarda la lista de codigos elegidos.
+        f.Selected = value switch
+        {
+            IEnumerable<string> many => many.Where(s => !string.IsNullOrWhiteSpace(s)).ToList(),
+            string one when one.Length > 0 => new List<string> { one },
+            _ => new List<string>()
+        };
+        return OnFilterChangedAsync(f);
+    }
+
+    private async Task OnFilterChangedAsync(ActiveFilter f)
+    {
+        if (f.Spec.QueryParam && MainIsExternal)
+        {
+            await DebouncedReloadAsync();
+        }
+        else
+        {
+            Recompute();
+        }
+    }
+
+    /// <summary>Re-consulta la fuente externa tras un pequeno retardo, cancelando cambios rapidos encadenados
+    /// (debounce). Mantiene MaxRows/timeout/concesion (los aplica el reader); la cadena nunca se expone.</summary>
+    private async Task DebouncedReloadAsync()
+    {
+        _reloadCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _reloadCts = cts;
+        try
+        {
+            await Task.Delay(400, cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _reloading = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            await ReloadMainAsync();
+        }
+        catch (ReportValidationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _reloading = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task ClearFilters()
+    {
+        var hadQueryParam = _filters.Any(f => f.Spec.QueryParam
+            && (!string.IsNullOrWhiteSpace(f.Value) || f.Selected.Count > 0 || !string.IsNullOrWhiteSpace(f.From) || !string.IsNullOrWhiteSpace(f.To)));
+        foreach (var f in _filters) { f.Value = ""; f.From = f.To = null; f.Selected = new List<string>(); }
+        if (hadQueryParam && MainIsExternal)
+        {
+            return DebouncedReloadAsync();
+        }
+
         Recompute();
+        return Task.CompletedTask;
     }
 
     private void Recompute()
@@ -474,6 +720,12 @@
         foreach (var f in _filters)
         {
             var spec = f.Spec;
+            // Un queryParam ya acoto el resultado en el SQL (re-consulta); NO se vuelve a filtrar en memoria.
+            if (spec.QueryParam)
+            {
+                continue;
+            }
+
             if (spec.Control.Equals("daterange", StringComparison.OrdinalIgnoreCase))
             {
                 var from = ParseDate(f.From);
@@ -697,10 +949,29 @@
     {
         public PanelFilter Spec { get; set; } = new();
         public string Label { get; set; } = "";
+
+        /// <summary>Opciones DISTINCT (codigo == etiqueta) para un dropdown sin origen de lookup.</summary>
         public List<string> Options { get; set; } = new();
+
+        /// <summary>Opciones codigo -> etiqueta cuando el dropdown se alimenta de un dataset de lookup.</summary>
+        public List<OptionPair> OptionPairs { get; set; } = new();
+
+        /// <summary>Valor unico (dropdown simple / text).</summary>
         public string Value { get; set; } = "";
+
+        /// <summary>Codigos elegidos en un dropdown multi-valor (queryParam multi).</summary>
+        public List<string> Selected { get; set; } = new();
+
         public string? From { get; set; }
         public string? To { get; set; }
+    }
+
+    private sealed record OptionPair(string Value, string Label);
+
+    public void Dispose()
+    {
+        // Cancela cualquier re-consulta pendiente (debounce) al desmontar el panel.
+        try { _reloadCts?.Cancel(); _reloadCts?.Dispose(); } catch { }
     }
 
     private sealed record KpiValue(string Label, string Value);

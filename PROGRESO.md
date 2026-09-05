@@ -26,6 +26,32 @@
 
 ---
 
+## 2026-09-05 - v0.15.177: paneles-spec - filtros que RE-CONSULTAN una fuente externa (queryParam)
+
+- Pedido (sesion de reportes): un panel sobre una fuente EXTERNA (ADR-0064) corria el dataset UNA vez con
+  los defaults y filtraba en memoria; eso no sirve para parametros que cambian la agregacion en el SQL
+  (Director Comercial: Grupo/Marca/Tipo/Linea/SubGrupo + rango de fechas, que NO son columnas). Ahora un
+  filtro puede RE-CONSULTAR el dataset externo con esos parametros al cambiarlos.
+- Cambios:
+  1. PanelSpec.PanelFilter: QueryParam (bool), Param/ParamTo (parametro Input; daterange usa ambos), Type,
+     Multi (multi-valor SSRS v0.15.173, codigos por salto de linea), Options (PanelFilterOptions: dataset de
+     lookup codigo->etiqueta para el dropdown). Sin migracion (el spec vive en SpecJson).
+  2. ReportQuerySpec.Inputs (nombre->valor); ReportDataSource pasa spec.Inputs a ExternalReportReader.
+     QueryAsync (antes inputs=null). El binder enlaza solo parametros declarados y tipados (anti-inyeccion).
+     Fuentes no externas ignoran Inputs -> un panel sin queryParams se comporta igual que antes.
+  3. SpecPanelRenderer: si Main es externo y cambia un filtro queryParam, RE-EJECUTA la consulta del Main con
+     esos Inputs (debounce 400 ms + "Actualizando..."); reconstruye join/derivados/where y recomputa. Los
+     filtros normales siguen en memoria. UI: dropdown (multi-select con codigo->etiqueta desde lookup o
+     distinct) + daterange. Mantiene MaxRows/timeout/concesion; la cadena nunca se expone.
+  4. PanelSpecValidator: acepta queryParam SOLO si Main es externo; exige param/field; valida la fuente/campos
+     del origen de opciones.
+- Tests: PanelSpecValidatorTests (6 nuevos: valido en externa, rechazo en no-externa, falta param, opciones
+  de fuente/campo inexistentes, round-trip de campos nuevos). Suite Application 779/780 (el unico fallo es
+  ContactWorkflowDispatcher, EF ToListAsync, PRE-EXISTENTE y ajeno a este cambio). Build Release verde.
+- Nota en ADR-0066 (ref ADR-0064). NO desplegado (a senal).
+
+---
+
 ## 2026-09-05 - v0.15.176: disenador - checkbox "Permite ingreso manual" para columnas resolver
 
 - Pedido: exponer en el disenador de formularios la bandera hibrida (allowManual) de las columnas RESOLVER

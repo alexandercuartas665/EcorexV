@@ -416,4 +416,99 @@ public class PanelSpecValidatorTests
         Assert.Equal("Cliente NIT", again.Join!.MainKey);
         Assert.Equal("ClienteNombre", again.Sources.Lookups[0].Bring["Nombre"]);
     }
+
+    // ---- queryParam: filtros que RE-CONSULTAN una fuente EXTERNA (ADR-0064/0066) ----
+
+    /// <summary>Catalogo con una fuente EXTERNA (Director Comercial) + un dataset de opciones (grupos).</summary>
+    private static IReadOnlyList<ReportSourceDescriptor> ExternalCatalog() => new[]
+    {
+        new ReportSourceDescriptor("external:11111111-1111-1111-1111-111111111111", "Director Comercial", ReportSourceKind.External, new[]
+        {
+            new ReportField("Vendedor", "Vendedor", ReportFieldType.Text, CanFilter: false, CanGroup: false, CanAggregate: false),
+            new ReportField("Cliente", "Cliente", ReportFieldType.Text, CanFilter: false, CanGroup: false, CanAggregate: false),
+            new ReportField("Ventas", "Ventas", ReportFieldType.Decimal, CanFilter: false, CanGroup: false, CanAggregate: false)
+        }),
+        new ReportSourceDescriptor("external:22222222-2222-2222-2222-222222222222", "Grupos", ReportSourceKind.External, new[]
+        {
+            new ReportField("CODIGO", "CODIGO", ReportFieldType.Text, CanFilter: false, CanGroup: false, CanAggregate: false),
+            new ReportField("NOMBRE", "NOMBRE", ReportFieldType.Text, CanFilter: false, CanGroup: false, CanAggregate: false)
+        })
+    };
+
+    private static PanelSpec DirectorComercialSpec() => PanelSpec.FromJson(@"{
+      ""title"": ""Director Comercial"",
+      ""sources"": { ""main"": { ""source"": ""external:11111111-1111-1111-1111-111111111111"" } },
+      ""filters"": [
+        { ""label"": ""Grupo"", ""queryParam"": true, ""param"": ""grupo_inven"", ""multi"": true, ""control"": ""dropdown"",
+          ""options"": { ""source"": ""external:22222222-2222-2222-2222-222222222222"", ""value"": ""CODIGO"", ""label"": ""NOMBRE"" } },
+        { ""label"": ""Periodo"", ""queryParam"": true, ""control"": ""daterange"", ""param"": ""fecha_ini"", ""paramTo"": ""fecha_fin"", ""type"": ""date"" }
+      ],
+      ""kpis"": [ { ""label"": ""Ventas"", ""agg"": ""sum"", ""field"": ""Ventas"", ""format"": ""moneyM"" } ],
+      ""widgets"": [ { ""type"": ""bar"", ""dim"": ""Vendedor"", ""agg"": ""sum"", ""field"": ""Ventas"" } ]
+    }")!;
+
+    [Fact]
+    public void QueryParamFilters_OnExternalMain_WithLookupOptions_ProducesNoErrors()
+    {
+        var errors = PanelSpecValidator.Validate(DirectorComercialSpec(), ExternalCatalog());
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void QueryParamFilter_OnNonExternalMain_IsReported()
+    {
+        // Un queryParam solo tiene sentido sobre una fuente EXTERNA (re-consulta el SQL). Sobre un contenedor,
+        // se reporta.
+        var spec = PanelSpec.FromJson(@"{
+          ""sources"": { ""main"": { ""container"": ""facturas"" } },
+          ""filters"": [ { ""label"": ""Vendedor"", ""queryParam"": true, ""param"": ""ven"", ""control"": ""dropdown"" } ],
+          ""kpis"": [ { ""label"": ""Ventas"", ""agg"": ""sum"", ""field"": ""Total"", ""format"": ""moneyM"" } ],
+          ""widgets"": [ { ""type"": ""bar"", ""dim"": ""Vendedor"", ""agg"": ""sum"", ""field"": ""Total"" } ]
+        }")!;
+        var errors = PanelSpecValidator.Validate(spec, Catalog());
+        Assert.Contains(errors, e => e.Contains("queryParam") && e.Contains("externa"));
+    }
+
+    [Fact]
+    public void QueryParamFilter_WithoutParamNorField_IsReported()
+    {
+        var spec = DirectorComercialSpec();
+        spec.Filters[0].Param = null;
+        spec.Filters[0].Field = "";
+        var errors = PanelSpecValidator.Validate(spec, ExternalCatalog());
+        Assert.Contains(errors, e => e.Contains("param"));
+    }
+
+    [Fact]
+    public void QueryParam_OptionsFromMissingSource_IsReported()
+    {
+        var spec = DirectorComercialSpec();
+        spec.Filters[0].Options!.Source = "external:99999999-9999-9999-9999-999999999999";
+        var errors = PanelSpecValidator.Validate(spec, ExternalCatalog());
+        Assert.Contains(errors, e => e.Contains("opciones") && e.Contains("no existe"));
+    }
+
+    [Fact]
+    public void QueryParam_OptionsValueFieldNotInSource_IsReported()
+    {
+        var spec = DirectorComercialSpec();
+        spec.Filters[0].Options!.Value = "NO_EXISTE";
+        var errors = PanelSpecValidator.Validate(spec, ExternalCatalog());
+        Assert.Contains(errors, e => e.Contains("NO_EXISTE"));
+    }
+
+    [Fact]
+    public void QueryParam_RoundTrip_PreservesNewFields()
+    {
+        var again = PanelSpec.FromJson(DirectorComercialSpec().ToJson())!;
+        var grupo = again.Filters[0];
+        Assert.True(grupo.QueryParam);
+        Assert.True(grupo.Multi);
+        Assert.Equal("grupo_inven", grupo.Param);
+        Assert.Equal("CODIGO", grupo.Options!.Value);
+        Assert.Equal("NOMBRE", grupo.Options!.Label);
+        var periodo = again.Filters[1];
+        Assert.Equal("fecha_ini", periodo.Param);
+        Assert.Equal("fecha_fin", periodo.ParamTo);
+    }
 }

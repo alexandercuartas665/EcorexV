@@ -26,6 +26,26 @@
 
 ---
 
+## 2026-09-05 - v0.15.176: disenador - checkbox "Permite ingreso manual" para columnas resolver
+
+- Pedido: exponer en el disenador de formularios la bandera hibrida (allowManual) de las columnas RESOLVER
+  (VLOOKUP contra Contenedor). El motor y el parse ya la soportaban (FormGridResolveConfig.AllowManual,
+  FormGridColumnLookup.cs, v0.15.163); solo faltaba la UI (antes se ponia por SQL/JSON).
+- Cambios (solo UI, sin migracion), en FormDesigner.razor:
+  1. Bloque para columnas cuyo GridColumnExtras.Resolve != null: resumen no editable ("Auto-resuelta desde
+     el contenedor por {claves}; devuelve {campo}") + checkbox "Permite ingreso manual" con hint
+     ("Donde el contenedor tiene tarifa autollena; donde no, la celda queda editable y lo tecleado no se
+     borra.").
+  2. Persistencia: SetGridResolveAllowManualAsync via PatchGridColumnJsonAsync (mutacion del JsonObject),
+     escribe/quita allowManual DENTRO del objeto resolve de columns[idx] en el options_json, PRESERVANDO
+     las demas claves (match/return/source/sourceRef). Marcar=true; desmarcar quita la clave (default false).
+  3. Estado inicial via @bind:get (refleja Resolve.AllowManual) + @bind:set (guarda).
+- Verificado en dev (AGROMETALICAS, form COT SIMULADOR COTIZACIONES, columna precio_corte): el bloque
+  renderiza, el estado inicial refleja el valor guardado, y marcar/desmarcar persiste allowManual en el JSON
+  del grid sin perder match/return/source. Build Release verde. NO desplegado (a senal).
+
+---
+
 ## 2026-09-04 - v0.15.174: lector movil - resolver descendiente tambien por ParentId (salto de flujo)
 
 - Bug (usuario): en el tablero movil "Seguimiento O.T.", al escanear T00057 sale "No se encontro 'T00057'

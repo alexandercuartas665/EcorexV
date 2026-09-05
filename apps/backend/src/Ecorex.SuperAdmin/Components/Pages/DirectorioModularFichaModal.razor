@@ -240,6 +240,9 @@
     .fm-input:focus, .fm-select:focus, .fm-textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
     .fm-input:disabled { background: #f9fafb; color: #9ca3af; }
     .fm-textarea { resize: vertical; min-height: 64px; }
+    .fm-money { display: flex; align-items: stretch; }
+    .fm-money-sym { display: inline-flex; align-items: center; padding: 0 11px; border: 1px solid #d1d5db; border-right: none; border-radius: 8px 0 0 8px; background: #f9fafb; color: #6b7280; font-size: 13px; }
+    .fm-money .fm-input { border-radius: 0 8px 8px 0; }
     .fm-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; padding-top: 4px; }
     .fm-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 22px; border-top: 1px solid #eef0f3; }
     .fm-err { color: #dc2626; font-size: 12.5px; font-weight: 600; }
@@ -503,6 +506,22 @@
                 builder.AddContent(6, "Si");
                 builder.CloseElement();
                 break;
+            case TerceroFieldType.Currency:
+                // Moneda: prefijo "$" + input numerico (como el prototipo: input-group con addon).
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "fm-money");
+                builder.OpenElement(2, "span"); builder.AddAttribute(3, "class", "fm-money-sym"); builder.AddContent(4, "$"); builder.CloseElement();
+                builder.OpenElement(5, "input");
+                builder.AddAttribute(6, "class", "fm-input");
+                builder.AddAttribute(7, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(8, "type", "number");
+                builder.AddAttribute(9, "inputmode", "decimal");
+                builder.AddAttribute(10, "value", val);
+                builder.AddAttribute(11, "disabled", f.ReadOnly);
+                builder.AddAttribute(12, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
             case TerceroFieldType.Lookup:
             case TerceroFieldType.DirectoryLookup:
             case TerceroFieldType.Calculated:
@@ -529,8 +548,10 @@
 
     private static string InputType(TerceroFieldType t) => t switch
     {
-        TerceroFieldType.Number or TerceroFieldType.Currency => "number",
+        TerceroFieldType.Number => "number",
         TerceroFieldType.Date => "date",
+        TerceroFieldType.Email => "email",
+        TerceroFieldType.Phone => "tel",
         _ => "text"
     };
 

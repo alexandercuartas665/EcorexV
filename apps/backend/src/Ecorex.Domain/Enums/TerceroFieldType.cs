@@ -54,5 +54,9 @@ public enum TerceroFieldType
     /// <summary>Tabla de filas dinamicas: crece por filas. La definicion de sus columnas (clave, etiqueta,
     /// tipo, opciones, autollenado) va serializada en <c>Options</c> como JSON, con el mismo patron que
     /// Lookup/DirectoryLookup (sin columna nueva). El valor por tercero se guarda como arreglo JSON de filas.</summary>
-    Table
+    Table,
+
+    /// <summary>Correo electronico: se pinta como &lt;input type="email"&gt; (validacion nativa del navegador).
+    /// Se agrego al final para no correr los valores enteros de los demas tipos ya persistidos.</summary>
+    Email
 }

@@ -220,3 +220,33 @@ Build Release verde.
 
 Pendiente: Ola C (llenar el form del paso con toolset acotado + hilar executedByAiAgentId por
 SaveAsync->CompleteStep).
+
+## Nota (v0.15.180) - Ola C cerrada: llenar el formulario del paso con tool-calling
+
+El agente de un Task con WorkflowNodeForm ahora DILIGENCIA el formulario del paso con function-calling y,
+en modo Autonomo, lo ENVIA (lo que completa el paso). Respeta la separacion de fases del runtime: el
+INVOKER hace la red (bucle de tools) y ACUMULA los valores EN MEMORIA -no escribe BD-; el RUNNER persiste.
+
+- Invoker (WorkflowAgentInvoker): si el nodo tiene formulario, corre RunFormFillAsync -un bucle acotado
+  (MaxFormRounds=8) de CompleteWithToolsAsync- con un toolset de PASO: 'ver_formulario' (esquema:
+  campos/tipos/obligatorios/opciones), 'fijar_campos' ({campos:{codigo:valor}}, acumula y devuelve que
+  obligatorios faltan; ignora codigos que no existen), 'enviar_formulario' (marca LISTO). Suma tokens de
+  todas las rondas. Si el modelo no llama 'enviar_formulario' o no fijo nada -> "no pudo" (vuelve a humano).
+  El resultado gana Fields (fieldCode->valor).
+- Runner (WorkflowAgentStepRunner): para un nodo con Fields, SubmitAgentFormAsync reusa el MISMO camino de
+  una persona -GetTaskStepFormsAsync materializa el draft + FormFlowLink del paso, y SaveAsync valida por
+  tipo, corre las reglas on-submit y, al enviar, completa el paso via el motor-. Autonomo=SaveAsync(submit)
+  (cierra el paso); Propone=SaveAsync(draft) (deja el formulario lleno para que una persona lo revise y
+  envie). Si la validacion falla -> ReturnToPerson con el error (nunca se fuerza). Requiere que el nodo
+  auto-cree el formulario al llegar (AutoCreateOnArrival=true, default); si no, no hay draft y vuelve a humano.
+- SaveAsync (FormResponseService) gana executedByAiAgentId y lo hila a CompleteStepAsync: el envio queda
+  auditado como hecho por el AGENTE (usuario null en un envio autonomo), junto al humano si luego lo toca.
+
+Lookups externos (inventario/directorio/contenedores) como tools del mismo bucle son la extension natural
+(el esquema ya trae 'opciones' de select/radio; los codigos conocidos el agente los pone del contexto).
+
+Tests: WorkflowAgentStepTests (integracion, matriz dual) - nuevo caso: agente autonomo llena y ENVIA el
+formulario del paso; la respuesta queda Submitted por el agente (sin usuario), el paso se cierra con el
+agente como autor y el flujo avanza. 12/12 verde. Build Release verde.
+
+Con esto cierran las tres olas de ADR-0090 (decidir paso / elegir ruta de compuerta / llenar formulario).

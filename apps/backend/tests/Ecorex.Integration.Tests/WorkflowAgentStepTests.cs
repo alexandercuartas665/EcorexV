@@ -6,6 +6,7 @@ using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Ecorex.Integration.Tests;
@@ -75,6 +76,41 @@ public abstract class WorkflowAgentStepTestsBase
         // IDEMPOTENCIA: volver a pasarlo por el runner no repite la llamada ni toca el paso.
         Assert.Equal(WorkflowAgentStepOutcome.NotApplicable, await runner.RunAsync(scenario.AgentStepId));
         Assert.Equal(1, invoker.Calls);
+    }
+
+    // ---- (1b) Autonomous con FORMULARIO (ola C): el agente lo llena, lo envia y el paso se cierra ----
+
+    [Fact]
+    public async Task Autonomous_FillsAndSubmitsStepForm_WithAgentAsAuthor_AndFlowAdvances()
+    {
+        var seed = await SeedTenantAsync("AgentStep Form");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous, withForm: true);
+
+        var fields = new Dictionary<string, string?> { ["observacion"] = "Todo correcto, procede." };
+        var invoker = FakeWorkflowAgentInvoker.AnsweringForm(fields, "Diligenciado con los datos del caso.");
+        var runner = BuildRunner(ctx, seed, invoker);
+
+        Assert.Equal(WorkflowAgentStepOutcome.Completed, await runner.RunAsync(scenario.AgentStepId));
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+
+        // El formulario del paso quedo ENVIADO por el AGENTE (sin usuario humano) con el valor que fijo.
+        var response = await ctx2.FormResponses.AsNoTracking()
+            .FirstAsync(r => r.Status == FormResponseStatus.Submitted);
+        Assert.Null(response.SubmittedByTenantUserId);
+        Assert.Contains("Todo correcto", response.Data);
+
+        // El paso se cerro con el AGENTE como autor y el flujo AVANZO.
+        var step = await ctx2.WorkflowStepHistories.AsNoTracking().FirstAsync(s => s.Id == scenario.AgentStepId);
+        Assert.Equal(WorkflowStepStatus.Completed, step.Status);
+        Assert.Equal(scenario.AgentId, step.ExecutedByAiAgentId);
+        Assert.Null(step.ExecutedByTenantUserId);
+        Assert.NotNull(step.AgentAttemptedAt);
+
+        var next = await ctx2.WorkflowStepHistories.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.NodeId == scenario.SecondNodeId && s.IsCurrent);
+        Assert.NotNull(next);
     }
 
     // ---- (2) Proposes: el paso sigue pendiente y la propuesta queda visible ----
@@ -292,6 +328,11 @@ public abstract class WorkflowAgentStepTestsBase
         public static FakeWorkflowAgentInvoker Failing(string error)
             => new(WorkflowAgentInvocationResult.Failed(error, AiProvider.Claude, "modelo-de-prueba"));
 
+        // ADR-0090 ola C: el agente "lleno" un formulario (Fields != null). Emula el resultado del tool-loop.
+        public static FakeWorkflowAgentInvoker AnsweringForm(IReadOnlyDictionary<string, string?> fields, string comment)
+            => new(new WorkflowAgentInvocationResult(
+                true, null, comment, null, AiProvider.Claude, "modelo-de-prueba", 100, 50, Route: null, Fields: fields));
+
         public Task<WorkflowAgentInvocationResult> InvokeAsync(
             WorkflowAgentContextDto context, CancellationToken cancellationToken = default)
         {
@@ -319,6 +360,14 @@ public abstract class WorkflowAgentStepTestsBase
         EcorexDbContext ctx, SeedData seed, IWorkflowAgentInvoker invoker)
     {
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var forms = new Ecorex.Application.Forms.FormResponseService(
+            ctx,
+            BuildEngine(ctx, seed),
+            new Ecorex.Application.Tenancy.SequenceService(ctx, tenantContext),
+            tenantContext,
+            new Ecorex.Application.Tenancy.NoOpFormRecordBroadcaster(),
+            new Ecorex.Application.Forms.Lookups.FormLookupService(Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()),
+            new Ecorex.Application.Rules.RulesEngine(ctx, tenantContext, new ServiceCollection().BuildServiceProvider()));
         return new WorkflowAgentStepRunner(
             ctx,
             new WorkflowAgentContextBuilder(ctx),
@@ -326,6 +375,7 @@ public abstract class WorkflowAgentStepTestsBase
             new AiUsageService(ctx, tenantContext),
             new NodeAssigneeResolver(ctx),
             BuildEngine(ctx, seed),
+            forms,
             TimeProvider.System,
             NullLogger<WorkflowAgentStepRunner>.Instance);
     }
@@ -336,7 +386,7 @@ public abstract class WorkflowAgentStepTestsBase
     /// humano para ese nodo (cargo con un funcionario) via WorkflowNodePolicy.
     /// </summary>
     private static async Task<ScenarioSeed> SeedScenarioAsync(
-        EcorexDbContext ctx, SeedData seed, WorkflowAgentAutonomy autonomy)
+        EcorexDbContext ctx, SeedData seed, WorkflowAgentAutonomy autonomy, bool withForm = false)
     {
         var tenantId = seed.TenantId;
 
@@ -461,6 +511,38 @@ public abstract class WorkflowAgentStepTestsBase
             Status = TaskItemStatus.Active
         };
         ctx.TaskItems.Add(task);
+
+        // ADR-0090 ola C: un formulario OBLIGATORIO en el nodo del agente (auto-creado al llegar el paso).
+        // El agente lo llena y (autonomo) lo envia; el envio completa el paso via el FormFlowLink.
+        if (withForm)
+        {
+            var formDef = new FormDefinition
+            {
+                TenantId = tenantId,
+                Code = $"F{Guid.NewGuid():N}"[..8],
+                Title = "Formulario del paso",
+                Status = FormStatus.Active
+            };
+            ctx.FormDefinitions.Add(formDef);
+            ctx.FormQuestions.Add(new FormQuestion
+            {
+                TenantId = tenantId,
+                DefinitionId = formDef.Id,
+                FieldCode = "observacion",
+                Label = "Observacion",
+                ControlType = FormControlType.Text,
+                Required = true,
+                SortOrder = 0
+            });
+            ctx.WorkflowNodeForms.Add(new WorkflowNodeForm
+            {
+                TenantId = tenantId,
+                NodeId = nodeAgente.Id,
+                DefinitionId = formDef.Id,
+                SortOrder = 0
+            });
+        }
+
         await ctx.SaveChangesAsync();
 
         ctx.WorkflowNodeAgents.Add(new WorkflowNodeAgent

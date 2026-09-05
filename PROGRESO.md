@@ -26,6 +26,26 @@
 
 ---
 
+## 2026-09-05 - v0.15.180: agentes de IA en nodos de flujo - Ola C (llenar formularios, ADR-0090)
+
+- Que el agente de un Task con formulario lo DILIGENCIE con tool-calling y (autonomo) lo ENVIE. Cierra las
+  3 olas de ADR-0090.
+- Invoker: si el nodo tiene WorkflowNodeForm, corre un bucle acotado (8 rondas) de CompleteWithToolsAsync con
+  un toolset de PASO: ver_formulario / fijar_campos / enviar_formulario. Acumula los valores EN MEMORIA (no
+  escribe BD, respeta la separacion de fases); el resultado gana Fields. Suma tokens de todas las rondas. Si
+  no llama enviar_formulario o no fija nada -> vuelve a humano.
+- Runner: SubmitAgentFormAsync reusa el camino de una persona -GetTaskStepFormsAsync materializa el draft +
+  FormFlowLink del paso; SaveAsync valida por tipo, corre reglas on-submit y al enviar completa el paso-.
+  Autonomo=envia (cierra), Propone=deja el draft lleno. Validacion falla -> ReturnToPerson (nunca fuerza).
+- SaveAsync (FormResponseService/IFormResponseService) gana executedByAiAgentId, hilado a CompleteStepAsync:
+  el envio queda auditado como hecho por el agente (usuario null en autonomo).
+- Tests: WorkflowAgentStepTests (integracion, matriz dual PG+SQL) nuevo caso: agente autonomo llena y ENVIA
+  el form del paso; queda Submitted por el agente (sin usuario), el paso cierra con el agente como autor y el
+  flujo avanza. 12/12 verde localmente. Build Release verde. Nota en ADR-0090. NO desplegado (a senal).
+- Extension natural (no en esta version): lookups externos (inventario/directorio) como tools del mismo bucle.
+
+---
+
 ## 2026-09-05 - v0.15.179: agentes de IA en nodos de flujo - Ola B (compuertas, ADR-0090)
 
 - Que un agente decida en una COMPUERTA exclusiva, por los dos caminos (decision del usuario "ambos"):

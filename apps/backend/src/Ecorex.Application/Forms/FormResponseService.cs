@@ -120,6 +120,7 @@ public sealed class FormResponseService : IFormResponseService
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
         Guid? submittedByTenantUserId = null, string? approvalResult = null,
         IReadOnlyCollection<string>? hiddenFieldCodes = null,
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default)
     {
         var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
@@ -358,6 +359,7 @@ public sealed class FormResponseService : IFormResponseService
                     var completed = await _workflowEngine.CompleteStepAsync(
                         link.WorkflowInstanceId, step.Id, submittedByTenantUserId,
                         approvalResult: approvalResult,
+                        executedByAiAgentId: executedByAiAgentId,
                         cancellationToken: cancellationToken);
                     if (!completed.IsOk && completed.Status != WorkflowEngineStatus.StuckDetected)
                     {

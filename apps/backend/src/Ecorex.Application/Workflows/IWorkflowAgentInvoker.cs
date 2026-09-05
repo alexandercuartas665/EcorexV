@@ -44,7 +44,11 @@ public sealed record WorkflowAgentInvocationResult(
     string Model = "",
     int InputTokens = 0,
     int OutputTokens = 0,
-    string? Route = null)
+    string? Route = null,
+    // Valores que el agente puso en el FORMULARIO del paso (fieldCode -> valor), via tool-calling (ADR-0090
+    // ola C). Null si el nodo no tiene formulario. El runner los envia por SaveAsync (misma validacion que un
+    // humano); el invoker NO escribe: solo acumula lo que el modelo fijo.
+    IReadOnlyDictionary<string, string?>? Fields = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);

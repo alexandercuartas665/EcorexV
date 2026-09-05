@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Forms;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
@@ -37,6 +38,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly IAiUsageService _usage;
     private readonly INodeAssigneeResolver _assigneeResolver;
     private readonly IWorkflowEngine _engine;
+    private readonly IFormResponseService _forms;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
 
@@ -47,6 +49,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         IAiUsageService usage,
         INodeAssigneeResolver assigneeResolver,
         IWorkflowEngine engine,
+        IFormResponseService forms,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -56,6 +59,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _usage = usage;
         _assigneeResolver = assigneeResolver;
         _engine = engine;
+        _forms = forms;
         _clock = clock;
         _logger = logger;
     }
@@ -136,9 +140,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         // ---- Fase 3: decidir y persistir (transaccion corta) ----
 
-        // El tipo de nodo decide la FORMA de la decision (ADR-0090 ola B): una COMPUERTA elige una RUTA;
-        // un Task fija un RESULTADO. El tipo viene del contexto ya armado (no re-consulta).
+        // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
+        // formulario lo LLENA (ola C, Fields != null), y un Task de decision fija un RESULTADO.
         var isGateway = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
+        var isForm = invocation.Fields is not null;
 
         // En una compuerta se resuelve la ruta ANTES de tocar el paso: si el agente no eligio una salida
         // valida, es un "no pudo" y el paso vuelve a una persona (nunca se enruta a ciegas).
@@ -162,7 +167,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             routeTargetId = targetId;
             routeLabel = targetName ?? invocation.Route;
         }
-        else if (string.IsNullOrWhiteSpace(invocation.Result))
+        else if (!isForm && string.IsNullOrWhiteSpace(invocation.Result))
         {
             return await ReturnToPersonAsync(
                 step, nodeAgent.AiAgentId, "El agente no indico un resultado para el paso.", cancellationToken);
@@ -170,9 +175,16 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         var now = _clock.GetUtcNow();
         step.AgentAttemptedAt = now;
-        // La propuesta guardada: la ruta (nombre del destino) en una compuerta, o el resultado en un Task.
-        step.AgentProposalResult = isGateway ? Clip(routeLabel, 20) : invocation.Result;
+        // La propuesta guardada: la ruta en una compuerta, "Formulario" en un llenado, o el resultado en un Task.
+        step.AgentProposalResult = isGateway ? Clip(routeLabel, 20) : (isForm ? "Formulario" : invocation.Result);
         step.AgentProposalComment = invocation.Comment;
+
+        // FORMULARIO (ola C): se atiende como una persona -> materializa el draft/link del paso y lo guarda por
+        // SaveAsync (misma validacion, reglas on-submit y cierre de paso). Autonomo=envia, Propone=deja el draft.
+        if (isForm)
+        {
+            return await SubmitAgentFormAsync(step, nodeAgent, invocation, cancellationToken);
+        }
 
         if (nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous)
         {
@@ -241,6 +253,77 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             .ToList();
         if (byName.Count == 1) { return (byName[0].Id, byName[0].Name); }
         return (null, null);
+    }
+
+    /// <summary>Diligencia (y, en modo Autonomo, ENVIA) el formulario del paso con los valores que fijo el
+    /// agente (ADR-0090 ola C). Reutiliza el MISMO camino de una persona: GetTaskStepFormsAsync materializa el
+    /// draft + FormFlowLink del paso, y SaveAsync valida por tipo, corre las reglas on-submit y, al enviar,
+    /// completa el paso via el motor. Si no valida, el paso vuelve a una persona con el error (nunca se fuerza).</summary>
+    private async Task<WorkflowAgentStepOutcome> SubmitAgentFormAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentInvocationResult invocation,
+        CancellationToken cancellationToken)
+    {
+        var autonomous = nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous;
+
+        var taskId = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
+        if (taskId is not Guid tid)
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId,
+                "El paso no esta asociado a una tarea: el agente no puede diligenciar su formulario.", cancellationToken);
+        }
+
+        // Materializa (idempotente) el draft + link Pending del paso y toma el del nodo actual.
+        var stepForms = await _forms.GetTaskStepFormsAsync(tid, cancellationToken);
+        var target = stepForms.FirstOrDefault(f => f.WorkflowNodeId == step.NodeId);
+        if (target is null)
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, "No se encontro el formulario del paso para diligenciar.", cancellationToken);
+        }
+
+        // El Type del FormFieldValue lo re-deriva SaveAsync de la definicion del campo; aqui solo viaja el valor.
+        var data = invocation.Fields!.ToDictionary(
+            kv => kv.Key, kv => new FormFieldValue(kv.Value, "text"), StringComparer.Ordinal);
+
+        var saved = await _forms.SaveAsync(
+            target.ResponseId, data, submit: autonomous, submittedByTenantUserId: null,
+            approvalResult: null, hiddenFieldCodes: null, executedByAiAgentId: nodeAgent.AiAgentId,
+            cancellationToken: cancellationToken);
+
+        if (!saved.IsOk)
+        {
+            var detail = saved.FieldErrors is { Count: > 0 }
+                ? string.Join("; ", saved.FieldErrors.Select(e => $"{e.Key}: {e.Value}"))
+                : saved.Error;
+            _logger.LogInformation(
+                "El agente {AgentId} lleno el formulario del paso {StepId} pero no valido: {Detail}",
+                nodeAgent.AiAgentId, step.Id, detail);
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId,
+                $"El formulario que lleno el agente no paso la validacion: {detail}", cancellationToken);
+        }
+
+        if (autonomous)
+        {
+            // SaveAsync(submit) ya guardo el draft, corrio las reglas y cerro el paso via el FormFlowLink
+            // (y persistio AgentAttemptedAt/AgentProposalResult del 'step' rastreado, en su transaccion).
+            return WorkflowAgentStepOutcome.Completed;
+        }
+
+        // Propone: el draft quedo lleno (SaveAsync submit=false); el paso sigue vigente para que una persona
+        // lo revise y lo envie. Se anota y se asigna si es inequivoco (igual que una propuesta de decision).
+        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        await AssignToPersonIfUnambiguousAsync(step, cancellationToken);
+        await AddTaskNoteAsync(step,
+            "el agente diligencio el formulario del paso; falta que una persona lo revise y lo envie", cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return WorkflowAgentStepOutcome.Proposed;
     }
 
     /// <summary>

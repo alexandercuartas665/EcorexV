@@ -39,6 +39,9 @@ public interface IFormResponseService
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
         Guid? submittedByTenantUserId = null, string? approvalResult = null,
         IReadOnlyCollection<string>? hiddenFieldCodes = null,
+        // Agente de IA que diligencio/envio el formulario (ADR-0090 ola C). Se hila hasta CompleteStepAsync
+        // como AUTOR MAQUINA junto al humano (submittedByTenantUserId puede ser null en un envio autonomo).
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

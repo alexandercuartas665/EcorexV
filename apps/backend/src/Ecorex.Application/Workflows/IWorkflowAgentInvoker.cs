@@ -51,7 +51,10 @@ public sealed record WorkflowAgentInvocationResult(
     IReadOnlyDictionary<string, string?>? Fields = null,
     // ADR-0091: el agente PIDIO una llamada telefonica (Retell) para conseguir datos. El invoker NO coloca la
     // llamada (es asincrona): la senala y el runner la coloca y PAUSA el paso. Null = no pidio llamada.
-    WorkflowAgentCallRequest? CallRequest = null)
+    WorkflowAgentCallRequest? CallRequest = null,
+    // ADR-0092: el agente PIDIO preguntar por WhatsApp para conseguir datos. El invoker NO envia (asincrono):
+    // la senala y el runner envia y PAUSA el paso hasta la respuesta. Null = no pidio WhatsApp.
+    WorkflowAgentWhatsAppRequest? WhatsAppRequest = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);
@@ -60,3 +63,7 @@ public sealed record WorkflowAgentInvocationResult(
 /// <summary>Solicitud de llamada telefonica que el agente hizo durante el llenado (ADR-0091): a que numero y
 /// con que objetivo (para conseguir un dato que no estaba en el contexto).</summary>
 public sealed record WorkflowAgentCallRequest(string Numero, string? Objetivo);
+
+/// <summary>Solicitud de pregunta por WhatsApp que el agente hizo durante el llenado (ADR-0092): a que numero y
+/// que preguntar (para conseguir/confirmar un dato que no estaba en el contexto).</summary>
+public sealed record WorkflowAgentWhatsAppRequest(string Numero, string Pregunta);

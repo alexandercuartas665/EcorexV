@@ -46,4 +46,19 @@ public class WorkflowNodeAgent : TenantEntity
     /// Retell. FK a <see cref="AiAgent"/> (restrict, nullable). Null = sin herramienta de llamada.</summary>
     public Guid? VoiceAiAgentId { get; set; }
     public AiAgent? VoiceAiAgent { get; set; }
+
+    // ---- ADR-0092: preguntar por WhatsApp para conseguir datos (pausa/reanudacion, como la llamada) ----
+
+    /// <summary>Linea WhatsApp desde la que el agente puede usar 'preguntar_whatsapp'. FK a
+    /// <see cref="WhatsAppLine"/> (restrict, nullable). Null = sin herramienta de WhatsApp.</summary>
+    public Guid? WhatsAppLineId { get; set; }
+    public WhatsAppLine? WhatsAppLine { get; set; }
+
+    /// <summary>Nombre de la PLANTILLA aprobada (HSM) para el PRIMER contacto en frio (ventana de 24h cerrada):
+    /// su unica variable de cuerpo {{1}} recibe la pregunta del agente. Null = solo texto libre (ventana abierta).</summary>
+    public string? WhatsAppTemplateName { get; set; }
+
+    /// <summary>Codigo de idioma de la plantilla (ej. "es"). Solo aplica si <see cref="WhatsAppTemplateName"/>
+    /// tiene valor. Null con plantilla presente = se asume "es".</summary>
+    public string? WhatsAppTemplateLang { get; set; }
 }

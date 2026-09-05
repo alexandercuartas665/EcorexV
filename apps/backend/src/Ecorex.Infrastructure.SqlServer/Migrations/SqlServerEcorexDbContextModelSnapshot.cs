@@ -14674,6 +14674,20 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("voice_ai_agent_id");
 
+                    b.Property<Guid?>("WhatsAppLineId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("whats_app_line_id");
+
+                    b.Property<string>("WhatsAppTemplateLang")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("whats_app_template_lang");
+
+                    b.Property<string>("WhatsAppTemplateName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("whats_app_template_name");
+
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");
 
@@ -14688,6 +14702,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("VoiceAiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("WhatsAppLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
 
                     b.HasIndex("TenantId", "NodeId")
                         .IsUnique()
@@ -15014,6 +15031,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("pending_voice_call_id");
 
+                    b.Property<Guid?>("PendingWhatsAppConversationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("pending_whats_app_conversation_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -15037,6 +15058,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("NodeId")
                         .HasDatabaseName("ix_workflow_step_histories_node_id");
+
+                    b.HasIndex("PendingWhatsAppConversationId")
+                        .HasDatabaseName("ix_workflow_step_histories_pending_whats_app_conversation_id");
 
                     b.HasIndex("InstanceId", "IsCurrent")
                         .HasDatabaseName("ix_workflow_step_histories_instance_id_is_current");
@@ -17128,6 +17152,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
+                        .WithMany()
+                        .HasForeignKey("WhatsAppLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_whats_app_lines_whats_app_line_id");
+
                     b.Navigation("AiAgent");
 
                     b.Navigation("ColmenaClient");
@@ -17135,6 +17165,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Node");
 
                     b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("WhatsAppLine");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>

@@ -34,6 +34,11 @@ public interface IWhatsAppConnectorService
     /// </summary>
     Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
+    /// <summary>ADR-0092: envia una PLANTILLA aprobada (HSM) desde la linea a un numero, para el primer
+    /// contacto en frio (ventana de 24h cerrada). Solo YCloud (Emulator = exito sintetico; Cloud/Evolution no
+    /// soportados en este corte). <paramref name="bodyParams"/> = variables del cuerpo en orden.</summary>
+    Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Envia un adjunto (imagen/video/audio/documento) en base64 desde la linea al numero. Ver remoteJid en SendTestAsync.</summary>
     Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, Domain.Enums.MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);
 

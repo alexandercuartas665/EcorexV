@@ -44,9 +44,31 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         var priorData = await BuildPriorDataAsync(step, stepsById, cancellationToken);
         var taskDto = await BuildTaskAsync(step.InstanceId, cancellationToken);
         var voiceCall = await BuildVoiceCallResultAsync(step, cancellationToken);
+        var whatsAppReply = await BuildWhatsAppReplyResultAsync(step, cancellationToken);
 
         return WorkflowResult<WorkflowAgentContextDto>.Ok(new WorkflowAgentContextDto(
-            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, assignment, voiceCall));
+            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, assignment, voiceCall, whatsAppReply));
+    }
+
+    /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el
+    /// texto del ultimo mensaje ENTRANTE de esa conversacion para que el agente lo use al reanudarse.</summary>
+    private async Task<WorkflowAgentWhatsAppReplyDto?> BuildWhatsAppReplyResultAsync(
+        Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        if (step.PendingWhatsAppConversationId is not Guid conversationId)
+        {
+            return null;
+        }
+        var reply = await _db.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound)
+            .OrderByDescending(m => m.SentAt)
+            .Select(m => m.Body)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (reply is null)
+        {
+            return null;
+        }
+        return new WorkflowAgentWhatsAppReplyDto(Clip(reply, WorkflowAgentContextLimits.MaxValueChars));
     }
 
     /// <summary>ADR-0091: si el paso esperaba una llamada (PendingVoiceCallId), trae el transcript y los datos
@@ -161,7 +183,8 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             .Join(_db.AiAgents.AsNoTracking(), x => x.AiAgentId, a => a.Id,
                 (x, a) => new WorkflowAgentAssignmentDto(
                     a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
-                    x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId))
+                    x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
+                    x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang))
             .FirstOrDefaultAsync(cancellationToken);
 
     // ---- (d) Historial de pasos (se arma antes que (b): sus nodos nombran los envios previos) ----

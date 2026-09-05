@@ -43,5 +43,9 @@ public enum WorkflowAgentStepOutcome
 
     /// <summary>ADR-0091: el agente PIDIO una llamada (Retell) para conseguir datos. Se coloco la llamada y
     /// el paso quedo EN ESPERA (PendingVoiceCallId); al terminar la llamada, el webhook reanuda el agente.</summary>
-    WaitingForCall = 6
+    WaitingForCall = 6,
+
+    /// <summary>ADR-0092: el agente PIDIO preguntar por WhatsApp. Se envio el mensaje y el paso quedo EN ESPERA
+    /// (PendingWhatsAppConversationId); al entrar la respuesta, la ingesta de chat reanuda el agente.</summary>
+    WaitingForReply = 7
 }

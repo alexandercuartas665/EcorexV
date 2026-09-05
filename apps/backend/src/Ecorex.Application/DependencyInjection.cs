@@ -59,6 +59,9 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.ITaskBroadcaster, Tenancy.NoOpTaskBroadcaster>();
         // Busqueda web del agente de flujo (ADR-0091): default no-op; el host con el canal Colmena lo reemplaza.
         services.AddScoped<Workflows.IAgentBrowserFetch, Workflows.NoOpAgentBrowserFetch>();
+        // WhatsApp del agente de flujo (ADR-0092): impl real en Application (usa el conector WhatsApp + el
+        // store de chat); no necesita SuperAdmin, a diferencia de Colmena.
+        services.AddScoped<Workflows.IWorkflowAgentWhatsApp, Workflows.WorkflowAgentWhatsApp>();
         services.AddScoped<Tenancy.IWebhookAdminService, Tenancy.WebhookAdminService>();
         // Tunel por defecto (no-op); la app host con cloudflared lo reemplaza por singleton.
         services.AddSingleton<Tenancy.IDevTunnel, Tenancy.NoOpDevTunnel>();

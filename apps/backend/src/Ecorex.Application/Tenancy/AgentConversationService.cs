@@ -61,6 +61,13 @@ public sealed class AgentConversationService : IAgentConversationService
             .Select(b => b.Phone).ToListAsync(cancellationToken);
         if (AgentControlCommands.IsBlocked(conv.ContactPhone, blockedPhones)) { return; }
 
+        // ADR-0092: si un PASO DE FLUJO "posee" esta conversacion (pregunto por WhatsApp y espera la respuesta),
+        // el agente conversacional se CALLA: la respuesta la procesa el agente del flujo, no SARA. Igual que el
+        // silencio cuando un asesor humano toma el chat. La reanudacion del paso la hace ChatIngestService.
+        var ownedByStep = await _db.WorkflowStepHistories.AsNoTracking()
+            .AnyAsync(s => s.PendingWhatsAppConversationId == conversationId && s.IsCurrent, cancellationToken);
+        if (ownedByStep) { return; }
+
         // ASESOR HUMANO: si el lead de esta conversacion esta asignado a una persona y sigue ACTIVO
         // (no archivado), el agente se calla y deja que el asesor humano atienda. Si el lead esta
         // archivado, el silencio NO aplica: el agente RETOMA la conversacion al entrar un mensaje nuevo.

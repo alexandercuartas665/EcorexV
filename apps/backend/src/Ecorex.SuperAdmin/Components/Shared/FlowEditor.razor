@@ -470,6 +470,7 @@ else
     // agente del nodo se lee al seleccionar (solo aplica a pasos Task).
     private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
     private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
+    private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
 
@@ -640,6 +641,7 @@ else
             {
                 _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
                 _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
+                _whatsAppLines = await DesignSvc.ListWhatsAppLinesAsync();
                 _agentCatalogLoaded = true;
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
@@ -1193,7 +1195,32 @@ else
                     }
                 </select>
             </div>
-            <div class="fe-acc-note">Con estos recursos el agente puede buscar en la web o llamar para conseguir un dato faltante antes de llenar el formulario. La llamada deja el paso en espera hasta que termine.</div>
+            @* ADR-0092: preguntar por WhatsApp (linea + plantilla para contacto en frio). *@
+            <div class="fe-field">
+                <label>Conseguir datos por WhatsApp (linea)</label>
+                <select class="fe-input sm" value="@(_nodeAgent.WhatsAppLineId?.ToString() ?? "")"
+                        @onchange="@(e => OnNodeWhatsAppLineChangedAsync(node, e))">
+                    <option value="">Sin WhatsApp</option>
+                    @foreach (var l in _whatsAppLines)
+                    {
+                        <option value="@l.Id">@l.Name@(l.Connected ? "" : " (desconectada)")</option>
+                    }
+                </select>
+            </div>
+            @if (_nodeAgent.WhatsAppLineId is not null)
+            {
+                <div class="fe-field">
+                    <label>Plantilla para contacto en frio (nombre, opcional)</label>
+                    <input class="fe-input sm" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
+                           @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(node, e))" />
+                </div>
+                <div class="fe-field">
+                    <label>Idioma de la plantilla</label>
+                    <input class="fe-input sm" value="@_nodeAgent.WhatsAppTemplateLang" placeholder="ej. es"
+                           @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(node, e))" />
+                </div>
+            }
+            <div class="fe-acc-note">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
         }
         else if (_agentCatalog.Count == 0)
         {
@@ -1232,28 +1259,50 @@ else
         });
     }
 
-    // ADR-0091: recursos del agente del nodo (Colmena / voz). Cada cambio guarda la combinacion completa.
+    // ADR-0091/0092: recursos del agente del nodo (Colmena / voz / WhatsApp). Cada cambio guarda la combinacion
+    // completa (los demas recursos se toman del estado actual del nodo).
     private Task OnNodeColmenaChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? cc = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         // Al quitar el cliente Colmena se limpia tambien la SessionKey.
-        return SaveNodeResourcesAsync(node, cc, cc is null ? null : _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId);
+        return SaveNodeResourcesAsync(node, cc, cc is null ? null : _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
     }
 
     private Task OnNodeSessionKeyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, e.Value?.ToString(), _nodeAgent?.VoiceAiAgentId);
+        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, e.Value?.ToString(), _nodeAgent?.VoiceAiAgentId,
+            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
 
     private Task OnNodeVoiceAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? va = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, va);
+        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, va,
+            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
     }
 
-    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, Guid? colmena, string? sessionKey, Guid? voice)
+    private Task OnNodeWhatsAppLineChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? wl = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // Al quitar la linea se limpia tambien la plantilla (el service tambien lo hace, aqui se refleja en la UI).
+        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+            wl, wl is null ? null : _nodeAgent?.WhatsAppTemplateName, wl is null ? null : _nodeAgent?.WhatsAppTemplateLang);
+    }
+
+    private Task OnNodeWhatsAppTemplateChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+            _nodeAgent?.WhatsAppLineId, e.Value?.ToString(), _nodeAgent?.WhatsAppTemplateLang);
+
+    private Task OnNodeWhatsAppTemplateLangChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, e.Value?.ToString());
+
+    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, Guid? colmena, string? sessionKey, Guid? voice,
+        Guid? whatsAppLine, string? whatsAppTemplate, string? whatsAppTemplateLang)
     {
         await GuardAsync(async () =>
         {
-            var result = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, colmena, sessionKey, voice);
+            var result = await DesignSvc.SetNodeAgentResourcesAsync(
+                node.Id, colmena, sessionKey, voice, whatsAppLine, whatsAppTemplate, whatsAppTemplateLang);
             if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
         });
     }

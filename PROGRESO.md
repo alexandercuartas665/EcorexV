@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-05 - v0.15.182: el agente de flujo consigue datos por WhatsApp (pregunta y reanuda) - ADR-0092
+
+- Pedido (usuario): "el agente tambien deberia poder usar WhatsApp desde un flujo para conseguir datos".
+  Decisiones: quien conversa = "el agente del flujo (espejo Retell)"; alcance = "construir envio de plantilla
+  (sirve en frio)".
+- Hecho (ADR-0092, tercera herramienta de consecucion de datos, con el patron pausa/reanudacion de Retell pero
+  conducido por el propio agente del flujo, multi-turno):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{WhatsAppLineId(FK), WhatsAppTemplateName,
+    WhatsAppTemplateLang} + WorkflowStepHistory.PendingWhatsAppConversationId (indexado).
+  - Envio de plantilla (candado de 24h): IYCloudApiClient.SendTemplateAsync + IWhatsAppConnectorService.
+    SendTemplateAsync (YCloud; Emulator sintetico). Antes solo habia texto libre / crear-listar plantillas.
+  - Seam IWorkflowAgentWhatsApp (Application): resuelve/crea la conversacion (tenant, linea, telefono), decide
+    plantilla (frio) vs texto libre (ventana 24h abierta), envia y persiste el saliente.
+  - Tool 'preguntar_whatsapp(numero, pregunta)' en el bucle de llenado (se sigue ofreciendo en la reanudacion:
+    es multi-turno). El invoker solo la senala; el runner envia y PAUSA el paso (PendingWhatsAppConversationId +
+    AgentAttemptedAt, outcome WaitingForReply, tope 4 preguntas/conversacion).
+  - Reanudacion: ChatIngestService, al entrar la respuesta, limpia AgentAttemptedAt del paso que la esperaba;
+    el contexto inyecta el ultimo entrante (WhatsAppReplyResult) y el agente termina de llenar o repregunta.
+  - Colision: AgentConversationService (SARA) se calla si un paso de flujo posee la conversacion.
+  - Config por nodo (FlowEditor): selector de linea WhatsApp + plantilla (nombre/idioma) en el acordeon Agente
+    de IA.
+- Verificado: build Debug/Release verde; integracion (matriz dual) 12/12; migracion aplica en dev (4 columnas);
+  el editor persiste linea VENTAS_TEST + plantilla consulta_dato/es por nodo (AGROMETALICAS, flujo de pruebas
+  FLW-003). Pendiente validacion de RUNTIME real (linea conectada + plantilla aprobada + respuesta real): prod.
+- Siguiente: DEPLOY en espera de senal del usuario (prod en v0.15.175; 0.15.176-0.15.182 sin desplegar).
+
 ## 2026-09-05 - v0.15.181: el agente de flujo consigue datos (Colmena web + llamada Retell) - ADR-0091
 
 - Pedido (usuario): "montamos un flujo de pruebas... llenar unos datos de formulario, pero sumale poder

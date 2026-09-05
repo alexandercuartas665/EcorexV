@@ -377,6 +377,7 @@ public abstract class WorkflowAgentStepTestsBase
             BuildEngine(ctx, seed),
             forms,
             new FakeRetellVoiceService(),
+            new FakeWorkflowAgentWhatsApp(),
             TimeProvider.System,
             NullLogger<WorkflowAgentStepRunner>.Instance);
     }
@@ -387,6 +388,13 @@ public abstract class WorkflowAgentStepTestsBase
         public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
             Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no disponible en pruebas", false));
+    }
+
+    /// <summary>WhatsApp del agente de prueba: no envia nada real (los casos actuales no ejercitan el WhatsApp).</summary>
+    private sealed class FakeWorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
+    {
+        public Task<WhatsAppAskResult> AskAsync(WhatsAppAskCommand command, CancellationToken cancellationToken = default)
+            => Task.FromResult(WhatsAppAskResult.Fail("no disponible en pruebas"));
     }
 
     /// <summary>

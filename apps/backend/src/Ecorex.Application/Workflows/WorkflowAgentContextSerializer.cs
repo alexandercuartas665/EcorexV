@@ -75,6 +75,16 @@ public static class WorkflowAgentContextSerializer
             }
         }
 
+        // Respuesta por WhatsApp a la pregunta del agente (ADR-0092, reanudacion).
+        if (context.WhatsAppReplyResult is { } wa)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Respuesta por WhatsApp");
+            sb.AppendLine(string.IsNullOrWhiteSpace(wa.ReplyText)
+                ? "- (la persona aun no responde nada util)"
+                : $"- La persona respondio: {wa.ReplyText}");
+        }
+
         // (b) Lo ya capturado antes: es donde suele estar el dato que decide el paso.
         sb.AppendLine();
         sb.AppendLine("# Datos capturados en pasos anteriores");

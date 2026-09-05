@@ -40,8 +40,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly IWorkflowEngine _engine;
     private readonly IFormResponseService _forms;
     private readonly Voice.IRetellVoiceService _voice;
+    private readonly IWorkflowAgentWhatsApp _whatsApp;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
+
+    /// <summary>ADR-0092: tope de preguntas por WhatsApp en una misma conversacion de un paso, para acotar el
+    /// costo y evitar ciclos si la persona no da el dato. Superado -> el paso vuelve a una persona.</summary>
+    private const int MaxWhatsAppAsks = 4;
 
     public WorkflowAgentStepRunner(
         IApplicationDbContext db,
@@ -52,6 +57,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         IWorkflowEngine engine,
         IFormResponseService forms,
         Voice.IRetellVoiceService voice,
+        IWorkflowAgentWhatsApp whatsApp,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -63,6 +69,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _engine = engine;
         _forms = forms;
         _voice = voice;
+        _whatsApp = whatsApp;
         _clock = clock;
         _logger = logger;
     }
@@ -148,6 +155,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (invocation.CallRequest is not null)
         {
             return await PauseForCallAsync(step, nodeAgent, context, invocation.CallRequest, cancellationToken);
+        }
+
+        // ADR-0092: el agente pidio preguntar por WhatsApp. Se envia (asincrono) y el paso queda EN ESPERA de la
+        // respuesta; la ingesta de chat lo reanudara. Mismo trato que la llamada.
+        if (invocation.WhatsAppRequest is not null)
+        {
+            return await PauseForWhatsAppAsync(step, nodeAgent, context, invocation.WhatsAppRequest, cancellationToken);
         }
 
         // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
@@ -295,6 +309,68 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         return WorkflowAgentStepOutcome.WaitingForCall;
     }
 
+    /// <summary>ADR-0092: el agente pidio preguntar por WhatsApp. Se envia el mensaje (plantilla si es contacto
+    /// en frio, texto libre si la ventana de 24h esta abierta) por la linea del nodo y el paso queda EN ESPERA
+    /// (PendingWhatsAppConversationId). Al entrar la respuesta, ChatIngestService limpia AgentAttemptedAt para
+    /// que el barrido re-corra al agente con la respuesta en el contexto. Con tope de preguntas por conversacion
+    /// para acotar el costo; si no se puede enviar o se supera el tope -> vuelve a una persona.</summary>
+    private async Task<WorkflowAgentStepOutcome> PauseForWhatsAppAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
+        WorkflowAgentWhatsAppRequest request, CancellationToken cancellationToken)
+    {
+        if (context.Assignment?.WhatsAppLineId is not Guid lineId)
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, "El paso no tiene una linea de WhatsApp configurada para preguntar.", cancellationToken);
+        }
+
+        // Tope de reintentos: si ya se venia preguntando en una conversacion y hay demasiados salientes, se corta.
+        if (step.PendingWhatsAppConversationId is Guid ongoing)
+        {
+            var asked = await _db.Messages.AsNoTracking()
+                .CountAsync(m => m.ConversationId == ongoing && m.Direction == Domain.Enums.MessageDirection.Outbound, cancellationToken);
+            if (asked >= MaxWhatsAppAsks)
+            {
+                return await ReturnToPersonAsync(
+                    step, nodeAgent.AiAgentId,
+                    $"El agente pregunto por WhatsApp {asked} veces sin conseguir el dato; el paso queda para atencion humana.",
+                    cancellationToken);
+            }
+        }
+
+        var sent = await _whatsApp.AskAsync(new WhatsAppAskCommand(
+            step.TenantId, lineId, request.Numero, request.Pregunta,
+            context.Assignment.WhatsAppTemplateName, context.Assignment.WhatsAppTemplateLang), cancellationToken);
+
+        if (!sent.Sent || sent.ConversationId is not Guid conversationId)
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, $"No se pudo enviar el WhatsApp: {sent.Error}", cancellationToken);
+        }
+
+        // PAUSA: el paso sigue vigente y Pending, marcado como en espera de esta conversacion. AgentAttemptedAt
+        // evita que el barrido lo re-tome hasta que la ingesta de chat lo reanude (limpia AgentAttemptedAt).
+        step.AgentAttemptedAt = _clock.GetUtcNow();
+        step.PendingWhatsAppConversationId = conversationId;
+        step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
+        step.AgentProposalComment = Clip(request.Pregunta, 2000);
+
+        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        await AddTaskNoteAsync(step,
+            $"el agente pregunto por WhatsApp para conseguir un dato ('{Clip(request.Pregunta, 200)}'); el paso espera la respuesta",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "El agente {AgentId} pregunto por WhatsApp (conv {ConversationId}) en el paso {StepId}; queda en espera.",
+            nodeAgent.AiAgentId, conversationId, step.Id);
+        return WorkflowAgentStepOutcome.WaitingForReply;
+    }
+
     /// <summary>Mapea la 'ruta' que devolvio el agente (clave = BpmnElementId del destino, o su nombre) a un
     /// nodo destino que sea salida DIRECTA de la compuerta. Match unico por clave y, si no, por nombre
     /// (case-insensitive). (null, null) si no hay una unica coincidencia: el runner lo trata como "no pudo".</summary>
@@ -326,8 +402,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         CancellationToken cancellationToken)
     {
         var autonomous = nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous;
-        // Si veniamos de una llamada (reanudacion), ya se uso su resultado: el paso deja de esperarla.
+        // Si veniamos de una llamada o un WhatsApp (reanudacion), ya se uso su resultado: el paso deja de esperarlos.
         step.PendingVoiceCallId = null;
+        step.PendingWhatsAppConversationId = null;
 
         var taskId = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
@@ -401,6 +478,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentAttemptedAt = _clock.GetUtcNow();
         step.ExecutedByAiAgentId = null;   // nadie ejecuto el paso todavia: solo se intento
         step.AgentFailureReason = Clip(reason, 500);
+        // ADR-0092: si esperaba una respuesta de WhatsApp, deja de "poseer" el hilo: el agente conversacional
+        // (SARA) y las personas pueden volver a atender esa conversacion.
+        step.PendingWhatsAppConversationId = null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AssignToPersonIfUnambiguousAsync(step, cancellationToken);

@@ -375,6 +375,42 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(ok, error, messageId);
     }
 
+    public async Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
+        {
+            return new LineSendResult(false, "Indica el numero y la plantilla.");
+        }
+        // IgnoreQueryFilters: tambien lo invoca el agente de flujo desde el barrido (sin usuario/tenant en
+        // sesion); el lineId ya viene resuelto en el tenant correcto.
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new LineSendResult(false, "La linea no existe."); }
+        if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var lang = string.IsNullOrWhiteSpace(language) ? "es" : language.Trim();
+
+        bool ok; string? error; string? messageId;
+        if (line.Provider == WhatsAppProvider.Emulator)
+        {
+            (ok, error, messageId) = (true, null, "emu-" + Guid.NewGuid().ToString("N"));
+        }
+        else if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            var key = YCloudApiKey(line);
+            if (key is null || string.IsNullOrWhiteSpace(line.YCloudPhoneNumberId)) { return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud."); }
+            var r = await _ycloud.SendTemplateAsync(key, line.YCloudPhoneNumberId!, digits, templateName.Trim(), lang, bodyParams, cancellationToken);
+            (ok, error, messageId) = (r.IsSuccess, r.Error, r.MessageId);
+        }
+        else
+        {
+            return new LineSendResult(false, "El envio de plantilla solo esta soportado en lineas YCloud en este corte.");
+        }
+
+        _audit.Write(actorUserId, "whatsapp-line.template-send", nameof(WhatsAppLine), line.Id,
+            previousValue: null, newValue: new { to = digits, template = templateName, ok }, tenantId: line.TenantId);
+        return new LineSendResult(ok, error, messageId);
+    }
+
     public async Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         var (err, line, digits) = await ReadyAsync(lineId, phone, cancellationToken);

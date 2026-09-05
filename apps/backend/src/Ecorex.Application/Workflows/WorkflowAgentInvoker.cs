@@ -203,8 +203,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // Solo se ofrece llamar si hay agente de voz Y no venimos ya de una llamada (reanudacion): en la
         // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada.
         var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
-        var tools = BuildFormTools(canSearchWeb, canCall);
-        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall);
+        // ADR-0092: WhatsApp SI se sigue ofreciendo en la reanudacion (es multi-turno: el agente puede
+        // repreguntar si la respuesta no basta). El tope de preguntas lo pone el runner, no aqui.
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
+        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -213,6 +216,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         string? finalComment = null;
         var finished = false;
         WorkflowAgentCallRequest? callRequest = null;
+        WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         int inTokens = 0, outTokens = 0;
 
         for (var round = 0; round < MaxFormRounds && !finished; round++)
@@ -264,6 +268,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "falta 'numero' para la llamada"}"""
                         : """{"ok": true, "mensaje": "llamada solicitada; el paso quedara en espera del resultado"}""";
                 }
+                else if (call.Name == "preguntar_whatsapp" && canAskWhatsApp)
+                {
+                    // ADR-0092: el agente pide preguntar por WhatsApp. NO se envia aqui (asincrono): se registra
+                    // y el bucle termina; el runner envia y pausa el paso hasta que llegue la respuesta.
+                    whatsAppRequest = ReadWhatsAppRequest(call.ArgumentsJson);
+                    finished = true;
+                    result = whatsAppRequest is null
+                        ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
+                        : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
+                }
                 else
                 {
                     result = call.Name switch
@@ -288,6 +302,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest);
         }
 
+        // ADR-0092: el agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso; los campos ya
+        // fijados se conservan para completar el llenado cuando llegue la respuesta.
+        if (whatsAppRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null,
+                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest);
+        }
+
         if (!finished || fields.Count == 0)
         {
             var why = fields.Count == 0
@@ -302,7 +326,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
     }
 
-    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall)
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp)
     {
         var tools = new List<AiToolSpec>
         {
@@ -331,7 +355,30 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Solicita una llamada telefonica (voz IA) para CONSEGUIR un dato faltante (ej. confirmar un telefono o correo con el cliente). 'numero' obligatorio (E.164, ej. +57...); 'objetivo' describe que dato conseguir. El paso quedara EN ESPERA del resultado de la llamada.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"objetivo":{"type":"string"}},"required":["numero"]}"""));
         }
+        if (canAskWhatsApp)
+        {
+            // ADR-0092: preguntar por WhatsApp para conseguir un dato. Asincrono: el paso queda EN ESPERA de la
+            // respuesta y el agente retoma con ella; puede volver a preguntar si hace falta (con moderacion).
+            tools.Add(new AiToolSpec("preguntar_whatsapp",
+                "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
+        }
         return tools;
+    }
+
+    /// <summary>Lee los argumentos de 'preguntar_whatsapp'. Null si falta el numero o la pregunta.</summary>
+    private static WorkflowAgentWhatsAppRequest? ReadWhatsAppRequest(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            var numero = root.TryGetProperty("numero", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            var pregunta = root.TryGetProperty("pregunta", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+            if (string.IsNullOrWhiteSpace(numero) || string.IsNullOrWhiteSpace(pregunta)) { return null; }
+            return new WorkflowAgentWhatsAppRequest(numero!.Trim(), Clip(pregunta, 1500)!);
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>Lee los argumentos de 'llamar_telefono'. Null si falta el numero.</summary>
@@ -349,7 +396,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         catch (JsonException) { return null; }
     }
 
-    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall)
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
@@ -363,10 +410,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         {
             sb.AppendLine("Ademas tienes 'llamar_telefono' para CONSEGUIR un dato por una llamada de voz (ej. confirmar telefono/correo). Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera del resultado de la llamada y luego retomaras el llenado.");
         }
+        if (canAskWhatsApp)
+        {
+            sb.AppendLine("Ademas tienes 'preguntar_whatsapp' para CONSEGUIR un dato preguntandole a una persona por WhatsApp. Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera de la respuesta y luego retomaras el llenado.");
+        }
         if (context.VoiceCallResult is { } vc)
         {
             // Reanudacion (ADR-0091): ya hay resultado de una llamada que pediste. Usalo para terminar de llenar.
             sb.AppendLine("YA tienes el resultado de la llamada que solicitaste (ver 'Resultado de la llamada' en el contexto): usalo para fijar los campos faltantes y envia el formulario. No vuelvas a llamar.");
+        }
+        if (context.WhatsAppReplyResult is not null)
+        {
+            // Reanudacion (ADR-0092): ya llego una respuesta de WhatsApp. Usarla; solo repreguntar si es imprescindible.
+            sb.AppendLine("YA tienes la respuesta de WhatsApp (ver 'Respuesta por WhatsApp' en el contexto): usala para fijar los campos faltantes y envia el formulario. Solo vuelve a preguntar por WhatsApp si es imprescindible.");
         }
         sb.AppendLine("Reglas:");
         sb.AppendLine("- Llena SOLO con datos del contexto o que CONSIGAS con las herramientas (ej. buscar_web). NUNCA inventes datos.");

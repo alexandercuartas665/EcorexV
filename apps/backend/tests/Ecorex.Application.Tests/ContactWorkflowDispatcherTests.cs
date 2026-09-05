@@ -68,6 +68,7 @@ public class ContactWorkflowDispatcherTests
         public Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<bool> DeleteLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
@@ -348,7 +349,10 @@ public class ContactWorkflowDispatcherTests
         // Linea WhatsApp conectada (la ventana la resuelve por fallback: AccountId nulo).
         inner.WhatsAppLines.Add(new WhatsAppLine
         {
-            TenantId = TenantId, InstanceName = "Linea 1", Status = WhatsAppLineStatus.Connected, PhoneNumber = "570000"
+            TenantId = TenantId,
+            InstanceName = "Linea 1",
+            Status = WhatsAppLineStatus.Connected,
+            PhoneNumber = "570000"
         });
 
         // Filtro sin criterios: su segmento es TODOS los terceros no inactivos.
@@ -363,15 +367,24 @@ public class ContactWorkflowDispatcherTests
         inner.ContactWorkflows.Add(wf);
         var step = new ContactWorkflowStep
         {
-            TenantId = TenantId, ContactWorkflowId = wf.Id, StepType = ContactWorkflowStepType.WhatsApp,
-            Label = "WhatsApp", Orden = 0
+            TenantId = TenantId,
+            ContactWorkflowId = wf.Id,
+            StepType = ContactWorkflowStepType.WhatsApp,
+            Label = "WhatsApp",
+            Orden = 0
         };
         inner.ContactWorkflowSteps.Add(step);
         inner.ContactWorkflowSchedules.Add(new ContactWorkflowSchedule
         {
-            TenantId = TenantId, ContactWorkflowStepId = step.Id,
-            StartTime = start, EndTime = end, ActiveDays = activeDays,
-            TemplateId = "Hola, te contactamos.", AccountId = null, PackageSize = null, RepeatEvery = null
+            TenantId = TenantId,
+            ContactWorkflowStepId = step.Id,
+            StartTime = start,
+            EndTime = end,
+            ActiveDays = activeDays,
+            TemplateId = "Hola, te contactamos.",
+            AccountId = null,
+            PackageSize = null,
+            RepeatEvery = null
         });
         inner.SaveChanges();
 

@@ -136,9 +136,42 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         // ---- Fase 3: decidir y persistir (transaccion corta) ----
 
+        // El tipo de nodo decide la FORMA de la decision (ADR-0090 ola B): una COMPUERTA elige una RUTA;
+        // un Task fija un RESULTADO. El tipo viene del contexto ya armado (no re-consulta).
+        var isGateway = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
+
+        // En una compuerta se resuelve la ruta ANTES de tocar el paso: si el agente no eligio una salida
+        // valida, es un "no pudo" y el paso vuelve a una persona (nunca se enruta a ciegas).
+        Guid? routeTargetId = null;
+        string? routeLabel = null;
+        if (isGateway)
+        {
+            if (string.IsNullOrWhiteSpace(invocation.Route))
+            {
+                return await ReturnToPersonAsync(
+                    step, nodeAgent.AiAgentId, "El agente no eligio una ruta para la compuerta.", cancellationToken);
+            }
+            var (targetId, targetName) = await ResolveRouteTargetAsync(step.NodeId, invocation.Route!, cancellationToken);
+            if (targetId is null)
+            {
+                return await ReturnToPersonAsync(
+                    step, nodeAgent.AiAgentId,
+                    $"El agente eligio una ruta ('{invocation.Route}') que no es una salida de esta compuerta.",
+                    cancellationToken);
+            }
+            routeTargetId = targetId;
+            routeLabel = targetName ?? invocation.Route;
+        }
+        else if (string.IsNullOrWhiteSpace(invocation.Result))
+        {
+            return await ReturnToPersonAsync(
+                step, nodeAgent.AiAgentId, "El agente no indico un resultado para el paso.", cancellationToken);
+        }
+
         var now = _clock.GetUtcNow();
         step.AgentAttemptedAt = now;
-        step.AgentProposalResult = invocation.Result;
+        // La propuesta guardada: la ruta (nombre del destino) en una compuerta, o el resultado en un Task.
+        step.AgentProposalResult = isGateway ? Clip(routeLabel, 20) : invocation.Result;
         step.AgentProposalComment = invocation.Comment;
 
         if (nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous)
@@ -147,21 +180,26 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             // usuario queda en null: nadie humano tomo esta decision y la traza no debe sugerir que si.
             // El motor abre su transaccion y guarda tambien los campos de arriba (misma instancia
             // rastreada por el DbContext scoped), asi que el intento y el cierre son atomicos.
-            var completed = await _engine.CompleteStepAsync(
-                step.InstanceId, step.Id, executedByTenantUserId: null,
-                approvalResult: invocation.Result, approvalComment: invocation.Comment,
-                executedByAiAgentId: nodeAgent.AiAgentId, cancellationToken: cancellationToken);
+            var completed = isGateway
+                ? await _engine.ChooseGatewayRouteAsync(
+                    step.InstanceId, step.Id, routeTargetId!.Value, tenantUserId: null,
+                    note: invocation.Comment, executedByAiAgentId: nodeAgent.AiAgentId, cancellationToken: cancellationToken)
+                : await _engine.CompleteStepAsync(
+                    step.InstanceId, step.Id, executedByTenantUserId: null,
+                    approvalResult: invocation.Result, approvalComment: invocation.Comment,
+                    executedByAiAgentId: nodeAgent.AiAgentId, cancellationToken: cancellationToken);
 
             if (!completed.IsOk && completed.Status != WorkflowEngineStatus.StuckDetected)
             {
-                // El motor rechazo el cierre (conflicto de concurrencia, instancia ya cerrada...).
+                // El motor rechazo el avance (conflicto de concurrencia, instancia ya cerrada...).
                 // No se puede dejar el paso a medias: vuelve a una persona con el motivo.
+                var decision = isGateway ? $"la ruta '{routeLabel}'" : $"'{invocation.Result}'";
                 _logger.LogWarning(
-                    "El agente {AgentId} no pudo cerrar el paso {StepId}: {Error}",
+                    "El agente {AgentId} no pudo avanzar el paso {StepId}: {Error}",
                     nodeAgent.AiAgentId, step.Id, completed.Error);
                 return await ReturnToPersonAsync(
                     step, nodeAgent.AiAgentId,
-                    $"El agente decidio '{invocation.Result}' pero el flujo no acepto el cierre: {completed.Error}",
+                    $"El agente eligio {decision} pero el flujo no lo acepto: {completed.Error}",
                     cancellationToken);
             }
             return WorkflowAgentStepOutcome.Completed;
@@ -171,15 +209,38 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // ApprovalResult/ApprovalComment (que son de quien confirme) para que se puedan comparar.
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AssignToPersonIfUnambiguousAsync(step, cancellationToken);
-        await AddTaskNoteAsync(step,
-            $"el agente propuso '{invocation.Result}' para el paso; falta confirmacion de una persona",
-            cancellationToken);
+        var propuesta = isGateway
+            ? $"el agente propuso la ruta '{routeLabel}' en la compuerta; falta confirmacion de una persona"
+            : $"el agente propuso '{invocation.Result}' para el paso; falta confirmacion de una persona";
+        await AddTaskNoteAsync(step, propuesta, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {
             await transaction.CommitAsync(cancellationToken);
         }
         return WorkflowAgentStepOutcome.Proposed;
+    }
+
+    /// <summary>Mapea la 'ruta' que devolvio el agente (clave = BpmnElementId del destino, o su nombre) a un
+    /// nodo destino que sea salida DIRECTA de la compuerta. Match unico por clave y, si no, por nombre
+    /// (case-insensitive). (null, null) si no hay una unica coincidencia: el runner lo trata como "no pudo".</summary>
+    private async Task<(Guid? TargetId, string? TargetName)> ResolveRouteTargetAsync(
+        Guid gatewayNodeId, string route, CancellationToken cancellationToken)
+    {
+        var candidates = await (
+            from e in _db.WorkflowEdges.AsNoTracking()
+            join t in _db.WorkflowNodes.AsNoTracking() on e.TargetNodeId equals t.Id
+            where e.SourceNodeId == gatewayNodeId
+            select new { t.Id, t.BpmnElementId, t.Name }).ToListAsync(cancellationToken);
+
+        var key = route.Trim();
+        var byKey = candidates.Where(c => string.Equals(c.BpmnElementId, key, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (byKey.Count == 1) { return (byKey[0].Id, byKey[0].Name); }
+        var byName = candidates
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name) && string.Equals(c.Name, key, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (byName.Count == 1) { return (byName[0].Id, byName[0].Name); }
+        return (null, null);
     }
 
     /// <summary>

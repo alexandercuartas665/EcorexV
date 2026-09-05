@@ -135,13 +135,34 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             sb.AppendLine();
         }
         sb.AppendLine("Atiendes un paso de un proceso de negocio. Vas a recibir el contexto completo del caso.");
-        sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
-        sb.AppendLine("""{"puede_resolver": true|false, "resultado": "<decision>", "comentario": "<justificacion breve>"}""");
-        sb.AppendLine();
-        sb.AppendLine("Reglas:");
-        sb.AppendLine("- Si el contexto NO alcanza para decidir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
-        sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
-        sb.AppendLine("- 'resultado' debe ser una sola palabra corta (por ejemplo Approved o Rejected) coherente con el paso.");
+        var esCompuerta = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
+        if (esCompuerta)
+        {
+            // Compuerta atendida (ADR-0090 ola B): la decision es ELEGIR una de las rutas listadas.
+            sb.AppendLine("Este paso es una COMPUERTA: debes ELEGIR por cual ruta continua el proceso.");
+            sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
+            sb.AppendLine("""{"puede_resolver": true|false, "ruta": "<clave de la ruta elegida>", "comentario": "<justificacion breve>"}""");
+            sb.AppendLine();
+            sb.AppendLine("Reglas:");
+            sb.AppendLine("- 'ruta' debe ser EXACTAMENTE la clave (o el nombre) de una de las rutas listadas en 'Rutas de la compuerta'. No inventes rutas.");
+            sb.AppendLine("- Si el contexto NO alcanza para elegir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
+            sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
+        }
+        else
+        {
+            sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
+            sb.AppendLine("""{"puede_resolver": true|false, "resultado": "<decision>", "comentario": "<justificacion breve>"}""");
+            sb.AppendLine();
+            sb.AppendLine("Reglas:");
+            sb.AppendLine("- Si el contexto NO alcanza para decidir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
+            sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
+            sb.AppendLine("- 'resultado' debe ser una sola palabra corta (por ejemplo Approved o Rejected) coherente con el paso.");
+            if (context.Node.Routes is { Count: > 0 })
+            {
+                // Patron Task->compuerta: el 'resultado' debe cumplir una condicion listada para enrutar bien.
+                sb.AppendLine("- Tras este paso hay una compuerta: elige un 'resultado' que cumpla una de las condiciones listadas en 'Compuerta a continuacion'.");
+            }
+        }
         if (context.Assignment?.Autonomy == WorkflowAgentAutonomy.Proposes)
         {
             sb.AppendLine("- Tu respuesta es una PROPUESTA: una persona la revisara antes de que el proceso avance.");
@@ -166,6 +187,10 @@ public static class WorkflowAgentDecisionParser
 
     /// <summary>Tope del resultado: la columna AgentProposalResult admite 20 caracteres.</summary>
     private const int MaxResultChars = 20;
+
+    /// <summary>Tope de la clave/ruta elegida (BpmnElementId del destino o su nombre); mas holgado que un
+    /// resultado corto pero acotado como red de seguridad.</summary>
+    private const int MaxRouteChars = 200;
 
     public static WorkflowAgentInvocationResult Parse(string text)
     {
@@ -196,11 +221,15 @@ public static class WorkflowAgentDecisionParser
             }
 
             var result = Clip(ReadString(root, "resultado") ?? ReadString(root, "result"), MaxResultChars);
-            if (string.IsNullOrWhiteSpace(result))
+            // ADR-0090 ola B: en una compuerta la decision es 'ruta' (clave del destino). El parser lee AMBOS
+            // y no impone cual; el runner exige el que corresponda al tipo de nodo. La ruta NO se recorta a 20:
+            // es una clave (BpmnElementId) o el nombre del destino, que puede ser mas largo.
+            var route = Clip(ReadString(root, "ruta") ?? ReadString(root, "route"), MaxRouteChars);
+            if (string.IsNullOrWhiteSpace(result) && string.IsNullOrWhiteSpace(route))
             {
-                return WorkflowAgentInvocationResult.Failed("El agente no indico un resultado para el paso.");
+                return WorkflowAgentInvocationResult.Failed("El agente no indico un resultado ni una ruta para el paso.");
             }
-            return new WorkflowAgentInvocationResult(true, result, comment, null);
+            return new WorkflowAgentInvocationResult(true, result, comment, null, Route: route);
         }
         catch (JsonException)
         {

@@ -64,9 +64,16 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             .Where(s => s.InstanceId == instanceId)
             .Select(s => new
             {
-                s.Id, s.NodeId, s.Status, s.IsCurrent, s.CycleIndex,
-                s.ExecutedByTenantUserId, s.ApprovalComment,
-                s.AssignedToTenantUserId, s.CreatedAt, s.CompletedAt
+                s.Id,
+                s.NodeId,
+                s.Status,
+                s.IsCurrent,
+                s.CycleIndex,
+                s.ExecutedByTenantUserId,
+                s.ApprovalComment,
+                s.AssignedToTenantUserId,
+                s.CreatedAt,
+                s.CompletedAt
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -684,7 +691,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
 
         return await _engine.ChooseGatewayRouteAsync(
-            step.InstanceId, step.Id, targetNodeId, tenantUserId, note, cancellationToken);
+            step.InstanceId, step.Id, targetNodeId, tenantUserId, note, cancellationToken: cancellationToken);
     }
 
     /// <summary>True si el nodo tiene algun formulario marcado OBLIGATORIO (ADR-0077) que aun NO se ha enviado

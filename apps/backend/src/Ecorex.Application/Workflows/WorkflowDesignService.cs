@@ -1280,11 +1280,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             return WorkflowResult<FlowNodeAgentDto>.NotFound("Agente de IA no encontrado.");
         }
-        // Solo tienen sentido los nodos que representan un paso atendible; un gateway o un
-        // evento no se "atienden" y asignarles agente seria configuracion muerta.
-        if (node.NodeType != WorkflowNodeType.Task)
+        // Admiten agente los nodos que se ATIENDEN: un paso Task (decide/llena) y una COMPUERTA ATENDIDA
+        // (AllowsAssignment/WaitsForHuman, ADR-0068/0072) donde el agente ELIGE la ruta (ADR-0090 ola B).
+        // Una compuerta automatica o un evento no se atienden: asignarles agente seria configuracion muerta
+        // (para el patron Task->compuerta automatica, el agente va en el Task previo).
+        var esCompuertaAtendida = node.NodeType == WorkflowNodeType.ExclusiveGateway && node.AllowsAssignment;
+        if (node.NodeType != WorkflowNodeType.Task && !esCompuertaAtendida)
         {
-            return WorkflowResult<FlowNodeAgentDto>.Invalid("Solo un paso (Task) admite agente de IA.");
+            return WorkflowResult<FlowNodeAgentDto>.Invalid(
+                "Solo un paso (Task) o una compuerta ATENDIDA (con 'Permite asignacion') admite agente de IA.");
         }
 
         // A lo sumo un agente por nodo (indice unico): upsert, igual que SetNodeFormAsync.

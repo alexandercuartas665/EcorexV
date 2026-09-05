@@ -44,6 +44,24 @@ public static class WorkflowAgentContextSerializer
             if (form.FieldsTruncated) { sb.AppendLine("- [el formulario tiene mas campos de los mostrados]"); }
         }
 
+        // Rutas (ADR-0090 ola B): salidas de la compuerta que el agente debe elegir, o las de la compuerta
+        // que sigue a este paso (para que su 'resultado' enrute por una condicion). La Key es el destino.
+        if (context.Node.Routes is { Count: > 0 } routes)
+        {
+            sb.AppendLine();
+            var esCompuerta = context.Node.NodeType == Ecorex.Domain.Enums.WorkflowNodeType.ExclusiveGateway;
+            sb.AppendLine(esCompuerta
+                ? "## Rutas de la compuerta (elige UNA: responde 'ruta' con su clave)"
+                : "## Compuerta a continuacion (tu 'resultado' debe cumplir una de estas condiciones para enrutar)");
+            foreach (var r in routes)
+            {
+                var name = string.IsNullOrWhiteSpace(r.TargetName) ? r.Key : $"{r.TargetName} (clave: {r.Key})";
+                var edge = string.IsNullOrWhiteSpace(r.EdgeName) ? "" : $" | arista: {r.EdgeName}";
+                var cond = string.IsNullOrWhiteSpace(r.Condition) ? " | sin condicion (rama por defecto)" : $" | condicion: {r.Condition}";
+                sb.AppendLine($"- {name}{edge}{cond}");
+            }
+        }
+
         // (b) Lo ya capturado antes: es donde suele estar el dato que decide el paso.
         sb.AppendLine();
         sb.AppendLine("# Datos capturados en pasos anteriores");

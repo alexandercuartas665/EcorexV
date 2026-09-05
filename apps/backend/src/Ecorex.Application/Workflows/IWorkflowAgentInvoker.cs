@@ -29,9 +29,12 @@ public interface IWorkflowAgentInvoker
 /// alcanzo a facturar la llamada, el tenant la tiene que ver en su consumo.
 /// </summary>
 /// <param name="Ok">El agente resolvio. False = no pudo, y <paramref name="Error"/> dice por que.</param>
-/// <param name="Result">Resultado propuesto (mismo vocabulario que ApprovalResult, ej. "Approved").</param>
+/// <param name="Result">Resultado propuesto (mismo vocabulario que ApprovalResult, ej. "Approved"). Para un
+/// paso Task. Null en una compuerta (ahi la decision es <paramref name="Route"/>).</param>
 /// <param name="Comment">Justificacion del agente, legible por una persona.</param>
 /// <param name="Error">Motivo legible por el que no pudo resolver.</param>
+/// <param name="Route">Clave (BpmnElementId del destino) de la RUTA elegida en una compuerta (ADR-0090 ola
+/// B). Null en un paso Task.</param>
 public sealed record WorkflowAgentInvocationResult(
     bool Ok,
     string? Result,
@@ -40,7 +43,8 @@ public sealed record WorkflowAgentInvocationResult(
     AiProvider Provider = AiProvider.Claude,
     string Model = "",
     int InputTokens = 0,
-    int OutputTokens = 0)
+    int OutputTokens = 0,
+    string? Route = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);

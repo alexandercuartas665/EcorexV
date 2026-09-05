@@ -81,11 +81,54 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
                 fields, truncated);
         }
 
+        var routes = await BuildRoutesAsync(node, cancellationToken);
+
         // El nodo no tiene columna Description: Note es su unico texto libre (post-it del lienzo).
         return new WorkflowAgentNodeDto(
             node.Id, node.BpmnElementId, node.Name,
             Clip(node.Note, WorkflowAgentContextLimits.MaxTextChars),
-            node.NodeType, node.StepNumber, form);
+            node.NodeType, node.StepNumber, form, routes);
+    }
+
+    /// <summary>Rutas disponibles para el agente (ADR-0090 ola B): las salidas de la COMPUERTA cuando el
+    /// nodo es una compuerta (el agente elige una), o las de la compuerta AUTOMATICA que sigue a un Task
+    /// (para que el 'resultado' del agente coincida con una condicion y enrute). Null si no aplica.</summary>
+    private async Task<IReadOnlyList<WorkflowAgentRouteDto>?> BuildRoutesAsync(
+        Domain.Entities.WorkflowNode node, CancellationToken cancellationToken)
+    {
+        Guid gatewayId;
+        if (node.NodeType == WorkflowNodeType.ExclusiveGateway)
+        {
+            gatewayId = node.Id;
+        }
+        else if (node.NodeType == WorkflowNodeType.Task)
+        {
+            var nextGateway = await (
+                from e in _db.WorkflowEdges.AsNoTracking()
+                join n in _db.WorkflowNodes.AsNoTracking() on e.TargetNodeId equals n.Id
+                where e.SourceNodeId == node.Id && n.NodeType == WorkflowNodeType.ExclusiveGateway
+                select (Guid?)n.Id).FirstOrDefaultAsync(cancellationToken);
+            if (nextGateway is not Guid gid) { return null; }
+            gatewayId = gid;
+        }
+        else
+        {
+            return null;
+        }
+
+        var edges = await (
+            from e in _db.WorkflowEdges.AsNoTracking()
+            join t in _db.WorkflowNodes.AsNoTracking() on e.TargetNodeId equals t.Id
+            where e.SourceNodeId == gatewayId
+            select new { Key = t.BpmnElementId, TargetName = t.Name, EdgeName = e.Name, Condition = e.ConditionExpression })
+            .ToListAsync(cancellationToken);
+
+        return edges.Count == 0
+            ? null
+            : edges.Select(x => new WorkflowAgentRouteDto(
+                x.Key, x.TargetName,
+                Clip(x.EdgeName, WorkflowAgentContextLimits.MaxTextChars),
+                Clip(x.Condition, WorkflowAgentContextLimits.MaxTextChars))).ToList();
     }
 
     private async Task<WorkflowAgentAssignmentDto?> BuildAssignmentAsync(

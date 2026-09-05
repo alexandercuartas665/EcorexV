@@ -184,3 +184,39 @@ GetNodeAgent, SetNodeAgent, RemoveNodeAgent}Async`) al editor de flujos (`FlowEd
 
 Pendiente: Ola B (compuertas: patron Task-previo + agente directo en compuertas atendidas) y Ola C
 (llenar el form del paso con toolset acotado + hilar executedByAiAgentId por SaveAsync->CompleteStep).
+
+## Nota (v0.15.179) - Ola B cerrada: compuertas (patron + agente directo)
+
+Implementados los DOS caminos para que un agente decida en una compuerta exclusiva:
+
+- B1 (patron Task->compuerta automatica, sin cambio de motor): ya funcionaba (el agente en el Task previo
+  fija `resultado` y la compuerta enruta por `ConditionExpression`). Se ENRIQUECE: el contexto del agente
+  ahora incluye las rutas de la compuerta que sigue al Task (destino + arista + condicion), y el prompt le
+  pide un `resultado` que cumpla una de esas condiciones.
+- B2 (agente DIRECTO en una compuerta atendida, ADR-0068/0072): `SetNodeAgentAsync` ahora admite un
+  ExclusiveGateway con `AllowsAssignment` (el editor lo habilita, con el label "Agente que elige la ruta
+  de la compuerta"; una compuerta NO atendida muestra el gating). El dispatcher/runner ya la toman (es un
+  paso current+Pending con WorkflowNodeAgent).
+
+Contrato del agente (aditivo): en una compuerta el modelo responde `{puede_resolver, ruta, comentario}`
+donde `ruta` es la CLAVE del destino (BpmnElementId, estable y legible) o su nombre; en un Task sigue con
+`resultado`. El parser lee ambos y no impone cual; el runner exige el que corresponde al tipo de nodo.
+
+Motor: `ChooseGatewayRouteAsync` gana `executedByAiAgentId` (autor maquina JUNTO al humano, nunca en su
+lugar; actor de la actividad "Agente de IA"). El runner, en un nodo compuerta:
+- resuelve la `ruta` a un nodo destino (match unico por BpmnElementId, o por nombre) que sea salida
+  DIRECTA de la compuerta; si no hay una unica coincidencia -> ReturnToPerson (nunca enruta a ciegas);
+- Autonomo -> ChooseGatewayRouteAsync(..., executedByAiAgentId); Propone -> guarda la propuesta de ruta y
+  deja el paso para que una persona la confirme por la bandeja.
+
+Guardarrailes intactos (cupo, fallback a humano, idempotencia, auditoria). Sin migracion (Routes es un
+campo del contexto en memoria; ExecutedByAiAgentId ya existia en el paso).
+
+Tests: WorkflowAgentDecisionParserTests (ruta/resultado/ambos-ausentes/no-resuelve) +
+WorkflowAgentContextSerializerRoutesTests (la compuerta lista sus rutas con clave). 8/8. Verificado en dev:
+una compuerta ATENDIDA (PROCESO COMERCIAL, "Cliente Decide si compra") acepta agente (persiste
+WorkflowNodeAgent con node_type=ExclusiveGateway) y muestra el label de compuerta; quitar borra la fila.
+Build Release verde.
+
+Pendiente: Ola C (llenar el form del paso con toolset acotado + hilar executedByAiAgentId por
+SaveAsync->CompleteStep).

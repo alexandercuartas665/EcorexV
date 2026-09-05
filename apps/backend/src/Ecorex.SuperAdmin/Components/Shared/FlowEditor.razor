@@ -632,8 +632,8 @@ else
         _assignableUnits = await NodePolicySvc.ListAssignableUnitsAsync();
         _resolvedCandidates = (await AssigneeResolver.ResolveCandidatesAsync(node.Id)).Count;
 
-        // Agente de IA (solo pasos Task lo admiten). El catalogo del tenant se carga una vez.
-        if (node.NodeType == WorkflowNodeType.Task)
+        // Agente de IA: lo admiten un paso Task y una compuerta ATENDIDA (ADR-0090). El catalogo se carga una vez.
+        if (NodeAllowsAgent(node))
         {
             if (!_agentCatalogLoaded)
             {
@@ -647,6 +647,12 @@ else
             _nodeAgent = null;
         }
     }
+
+    /// <summary>Nodos que admiten un agente de IA (ADR-0090): un paso Task o una compuerta ATENDIDA
+    /// (ExclusiveGateway con "Permite asignacion"). Debe coincidir con la regla de SetNodeAgentAsync.</summary>
+    private static bool NodeAllowsAgent(FlowCanvasNodeDto node)
+        => node.NodeType == WorkflowNodeType.Task
+            || (node.NodeType == WorkflowNodeType.ExclusiveGateway && node.AllowsAssignment);
 
     private async Task AddNodePolicyAsync()
     {
@@ -1115,13 +1121,19 @@ else
             <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
             return;
         }
-        if (node.NodeType != WorkflowNodeType.Task)
+        if (!NodeAllowsAgent(node))
         {
-            <div class="fe-acc-empty">Solo un paso (Task) admite un agente de IA; las compuertas y eventos no se atienden.</div>
+            var esCompuerta = node.NodeType == WorkflowNodeType.ExclusiveGateway;
+            <div class="fe-acc-empty">
+                @(esCompuerta
+                    ? "Una compuerta admite agente solo si esta ATENDIDA: activa \"Permite asignacion manual del paso\" en Configuracion basica."
+                    : "Solo un paso (Task) o una compuerta atendida admite un agente de IA.")
+            </div>
             return;
         }
+        var esGateway = node.NodeType == WorkflowNodeType.ExclusiveGateway;
         <div class="fe-field">
-            <label>Agente que atiende el paso</label>
+            <label>@(esGateway ? "Agente que elige la ruta de la compuerta" : "Agente que atiende el paso")</label>
             <select class="fe-input sm" value="@(_nodeAgent?.AiAgentId.ToString() ?? "")"
                     @onchange="@(e => OnNodeAgentChangedAsync(node, e))">
                 <option value="">Sin agente (lo atiende una persona)</option>

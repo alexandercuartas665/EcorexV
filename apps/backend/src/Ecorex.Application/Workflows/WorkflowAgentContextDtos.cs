@@ -36,7 +36,21 @@ public sealed record WorkflowAgentNodeDto(
     string? Description,
     WorkflowNodeType NodeType,
     int? StepNumber,
-    WorkflowAgentFormDto? Form);
+    WorkflowAgentFormDto? Form,
+    // Rutas disponibles (ADR-0090 ola B). No null cuando el nodo es una COMPUERTA (el agente ELIGE una) o
+    // cuando el nodo es un Task cuyo siguiente nodo es una compuerta automatica (el 'resultado' del agente
+    // debe coincidir con la condicion de una arista para enrutar). Null en cualquier otro caso.
+    IReadOnlyList<WorkflowAgentRouteDto>? Routes = null);
+
+/// <summary>Una ruta de salida (arista) de una compuerta: el nodo destino (Key = su BpmnElementId, estable
+/// y legible para el modelo) + su nombre, el nombre de la arista y su condicion. En una compuerta ATENDIDA
+/// el agente devuelve <c>ruta</c> = esta Key; en el patron Task->compuerta automatica, la condicion dice
+/// que 'resultado' enruta por aqui.</summary>
+public sealed record WorkflowAgentRouteDto(
+    string Key,
+    string? TargetName,
+    string? EdgeName,
+    string? Condition);
 
 /// <summary>Formulario asociado al nodo (WorkflowNodeForm) y la definicion de sus campos.</summary>
 public sealed record WorkflowAgentFormDto(

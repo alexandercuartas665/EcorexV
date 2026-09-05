@@ -26,6 +26,29 @@
 
 ---
 
+## 2026-09-05 - v0.15.179: agentes de IA en nodos de flujo - Ola B (compuertas, ADR-0090)
+
+- Que un agente decida en una COMPUERTA exclusiva, por los dos caminos (decision del usuario "ambos"):
+  1. B1 (patron Task->compuerta automatica): ya funcionaba; se enriquece el contexto del agente con las
+     rutas de la compuerta siguiente (destino+arista+condicion) y el prompt pide un 'resultado' que cumpla
+     una condicion. Sin cambio de motor.
+  2. B2 (agente DIRECTO en compuerta atendida, ADR-0068/0072): SetNodeAgentAsync admite un ExclusiveGateway
+     con AllowsAssignment; el editor lo habilita (label "Agente que elige la ruta de la compuerta"; una
+     compuerta no atendida muestra gating). El dispatcher/runner ya la toman.
+- Contrato aditivo: en compuerta el agente responde {puede_resolver, ruta, comentario} (ruta = clave del
+  destino = BpmnElementId, o su nombre); en Task sigue con 'resultado'. El parser lee ambos; el runner exige
+  el que corresponde al tipo de nodo.
+- Motor: ChooseGatewayRouteAsync gana executedByAiAgentId (autor maquina junto al humano; actor "Agente de
+  IA"). Runner en compuerta: resuelve la ruta a un destino que sea salida DIRECTA (match unico por
+  BpmnElementId o nombre; si no, ReturnToPerson, nunca enruta a ciegas); Autonomo enruta, Propone deja la
+  propuesta de ruta. (Se corrigio el llamador del inbox a ChooseGatewayRoute por el nuevo parametro.)
+- Sin migracion (Routes es contexto en memoria; ExecutedByAiAgentId ya existia). Tests: 8 nuevos
+  (WorkflowAgentDecisionTests). Verificado en dev (PROCESO COMERCIAL, compuerta "Cliente Decide si compra"
+  atendida): acepta agente, persiste con node_type=ExclusiveGateway, quitar borra. Build Release verde.
+  Nota en ADR-0090. NO desplegado (a senal). Pendiente: Ola C (llenar formularios).
+
+---
+
 ## 2026-09-05 - v0.15.178: agentes de IA en nodos de flujo - Ola A (asignacion en el editor, ADR-0090)
 
 - Marco general en ADR-0090 (agente decide paso / elige ruta de compuerta / llena formulario; autonomia

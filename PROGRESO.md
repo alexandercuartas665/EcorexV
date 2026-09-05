@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-05 - SARA (agente comercial) enrutada a un tablero unico (AGROMETALICAS)
+
+Problema: el agente SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) creaba
+tareas via la herramienta crear_tarea eligiendo tablero por NOMBRE, sin whitelist dura
+(TasksToolset.CreateTaskAsync resuelve contra todos los tableros no archivados y si no calza
+devuelve la lista completa para reintentar). Su prompt decia GESTION COMERCIAL + "PQRS", pero
+PQRS no existe (solo habia GESTION COMERCIAL PRY-0001 y ORDENES DE TRABAJO PRY-0007), asi que
+una PQR podia caer en cualquier tablero.
+Solucion (data-ops, sin codigo): (1) cree el tablero "AGENTE COMERCIAL IA" (PRY-0008, color
+#6366f1, columnas Nuevo/En gestion/Resuelto). (2) reescribi el system_prompt de SARA (UPDATE
+replace de 2 frases exactas) para que TODO lo que gestione (comercial, cotizacion, venta, PQRS,
+soporte, cualquier caso) vaya SIEMPRE a "AGENTE COMERCIAL IA", y el fallback reintente con ese
+mismo nombre. Verificado: 0 menciones a "GESTION COMERCIAL"/"ORDENES DE TRABAJO"; las 5 de PQRS
+restantes son "PQRSF" (el concepto, no un tablero).
+Prueba end-to-end por el sandbox (Probar agente, logueado como Beatriz en app2): mensaje de PQR
+-> SARA cerro con crear_tarea -> ticket T00062 "Reclamo PQR" creado en AGENTE COMERCIAL IA (BD
+confirmada). Tarea de prueba archivada (is_archived=true).
+Backups: ecorex-2026-09-05-1412.sql.gz. Recomendacion pendiente (hand-off a codigo): darle a
+crear_tarea una whitelist REAL de tableros por agente para que la restriccion no dependa solo
+del prompt.
+
 ## 2026-09-04 - v0.15.175: lector movil - avanzar paso de flujo sin form + numero case-insensitive
 
 - Pedido (usuario, probando v0.15.174): al escanear T00057 ya resuelve el descendiente T00058, pero (a) el

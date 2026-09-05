@@ -26,6 +26,27 @@
 
 ---
 
+## 2026-09-05 - v0.15.178: agentes de IA en nodos de flujo - Ola A (asignacion en el editor, ADR-0090)
+
+- Marco general en ADR-0090 (agente decide paso / elige ruta de compuerta / llena formulario; autonomia
+  configurable por nodo; guardarrailes). Hallazgo: la "ola 2" de agente-decide-paso ya esta construida
+  (WorkflowNodeAgent + Dispatcher + Runner + CompleteStepAsync(executedByAiAgentId)); faltaba la UI.
+- Ola A (esta version): cablear la asignacion nodo->agente (IWorkflowDesignService.{ListAgentCatalog,
+  GetNodeAgent, SetNodeAgent, RemoveNodeAgent}Async, ya existentes) al editor de flujos FlowEditor.razor:
+  1. Nuevo acordeon "Agente de IA" en el panel del nodo (junto a "Asignar usuarios"). Solo pasos Task;
+     en compuertas/eventos muestra el aviso de gating.
+  2. Selector de agente (catalogo del tenant, activos primero, "(apagado)") + selector de Autonomia
+     (Propone|Autonomo, default Propone al asignar). "Sin agente" quita la asignacion (upsert por indice
+     unico TenantId+NodeId). Se carga el agente del nodo al seleccionar; escrituras bajo el mutex de
+     DbContext del editor. Sin cambio de motor ni migracion.
+- Verificado en dev (AGROMETALICAS, flujo ORDENES DE TRABAJO, paso "Recibir OT impresion"): render de la
+  seccion, asignar persiste WorkflowNodeAgent, cambiar autonomia persiste (0/1), estado inicial en recarga
+  refleja lo guardado, quitar borra la fila, nodo no-Task muestra el gating. Dev dejado limpio. Build
+  Release verde. Nota en ADR-0090. NO desplegado (a senal).
+- Pendiente: Ola B (compuertas) y Ola C (llenar form del paso con toolset acotado + executedByAiAgentId).
+
+---
+
 ## 2026-09-05 - v0.15.177: paneles-spec - filtros que RE-CONSULTAN una fuente externa (queryParam)
 
 - Pedido (sesion de reportes): un panel sobre una fuente EXTERNA (ADR-0064) corria el dataset UNA vez con

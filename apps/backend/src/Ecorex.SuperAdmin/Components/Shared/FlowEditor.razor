@@ -148,6 +148,9 @@ else
                                     case 4:
                                         @NotifBody
                                         break;
+                                    case 6:
+                                        @AgentBody
+                                        break;
                                     default:
                                         @ExitBody
                                         break;
@@ -463,6 +466,12 @@ else
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
 
+    // Agente de IA por nodo (acordeon "Agente de IA", ADR-0090 ola A). El catalogo se carga una vez; el
+    // agente del nodo se lee al seleccionar (solo aplica a pasos Task).
+    private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
+    private bool _agentCatalogLoaded;
+    private FlowNodeAgentDto? _nodeAgent;
+
     // Asignacion por nodo (acordeon "Asignar usuarios", ADR-0035).
     private IReadOnlyList<NodePolicyDto> _nodePolicies = [];
     private IReadOnlyList<AssignableOrgUnitDto> _assignableUnits = [];
@@ -616,11 +625,27 @@ else
         {
             _nodePolicies = [];
             _resolvedCandidates = 0;
+            _nodeAgent = null;
             return;
         }
         _nodePolicies = await NodePolicySvc.ListNodePoliciesAsync(node.Id);
         _assignableUnits = await NodePolicySvc.ListAssignableUnitsAsync();
         _resolvedCandidates = (await AssigneeResolver.ResolveCandidatesAsync(node.Id)).Count;
+
+        // Agente de IA (solo pasos Task lo admiten). El catalogo del tenant se carga una vez.
+        if (node.NodeType == WorkflowNodeType.Task)
+        {
+            if (!_agentCatalogLoaded)
+            {
+                _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
+                _agentCatalogLoaded = true;
+            }
+            _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
+        }
+        else
+        {
+            _nodeAgent = null;
+        }
     }
 
     private async Task AddNodePolicyAsync()
@@ -709,6 +734,11 @@ else
         new(1, "Asignar usuarios",
             "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"3.2\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.85\"/></svg>",
             "var(--t-green-bg)", "var(--t-green)"),
+        // Agente de IA por nodo (ADR-0090, ola A). Index 6 (fuera del rango 0-5 del switch clasico) para no
+        // renumerar los demas acordeones; se renderiza aqui, junto a "Asignar usuarios", por su posicion.
+        new(6, "Agente de IA",
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"11\" width=\"18\" height=\"10\" rx=\"2\"/><circle cx=\"8.5\" cy=\"16\" r=\"1.3\"/><circle cx=\"15.5\" cy=\"16\" r=\"1.3\"/><path d=\"M12 7v4M12 3v1\"/><path d=\"M2 14v3M22 14v3\"/></svg>",
+            "var(--t-violet-bg)", "var(--t-violet)"),
         new(2, "Recursos y componentes",
             "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m7.5 4.3 9 5.2v9L12 21l-4.5-2.5v-9Z\"/></svg>",
             "var(--t-amber-bg)", "var(--t-amber)"),
@@ -1076,6 +1106,83 @@ else
         </div>
         <div class="fe-acc-note">Formato del motor: approval == 'Approved' (vacio = rama por defecto).</div>
     };
+
+    // Acordeon "Agente de IA" (ADR-0090, ola A): asigna un agente al paso + su autonomia. Solo pasos Task.
+    private RenderFragment AgentBody => __builder =>
+    {
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
+            return;
+        }
+        if (node.NodeType != WorkflowNodeType.Task)
+        {
+            <div class="fe-acc-empty">Solo un paso (Task) admite un agente de IA; las compuertas y eventos no se atienden.</div>
+            return;
+        }
+        <div class="fe-field">
+            <label>Agente que atiende el paso</label>
+            <select class="fe-input sm" value="@(_nodeAgent?.AiAgentId.ToString() ?? "")"
+                    @onchange="@(e => OnNodeAgentChangedAsync(node, e))">
+                <option value="">Sin agente (lo atiende una persona)</option>
+                @foreach (var a in _agentCatalog)
+                {
+                    <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                }
+            </select>
+        </div>
+        @if (_nodeAgent is not null)
+        {
+            <div class="fe-field">
+                <label>Autonomia</label>
+                <select class="fe-input sm" value="@_nodeAgent.Autonomy"
+                        @onchange="@(e => OnNodeAgentAutonomyChangedAsync(node, e))">
+                    <option value="@WorkflowAgentAutonomy.Proposes">Propone (una persona confirma)</option>
+                    <option value="@WorkflowAgentAutonomy.Autonomous">Autonomo (cierra y avanza solo)</option>
+                </select>
+            </div>
+            @if (!_nodeAgent.IsActive)
+            {
+                <div class="fe-acc-note" style="color:var(--t-amber)">El agente esta apagado: no atendera el paso hasta reactivarlo.</div>
+            }
+            <div class="fe-acc-note">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
+        }
+        else if (_agentCatalog.Count == 0)
+        {
+            <div class="fe-acc-note">Este tenant no tiene agentes de IA. Crea uno en "Configuracion Agentes IA".</div>
+        }
+    };
+
+    /// <summary>Asigna/quita el agente del nodo (upsert por el indice unico). Al asignar por PRIMERA vez el
+    /// default seguro es Propone; si ya habia agente, conserva su autonomia.</summary>
+    private async Task OnNodeAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        await GuardAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(val))
+            {
+                await DesignSvc.RemoveNodeAgentAsync(node.Id); // NotFound si no habia: inocuo, el objetivo es quitarlo.
+                _nodeAgent = null;
+            }
+            else if (Guid.TryParse(val, out var agentId))
+            {
+                var autonomy = _nodeAgent?.Autonomy ?? WorkflowAgentAutonomy.Proposes;
+                var result = await DesignSvc.SetNodeAgentAsync(node.Id, agentId, autonomy);
+                if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+            }
+        });
+    }
+
+    private async Task OnNodeAgentAutonomyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        if (_nodeAgent is null || !Enum.TryParse<WorkflowAgentAutonomy>(e.Value?.ToString(), out var autonomy)) { return; }
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAgentAsync(node.Id, _nodeAgent.AiAgentId, autonomy);
+            if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+        });
+    }
 
     private static string RuleTone(RuleStatus status) => status switch
     {

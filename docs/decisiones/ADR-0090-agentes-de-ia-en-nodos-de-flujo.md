@@ -164,3 +164,23 @@ Se revisara:
 Sin migracion NUEVA obligatoria en Ola A (todo existe). Ola B/C pueden requerir solo columnas nullable
 aditivas si se decide separar la propuesta de ruta/campos de los campos existentes; se evaluara al
 implementar (el modelo ya trae `AgentProposalResult/Comment`).
+
+## Nota (v0.15.178) - Ola A cerrada: asignacion nodo->agente en el editor
+
+Cableada la asignacion que ya existia en el servicio (`IWorkflowDesignService.{ListAgentCatalog,
+GetNodeAgent, SetNodeAgent, RemoveNodeAgent}Async`) al editor de flujos (`FlowEditor.razor`):
+
+- Nuevo acordeon "Agente de IA" en el panel del nodo (junto a "Asignar usuarios"). Solo para pasos
+  Task; en compuertas/eventos muestra el aviso "solo un paso (Task) admite agente".
+- Selector de agente (catalogo del tenant, activos primero, marca "(apagado)" el inactivo) + selector de
+  Autonomia (Propone | Autonomo). Default al asignar por primera vez = Propone (seguro). Upsert por el
+  indice unico (TenantId, NodeId); "Sin agente" quita la asignacion.
+- Se carga el agente del nodo al seleccionarlo (`GetNodeAgentAsync`) y el catalogo una vez; las
+  escrituras van bajo el mutex de DbContext del editor. Sin cambio en el motor ni migracion (todo
+  existia). Nota de guardarrailes visible en el panel (fallback a humano, cupo, auditoria).
+- Verificado en dev (AGROMETALICAS, flujo ORDENES DE TRABAJO, paso "Recibir OT impresion"): asignar
+  persiste `WorkflowNodeAgent`, cambiar autonomia persiste, el estado inicial en recarga refleja lo
+  guardado, quitar borra la fila, y un nodo no-Task muestra el gating. Build Release verde.
+
+Pendiente: Ola B (compuertas: patron Task-previo + agente directo en compuertas atendidas) y Ola C
+(llenar el form del paso con toolset acotado + hilar executedByAiAgentId por SaveAsync->CompleteStep).

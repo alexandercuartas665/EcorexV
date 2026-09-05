@@ -77,8 +77,13 @@ public sealed record FlowRuleCatalogItemDto(
 /// </summary>
 public sealed record FlowNodeAgentDto(
     Guid LinkId, Guid AiAgentId, string AgentName, string? AgentRole,
-    bool IsActive, WorkflowAgentAutonomy Autonomy);
+    bool IsActive, WorkflowAgentAutonomy Autonomy,
+    // ADR-0091: recursos para conseguir datos al llenar el formulario (opcionales, permiso por nodo).
+    Guid? ColmenaClientId = null, string? ColmenaSessionKey = null, Guid? VoiceAiAgentId = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(
     Guid AiAgentId, string Name, string? Role, bool IsActive);
+
+/// <summary>Cliente COLMENA del tenant para el selector de "buscar_web" del editor (ADR-0091).</summary>
+public sealed record FlowColmenaClientDto(Guid Id, string Name, bool IsActive);

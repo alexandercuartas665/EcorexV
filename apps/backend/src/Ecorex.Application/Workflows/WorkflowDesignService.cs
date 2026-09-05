@@ -1261,7 +1261,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return await _db.WorkflowNodeAgents.AsNoTracking()
             .Where(x => x.NodeId == nodeId)
             .Join(_db.AiAgents.AsNoTracking(), x => x.AiAgentId, a => a.Id,
-                (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy))
+                (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
+                    x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1312,7 +1313,47 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         await _db.SaveChangesAsync(cancellationToken);
 
         return WorkflowResult<FlowNodeAgentDto>.Ok(new FlowNodeAgentDto(
-            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy));
+            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy,
+            existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId));
+    }
+
+    public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
+    {
+        // Clientes Colmena del tenant (filtro global); activos primero, como el catalogo de agentes.
+        return await _db.DataClients.AsNoTracking()
+            .OrderByDescending(c => c.IsActive).ThenBy(c => c.Name)
+            .Select(c => new FlowColmenaClientDto(c.Id, c.Name, c.IsActive))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
+        Guid nodeId, Guid? colmenaClientId, string? colmenaSessionKey, Guid? voiceAiAgentId,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.WorkflowNodeAgents.FirstOrDefaultAsync(x => x.NodeId == nodeId, cancellationToken);
+        if (existing is null)
+        {
+            return WorkflowResult<FlowNodeAgentDto>.Invalid("Primero asigna un agente al nodo.");
+        }
+        // El filtro global valida tenant: un cliente/agente de otro tenant no existe aqui -> NotFound.
+        if (colmenaClientId is Guid cc && !await _db.DataClients.AnyAsync(c => c.Id == cc, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Cliente Colmena no encontrado.");
+        }
+        if (voiceAiAgentId is Guid va && !await _db.AiAgents.AnyAsync(a => a.Id == va, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Agente de voz no encontrado.");
+        }
+
+        existing.ColmenaClientId = colmenaClientId;
+        existing.ColmenaSessionKey = string.IsNullOrWhiteSpace(colmenaSessionKey) ? null : colmenaSessionKey.Trim();
+        existing.VoiceAiAgentId = voiceAiAgentId;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var agent = await _db.AiAgents.AsNoTracking().FirstAsync(a => a.Id == existing.AiAgentId, cancellationToken);
+        return WorkflowResult<FlowNodeAgentDto>.Ok(new FlowNodeAgentDto(
+            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, existing.Autonomy,
+            existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

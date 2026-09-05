@@ -2,6 +2,35 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-05 - v0.15.181: el agente de flujo consigue datos (Colmena web + llamada Retell) - ADR-0091
+
+- Pedido (usuario): "montamos un flujo de pruebas... llenar unos datos de formulario, pero sumale poder
+  al agente: configurarle un agente Colmena para llenar datos o hacer una llamada de telefono con Retell".
+  Decisiones: llamada asincrona = "Pausar y reanudar"; alcance = "Todo: Colmena + Retell".
+- Hecho (ADR-0091, marco de ADR-0090 ola C extendido con dos tools de CONSECUCION de datos, permiso
+  explicito por nodo):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{ColmenaClientId(FK DataClient), ColmenaSessionKey,
+    VoiceAiAgentId(FK AiAgent)} + WorkflowStepHistory.PendingVoiceCallId. Aplica al arrancar; verificado en
+    dev (4 columnas nuevas).
+  - Colmena (SINCRONO): costura IAgentBrowserFetch (Application) / AgentBrowserFetch (SuperAdmin sobre
+    IBrowserActionChannel: Navigate + ExtractReadable, ~50s, verifica IsOnline, cap 14k chars, no lanza).
+    Tool 'buscar_web(url, selector?)' en el bucle de llenado, ofrecida SOLO si el nodo tiene cliente Colmena.
+  - Retell (ASINCRONO, pausa/reanudacion): tool 'llamar_telefono(numero, objetivo)' -> el invoker solo la
+    "pide" (CallRequest), el bucle termina sin tocar BD -> el runner coloca la llamada (PlaceCallAsync,
+    objetivo LlenarFormulario, whitelist = form del paso), guarda PendingVoiceCallId + marca AgentAttemptedAt,
+    deja el paso vigente (outcome WaitingForCall) -> el webhook call_analyzed limpia AgentAttemptedAt para
+    reanudar -> en la re-corrida el contexto incluye transcript + datos capturados (VoiceCallResult) y el
+    agente termina de llenar. No se re-llama en la reanudacion.
+  - Config por nodo (FlowEditor, acordeon "Agente de IA"): selector de cliente Colmena (+ SessionKey) y de
+    agente de voz; SetNodeAgentResourcesAsync + ListColmenaClientsAsync.
+  - Guardarrailes heredados: cupo de IA, AiUsageLog, executedByAiAgentId, VoiceCall.CostUsd; offline/timeout/
+    llamada no colocada -> ReturnToPerson; multi-tenant intacto.
+- Verificado: build Release verde; integracion (matriz dual) 12/12; editor persiste los 3 campos por nodo en
+  dev (AGROMETALICAS). Pendiente validacion de RUNTIME real (cliente Colmena conectado + llamada Retell
+  real, billable): se prueba en prod.
+- Siguiente: montar el flujo de pruebas end-to-end; DEPLOY en espera de senal del usuario (prod en v0.15.175;
+  0.15.176-0.15.181 sin desplegar).
+
 ## 2026-09-05 - SARA (agente comercial) enrutada a un tablero unico (AGROMETALICAS)
 
 Problema: el agente SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) creaba

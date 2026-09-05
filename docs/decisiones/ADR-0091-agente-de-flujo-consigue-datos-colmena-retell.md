@@ -115,3 +115,30 @@ espera un evento externo). Se acota con el tope de tiempo, el permiso por nodo y
       la `VoiceCall` de la llamada en el contexto del agente.
 - [ ] Flujo de pruebas (tenant demo) y verificacion; nota de cierre en este ADR.
 - [ ] CI dual, solo ASCII, commit a fase-0/clon-backbone.
+
+## Nota (v0.15.181) - Implementado: esquema + Colmena + Retell + UI
+
+Entregado bajo el marco de arriba:
+- Esquema: WorkflowNodeAgent.{ColmenaClientId, ColmenaSessionKey, VoiceAiAgentId} + WorkflowStepHistory.
+  PendingVoiceCallId + migracion DUAL aditiva (PG + SQL Server).
+- Colmena (sincrono): costura IAgentBrowserFetch (Application) / AgentBrowserFetch (SuperAdmin, sobre
+  IBrowserActionChannel: Navigate + ExtractReadable, ~50s, verifica IsOnline). Herramienta 'buscar_web' en
+  el bucle de llenado, ofrecida solo si el nodo tiene cliente Colmena.
+- Retell (asincrono, pausa/reanudacion): herramienta 'llamar_telefono' (senala una llamada; el bucle
+  termina) -> el runner coloca la llamada (PlaceCallAsync, objetivo LlenarFormulario, whitelist = form del
+  paso) y pausa el paso (PendingVoiceCallId + AgentAttemptedAt, outcome WaitingForCall) -> el webhook
+  (call_analyzed) limpia AgentAttemptedAt para reanudar -> el contexto del agente incluye el transcript +
+  datos capturados (VoiceCallResult) -> el agente termina de llenar; el runner limpia PendingVoiceCallId.
+  No se ofrece re-llamar en la reanudacion.
+- Config por nodo (editor): en el acordeon "Agente de IA", selector de cliente Colmena (+ SessionKey) y de
+  agente de voz; SetNodeAgentResourcesAsync + ListColmenaClientsAsync.
+- Guardarrailes: permiso explicito por nodo; offline/timeout/llamada no colocada -> vuelve a humano; cupo,
+  auditoria (executedByAiAgentId) y costo de llamada registrados; multi-tenant intacto.
+
+Verificado en dev (AGROMETALICAS): migracion aplica al arrancar; el editor persiste ColmenaClientId
++ SessionKey + VoiceAiAgentId por nodo. Integracion (matriz dual) 12/12 (las rutas de decision/compuerta/
+form no regresionaron con la nueva dependencia de voz). Build Release verde.
+
+Pendiente de validacion de RUNTIME real (necesita un cliente Colmena conectado y una llamada Retell real):
+el uso efectivo de 'buscar_web' y el ciclo de 'llamar_telefono' pausa/reanudacion se prueban en prod.
+Extension futura: mas tools de datos (inventario/directorio) en el mismo bucle.

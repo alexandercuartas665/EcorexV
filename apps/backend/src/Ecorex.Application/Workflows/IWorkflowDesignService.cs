@@ -184,4 +184,14 @@ public interface IWorkflowDesignService
 
     /// <summary>Quita el agente del nodo (el paso vuelve a ser 100% humano).</summary>
     Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Clientes COLMENA del tenant para el selector de 'buscar_web' del editor (ADR-0091).</summary>
+    Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0091: fija los RECURSOS que el agente del nodo puede usar para conseguir datos al llenar
+    /// el formulario: un cliente Colmena (+ perfil/SessionKey) para 'buscar_web' y un agente de voz para
+    /// 'llamar_telefono'. null en un recurso = lo deshabilita. Requiere que el nodo ya tenga agente asignado.</summary>
+    Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
+        Guid nodeId, Guid? colmenaClientId, string? colmenaSessionKey, Guid? voiceAiAgentId,
+        CancellationToken cancellationToken = default);
 }

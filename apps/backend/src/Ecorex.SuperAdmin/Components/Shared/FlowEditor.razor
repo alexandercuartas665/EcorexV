@@ -469,6 +469,7 @@ else
     // Agente de IA por nodo (acordeon "Agente de IA", ADR-0090 ola A). El catalogo se carga una vez; el
     // agente del nodo se lee al seleccionar (solo aplica a pasos Task).
     private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
+    private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
 
@@ -638,6 +639,7 @@ else
             if (!_agentCatalogLoaded)
             {
                 _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
+                _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
                 _agentCatalogLoaded = true;
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
@@ -1158,6 +1160,40 @@ else
                 <div class="fe-acc-note" style="color:var(--t-amber)">El agente esta apagado: no atendera el paso hasta reactivarlo.</div>
             }
             <div class="fe-acc-note">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
+
+            @* ADR-0091: recursos para CONSEGUIR datos al llenar el formulario del paso (permiso por nodo). *@
+            <hr style="margin:12px 0;border:none;border-top:1px solid var(--line);" />
+            <div class="fe-field">
+                <label>Buscar datos en la web (cliente Colmena)</label>
+                <select class="fe-input sm" value="@(_nodeAgent.ColmenaClientId?.ToString() ?? "")"
+                        @onchange="@(e => OnNodeColmenaChangedAsync(node, e))">
+                    <option value="">Sin busqueda web</option>
+                    @foreach (var c in _colmenaClients)
+                    {
+                        <option value="@c.Id">@c.Name@(c.IsActive ? "" : " (inactivo)")</option>
+                    }
+                </select>
+            </div>
+            @if (_nodeAgent.ColmenaClientId is not null)
+            {
+                <div class="fe-field">
+                    <label>Perfil del navegador (SessionKey, opcional)</label>
+                    <input class="fe-input sm" value="@_nodeAgent.ColmenaSessionKey" placeholder="ej. linkedin (perfil logueado)"
+                           @onchange="@(e => OnNodeSessionKeyChangedAsync(node, e))" />
+                </div>
+            }
+            <div class="fe-field">
+                <label>Conseguir datos por llamada (agente de voz Retell)</label>
+                <select class="fe-input sm" value="@(_nodeAgent.VoiceAiAgentId?.ToString() ?? "")"
+                        @onchange="@(e => OnNodeVoiceAgentChangedAsync(node, e))">
+                    <option value="">Sin llamada</option>
+                    @foreach (var a in _agentCatalog)
+                    {
+                        <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                    }
+                </select>
+            </div>
+            <div class="fe-acc-note">Con estos recursos el agente puede buscar en la web o llamar para conseguir un dato faltante antes de llenar el formulario. La llamada deja el paso en espera hasta que termine.</div>
         }
         else if (_agentCatalog.Count == 0)
         {
@@ -1192,6 +1228,32 @@ else
         await GuardAsync(async () =>
         {
             var result = await DesignSvc.SetNodeAgentAsync(node.Id, _nodeAgent.AiAgentId, autonomy);
+            if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+        });
+    }
+
+    // ADR-0091: recursos del agente del nodo (Colmena / voz). Cada cambio guarda la combinacion completa.
+    private Task OnNodeColmenaChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? cc = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // Al quitar el cliente Colmena se limpia tambien la SessionKey.
+        return SaveNodeResourcesAsync(node, cc, cc is null ? null : _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId);
+    }
+
+    private Task OnNodeSessionKeyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, e.Value?.ToString(), _nodeAgent?.VoiceAiAgentId);
+
+    private Task OnNodeVoiceAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? va = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, va);
+    }
+
+    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, Guid? colmena, string? sessionKey, Guid? voice)
+    {
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, colmena, sessionKey, voice);
             if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
         });
     }

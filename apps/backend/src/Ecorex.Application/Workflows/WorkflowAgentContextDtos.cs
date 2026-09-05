@@ -23,9 +23,14 @@ public sealed record WorkflowAgentContextDto(
     // Agente asignado al nodo y su autonomia. Null si el nodo no tiene agente.
     WorkflowAgentAssignmentDto? Assignment);
 
-/// <summary>Agente asignado al nodo del paso y con que autonomia debe actuar.</summary>
+/// <summary>Agente asignado al nodo del paso, su autonomia y los RECURSOS que se le habilitaron para
+/// conseguir datos (ADR-0091): un cliente Colmena (busqueda web) y/o un agente de voz (llamada Retell).</summary>
 public sealed record WorkflowAgentAssignmentDto(
-    Guid AiAgentId, string AgentName, string? AgentRole, bool IsActive, WorkflowAgentAutonomy Autonomy);
+    Guid AiAgentId, string AgentName, string? AgentRole, bool IsActive, WorkflowAgentAutonomy Autonomy,
+    // Colmena: Guid del DataClient + perfil logueado (SessionKey). Null = sin herramienta 'buscar_web'.
+    Guid? ColmenaClientId = null, string? ColmenaSessionKey = null,
+    // Retell: Guid del AiAgent de voz. Null = sin herramienta 'llamar_telefono'.
+    Guid? VoiceAiAgentId = null);
 
 /// <summary>(a) El nodo actual y el formulario que el paso debe llenar, con sus campos.</summary>
 public sealed record WorkflowAgentNodeDto(

@@ -29,12 +29,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _secretProtector;
     private readonly IAiProviderClient _client;
+    private readonly IAgentBrowserFetch _browserFetch;
 
-    public WorkflowAgentInvoker(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client)
+    public WorkflowAgentInvoker(
+        IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client,
+        IAgentBrowserFetch browserFetch)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
+        _browserFetch = browserFetch;
     }
 
     public async Task<WorkflowAgentInvocationResult> InvokeAsync(
@@ -195,8 +199,9 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         CancellationToken cancellationToken)
     {
         var form = context.Node.Form!;
-        var tools = BuildFormTools();
-        var system = BuildFormSystemPrompt(agent.SystemPrompt, context);
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
+        var tools = BuildFormTools(canSearchWeb);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -238,13 +243,23 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             messages.Add(new AiToolMessage("assistant", completion.Text, completion.ToolCalls));
             foreach (var call in completion.ToolCalls)
             {
-                var result = call.Name switch
+                string result;
+                if (call.Name == "buscar_web" && canSearchWeb)
                 {
-                    "ver_formulario" => FormSchemaJson(form),
-                    "fijar_campos" => ApplySetFields(call.ArgumentsJson, form, fields),
-                    "enviar_formulario" => MarkFinished(call.ArgumentsJson, ref finished, ref finalComment),
-                    _ => $$"""{"error": "herramienta '{{call.Name}}' no disponible"}"""
-                };
+                    // ADR-0091: el agente busca un dato en la web con el cliente Colmena del nodo (sincrono,
+                    // acotado). El invoker no escribe BD: solo trae el contenido para que el agente lo use.
+                    result = await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
+                }
+                else
+                {
+                    result = call.Name switch
+                    {
+                        "ver_formulario" => FormSchemaJson(form),
+                        "fijar_campos" => ApplySetFields(call.ArgumentsJson, form, fields),
+                        "enviar_formulario" => MarkFinished(call.ArgumentsJson, ref finished, ref finalComment),
+                        _ => $$"""{"error": "herramienta '{{call.Name}}' no disponible"}"""
+                    };
+                }
                 messages.Add(new AiToolMessage("tool", result, ToolCallId: call.Id, ToolName: call.Name));
             }
         }
@@ -263,27 +278,42 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
     }
 
-    private static IReadOnlyList<AiToolSpec> BuildFormTools() => new[]
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb)
     {
-        new AiToolSpec("ver_formulario",
-            "Devuelve el esquema del formulario del paso: campos con codigo, etiqueta, tipo, si es obligatorio y sus opciones.",
-            """{"type":"object","properties":{}}"""),
-        new AiToolSpec("fijar_campos",
-            "Fija valores del formulario. 'campos' es un objeto {codigo_de_campo: valor}. Puedes llamarla varias veces; se acumulan.",
-            """{"type":"object","properties":{"campos":{"type":"object"}},"required":["campos"]}"""),
-        new AiToolSpec("enviar_formulario",
-            "Marca el formulario como LISTO cuando ya fijaste todos los campos obligatorios. Acepta 'comentario' opcional.",
-            """{"type":"object","properties":{"comentario":{"type":"string"}}}"""),
-    };
+        var tools = new List<AiToolSpec>
+        {
+            new("ver_formulario",
+                "Devuelve el esquema del formulario del paso: campos con codigo, etiqueta, tipo, si es obligatorio y sus opciones.",
+                """{"type":"object","properties":{}}"""),
+            new("fijar_campos",
+                "Fija valores del formulario. 'campos' es un objeto {codigo_de_campo: valor}. Puedes llamarla varias veces; se acumulan.",
+                """{"type":"object","properties":{"campos":{"type":"object"}},"required":["campos"]}"""),
+            new("enviar_formulario",
+                "Marca el formulario como LISTO cuando ya fijaste todos los campos obligatorios. Acepta 'comentario' opcional.",
+                """{"type":"object","properties":{"comentario":{"type":"string"}}}"""),
+        };
+        if (canSearchWeb)
+        {
+            // ADR-0091: buscar un dato en la web con el navegador Colmena del nodo.
+            tools.Add(new AiToolSpec("buscar_web",
+                "Abre una URL con el navegador Colmena y devuelve su contenido legible, para CONSEGUIR un dato que no esta en el contexto. 'url' obligatoria (http/https); 'selector' CSS opcional.",
+                """{"type":"object","properties":{"url":{"type":"string"},"selector":{"type":"string"}},"required":["url"]}"""));
+        }
+        return tools;
+    }
 
-    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context)
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
         sb.AppendLine("Atiendes un paso de un proceso de negocio que exige DILIGENCIAR un formulario.");
         sb.AppendLine("Herramientas: 'ver_formulario' (esquema), 'fijar_campos' (pon valores con {\"campos\":{codigo:valor}}), 'enviar_formulario' (marca LISTO al terminar).");
+        if (canSearchWeb)
+        {
+            sb.AppendLine("Ademas tienes 'buscar_web' (abre una URL con el navegador Colmena y te devuelve su contenido) para CONSEGUIR un dato que falte antes de fijarlo.");
+        }
         sb.AppendLine("Reglas:");
-        sb.AppendLine("- Llena SOLO con datos presentes en el contexto (caso, tercero, datos capturados antes). NUNCA inventes datos.");
+        sb.AppendLine("- Llena SOLO con datos del contexto o que CONSIGAS con las herramientas (ej. buscar_web). NUNCA inventes datos.");
         sb.AppendLine("- Respeta los campos OBLIGATORIOS. En listas/opciones usa un valor valido de 'opciones'.");
         sb.AppendLine("- Si NO puedes llenar los obligatorios con lo que hay, NO llames 'enviar_formulario' y explica que falta en 'comentario'.");
         if (context.Assignment?.Autonomy == WorkflowAgentAutonomy.Proposes)
@@ -375,6 +405,41 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         JsonValueKind.Null => null,
         _ => el.GetRawText()
     };
+
+    /// <summary>ADR-0091: ejecuta 'buscar_web' -> navega con el cliente Colmena del nodo y devuelve el contenido
+    /// legible al modelo. El invoker NO escribe BD; solo trae el dato. Un fallo (offline/timeout) vuelve como
+    /// {ok:false,error} y el agente lo trata como "no lo consegui".</summary>
+    private async Task<string> ExecuteWebSearchAsync(
+        string argsJson, WorkflowAgentAssignmentDto assignment, Guid tenantId, CancellationToken cancellationToken)
+    {
+        if (assignment.ColmenaClientId is not Guid clientId)
+        {
+            return """{"ok": false, "error": "este paso no tiene un cliente Colmena configurado"}""";
+        }
+
+        string? url, selector;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            url = root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+            selector = root.TryGetProperty("selector", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return """{"ok": false, "error": "argumentos JSON invalidos"}""";
+        }
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return """{"ok": false, "error": "falta 'url'"}""";
+        }
+
+        var res = await _browserFetch.FetchAsync(
+            clientId, assignment.ColmenaSessionKey, url!, selector, tenantId, cancellationToken);
+        return res.Ok
+            ? JsonSerializer.Serialize(new { ok = true, contenido = res.Content })
+            : JsonSerializer.Serialize(new { ok = false, error = res.Error });
+    }
 
     private static string? Clip(string? value, int max)
     {

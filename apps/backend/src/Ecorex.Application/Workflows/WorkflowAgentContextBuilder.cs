@@ -136,7 +136,9 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         => await _db.WorkflowNodeAgents.AsNoTracking()
             .Where(x => x.NodeId == nodeId)
             .Join(_db.AiAgents.AsNoTracking(), x => x.AiAgentId, a => a.Id,
-                (x, a) => new WorkflowAgentAssignmentDto(a.Id, a.Name, a.Role, a.IsActive, x.Autonomy))
+                (x, a) => new WorkflowAgentAssignmentDto(
+                    a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
+                    x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId))
             .FirstOrDefaultAsync(cancellationToken);
 
     // ---- (d) Historial de pasos (se arma antes que (b): sus nodos nombran los envios previos) ----

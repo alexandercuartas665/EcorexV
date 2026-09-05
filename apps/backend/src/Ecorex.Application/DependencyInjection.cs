@@ -57,6 +57,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IChatBroadcaster, Tenancy.NoOpChatBroadcaster>();
         // Broadcaster del nucleo de tareas por defecto (no-op); la app host con SignalR lo reemplaza.
         services.AddScoped<Tenancy.ITaskBroadcaster, Tenancy.NoOpTaskBroadcaster>();
+        // Busqueda web del agente de flujo (ADR-0091): default no-op; el host con el canal Colmena lo reemplaza.
+        services.AddScoped<Workflows.IAgentBrowserFetch, Workflows.NoOpAgentBrowserFetch>();
         services.AddScoped<Tenancy.IWebhookAdminService, Tenancy.WebhookAdminService>();
         // Tunel por defecto (no-op); la app host con cloudflared lo reemplaza por singleton.
         services.AddSingleton<Tenancy.IDevTunnel, Tenancy.NoOpDevTunnel>();

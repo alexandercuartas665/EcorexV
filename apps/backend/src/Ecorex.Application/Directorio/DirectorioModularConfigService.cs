@@ -195,9 +195,14 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
 
     // ---- helpers ----
 
-    /// <summary>Solo las listas guardan opciones (una por linea); los demas tipos no llevan.</summary>
+    /// <summary>Las listas guardan opciones (una por linea); la Tabla guarda su definicion de columnas (JSON,
+    /// tal cual); los demas tipos no llevan Options.</summary>
     private static string? NormalizeOptions(TerceroFieldType tipo, string? opciones)
     {
+        if (tipo == TerceroFieldType.Table)
+        {
+            return string.IsNullOrWhiteSpace(opciones) ? null : opciones.Trim();
+        }
         if (tipo != TerceroFieldType.Select && tipo != TerceroFieldType.MultiSelect) { return null; }
         if (string.IsNullOrWhiteSpace(opciones)) { return null; }
         var lineas = opciones.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

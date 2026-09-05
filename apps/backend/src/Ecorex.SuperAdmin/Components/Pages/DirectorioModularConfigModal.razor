@@ -3,6 +3,7 @@
      1. Categorias         -> ajustes de la categoria + que secciones la arman.
      2. Secciones y campos -> crear/editar/eliminar/reordenar secciones y sus campos.
    Parameter-driven (Show/OnClosed) para no depender de @ref. Acento negro, coherente con el listado. *@
+@using System.Text.Json
 @using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
 @inject IDirectorioCategoriaService Cats
@@ -329,6 +330,35 @@
                             <div class="cfg-fld"><label>Opciones <span class="cfg-meta">(una por linea)</span></label>
                                 <textarea class="cfg-input" rows="4" @bind="_fOpciones" @bind:event="oninput" placeholder="Opcion 1&#10;Opcion 2"></textarea></div>
                         }
+                        @if (_fTipo == TerceroFieldType.Table)
+                        {
+                            <div class="cfg-fld">
+                                <label>Columnas de la tabla</label>
+                                @if (_fCols.Count == 0)
+                                {
+                                    <div class="cfg-meta cfg-mb1">Agrega al menos una columna.</div>
+                                }
+                                @for (var i = 0; i < _fCols.Count; i++)
+                                {
+                                    var col = _fCols[i];
+                                    var idx = i;
+                                    <div class="cfg-col-row">
+                                        <input class="cfg-input" placeholder="Etiqueta" @bind="col.Label" @bind:event="oninput" />
+                                        <select class="cfg-input" @bind="col.Type">
+                                            <option value="texto">Texto</option>
+                                            <option value="numero">Numero</option>
+                                            <option value="select">Lista</option>
+                                        </select>
+                                        <button class="cfg-ico cfg-ico-danger" title="Quitar columna" @onclick="() => _fCols.RemoveAt(idx)"><i class="fa fa-trash-can"></i></button>
+                                    </div>
+                                    @if (col.Type == "select")
+                                    {
+                                        <textarea class="cfg-input cfg-mb1" rows="2" placeholder="Opciones de la lista (una por linea)" @bind="col.Options" @bind:event="oninput"></textarea>
+                                    }
+                                }
+                                <button class="cfg-btn-soft cfg-mt3" @onclick="() => _fCols.Add(new CampoTablaCol())"><i class="fa fa-plus"></i> Agregar columna</button>
+                            </div>
+                        }
                         <div class="cfg-fld"><label>Descripcion <span class="cfg-meta">(opcional)</span></label>
                             <input class="cfg-input" @bind="_fDesc" @bind:event="oninput" /></div>
                         <label class="cfg-check"><input type="checkbox" @bind="_fReq" /> Obligatorio al crear el tercero</label>
@@ -384,6 +414,15 @@
     private string _fOpciones = string.Empty;
     private bool _fReq;
     private string _fDesc = string.Empty;
+    private readonly List<CampoTablaCol> _fCols = new();   // columnas cuando el tipo es Tabla
+
+    // Columna editable de un campo tipo Tabla (se serializa a Options como {columns:[...]}).
+    private sealed class CampoTablaCol
+    {
+        public string Label { get; set; } = string.Empty;
+        public string Type { get; set; } = "texto";
+        public string Options { get; set; } = string.Empty;   // una opcion por linea (solo si Type=select)
+    }
 
     private DirectorioCategoriaDto? _tipo => _cats.FirstOrDefault(c => c.CategoriaKey == _tipoActivo);
     private ModularSeccionConfigDto? _seccion => _estructura.Secciones.FirstOrDefault(s => s.FichaKey == _seccionActiva);
@@ -477,6 +516,7 @@
         _fOpciones = string.Empty;
         _fReq = false;
         _fDesc = string.Empty;
+        _fCols.Clear();
     }
 
     // Rellena el modelo de trabajo desde la categoria activa + su composicion de secciones.
@@ -632,9 +672,11 @@
         _fLabel = f.Label;
         _fTipo = f.Type;
         _fAncho = f.Ancho;
-        _fOpciones = f.Options ?? string.Empty;
+        _fOpciones = f.Type == TerceroFieldType.Table ? string.Empty : (f.Options ?? string.Empty);
         _fReq = !string.IsNullOrWhiteSpace(f.RequeridoEn);
         _fDesc = f.Descripcion ?? string.Empty;
+        _fCols.Clear();
+        if (f.Type == TerceroFieldType.Table) { ParseColsFromOptions(f.Options); }
         _msg = null;
     }
 
@@ -646,14 +688,17 @@
         var seccionKey = _seccionActiva;
         if (seccionKey is null) { return; }
 
+        // Para Tabla, las "opciones" que guarda el campo son la definicion de columnas (JSON).
+        var opts = _fTipo == TerceroFieldType.Table ? BuildColsJson() : _fOpciones;
+
         string? err;
         if (_fEditId is Guid editId)
         {
-            err = await Config.ActualizarCampoAsync(editId, _fLabel, _fTipo, _fAncho, _fOpciones, _fReq, _fDesc);
+            err = await Config.ActualizarCampoAsync(editId, _fLabel, _fTipo, _fAncho, opts, _fReq, _fDesc);
         }
         else
         {
-            err = await Config.CrearCampoAsync(seccionKey, _fLabel, _fTipo, _fAncho, _fOpciones, _fReq, _fDesc);
+            err = await Config.CrearCampoAsync(seccionKey, _fLabel, _fTipo, _fAncho, opts, _fReq, _fDesc);
         }
         if (err is not null) { _msg = err; return; }
 
@@ -676,6 +721,68 @@
     {
         await Config.MoverCampoAsync(id, delta);
         _estructura = await Fichas.GetEstructuraAsync();
+    }
+
+    // ---- Columnas del tipo Tabla (Options = {"columns":[{key,label,type,options:[{value,label}]}]}) ----
+    private string BuildColsJson()
+    {
+        var cols = _fCols
+            .Where(c => !string.IsNullOrWhiteSpace(c.Label))
+            .Select(c => new
+            {
+                key = SlugCol(c.Label),
+                label = c.Label.Trim(),
+                type = string.IsNullOrWhiteSpace(c.Type) ? "texto" : c.Type,
+                options = c.Type == "select"
+                    ? (c.Options ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(o => new { value = o, label = o }).ToArray()
+                    : System.Array.Empty<object>()
+            }).ToArray();
+        return JsonSerializer.Serialize(new { columns = cols });
+    }
+
+    private void ParseColsFromOptions(string? json)
+    {
+        _fCols.Clear();
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("columns", out var arr)
+                && !doc.RootElement.TryGetProperty("Columns", out arr)) { return; }
+            foreach (var c in arr.EnumerateArray())
+            {
+                var col = new CampoTablaCol
+                {
+                    Label = ColStr(c, "label", "Label"),
+                    Type = ColStr(c, "type", "Type") is { Length: > 0 } t ? t : "texto"
+                };
+                if ((c.TryGetProperty("options", out var opts) || c.TryGetProperty("Options", out opts))
+                    && opts.ValueKind == JsonValueKind.Array)
+                {
+                    var labels = new List<string>();
+                    foreach (var o in opts.EnumerateArray()) { labels.Add(ColStr(o, "label", "Label")); }
+                    col.Options = string.Join("\n", labels.Where(x => x.Length > 0));
+                }
+                _fCols.Add(col);
+            }
+        }
+        catch { /* JSON invalido: se deja sin columnas */ }
+    }
+
+    private static string ColStr(JsonElement e, string a, string b)
+        => (e.TryGetProperty(a, out var v) || e.TryGetProperty(b, out v)) ? (v.GetString() ?? string.Empty) : string.Empty;
+
+    private static string SlugCol(string label)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in label.ToLowerInvariant())
+        {
+            if (ch is >= 'a' and <= 'z' or >= '0' and <= '9') { sb.Append(ch); }
+            else if (ch is ' ' or '-' or '_') { sb.Append('_'); }
+        }
+        var s = sb.ToString().Trim('_');
+        return s.Length == 0 ? "col" : s;
     }
 
     private async Task CerrarAsync()
@@ -738,6 +845,9 @@
     .cfg-input:focus { outline: none; border-color: #94a3b8; box-shadow: 0 0 0 3px rgba(17,24,39,.08); }
     .cfg-input[readonly], .cfg-input:disabled { background: #f8fafc; color: #64748b; }
     .cfg-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .cfg-col-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .4rem; }
+    .cfg-col-row .cfg-input:first-child { flex: 1 1 auto; }
+    .cfg-col-row select.cfg-input { width: 96px; flex: 0 0 auto; }
     .cfg-hint { font-size: 11.5px; color: #94a3b8; margin-top: .25rem; }
     .cfg-req { color: #ef4444; }
     .cfg-mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }

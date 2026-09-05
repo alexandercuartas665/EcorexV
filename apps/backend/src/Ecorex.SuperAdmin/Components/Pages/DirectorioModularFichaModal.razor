@@ -124,7 +124,7 @@
                                                                                 <option value="">-- seleccionar --</option>
                                                                                 @foreach (var op in col.Options)
                                                                                 {
-                                                                                    <option value="@op.Value" selected="@(op.Value == rows[rowIdx].GetValueOrDefault(col.Key, ""))">@op.Value - @op.Label</option>
+                                                                                    <option value="@op.Value" selected="@(op.Value == rows[rowIdx].GetValueOrDefault(col.Key, ""))">@(op.Value == op.Label ? op.Label : $"{op.Value} - {op.Label}")</option>
                                                                                 }
                                                                             </select>
                                                                         }

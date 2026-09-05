@@ -198,6 +198,39 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         return null;
     }
 
+    public async Task<byte[]> ExportXlsxAsync(CancellationToken cancellationToken = default)
+    {
+        var ts = await _app.Terceros.AsNoTracking()
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular)
+            .OrderBy(t => t.Nombre)
+            .Select(t => new
+            {
+                t.Nombre, t.Tipo, t.Perfiles, t.Estado, t.IdTipo, t.IdValor,
+                t.Ciudad, t.Sector, t.Cargo, t.Email, t.Telefono, t.Vendedor, t.VendedorAsesorId
+            })
+            .ToListAsync(cancellationToken);
+
+        // Nombre del asesor (para que la columna Vendedor sea re-importable por nombre).
+        var ids = ts.Where(x => x.VendedorAsesorId is not null).Select(x => x.VendedorAsesorId!.Value).Distinct().ToList();
+        var asesores = ids.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _app.Asesores.AsNoTracking().Where(a => ids.Contains(a.Id)).ToDictionaryAsync(a => a.Id, a => a.Nombre, cancellationToken);
+
+        var rows = ts.Select(t => new TerceroExportXlsx.Row(
+            t.Nombre,
+            t.Tipo.ToString(),
+            t.Perfiles == TerceroPerfil.Ninguno ? string.Empty : t.Perfiles.ToString(),
+            t.Estado.ToString(),
+            t.IdTipo == TerceroIdTipo.Ninguno ? string.Empty : t.IdTipo.ToString(),
+            t.IdValor, t.Ciudad,
+            t.Tipo == TerceroTipo.Empresa ? t.Sector : null,
+            t.Tipo == TerceroTipo.Persona ? t.Cargo : null,
+            t.Email, t.Telefono,
+            t.VendedorAsesorId is Guid g && asesores.TryGetValue(g, out var n) ? n : t.Vendedor));
+
+        return TerceroExportXlsx.Build(rows);
+    }
+
     public async Task<(int Done, int Failed)> ImportAsync(string categoriaKey, IReadOnlyList<TerceroImportXlsx.TerceroImportRow> rows, CancellationToken cancellationToken = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return (0, rows.Count(r => r.IsValid)); }

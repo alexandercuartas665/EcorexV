@@ -95,6 +95,9 @@
                         <button class="dm-btn" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl">
                             <i class="fa fa-download"></i> @(_downloadingTpl ? "Generando..." : "Descargar plantilla")
                         </button>
+                        <button class="dm-btn" @onclick="ExportAsync" disabled="@_exporting">
+                            <i class="fa fa-file-export"></i> @(_exporting ? "Exportando..." : "Exportar contactos")
+                        </button>
                         <label class="dm-btn dm-imp-file">
                             <i class="fa fa-file-arrow-up"></i> Elegir archivo .xlsx
                             <InputFile OnChange="OnImportFileAsync" accept=".xlsx" style="display:none" />
@@ -504,7 +507,7 @@
     private string? _migrarError;
 
     // --- Importar por archivo (reusa el parser/plantilla del Directorio basico) ---
-    private bool _impOpen, _impBusy, _impFinished, _downloadingTpl;
+    private bool _impOpen, _impBusy, _impFinished, _downloadingTpl, _exporting;
     private string? _impFileName, _impFatal;
     private TerceroImportXlsx.TerceroImportParse? _impParse;
     private readonly HashSet<int> _impDupRows = new();
@@ -582,6 +585,18 @@
             await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-directorio.xlsx", TerceroTemplateXlsx.Mime, Convert.ToBase64String(bytes));
         }
         finally { _downloadingTpl = false; }
+    }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        try
+        {
+            var bytes = await Fichas.ExportXlsxAsync();
+            var nombre = $"directorio-modular-{DateTime.Now:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", nombre, TerceroExportXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _exporting = false; }
     }
 
     private async Task OnImportFileAsync(InputFileChangeEventArgs e)

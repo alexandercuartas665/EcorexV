@@ -30,6 +30,10 @@ public interface IDirectorioModularFichaService
     /// <summary>Cuantos terceros de nivel raiz del motor Clasico existen (candidatos a migrar al Modular).</summary>
     Task<int> CountClasicoAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Exporta todos los terceros del motor Modular a un .xlsx con la misma estructura que la
+    /// plantilla de importacion (re-importable). Devuelve los bytes del archivo.</summary>
+    Task<byte[]> ExportXlsxAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Alta en lote desde la plantilla de importacion (reusa el parser del Directorio basico):
     /// crea cada fila valida como tercero del motor Modular, en la categoria dada, mapeando los campos base
     /// a la seccion publica. Devuelve cuantas se crearon y cuantas fallaron.</summary>

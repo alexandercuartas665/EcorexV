@@ -46,7 +46,9 @@ public sealed record WorkflowAgentAssignmentDto(
     // Retell: Guid del AiAgent de voz. Null = sin herramienta 'llamar_telefono'.
     Guid? VoiceAiAgentId = null,
     // ADR-0092 WhatsApp: linea + plantilla (para contacto en frio). Null en la linea = sin 'preguntar_whatsapp'.
-    Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null);
+    Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
+    string? ExtraPrompt = null, bool CanSendEmail = false);
 
 /// <summary>(a) El nodo actual y el formulario que el paso debe llenar, con sus campos.</summary>
 public sealed record WorkflowAgentNodeDto(

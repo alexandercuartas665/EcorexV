@@ -61,4 +61,15 @@ public class WorkflowNodeAgent : TenantEntity
     /// <summary>Codigo de idioma de la plantilla (ej. "es"). Solo aplica si <see cref="WhatsAppTemplateName"/>
     /// tiene valor. Null con plantilla presente = se asume "es".</summary>
     public string? WhatsAppTemplateLang { get; set; }
+
+    // ---- ADR-0093: potenciar el agente en el nodo (instrucciones por paso + correo) ----
+
+    /// <summary>Instrucciones EXTRA para el agente SOLO en este paso, que se anteponen a su prompt de sistema
+    /// base. Es donde se le dice QUE hacer y COMO usar sus herramientas aqui (ej. que URL abrir con Colmena y
+    /// que extraer). Null = solo el prompt base del agente.</summary>
+    public string? ExtraPrompt { get; set; }
+
+    /// <summary>Si el agente puede ENVIAR correos en este paso (herramienta 'enviar_correo', ADR-0093). Usa el
+    /// correo saliente configurado del tenant; el FROM no lo elige el agente. Default false (permiso explicito).</summary>
+    public bool CanSendEmail { get; set; }
 }

@@ -30,15 +30,20 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     private readonly ISecretProtector _secretProtector;
     private readonly IAiProviderClient _client;
     private readonly IAgentBrowserFetch _browserFetch;
+    private readonly IEmailSender _email;
+
+    /// <summary>ADR-0093: tope de correos por paso, red de seguridad anti-bucle (el bucle ya tiene su tope de rondas).</summary>
+    private const int MaxEmailsPerStep = 3;
 
     public WorkflowAgentInvoker(
         IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client,
-        IAgentBrowserFetch browserFetch)
+        IAgentBrowserFetch browserFetch, IEmailSender email)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
         _browserFetch = browserFetch;
+        _email = email;
     }
 
     public async Task<WorkflowAgentInvocationResult> InvokeAsync(
@@ -138,6 +143,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// respuesta la consume una maquina que va a CERRAR un paso de proceso; texto libre invitaria a
     /// adivinar, y adivinar en una aprobacion de compra es inaceptable.
     /// </summary>
+    private static void AppendExtraPrompt(StringBuilder sb, WorkflowAgentContextDto context)
+    {
+        // ADR-0093: instrucciones EXTRA de este paso. Se anteponen al resto del prompt de sistema para guiar
+        // QUE hacer aqui y COMO usar las herramientas (ej. que abrir con Colmena y que extraer).
+        var extra = context.Assignment?.ExtraPrompt;
+        if (!string.IsNullOrWhiteSpace(extra))
+        {
+            sb.AppendLine("Instrucciones para este paso:");
+            sb.AppendLine(extra!.Trim());
+            sb.AppendLine();
+        }
+    }
+
     private static string BuildSystemPrompt(string agentPrompt, WorkflowAgentContextDto context)
     {
         var sb = new StringBuilder();
@@ -146,6 +164,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             sb.AppendLine(agentPrompt.Trim());
             sb.AppendLine();
         }
+        AppendExtraPrompt(sb, context);
         sb.AppendLine("Atiendes un paso de un proceso de negocio. Vas a recibir el contexto completo del caso.");
         var esCompuerta = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
         if (esCompuerta)
@@ -206,8 +225,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // ADR-0092: WhatsApp SI se sigue ofreciendo en la reanudacion (es multi-turno: el agente puede
         // repreguntar si la respuesta no basta). El tope de preguntas lo pone el runner, no aqui.
         var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
-        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp);
-        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp);
+        // ADR-0093: enviar correo (sincrono, sin pausa). Permiso explicito por nodo.
+        var canSendEmail = context.Assignment?.CanSendEmail == true;
+        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -217,6 +238,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         var finished = false;
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
+        var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
 
         for (var round = 0; round < MaxFormRounds && !finished; round++)
@@ -278,6 +300,20 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
                         : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
                 }
+                else if (call.Name == "enviar_correo" && canSendEmail)
+                {
+                    // ADR-0093: el agente envia un correo (sincrono, sin pausa; el correo entrante no existe).
+                    // Tope por paso como red de seguridad anti-bucle.
+                    if (emailsSent >= MaxEmailsPerStep)
+                    {
+                        result = $$"""{"ok": false, "error": "ya se enviaron {{MaxEmailsPerStep}} correos en este paso (tope)"}""";
+                    }
+                    else
+                    {
+                        result = await ExecuteSendEmailAsync(call.ArgumentsJson, cancellationToken);
+                        emailsSent++;
+                    }
+                }
                 else
                 {
                     result = call.Name switch
@@ -326,7 +362,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
     }
 
-    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp)
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
     {
         var tools = new List<AiToolSpec>
         {
@@ -363,6 +399,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
         }
+        if (canSendEmail)
+        {
+            // ADR-0093: enviar un correo (sincrono, sin esperar respuesta). El agente redacta asunto+cuerpo.
+            tools.Add(new AiToolSpec("enviar_correo",
+                "Envia un correo electronico (para avisar, pedir o confirmar algo). 'destinatario' obligatorio (email); 'asunto' y 'cuerpo' obligatorios (los redactas tu con lo que sabes del caso). NO espera respuesta: es solo un envio. El remitente lo fija la empresa.",
+                """{"type":"object","properties":{"destinatario":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["destinatario","asunto","cuerpo"]}"""));
+        }
         return tools;
     }
 
@@ -396,10 +439,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         catch (JsonException) { return null; }
     }
 
-    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp)
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
+        AppendExtraPrompt(sb, context);
         sb.AppendLine("Atiendes un paso de un proceso de negocio que exige DILIGENCIAR un formulario.");
         sb.AppendLine("Herramientas: 'ver_formulario' (esquema), 'fijar_campos' (pon valores con {\"campos\":{codigo:valor}}), 'enviar_formulario' (marca LISTO al terminar).");
         if (canSearchWeb)
@@ -413,6 +457,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (canAskWhatsApp)
         {
             sb.AppendLine("Ademas tienes 'preguntar_whatsapp' para CONSEGUIR un dato preguntandole a una persona por WhatsApp. Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera de la respuesta y luego retomaras el llenado.");
+        }
+        if (canSendEmail)
+        {
+            sb.AppendLine("Ademas tienes 'enviar_correo' para ENVIAR un correo (avisar, pedir o confirmar algo). Redactas asunto y cuerpo. NO espera respuesta: no lo uses para CONSEGUIR un dato que necesites en este mismo paso.");
         }
         if (context.VoiceCallResult is { } vc)
         {
@@ -551,6 +599,60 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         return res.Ok
             ? JsonSerializer.Serialize(new { ok = true, contenido = res.Content })
             : JsonSerializer.Serialize(new { ok = false, error = res.Error });
+    }
+
+    /// <summary>ADR-0093: ejecuta 'enviar_correo' -> envia por IEmailSender (config del tenant). Sincrono, sin
+    /// pausa. Valida destinatario/asunto/cuerpo; el cuerpo (texto plano del agente) se pasa a HTML seguro. Un
+    /// fallo (sin config, SMTP caido) vuelve como {ok:false,error} y el agente lo trata como "no se envio".</summary>
+    private async Task<string> ExecuteSendEmailAsync(string argsJson, CancellationToken cancellationToken)
+    {
+        string? to, subject, body;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            to = root.TryGetProperty("destinatario", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
+            subject = root.TryGetProperty("asunto", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+            body = root.TryGetProperty("cuerpo", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return """{"ok": false, "error": "argumentos JSON invalidos"}""";
+        }
+        to = to?.Trim();
+        if (string.IsNullOrWhiteSpace(to) || !IsLikelyEmail(to))
+        {
+            return """{"ok": false, "error": "falta un 'destinatario' de correo valido"}""";
+        }
+        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(body))
+        {
+            return """{"ok": false, "error": "falta 'asunto' o 'cuerpo'"}""";
+        }
+
+        var html = PlainToHtml(body!);
+        var sent = await _email.SendAsync(to!, Clip(subject, 300)!, html, cancellationToken);
+        return sent.Ok
+            ? JsonSerializer.Serialize(new { ok = true, mensaje = "correo enviado" })
+            : JsonSerializer.Serialize(new { ok = false, error = sent.Error ?? "no se pudo enviar el correo" });
+    }
+
+    /// <summary>Validacion minima de email (hay un '@' con algo antes y un dominio con punto despues).</summary>
+    private static bool IsLikelyEmail(string value)
+    {
+        var at = value.IndexOf('@');
+        if (at <= 0 || at >= value.Length - 3) { return false; }
+        var domain = value[(at + 1)..];
+        return domain.Contains('.') && !value.Contains(' ');
+    }
+
+    /// <summary>Convierte el texto plano del agente en HTML seguro: escapa y respeta los saltos de linea. El
+    /// sender siempre manda HTML (IsBodyHtml=true), asi que sin esto los saltos se perderian y el texto podria
+    /// romper el markup.</summary>
+    private static string PlainToHtml(string text)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(text.Trim());
+        var withBreaks = escaped.Replace("\r\n", "\n").Replace("\n", "<br>");
+        return $"<p>{withBreaks}</p>";
     }
 
     private static string? Clip(string? value, int max)

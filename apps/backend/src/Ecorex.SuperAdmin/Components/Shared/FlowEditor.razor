@@ -451,6 +451,14 @@ else
                     }
                     <div class="fe-acc-note" style="margin:0">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
 
+                    @* ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente). *@
+                    <div>
+                        <label class="fe-label">INSTRUCCIONES PARA ESTE PASO (PROMPT EXTRA)</label>
+                        <textarea class="fe-textarea" @bind="_agentExtraPromptDraft" @bind:event="oninput"
+                                  @onblur="@(() => OnNodeExtraPromptChangedAsync(agentNode))"
+                                  placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
+                    </div>
+
                     <div class="fe-modal-section">Conseguir datos (opcional)</div>
                     <div class="fe-grid-2">
                         <div>
@@ -513,6 +521,15 @@ else
                         </div>
                     }
                     <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
+
+                    @* ADR-0093: permiso de correo (enviar, sin esperar respuesta). *@
+                    <div class="fe-modal-section">Comunicacion</div>
+                    <label class="fe-check">
+                        <input type="checkbox" checked="@_nodeAgent.CanSendEmail"
+                               @onchange="@(e => OnNodeCanSendEmailChangedAsync(agentNode, e))" />
+                        <span>Permitir enviar correos (redacta y envia; no espera respuesta)</span>
+                    </label>
+                    <div class="fe-acc-note" style="margin:0">Usa el correo saliente configurado de la empresa; el remitente lo fija la empresa, no el agente. Para pedir un dato y ESPERAR respuesta usa la llamada o el WhatsApp.</div>
                 }
             </div>
             <div class="fe-modal-foot">
@@ -582,6 +599,9 @@ else
     private string _formPickerQuery = "";
     // ADR-0092: config del agente del nodo en un modal (el panel solo muestra un resumen compacto).
     private bool _agentModalOpen;
+    // ADR-0093: borrador LOCAL del prompt extra (se actualiza en vivo por oninput). CurrentAgentRes lo usa para
+    // que un guardado disparado por OTRO campo no pierda el texto que el usuario aun no ha confirmado (blur).
+    private string? _agentExtraPromptDraft;
     private List<FormDefinitionListItemDto> _forms = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
@@ -767,10 +787,12 @@ else
                 _agentCatalogLoaded = true;
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
+            _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
         }
         else
         {
             _nodeAgent = null;
+            _agentExtraPromptDraft = null;
         }
     }
 
@@ -1278,11 +1300,16 @@ else
             @if (_nodeAgent.ColmenaClientId is not null) { <span class="fe-chip static">Web (Colmena)</span> }
             @if (_nodeAgent.VoiceAiAgentId is not null) { <span class="fe-chip static">Llamada</span> }
             @if (_nodeAgent.WhatsAppLineId is not null) { <span class="fe-chip static">WhatsApp</span> }
-            @if (_nodeAgent.ColmenaClientId is null && _nodeAgent.VoiceAiAgentId is null && _nodeAgent.WhatsAppLineId is null)
+            @if (_nodeAgent.CanSendEmail) { <span class="fe-chip static">Correo</span> }
+            @if (_nodeAgent.ColmenaClientId is null && _nodeAgent.VoiceAiAgentId is null && _nodeAgent.WhatsAppLineId is null && !_nodeAgent.CanSendEmail)
             {
-                <span class="fe-acc-note" style="margin:0">Sin recursos de datos externos.</span>
+                <span class="fe-acc-note" style="margin:0">Sin recursos externos.</span>
             }
         </div>
+        @if (!string.IsNullOrWhiteSpace(_nodeAgent.ExtraPrompt))
+        {
+            <div class="fe-acc-note" style="margin-top:7px">Con instrucciones para este paso.</div>
+        }
         <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">Configurar agente</button>
     };
 
@@ -1304,6 +1331,7 @@ else
                 var result = await DesignSvc.SetNodeAgentAsync(node.Id, agentId, autonomy);
                 if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
             }
+            _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
         });
     }
 
@@ -1317,51 +1345,72 @@ else
         });
     }
 
-    // ADR-0091/0092: recursos del agente del nodo (Colmena / voz / WhatsApp). Cada cambio guarda la combinacion
-    // completa (los demas recursos se toman del estado actual del nodo).
+    // ADR-0091/0092/0093: recursos del agente del nodo. Cada cambio guarda el estado COMPLETO (los demas
+    // campos se toman del nodo actual via CurrentAgentRes y solo se sobreescribe el que cambio, con 'with').
+    private FlowNodeAgentResourcesInput CurrentAgentRes() => new(
+        _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+        _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang,
+        // El prompt viene del borrador LOCAL (vivo por oninput): asi un guardado de otro campo no lo pierde.
+        _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false);
+
     private Task OnNodeColmenaChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? cc = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         // Al quitar el cliente Colmena se limpia tambien la SessionKey.
-        return SaveNodeResourcesAsync(node, cc, cc is null ? null : _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
-            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with
+        {
+            ColmenaClientId = cc,
+            ColmenaSessionKey = cc is null ? null : _nodeAgent?.ColmenaSessionKey
+        });
     }
 
     private Task OnNodeSessionKeyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, e.Value?.ToString(), _nodeAgent?.VoiceAiAgentId,
-            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColmenaSessionKey = e.Value?.ToString() });
 
     private Task OnNodeVoiceAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? va = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, va,
-            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang);
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceAiAgentId = va });
     }
 
     private Task OnNodeWhatsAppLineChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? wl = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-        // Al quitar la linea se limpia tambien la plantilla (el service tambien lo hace, aqui se refleja en la UI).
-        return SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
-            wl, wl is null ? null : _nodeAgent?.WhatsAppTemplateName, wl is null ? null : _nodeAgent?.WhatsAppTemplateLang);
+        // Al quitar la linea se limpia tambien la plantilla (el service tambien lo hace; aqui se refleja en la UI).
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with
+        {
+            WhatsAppLineId = wl,
+            WhatsAppTemplateName = wl is null ? null : _nodeAgent?.WhatsAppTemplateName,
+            WhatsAppTemplateLang = wl is null ? null : _nodeAgent?.WhatsAppTemplateLang
+        });
     }
 
     private Task OnNodeWhatsAppTemplateChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
-            _nodeAgent?.WhatsAppLineId, e.Value?.ToString(), _nodeAgent?.WhatsAppTemplateLang);
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateName = e.Value?.ToString() });
 
     private Task OnNodeWhatsAppTemplateLangChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
-            _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, e.Value?.ToString());
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateLang = e.Value?.ToString() });
 
-    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, Guid? colmena, string? sessionKey, Guid? voice,
-        Guid? whatsAppLine, string? whatsAppTemplate, string? whatsAppTemplateLang)
+    // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo. El texto vive en _agentExtraPromptDraft
+    // (oninput); aqui solo se persiste al salir del campo (blur). CurrentAgentRes ya toma el draft.
+    private Task OnNodeExtraPromptChangedAsync(FlowCanvasNodeDto node)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes());
+
+    private Task OnNodeCanSendEmailChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CanSendEmail = e.Value is bool b && b });
+
+    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, FlowNodeAgentResourcesInput input)
     {
         await GuardAsync(async () =>
         {
-            var result = await DesignSvc.SetNodeAgentResourcesAsync(
-                node.Id, colmena, sessionKey, voice, whatsAppLine, whatsAppTemplate, whatsAppTemplateLang);
-            if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+            var result = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, input);
+            if (result.IsOk)
+            {
+                _nodeAgent = result.Value;
+                // Re-sincroniza el borrador con lo persistido (trim del server), sin perder el foco de edicion.
+                _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            }
+            else { _error = result.Error; }
         });
     }
 

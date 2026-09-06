@@ -14637,6 +14637,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("autonomy");
 
+                    b.Property<bool>("CanSendEmail")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_send_email");
+
                     b.Property<Guid?>("ColmenaClientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("colmena_client_id");
@@ -14653,6 +14659,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("ExtraPrompt")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)")
+                        .HasColumnName("extra_prompt");
 
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uniqueidentifier")

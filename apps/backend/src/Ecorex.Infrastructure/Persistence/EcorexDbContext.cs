@@ -1880,6 +1880,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.WhatsAppTemplateLang).HasMaxLength(20);
             b.HasOne(x => x.WhatsAppLine).WithMany()
                 .HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0093: instrucciones por paso + permiso de correo. Prompt acotado; bool con default para las
+            // filas existentes (migracion aditiva).
+            b.Property(x => x.ExtraPrompt).HasMaxLength(4000);
+            b.Property(x => x.CanSendEmail).HasDefaultValue(false);
         });
 
         // Notas colaborativas del equipo por nodo de una instancia (ADR-0071): recados entre companeros.

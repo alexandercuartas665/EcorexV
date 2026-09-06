@@ -191,12 +191,10 @@ public interface IWorkflowDesignService
     /// <summary>Lineas WhatsApp del tenant para el selector de 'preguntar_whatsapp' del editor (ADR-0092).</summary>
     Task<IReadOnlyList<FlowWhatsAppLineDto>> ListWhatsAppLinesAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>ADR-0091/0092: fija los RECURSOS que el agente del nodo puede usar para conseguir datos al
-    /// llenar el formulario: un cliente Colmena (+ perfil/SessionKey) para 'buscar_web', un agente de voz para
-    /// 'llamar_telefono', y una linea WhatsApp (+ plantilla para contacto en frio) para 'preguntar_whatsapp'.
-    /// null en un recurso = lo deshabilita. Requiere que el nodo ya tenga agente asignado.</summary>
+    /// <summary>ADR-0091/0092/0093: fija los RECURSOS del agente del nodo para conseguir datos y potenciarlo:
+    /// cliente Colmena (+ perfil) para 'buscar_web', agente de voz para 'llamar_telefono', linea WhatsApp
+    /// (+ plantilla) para 'preguntar_whatsapp', instrucciones por paso (prompt extra) y permiso de correo
+    /// ('enviar_correo'). null/false en un recurso = lo deshabilita. Requiere que el nodo ya tenga agente.</summary>
     Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
-        Guid nodeId, Guid? colmenaClientId, string? colmenaSessionKey, Guid? voiceAiAgentId,
-        Guid? whatsAppLineId, string? whatsAppTemplateName, string? whatsAppTemplateLang,
-        CancellationToken cancellationToken = default);
+        Guid nodeId, FlowNodeAgentResourcesInput input, CancellationToken cancellationToken = default);
 }

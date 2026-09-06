@@ -184,7 +184,8 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
                 (x, a) => new WorkflowAgentAssignmentDto(
                     a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
-                    x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang))
+                    x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
+                    x.ExtraPrompt, x.CanSendEmail))
             .FirstOrDefaultAsync(cancellationToken);
 
     // ---- (d) Historial de pasos (se arma antes que (b): sus nodos nombran los envios previos) ----

@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-06 - v0.15.184: prompt extra por nodo + herramienta de correo del agente - ADR-0093
+
+- Pedido (usuario): "darle potencia: un prompt extra al configurar el agente, y que pueda escribir correos;
+  y como le decimos que puede hacer con Colmena". Decisiones: correo = "ambos, empezando por enviar" (fire-
+  and-forget ahora; esperar-respuesta a futuro cuando haya correo entrante) + redaccion "libre (asunto+cuerpo)".
+- Hecho (ADR-0093):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{ExtraPrompt(<=4000), CanSendEmail(bool default false)}.
+  - Prompt extra: se antepone al system prompt del agente en AMBOS caminos (BuildSystemPrompt de decision/
+    compuerta y BuildFormSystemPrompt de llenado). Es donde se le dice QUE hacer y COMO usar Colmena (que URL
+    abrir, que extraer): responde la duda del usuario sobre Colmena.
+  - Correo: herramienta 'enviar_correo(destinatario, asunto, cuerpo)' en el bucle de llenado (sincrona, sin
+    pausa; no hay correo entrante). Reusa IEmailSender (SMTP tenant-first con fallback global); texto plano ->
+    HTML seguro; tope MaxEmailsPerStep=3; permiso por nodo (CanSendEmail). Fallo de envio -> {ok:false} y el
+    agente no asume exito.
+  - Config en el modal del editor (ADR-0093): textarea "Instrucciones para este paso" + toggle "Permitir
+    enviar correos". SetNodeAgentResourcesAsync pasa a recibir un record (FlowNodeAgentResourcesInput) para no
+    crecer la firma. Chips del resumen: + "Correo"; indicador "Con instrucciones para este paso".
+  - Fix de UX: el prompt se edita en un borrador LOCAL (oninput) que CurrentAgentRes usa, para que un guardado
+    disparado por OTRO campo (ej. el checkbox de correo) no pierda el texto aun sin confirmar (clobber).
+- Verificado en Chrome (dev, AGROMETALICAS, FLW-003): el modal muestra prompt + toggle; autosave persiste
+  ambos; el clobber quedo resuelto (texto nuevo sobrevive al tocar el checkbox). Build Debug verde;
+  integracion dual 12/12; migracion aplica en dev (2 columnas). Runtime real (envio de correo) se valida en
+  prod (necesita SMTP del tenant configurado).
+- Siguiente: DEPLOY en espera de senal (prod en v0.15.175; 0.15.176-0.15.184 sin desplegar).
+
 ## 2026-09-06 - v0.15.183: config del agente del nodo en un MODAL (editor de flujos)
 
 - Pedido (usuario, viendo el acordeon "Agente de IA" ya largo con Colmena+voz+WhatsApp): "las tareas del

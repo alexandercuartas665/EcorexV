@@ -16,9 +16,11 @@ public sealed class TerceroService : ITerceroService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly IDirectoryVariantService _variant;
 
-    public TerceroService(IApplicationDbContext db, ITenantContext tenant)
+    public TerceroService(IApplicationDbContext db, ITenantContext tenant, IDirectoryVariantService variant)
     {
+        _variant = variant;
         _db = db;
         _tenant = tenant;
     }
@@ -243,6 +245,19 @@ public sealed class TerceroService : ITerceroService
 
         var entity = new Tercero { TenantId = tenantId };
         ApplyRequest(entity, request, nombre, empresaId);
+
+        // El alta HEREDA el motor de directorio que usa el tenant (Capa 8): si esta en Modular, el tercero
+        // nace Modular y entra a la categoria base "publico" (asi aparece en SU Directorio, se cree desde la
+        // tarea, el Gestor o el modal Clasico). En cualquier otra variante queda Clasico (comportamiento previo).
+        if (await _variant.GetAsync(cancellationToken) == DirectoryVariant.Modular)
+        {
+            entity.DirectoryEngine = DirectoryEngine.Modular;
+            if (empresaId is null)
+            {
+                entity.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = "publico" });
+            }
+        }
+
         _db.Terceros.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
 

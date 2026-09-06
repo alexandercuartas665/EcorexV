@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-06 - v0.15.183: config del agente del nodo en un MODAL (editor de flujos)
+
+- Pedido (usuario, viendo el acordeon "Agente de IA" ya largo con Colmena+voz+WhatsApp): "las tareas del
+  agente podrian abrir en un modal para su configuracion". Decision: "todo el agente" en el modal.
+- Hecho (FlowEditor): el acordeon del panel pasa a ser un RESUMEN compacto (nombre del agente + autonomia +
+  chips Web/Llamada/WhatsApp + boton). El boton "Configurar agente" abre un modal (fe-modal, 2 columnas
+  fe-grid-2) con TODO: agente que atiende, autonomia, y los recursos (Colmena+SessionKey, voz Retell, linea
+  WhatsApp + plantilla/idioma). Autosave por campo (reusa los handlers existentes SetNodeAgent*/Resources);
+  el modal se cierra con "Listo" y al cambiar de nodo. Sin backend nuevo.
+- Verificado en Chrome (dev, AGROMETALICAS, FLW-003): el resumen muestra los 3 chips; el modal abre con los
+  valores correctos; el autosave persiste (cambie idioma es->es_CO->es y se reflejo en workflow_node_agents).
+  Build Debug verde.
+- Siguiente: DEPLOY en espera de senal del usuario (prod en v0.15.175; 0.15.176-0.15.183 sin desplegar).
+
 ## 2026-09-05 - v0.15.182: el agente de flujo consigue datos por WhatsApp (pregunta y reanuda) - ADR-0092
 
 - Pedido (usuario): "el agente tambien deberia poder usar WhatsApp desde un flujo para conseguir datos".

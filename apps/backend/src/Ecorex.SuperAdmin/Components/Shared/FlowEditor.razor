@@ -404,6 +404,124 @@ else
     </div>
 }
 
+@* ---- Modal: configuracion del agente de IA del nodo (ADR-0090/0091/0092) ---- *@
+@if (_agentModalOpen && Selected is FlowCanvasNodeDto agentNode)
+{
+    <div class="fe-modal-overlay" @onclick="@(() => _agentModalOpen = false)">
+        <div class="fe-modal" style="width:min(720px,95vw)" @onclick:stopPropagation>
+            <div class="fe-modal-head">
+                <div>
+                    <div class="fe-modal-title">Agente de IA del paso</div>
+                    <div class="fe-modal-sub">@(agentNode.Name ?? "Paso") - quien lo atiende y con que recursos consigue datos</div>
+                </div>
+                <button class="fe-modal-x" @onclick="@(() => _agentModalOpen = false)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="fe-modal-body">
+                <div class="fe-grid-2">
+                    <div>
+                        <label class="fe-label">@(agentNode.NodeType == WorkflowNodeType.ExclusiveGateway ? "AGENTE QUE ELIGE LA RUTA" : "AGENTE QUE ATIENDE EL PASO")</label>
+                        <select class="fe-input" value="@(_nodeAgent?.AiAgentId.ToString() ?? "")"
+                                @onchange="@(e => OnNodeAgentChangedAsync(agentNode, e))">
+                            <option value="">Sin agente (lo atiende una persona)</option>
+                            @foreach (var a in _agentCatalog)
+                            {
+                                <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_nodeAgent is not null)
+                    {
+                        <div>
+                            <label class="fe-label">AUTONOMIA</label>
+                            <select class="fe-input" value="@_nodeAgent.Autonomy"
+                                    @onchange="@(e => OnNodeAgentAutonomyChangedAsync(agentNode, e))">
+                                <option value="@WorkflowAgentAutonomy.Proposes">Propone (una persona confirma)</option>
+                                <option value="@WorkflowAgentAutonomy.Autonomous">Autonomo (cierra y avanza solo)</option>
+                            </select>
+                        </div>
+                    }
+                </div>
+                @if (_nodeAgent is not null)
+                {
+                    @if (!_nodeAgent.IsActive)
+                    {
+                        <div class="fe-acc-note" style="color:var(--t-amber);margin:0">El agente esta apagado: no atendera el paso hasta reactivarlo.</div>
+                    }
+                    <div class="fe-acc-note" style="margin:0">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
+
+                    <div class="fe-modal-section">Conseguir datos (opcional)</div>
+                    <div class="fe-grid-2">
+                        <div>
+                            <label class="fe-label">BUSCAR EN LA WEB (CLIENTE COLMENA)</label>
+                            <select class="fe-input" value="@(_nodeAgent.ColmenaClientId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeColmenaChangedAsync(agentNode, e))">
+                                <option value="">Sin busqueda web</option>
+                                @foreach (var c in _colmenaClients)
+                                {
+                                    <option value="@c.Id">@c.Name@(c.IsActive ? "" : " (inactivo)")</option>
+                                }
+                            </select>
+                        </div>
+                        @if (_nodeAgent.ColmenaClientId is not null)
+                        {
+                            <div>
+                                <label class="fe-label">PERFIL DEL NAVEGADOR (SESSIONKEY)</label>
+                                <input class="fe-input" value="@_nodeAgent.ColmenaSessionKey" placeholder="ej. linkedin (perfil logueado)"
+                                       @onchange="@(e => OnNodeSessionKeyChangedAsync(agentNode, e))" />
+                            </div>
+                        }
+                    </div>
+                    <div class="fe-grid-2">
+                        <div>
+                            <label class="fe-label">POR LLAMADA (AGENTE DE VOZ RETELL)</label>
+                            <select class="fe-input" value="@(_nodeAgent.VoiceAiAgentId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeVoiceAgentChangedAsync(agentNode, e))">
+                                <option value="">Sin llamada</option>
+                                @foreach (var a in _agentCatalog)
+                                {
+                                    <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="fe-label">POR WHATSAPP (LINEA)</label>
+                            <select class="fe-input" value="@(_nodeAgent.WhatsAppLineId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeWhatsAppLineChangedAsync(agentNode, e))">
+                                <option value="">Sin WhatsApp</option>
+                                @foreach (var l in _whatsAppLines)
+                                {
+                                    <option value="@l.Id">@l.Name@(l.Connected ? "" : " (desconectada)")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    @if (_nodeAgent.WhatsAppLineId is not null)
+                    {
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO (NOMBRE)</label>
+                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
+                                       @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">IDIOMA DE LA PLANTILLA</label>
+                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateLang" placeholder="ej. es"
+                                       @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
+                    }
+                    <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
+                }
+            </div>
+            <div class="fe-modal-foot">
+                <button class="fe-btn-save" @onclick="@(() => _agentModalOpen = false)">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // ---- Parametros ----
     [Parameter] public Guid DefinitionId { get; set; }
@@ -462,6 +580,8 @@ else
     private string? _ioError;
     private bool _formPickerOpen;
     private string _formPickerQuery = "";
+    // ADR-0092: config del agente del nodo en un modal (el panel solo muestra un resumen compacto).
+    private bool _agentModalOpen;
     private List<FormDefinitionListItemDto> _forms = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
@@ -623,6 +743,8 @@ else
     /// <summary>Carga las asignaciones por nodo (policies + selector + conteo de candidatos).</summary>
     private async Task LoadNodePoliciesAsync()
     {
+        // Al cambiar de nodo se cierra el modal del agente (no debe quedar abierto sobre otro nodo).
+        _agentModalOpen = false;
         if (Selected is not FlowCanvasNodeDto node)
         {
             _nodePolicies = [];
@@ -1135,97 +1257,33 @@ else
             </div>
             return;
         }
-        var esGateway = node.NodeType == WorkflowNodeType.ExclusiveGateway;
-        <div class="fe-field">
-            <label>@(esGateway ? "Agente que elige la ruta de la compuerta" : "Agente que atiende el paso")</label>
-            <select class="fe-input sm" value="@(_nodeAgent?.AiAgentId.ToString() ?? "")"
-                    @onchange="@(e => OnNodeAgentChangedAsync(node, e))">
-                <option value="">Sin agente (lo atiende una persona)</option>
-                @foreach (var a in _agentCatalog)
-                {
-                    <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
-                }
-            </select>
-        </div>
-        @if (_nodeAgent is not null)
-        {
-            <div class="fe-field">
-                <label>Autonomia</label>
-                <select class="fe-input sm" value="@_nodeAgent.Autonomy"
-                        @onchange="@(e => OnNodeAgentAutonomyChangedAsync(node, e))">
-                    <option value="@WorkflowAgentAutonomy.Proposes">Propone (una persona confirma)</option>
-                    <option value="@WorkflowAgentAutonomy.Autonomous">Autonomo (cierra y avanza solo)</option>
-                </select>
-            </div>
-            @if (!_nodeAgent.IsActive)
-            {
-                <div class="fe-acc-note" style="color:var(--t-amber)">El agente esta apagado: no atendera el paso hasta reactivarlo.</div>
-            }
-            <div class="fe-acc-note">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
-
-            @* ADR-0091: recursos para CONSEGUIR datos al llenar el formulario del paso (permiso por nodo). *@
-            <hr style="margin:12px 0;border:none;border-top:1px solid var(--line);" />
-            <div class="fe-field">
-                <label>Buscar datos en la web (cliente Colmena)</label>
-                <select class="fe-input sm" value="@(_nodeAgent.ColmenaClientId?.ToString() ?? "")"
-                        @onchange="@(e => OnNodeColmenaChangedAsync(node, e))">
-                    <option value="">Sin busqueda web</option>
-                    @foreach (var c in _colmenaClients)
-                    {
-                        <option value="@c.Id">@c.Name@(c.IsActive ? "" : " (inactivo)")</option>
-                    }
-                </select>
-            </div>
-            @if (_nodeAgent.ColmenaClientId is not null)
-            {
-                <div class="fe-field">
-                    <label>Perfil del navegador (SessionKey, opcional)</label>
-                    <input class="fe-input sm" value="@_nodeAgent.ColmenaSessionKey" placeholder="ej. linkedin (perfil logueado)"
-                           @onchange="@(e => OnNodeSessionKeyChangedAsync(node, e))" />
-                </div>
-            }
-            <div class="fe-field">
-                <label>Conseguir datos por llamada (agente de voz Retell)</label>
-                <select class="fe-input sm" value="@(_nodeAgent.VoiceAiAgentId?.ToString() ?? "")"
-                        @onchange="@(e => OnNodeVoiceAgentChangedAsync(node, e))">
-                    <option value="">Sin llamada</option>
-                    @foreach (var a in _agentCatalog)
-                    {
-                        <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
-                    }
-                </select>
-            </div>
-            @* ADR-0092: preguntar por WhatsApp (linea + plantilla para contacto en frio). *@
-            <div class="fe-field">
-                <label>Conseguir datos por WhatsApp (linea)</label>
-                <select class="fe-input sm" value="@(_nodeAgent.WhatsAppLineId?.ToString() ?? "")"
-                        @onchange="@(e => OnNodeWhatsAppLineChangedAsync(node, e))">
-                    <option value="">Sin WhatsApp</option>
-                    @foreach (var l in _whatsAppLines)
-                    {
-                        <option value="@l.Id">@l.Name@(l.Connected ? "" : " (desconectada)")</option>
-                    }
-                </select>
-            </div>
-            @if (_nodeAgent.WhatsAppLineId is not null)
-            {
-                <div class="fe-field">
-                    <label>Plantilla para contacto en frio (nombre, opcional)</label>
-                    <input class="fe-input sm" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
-                           @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(node, e))" />
-                </div>
-                <div class="fe-field">
-                    <label>Idioma de la plantilla</label>
-                    <input class="fe-input sm" value="@_nodeAgent.WhatsAppTemplateLang" placeholder="ej. es"
-                           @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(node, e))" />
-                </div>
-            }
-            <div class="fe-acc-note">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
-        }
-        else if (_agentCatalog.Count == 0)
+        @* ADR-0092: el panel solo muestra un RESUMEN; la configuracion completa (agente + autonomia +
+           recursos Colmena/voz/WhatsApp) se edita en un modal con mas espacio (boton "Configurar"). *@
+        if (_agentCatalog.Count == 0)
         {
             <div class="fe-acc-note">Este tenant no tiene agentes de IA. Crea uno en "Configuracion Agentes IA".</div>
+            return;
         }
+        if (_nodeAgent is null)
+        {
+            <div class="fe-acc-empty">Sin agente: lo atiende una persona.</div>
+            <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">+ Configurar agente de IA</button>
+            return;
+        }
+        <div class="fe-agent-sum-name">@_nodeAgent.AgentName</div>
+        <div class="fe-acc-note" style="margin-top:3px">
+            @(_nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous ? "Autonomo (cierra y avanza solo)" : "Propone (una persona confirma)")@(_nodeAgent.IsActive ? "" : " - APAGADO")
+        </div>
+        <div class="fe-chips" style="margin-top:9px">
+            @if (_nodeAgent.ColmenaClientId is not null) { <span class="fe-chip static">Web (Colmena)</span> }
+            @if (_nodeAgent.VoiceAiAgentId is not null) { <span class="fe-chip static">Llamada</span> }
+            @if (_nodeAgent.WhatsAppLineId is not null) { <span class="fe-chip static">WhatsApp</span> }
+            @if (_nodeAgent.ColmenaClientId is null && _nodeAgent.VoiceAiAgentId is null && _nodeAgent.WhatsAppLineId is null)
+            {
+                <span class="fe-acc-note" style="margin:0">Sin recursos de datos externos.</span>
+            }
+        </div>
+        <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">Configurar agente</button>
     };
 
     /// <summary>Asigna/quita el agente del nodo (upsert por el indice unico). Al asignar por PRIMERA vez el

@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
+using Ecorex.Application.Forms.Calc;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -370,7 +371,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Devuelve el esquema del formulario del paso: campos con codigo, etiqueta, tipo, si es obligatorio y sus opciones.",
                 """{"type":"object","properties":{}}"""),
             new("fijar_campos",
-                "Fija valores del formulario. 'campos' es un objeto {codigo_de_campo: valor}. Puedes llamarla varias veces; se acumulan.",
+                "Fija valores del formulario. 'campos' es un objeto {codigo_de_campo: valor}. Puedes llamarla varias veces; se acumulan. Para un campo TABLA (tipo GridDetail) el valor es un ARREGLO de filas: [{codigo_de_columna: valor, ...}, ...], usando solo las columnas de 'columnas' del esquema.",
                 """{"type":"object","properties":{"campos":{"type":"object"}},"required":["campos"]}"""),
             new("enviar_formulario",
                 "Marca el formulario como LISTO cuando ya fijaste todos los campos obligatorios. Acepta 'comentario' opcional.",
@@ -475,6 +476,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         sb.AppendLine("Reglas:");
         sb.AppendLine("- Llena SOLO con datos del contexto o que CONSIGAS con las herramientas (ej. buscar_web). NUNCA inventes datos.");
         sb.AppendLine("- Respeta los campos OBLIGATORIOS. En listas/opciones usa un valor valido de 'opciones'.");
+        sb.AppendLine("- Un campo TABLA (tipo GridDetail) se fija con un ARREGLO de filas [{columna: valor}, ...] usando los ids de 'columnas'; una fila por item. No incluyas columnas calculadas (no estan en 'columnas'): el sistema las calcula solo.");
         sb.AppendLine("- Si NO puedes llenar los obligatorios con lo que hay, NO llames 'enviar_formulario' y explica que falta en 'comentario'.");
         if (context.Assignment?.Autonomy == WorkflowAgentAutonomy.Proposes)
         {
@@ -500,18 +502,45 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 tipo = f.ControlType.ToString(),
                 obligatorio = f.Required,
                 ayuda = f.HelpText,
-                opciones = f.OptionsJson
+                // Para GridDetail (tabla de filas) NO se exponen las 'opciones' crudas: se decodifican en
+                // 'columnas' (solo las que el agente debe CAPTURAR; las calculadas/rollup las computa el
+                // servidor). El valor de un campo tabla es un ARREGLO de objetos {columna: valor} (ver 'valor').
+                opciones = f.ControlType == FormControlType.GridDetail ? null : f.OptionsJson,
+                columnas = f.ControlType == FormControlType.GridDetail ? GridColumnsSchema(f.OptionsJson) : null,
+                valor = f.ControlType == FormControlType.GridDetail
+                    ? "arreglo de filas: [{codigo_de_columna: valor, ...}, ...] (una entrada por columna capturable)"
+                    : null
             })
         };
         return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>Decodifica las columnas CAPTURABLES de un GridDetail para el esquema del agente: excluye las
+    /// columnas calculadas/rollup (las recomputa el servidor al guardar) y las de gestion (subformularios por
+    /// fila, fuera de alcance del llenado automatico). Para columnas de lista expone sus opciones validas.</summary>
+    private static object[] GridColumnsSchema(string? optionsJson)
+    {
+        return FormGridCalculator.ParseColumns(optionsJson)
+            .Where(c => string.IsNullOrWhiteSpace(c.Calc) && !c.IsGestion)
+            .Select(c => (object)new
+            {
+                id = c.Id,
+                etiqueta = c.Label,
+                obligatoria = c.Required,
+                opciones = c.IsSelect && c.Options is { Count: > 0 }
+                    ? c.Options.Select(o => new { valor = o.Id, etiqueta = o.Label }).ToArray()
+                    : null
+            })
+            .ToArray();
     }
 
     /// <summary>Aplica 'fijar_campos': acepta SOLO codigos que existen en el formulario (ignora los demas),
     /// convierte el valor a texto y los acumula. Devuelve al modelo que quedo fijado y que obligatorios faltan.</summary>
     private static string ApplySetFields(string argsJson, WorkflowAgentFormDto form, Dictionary<string, string?> fields)
     {
-        var known = form.Fields.Select(f => f.FieldCode).ToHashSet(StringComparer.Ordinal);
+        var byCode = form.Fields.ToDictionary(f => f.FieldCode, StringComparer.Ordinal);
         var ignored = new List<string>();
+        var gridErrors = new List<string>();
         try
         {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
@@ -521,8 +550,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             }
             foreach (var p in campos.EnumerateObject())
             {
-                if (!known.Contains(p.Name)) { ignored.Add(p.Name); continue; }
-                fields[p.Name] = ScalarToString(p.Value);
+                if (!byCode.TryGetValue(p.Name, out var field)) { ignored.Add(p.Name); continue; }
+                if (field.ControlType == FormControlType.GridDetail)
+                {
+                    // Campo tabla: el valor debe ser un ARREGLO de filas. Se serializa canonicamente (objetos de
+                    // strings, solo columnas capturables) para guardarlo tal cual espera FormResponseService.
+                    var (json, error) = BuildGridValue(p.Value, field.OptionsJson);
+                    if (error is not null) { gridErrors.Add($"{p.Name}: {error}"); continue; }
+                    fields[p.Name] = json;
+                }
+                else
+                {
+                    fields[p.Name] = ScalarToString(p.Value);
+                }
             }
         }
         catch (JsonException)
@@ -533,8 +573,63 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         var missing = form.Fields
             .Where(f => f.Required && (!fields.TryGetValue(f.FieldCode, out var v) || string.IsNullOrWhiteSpace(v)))
             .Select(f => f.FieldCode).ToList();
-        var payload = new { ok = true, fijados = fields.Keys.ToList(), faltan_obligatorios = missing, ignorados_desconocidos = ignored };
+        var payload = new
+        {
+            ok = gridErrors.Count == 0,
+            fijados = fields.Keys.ToList(),
+            faltan_obligatorios = missing,
+            ignorados_desconocidos = ignored,
+            errores_tabla = gridErrors,
+        };
         return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>Convierte el valor de un campo GridDetail (arreglo de filas emitido por el agente) al string JSON
+    /// canonico que guarda FormResponseService: un arreglo de objetos con SOLO las columnas capturables (se
+    /// ignoran calculadas/rollup/gestion, que recomputa el servidor) y todos los valores como texto. Valida que
+    /// cada fila tenga las columnas obligatorias. Devuelve (json, null) si ok, o (null, motivo) si no.</summary>
+    private static (string? Json, string? Error) BuildGridValue(JsonElement value, string? optionsJson)
+    {
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return (null, "el valor debe ser un arreglo de filas [{columna: valor}, ...]");
+        }
+        var columns = FormGridCalculator.ParseColumns(optionsJson)
+            .Where(c => string.IsNullOrWhiteSpace(c.Calc) && !c.IsGestion)
+            .ToList();
+        if (columns.Count == 0)
+        {
+            return (null, "la tabla no tiene columnas capturables");
+        }
+        var capturable = columns.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        var requiredCols = columns.Where(c => c.Required).Select(c => c.Id).ToList();
+
+        var rows = new List<Dictionary<string, string>>();
+        var rowIndex = 0;
+        foreach (var rowEl in value.EnumerateArray())
+        {
+            rowIndex++;
+            if (rowEl.ValueKind != JsonValueKind.Object)
+            {
+                return (null, $"la fila {rowIndex} no es un objeto {{columna: valor}}");
+            }
+            var row = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var col in rowEl.EnumerateObject())
+            {
+                if (!capturable.Contains(col.Name)) { continue; }
+                var s = ScalarToString(col.Value);
+                if (s is not null) { row[col.Name] = s; }
+            }
+            var missingCols = requiredCols
+                .Where(id => !row.TryGetValue(id, out var v) || string.IsNullOrWhiteSpace(v))
+                .ToList();
+            if (missingCols.Count > 0)
+            {
+                return (null, $"la fila {rowIndex} no tiene las columnas obligatorias: {string.Join(", ", missingCols)}");
+            }
+            rows.Add(row);
+        }
+        return (JsonSerializer.Serialize(rows), null);
     }
 
     private static string MarkFinished(string argsJson, ref bool finished, ref string? comment)

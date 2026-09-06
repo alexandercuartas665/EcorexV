@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-06 - v0.15.185: el agente llena GRILLAS (GridDetail) en el formulario del paso
+
+- Pedido (usuario): "mejora el motor para el llenado de la grilla y probemos buscar en Homecenter". La
+  cotizacion usa un campo TABLA (items: detalle/cantidad/valor_unitario). Hasta ahora el agente solo sabia
+  fijar campos escalares; una grilla no se podia diligenciar automaticamente.
+- Hecho (solo logica del invoker, SIN esquema ni migracion):
+  - FormSchemaJson: para un campo GridDetail ya NO expone 'opciones' crudas; decodifica las columnas
+    CAPTURABLES con FormGridCalculator.ParseColumns (excluye calc/rollup y las de gestion, que recomputa el
+    servidor) y las emite en 'columnas' [{id, etiqueta, obligatoria, opciones}] + una nota de forma en 'valor'
+    (arreglo de filas [{columna: valor}, ...]).
+  - ApplySetFields: si el campo es GridDetail acepta un ARREGLO de filas y lo serializa canonicamente (objetos
+    de strings, solo columnas capturables, valida columnas obligatorias por fila) al string JSON que espera
+    FormResponseService.SaveAsync (que re-deriva Type=GridDetail y recalcula las columnas calc/rollup). Escalar
+    sigue igual. Errores por tabla vuelven al modelo en 'errores_tabla'.
+  - Tool spec de 'fijar_campos' y system prompt de llenado: se documenta que un campo tabla toma un arreglo de
+    filas con los ids de 'columnas' (una fila por item, sin columnas calculadas).
+- Verificado: build Debug verde (Application); dotnet format sin cambios en el archivo tocado. El SaveAsync ya
+  aceptaba el string JSON de la grilla (confirmado en prod: FRM-CRM-COT.items).
+- Siguiente: reconfigurar el flujo de cotizacion (FLW-004) para usar el form con grilla (FRM-CRM-COT) en el
+  nodo del agente + prompt extra que busque en Homecenter (homecenter.com.co); DEPLOY a senal del usuario y
+  re-test end-to-end cuando el cliente Colmena SERVER06 este en linea.
+
 ## 2026-09-06 - v0.15.184: prompt extra por nodo + herramienta de correo del agente - ADR-0093
 
 - Pedido (usuario): "darle potencia: un prompt extra al configurar el agente, y que pueda escribir correos;

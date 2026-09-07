@@ -17,6 +17,12 @@
 - Validado en runtime (Chrome, SOLDARCO, v0.15.186 antes del bump): alta, edicion, borrado suave y busqueda
   del modulo nuevo OK; en BD directory_engine=Modular + fichas_json correctos; convive con flujos/agentes.
 - Integracion: merge --no-ff de feat/directorio-modular al tronco fase-0/clon-backbone; espejo en main.
+- Fix de test PREEXISTENTE (no era regresion; fallaba igual en b46e0450, verificado con A/B en worktree):
+  ContactWorkflowDispatcherTests ignoraba la navegacion self-FK Tercero.Empresa que la query del
+  dispatcher proyecta (t.Empresa.Nombre) -> EF InMemory no la resolvia y lanzaba NullReference. Se deja de
+  ignorar 'Empresa' (self-ref, no arrastra entidades) y se ignora la nav nueva 'Categorias' (directorio).
+  La query de prod es correcta (traduce bien en PG/SQL); el arreglo es solo del modelo InMemory del test.
+  Suite unitaria: Domain 35/35 + Application 795/795 verde.
 - Siguiente: DEPLOY a senal del usuario (lo corre el usuario aparte). Sin cambios de deploy en esta sesion.
 
 ## 2026-09-07 - v0.15.186: whitelist DURA de tableros por agente (crear_tarea) - ADR-0094

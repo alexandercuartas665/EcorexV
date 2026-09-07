@@ -41,8 +41,11 @@ public class ContactWorkflowDispatcherTests
 
         protected override void OnModelCreating(ModelBuilder b)
         {
-            // Ignora las navegaciones del Tercero para no arrastrar entidades ajenas al modelo de prueba.
-            b.Entity<Tercero>().Ignore(t => t.Empresa).Ignore(t => t.Contactos).Ignore(t => t.BolsaColumna);
+            // Ignora las navegaciones del Tercero que arrastran entidades ajenas al modelo de prueba.
+            // 'Empresa' NO se ignora: es un self-FK (EmpresaId -> Tercero) que usa el dispatcher en su
+            // proyeccion (t.Empresa.Nombre); ignorarla hace que EF InMemory no pueda resolver la navegacion
+            // y la query lance NullReference. Al mapearla (self-ref del mismo Tercero) no se arrastra nada.
+            b.Entity<Tercero>().Ignore(t => t.Contactos).Ignore(t => t.BolsaColumna).Ignore(t => t.Categorias);
         }
     }
 

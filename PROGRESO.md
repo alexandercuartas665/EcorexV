@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.15.186: whitelist DURA de tableros por agente (crear_tarea) - ADR-0094
+
+- Pedido (usuario): el agente elige el tablero de crear_tarea sin restriccion real (solo el prompt lo guia);
+  se quiere una whitelist DURA, configurable POR AGENTE, de uno o varios tableros permitidos.
+- Hecho (ADR-0094):
+  - Esquema (migracion DUAL aditiva): AiAgent.AllowedBoardIdsJson (jsonb PG / nvarchar(max) SQL Server,
+    nullable). Migraciones: AddAgentAllowedBoards (PG 20260907143417) y AddAgentAllowedBoards (SqlServer
+    20260907143543); snapshots consistentes; columna allowed_board_ids_json en ai_agents.
+  - DTO/servicio: AllowedBoardIds en UpdateAiAgentRequest y AiAgentDto; SerializeBoards/ParseBoards
+    (null/[] -> null). DuplicateAsync copia la whitelist.
+  - Contexto: AiToolRunContext.AllowedBoardIds (nuevo), inyectado por AiInferenceService.RunCoreAsync desde
+    AllowedBoardIdsJson (null/[] = sin restriccion).
+  - Enforcement en TasksToolset: listar_tableros filtra a los permitidos; crear_tarea resuelve el nombre
+    SOLO entre permitidos; con 1 permitido, nombre ausente/no-calza usa ese unico (nunca escapa la lista);
+    con 2+ y nombre invalido, error listando SOLO los permitidos. Paridad: endpoints mgmt (prompt-set,
+    tools-set) reenvian AllowedBoardIds para no borrar la whitelist al tocar otro campo.
+  - UI (Agentes.razor): acordeon "Tableros permitidos" (checkboxes de tableros no archivados) con rotulo
+    "Vacio = puede usar TODOS los tableros"; carga desde AiAgentDto.AllowedBoardIds; guarda en UpdateAsync.
+  - SEMANTICA: lista vacia/null = SIN restriccion (preserva a los demas agentes, ej. "Clasificador de
+    contactos"); 1+ ids = solo esos.
+- Verificado: build de la solucion verde; TasksToolsetBoardWhitelistTests 7/7 (vacia=todos, [A] pide A,
+  [A] no escapa a B, [A] sin tablero usa A, [A,B] pide C -> error solo con A/B, listar con [A] = solo A,
+  listar sin whitelist = todos).
+- Siguiente: DEPLOY a senal del usuario (prod en v0.15.185). Post-merge (ops): setear whitelist de
+  SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) = [AGENTE COMERCIAL IA, PRY-0008]; los
+  demas agentes quedan con lista vacia = sin cambio.
+
 ## 2026-09-06 - v0.15.185: el agente llena GRILLAS (GridDetail) en el formulario del paso
 
 - Pedido (usuario): "mejora el motor para el llenado de la grilla y probemos buscar en Homecenter". La

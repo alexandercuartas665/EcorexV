@@ -772,6 +772,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AllowedBoardIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("allowed_board_ids_json");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");

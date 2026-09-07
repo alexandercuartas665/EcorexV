@@ -84,6 +84,7 @@ public sealed class AiAgentService : IAiAgentService
         agent.Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
         agent.SystemPrompt = request.SystemPrompt ?? "";
         agent.DisabledToolsJson = SerializeTools(request.DisabledTools);
+        agent.AllowedBoardIdsJson = SerializeBoards(request.AllowedBoardIds);
         agent.ReactionsEnabled = request.ReactionsEnabled;
         agent.ReactionRatioN = Math.Max(0, request.ReactionRatioN);
         agent.ReactionRatioM = Math.Max(1, request.ReactionRatioM);
@@ -229,6 +230,7 @@ public sealed class AiAgentService : IAiAgentService
             IsActive = false,
             SortOrder = nextOrder,
             DisabledToolsJson = src.DisabledToolsJson,
+            AllowedBoardIdsJson = src.AllowedBoardIdsJson,
             PromptHistoryJson = src.PromptHistoryJson,
             ReactionsEnabled = src.ReactionsEnabled,
             ReactionRatioN = src.ReactionRatioN,
@@ -354,7 +356,7 @@ public sealed class AiAgentService : IAiAgentService
 
     private static AiAgentDto Map(AiAgent a, int resourceCount) =>
         new(a.Id, a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt, a.IsActive, a.SortOrder, resourceCount, ParseTools(a.DisabledToolsJson),
-            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis);
+            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, ParseBoards(a.AllowedBoardIdsJson));
 
     // Serializacion de la lista de herramientas deshabilitadas del agente (jsonb).
     private static string? SerializeTools(IReadOnlyList<string>? tools)
@@ -368,6 +370,20 @@ public sealed class AiAgentService : IAiAgentService
         if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
         try { return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
         catch { return Array.Empty<string>(); }
+    }
+
+    // Whitelist de tableros del agente (jsonb, arreglo de GUID). Null/vacio => null (sin restriccion = todos).
+    private static string? SerializeBoards(IReadOnlyList<Guid>? boards)
+    {
+        var clean = (boards ?? Array.Empty<Guid>()).Where(b => b != Guid.Empty).Distinct().ToList();
+        return clean.Count == 0 ? null : JsonSerializer.Serialize(clean);
+    }
+
+    private static IReadOnlyList<Guid> ParseBoards(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<Guid>(); }
+        try { return JsonSerializer.Deserialize<List<Guid>>(json) ?? new List<Guid>(); }
+        catch { return Array.Empty<Guid>(); }
     }
 
     private static AiAgentResourceDto MapResource(AiAgentResource r) =>

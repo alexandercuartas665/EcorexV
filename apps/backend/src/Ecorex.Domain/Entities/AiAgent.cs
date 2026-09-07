@@ -34,6 +34,14 @@ public class AiAgent : TenantEntity
     public string? DisabledToolsJson { get; set; }
 
     /// <summary>
+    /// WHITELIST DURA de tableros que este agente puede usar al crear tareas (jsonb, arreglo de GUID =
+    /// board ids). Null o vacio = SIN restriccion (todos los tableros no archivados del tenant), que
+    /// preserva el comportamiento historico. Con 1+ ids, la herramienta 'crear_tarea' solo admite esos
+    /// tableros y 'listar_tableros' solo los muestra.
+    /// </summary>
+    public string? AllowedBoardIdsJson { get; set; }
+
+    /// <summary>
     /// Historial de versiones de los prompts (red de seguridad). Cada "Guardar cambios" guarda una
     /// instantanea {prompt base + prompts enrutados}, conservando las ultimas 5. Permite restaurar.
     /// Formato: arreglo JSON de { savedAt, basePrompt, prompts:[{ name, rule, body, sortOrder }] }.

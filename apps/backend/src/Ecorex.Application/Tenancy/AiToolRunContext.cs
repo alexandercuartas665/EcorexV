@@ -12,7 +12,7 @@ public static class AiToolRunContext
     /// Lo usa la herramienta de pruebas del agente para simular "el cliente envio un archivo".</summary>
     public sealed record PendingAttachment(string Url, string FileName, string? MimeType);
 
-    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments);
+    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments, IReadOnlyList<Guid>? AllowedBoardIds);
     private static readonly AsyncLocal<Scope?> _current = new();
 
     public static Guid? ConversationId => _current.Value?.ConversationId;
@@ -20,11 +20,15 @@ public static class AiToolRunContext
     public static string? ImageMime => _current.Value?.ImageMime;
     public static IReadOnlyList<PendingAttachment>? PendingAttachments => _current.Value?.Attachments;
 
+    /// <summary>Whitelist de tableros permitidos para el agente en curso (board ids). Null o vacio = sin
+    /// restriccion (todos los tableros del tenant). La consume TasksToolset (crear_tarea / listar_tableros).</summary>
+    public static IReadOnlyList<Guid>? AllowedBoardIds => _current.Value?.AllowedBoardIds;
+
     public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime,
-        IReadOnlyList<PendingAttachment>? attachments = null)
+        IReadOnlyList<PendingAttachment>? attachments = null, IReadOnlyList<Guid>? allowedBoardIds = null)
     {
         var previous = _current.Value;
-        _current.Value = new Scope(conversationId, imageBase64, imageMime, attachments);
+        _current.Value = new Scope(conversationId, imageBase64, imageMime, attachments, allowedBoardIds);
         return new Resetter(previous);
     }
 

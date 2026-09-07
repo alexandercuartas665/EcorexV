@@ -1000,6 +1000,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Model).HasMaxLength(100);
             b.Property(x => x.SystemPrompt).HasColumnType(longTextColumnType);
             b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AllowedBoardIdsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });

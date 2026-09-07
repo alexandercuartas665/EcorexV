@@ -124,7 +124,8 @@ public sealed class TerceroFieldService : ITerceroFieldService
         {
             return;
         }
-        if (!await _db.TerceroFieldDefinitions.AnyAsync(cancellationToken))
+        // Excluye los campos de secciones del motor Modular (clave "mod_"): son espacio aparte (Capa 8).
+        if (!await _db.TerceroFieldDefinitions.AnyAsync(f => !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix), cancellationToken))
         {
             _db.TerceroFieldDefinitions.AddRange(BuildDefaultFields(tenantId));
             await _db.SaveChangesAsync(cancellationToken);
@@ -151,6 +152,7 @@ public sealed class TerceroFieldService : ITerceroFieldService
     public async Task<IReadOnlyList<TerceroFieldDto>> ListFieldsAsync(CancellationToken cancellationToken = default) =>
         (await _db.TerceroFieldDefinitions
             .AsNoTracking()
+            .Where(f => !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix)) // oculta campos Modular (Capa 8)
             .OrderBy(f => f.FichaKey).ThenBy(f => f.SortOrder)
             .ToListAsync(cancellationToken))
             .Select(Map)

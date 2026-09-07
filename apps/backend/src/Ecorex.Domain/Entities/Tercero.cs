@@ -66,6 +66,15 @@ public class Tercero : TenantEntity
     /// <summary>Datos de las fichas por perfil, dinamicos. jsonb en PG / nvarchar(max) en SQL Server.</summary>
     public string? FichasJson { get; set; }
 
+    /// <summary>Motor de Directorio que creo/gestiona este registro (Capa 8, 2do motor de contactos).
+    /// Ambos motores comparten esta tabla; la marca permite que Clasico, Modular y el Gestor 000740
+    /// interpreten la ficha. Los registros existentes son <see cref="DirectoryEngine.Clasico"/>.</summary>
+    public DirectoryEngine DirectoryEngine { get; set; } = DirectoryEngine.Clasico;
+
+    /// <summary>Categorias del motor Modular a las que pertenece el tercero (multi-membership,
+    /// ADR pendiente). Vacio en el motor Clasico. Ver <see cref="TerceroCategoria"/>.</summary>
+    public ICollection<TerceroCategoria> Categorias { get; set; } = new List<TerceroCategoria>();
+
     /// <summary>Columna/estado de la Bolsa de contactos del Gestor de Clientes (000740) en la que
     /// esta este tercero. Null = no esta en la bolsa (solo vive en el Directorio). NO ACTION.</summary>
     public Guid? BolsaColumnaId { get; set; }

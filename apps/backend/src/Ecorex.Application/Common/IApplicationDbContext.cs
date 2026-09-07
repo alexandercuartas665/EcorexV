@@ -231,6 +231,9 @@ public interface IApplicationDbContext
     DbSet<TerceroFichaDefinition> TerceroFichaDefinitions { get; }
     DbSet<TerceroFormLink> TerceroFormLinks { get; }
     DbSet<TerceroNota> TerceroNotas { get; }
+    // 2do motor de contactos (Directorio Modular, Capa 8): las DbSet viven por ahora solo en el contexto
+    // concreto (EcorexDbContext) para el modelo/migracion; se exponen en esta interfaz en la capa
+    // Application, junto con la actualizacion de los fakes de test que la implementan.
 
     // Gestor de Clientes (modulo 000740): bolsa (kanban de terceros por estado), oportunidades,
     // citas/agenda, filtros dinamicos guardados y prospectos scrapeados (demo).

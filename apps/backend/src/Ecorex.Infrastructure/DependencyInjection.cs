@@ -73,6 +73,9 @@ public static class DependencyInjection
         }
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<EcorexDbContext>());
+        // 2do motor de contactos (Directorio Modular, Capa 8): misma instancia scoped (ambos proveedores
+        // resuelven a EcorexDbContext), asi comparte unidad de trabajo con IApplicationDbContext.
+        services.AddScoped<IDirectorioModularDbContext>(sp => sp.GetRequiredService<EcorexDbContext>());
 
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<IJwtTokenService, JwtTokenService>();

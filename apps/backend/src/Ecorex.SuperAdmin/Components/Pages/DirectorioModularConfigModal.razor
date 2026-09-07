@@ -1,0 +1,907 @@
+@* Modal "Configurar directorio" del 2do motor de contactos (Directorio Modular, Capa 8).
+   Replica quirurgica del prototipo (js/ui/config-modal.js) en dos vistas, ambas FUNCIONALES:
+     1. Categorias         -> ajustes de la categoria + que secciones la arman.
+     2. Secciones y campos -> crear/editar/eliminar/reordenar secciones y sus campos.
+   Parameter-driven (Show/OnClosed) para no depender de @ref. Acento negro, coherente con el listado. *@
+@using System.Text.Json
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@inject IDirectorioCategoriaService Cats
+@inject IDirectorioModularFichaService Fichas
+@inject IDirectorioModularConfigService Config
+
+@if (Show)
+{
+    <div class="cfg-overlay" @onclick="CerrarAsync">
+        <div class="cfg-modal" @onclick:stopPropagation="true">
+            <div class="cfg-header">
+                <div class="cfg-head-left">
+                    <span class="cfg-head-ico"><i class="fa fa-gear"></i></span>
+                    <div>
+                        <div class="cfg-head-title">Configurar directorio</div>
+                        <div class="cfg-head-sub">Categorias, secciones y campos del motor modular</div>
+                    </div>
+                </div>
+                <button class="cfg-x" @onclick="CerrarAsync" title="Cerrar"><i class="fa fa-xmark"></i></button>
+            </div>
+
+            <div class="cfg-vistas">
+                <button class="cfg-vista-tab @(_vista == "tipos" ? "on" : "")" @onclick='() => CambiarVistaAsync("tipos")'>
+                    <i class="fa fa-layer-group"></i> Categorias <span class="cfg-conteo">@_cats.Count</span>
+                </button>
+                <button class="cfg-vista-tab @(_vista == "secciones" ? "on" : "")" @onclick='() => CambiarVistaAsync("secciones")'>
+                    <i class="fa fa-table-cells-large"></i> Secciones y campos <span class="cfg-conteo">@_estructura.Secciones.Count</span>
+                </button>
+            </div>
+
+            <div class="cfg-cuerpo">
+                @if (_loading)
+                {
+                    <div class="cfg-vacio">Cargando...</div>
+                }
+                else if (_vista == "tipos")
+                {
+                    @RenderVistaTipos
+                }
+                else
+                {
+                    @RenderVistaSecciones
+                }
+            </div>
+
+            @if (_msg is not null)
+            {
+                <div class="cfg-toast"><i class="fa fa-circle-info"></i> @_msg</div>
+            }
+        </div>
+    </div>
+}
+
+@* ------------------------------------------------------------------ VISTA: CATEGORIAS *@
+@code {
+    private RenderFragment RenderVistaTipos => __builder =>
+    {
+        <div class="cfg-pills">
+            @foreach (var c in _cats)
+            {
+                var on = c.CategoriaKey == _tipoActivo;
+                <button class="cfg-pill @(on ? "on" : "")" @onclick="() => SeleccionarTipoAsync(c.CategoriaKey)">
+                    <i class="fa @(string.IsNullOrWhiteSpace(c.Icono) ? "fa-folder" : c.Icono)"
+                       style="@(on ? "color:#fff" : $"color:{c.Color ?? "#111827"}")"></i> @c.Title
+                </button>
+            }
+            <button class="cfg-pill cfg-pill-add" @onclick="CrearTipoAsync"><i class="fa fa-plus"></i> Nueva categoria</button>
+        </div>
+
+        @if (_tipo is null)
+        {
+            <div class="cfg-vacio">No hay categorias configuradas.</div>
+        }
+        else
+        {
+            <div class="cfg-grid">
+                <div class="cfg-col-5">
+                    <div class="cfg-panel">
+                        <div class="cfg-panel-head">
+                            <h6>Ajustes de la categoria</h6>
+                            @if (!_tipo.Protegido)
+                            {
+                                <button class="cfg-ico cfg-ico-danger" title="Eliminar categoria" @onclick="BorrarTipoAsync"><i class="fa fa-trash-can"></i></button>
+                            }
+                        </div>
+                        <div class="cfg-fld">
+                            <label>Nombre de la categoria</label>
+                            <input class="cfg-input" @bind="_tName" @bind:event="oninput" />
+                            <div class="cfg-hint">Las pestanas se ordenan solas alfabeticamente.</div>
+                        </div>
+                        <div class="cfg-row2">
+                            <div class="cfg-fld">
+                                <label>Icono</label>
+                                <select class="cfg-input" @bind="_tIcono">
+                                    @foreach (var i in Iconos)
+                                    {
+                                        <option value="@i">@i.Replace("fa-", "")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cfg-fld">
+                                <label>Color</label>
+                                <select class="cfg-input" @bind="_tColor">
+                                    @foreach (var x in Colores)
+                                    {
+                                        <option value="@x">@x</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="cfg-fld">
+                            <label>Descripcion</label>
+                            <input class="cfg-input" @bind="_tDesc" @bind:event="oninput" />
+                        </div>
+                        <div class="cfg-fld">
+                            <label>Areas que tienen autorizada esta categoria</label>
+                            <div class="cfg-chips">
+                                @foreach (var a in _estructura.Areas)
+                                {
+                                    var fijo = a.Id == "admin";
+                                    var marcada = fijo || _tAreas.Contains(a.Id);
+                                    <label class="cfg-chip @(marcada ? "on" : "") @(fijo ? "cfg-chip-lock" : "")">
+                                        <input type="checkbox" checked="@marcada" disabled="@fijo"
+                                               @onchange="() => ToggleAreaTipo(a.Id)" />
+                                        <i class="fa fa-check"></i> @a.Nombre
+                                    </label>
+                                }
+                            </div>
+                            <div class="cfg-hint">El area que no lo tenga no ve su pestana ni los terceros que solo viven en ella. Administracion las ve todas.</div>
+                        </div>
+                        <div class="cfg-aviso">
+                            <i class="fa fa-circle-info"></i> Al crear un tercero parado en <strong>@_tName</strong>, la ficha pedira las @_tSecs.Count seccion(es) marcadas al lado.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cfg-col-7">
+                    <div class="cfg-panel">
+                        <h6 class="cfg-mb1">Secciones que arman esta categoria</h6>
+                        <div class="cfg-hint cfg-mb3">Marca las que debe pedir la ficha de @_tName.</div>
+                        <div class="cfg-secs">
+                            @foreach (var s in _estructura.Secciones)
+                            {
+                                var incluida = _tSecs.Contains(s.FichaKey);
+                                <label class="cfg-secpick @(incluida ? "on" : "")">
+                                    <input type="checkbox" checked="@incluida" @onchange="() => ToggleSeccionTipoAsync(s.FichaKey)" />
+                                    <span class="cfg-secdot" style="background:@(s.Color ?? "#64748b")"></span>
+                                    <span class="cfg-secpick-body">
+                                        <span class="cfg-secpick-name">@s.Title</span>
+                                        <span class="cfg-meta">@s.Campos.Count campo(s)</span>
+                                    </span>
+                                    <i class="fa @(incluida ? "fa-circle-check" : "fa-circle")"></i>
+                                </label>
+                            }
+                        </div>
+                        <button class="cfg-btn-soft cfg-mt3" @onclick='() => CambiarVistaAsync("secciones")'>
+                            <i class="fa fa-plus"></i> Crear o editar secciones
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    };
+
+    @* ---------------------------------------------------------- VISTA: SECCIONES Y CAMPOS *@
+    private RenderFragment RenderVistaSecciones => __builder =>
+    {
+        <div class="cfg-pills">
+            @foreach (var s in _estructura.Secciones)
+            {
+                var on = s.FichaKey == _seccionActiva;
+                <button class="cfg-pill @(on ? "on" : "")" @onclick="() => SeleccionarSeccion(s.FichaKey)">
+                    <i class="fa @(string.IsNullOrWhiteSpace(s.Icono) ? "fa-folder" : s.Icono)"
+                       style="@(on ? "color:#fff" : $"color:{s.Color ?? "#111827"}")"></i> @s.Title
+                </button>
+            }
+            <button class="cfg-pill cfg-pill-add" @onclick="CrearSeccionAsync"><i class="fa fa-plus"></i> Nueva seccion</button>
+        </div>
+
+        @if (_seccion is null)
+        {
+            <div class="cfg-vacio">No hay secciones configuradas.</div>
+        }
+        else
+        {
+            <div class="cfg-grid">
+                <div class="cfg-col-7">
+                    <div class="cfg-panel cfg-mb3">
+                        <div class="cfg-panel-head">
+                            <h6>Ajustes de la seccion</h6>
+                            <div class="cfg-ico-group">
+                                <button class="cfg-ico" title="Mover a la izquierda" @onclick="() => MoverSeccionAsync(-1)"><i class="fa fa-arrow-left"></i></button>
+                                <button class="cfg-ico" title="Mover a la derecha" @onclick="() => MoverSeccionAsync(1)"><i class="fa fa-arrow-right"></i></button>
+                                @if (!_seccion.Protegida)
+                                {
+                                    <button class="cfg-ico cfg-ico-danger" title="Eliminar seccion" @onclick="BorrarSeccionAsync"><i class="fa fa-trash-can"></i></button>
+                                }
+                            </div>
+                        </div>
+                        <div class="cfg-grid-sec">
+                            <div class="cfg-fld cfg-c6">
+                                <label>Nombre de la seccion</label>
+                                <input class="cfg-input" @bind="_sName" @bind:event="oninput" />
+                                <div class="cfg-hint">Asi se ve en la ficha del tercero.</div>
+                            </div>
+                            <div class="cfg-fld cfg-c3">
+                                <label>Icono</label>
+                                <select class="cfg-input" @bind="_sIcono">
+                                    @foreach (var ic in Iconos)
+                                    {
+                                        <option value="@ic">@ic.Replace("fa-", "")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cfg-fld cfg-c3">
+                                <label>Color</label>
+                                <select class="cfg-input" @bind="_sColor">
+                                    @foreach (var col in Colores)
+                                    {
+                                        <option value="@col">@col</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cfg-fld cfg-c12">
+                                <label>Descripcion</label>
+                                <input class="cfg-input" @bind="_sDesc" @bind:event="oninput" />
+                            </div>
+                            <div class="cfg-fld cfg-c6">
+                                <label>Aplica a</label>
+                                <div class="cfg-chips">
+                                    @foreach (var n in Naturalezas)
+                                    {
+                                        var marcada = _sAplica.Contains(n.Key);
+                                        <span class="cfg-chip @(marcada ? "on" : "")" @onclick="() => ToggleAplica(n.Key)"><i class="fa fa-check"></i> @n.Value</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="cfg-fld cfg-c6">
+                                <label>Usada por las categorias</label>
+                                <div class="cfg-usos">
+                                    @if (_seccion.UsadaPor.Count == 0)
+                                    {
+                                        <span class="cfg-meta">Ningun tipo la usa todavia.</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var u in _seccion.UsadaPor)
+                                        {
+                                            <span class="cfg-chip-tipo" style="background:@((u.Color ?? "#64748b") + "1a");color:@(u.Color ?? "#64748b")">@u.Title</span>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                            <div class="cfg-fld cfg-c12">
+                                <label>Areas que ven esta seccion</label>
+                                <div class="cfg-chips">
+                                    @foreach (var a in _estructura.Areas)
+                                    {
+                                        var marcada = _seccion.Protegida || _sAreas.Contains(a.Id);
+                                        <span class="cfg-chip @(marcada ? "on" : "") @(_seccion.Protegida ? "cfg-chip-lock" : "")" @onclick="() => ToggleAreaSeccion(a.Id)"><i class="fa fa-check"></i> @a.Nombre</span>
+                                    }
+                                </div>
+                                <div class="cfg-hint">@(_seccion.Protegida ? "La seccion publica siempre es visible para todas las areas." : "Administracion siempre ve todas las secciones.")</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cfg-panel">
+                        <h6 class="cfg-mb3">Campos de la seccion <span class="cfg-meta">&middot; @_seccion.Campos.Count</span></h6>
+                        @if (_seccion.Campos.Count == 0)
+                        {
+                            <div class="cfg-vacio-sm"><i class="fa fa-rectangle-list"></i> Esta seccion no tiene campos.</div>
+                        }
+                        else
+                        {
+                            @foreach (var f in _seccion.Campos)
+                            {
+                                <div class="cfg-campo">
+                                    <div class="cfg-campo-mv">
+                                        <button class="cfg-ico cfg-ico-xs" title="Subir" @onclick="() => MoverCampoAsync(f.Id, -1)"><i class="fa fa-chevron-up"></i></button>
+                                        <button class="cfg-ico cfg-ico-xs" title="Bajar" @onclick="() => MoverCampoAsync(f.Id, 1)"><i class="fa fa-chevron-down"></i></button>
+                                    </div>
+                                    <div class="cfg-campo-body">
+                                        <div class="cfg-campo-top">
+                                            <span class="cfg-campo-name">@f.Label</span>
+                                            @if (f.IsSystem)
+                                            {
+                                                <span class="cfg-sistema">Sistema</span>
+                                            }
+                                        </div>
+                                        <div class="cfg-meta cfg-mono">@TipoNombre(f.Type) &middot; @f.FieldKey</div>
+                                    </div>
+                                    <span class="cfg-ancho">@AnchoNombre(f.Ancho)</span>
+                                    <button class="cfg-ico" title="Editar" @onclick="() => EditarCampo(f)"><i class="fa fa-pen"></i></button>
+                                    @if (!f.IsSystem)
+                                    {
+                                        <button class="cfg-ico cfg-ico-danger" title="Eliminar" @onclick="() => BorrarCampoAsync(f.Id)"><i class="fa fa-trash-can"></i></button>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="cfg-col-5">
+                    <div class="cfg-lateral">
+                        <h6 class="cfg-mb3">@(_fEditId is null ? "Nuevo campo" : "Editar campo")</h6>
+                        <div class="cfg-fld"><label>Etiqueta <span class="cfg-req">*</span></label>
+                            <input class="cfg-input" @bind="_fLabel" @bind:event="oninput" placeholder="Ej. Zona de despacho" /></div>
+                        <div class="cfg-row2">
+                            <div class="cfg-fld"><label>Tipo</label>
+                                <select class="cfg-input" @bind="_fTipo">
+                                    @foreach (var t in Tipos){<option value="@t.Key">@t.Value</option>}
+                                </select></div>
+                            <div class="cfg-fld"><label>Ancho</label>
+                                <select class="cfg-input" @bind="_fAncho">
+                                    <option value="pequena">Pequena (1/3)</option>
+                                    <option value="media">Media (1/2)</option>
+                                    <option value="completa">Completa</option>
+                                </select></div>
+                        </div>
+                        @if (_fTipo == TerceroFieldType.Select || _fTipo == TerceroFieldType.MultiSelect)
+                        {
+                            <div class="cfg-fld"><label>Opciones <span class="cfg-meta">(una por linea)</span></label>
+                                <textarea class="cfg-input" rows="4" @bind="_fOpciones" @bind:event="oninput" placeholder="Opcion 1&#10;Opcion 2"></textarea></div>
+                        }
+                        @if (_fTipo == TerceroFieldType.Table)
+                        {
+                            <div class="cfg-fld">
+                                <label>Columnas de la tabla</label>
+                                @if (_fCols.Count == 0)
+                                {
+                                    <div class="cfg-meta cfg-mb1">Agrega al menos una columna.</div>
+                                }
+                                @for (var i = 0; i < _fCols.Count; i++)
+                                {
+                                    var col = _fCols[i];
+                                    var idx = i;
+                                    <div class="cfg-col-row">
+                                        <input class="cfg-input" placeholder="Etiqueta" @bind="col.Label" @bind:event="oninput" />
+                                        <select class="cfg-input" @bind="col.Type">
+                                            <option value="texto">Texto</option>
+                                            <option value="numero">Numero</option>
+                                            <option value="select">Lista</option>
+                                        </select>
+                                        <button class="cfg-ico cfg-ico-danger" title="Quitar columna" @onclick="() => _fCols.RemoveAt(idx)"><i class="fa fa-trash-can"></i></button>
+                                    </div>
+                                    @if (col.Type == "select")
+                                    {
+                                        <textarea class="cfg-input cfg-mb1" rows="2" placeholder="Opciones de la lista (una por linea)" @bind="col.Options" @bind:event="oninput"></textarea>
+                                    }
+                                }
+                                <button class="cfg-btn-soft cfg-mt3" @onclick="() => _fCols.Add(new CampoTablaCol())"><i class="fa fa-plus"></i> Agregar columna</button>
+                            </div>
+                        }
+                        <div class="cfg-fld"><label>Descripcion <span class="cfg-meta">(opcional)</span></label>
+                            <input class="cfg-input" @bind="_fDesc" @bind:event="oninput" /></div>
+                        <label class="cfg-check"><input type="checkbox" @bind="_fReq" /> Obligatorio al crear el tercero</label>
+                        <div class="cfg-row2 cfg-mt3">
+                            <button class="cfg-btn-primary" @onclick="GuardarCampoAsync">
+                                <i class="fa fa-@(_fEditId is null ? "plus" : "floppy-disk")"></i> @(_fEditId is null ? "Agregar campo" : "Guardar cambios")
+                            </button>
+                            @if (_fEditId is not null)
+                            {
+                                <button class="cfg-btn-soft" @onclick="CancelarCampo">Cancelar</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    };
+
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private bool _shown;
+    private bool _loading = true;
+    private string _vista = "tipos";
+    private string? _msg;
+
+    private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
+    private ModularEstructuraDto _estructura = new(Array.Empty<ModularSeccionConfigDto>(), Array.Empty<ModularAreaDto>());
+    private string? _tipoActivo;
+    private string? _seccionActiva;
+
+    // Modelo de trabajo de la categoria activa (se guarda al navegar, como el prototipo).
+    private string _tName = string.Empty;
+    private string _tIcono = "fa-folder";
+    private string _tColor = "#4f46e5";
+    private string _tDesc = string.Empty;
+    private readonly HashSet<string> _tAreas = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _tSecs = new(StringComparer.Ordinal);
+
+    // Modelo de trabajo de la seccion activa (se guarda al navegar / cerrar, como el prototipo).
+    private string _sName = string.Empty;
+    private string _sIcono = "fa-folder";
+    private string _sColor = "#4f46e5";
+    private string _sDesc = string.Empty;
+    private readonly HashSet<string> _sAreas = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _sAplica = new(StringComparer.Ordinal);
+
+    // Panel de campo (crear/editar).
+    private Guid? _fEditId;
+    private string _fLabel = string.Empty;
+    private TerceroFieldType _fTipo = TerceroFieldType.Text;
+    private string _fAncho = "completa";
+    private string _fOpciones = string.Empty;
+    private bool _fReq;
+    private string _fDesc = string.Empty;
+    private readonly List<CampoTablaCol> _fCols = new();   // columnas cuando el tipo es Tabla
+
+    // Columna editable de un campo tipo Tabla (se serializa a Options como {columns:[...]}).
+    private sealed class CampoTablaCol
+    {
+        public string Label { get; set; } = string.Empty;
+        public string Type { get; set; } = "texto";
+        public string Options { get; set; } = string.Empty;   // una opcion por linea (solo si Type=select)
+    }
+
+    private DirectorioCategoriaDto? _tipo => _cats.FirstOrDefault(c => c.CategoriaKey == _tipoActivo);
+    private ModularSeccionConfigDto? _seccion => _estructura.Secciones.FirstOrDefault(s => s.FichaKey == _seccionActiva);
+
+    private static readonly string[] Iconos =
+    {
+        "fa-globe", "fa-chart-line", "fa-file-invoice-dollar", "fa-user-tie", "fa-truck",
+        "fa-id-badge", "fa-folder", "fa-briefcase", "fa-scale-balanced", "fa-headset", "fa-warehouse",
+        "fa-star", "fa-handshake", "fa-building-columns"
+    };
+    private static readonly string[] Colores = { "#111827", "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0891b2", "#64748b" };
+    private static readonly KeyValuePair<string, string>[] Naturalezas =
+    {
+        new("empresa", "Organizaciones"), new("contacto", "Personas")
+    };
+    private static readonly KeyValuePair<TerceroFieldType, string>[] Tipos =
+    {
+        new(TerceroFieldType.Text, "Texto"), new(TerceroFieldType.TextArea, "Texto largo"),
+        new(TerceroFieldType.Number, "Numero"), new(TerceroFieldType.Currency, "Moneda"),
+        new(TerceroFieldType.Date, "Fecha"), new(TerceroFieldType.Select, "Lista desplegable"),
+        new(TerceroFieldType.MultiSelect, "Seleccion multiple"), new(TerceroFieldType.Checkbox, "Casilla de verificacion"),
+        new(TerceroFieldType.Email, "Correo electronico"),
+        new(TerceroFieldType.Phone, "Telefono"), new(TerceroFieldType.Table, "Tabla (filas dinamicas)")
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Show && !_shown)
+        {
+            _shown = true;
+            await CargarAsync();
+        }
+        else if (!Show && _shown)
+        {
+            _shown = false;
+        }
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        _cats = await Cats.ListAsync();
+        _estructura = await Fichas.GetEstructuraAsync();
+        if (_tipoActivo is null || _cats.All(c => c.CategoriaKey != _tipoActivo))
+        {
+            _tipoActivo = _cats.FirstOrDefault()?.CategoriaKey;
+        }
+        if (_seccionActiva is null || _estructura.Secciones.All(s => s.FichaKey != _seccionActiva))
+        {
+            _seccionActiva = _estructura.Secciones.FirstOrDefault()?.FichaKey;
+        }
+        CargarSeccionModel();
+        await CargarTipoAsync();
+        _loading = false;
+    }
+
+    // Rellena el modelo de trabajo desde la seccion activa.
+    private void CargarSeccionModel()
+    {
+        _sAreas.Clear();
+        _sAplica.Clear();
+        var s = _seccion;
+        if (s is null) { return; }
+        _sName = s.Title;
+        _sIcono = string.IsNullOrWhiteSpace(s.Icono) ? "fa-folder" : s.Icono!;
+        _sColor = string.IsNullOrWhiteSpace(s.Color) ? "#4f46e5" : s.Color!;
+        _sDesc = s.Descripcion ?? string.Empty;
+        foreach (var a in (s.Areas ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { _sAreas.Add(a); }
+        foreach (var n in (s.AplicaA ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { _sAplica.Add(n); }
+    }
+
+    // Guarda los ajustes escritos de la seccion activa.
+    private async Task GuardarSeccionAsync()
+    {
+        var s = _seccion;
+        if (s is null) { return; }
+        await Config.ActualizarSeccionAsync(s.Id,
+            string.IsNullOrWhiteSpace(_sName) ? s.Title : _sName.Trim(),
+            _sIcono, _sColor, _sDesc,
+            string.Join(",", _sAreas),
+            _sAplica.Count > 0 ? string.Join(",", _sAplica) : "empresa,contacto");
+        _estructura = await Fichas.GetEstructuraAsync();
+    }
+
+    private void ResetCampoPanel()
+    {
+        _fEditId = null;
+        _fLabel = string.Empty;
+        _fTipo = TerceroFieldType.Text;
+        _fAncho = "completa";
+        _fOpciones = string.Empty;
+        _fReq = false;
+        _fDesc = string.Empty;
+        _fCols.Clear();
+    }
+
+    // Rellena el modelo de trabajo desde la categoria activa + su composicion de secciones.
+    private async Task CargarTipoAsync()
+    {
+        var t = _tipo;
+        _tAreas.Clear();
+        _tSecs.Clear();
+        if (t is null) { return; }
+        _tName = t.Title;
+        _tIcono = string.IsNullOrWhiteSpace(t.Icono) ? "fa-folder" : t.Icono;
+        _tColor = string.IsNullOrWhiteSpace(t.Color) ? "#111827" : t.Color;
+        _tDesc = t.Description ?? string.Empty;
+        foreach (var a in (t.Areas ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            _tAreas.Add(a);
+        }
+        var comp = await Cats.GetSeccionesAsync(t.CategoriaKey);
+        foreach (var s in comp) { _tSecs.Add(s.FichaKey); }
+    }
+
+    // Guarda los ajustes escritos de la categoria activa (nombre/icono/color/desc/areas).
+    private async Task GuardarTipoAsync()
+    {
+        var t = _tipo;
+        if (t is null) { return; }
+        var areas = string.Join(",", _tAreas);
+        await Cats.UpdateAsync(t.Id, new UpdateDirectorioCategoriaRequest(
+            Title: string.IsNullOrWhiteSpace(_tName) ? t.Title : _tName.Trim(),
+            Icono: _tIcono, Color: _tColor, Areas: areas,
+            HomologaSeccion: t.HomologaSeccion, IsHidden: t.IsHidden, Description: _tDesc));
+        _cats = await Cats.ListAsync();
+    }
+
+    private async Task CambiarVistaAsync(string vista)
+    {
+        if (_vista == "tipos") { await GuardarTipoAsync(); }
+        else if (_vista == "secciones") { await GuardarSeccionAsync(); }
+        _vista = vista;
+        _msg = null;
+    }
+
+    private async Task SeleccionarTipoAsync(string key)
+    {
+        await GuardarTipoAsync();
+        _tipoActivo = key;
+        await CargarTipoAsync();
+    }
+
+    private async Task SeleccionarSeccion(string key)
+    {
+        await GuardarSeccionAsync();
+        _seccionActiva = key;
+        ResetCampoPanel();
+        CargarSeccionModel();
+        _msg = null;
+    }
+
+    private async Task CrearTipoAsync()
+    {
+        await GuardarTipoAsync();
+        var dto = await Cats.CreateAsync(new CreateDirectorioCategoriaRequest("Nueva categoria"));
+        if (dto is null) { _msg = "No se pudo crear la categoria."; return; }
+        _cats = await Cats.ListAsync();
+        _tipoActivo = dto.CategoriaKey;
+        _vista = "tipos";
+        await CargarTipoAsync();
+        _msg = "Categoria creada. Escoge sus secciones.";
+    }
+
+    private async Task BorrarTipoAsync()
+    {
+        var t = _tipo;
+        if (t is null) { return; }
+        var err = await Cats.DeleteAsync(t.Id);
+        if (err is not null) { _msg = err; return; }
+        _cats = await Cats.ListAsync();
+        _tipoActivo = _cats.FirstOrDefault()?.CategoriaKey;
+        await CargarTipoAsync();
+        _msg = "Categoria eliminada.";
+    }
+
+    private void ToggleAreaTipo(string id)
+    {
+        if (id == "admin") { return; }
+        if (!_tAreas.Add(id)) { _tAreas.Remove(id); }
+    }
+
+    // Marca/desmarca una seccion en la categoria activa y persiste la composicion.
+    private async Task ToggleSeccionTipoAsync(string fichaKey)
+    {
+        var t = _tipo;
+        if (t is null) { return; }
+        if (!_tSecs.Add(fichaKey)) { _tSecs.Remove(fichaKey); }
+        // Conserva el orden natural del catalogo (SortOrder) para las marcadas.
+        var ordenadas = _estructura.Secciones.Where(s => _tSecs.Contains(s.FichaKey)).Select(s => s.FichaKey).ToList();
+        await GuardarTipoAsync();
+        await Cats.SetSeccionesAsync(t.CategoriaKey, ordenadas);
+        _msg = null;
+    }
+
+    // ---- Secciones ----
+    private async Task CrearSeccionAsync()
+    {
+        await GuardarSeccionAsync();
+        var key = await Config.CrearSeccionAsync();
+        _estructura = await Fichas.GetEstructuraAsync();
+        _seccionActiva = key;
+        ResetCampoPanel();
+        CargarSeccionModel();
+        _msg = "Seccion creada. Ponle nombre y agrega campos.";
+    }
+
+    private async Task MoverSeccionAsync(int delta)
+    {
+        var s = _seccion;
+        if (s is null) { return; }
+        await GuardarSeccionAsync();
+        await Config.MoverSeccionAsync(s.Id, delta);
+        _estructura = await Fichas.GetEstructuraAsync();
+    }
+
+    private async Task BorrarSeccionAsync()
+    {
+        var s = _seccion;
+        if (s is null) { return; }
+        var err = await Config.BorrarSeccionAsync(s.Id);
+        if (err is not null) { _msg = err; return; }
+        _estructura = await Fichas.GetEstructuraAsync();
+        _seccionActiva = _estructura.Secciones.FirstOrDefault()?.FichaKey;
+        ResetCampoPanel();
+        CargarSeccionModel();
+        _msg = "Seccion eliminada.";
+    }
+
+    private async Task ToggleAplica(string key)
+    {
+        if (!_sAplica.Add(key)) { _sAplica.Remove(key); }
+        await GuardarSeccionAsync();
+    }
+
+    private async Task ToggleAreaSeccion(string id)
+    {
+        if (_seccion?.Protegida == true) { return; }
+        if (!_sAreas.Add(id)) { _sAreas.Remove(id); }
+        await GuardarSeccionAsync();
+    }
+
+    // ---- Campos ----
+    private void EditarCampo(ModularCampoConfigDto f)
+    {
+        _fEditId = f.Id;
+        _fLabel = f.Label;
+        _fTipo = f.Type;
+        _fAncho = f.Ancho;
+        _fOpciones = f.Type == TerceroFieldType.Table ? string.Empty : (f.Options ?? string.Empty);
+        _fReq = !string.IsNullOrWhiteSpace(f.RequeridoEn);
+        _fDesc = f.Descripcion ?? string.Empty;
+        _fCols.Clear();
+        if (f.Type == TerceroFieldType.Table) { ParseColsFromOptions(f.Options); }
+        _msg = null;
+    }
+
+    private void CancelarCampo() => ResetCampoPanel();
+
+    private async Task GuardarCampoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_fLabel)) { _msg = "La etiqueta del campo es obligatoria."; return; }
+        var seccionKey = _seccionActiva;
+        if (seccionKey is null) { return; }
+
+        // Para Tabla, las "opciones" que guarda el campo son la definicion de columnas (JSON).
+        var opts = _fTipo == TerceroFieldType.Table ? BuildColsJson() : _fOpciones;
+
+        string? err;
+        if (_fEditId is Guid editId)
+        {
+            err = await Config.ActualizarCampoAsync(editId, _fLabel, _fTipo, _fAncho, opts, _fReq, _fDesc);
+        }
+        else
+        {
+            err = await Config.CrearCampoAsync(seccionKey, _fLabel, _fTipo, _fAncho, opts, _fReq, _fDesc);
+        }
+        if (err is not null) { _msg = err; return; }
+
+        var creado = _fEditId is null;
+        ResetCampoPanel();
+        _estructura = await Fichas.GetEstructuraAsync();
+        _msg = creado ? "Campo agregado a la seccion." : "Campo actualizado.";
+    }
+
+    private async Task BorrarCampoAsync(Guid id)
+    {
+        var err = await Config.BorrarCampoAsync(id);
+        if (err is not null) { _msg = err; return; }
+        if (_fEditId == id) { ResetCampoPanel(); }
+        _estructura = await Fichas.GetEstructuraAsync();
+        _msg = "Campo eliminado.";
+    }
+
+    private async Task MoverCampoAsync(Guid id, int delta)
+    {
+        await Config.MoverCampoAsync(id, delta);
+        _estructura = await Fichas.GetEstructuraAsync();
+    }
+
+    // ---- Columnas del tipo Tabla (Options = {"columns":[{key,label,type,options:[{value,label}]}]}) ----
+    private string BuildColsJson()
+    {
+        var cols = _fCols
+            .Where(c => !string.IsNullOrWhiteSpace(c.Label))
+            .Select(c => new
+            {
+                key = SlugCol(c.Label),
+                label = c.Label.Trim(),
+                type = string.IsNullOrWhiteSpace(c.Type) ? "texto" : c.Type,
+                options = c.Type == "select"
+                    ? (c.Options ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(o => new { value = o, label = o }).ToArray()
+                    : System.Array.Empty<object>()
+            }).ToArray();
+        return JsonSerializer.Serialize(new { columns = cols });
+    }
+
+    private void ParseColsFromOptions(string? json)
+    {
+        _fCols.Clear();
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("columns", out var arr)
+                && !doc.RootElement.TryGetProperty("Columns", out arr)) { return; }
+            foreach (var c in arr.EnumerateArray())
+            {
+                var col = new CampoTablaCol
+                {
+                    Label = ColStr(c, "label", "Label"),
+                    Type = ColStr(c, "type", "Type") is { Length: > 0 } t ? t : "texto"
+                };
+                if ((c.TryGetProperty("options", out var opts) || c.TryGetProperty("Options", out opts))
+                    && opts.ValueKind == JsonValueKind.Array)
+                {
+                    var labels = new List<string>();
+                    foreach (var o in opts.EnumerateArray()) { labels.Add(ColStr(o, "label", "Label")); }
+                    col.Options = string.Join("\n", labels.Where(x => x.Length > 0));
+                }
+                _fCols.Add(col);
+            }
+        }
+        catch { /* JSON invalido: se deja sin columnas */ }
+    }
+
+    private static string ColStr(JsonElement e, string a, string b)
+        => (e.TryGetProperty(a, out var v) || e.TryGetProperty(b, out v)) ? (v.GetString() ?? string.Empty) : string.Empty;
+
+    private static string SlugCol(string label)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var ch in label.ToLowerInvariant())
+        {
+            if (ch is >= 'a' and <= 'z' or >= '0' and <= '9') { sb.Append(ch); }
+            else if (ch is ' ' or '-' or '_') { sb.Append('_'); }
+        }
+        var s = sb.ToString().Trim('_');
+        return s.Length == 0 ? "col" : s;
+    }
+
+    private async Task CerrarAsync()
+    {
+        if (_vista == "tipos") { await GuardarTipoAsync(); }
+        else if (_vista == "secciones") { await GuardarSeccionAsync(); }
+        await OnClosed.InvokeAsync();
+    }
+
+    private static string TipoNombre(TerceroFieldType t)
+        => Tipos.FirstOrDefault(x => x.Key == t).Value ?? t.ToString();
+
+    private static string AnchoNombre(string ancho) => ancho switch
+    {
+        "pequena" => "Pequena", "media" => "Media", _ => "Completa"
+    };
+}
+
+<style>
+    .cfg-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: flex-start; justify-content: center; padding: 3vh 16px; z-index: 1080; overflow-y: auto; }
+    .cfg-modal { position: relative; background: #fff; border-radius: 16px; box-shadow: 0 20px 40px -12px rgba(15,23,42,.22); width: 100%; max-width: 1080px; display: flex; flex-direction: column; }
+    .cfg-header { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.35rem; border-bottom: 1px solid #e2e8f0; }
+    .cfg-head-left { display: flex; align-items: center; gap: .8rem; }
+    .cfg-head-ico { width: 42px; height: 42px; border-radius: .7rem; display: grid; place-items: center; background: #111827; color: #fff; font-size: 1rem; }
+    .cfg-head-title { font-weight: 700; font-size: 16px; color: #0f172a; }
+    .cfg-head-sub { font-size: 12.5px; color: #64748b; }
+    .cfg-x { width: 34px; height: 34px; border-radius: .5rem; border: 1px solid #e2e8f0; background: #fff; color: #64748b; cursor: pointer; }
+    .cfg-x:hover { border-color: #cbd5e1; color: #0f172a; }
+
+    .cfg-vistas { display: flex; gap: .4rem; border-bottom: 1px solid #e2e8f0; padding: 0 1.35rem; }
+    .cfg-vista-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: .65rem .9rem; font-size: 13.5px; font-weight: 500; color: #64748b; display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
+    .cfg-vista-tab:hover { color: #0f172a; }
+    .cfg-vista-tab.on { color: #111827; border-bottom-color: #111827; font-weight: 700; }
+    .cfg-conteo { background: #f1f5f9; color: #64748b; border-radius: .4rem; padding: .05rem .4rem; font-size: 11px; font-weight: 700; min-width: 20px; text-align: center; }
+    .cfg-vista-tab.on .cfg-conteo { background: #111827; color: #fff; }
+
+    .cfg-cuerpo { padding: 1.2rem 1.35rem 1.5rem; max-height: 72vh; overflow-y: auto; }
+    .cfg-vacio { padding: 3rem 1rem; text-align: center; color: #64748b; }
+    .cfg-vacio-sm { padding: 2rem 1rem; text-align: center; color: #94a3b8; font-size: 13px; }
+    .cfg-vacio-sm i { font-size: 1.6rem; opacity: .4; display: block; margin-bottom: .5rem; }
+
+    .cfg-pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.4rem; }
+    .cfg-pill { border: 1.5px solid #e2e8f0; background: #fff; border-radius: .6rem; padding: .42rem .8rem; font-size: 13px; display: inline-flex; align-items: center; gap: .45rem; color: #334155; cursor: pointer; transition: all .18s ease; }
+    .cfg-pill:hover { border-color: #cbd5e1; }
+    .cfg-pill.on { background: #111827; border-color: #111827; color: #fff; font-weight: 600; }
+    .cfg-pill-add { border-style: dashed; color: #64748b; }
+
+    .cfg-grid { display: grid; grid-template-columns: 5fr 7fr; gap: 1rem; }
+    .cfg-col-5, .cfg-col-7 { min-width: 0; }
+    @@media (max-width: 900px) { .cfg-grid { grid-template-columns: 1fr; } }
+
+    .cfg-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: .875rem; box-shadow: 0 1px 2px rgba(15,23,42,.06); padding: 1rem; }
+    .cfg-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .cfg-panel-head h6, .cfg-panel h6 { margin: 0; font-weight: 700; font-size: 14px; color: #0f172a; }
+    .cfg-lateral { background: #fcfdfe; border: 1px solid #e2e8f0; border-radius: .75rem; padding: 1rem; }
+
+    .cfg-fld { margin-bottom: .7rem; }
+    .cfg-fld label { display: block; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: .3rem; }
+    .cfg-input { width: 100%; border: 1px solid #e2e8f0; border-radius: .55rem; font-size: 13.5px; padding: .45rem .6rem; background: #fff; color: #0f172a; }
+    .cfg-input:focus { outline: none; border-color: #94a3b8; box-shadow: 0 0 0 3px rgba(17,24,39,.08); }
+    .cfg-input[readonly], .cfg-input:disabled { background: #f8fafc; color: #64748b; }
+    .cfg-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .cfg-col-row { display: flex; gap: .4rem; align-items: center; margin-bottom: .4rem; }
+    .cfg-col-row .cfg-input:first-child { flex: 1 1 auto; }
+    .cfg-col-row select.cfg-input { width: 96px; flex: 0 0 auto; }
+    .cfg-hint { font-size: 11.5px; color: #94a3b8; margin-top: .25rem; }
+    .cfg-req { color: #ef4444; }
+    .cfg-mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
+    .cfg-meta { font-size: 11.5px; color: #64748b; font-weight: 400; }
+    .cfg-mb1 { margin-bottom: .25rem; } .cfg-mb3 { margin-bottom: .9rem; } .cfg-mt3 { margin-top: .9rem; }
+
+    .cfg-grid-sec { display: grid; grid-template-columns: repeat(12, 1fr); gap: .7rem; }
+    .cfg-c12 { grid-column: span 12; } .cfg-c6 { grid-column: span 6; } .cfg-c3 { grid-column: span 3; }
+    @@media (max-width: 620px) { .cfg-c6, .cfg-c3 { grid-column: span 12; } }
+
+    .cfg-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .cfg-chip { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155; border-radius: 999px; padding: .3rem .75rem; font-size: 12.5px; transition: all .18s ease; }
+    .cfg-chip input { display: none; }
+    .cfg-chip .fa-check { font-size: 10px; opacity: 0; transition: opacity .15s ease; }
+    .cfg-chip:hover { border-color: #cbd5e1; }
+    .cfg-chip.on { background: #f1f5f9; border-color: #111827; color: #111827; font-weight: 600; }
+    .cfg-chip.on .fa-check { opacity: 1; }
+    .cfg-chip-lock { opacity: .55; cursor: not-allowed; }
+
+    .cfg-usos { display: flex; flex-wrap: wrap; gap: .35rem; padding-top: .2rem; }
+    .cfg-chip-tipo { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: .15rem .5rem; border-radius: .4rem; }
+
+    .cfg-secs { display: flex; flex-direction: column; gap: .5rem; }
+    .cfg-secpick { display: flex; align-items: center; gap: .7rem; cursor: pointer; border: 1.5px solid #e2e8f0; background: #fff; border-radius: .7rem; padding: .6rem .8rem; transition: all .18s ease; }
+    .cfg-secpick input { display: none; }
+    .cfg-secpick > .fa-solid, .cfg-secpick > .fa { color: #e2e8f0; font-size: 1rem; transition: color .18s ease; }
+    .cfg-secpick:hover { border-color: #cbd5e1; }
+    .cfg-secpick.on { border-color: #111827; background: #fbfbfc; }
+    .cfg-secpick.on > .fa { color: #111827; }
+    .cfg-secdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+    .cfg-secpick-body { flex-grow: 1; min-width: 0; }
+    .cfg-secpick-name { font-weight: 600; display: block; color: #0f172a; }
+
+    .cfg-campo { border: 1px solid #e2e8f0; border-radius: .7rem; background: #fff; padding: .6rem .75rem; margin-bottom: .5rem; display: flex; align-items: center; gap: .75rem; transition: all .18s ease; }
+    .cfg-campo:hover { border-color: #cbd5e1; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+    .cfg-campo-mv { display: flex; flex-direction: column; gap: .15rem; }
+    .cfg-campo-body { flex-grow: 1; min-width: 0; }
+    .cfg-campo-top { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .cfg-campo-name { font-weight: 600; color: #0f172a; }
+    .cfg-sistema { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: #f1f5f9; color: #64748b; border-radius: .3rem; padding: .1rem .35rem; }
+    .cfg-ancho { font-size: 11.5px; color: #64748b; border: 1px solid #e2e8f0; border-radius: .4rem; padding: .15rem .5rem; white-space: nowrap; }
+
+    .cfg-ico { width: 30px; height: 30px; border-radius: .5rem; border: 1px solid #e2e8f0; background: #fff; color: #64748b; display: inline-grid; place-items: center; cursor: pointer; font-size: 12px; transition: all .18s ease; }
+    .cfg-ico:hover { border-color: #111827; color: #111827; background: #f8fafc; }
+    .cfg-ico-danger:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
+    .cfg-ico-xs { width: 24px; height: 20px; }
+    .cfg-ico-group { display: flex; gap: .3rem; }
+
+    .cfg-check { display: flex; align-items: center; gap: .45rem; font-size: 13px; color: #334155; }
+    .cfg-btn-soft { background: #f1f5f9; color: #111827; border: 1px solid #e2e8f0; font-weight: 600; border-radius: .6rem; padding: .45rem .8rem; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; }
+    .cfg-btn-soft:hover { background: #e5e9f0; }
+    .cfg-btn-primary { background: #111827; color: #fff; border: none; border-radius: .6rem; padding: .5rem .9rem; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+    .cfg-btn-primary:hover { background: #0b0f1a; }
+
+    .cfg-aviso { background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: .6rem; padding: .55rem .75rem; font-size: 12.5px; }
+    .cfg-toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: .5rem .9rem; border-radius: .6rem; font-size: 12.5px; box-shadow: 0 6px 16px rgba(15,23,42,.25); }
+</style>

@@ -58,6 +58,10 @@
     @* bpmn-js (editor de flujos, ADR-0034): estilos base de diagram-js + iconografia BPMN. *@
     <link rel="stylesheet" href="lib/bpmnio/diagram-js.css" />
     <link rel="stylesheet" href="lib/bpmnio/bpmn.css" />
+    @* Font Awesome 6 Free (vendorizado, sin CDN): iconografia del Directorio Modular (Capa 8),
+       fiel al prototipo. v4-shims permite las clases legacy "fa fa-*". *@
+    <link rel="stylesheet" href="lib/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="lib/fontawesome/css/v4-shims.min.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Ecorex.SuperAdmin.styles.css"]" />
     <ImportMap />
@@ -81,6 +85,7 @@
     <script src="js/movil-scan.js?v=3"></script>
     <script src="js/form-canvas.js?v=6"></script>
     <script src="js/gestor-documental.js?v=1"></script>
+    <script src="js/dm-modular.js?v=1"></script>
     @* Apache ECharts UMD (expone window.echarts) + interop del Motor de Reportes (dashboards, Ola 3). *@
     <script src="lib/echarts/echarts.min.js"></script>
     <script src="js/echart-interop.js?v=1"></script>

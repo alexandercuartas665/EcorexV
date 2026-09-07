@@ -1,0 +1,861 @@
+@page "/directorio-modular"
+@attribute [Authorize(Policy = "TenantMember")]
+@* 2do motor de contactos - "Directorio Modular" (Capa 8), version AVANZADA seleccionable.
+   PRIMER SLICE VISUAL (Fase 2): pestanas de categorias + tarjetas de conteo + listado, alimentados
+   por el seed (opcion A). La ficha por secciones y los modales de configuracion vienen despues. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDirectorioCategoriaService Cats
+@inject ITerceroService Terceros
+@inject IDirectorioModularFichaService Fichas
+@inject IDirectoryVariantService DirVariant
+@inject Ecorex.Application.Asesores.IAsesorService Asesores
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Directorio General - ECOREX.tareas</PageTitle>
+
+<div class="dm-wrap">
+    <div class="dm-head">
+        <div>
+            <div class="dm-eyebrow">Catalogo 000232 &middot; negocio</div>
+            <h1 class="dm-title">Directorio General</h1>
+            <p class="dm-sub">Aqui encontraras todas las personas y organizaciones que han tenido y que mantienen relacion con la empresa, clasificadas segun su categoria dentro del directorio.</p>
+        </div>
+    </div>
+
+    <div class="dm-toolbar">
+        <button class="dm-btn" @onclick="OpenImport"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
+        <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
+        <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
+    </div>
+
+    <DirectorioModularFichaModal CategoriaKey="@(_editId is not null ? _editKey : _nuevoKey)" TerceroId="@_editId"
+                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" />
+    <DirectorioModularConfigModal Show="_configOpen" OnClosed="OnConfigClosedAsync" />
+
+    @* --- Mini-modal: nueva categoria --- *@
+    @if (_nuevaCatOpen)
+    {
+        <div class="dm-ov" @onclick="() => _nuevaCatOpen = false">
+            <div class="dm-dlg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Nueva categoria</div>
+                    <button class="dm-dlg-x" @onclick="() => _nuevaCatOpen = false">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <label class="dm-dlg-lbl">Nombre de la categoria</label>
+                    <input class="dm-dlg-input" @bind="_nuevaCatTitle" @bind:event="oninput" placeholder="Ej. Aliados, Transportadores..." />
+                    <p class="dm-dlg-hint">Se creara vacia; luego le agregas secciones desde "Configurar directorio".</p>
+                    @if (_nuevaCatError is not null) { <div class="dm-dlg-err">@_nuevaCatError</div> }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="() => _nuevaCatOpen = false" disabled="@_busy">Cancelar</button>
+                    <button class="dm-btn-primary" @onclick="CrearCategoriaAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- Mini-modal: confirmar eliminacion --- *@
+    @if (_delTarget is not null)
+    {
+        <div class="dm-ov" @onclick="() => _delTarget = null">
+            <div class="dm-dlg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Eliminar tercero</div>
+                    <button class="dm-dlg-x" @onclick="() => _delTarget = null">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <p class="dm-dlg-hint">Vas a eliminar a <strong>@_delTarget.Nombre</strong>. Se marca como eliminado (borrado suave) y deja de aparecer en el directorio.</p>
+                    @if (_delError is not null) { <div class="dm-dlg-err">@_delError</div> }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="() => _delTarget = null" disabled="@_busy">Cancelar</button>
+                    <button class="dm-btn-primary dm-btn-danger" @onclick="EliminarConfirmadoAsync" disabled="@_busy">@(_busy ? "Eliminando..." : "Eliminar")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- Modal: Importar por archivo (reusa la plantilla del Directorio basico) --- *@
+    @if (_impOpen)
+    {
+        <div class="dm-ov" @onclick="CloseImport">
+            <div class="dm-dlg dm-dlg-lg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Importar contactos por archivo</div>
+                    <button class="dm-dlg-x" @onclick="CloseImport">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <p class="dm-dlg-hint">Los contactos se crean en la categoria <strong>@(_activo?.Title ?? "Publico")</strong> del motor Modular. Usa la misma plantilla del Directorio basico.</p>
+                    <div class="dm-imp-actions">
+                        <button class="dm-btn" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl">
+                            <i class="fa fa-download"></i> @(_downloadingTpl ? "Generando..." : "Descargar plantilla")
+                        </button>
+                        <button class="dm-btn" @onclick="ExportAsync" disabled="@_exporting">
+                            <i class="fa fa-file-export"></i> @(_exporting ? "Exportando..." : "Exportar contactos")
+                        </button>
+                        <label class="dm-btn dm-imp-file">
+                            <i class="fa fa-file-arrow-up"></i> Elegir archivo .xlsx
+                            <InputFile OnChange="OnImportFileAsync" accept=".xlsx" style="display:none" />
+                        </label>
+                        @if (_impFileName is not null) { <span class="dm-muted">@_impFileName</span> }
+                    </div>
+
+                    @if (_impBusy && _impParse is null) { <div class="dm-muted">Leyendo archivo...</div> }
+                    @if (_impFatal is not null) { <div class="dm-dlg-err">@_impFatal</div> }
+
+                    @if (_impParse is not null && _impFatal is null)
+                    {
+                        <div class="dm-imp-sum">
+                            <span class="dm-imp-chip">Total: <strong>@_impParse.Total</strong></span>
+                            <span class="dm-imp-chip dm-imp-ok">A crear: <strong>@ImportableCount</strong></span>
+                            @if (_impParse.Invalid > 0) { <span class="dm-imp-chip dm-imp-bad">Con error: <strong>@_impParse.Invalid</strong></span> }
+                            @if (_impDupRows.Count > 0) { <span class="dm-imp-chip dm-imp-dup">Duplicados (se omiten): <strong>@_impDupRows.Count</strong></span> }
+                        </div>
+                        @if (_impFinished)
+                        {
+                            <div class="dm-dlg-hint">Importacion terminada: <strong>@_impDone creado(s)</strong>@(_impFailed > 0 ? $", {_impFailed} con error" : "")@(_impSkipped > 0 ? $", {_impSkipped} omitido(s)" : "").</div>
+                        }
+                    }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="CloseImport" disabled="@_impBusy">@(_impFinished ? "Cerrar" : "Cancelar")</button>
+                    @if (!_impFinished)
+                    {
+                        <button class="dm-btn-primary" @onclick="RunImportAsync" disabled="@(_impBusy || ImportableCount == 0)">
+                            @(_impBusy && _impParse is not null ? $"Importando... ({_impDone})" : $"Importar {ImportableCount}")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @* --- Mini-modal: confirmar migracion Clasico -> Modular --- *@
+    @if (_migrarOpen)
+    {
+        <div class="dm-ov" @onclick="() => _migrarOpen = false">
+            <div class="dm-dlg" @onclick:stopPropagation="true">
+                <div class="dm-dlg-head">
+                    <div class="dm-dlg-title">Migrar del Directorio Clasico</div>
+                    <button class="dm-dlg-x" @onclick="() => _migrarOpen = false">&times;</button>
+                </div>
+                <div class="dm-dlg-body">
+                    <p class="dm-dlg-hint">Se pasaran <strong>@_clasicoCount contacto(s)</strong> del motor Clasico al Modular. Cada uno entra a la categoria <strong>Publico</strong> y conserva sus datos (nombre, identificacion, correo, telefono, ciudad). No se borra nada del Clasico.</p>
+                    @if (_migrarError is not null) { <div class="dm-dlg-err">@_migrarError</div> }
+                </div>
+                <div class="dm-dlg-foot">
+                    <button class="dm-btn" @onclick="() => _migrarOpen = false" disabled="@_busy">Cancelar</button>
+                    <button class="dm-btn-primary" @onclick="MigrarAsync" disabled="@_busy">@(_busy ? "Migrando..." : $"Migrar {_clasicoCount}")</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <p class="dm-muted">Cargando...</p>
+    }
+    else
+    {
+        @* --- Aviso de migracion pendiente desde el motor Clasico --- *@
+        @if (_clasicoCount > 0)
+        {
+            <div class="dm-migra">
+                <div class="dm-migra-txt">
+                    <i class="fa fa-arrows-turn-right"></i>
+                    <span>Hay <strong>@_clasicoCount contacto(s)</strong> en el Directorio Clasico que aun no estan en este motor.</span>
+                </div>
+                <button class="dm-btn-primary" @onclick="() => { _migrarOpen = true; _migrarError = null; }"><i class="fa fa-right-left"></i> Migrar al Modular</button>
+            </div>
+        }
+
+        @* --- Tarjetas de conteo: clicables como filtro (org/persona/por asignar), como el prototipo --- *@
+        <div class="dm-cards">
+            @{ var accent = _activo?.Color ?? "#4f46e5"; }
+            <div class="dm-card dm-card-clic @(_cardFilter is null ? "on" : "")" style="@(_cardFilter is null ? $"border-color:{accent}" : "")" @onclick='() => _cardFilter = null'>
+                <span class="dm-card-ico" style="background:@Tint(accent)"><i class="fa @(_activo?.Icono ?? "fa-address-book")" style="color:@accent"></i></span>
+                <div><div class="dm-card-n" style="color:@accent">@(_activo is null ? _total : CatCount(_activo))</div><div class="dm-card-l">@(_activo?.Title ?? "Total")</div></div>
+            </div>
+            <div class="dm-card dm-card-clic @(_cardFilter == "org" ? "on" : "")" style="@(_cardFilter == "org" ? "border-color:#0ea5e9" : "")" @onclick='() => ToggleCard("org")'>
+                <span class="dm-card-ico" style="background:@Tint("#0ea5e9")"><i class="fa fa-building" style="color:#0ea5e9"></i></span>
+                <div><div class="dm-card-n" style="color:#0ea5e9">@_orgs</div><div class="dm-card-l">Organizaciones</div></div>
+            </div>
+            <div class="dm-card dm-card-clic @(_cardFilter == "per" ? "on" : "")" style="@(_cardFilter == "per" ? "border-color:#10b981" : "")" @onclick='() => ToggleCard("per")'>
+                <span class="dm-card-ico" style="background:@Tint("#10b981")"><i class="fa fa-user" style="color:#10b981"></i></span>
+                <div><div class="dm-card-n" style="color:#10b981">@_personas</div><div class="dm-card-l">Personas</div></div>
+            </div>
+            <div class="dm-card dm-card-clic @(_cardFilter == "porasignar" ? "on" : "")" style="@(_cardFilter == "porasignar" ? "border-color:#f59e0b" : "")" @onclick='() => ToggleCard("porasignar")'>
+                <span class="dm-card-ico" style="background:@Tint("#f59e0b")"><i class="fa fa-circle-question" style="color:#f59e0b"></i></span>
+                <div><div class="dm-card-n" style="color:#f59e0b">@_porAsignar</div><div class="dm-card-l">Por asignar</div></div>
+            </div>
+            <div class="dm-card">
+                <span class="dm-card-ico" style="background:@Tint("#8b5cf6")"><i class="fa fa-seedling" style="color:#8b5cf6"></i></span>
+                <div><div class="dm-card-n" style="color:#8b5cf6">@_nuevos</div><div class="dm-card-l">Nuevos (30 dias)</div></div>
+            </div>
+        </div>
+
+        @* --- Pestanas de categorias con conteo --- *@
+        <div class="dm-tabs">
+            <span class="dm-tabs-lbl">Categoria:</span>
+            @* Orden como el prototipo: Publico (base) primero, el resto alfabetico. *@
+            @foreach (var c in _cats.OrderBy(x => x.CategoriaKey == "publico" ? 0 : 1).ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase))
+            {
+                var on = _activo?.CategoriaKey == c.CategoriaKey;
+                <button class="dm-tab @(on ? "on" : "")" style="@(on ? $"--dm-accent:{c.Color ?? "#4f46e5"}" : "")"
+                        @onclick="() => _activo = c">
+                    <i class="fa @c.Icono"></i> @c.Title
+                    <span class="dm-tab-n">@CatCount(c)</span>
+                    @if (c.Protegido) { <span class="dm-lock" title="Categoria base (no se elimina)"><i class="fa fa-lock"></i></span> }
+                </button>
+            }
+            <button class="dm-tab-add" title="Crear categoria" @onclick="() => { _nuevaCatOpen = true; _nuevaCatTitle = string.Empty; _nuevaCatError = null; }"><i class="fa fa-plus"></i></button>
+        </div>
+
+        @* --- Buscador --- *@
+        <div class="dm-search">
+            <i class="fa fa-search"></i>
+            <input placeholder="Buscar por nombre, contacto, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
+            @if (!string.IsNullOrWhiteSpace(_search))
+            {
+                <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>
+            }
+        </div>
+
+        @* --- Listado (filtrado por categoria activa + busqueda) --- *@
+        @if (Visibles().Count == 0)
+        {
+            <div class="dm-empty">
+                @if (_rows.Count == 0)
+                {
+                    <text>Aun no hay terceros en el catalogo.</text>
+                }
+                else
+                {
+                    <text>Ningun tercero coincide con el filtro actual.</text>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="dm-table-wrap">
+                <table class="dm-table">
+                    <thead>
+                        <tr>
+                            <th class="dm-th-exp"></th>
+                            <th>Tercero</th>
+                            <th>Identificacion</th>
+                            <th>Responsable</th>
+                            <th>Estado</th>
+                            <th class="dm-th-acc">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Visibles())
+                        {
+                            var tid = t.Id;
+                            var canExpand = t.EsEmpresa && t.ContadorContactos > 0;
+                            <tr>
+                                <td class="dm-td-exp">
+                                    @if (canExpand)
+                                    {
+                                        <button class="dm-exp @(_expanded.Contains(tid) ? "on" : "")" title="Ver contactos" @onclick="() => ToggleExpand(tid)"><i class="fa fa-chevron-right"></i></button>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="dm-tercero">
+                                        <span class="dm-avatar" style="background:@AvatarColor(t.Nombre)">@Initials(t.Nombre)</span>
+                                        <div class="dm-tercero-body">
+                                            <div class="dm-tercero-top">
+                                                <span class="dm-name">@t.Nombre</span>
+                                                @if (t.EsEmpresa)
+                                                {
+                                                    <span class="dm-nat dm-nat-org">Organizacion@(t.ContadorContactos > 0 ? $" · {t.ContadorContactos}" : "")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="dm-nat dm-nat-per">Persona</span>
+                                                }
+                                            </div>
+                                            <div class="dm-chiprow">
+                                                @if (!ChipsDe(tid).Any())
+                                                {
+                                                    <span class="dm-por-asignar">Por asignar</span>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var ch in ChipsDe(tid))
+                                                    {
+                                                        <span class="dm-catchip" style="background:@Tint(ch.Color);color:@ch.Color">@ch.Title</span>
+                                                    }
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(t.Sub) || (!t.EsEmpresa && !string.IsNullOrWhiteSpace(t.EmpresaNombre)))
+                                            {
+                                                <div class="dm-tercero-sub">
+                                                    @if (!string.IsNullOrWhiteSpace(t.Sub)) { <span>@t.Sub</span> }
+                                                    @if (!t.EsEmpresa && !string.IsNullOrWhiteSpace(t.EmpresaNombre))
+                                                    {
+                                                        <span class="dm-link"><i class="fa fa-link"></i> @t.EmpresaNombre</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="dm-mono">@(string.IsNullOrWhiteSpace(t.Identificacion) ? "-" : t.Identificacion)</td>
+                                <td class="dm-resp">@Responsable(t)</td>
+                                <td>
+                                    @if (t.Estado == TerceroEstado.Inactivo)
+                                    {
+                                        <span class="dm-chip dm-chip-off">Inactivo</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="dm-chip dm-chip-on">Activo</span>
+                                    }
+                                </td>
+                                <td class="dm-acc">
+                                    <button class="dm-acc-btn" title="Editar" @onclick="() => OpenEditar(t)"><i class="fa fa-pen"></i></button>
+                                    <button class="dm-acc-btn dm-acc-del" title="Eliminar" @onclick="() => PedirEliminar(t)"><i class="fa fa-trash"></i></button>
+                                </td>
+                            </tr>
+                            @if (canExpand && _expanded.Contains(tid))
+                            {
+                                <tr class="dm-exp-row">
+                                    <td></td>
+                                    <td colspan="5" class="dm-exp-cell">
+                                        @if (!_childs.TryGetValue(tid, out var hijos))
+                                        {
+                                            <span class="dm-exp-lbl"><i class="fa fa-users"></i> Cargando contactos...</span>
+                                        }
+                                        else if (hijos.Count == 0)
+                                        {
+                                            <span class="dm-exp-lbl"><i class="fa fa-users"></i> Sin contactos asociados.</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="dm-exp-lbl"><i class="fa fa-users"></i> @hijos.Count contacto(s) asociado(s)</span>
+                                            <div class="dm-childs">
+                                                @foreach (var h in hijos)
+                                                {
+                                                    <div class="dm-child">
+                                                        <span class="dm-child-av" style="background:@AvatarColor(h.Nombre)">@Initials(h.Nombre)</span>
+                                                        <div class="dm-child-body">
+                                                            <div class="dm-child-name">@h.Nombre @if (!string.IsNullOrWhiteSpace(h.Cargo)) { <span class="dm-child-cargo">&middot; @h.Cargo</span> }</div>
+                                                            <div class="dm-child-meta">
+                                                                @if (!string.IsNullOrWhiteSpace(h.Telefono)) { <span><i class="fa fa-phone"></i> @h.Telefono</span> }
+                                                                @if (!string.IsNullOrWhiteSpace(h.Email)) { <span><i class="fa fa-envelope"></i> @h.Email</span> }
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="dm-foot">
+            <span class="dm-muted">@_cats.Count categorias &middot; @_secciones secciones &middot; @_campos campos configurados (seed del prototipo)</span>
+        </div>
+    }
+</div>
+
+<style>
+    .dm-wrap { font-family: 'Inter', system-ui, sans-serif; color: #1f2937; padding: 22px 26px; max-width: 1240px; }
+    .dm-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+    .dm-eyebrow { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6366f1; }
+    .dm-title { font-size: 24px; font-weight: 800; margin: 2px 0 4px; }
+    .dm-sub { font-size: 13px; color: #6b7280; margin: 0; max-width: 640px; }
+    .dm-muted { color: #9ca3af; font-size: 12.5px; }
+    .dm-btn-primary { background: #111827; color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; }
+    .dm-btn-primary:hover { background: #0b0f1a; }
+    .dm-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .dm-btn-danger { background: #dc2626; } .dm-btn-danger:hover { background: #b91c1c; }
+
+    .dm-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #eef0f3; padding-bottom: 12px; margin-bottom: 16px; }
+    .dm-tab { --dm-accent: #4f46e5; display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 999px; padding: 7px 15px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .12s; }
+    .dm-tab:hover { border-color: #c7cbd1; }
+    .dm-tab.on { background: #111827; border-color: #111827; color: #fff; }
+    .dm-tab i { font-size: 12px; }
+    .dm-lock { opacity: .6; font-size: 10px; }
+
+    .dm-toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .dm-btn { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e5e7eb; color: #374151; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .dm-btn:disabled { opacity: .55; cursor: not-allowed; }
+    .dm-toolbar .dm-btn-primary { margin-left: auto; }
+
+    .dm-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+    .dm-card { background: #fff; border: 1px solid #eef0f3; border-radius: 12px; padding: 13px 15px; box-shadow: 0 1px 2px rgba(16,24,40,.04); display: flex; align-items: center; gap: 12px; }
+    .dm-card-ico { width: 38px; height: 38px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .dm-card-clic { cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
+    .dm-card-clic:hover { box-shadow: 0 2px 8px rgba(16,24,40,.08); }
+    .dm-card.on { border-width: 1.5px; box-shadow: 0 2px 8px rgba(16,24,40,.08); }
+    .dm-card-n { font-size: 24px; font-weight: 800; line-height: 1; }
+    .dm-card-l { font-size: 12px; color: #6b7280; margin-top: 5px; }
+
+    .dm-tabs-lbl { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; align-self: center; margin-right: 2px; }
+    .dm-tab-n { background: rgba(17,24,39,.06); color: inherit; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 2px; }
+    .dm-tab.on .dm-tab-n { background: rgba(255,255,255,.22); color: #fff; }
+    .dm-tab-add { border: 1px dashed #c7cbd1; background: #fff; color: #6b7280; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+    .dm-tab-add:hover { border-color: #4f46e5; color: #4f46e5; }
+
+    .dm-ov { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 20px; }
+    .dm-dlg { background: #fff; border-radius: 13px; width: 440px; max-width: 94vw; box-shadow: 0 20px 50px rgba(16,24,40,.25); }
+    .dm-dlg-lg { width: 620px; }
+    .dm-imp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+    .dm-imp-file { cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .dm-imp-sum { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .dm-imp-chip { font-size: 12px; background: #f3f4f6; color: #374151; border-radius: 999px; padding: 4px 11px; }
+    .dm-imp-ok { background: #ecfdf5; color: #047857; }
+    .dm-imp-bad { background: #fef2f2; color: #b91c1c; }
+    .dm-imp-dup { background: #fffbeb; color: #92400e; }
+    .dm-dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #eef0f3; }
+    .dm-dlg-title { font-size: 16px; font-weight: 800; color: #111827; }
+    .dm-dlg-x { background: none; border: none; font-size: 22px; color: #9ca3af; cursor: pointer; line-height: 1; }
+    .dm-dlg-body { padding: 18px 20px; }
+    .dm-dlg-lbl { font-size: 12px; font-weight: 600; color: #374151; display: block; margin-bottom: 6px; }
+    .dm-dlg-input { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 9px 11px; font-size: 13px; outline: none; }
+    .dm-dlg-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .dm-dlg-hint { font-size: 11.5px; color: #9ca3af; margin: 8px 0 0; }
+    .dm-dlg-err { color: #dc2626; font-size: 12.5px; font-weight: 600; margin-top: 8px; }
+    .dm-dlg-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #eef0f3; }
+
+    .dm-search { display: flex; align-items: center; gap: 9px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 9px 13px; margin-bottom: 14px; color: #9ca3af; }
+    .dm-search input { border: none; outline: none; flex: 1; font-size: 13px; color: #374151; background: transparent; }
+    .dm-search-x { border: none; background: none; color: #9ca3af; cursor: pointer; padding: 0 2px; font-size: 13px; }
+    .dm-search-x:hover { color: #111827; }
+    .dm-migra { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; }
+    .dm-migra-txt { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #92400e; }
+    .dm-migra-txt i { color: #d97706; }
+
+    .dm-table-wrap { border: 1px solid #eef0f3; border-radius: 12px; overflow: hidden; background: #fff; }
+    .dm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dm-table thead th { text-align: left; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 10px 14px; border-bottom: 1px solid #eef0f3; }
+    .dm-table tbody td { padding: 10px 14px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+    .dm-table tbody tr:last-child td { border-bottom: none; }
+    .dm-th-exp, .dm-td-exp { width: 34px; padding-right: 0 !important; }
+    .dm-th-acc { text-align: right; }
+    .dm-mono { font-variant-numeric: tabular-nums; color: #4b5563; }
+    .dm-resp { color: #4b5563; }
+
+    .dm-exp { border: none; background: none; color: #9ca3af; cursor: pointer; padding: 4px; transition: transform .12s; }
+    .dm-exp.on { transform: rotate(90deg); color: #4f46e5; }
+
+    .dm-tercero { display: flex; align-items: center; gap: 11px; }
+    .dm-avatar { width: 34px; height: 34px; border-radius: 9px; color: #fff; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .dm-tercero-body { min-width: 0; }
+    .dm-tercero-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .dm-name { font-weight: 700; color: #111827; }
+    .dm-nat { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; }
+    .dm-nat-org { background: #eff6ff; color: #1d4ed8; }
+    .dm-nat-per { background: #f0fdf4; color: #15803d; }
+    .dm-chiprow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+    .dm-catchip { font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 1px 7px; }
+    .dm-tercero-sub { font-size: 11.5px; color: #9ca3af; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .dm-tercero-sub .dm-link { color: #6b7280; }
+    .dm-tercero-sub .dm-link i { color: #9ca3af; margin-right: 3px; font-size: 10px; }
+    .dm-por-asignar { font-size: 11.5px; color: #9ca3af; }
+
+    .dm-acc { text-align: right; white-space: nowrap; }
+    .dm-acc-btn { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 7px; width: 30px; height: 30px; cursor: pointer; margin-left: 5px; }
+    .dm-acc-btn:hover { background: #f9fafb; }
+    .dm-acc-del:hover { color: #dc2626; border-color: #fecaca; }
+
+    .dm-exp-row td { background: #fafafe; }
+    .dm-exp-cell { color: #6b7280; font-size: 12px; padding: 10px 16px !important; }
+    .dm-exp-lbl i { color: #4f46e5; margin-right: 6px; }
+    .dm-childs { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .dm-child { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #eef0f3; border-radius: 9px; padding: 8px 12px; }
+    .dm-child-av { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .dm-child-name { font-size: 12.5px; font-weight: 600; color: #1f2937; }
+    .dm-child-cargo { color: #9ca3af; font-weight: 400; }
+    .dm-child-meta { display: flex; gap: 14px; font-size: 11.5px; color: #6b7280; margin-top: 1px; }
+    .dm-child-meta i { color: #9ca3af; margin-right: 4px; }
+
+    .dm-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 3px 9px; }
+    .dm-chip-on { background: #ecfdf5; color: #059669; }
+    .dm-chip-off { background: #f3f4f6; color: #6b7280; }
+
+    .dm-empty { background: #fff; border: 1px dashed #e5e7eb; border-radius: 12px; padding: 40px; text-align: center; color: #9ca3af; font-size: 13.5px; }
+    .dm-foot { margin-top: 14px; }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _nuevoKey;   // categoria del modal de creacion abierto (null = cerrado)
+    private Guid? _editId;       // tercero en edicion (null = no editando)
+    private string? _editKey;    // categoria base para abrir el modal de edicion
+    private bool _configOpen;    // modal "Configurar directorio" abierto
+    private string _search = string.Empty;   // texto de busqueda del listado
+    private string? _cardFilter;             // filtro por tarjeta de conteo: null | "org" | "per" | "porasignar"
+    private TerceroListItemDto? _delTarget;   // tercero pendiente de confirmar eliminacion
+    private string? _delError;
+    private int _clasicoCount;               // contactos del motor Clasico pendientes de migrar
+    private bool _migrarOpen;
+    private string? _migrarError;
+
+    // --- Importar por archivo (reusa el parser/plantilla del Directorio basico) ---
+    private bool _impOpen, _impBusy, _impFinished, _downloadingTpl, _exporting;
+    private string? _impFileName, _impFatal;
+    private TerceroImportXlsx.TerceroImportParse? _impParse;
+    private readonly HashSet<int> _impDupRows = new();
+    private int _impDone, _impFailed, _impSkipped;
+    private int ImportableCount => _impParse?.Rows.Count(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)) ?? 0;
+    private const long ImpMaxBytes = 12L * 1024 * 1024;
+    private bool _nuevaCatOpen;
+    private string _nuevaCatTitle = string.Empty;
+    private string? _nuevaCatError;
+    private IReadOnlyList<DirectorioCategoriaDto> _cats = Array.Empty<DirectorioCategoriaDto>();
+    private IReadOnlyDictionary<string, int> _catCounts = new Dictionary<string, int>();
+    private IReadOnlyDictionary<Guid, List<string>> _memberships = new Dictionary<Guid, List<string>>();
+    private readonly HashSet<Guid> _expanded = new();
+    private readonly Dictionary<Guid, IReadOnlyList<TerceroContactoDto>> _childs = new();
+    private DirectorioCategoriaDto? _activo;
+    private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
+    private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Gate: esta pagina solo la atiende el tenant con la variante Modular (hoy SOLDARCO). Otros,
+        // redirigen al Directorio General clasico. Defensa en profundidad ademas del menu.
+        if (await DirVariant.GetAsync() != DirectoryVariant.Modular)
+        {
+            Nav.NavigateTo("/directorio-general", forceLoad: false, replace: true);
+            return;
+        }
+
+        // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
+        _cats = await Cats.ListAsync();
+        _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
+        _activo = _cats.FirstOrDefault();
+
+        _nuevos = 0;
+        await ReloadListAsync();
+
+        _secciones = DirectorioModularDefaults.Secciones.Length;
+        _campos = DirectorioModularDefaults.Campos.Length;
+
+        _loading = false;
+    }
+
+    // Recarga listado, contadores por categoria, membresias y el conteo de Clasico pendiente de migrar.
+    private async Task ReloadListAsync()
+    {
+        _rows = await Terceros.ListAsync(new TerceroListFilter(Engine: DirectoryEngine.Modular, IncludeSubContacts: true));
+        _total = _rows.Count;
+        _orgs = _rows.Count(r => r.EsEmpresa);
+        _personas = _rows.Count(r => r.EsPersona);
+        _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
+        // "Por asignar" = terceros sin categoria mas alla de la base (se calcula tras cargar membresias).
+        _porAsignar = _rows.Count(r => SoloBase(r.Id));
+        _clasicoCount = await Fichas.CountClasicoAsync();
+    }
+
+    private void OpenImport()
+    {
+        _impOpen = true; _impParse = null; _impFatal = null; _impFileName = null;
+        _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+    }
+
+    private void CloseImport() { if (!_impBusy) { _impOpen = false; } }
+
+    private async Task DownloadTemplateAsync()
+    {
+        _downloadingTpl = true;
+        try
+        {
+            var asesores = await Asesores.ListOptionsAsync();
+            var vendedores = asesores.Select(a => a.Nombre);
+            var ciudades = _rows.Select(r => r.Ciudad).Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!);
+            var bytes = TerceroTemplateXlsx.Build(vendedores, ciudades);
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-directorio.xlsx", TerceroTemplateXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _downloadingTpl = false; }
+    }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        try
+        {
+            var bytes = await Fichas.ExportXlsxAsync();
+            var nombre = $"directorio-modular-{DateTime.Now:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", nombre, TerceroExportXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _exporting = false; }
+    }
+
+    private async Task OnImportFileAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _impFileName = file.Name;
+        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+        _impBusy = true;
+        try
+        {
+            if (file.Size > ImpMaxBytes) { _impFatal = "El archivo supera el limite de 12 MB."; return; }
+            using var ms = new System.IO.MemoryStream();
+            await file.OpenReadStream(ImpMaxBytes).CopyToAsync(ms);
+            ms.Position = 0;
+            var asesores = await Asesores.ListOptionsAsync();
+            var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in asesores) { byName[a.Nombre] = a.Id; }
+            _impParse = TerceroImportXlsx.Parse(ms, byName);
+            if (_impParse.FatalError is not null) { _impFatal = _impParse.FatalError; }
+            else { await ComputeDuplicatesAsync(); }
+        }
+        catch (Exception ex) { _impFatal = "No se pudo procesar el archivo: " + ex.Message; }
+        finally { _impBusy = false; }
+    }
+
+    private async Task ComputeDuplicatesAsync()
+    {
+        _impDupRows.Clear();
+        if (_impParse is null) { return; }
+        var keys = await Terceros.GetDedupKeysAsync();
+        var seenDocs = new HashSet<string>(keys.Documentos, StringComparer.Ordinal);
+        var seenNames = new HashSet<string>(keys.Nombres, StringComparer.Ordinal);
+        foreach (var row in _impParse.Rows.Where(r => r.IsValid))
+        {
+            var dup = row.DocKey is not null ? !seenDocs.Add(row.DocKey) : !seenNames.Add(row.NameKey);
+            if (dup) { _impDupRows.Add(row.RowNumber); }
+        }
+    }
+
+    private async Task RunImportAsync()
+    {
+        if (_impParse is null || _impBusy) { return; }
+        var toCreate = _impParse.Rows.Where(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)).ToList();
+        _impSkipped = _impParse.Rows.Count(r => r.IsValid && _impDupRows.Contains(r.RowNumber));
+        if (toCreate.Count == 0) { _impFinished = true; return; }
+        _impBusy = true; _impDone = 0; _impFailed = 0;
+        try
+        {
+            var (done, failed) = await Fichas.ImportAsync(_activo?.CategoriaKey ?? "publico", toCreate);
+            _impDone = done; _impFailed = failed; _impFinished = true;
+            await ReloadListAsync();
+        }
+        finally { _impBusy = false; }
+    }
+
+    private async Task MigrarAsync()
+    {
+        _migrarError = null;
+        _busy = true;
+        try
+        {
+            await Fichas.MigrateAllFromClasicoAsync();
+            _migrarOpen = false;
+            await ReloadListAsync();
+        }
+        catch (Exception ex) { _migrarError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Abre el modal de ficha en modo EDICION para el tercero dado. La categoria base es su primera
+    // pertenencia (o la activa/Publico como respaldo); el modal re-deduce la real al cargar.
+    private void OpenEditar(TerceroListItemDto t)
+    {
+        _editKey = (_memberships.TryGetValue(t.Id, out var ks) && ks.Count > 0)
+            ? ks[0]
+            : (_activo?.CategoriaKey ?? "publico");
+        _editId = t.Id;
+    }
+
+    private void OnFichaClosed()
+    {
+        _nuevoKey = null;
+        _editId = null;
+        _editKey = null;
+    }
+
+    // Tras crear o editar un tercero: cierra el modal y recarga listado, contadores y membresias.
+    private async Task OnFichaSavedAsync()
+    {
+        _nuevoKey = null;
+        _editId = null;
+        _editKey = null;
+        await ReloadListAsync();
+    }
+
+    // Al cerrar "Configurar directorio": recarga categorias y conteos (pudo cambiar la composicion).
+    private async Task OnConfigClosedAsync()
+    {
+        _configOpen = false;
+        _cats = await Cats.ListAsync();
+        _catCounts = await Cats.CountByCategoriaAsync();
+        _memberships = await Cats.MembershipsAsync();
+        if (_activo is not null)
+        {
+            _activo = _cats.FirstOrDefault(c => c.CategoriaKey == _activo.CategoriaKey) ?? _cats.FirstOrDefault();
+        }
+    }
+
+    private void PedirEliminar(TerceroListItemDto t)
+    {
+        _delTarget = t;
+        _delError = null;
+    }
+
+    private async Task EliminarConfirmadoAsync()
+    {
+        if (_delTarget is null) { return; }
+        _delError = null;
+        _busy = true;
+        try
+        {
+            var res = await Terceros.DeleteAsync(_delTarget.Id);
+            if (!res.IsOk) { _delError = res.Error ?? "No se pudo eliminar."; return; }
+            _delTarget = null;
+            await ReloadListAsync();   // recarga listado y contadores tras el borrado suave
+        }
+        catch (Exception ex) { _delError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Filas visibles del listado: filtradas por la categoria activa (la base Publico muestra todo) y por
+    // el texto de busqueda (nombre, identificacion, ciudad, subtitulo y valores filtrables).
+    private List<TerceroListItemDto> Visibles()
+    {
+        IEnumerable<TerceroListItemDto> q = _rows;
+
+        // Filtro por categoria: la base (Publico/protegida) no filtra; las demas, por pertenencia.
+        if (_activo is not null && !_activo.Protegido)
+        {
+            var key = _activo.CategoriaKey;
+            q = q.Where(t => _memberships.TryGetValue(t.Id, out var ks) && ks.Contains(key));
+        }
+
+        // Filtro por tarjeta de conteo (se combina con la categoria y la busqueda).
+        q = _cardFilter switch
+        {
+            "org" => q.Where(t => t.EsEmpresa),
+            "per" => q.Where(t => t.EsPersona),
+            "porasignar" => q.Where(t => SoloBase(t.Id)),
+            _ => q
+        };
+
+        // Busqueda libre (case/acentos-insensible simple por minusculas).
+        var term = (_search ?? string.Empty).Trim();
+        if (term.Length > 0)
+        {
+            var needle = term.ToLowerInvariant();
+            q = q.Where(t => Coincide(t, needle));
+        }
+
+        return q.ToList();
+    }
+
+    private void ToggleCard(string key) => _cardFilter = _cardFilter == key ? null : key;
+
+    // "Por asignar": el tercero no pertenece a ninguna categoria mas alla de la base "publico".
+    private bool SoloBase(Guid id)
+        => !_memberships.TryGetValue(id, out var ks) || ks.Count == 0 || ks.All(k => k == "publico");
+
+    private static bool Coincide(TerceroListItemDto t, string needle)
+    {
+        if (Contiene(t.Nombre, needle) || Contiene(t.Identificacion, needle)
+            || Contiene(t.Ciudad, needle) || Contiene(t.Sub, needle)
+            || Contiene(t.Vendedor, needle) || Contiene(t.VendedorAsesorNombre, needle))
+        {
+            return true;
+        }
+        if (t.Filtrables is not null)
+        {
+            foreach (var v in t.Filtrables.Values)
+            {
+                if (Contiene(v, needle)) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static bool Contiene(string? hay, string needle)
+        => !string.IsNullOrEmpty(hay) && hay.ToLowerInvariant().Contains(needle);
+
+    // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
+    private int CatCount(DirectorioCategoriaDto c)
+        => c.Protegido ? _total : (_catCounts.TryGetValue(c.CategoriaKey, out var n) ? n : 0);
+
+    // Fondo tenue del color de acento para el icono de la tarjeta / chip.
+    private static string Tint(string hex) => $"color-mix(in srgb, {hex} 14%, #fff)";
+
+    private async Task CrearCategoriaAsync()
+    {
+        _nuevaCatError = null;
+        var title = (_nuevaCatTitle ?? string.Empty).Trim();
+        if (title.Length is 0 or > 80) { _nuevaCatError = "El nombre es obligatorio (maximo 80)."; return; }
+        _busy = true;
+        try
+        {
+            var dto = await Cats.CreateAsync(new CreateDirectorioCategoriaRequest(title));
+            if (dto is null) { _nuevaCatError = "No se pudo crear la categoria."; return; }
+            _nuevaCatOpen = false;
+            _cats = await Cats.ListAsync();
+            _catCounts = await Cats.CountByCategoriaAsync();
+            _activo = _cats.FirstOrDefault(c => c.CategoriaKey == dto.CategoriaKey) ?? _activo;
+        }
+        catch (Exception ex) { _nuevaCatError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleExpand(Guid id)
+    {
+        if (!_expanded.Add(id)) { _expanded.Remove(id); return; }
+        // Carga perezosa de los contactos hijos la primera vez que se expande.
+        if (!_childs.ContainsKey(id))
+        {
+            _childs[id] = await Terceros.ListContactosAsync(id);
+        }
+    }
+
+    // Chips de categoria de una fila: Publico (base, siempre) + sus membresias, mapeadas a titulo/color.
+    // Chips de categoria de la fila = sus membresias reales. Sin ninguna (p.ej. una persona vinculada a una
+    // empresa que no esta en categoria), el listado muestra "Por asignar", como el prototipo (chipsTipo).
+    private IEnumerable<(string Title, string Color)> ChipsDe(Guid tid)
+    {
+        if (!_memberships.TryGetValue(tid, out var ms) || ms.Count == 0) { yield break; }
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var k in ms)
+        {
+            if (!seen.Add(k)) { continue; }
+            var cat = _cats.FirstOrDefault(c => string.Equals(c.CategoriaKey, k, StringComparison.OrdinalIgnoreCase));
+            yield return (cat?.Title ?? k, cat?.Color ?? "#4f46e5");
+        }
+    }
+
+    private static string Responsable(TerceroListItemDto t)
+        => !string.IsNullOrWhiteSpace(t.VendedorAsesorNombre) ? t.VendedorAsesorNombre!
+         : !string.IsNullOrWhiteSpace(t.Vendedor) ? t.Vendedor! : "—";
+
+    private static string Initials(string? name)
+    {
+        var parts = (name ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        var a = parts[0][..1];
+        var b = parts.Length > 1 ? parts[1][..1] : "";
+        return (a + b).ToUpperInvariant();
+    }
+
+    private static readonly string[] _avPalette = { "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0891b2", "#db2777" };
+    private static string AvatarColor(string? name)
+    {
+        var h = 0;
+        foreach (var ch in name ?? "") { h = (h * 31 + ch) & 0x7fffffff; }
+        return _avPalette[h % _avPalette.Length];
+    }
+}

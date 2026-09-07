@@ -40,5 +40,23 @@ public enum TerceroFieldType
     /// Proveedor/Empleado/Todos, y la presentacion) va serializada en <c>Options</c>, como el Lookup,
     /// asi que no hizo falta ninguna columna nueva. Ver <c>Ecorex.Application.Forms.Lookups</c>.
     /// </summary>
-    DirectoryLookup
+    DirectoryLookup,
+
+    // ---- Tipos del 2do motor de contactos (Directorio Modular, Capa 8) ----
+
+    /// <summary>Seleccion multiple: varias opciones de una lista (las opciones van en <c>Options</c>,
+    /// una por linea, igual que Select). Los valores elegidos se guardan como arreglo JSON en la celda.</summary>
+    MultiSelect,
+
+    /// <summary>Casilla de verificacion: valor booleano (true/false).</summary>
+    Checkbox,
+
+    /// <summary>Tabla de filas dinamicas: crece por filas. La definicion de sus columnas (clave, etiqueta,
+    /// tipo, opciones, autollenado) va serializada en <c>Options</c> como JSON, con el mismo patron que
+    /// Lookup/DirectoryLookup (sin columna nueva). El valor por tercero se guarda como arreglo JSON de filas.</summary>
+    Table,
+
+    /// <summary>Correo electronico: se pinta como &lt;input type="email"&gt; (validacion nativa del navegador).
+    /// Se agrego al final para no correr los valores enteros de los demas tipos ya persistidos.</summary>
+    Email
 }

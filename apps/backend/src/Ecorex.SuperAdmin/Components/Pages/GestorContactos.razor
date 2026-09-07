@@ -13,6 +13,8 @@
 @inject IGestorContactosService GestorSvc
 @inject ITerceroService TerceroSvc
 @inject IOportunidadEstadoService EstadosSvc
+@inject IDirectoryVariantService DirVariant
+@inject IDirectorioModularFichaService ModularFichas
 
 <PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
 
@@ -880,6 +882,10 @@
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
 <TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" OnIncorporarProspecto="IncorporarProspectoAsync" />
 
+@* Cuando el tenant usa el motor Modular, "Nuevo contacto" abre la ficha Modular (no el modal Clasico),
+   para que el alta coincida con el Directorio configurado. Parameter-driven (CategoriaKey abre/cierra). *@
+<DirectorioModularFichaModal CategoriaKey="@_modularNuevoKey" TerceroId="@_modularEditId" OnClosed="OnModularClosed" OnSaved="OnModularSavedAsync" />
+
 @* Configurar busquedas de contactos (agente Colmena -> agente IA -> prospecto). *@
 <ContactSearchConfig @ref="_searchCfg" />
 
@@ -948,9 +954,29 @@
     // Disenador de acciones por filtro (ADR-0056, Fase 1). Se abre desde "Acciones" del menu del filtro.
     private ContactWorkflowDesigner? _workflowDesigner;
 
+    // "Nuevo contacto" abre el modal ACORDE A LA VARIANTE del tenant: si esta en Modular, la ficha por
+    // secciones del 2do motor (categoria base "publico"); en cualquier otra variante, el modal Clasico.
+    private string? _modularNuevoKey;   // categoria abierta en la ficha Modular al CREAR (null = cerrada)
+    private Guid? _modularEditId;        // tercero abierto en la ficha Modular al EDITAR (null = no editando)
+
     private async Task OpenNewContact()
     {
-        if (_terceroModal is not null) { await _terceroModal.OpenCreate(); }
+        if (await DirVariant.GetAsync() == DirectoryVariant.Modular)
+        {
+            _modularNuevoKey = "publico";
+        }
+        else if (_terceroModal is not null)
+        {
+            await _terceroModal.OpenCreate();
+        }
+    }
+
+    private void OnModularClosed() { _modularNuevoKey = null; _modularEditId = null; }
+
+    private async Task OnModularSavedAsync()
+    {
+        _modularNuevoKey = null; _modularEditId = null;
+        await ReloadAllAsync();
     }
 
     private async Task OpenAccionesAsync(FiltroDto filtro)
@@ -1591,6 +1617,16 @@
     // (notas, oportunidades y cableado CRM viven ahora en TerceroModal con CrmWiring=true).
     private async Task OpenClienteAsync(Guid terceroId)
     {
+        // Ruteo por el MOTOR REAL del tercero (no solo la variante del tenant): el Cargador lista terceros
+        // de ambos motores. Si el tercero es Modular, se edita con la ficha Modular; si es Clasico (o el
+        // tenant no usa Modular), con el TerceroModal Clasico. GetTerceroParaEditarAsync devuelve null si
+        // el tercero NO es Modular, asi que sirve para decidir sin exponer el enum en el DTO del listado.
+        if (await DirVariant.GetAsync() == DirectoryVariant.Modular
+            && await ModularFichas.GetTerceroParaEditarAsync(terceroId) is not null)
+        {
+            _modularEditId = terceroId;
+            return;
+        }
         if (_terceroModal is not null) { await _terceroModal.OpenEditAsync(terceroId); }
     }
 

@@ -57,6 +57,10 @@
                 <select class="form-control" value="@_dirVariant" @onchange="OnDirVariantChangedAsync">
                     <option value="Ligero">Ligero (por defecto)</option>
                     <option value="Especializado">Especializado</option>
+                    @if (_canModular)
+                    {
+                        <option value="Modular">Modular (2do motor de contactos)</option>
+                    }
                 </select>
             </div>
             <div class="page-sub" style="max-width:440px;font-size:.85rem;margin-top:22px;">
@@ -459,21 +463,29 @@ else
         _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
         await ReloadAsync();
         _dirVariant = (await DirVariant.GetAsync()).ToString();
+        _canModular = await DirVariant.CanUseModularAsync();
         _loading = false;
     }
 
-    // Variante del Directorio (Ligero | Especializado) para este tenant. Se guarda de inmediato.
+    // Variante del Directorio (Ligero | Especializado | Modular) para este tenant. Se guarda de inmediato.
     private string _dirVariant = nameof(DirectoryVariant.Ligero);
+    private bool _canModular;   // el tenant puede elegir el motor Modular (gateado a SOLDARCO)
     private string? _dirVariantMsg;
 
     private async Task OnDirVariantChangedAsync(ChangeEventArgs e)
     {
-        var variant = string.Equals(e.Value?.ToString(), nameof(DirectoryVariant.Especializado), StringComparison.OrdinalIgnoreCase)
-            ? DirectoryVariant.Especializado
-            : DirectoryVariant.Ligero;
+        var raw = e.Value?.ToString();
+        var variant = raw switch
+        {
+            _ when string.Equals(raw, nameof(DirectoryVariant.Modular), StringComparison.OrdinalIgnoreCase) && _canModular => DirectoryVariant.Modular,
+            _ when string.Equals(raw, nameof(DirectoryVariant.Especializado), StringComparison.OrdinalIgnoreCase) => DirectoryVariant.Especializado,
+            _ => DirectoryVariant.Ligero
+        };
         await GuardAsync(() => DirVariant.SetAsync(variant));
         _dirVariant = variant.ToString();
-        _dirVariantMsg = "Vista del Directorio actualizada. Abre el Directorio General para verla.";
+        _dirVariantMsg = variant == DirectoryVariant.Modular
+            ? "Motor Modular activado. Abre el Directorio para verlo."
+            : "Vista del Directorio actualizada. Abre el Directorio General para verla.";
     }
 
     private async Task ReloadAsync()

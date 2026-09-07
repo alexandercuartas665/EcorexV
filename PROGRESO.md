@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.0: Directorio MODULAR (Capa 8, 2o motor de directorio) - ADR-0088
+
+- Hito Capa 8: el modulo de Directorio gana una VARIANTE por tenant. Un tenant puede correr el Directorio
+  GENERAL (Clasico, el de siempre) o el Directorio MODULAR (nuevo 2o motor), sin afectar a los demas.
+  SOLDARCO es el unico tenant con la variante 'modular'; el resto sigue en Clasico. ADR-0088.
+- Hecho (feat/directorio-modular, ya con main fusionado dentro):
+  - directory_engine por tenant (Clasico | Modular): el alta/edicion/borrado y la busqueda del contacto
+    rutean al modal/motor segun la variante del tenant (Tercero.MOTOR / fichas_json).
+  - Coexiste con lo de main: flujos + agentes de IA en nodos (ADR-0090..0093) y whitelist de tableros por
+    agente (ADR-0094). Migraciones aditivas: main trajo las 8 de agentes/flujos; la feature aporta las
+    suyas de directorio (historia lineal, sin choque de esquema).
+  - Multi-tenant intacto (filtro global); archivos nuevos en ASCII.
+- Validado en runtime (Chrome, SOLDARCO, v0.15.186 antes del bump): alta, edicion, borrado suave y busqueda
+  del modulo nuevo OK; en BD directory_engine=Modular + fichas_json correctos; convive con flujos/agentes.
+- Integracion: merge --no-ff de feat/directorio-modular al tronco fase-0/clon-backbone; espejo en main.
+- Siguiente: DEPLOY a senal del usuario (lo corre el usuario aparte). Sin cambios de deploy en esta sesion.
+
 ## 2026-09-07 - v0.15.186: whitelist DURA de tableros por agente (crear_tarea) - ADR-0094
 
 - Pedido (usuario): el agente elige el tablero de crear_tarea sin restriccion real (solo el prompt lo guia);

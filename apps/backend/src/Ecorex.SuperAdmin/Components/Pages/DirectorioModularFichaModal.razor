@@ -1,0 +1,596 @@
+@* Modal de creacion v1 del motor Modular (Capa 8): la ficha se arma con las secciones de la
+   categoria (un solo scroll), la naturaleza se deduce de lo que se llena. Se abre por @ref. *@
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@using System.Text.Json
+@inject IDirectorioModularFichaService Fichas
+@inject IJSRuntime JS
+
+@if (IsOpen)
+{
+    <div class="fm-overlay" @onclick="Close">
+        <div class="fm-dialog" @onclick:stopPropagation="true">
+            <div class="fm-head">
+                <div class="fm-head-l">
+                    <span class="fm-head-ico"><i class="fa fa-address-card"></i></span>
+                    <div>
+                        <div class="fm-eyebrow">DIRECTORIO GENERAL &middot; 000232</div>
+                        <div class="fm-title">@(_isEdit ? "Editar" : "Nuevo registro") &middot; @(_ficha?.CategoriaTitle)</div>
+                    </div>
+                </div>
+                <button class="fm-x" @onclick="Close">&times;</button>
+            </div>
+
+            <div class="fm-body">
+                @if (_notModular)
+                {
+                    <div class="fm-notmod">
+                        <i class="fa fa-circle-info"></i>
+                        <span>Este contacto se creo con el motor <strong>Clasico</strong>. Editalo desde el Directorio General clasico; aqui solo se editan los contactos del motor Modular.</span>
+                    </div>
+                }
+                else if (_ficha is null)
+                {
+                    <p class="fm-muted">Cargando ficha...</p>
+                }
+                else if (_ficha.Secciones.Count == 0)
+                {
+                    <p class="fm-muted">Esta categoria no tiene secciones configuradas.</p>
+                }
+                else
+                {
+                    @* Categoria + Estado *@
+                    <div class="fm-toprow">
+                        <div class="fm-topcat">
+                            <div class="fm-toplbl">Categoria</div>
+                            <span class="fm-catchip"><i class="fa fa-globe"></i> @_ficha.CategoriaTitle</span>
+                            <div class="fm-tophint">Se define al crear el tercero desde una categoria, o con el boton "+ nombre de la categoria" que aparece en el listado al buscarlo.</div>
+                        </div>
+                        <div class="fm-topest">
+                            <div class="fm-toplbl">Estado</div>
+                            <select class="fm-select" @bind="_estado"><option value="Activo">Activo</option><option value="Inactivo">Inactivo</option></select>
+                        </div>
+                    </div>
+
+                    @* Banner de naturaleza deducida *@
+                    <div class="fm-banner @NatClass">
+                        <i class="fa @(NatClass == "none" ? "fa-circle-question" : "fa-circle-check")"></i>
+                        <span>@NatText</span>
+                    </div>
+
+                    @* Tabs de seccion (llevan a cada seccion del scroll) con contador de obligatorios faltantes *@
+                    <div class="fm-sectabs">
+                        @foreach (var s in _ficha.Secciones)
+                        {
+                            <a class="fm-sectab" href="#sec-@s.FichaKey">
+                                <span class="fm-dot" style="background:@(SeccionColor(s))"></span> @s.Title
+                                @if (FaltantesEnSeccion(s) > 0)
+                                {
+                                    <span class="fm-tab-badge" title="Campos obligatorios pendientes">@FaltantesEnSeccion(s)</span>
+                                }
+                            </a>
+                        }
+                    </div>
+
+                    @foreach (var sec in _ficha.Secciones)
+                    {
+                        <div class="fm-sec" id="sec-@sec.FichaKey">
+                            <div class="fm-sec-head">
+                                <span class="fm-sec-ico"><i class="fa @sec.Icono"></i></span>
+                                <div>
+                                    <div class="fm-sec-title">@sec.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(sec.Descripcion))
+                                    {
+                                        <div class="fm-sec-desc">@sec.Descripcion</div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="fm-grid">
+                                @foreach (var f in sec.Campos)
+                                {
+                                    @if (f.Type == TerceroFieldType.Separator)
+                                    {
+                                        <div class="fm-sep" style="grid-column: span 3;">@f.Label</div>
+                                    }
+                                    else if (f.Type == TerceroFieldType.Table)
+                                    {
+                                        var cols = ParseTablaCols(f.Options);
+                                        var rows = GetTablaRows(sec.FichaKey, f.FieldKey);
+                                        <div class="fm-field" style="grid-column: span 3;">
+                                            <label class="fm-label">@f.Label</label>
+                                            <div class="fm-tabla-wrap">
+                                                <table class="fm-tabla">
+                                                    <thead>
+                                                        <tr>
+                                                            @foreach (var col in cols) { <th>@col.Label</th> }
+                                                            <th class="fm-tabla-acc"></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @if (rows.Count == 0)
+                                                        {
+                                                            <tr><td colspan="@(cols.Count + 1)" class="fm-tabla-empty">Sin filas. Usa "Agregar fila".</td></tr>
+                                                        }
+                                                        @for (var ri = 0; ri < rows.Count; ri++)
+                                                        {
+                                                            var rowIdx = ri;
+                                                            <tr>
+                                                                @foreach (var col in cols)
+                                                                {
+                                                                    <td>
+                                                                        @if (col.Type == "select")
+                                                                        {
+                                                                            <select class="fm-select" @onchange="e => SetTablaCell(sec.FichaKey, f.FieldKey, rowIdx, col, e.Value?.ToString())">
+                                                                                <option value="">-- seleccionar --</option>
+                                                                                @foreach (var op in col.Options)
+                                                                                {
+                                                                                    <option value="@op.Value" selected="@(op.Value == rows[rowIdx].GetValueOrDefault(col.Key, ""))">@(op.Value == op.Label ? op.Label : $"{op.Value} - {op.Label}")</option>
+                                                                                }
+                                                                            </select>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <input class="fm-input" value="@rows[rowIdx].GetValueOrDefault(col.Key, "")" disabled="@col.ReadOnly"
+                                                                                   @onchange="e => SetTablaCell(sec.FichaKey, f.FieldKey, rowIdx, col, e.Value?.ToString())" />
+                                                                        }
+                                                                    </td>
+                                                                }
+                                                                <td class="fm-tabla-acc">
+                                                                    <button type="button" class="fm-tabla-del" title="Quitar fila" @onclick="() => RemoveTablaRow(sec.FichaKey, f.FieldKey, rowIdx)"><i class="fa fa-trash"></i></button>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                                <button type="button" class="fm-tabla-add" @onclick="() => AddTablaRow(sec.FichaKey, f.FieldKey)"><i class="fa fa-plus"></i> Agregar fila</button>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(f.Descripcion))
+                                            {
+                                                <div class="fm-hint">@f.Descripcion</div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="fm-field" style="grid-column: span @(Math.Clamp(f.Column, 1, 3));">
+                                            <label class="fm-label">
+                                                @f.Label
+                                                @if (EsRequerido(f)) { <span class="fm-req">*</span> }
+                                            </label>
+                                            @RenderControl(sec.FichaKey, f)
+                                            @if (!string.IsNullOrWhiteSpace(f.Descripcion))
+                                            {
+                                                <div class="fm-hint">@f.Descripcion</div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="fm-foot">
+                @if (_error is not null) { <span class="fm-err">@_error</span> }
+                <div class="fm-foot-btns">
+                    <button class="fm-btn" @onclick="Close" disabled="@_saving">@(_notModular ? "Cerrar" : "Cancelar")</button>
+                    @if (!_notModular)
+                    {
+                        <button class="fm-btn fm-btn-primary" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Guardando..." : (_isEdit ? "Guardar cambios" : "Guardar"))</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .fm-overlay { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: flex-start; justify-content: center; z-index: 70; padding: 40px 16px; overflow: auto; }
+    .fm-dialog { background: #fff; border-radius: 14px; width: 1140px; max-width: 96vw; box-shadow: 0 20px 50px rgba(16,24,40,.25); display: flex; flex-direction: column; max-height: 90vh; font-family: 'Inter', system-ui, sans-serif; }
+    .fm-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px; border-bottom: 1px solid #eef0f3; }
+    .fm-head-l { display: flex; align-items: center; gap: 13px; }
+    .fm-head-ico { width: 42px; height: 42px; border-radius: 11px; background: #eef2ff; color: #4f46e5; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .fm-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #6366f1; }
+    .fm-title { font-size: 18px; font-weight: 800; color: #111827; margin-top: 1px; }
+    .fm-x { background: none; border: none; font-size: 24px; color: #9ca3af; cursor: pointer; line-height: 1; }
+    .fm-body { padding: 12px 22px 4px; overflow: auto; }
+    .fm-muted { color: #9ca3af; font-size: 13px; padding: 20px 0; }
+    .fm-notmod { display: flex; align-items: flex-start; gap: 10px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 10px; padding: 14px 16px; font-size: 13px; margin: 12px 0; }
+
+    .fm-toprow { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding-bottom: 14px; border-bottom: 1px solid #f3f4f6; margin-bottom: 12px; }
+    .fm-toplbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 6px; }
+    .fm-catchip { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; color: #4f46e5; font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 4px 12px; }
+    .fm-tophint { font-size: 11.5px; color: #9ca3af; margin-top: 6px; max-width: 560px; }
+    .fm-topest { min-width: 150px; }
+
+    .fm-banner { display: flex; align-items: center; gap: 9px; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; font-weight: 600; margin-bottom: 14px; }
+    .fm-banner.none { background: #f5f3ff; color: #6d28d9; }
+    .fm-banner.org { background: #eff6ff; color: #1d4ed8; }
+    .fm-banner.per { background: #f0fdf4; color: #15803d; }
+
+    .fm-sectabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+    .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
+    .fm-sectab .fm-dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; display: inline-block; }
+    .fm-tab-badge { background: #dc2626; color: #fff; font-size: 10.5px; font-weight: 800; border-radius: 999px; min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; margin-left: 3px; }
+
+    .fm-tabla-wrap { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .fm-tabla { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .fm-tabla thead th { text-align: left; background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid #eef0f3; }
+    .fm-tabla tbody td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+    .fm-tabla tbody tr:last-child td { border-bottom: none; }
+    .fm-tabla .fm-input, .fm-tabla .fm-select { padding: 6px 8px; font-size: 12.5px; }
+    .fm-tabla-acc { width: 40px; text-align: center; }
+    .fm-tabla-empty { color: #9ca3af; text-align: center; padding: 14px; font-size: 12px; }
+    .fm-tabla-del { border: none; background: none; color: #dc2626; cursor: pointer; font-size: 13px; padding: 4px; }
+    .fm-tabla-add { margin: 8px 10px; background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+
+    .fm-sec { margin: 18px 0; }
+    .fm-sec-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+    .fm-sec-ico { width: 30px; height: 30px; border-radius: 8px; background: #eef2ff; color: #4f46e5; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .fm-sec-title { font-size: 14px; font-weight: 700; color: #111827; }
+    .fm-sec-desc { font-size: 12px; color: #6b7280; margin-top: 2px; max-width: 640px; }
+    .fm-hint { font-size: 11px; color: #9ca3af; }
+    .fm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; }
+    .fm-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    .fm-label { font-size: 12px; font-weight: 600; color: #374151; }
+    .fm-req { color: #dc2626; margin-left: 2px; }
+    .fm-sep { border-top: 1px solid #eef0f3; padding-top: 10px; margin-top: 4px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; }
+    .fm-input, .fm-select, .fm-textarea { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: #111827; outline: none; font-family: inherit; width: 100%; box-sizing: border-box; background: #fff; }
+    .fm-input:focus, .fm-select:focus, .fm-textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+    .fm-input:disabled { background: #f9fafb; color: #9ca3af; }
+    .fm-textarea { resize: vertical; min-height: 64px; }
+    .fm-money { display: flex; align-items: stretch; }
+    .fm-money-sym { display: inline-flex; align-items: center; padding: 0 11px; border: 1px solid #d1d5db; border-right: none; border-radius: 8px 0 0 8px; background: #f9fafb; color: #6b7280; font-size: 13px; }
+    .fm-money .fm-input { border-radius: 0 8px 8px 0; }
+    .fm-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #374151; padding-top: 4px; }
+    .fm-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 22px; border-top: 1px solid #eef0f3; }
+    .fm-err { color: #dc2626; font-size: 12.5px; font-weight: 600; }
+    .fm-foot-btns { display: flex; gap: 10px; margin-left: auto; }
+    .fm-btn { border: 1px solid #e5e7eb; background: #fff; color: #374151; border-radius: 9px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .fm-btn-primary { background: #111827; color: #fff; border-color: #111827; }
+    .fm-btn:disabled { opacity: .6; cursor: default; }
+</style>
+
+@code {
+    // Modal DRIVEN POR PARAMETRO (mas robusto que @ref): el padre setea CategoriaKey para abrir y la
+    // pone en null para cerrar (via OnClosed). Se carga la ficha cuando cambia CategoriaKey.
+    [Parameter] public string? CategoriaKey { get; set; }
+    // Si se pasa, el modal edita ese tercero (carga sus valores); si es null, crea uno nuevo.
+    [Parameter] public Guid? TerceroId { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private bool _saving;
+    private string? _error;
+    private string? _loadedFor;
+    private bool _isEdit;
+    private bool _notModular;   // el tercero a editar no es del motor Modular
+    private Guid? _editId;
+    private string _estado = "Activo";
+    private ModularFichaDto? _ficha;
+    // ficha (seccion) -> campo -> valor
+    private readonly Dictionary<string, Dictionary<string, string>> _valores = new(StringComparer.Ordinal);
+
+    private bool IsOpen => CategoriaKey is not null || TerceroId is not null;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsOpen) { _loadedFor = null; return; }
+
+        // Clave de carga: distingue crear (categoria) de editar (tercero) para no recargar en cada render.
+        var loadKey = TerceroId is Guid tid ? $"edit:{tid}" : $"new:{CategoriaKey}";
+        if (loadKey == _loadedFor) { return; }
+
+        _loadedFor = loadKey;
+        _error = null;
+        _saving = false;
+        _ficha = null;
+        _valores.Clear();
+        _estado = "Activo";
+        _notModular = false;
+
+        var catKey = CategoriaKey;
+        Dictionary<string, Dictionary<string, string>>? cargados = null;
+        _isEdit = TerceroId is not null;
+        _editId = TerceroId;
+
+        if (TerceroId is Guid id)
+        {
+            var ed = await Fichas.GetTerceroParaEditarAsync(id);
+            if (ed is null) { _notModular = true; return; }
+            catKey = ed.CategoriaKey ?? CategoriaKey;
+            cargados = ed.Valores;
+            _estado = ed.Estado;
+        }
+
+        if (catKey is null) { return; }
+        _ficha = await Fichas.GetFichaAsync(catKey);
+        if (_ficha is not null)
+        {
+            foreach (var sec in _ficha.Secciones)
+            {
+                var dict = new Dictionary<string, string>(StringComparer.Ordinal);
+                // En edicion, precarga los valores guardados de esa seccion.
+                if (cargados is not null && cargados.TryGetValue(sec.FichaKey, out var prev))
+                {
+                    foreach (var kv in prev) { dict[kv.Key] = kv.Value; }
+                }
+                _valores[sec.FichaKey] = dict;
+            }
+        }
+    }
+
+    private async Task Close() => await OnClosed.InvokeAsync();
+
+    private string GetVal(string ficha, string campo)
+        => _valores.TryGetValue(ficha, out var d) && d.TryGetValue(campo, out var v) ? v : "";
+
+    private void SetVal(string ficha, string campo, string? valor)
+    {
+        if (!_valores.TryGetValue(ficha, out var d)) { d = _valores[ficha] = new(StringComparer.Ordinal); }
+        d[campo] = valor ?? "";
+    }
+
+    private static bool EsRequerido(ModularCampoDto f) => !string.IsNullOrWhiteSpace(f.RequeridoEn);
+
+    private string? Find(string campo)
+    {
+        foreach (var d in _valores.Values)
+        {
+            if (d.TryGetValue(campo, out var v) && !string.IsNullOrWhiteSpace(v)) { return v; }
+        }
+        return null;
+    }
+
+    private string NatText => NaturalezaPill().Item1;
+    private string NatClass => NaturalezaPill().Item2;
+
+    private static string SeccionColor(ModularSeccionDto s) => string.IsNullOrWhiteSpace(s.Color) ? "#4f46e5" : s.Color!;
+
+    // Obligatorios pendientes en una seccion, segun la naturaleza deducida (empresa/contacto). Sin
+    // naturaleza aun, cuenta todos los requeridos como pendientes (hay que definir un nombre primero).
+    private int FaltantesEnSeccion(ModularSeccionDto sec)
+    {
+        var nat = NatClass;
+        var n = 0;
+        foreach (var f in sec.Campos)
+        {
+            if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
+            var aplica = nat switch
+            {
+                "org" => f.RequeridoEn.Contains("empresa", StringComparison.OrdinalIgnoreCase),
+                "per" => f.RequeridoEn.Contains("contacto", StringComparison.OrdinalIgnoreCase),
+                _ => true
+            };
+            if (aplica && string.IsNullOrWhiteSpace(GetVal(sec.FichaKey, f.FieldKey))) { n++; }
+        }
+        return n;
+    }
+
+    private static string FieldDomId(string ficha, string field) => $"fld-{ficha}-{field}";
+
+    // ---- Campo tipo TABLA (filas dinamicas): la definicion de columnas viene serializada en Options ----
+    private static readonly JsonSerializerOptions _jsonCi = new() { PropertyNameCaseInsensitive = true };
+
+    private sealed class TablaSpec { public List<TablaCol> Columns { get; set; } = new(); }
+    private sealed class TablaCol
+    {
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Type { get; set; } = "texto";
+        public bool ReadOnly { get; set; }
+        public string? Autollena { get; set; }
+        public List<TablaOpt> Options { get; set; } = new();
+    }
+    private sealed class TablaOpt { public string Value { get; set; } = ""; public string Label { get; set; } = ""; }
+
+    private List<TablaCol> ParseTablaCols(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return new(); }
+        try { return JsonSerializer.Deserialize<TablaSpec>(optionsJson, _jsonCi)?.Columns ?? new(); }
+        catch { return new(); }
+    }
+
+    private List<Dictionary<string, string>> GetTablaRows(string ficha, string fieldKey)
+    {
+        var raw = GetVal(ficha, fieldKey);
+        if (string.IsNullOrWhiteSpace(raw)) { return new(); }
+        try { return JsonSerializer.Deserialize<List<Dictionary<string, string>>>(raw) ?? new(); }
+        catch { return new(); }
+    }
+
+    private void SetTablaRows(string ficha, string fieldKey, List<Dictionary<string, string>> rows)
+        => SetVal(ficha, fieldKey, JsonSerializer.Serialize(rows));
+
+    private void AddTablaRow(string ficha, string fieldKey)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        rows.Add(new Dictionary<string, string>(StringComparer.Ordinal));
+        SetTablaRows(ficha, fieldKey, rows);
+    }
+
+    private void RemoveTablaRow(string ficha, string fieldKey, int index)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        if (index >= 0 && index < rows.Count) { rows.RemoveAt(index); SetTablaRows(ficha, fieldKey, rows); }
+    }
+
+    private void SetTablaCell(string ficha, string fieldKey, int index, TablaCol col, string? value)
+    {
+        var rows = GetTablaRows(ficha, fieldKey);
+        if (index < 0 || index >= rows.Count) { return; }
+        rows[index][col.Key] = value ?? "";
+        // Autollenado: al escoger el codigo se completa la columna destino con la etiqueta del catalogo.
+        if (!string.IsNullOrWhiteSpace(col.Autollena))
+        {
+            var opt = col.Options.FirstOrDefault(o => o.Value == value);
+            rows[index][col.Autollena!] = opt?.Label ?? "";
+        }
+        SetTablaRows(ficha, fieldKey, rows);
+    }
+
+    // Primer obligatorio pendiente (seccion, campo, etiqueta) segun la naturaleza deducida, o null.
+    private (string Ficha, string Field, string Label)? FindFirstMissing()
+    {
+        if (_ficha is null) { return null; }
+        var nat = NatClass;
+        foreach (var sec in _ficha.Secciones)
+        {
+            foreach (var f in sec.Campos)
+            {
+                if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
+                var aplica = nat switch
+                {
+                    "org" => f.RequeridoEn.Contains("empresa", StringComparison.OrdinalIgnoreCase),
+                    "per" => f.RequeridoEn.Contains("contacto", StringComparison.OrdinalIgnoreCase),
+                    _ => true
+                };
+                if (aplica && string.IsNullOrWhiteSpace(GetVal(sec.FichaKey, f.FieldKey)))
+                {
+                    return (sec.FichaKey, f.FieldKey, f.Label);
+                }
+            }
+        }
+        return null;
+    }
+
+    private (string, string) NaturalezaPill()
+    {
+        var emp = Find("nombre_empresa") ?? Find("razon_social") ?? Find("nombre_comercial");
+        var per = Find("contacto");
+        if (!string.IsNullOrWhiteSpace(emp)) { return ("Se creara una Organizacion.", "org"); }
+        if (!string.IsNullOrWhiteSpace(per)) { return ("Se creara una Persona.", "per"); }
+        return ("Sin definir. Escribe el nombre de la empresa, el del contacto o ambos: de eso depende que se crea.", "none");
+    }
+
+    private RenderFragment RenderControl(string ficha, ModularCampoDto f) => builder =>
+    {
+        var val = GetVal(ficha, f.FieldKey);
+        switch (f.Type)
+        {
+            case TerceroFieldType.TextArea:
+                builder.OpenElement(0, "textarea");
+                builder.AddAttribute(1, "class", "fm-textarea");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(2, "value", val);
+                builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.CloseElement();
+                break;
+            case TerceroFieldType.Select:
+            case TerceroFieldType.MultiSelect:
+                builder.OpenElement(0, "select");
+                builder.AddAttribute(1, "class", "fm-select");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
+                if (f.Type == TerceroFieldType.MultiSelect) { builder.AddAttribute(2, "multiple", true); }
+                builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.OpenElement(4, "option"); builder.AddAttribute(5, "value", ""); builder.AddContent(6, "-- seleccionar --"); builder.CloseElement();
+                foreach (var op in (f.Options ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    builder.OpenElement(7, "option");
+                    builder.AddAttribute(8, "value", op);
+                    if (op == val) { builder.AddAttribute(9, "selected", true); }
+                    builder.AddContent(10, op);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
+            case TerceroFieldType.Checkbox:
+                builder.OpenElement(0, "label");
+                builder.AddAttribute(1, "class", "fm-check");
+                builder.OpenElement(2, "input");
+                builder.AddAttribute(3, "type", "checkbox");
+                builder.AddAttribute(4, "checked", val == "true");
+                builder.AddAttribute(5, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, (e.Value is true).ToString().ToLowerInvariant())));
+                builder.CloseElement();
+                builder.AddContent(6, "Si");
+                builder.CloseElement();
+                break;
+            case TerceroFieldType.Currency:
+                // Moneda: prefijo "$" + input numerico (como el prototipo: input-group con addon).
+                builder.OpenElement(0, "div");
+                builder.AddAttribute(1, "class", "fm-money");
+                builder.OpenElement(2, "span"); builder.AddAttribute(3, "class", "fm-money-sym"); builder.AddContent(4, "$"); builder.CloseElement();
+                builder.OpenElement(5, "input");
+                builder.AddAttribute(6, "class", "fm-input");
+                builder.AddAttribute(7, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(8, "type", "number");
+                builder.AddAttribute(9, "inputmode", "decimal");
+                builder.AddAttribute(10, "value", val);
+                builder.AddAttribute(11, "disabled", f.ReadOnly);
+                builder.AddAttribute(12, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.CloseElement();
+                builder.CloseElement();
+                break;
+            case TerceroFieldType.Lookup:
+            case TerceroFieldType.DirectoryLookup:
+            case TerceroFieldType.Calculated:
+            case TerceroFieldType.Table:
+                // v1: placeholder (estos controles ricos llegan en un slice posterior).
+                builder.OpenElement(0, "input");
+                builder.AddAttribute(1, "class", "fm-input");
+                builder.AddAttribute(2, "disabled", true);
+                builder.AddAttribute(3, "placeholder", $"({f.Type}) proximamente");
+                builder.CloseElement();
+                break;
+            default:
+                builder.OpenElement(0, "input");
+                builder.AddAttribute(1, "class", "fm-input");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(2, "type", InputType(f.Type));
+                builder.AddAttribute(3, "value", val);
+                builder.AddAttribute(4, "disabled", f.ReadOnly);
+                builder.AddAttribute(5, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.CloseElement();
+                break;
+        }
+    };
+
+    private static string InputType(TerceroFieldType t) => t switch
+    {
+        TerceroFieldType.Number => "number",
+        TerceroFieldType.Date => "date",
+        TerceroFieldType.Email => "email",
+        TerceroFieldType.Phone => "tel",
+        _ => "text"
+    };
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_ficha is null) { return; }
+
+        // Obligatorios (por naturaleza deducida): al primero que falte, salta a su seccion y lo enfoca
+        // (como el prototipo). Usa la MISMA regla que el contador de las pestanas.
+        var natCls = NatClass;
+        var falta = FindFirstMissing();
+        if (falta is { } m)
+        {
+            _error = natCls == "none"
+                ? "Escribe al menos un nombre (empresa o contacto)."
+                : $"Falta un campo obligatorio: {m.Label}.";
+            await JS.InvokeVoidAsync("dmScrollToField", $"sec-{m.Ficha}", FieldDomId(m.Ficha, m.Field));
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var req = new CreateModularTerceroRequest(_ficha.CategoriaKey,
+                _valores.ToDictionary(k => k.Key, v => new Dictionary<string, string>(v.Value, StringComparer.Ordinal)));
+            if (_isEdit && _editId is Guid id)
+            {
+                var err = await Fichas.UpdateTerceroAsync(id, req, _estado);
+                if (err is not null) { _error = err; return; }
+            }
+            else
+            {
+                var (_, err) = await Fichas.CreateTerceroAsync(req);
+                if (err is not null) { _error = err; return; }
+            }
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+}

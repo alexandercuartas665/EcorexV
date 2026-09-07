@@ -145,7 +145,7 @@ public sealed class AiInferenceService : IAiInferenceService
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds);
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -219,7 +219,7 @@ public sealed class AiInferenceService : IAiInferenceService
     /// </summary>
     private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
-        IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
+        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
     {
         // Agregamos las herramientas de TODOS los toolsets registrados, omitiendo las que el agente
         // tiene deshabilitadas. Mapeamos cada nombre de herramienta a su toolset para el despacho.
@@ -235,12 +235,20 @@ public sealed class AiInferenceService : IAiInferenceService
             }
         }
 
-        // Historial inicial: los turnos del chat como mensajes de herramienta.
+        // Historial inicial: los turnos del chat como mensajes de herramienta. La imagen del turno ACTUAL
+        // (subida en el chat) se adjunta al ULTIMO mensaje de usuario para que el modelo la VEA (vision).
+        // Solo Gemini/Claude la aprovechan; el cliente la ignora en otros proveedores.
         var messages = new List<AiToolMessage>();
-        foreach (var t in turns)
+        for (var i = 0; i < turns.Count; i++)
         {
+            var t = turns[i];
             var role = string.Equals(t.Role, "model", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user";
-            messages.Add(new AiToolMessage(role, t.Text));
+            IReadOnlyList<AiInlineImage>? images = null;
+            if (i == turns.Count - 1 && role == "user" && !string.IsNullOrWhiteSpace(imageBase64))
+            {
+                images = new[] { new AiInlineImage(imageBase64!, string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!) };
+            }
+            messages.Add(new AiToolMessage(role, t.Text, Images: images));
         }
 
         var totalIn = 0;

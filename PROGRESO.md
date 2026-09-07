@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.1: el agente VE las imagenes que se le cargan (vision en el bucle) + miniatura
+
+- Bug reportado (usuario): al probar un agente y cargar una imagen, la imagen no se veia en el chat y el
+  agente "se ponia loco" (respondia sin contexto de la imagen). Causa raiz: el arnes NO le pasaba la imagen
+  al modelo.
+- Diagnostico: TestChatAsync recibia el base64 pero RunCoreAsync solo lo metia en AiToolRunContext (contexto
+  para HERRAMIENTAS de vision). El bucle armaba los mensajes como texto puro (new AiToolMessage(role, Text)) y
+  ni AiToolMessage ni CompleteWithToolsAsync tenian campo de imagen. Un agente sin tool de vision (ej.
+  gemini-2.5-pro) nunca recibia la imagen -> respondia a ciegas. Afecta chat de prueba y WhatsApp real (mismo
+  RunToolLoopAsync). La UI ademas solo mostraba texto "(foto enviada)", sin miniatura.
+- Arreglo (Gemini + Claude):
+  - AiToolMessage gana Images (IReadOnlyList<AiInlineImage> {Base64, Mime}).
+  - RunToolLoopAsync recibe imageBase64/imageMime y adjunta la imagen al ULTIMO mensaje de usuario.
+  - AiProviderClient.CompleteWithToolsAsync: Gemini (endpoint OpenAI-compatible) manda content multimodal
+    [{text},{image_url: data-uri}]; Claude manda bloque [{text},{image: source base64}]. Otros proveedores
+    ignoran la imagen (sin cambio). Se reusan los mismos formatos de CompleteVisionAsync.
+  - UI (Agentes.razor): la burbuja del usuario guarda y PINTA la miniatura de la imagen enviada.
+- Verificado: build de la solucion verde; AiProviderClientVisionTests 3/3 (Gemini image_url, Claude bloque
+  image, y sin-imagen no agrega contenido). Validacion en vivo (llamada real al modelo) la hace el usuario en
+  el dev local (AGROMETALICAS, gemini-2.5-pro).
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.0).
+
 ## 2026-09-07 - Whitelist de tableros aplicada a SARA (AGROMETALICAS)
 
 La feature de whitelist dura por agente (columna ai_agents.allowed_board_ids_json jsonb, ADR-0094,

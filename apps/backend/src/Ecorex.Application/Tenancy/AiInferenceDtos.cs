@@ -42,7 +42,11 @@ public sealed record AiToolCall(string Id, string Name, string ArgumentsJson);
 /// - tool: resultado de una herramienta (ToolCallId + ToolName + Text con el JSON de salida).
 /// </summary>
 public sealed record AiToolMessage(string Role, string? Text, IReadOnlyList<AiToolCall>? ToolCalls = null,
-    string? ToolCallId = null, string? ToolName = null);
+    string? ToolCallId = null, string? ToolName = null, IReadOnlyList<AiInlineImage>? Images = null);
+
+/// <summary>Imagen inline (base64 + mime) adjunta a un mensaje de USUARIO para que el modelo la VEA
+/// (vision en el bucle de herramientas). Hoy la aprovechan Gemini y Claude; otros proveedores la ignoran.</summary>
+public sealed record AiInlineImage(string Base64, string Mime);
 
 /// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.</summary>
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,

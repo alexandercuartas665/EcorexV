@@ -584,6 +584,10 @@ else
                                 {
                                     <div class="ag-bubble @(t.Role == "model" ? "bot" : "me")">
                                         @if (!string.IsNullOrWhiteSpace(t.Text)) { <div>@t.Text</div> }
+                                        @if (!string.IsNullOrEmpty(t.ImageDataUrl))
+                                        {
+                                            <div class="ag-attach"><img src="@t.ImageDataUrl" alt="imagen enviada" /></div>
+                                        }
                                         @if (t.Attachments is { Count: > 0 })
                                         {
                                             @foreach (var a in t.Attachments)
@@ -1160,7 +1164,7 @@ else
     private readonly List<AiDebugPrompt> _debugLog = new();
     private bool _debugPromptOpen;
 
-    private sealed record TestMsg(string Role, string Text, IReadOnlyList<AiChatAttachment>? Attachments = null);
+    private sealed record TestMsg(string Role, string Text, IReadOnlyList<AiChatAttachment>? Attachments = null, string? ImageDataUrl = null);
 
     // Enviar la prueba a un telefono real por una linea conectada
     private List<WhatsAppLineDto> _phoneLines = new();
@@ -1688,8 +1692,11 @@ else
         _testError = null;
         var hadImage = _testImageBase64 is not null;
         var hadFiles = _testAttachments.Count > 0;
-        var suffix = hadFiles ? (hadImage ? "(foto enviada)" : "(archivo enviado)") : (hadImage ? "(foto enviada)" : "");
-        _testMsgs.Add(new TestMsg("user", string.IsNullOrWhiteSpace(_testInput) ? suffix : _testInput!.Trim()));
+        // La imagen se muestra como miniatura en la burbuja; solo dejamos nota de texto para archivos.
+        var imageDataUrl = hadImage ? $"data:{(_testImageMime ?? "image/jpeg")};base64,{_testImageBase64}" : null;
+        var suffix = hadFiles ? "(archivo enviado)" : "";
+        var bubbleText = string.IsNullOrWhiteSpace(_testInput) ? suffix : _testInput!.Trim();
+        _testMsgs.Add(new TestMsg("user", bubbleText, ImageDataUrl: imageDataUrl));
         _testInput = null;
         _testBusy = true;
         // La imagen y los archivos adjuntos se mandan en ESTE turno y luego se limpian.

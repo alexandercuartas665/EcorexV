@@ -285,7 +285,23 @@ public sealed class AiProviderClient : IAiProviderClient
             }
             else
             {
-                msgs.Add(new { role = m.Role is "model" or "assistant" ? "assistant" : "user", content = m.Text ?? "" });
+                var roleO = m.Role is "model" or "assistant" ? "assistant" : "user";
+                // Vision (solo Gemini via endpoint OpenAI-compatible): un mensaje de usuario con imagen se
+                // manda como content multimodal [{text},{image_url:data-uri}] para que el modelo la VEA.
+                if (roleO == "user" && provider == AiProvider.Gemini && m.Images is { Count: > 0 })
+                {
+                    var parts = new List<object>();
+                    if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { type = "text", text = m.Text }); }
+                    foreach (var im in m.Images)
+                    {
+                        parts.Add(new { type = "image_url", image_url = new { url = $"data:{im.Mime};base64,{im.Base64}" } });
+                    }
+                    msgs.Add(new { role = "user", content = parts.ToArray() });
+                }
+                else
+                {
+                    msgs.Add(new { role = roleO, content = m.Text ?? "" });
+                }
             }
         }
 
@@ -365,7 +381,23 @@ public sealed class AiProviderClient : IAiProviderClient
             }
             else
             {
-                msgs.Add(new { role = m.Role is "model" or "assistant" ? "assistant" : "user", content = m.Text ?? "" });
+                var roleC = m.Role is "model" or "assistant" ? "assistant" : "user";
+                // Vision (Claude): un mensaje de usuario con imagen se manda como content
+                // [{text},{image:source base64}] para que el modelo la VEA.
+                if (roleC == "user" && m.Images is { Count: > 0 })
+                {
+                    var blocks = new List<object>();
+                    if (!string.IsNullOrWhiteSpace(m.Text)) { blocks.Add(new { type = "text", text = m.Text }); }
+                    foreach (var im in m.Images)
+                    {
+                        blocks.Add(new { type = "image", source = new { type = "base64", media_type = im.Mime, data = im.Base64 } });
+                    }
+                    msgs.Add(new { role = "user", content = blocks.ToArray() });
+                }
+                else
+                {
+                    msgs.Add(new { role = roleC, content = m.Text ?? "" });
+                }
             }
         }
 

@@ -87,4 +87,40 @@ public class AiProviderClientVisionTests
         Assert.NotNull(handler.LastBody);
         Assert.DoesNotContain("image_url", handler.LastBody);
     }
+
+    private static AiToolMessage UserWithAudio() =>
+        new("user", "escucha esta nota", Audios: new[] { new AiInlineAudio("QUJD", "audio/ogg") });
+
+    [Fact]
+    public async Task Gemini_manda_la_nota_de_voz_como_input_audio_en_el_request()
+    {
+        var handler = new CapturingHandler(GeminiOkBody);
+        var client = new AiProviderClient(new HttpClient(handler));
+
+        var res = await client.CompleteWithToolsAsync(
+            AiProvider.Gemini, "key", null, "gemini-2.5-pro", "sys",
+            new[] { UserWithAudio() }, Array.Empty<AiToolSpec>());
+
+        Assert.True(res.Ok);
+        Assert.NotNull(handler.LastBody);
+        Assert.Contains("input_audio", handler.LastBody);
+        Assert.Contains("ogg", handler.LastBody);   // formato derivado del mime audio/ogg
+        Assert.Contains("QUJD", handler.LastBody);  // el base64 del audio viaja en el body
+    }
+
+    [Fact]
+    public async Task Claude_no_manda_audio_porque_no_lo_soporta()
+    {
+        var handler = new CapturingHandler(ClaudeOkBody);
+        var client = new AiProviderClient(new HttpClient(handler));
+
+        var res = await client.CompleteWithToolsAsync(
+            AiProvider.Claude, "key", null, "claude-x", "sys",
+            new[] { UserWithAudio() }, Array.Empty<AiToolSpec>());
+
+        Assert.True(res.Ok);
+        Assert.NotNull(handler.LastBody);
+        Assert.DoesNotContain("input_audio", handler.LastBody);
+        Assert.DoesNotContain("QUJD", handler.LastBody);   // el audio NO se envia a Claude
+    }
 }

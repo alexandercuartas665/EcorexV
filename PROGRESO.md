@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.2: notas de voz en el chat de prueba (el agente Gemini OYE el audio) + reproductor
+
+- Pedido (usuario): poder subir NOTAS DE VOZ en el sistema de pruebas para que el agente las procese.
+  Decision: AUDIO NATIVO (el modelo oye el audio) -> hoy solo Gemini (Claude no acepta audio; se ignora).
+- Hecho (mismo patron que la imagen v0.16.1):
+  - AiToolMessage gana Audios (AiInlineAudio {Base64, Mime}); RunToolLoopAsync adjunta el audio al ULTIMO
+    mensaje de usuario (TestChatAsync/RunCoreAsync enhebran audioBase64/audioMime).
+  - AiProviderClient.CompleteWithToolsAsync: Gemini (endpoint OpenAI-compatible) manda el audio como
+    content {type:input_audio, input_audio:{data, format}} (format derivado del mime: ogg/mp3/wav/webm...).
+    Claude y otros proveedores ignoran el audio.
+  - UI (Agentes.razor): boton de "nota de voz" (InputFile accept=audio/*, tope 20MB), chip "Nota de voz",
+    y la burbuja del usuario reproduce el audio (<audio controls>).
+- Verificado: build de la solucion verde; AiProviderClientVisionTests 5/5 (imagen Gemini/Claude, sin-imagen,
+  audio Gemini input_audio, audio NO va a Claude). Application 795/795, Domain 35/35.
+- Pendiente/known: SuperAdmin.Tests tiene 2 rojos PREEXISTENTES (AiStepOrchestratorTests, orquestador
+  Colmena) que ya fallaban en 51e2fa0f (prod v0.16.0), ajenos a este cambio (doblan IAiProviderClient).
+  Validacion en vivo (Gemini oye la nota) la hace el usuario en dev; si Gemini rechaza el formato via el
+  endpoint OpenAI-compat, el fallback es el endpoint nativo generateContent.
+- Siguiente: push/deploy de v0.16.2 (imagen + audio) a senal del usuario. Prod en v0.16.0.
+
 ## 2026-09-07 - v0.16.1: el agente VE las imagenes que se le cargan (vision en el bucle) + miniatura
 
 - Bug reportado (usuario): al probar un agente y cargar una imagen, la imagen no se veia en el chat y el

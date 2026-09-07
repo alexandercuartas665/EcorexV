@@ -42,11 +42,16 @@ public sealed record AiToolCall(string Id, string Name, string ArgumentsJson);
 /// - tool: resultado de una herramienta (ToolCallId + ToolName + Text con el JSON de salida).
 /// </summary>
 public sealed record AiToolMessage(string Role, string? Text, IReadOnlyList<AiToolCall>? ToolCalls = null,
-    string? ToolCallId = null, string? ToolName = null, IReadOnlyList<AiInlineImage>? Images = null);
+    string? ToolCallId = null, string? ToolName = null, IReadOnlyList<AiInlineImage>? Images = null,
+    IReadOnlyList<AiInlineAudio>? Audios = null);
 
 /// <summary>Imagen inline (base64 + mime) adjunta a un mensaje de USUARIO para que el modelo la VEA
 /// (vision en el bucle de herramientas). Hoy la aprovechan Gemini y Claude; otros proveedores la ignoran.</summary>
 public sealed record AiInlineImage(string Base64, string Mime);
+
+/// <summary>Audio inline (base64 + mime) adjunto a un mensaje de USUARIO para que el modelo lo OIGA
+/// (nota de voz). Hoy solo lo procesa Gemini; otros proveedores lo ignoran (Claude no acepta audio).</summary>
+public sealed record AiInlineAudio(string Base64, string Mime);
 
 /// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.</summary>
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,
@@ -108,7 +113,7 @@ public interface IAiInferenceService
     /// </summary>
     /// <param name="actorUserId">Usuario que opera la prueba; se usa como actor de las herramientas (reservas/auditoria).</param>
     /// <param name="imageBase64">Imagen opcional adjunta a la prueba (caja de arena), disponible para herramientas de vision.</param>
-    Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, CancellationToken cancellationToken = default);
+    Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, string? audioBase64 = null, string? audioMime = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atencion real por una linea de WhatsApp. La sesion de cache es la conversacion (linea+contacto),

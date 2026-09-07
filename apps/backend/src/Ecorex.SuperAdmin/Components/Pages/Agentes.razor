@@ -588,6 +588,10 @@ else
                                         {
                                             <div class="ag-attach"><img src="@t.ImageDataUrl" alt="imagen enviada" /></div>
                                         }
+                                        @if (!string.IsNullOrEmpty(t.AudioDataUrl))
+                                        {
+                                            <div class="ag-attach"><audio src="@t.AudioDataUrl" controls></audio></div>
+                                        }
                                         @if (t.Attachments is { Count: > 0 })
                                         {
                                             @foreach (var a in t.Attachments)
@@ -639,6 +643,13 @@ else
                                 <button type="button" class="btn btn-sm btn-outline-secondary" style="padding:0 7px;" @onclick="() => { _testImageBase64 = null; _testImageName = null; }">Quitar</button>
                             </div>
                         }
+                        @if (_testAudioBase64 is not null)
+                        {
+                            <div style="display:flex;align-items:center;gap:8px;padding:4px;margin-bottom:4px;font-size:11.5px;color:var(--muted-foreground);">
+                                <span>Nota de voz: @_testAudioName</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" style="padding:0 7px;" @onclick="() => { _testAudioBase64 = null; _testAudioName = null; }">Quitar</button>
+                            </div>
+                        }
                         @if (_testAttachments.Count > 0)
                         {
                             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px;margin-bottom:4px;font-size:11.5px;color:var(--muted-foreground);">
@@ -661,8 +672,12 @@ else
                                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                                 <InputFile OnChange="OnTestFileAsync" style="display:none;" />
                             </label>
+                            <label class="btn btn-sm btn-outline-secondary" title="Adjuntar nota de voz (el agente la escucha; solo Gemini)" style="cursor:pointer;padding:6px 9px;">
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                                <InputFile OnChange="OnTestAudioAsync" accept="audio/*" style="display:none;" />
+                            </label>
                             <input class="form-control" placeholder="Mensaje del cliente..." @bind="_testInput" @bind:event="oninput" @onkeydown="TestKeyDown" disabled="@_testBusy" />
-                            <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null && _testAttachments.Count == 0))">Enviar</button>
+                            <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null && _testAudioBase64 is null && _testAttachments.Count == 0))">Enviar</button>
                         </div>
                     </div>
 
@@ -1154,6 +1169,9 @@ else
     private string? _testImageBase64;
     private string? _testImageMime;
     private string? _testImageName;
+    private string? _testAudioBase64;
+    private string? _testAudioMime;
+    private string? _testAudioName;
     // Archivos que "el cliente envia" en la prueba: se almacenan y viajan al contexto para que
     // crear_tarea los anexe a la tarea (simula la media entrante de una conversacion real).
     private readonly List<AiToolRunContext.PendingAttachment> _testAttachments = new();
@@ -1164,7 +1182,7 @@ else
     private readonly List<AiDebugPrompt> _debugLog = new();
     private bool _debugPromptOpen;
 
-    private sealed record TestMsg(string Role, string Text, IReadOnlyList<AiChatAttachment>? Attachments = null, string? ImageDataUrl = null);
+    private sealed record TestMsg(string Role, string Text, IReadOnlyList<AiChatAttachment>? Attachments = null, string? ImageDataUrl = null, string? AudioDataUrl = null);
 
     // Enviar la prueba a un telefono real por una linea conectada
     private List<WhatsAppLineDto> _phoneLines = new();
@@ -1255,6 +1273,9 @@ else
         _testImageBase64 = null;
         _testImageMime = null;
         _testImageName = null;
+        _testAudioBase64 = null;
+        _testAudioMime = null;
+        _testAudioName = null;
         _testAttachments.Clear();
         _testError = null;
         _testBusy = false;
@@ -1670,6 +1691,18 @@ else
         _testImageName = file.Name;
     }
 
+    private async Task OnTestAudioAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        const long max = 20L * 1024 * 1024;   // notas de voz: tope 20MB
+        if (file.Size <= 0 || file.Size > max) { _testError = "El audio no es valido o supera 20MB."; return; }
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(max).CopyToAsync(ms);
+        _testAudioBase64 = Convert.ToBase64String(ms.ToArray());
+        _testAudioMime = string.IsNullOrWhiteSpace(file.ContentType) ? "audio/ogg" : file.ContentType;
+        _testAudioName = file.Name;
+    }
+
     // Adjuntar un archivo generico "enviado por el cliente": se ALMACENA (disco/blob) y se guarda su URL
     // para que crear_tarea lo anexe a la tarea. Distinto de la imagen (que va como base64 para vision).
     private async Task OnTestFileAsync(InputFileChangeEventArgs e)
@@ -1688,20 +1721,24 @@ else
 
     private async Task SendTestAsync()
     {
-        if (_editId is null || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null && _testAttachments.Count == 0)) { return; }
+        if (_editId is null || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null && _testAudioBase64 is null && _testAttachments.Count == 0)) { return; }
         _testError = null;
         var hadImage = _testImageBase64 is not null;
+        var hadAudio = _testAudioBase64 is not null;
         var hadFiles = _testAttachments.Count > 0;
-        // La imagen se muestra como miniatura en la burbuja; solo dejamos nota de texto para archivos.
+        // La imagen/audio se muestran en la burbuja (miniatura / reproductor); solo dejamos nota para archivos.
         var imageDataUrl = hadImage ? $"data:{(_testImageMime ?? "image/jpeg")};base64,{_testImageBase64}" : null;
+        var audioDataUrl = hadAudio ? $"data:{(_testAudioMime ?? "audio/ogg")};base64,{_testAudioBase64}" : null;
         var suffix = hadFiles ? "(archivo enviado)" : "";
         var bubbleText = string.IsNullOrWhiteSpace(_testInput) ? suffix : _testInput!.Trim();
-        _testMsgs.Add(new TestMsg("user", bubbleText, ImageDataUrl: imageDataUrl));
+        _testMsgs.Add(new TestMsg("user", bubbleText, ImageDataUrl: imageDataUrl, AudioDataUrl: audioDataUrl));
         _testInput = null;
         _testBusy = true;
-        // La imagen y los archivos adjuntos se mandan en ESTE turno y luego se limpian.
+        // La imagen, el audio y los archivos adjuntos se mandan en ESTE turno y luego se limpian.
         var img = _testImageBase64; var imgMime = _testImageMime;
         _testImageBase64 = null; _testImageName = null;
+        var aud = _testAudioBase64; var audMime = _testAudioMime;
+        _testAudioBase64 = null; _testAudioName = null;
         var atts = _testAttachments.Count > 0 ? _testAttachments.ToList() : null;
         _testAttachments.Clear();
         try
@@ -1709,7 +1746,7 @@ else
             // Pasamos tambien los adjuntos de cada turno; el extractor de cache los usa para construir
             // una transcripcion legible (sino veria texto vacio cuando el agente solo respondio con un recurso).
             var turns = _testMsgs.Select(m => new AiChatTurn(m.Role, m.Text, m.Attachments)).ToList();
-            var result = await InferenceSvc.TestChatAsync(_editId.Value, turns, _fPrompt, await ActorAsync(), img, imgMime, atts);
+            var result = await InferenceSvc.TestChatAsync(_editId.Value, turns, _fPrompt, await ActorAsync(), img, imgMime, atts, aud, audMime);
             // Acumulamos las entradas del log de prompts (principal + extractor) en orden cronologico.
             if (result.DebugPrompts is not null) { _debugLog.AddRange(result.DebugPrompts); }
             if (result.Ok && (!string.IsNullOrWhiteSpace(result.Text) || result.Attachments is { Count: > 0 }))

@@ -70,15 +70,15 @@ public sealed class AiInferenceService : IAiInferenceService
     }
 
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
-    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, cancellationToken);
+    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, string? audioBase64 = null, string? audioMime = null, CancellationToken cancellationToken = default)
+        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, audioBase64, audioMime, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
     // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea.
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, pendingAttachments: null, cancellationToken);
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, pendingAttachments: null, audioBase64: null, audioMime: null, cancellationToken);
 
-    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, CancellationToken cancellationToken)
+    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, string? audioBase64, string? audioMime, CancellationToken cancellationToken)
     {
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
         if (agent is null) { return new AiChatResult(false, null, "El agente no existe."); }
@@ -145,7 +145,7 @@ public sealed class AiInferenceService : IAiInferenceService
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds);
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, audioBase64, audioMime, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -219,7 +219,7 @@ public sealed class AiInferenceService : IAiInferenceService
     /// </summary>
     private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
-        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
+        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, string? audioBase64, string? audioMime, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
     {
         // Agregamos las herramientas de TODOS los toolsets registrados, omitiendo las que el agente
         // tiene deshabilitadas. Mapeamos cada nombre de herramienta a su toolset para el despacho.
@@ -244,11 +244,19 @@ public sealed class AiInferenceService : IAiInferenceService
             var t = turns[i];
             var role = string.Equals(t.Role, "model", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user";
             IReadOnlyList<AiInlineImage>? images = null;
-            if (i == turns.Count - 1 && role == "user" && !string.IsNullOrWhiteSpace(imageBase64))
+            IReadOnlyList<AiInlineAudio>? audios = null;
+            if (i == turns.Count - 1 && role == "user")
             {
-                images = new[] { new AiInlineImage(imageBase64!, string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!) };
+                if (!string.IsNullOrWhiteSpace(imageBase64))
+                {
+                    images = new[] { new AiInlineImage(imageBase64!, string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!) };
+                }
+                if (!string.IsNullOrWhiteSpace(audioBase64))
+                {
+                    audios = new[] { new AiInlineAudio(audioBase64!, string.IsNullOrWhiteSpace(audioMime) ? "audio/ogg" : audioMime!) };
+                }
             }
-            messages.Add(new AiToolMessage(role, t.Text, Images: images));
+            messages.Add(new AiToolMessage(role, t.Text, Images: images, Audios: audios));
         }
 
         var totalIn = 0;

@@ -286,15 +286,27 @@ public sealed class AiProviderClient : IAiProviderClient
             else
             {
                 var roleO = m.Role is "model" or "assistant" ? "assistant" : "user";
-                // Vision (solo Gemini via endpoint OpenAI-compatible): un mensaje de usuario con imagen se
-                // manda como content multimodal [{text},{image_url:data-uri}] para que el modelo la VEA.
-                if (roleO == "user" && provider == AiProvider.Gemini && m.Images is { Count: > 0 })
+                // Multimodal (solo Gemini via endpoint OpenAI-compatible): un mensaje de usuario con imagen
+                // y/o audio se manda como content [{text},{image_url:data-uri},{input_audio}] para que el
+                // modelo lo VEA / lo OIGA. Claude no acepta audio y otros proveedores lo ignoran.
+                var hasMedia = provider == AiProvider.Gemini && (m.Images is { Count: > 0 } || m.Audios is { Count: > 0 });
+                if (roleO == "user" && hasMedia)
                 {
                     var parts = new List<object>();
                     if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { type = "text", text = m.Text }); }
-                    foreach (var im in m.Images)
+                    if (m.Images is { Count: > 0 })
                     {
-                        parts.Add(new { type = "image_url", image_url = new { url = $"data:{im.Mime};base64,{im.Base64}" } });
+                        foreach (var im in m.Images)
+                        {
+                            parts.Add(new { type = "image_url", image_url = new { url = $"data:{im.Mime};base64,{im.Base64}" } });
+                        }
+                    }
+                    if (m.Audios is { Count: > 0 })
+                    {
+                        foreach (var au in m.Audios)
+                        {
+                            parts.Add(new { type = "input_audio", input_audio = new { data = au.Base64, format = AudioFormat(au.Mime) } });
+                        }
                     }
                     msgs.Add(new { role = "user", content = parts.ToArray() });
                 }
@@ -448,6 +460,21 @@ public sealed class AiProviderClient : IAiProviderClient
             outTok = u.TryGetProperty("output_tokens", out var c) ? c.GetInt32() : 0;
         }
         return new AiCompletion(true, text, null, inTok, outTok, calls);
+    }
+
+    // Formato de audio para el campo input_audio de la API (chat/completions): se deriva del subtipo mime
+    // de la nota de voz (audio/ogg -> "ogg", audio/mpeg -> "mp3", etc.). Gemini acepta varios contenedores.
+    private static string AudioFormat(string? mime)
+    {
+        var sub = (mime ?? "").Split('/').LastOrDefault()?.Trim().ToLowerInvariant() ?? "";
+        return sub switch
+        {
+            "mpeg" or "mp3" => "mp3",
+            "x-wav" or "wave" or "wav" => "wav",
+            "mp4" or "x-m4a" or "m4a" => "m4a",
+            "" => "ogg",
+            _ => sub   // ogg, webm, aac, flac, opus...
+        };
     }
 
     // Convierte el JSON Schema (texto) en un elemento JSON para incrustarlo en el body. Fallback: objeto vacio.

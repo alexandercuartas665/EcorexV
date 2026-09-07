@@ -6,7 +6,12 @@ namespace Ecorex.SuperAdmin.RealTime;
 /// <summary>Mensaje entrante crudo de un webhook de YCloud (api.ycloud.com v2), antes de resolver tenant/linea.
 /// <see cref="To"/> es el numero de negocio que RECIBIO el mensaje (sin '+'); el endpoint lo mapea a la linea
 /// por <c>WhatsAppLine.YCloudPhoneNumberId</c> y de ahi al tenant.</summary>
-public sealed record YCloudParsedMessage(string To, string Phone, string? Name, string ExternalId, string Body, DateTimeOffset? SentAt);
+/// <param name="MediaLink">URL publica de la media entrante (imagen/documento/audio/video) segun la entrega YCloud,
+/// o null si el mensaje no trae media. El endpoint la descarga y la persiste como adjunto del mensaje.</param>
+/// <param name="MediaMime">MIME de la media (ej. "image/jpeg", "application/pdf"), o null.</param>
+/// <param name="MediaKind">Tipo de media: "image" | "document" | "audio" | "video"; null si es texto u otro.</param>
+public sealed record YCloudParsedMessage(string To, string Phone, string? Name, string ExternalId, string Body, DateTimeOffset? SentAt,
+    string? MediaLink = null, string? MediaMime = null, string? MediaKind = null);
 
 /// <summary>
 /// Traduce el payload del webhook de YCloud a mensajes entrantes normalizados. YCloud entrega UN evento por
@@ -61,7 +66,19 @@ public static class YCloudWebhookParser
         var body = ExtractText(msg);
         if (string.IsNullOrWhiteSpace(body)) { body = "(mensaje no soportado)"; }
 
-        result.Add(new YCloudParsedMessage(to, from, name, externalId!, body!, sentAt));
+        // Media entrante (imagen/documento/audio/video): YCloud entrega la media como URL publica + mime.
+        // El link puede venir como 'link' o 'url', y el mime como 'mime_type' o 'mimeType'. Si no hay link,
+        // MediaLink queda null y el endpoint ingiere el mensaje como texto (con el caption/"(<tipo>)").
+        string? mediaLink = null, mediaMime = null, mediaKind = null;
+        var type = Str(msg, "type");
+        if (type is "image" or "document" or "audio" or "video")
+        {
+            mediaKind = type;
+            mediaLink = Str(msg, type!, "link") ?? Str(msg, type!, "url");
+            mediaMime = Str(msg, type!, "mime_type") ?? Str(msg, type!, "mimeType");
+        }
+
+        result.Add(new YCloudParsedMessage(to, from, name, externalId!, body!, sentAt, mediaLink, mediaMime, mediaKind));
     }
 
     private static string? ExtractText(JsonElement msg)

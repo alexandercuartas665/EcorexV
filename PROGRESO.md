@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.3: ingesta de media entrante en YCloud (paridad Evolution) - ADR-0095
+
+- Bug: una IMAGEN/ARCHIVO entrante por una linea WhatsApp YCloud NO se persistia como media del mensaje;
+  el agente la veia (vision) pero crear_tarea no tenia que adjuntar -> la tarea quedaba con 0 adjuntos.
+  En Evolution si funcionaba (su webhook descarga y guarda la media).
+- Causa: YCloudWebhookParser no extraia la media (record sin campos, "(image)" pendiente fase 2) y el
+  endpoint /webhooks/ycloud armaba el IngestMessageRequest SIEMPRE como "text". El resto del pipeline
+  (IngestMessageRequest/ChatIngestService + TasksToolset.AttachConversationMediaAsync) ya soportaba media.
+- Arreglo (paridad con Evolution):
+  - YCloudParsedMessage gana MediaLink/MediaMime/MediaKind; el parser los lee de
+    whatsappInboundMessage.<tipo>.{link|url} y .{mime_type|mimeType}. Texto -> media null.
+  - /webhooks/ycloud: si hay MediaLink, descarga (HttpClient), guarda en {WebRootPath}/uploads/chat/
+    yc-{guid}{ext} y arma el IngestMessageRequest con MessageType=MediaKind, MediaType=map(kind),
+    MediaUrl=/uploads/chat/..., MediaMimeType. Fallo de descarga -> LogWarning + fallback a texto.
+  - Enum MessageMediaType ya tenia Image/Video/Audio/Document: NO se amplio.
+  - Extra: el catch silencioso del webhook Evolution pasa a LogWarning (fallas visibles).
+- No se toco TasksToolset ni ChatIngestService (ya correctos).
+- Verificado: build de la solucion verde; YCloudWebhookParserMediaTests 3/3 (imagen/documento/texto).
+  Un inbound de imagen por YCloud queda con MediaUrl/MediaType persistidos -> crear_tarea lo adjunta solo.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.0; sin desplegar 0.16.1-0.16.3). Validacion de
+  runtime real (linea YCloud con media) tras desplegar.
+
 ## 2026-09-07 - v0.16.2: notas de voz en el chat de prueba (el agente Gemini OYE el audio) + reproductor
 
 - Pedido (usuario): poder subir NOTAS DE VOZ en el sistema de pruebas para que el agente las procese.

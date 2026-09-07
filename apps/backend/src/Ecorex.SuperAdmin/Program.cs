@@ -1357,7 +1357,11 @@ app.MapPost("/webhooks/evolution", async (
                     };
                 }
             }
-            catch { /* si falla la descarga, ingerimos igual como texto "(imagen)" */ }
+            catch (Exception ex)
+            {
+                // No romper la ingesta: se ingiere como texto "(imagen)", pero dejamos registro para diagnosticar.
+                log.LogWarning(ex, "Webhook Evolution: no se pudo descargar la media entrante del mensaje {Id}; se ingiere como texto.", payload.ExternalMessageId);
+            }
         }
     }
 
@@ -1420,9 +1424,35 @@ app.MapPost("/webhooks/ycloud", async (
     IApplicationDbContext db,
     Ecorex.Application.Tenancy.IChatIngestService ingest,
     ILoggerFactory loggerFactory,
+    IWebHostEnvironment env,
+    IHttpClientFactory httpClientFactory,
     CancellationToken ct) =>
 {
     var log = loggerFactory.CreateLogger("YCloudWebhook");
+
+    // Media entrante -> tipo de contenido del dominio.
+    static Ecorex.Domain.Enums.MessageMediaType MapMediaKind(string? kind) => kind switch
+    {
+        "image" => Ecorex.Domain.Enums.MessageMediaType.Image,
+        "video" => Ecorex.Domain.Enums.MessageMediaType.Video,
+        "audio" => Ecorex.Domain.Enums.MessageMediaType.Audio,
+        "document" => Ecorex.Domain.Enums.MessageMediaType.Document,
+        _ => Ecorex.Domain.Enums.MessageMediaType.None
+    };
+    // Extension del archivo local segun el mime (para servirlo con el tipo correcto).
+    static string ExtForMime(string mime) => mime switch
+    {
+        _ when mime.Contains("png") => ".png",
+        _ when mime.Contains("webp") => ".webp",
+        _ when mime.Contains("jpeg") || mime.Contains("jpg") => ".jpg",
+        _ when mime.Contains("gif") => ".gif",
+        _ when mime.Contains("pdf") => ".pdf",
+        _ when mime.Contains("mp4") => ".mp4",
+        _ when mime.Contains("ogg") => ".ogg",
+        _ when mime.Contains("mpeg") || mime.Contains("mp3") => ".mp3",
+        _ when mime.Contains("wav") => ".wav",
+        _ => ".bin"
+    };
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
@@ -1444,8 +1474,37 @@ app.MapPost("/webhooks/ycloud", async (
             continue;
         }
 
+        // Media entrante (imagen/documento/audio/video): YCloud la entrega como URL publica. La descargamos
+        // y la guardamos como adjunto local para que crear_tarea (agente) y la consola la lleven. Si la
+        // descarga falla, se ingiere como texto (con el caption/"(<tipo>)") y se loguea el motivo.
+        var messageType = "text";
+        var mediaType = Ecorex.Domain.Enums.MessageMediaType.None;
+        string? mediaUrl = null;
+        string? mediaMime = null;
+        if (!string.IsNullOrWhiteSpace(m.MediaLink))
+        {
+            try
+            {
+                var http = httpClientFactory.CreateClient();
+                var bytes = await http.GetByteArrayAsync(m.MediaLink, ct);
+                var mime = string.IsNullOrWhiteSpace(m.MediaMime) ? "application/octet-stream" : m.MediaMime!;
+                var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+                System.IO.Directory.CreateDirectory(dir);
+                var fname = $"yc-{Guid.NewGuid():N}{ExtForMime(mime)}";
+                await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
+                messageType = m.MediaKind ?? "text";
+                mediaType = MapMediaKind(m.MediaKind);
+                mediaUrl = $"/uploads/chat/{fname}";
+                mediaMime = mime;
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "Webhook YCloud: no se pudo descargar la media entrante ({Kind}) de {Link}; se ingiere como texto.", m.MediaKind, m.MediaLink);
+            }
+        }
+
         var payload = new Ecorex.Application.Tenancy.IngestMessageRequest(
-            m.Phone, m.Name, m.ExternalId, m.Body, "text", m.SentAt, line.Id);
+            m.Phone, m.Name, m.ExternalId, m.Body, messageType, m.SentAt, line.Id, mediaType, mediaUrl, mediaMime);
         var res = await ingest.IngestTrustedAsync(line.TenantId, payload, cancellationToken: ct);
         if (res != Ecorex.Application.Tenancy.ChatIngestResult.Duplicate) { ingested++; }
         log.LogInformation("Webhook YCloud INGERIDO. tenant={Tenant} linea={Line} resultado={Result}", line.TenantId, line.Id, res);

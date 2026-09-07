@@ -1261,7 +1261,10 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return await _db.WorkflowNodeAgents.AsNoTracking()
             .Where(x => x.NodeId == nodeId)
             .Join(_db.AiAgents.AsNoTracking(), x => x.AiAgentId, a => a.Id,
-                (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy))
+                (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
+                    x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
+                    x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
+                    x.ExtraPrompt, x.CanSendEmail))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1280,11 +1283,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             return WorkflowResult<FlowNodeAgentDto>.NotFound("Agente de IA no encontrado.");
         }
-        // Solo tienen sentido los nodos que representan un paso atendible; un gateway o un
-        // evento no se "atienden" y asignarles agente seria configuracion muerta.
-        if (node.NodeType != WorkflowNodeType.Task)
+        // Admiten agente los nodos que se ATIENDEN: un paso Task (decide/llena) y una COMPUERTA ATENDIDA
+        // (AllowsAssignment/WaitsForHuman, ADR-0068/0072) donde el agente ELIGE la ruta (ADR-0090 ola B).
+        // Una compuerta automatica o un evento no se atienden: asignarles agente seria configuracion muerta
+        // (para el patron Task->compuerta automatica, el agente va en el Task previo).
+        var esCompuertaAtendida = node.NodeType == WorkflowNodeType.ExclusiveGateway && node.AllowsAssignment;
+        if (node.NodeType != WorkflowNodeType.Task && !esCompuertaAtendida)
         {
-            return WorkflowResult<FlowNodeAgentDto>.Invalid("Solo un paso (Task) admite agente de IA.");
+            return WorkflowResult<FlowNodeAgentDto>.Invalid(
+                "Solo un paso (Task) o una compuerta ATENDIDA (con 'Permite asignacion') admite agente de IA.");
         }
 
         // A lo sumo un agente por nodo (indice unico): upsert, igual que SetNodeFormAsync.
@@ -1308,7 +1315,76 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         await _db.SaveChangesAsync(cancellationToken);
 
         return WorkflowResult<FlowNodeAgentDto>.Ok(new FlowNodeAgentDto(
-            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy));
+            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy,
+            existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
+            existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
+            existing.ExtraPrompt, existing.CanSendEmail));
+    }
+
+    public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
+    {
+        // Clientes Colmena del tenant (filtro global); activos primero, como el catalogo de agentes.
+        return await _db.DataClients.AsNoTracking()
+            .OrderByDescending(c => c.IsActive).ThenBy(c => c.Name)
+            .Select(c => new FlowColmenaClientDto(c.Id, c.Name, c.IsActive))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FlowWhatsAppLineDto>> ListWhatsAppLinesAsync(CancellationToken cancellationToken = default)
+    {
+        // Lineas WhatsApp del tenant (filtro global); conectadas primero. El nombre visible es el numero o la
+        // instancia (lo que exista), suficiente para el selector del editor.
+        return await _db.WhatsAppLines.AsNoTracking()
+            .OrderByDescending(l => l.Status == WhatsAppLineStatus.Connected).ThenBy(l => l.PhoneNumber)
+            .Select(l => new FlowWhatsAppLineDto(
+                l.Id,
+                l.PhoneNumber ?? l.InstanceName,
+                l.Status == WhatsAppLineStatus.Connected))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
+        Guid nodeId, FlowNodeAgentResourcesInput input, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.WorkflowNodeAgents.FirstOrDefaultAsync(x => x.NodeId == nodeId, cancellationToken);
+        if (existing is null)
+        {
+            return WorkflowResult<FlowNodeAgentDto>.Invalid("Primero asigna un agente al nodo.");
+        }
+        // El filtro global valida tenant: un cliente/agente/linea de otro tenant no existe aqui -> NotFound.
+        if (input.ColmenaClientId is Guid cc && !await _db.DataClients.AnyAsync(c => c.Id == cc, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Cliente Colmena no encontrado.");
+        }
+        if (input.VoiceAiAgentId is Guid va && !await _db.AiAgents.AnyAsync(a => a.Id == va, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Agente de voz no encontrado.");
+        }
+        if (input.WhatsAppLineId is Guid wl && !await _db.WhatsAppLines.AnyAsync(l => l.Id == wl, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Linea de WhatsApp no encontrada.");
+        }
+
+        existing.ColmenaClientId = input.ColmenaClientId;
+        existing.ColmenaSessionKey = string.IsNullOrWhiteSpace(input.ColmenaSessionKey) ? null : input.ColmenaSessionKey.Trim();
+        existing.VoiceAiAgentId = input.VoiceAiAgentId;
+        existing.WhatsAppLineId = input.WhatsAppLineId;
+        // La plantilla solo tiene sentido si hay linea; sin linea se limpia para no dejar config muerta.
+        existing.WhatsAppTemplateName = input.WhatsAppLineId is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateName)
+            ? null : input.WhatsAppTemplateName.Trim();
+        existing.WhatsAppTemplateLang = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateLang)
+            ? null : input.WhatsAppTemplateLang.Trim();
+        // ADR-0093: instrucciones por paso + permiso de correo.
+        existing.ExtraPrompt = string.IsNullOrWhiteSpace(input.ExtraPrompt) ? null : input.ExtraPrompt.Trim();
+        existing.CanSendEmail = input.CanSendEmail;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var agent = await _db.AiAgents.AsNoTracking().FirstAsync(a => a.Id == existing.AiAgentId, cancellationToken);
+        return WorkflowResult<FlowNodeAgentDto>.Ok(new FlowNodeAgentDto(
+            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, existing.Autonomy,
+            existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
+            existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
+            existing.ExtraPrompt, existing.CanSendEmail));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

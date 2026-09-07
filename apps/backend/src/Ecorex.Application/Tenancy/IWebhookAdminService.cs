@@ -8,7 +8,8 @@ public sealed record WebhookConfigDto(
     bool TunnelRunning,
     string? EffectiveUrl,
     string? MetaVerifyToken = null,
-    string? MetaCallbackUrl = null);
+    string? MetaCallbackUrl = null,
+    string? YCloudCallbackUrl = null);
 
 /// <summary>Administra la config del webhook entrante (modo dev/prod, URL, token) y el tunel de desarrollo.</summary>
 public interface IWebhookAdminService

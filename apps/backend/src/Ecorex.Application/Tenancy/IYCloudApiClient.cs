@@ -23,6 +23,12 @@ public interface IYCloudApiClient
     /// <summary>Envia media (imagen/video/audio/documento) por URL publica.</summary>
     Task<YCloudSendResult> SendMediaAsync(string apiKey, string fromPhone, string toPhone, YCloudMediaKind kind, string mediaUrl, string? caption, string? fileName, CancellationToken cancellationToken = default);
 
+    /// <summary>ADR-0092: envia una PLANTILLA aprobada (HSM) para el primer contacto en frio (ventana de 24h
+    /// cerrada). <paramref name="bodyParams"/> son los valores de las variables {{1}}, {{2}}... del cuerpo, en
+    /// orden (para 'preguntar_whatsapp' suele ser un solo valor = la pregunta). <paramref name="language"/> es
+    /// el codigo de idioma de la plantilla aprobada (ej. "es").</summary>
+    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default);
+
     // === Plantillas HSM =======================================================
     /// <summary>Crea/somete una plantilla a revision de Meta a traves de YCloud.
     /// <paramref name="components"/> es el arreglo de componentes ya armado por el servicio

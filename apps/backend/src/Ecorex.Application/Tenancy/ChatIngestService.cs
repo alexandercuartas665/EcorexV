@@ -105,6 +105,19 @@ public sealed class ChatIngestService : IChatIngestService
         };
         _db.Messages.Add(message);
 
+        // ADR-0092: si un PASO de flujo estaba EN ESPERA de una respuesta por esta conversacion, reanudarlo.
+        // Se limpia AgentAttemptedAt (conservando PendingWhatsAppConversationId, que el agente lee para tener la
+        // respuesta en su contexto) para que el barrido de agentes vuelva a correr el paso. Consulta acotada e
+        // indexada por conversacion; el guard de colision en AgentConversationService evita la doble respuesta.
+        var waitingSteps = await _db.WorkflowStepHistories
+            .IgnoreQueryFilters()
+            .Where(s => s.TenantId == tenantId && s.PendingWhatsAppConversationId == conversation.Id && s.IsCurrent)
+            .ToListAsync(cancellationToken);
+        foreach (var s in waitingSteps)
+        {
+            s.AgentAttemptedAt = null;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var dto = new MessageDto(message.Id, message.ConversationId, message.Direction, message.Body,

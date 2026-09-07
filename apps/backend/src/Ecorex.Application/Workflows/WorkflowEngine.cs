@@ -495,6 +495,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
     public async Task<WorkflowResult<WorkflowInstanceDto>> ChooseGatewayRouteAsync(
         Guid instanceId, Guid stepId, Guid targetNodeId, Guid? tenantUserId, string? note = null,
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default)
     {
         var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
@@ -531,6 +532,12 @@ public sealed class WorkflowEngine : IWorkflowEngine
         step.Status = WorkflowStepStatus.Completed;
         step.IsCurrent = false;
         step.ExecutedByTenantUserId = tenantUserId;
+        // Autor maquina JUNTO al humano (ADR-0090): una ruta elegida por un agente autonomo deja usuario null
+        // y agente con valor; una atendida por una persona deja el agente en null. Nunca se pisan.
+        if (executedByAiAgentId is Guid agentId)
+        {
+            step.ExecutedByAiAgentId = agentId;
+        }
         step.CompletedAt = DateTimeOffset.UtcNow;
         // El nombre del edge (si lo tiene) queda como resultado, para auditoria; puede ser null.
         step.ApprovalResult = Normalize(chosen.Name);
@@ -558,7 +565,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
         if (task is not null)
         {
-            AddTaskActivity(task, tenantUserId, "Usuario",
+            var actor = executedByAiAgentId is not null ? "Agente de IA" : "Usuario";
+            AddTaskActivity(task, tenantUserId, actor,
                 $"eligio la ruta hacia {target.Name ?? target.BpmnElementId} en {node.Name ?? node.BpmnElementId}");
         }
 

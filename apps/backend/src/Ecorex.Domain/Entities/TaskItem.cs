@@ -131,6 +131,16 @@ public class TaskItem : TenantEntity, IVersioned
     public Guid? ParentId { get; set; }
     public TaskItem? Parent { get; set; }
 
+    /// <summary>
+    /// Tarea ORIGEN que GENERO esta tarea por una regla/flujo (ej. GENERAR_TAREAS_DESDE_TABLA, u Orden de
+    /// Trabajo derivada). Distinto de <see cref="ParentId"/> (subtareas): aqui la tarea suele nacer en OTRO
+    /// tablero con su propio numero, y este vinculo permite seguir la cadena tarea->hijo->nieto (p.ej. el
+    /// lector del tablero movil localiza el descendiente al escanear el codigo impreso de la tarea origen).
+    /// Null = la tarea no fue generada por otra. FK sin cascada (Restrict); puede encadenarse (multi-nivel).
+    /// </summary>
+    public Guid? SourceTaskId { get; set; }
+    public TaskItem? SourceTask { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
 }

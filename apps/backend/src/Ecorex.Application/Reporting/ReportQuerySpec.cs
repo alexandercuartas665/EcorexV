@@ -54,6 +54,13 @@ public sealed record ReportQuerySpec
     /// <summary>Limite de filas (opcional). Guarda razonable contra resultados enormes.</summary>
     public int? Top { get; init; }
 
+    /// <summary>Valores de PARAMETROS Input para una fuente EXTERNA (ADR-0064): nombre del parametro -> valor
+    /// (multi-valor = varios codigos separados por salto de linea o coma, v0.15.173). Solo lo consume la
+    /// fuente externa (el binder enlaza SOLO parametros declarados; claves desconocidas se ignoran). Null =
+    /// la fuente usa los DefaultValue de sus parametros (comportamiento clasico). Las fuentes no externas lo
+    /// ignoran por completo.</summary>
+    public IReadOnlyDictionary<string, string?>? Inputs { get; init; }
+
     public bool IsAggregated => GroupBy.Count > 0 || Aggregates.Count > 0;
 }
 

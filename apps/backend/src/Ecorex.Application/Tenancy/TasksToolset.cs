@@ -83,30 +83,62 @@ public sealed class TasksToolset : ITasksToolset
 
     private async Task<AgentToolResult> ListBoardsAsync(CancellationToken ct)
     {
-        var boards = await _db.TaskBoards.AsNoTracking()
-            .Where(b => !b.IsArchived)
+        // Whitelist dura del agente (null/vacio = sin restriccion = todos los tableros del tenant).
+        var allowed = AllowedBoards();
+        var q = _db.TaskBoards.AsNoTracking().Where(b => !b.IsArchived);
+        if (allowed is not null) { q = q.Where(b => allowed.Contains(b.Id)); }
+        var boards = await q
             .OrderBy(b => b.Name)
             .Select(b => new { b.Name, b.Description })
             .ToListAsync(ct);
         return Ok(new { ok = true, tableros = boards.Select(b => new { nombre = b.Name, descripcion = b.Description }) });
     }
 
+    /// <summary>Whitelist de tableros permitidos para este agente (del contexto ambiental). Devuelve null si
+    /// no hay restriccion (lista vacia o null) para preservar el comportamiento de "todos los tableros".</summary>
+    private static List<Guid>? AllowedBoards()
+    {
+        var allowed = AiToolRunContext.AllowedBoardIds;
+        return allowed is { Count: > 0 } ? allowed.ToList() : null;
+    }
+
     private async Task<AgentToolResult> CreateTaskAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
         var tableroNombre = Str(args, "tablero");
         var titulo = Str(args, "titulo");
-        if (string.IsNullOrWhiteSpace(tableroNombre)) { return Err("Falta el nombre del tablero (tablero)."); }
         if (string.IsNullOrWhiteSpace(titulo)) { return Err("Falta el titulo de la tarea (titulo)."); }
 
-        // Tablero por NOMBRE (case-insensitive). Si no existe, devolvemos la lista para que el modelo reintente.
-        var board = await _db.TaskBoards.AsNoTracking()
-            .Where(b => !b.IsArchived)
-            .FirstOrDefaultAsync(b => b.Name.ToLower() == tableroNombre!.Trim().ToLower(), ct);
+        // Whitelist dura del agente (null = sin restriccion). Con restriccion, el nombre se resuelve SOLO
+        // entre los tableros permitidos: un nombre que calce con un tablero fuera de la whitelist NO vale.
+        var allowed = AllowedBoards();
+
+        TaskBoard? board = null;
+        if (!string.IsNullOrWhiteSpace(tableroNombre))
+        {
+            var q = _db.TaskBoards.AsNoTracking().Where(b => !b.IsArchived);
+            if (allowed is not null) { q = q.Where(b => allowed.Contains(b.Id)); }
+            board = await q.FirstOrDefaultAsync(b => b.Name.ToLower() == tableroNombre!.Trim().ToLower(), ct);
+        }
+
+        // Comodidad: con EXACTAMENTE 1 tablero permitido, si no vino nombre o no calzo, se usa ese por defecto.
+        if (board is null && allowed is { Count: 1 })
+        {
+            board = await _db.TaskBoards.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == allowed[0] && !b.IsArchived, ct);
+        }
+
         if (board is null)
         {
-            var nombres = await _db.TaskBoards.AsNoTracking().Where(b => !b.IsArchived)
-                .OrderBy(b => b.Name).Select(b => b.Name).ToListAsync(ct);
-            return Err($"No existe un tablero llamado '{tableroNombre}'. Tableros disponibles: {string.Join(", ", nombres)}.");
+            // Nombres a sugerir: SOLO los permitidos si hay whitelist; si no, todos los del tenant.
+            var nombresQ = _db.TaskBoards.AsNoTracking().Where(b => !b.IsArchived);
+            if (allowed is not null) { nombresQ = nombresQ.Where(b => allowed.Contains(b.Id)); }
+            var nombres = await nombresQ.OrderBy(b => b.Name).Select(b => b.Name).ToListAsync(ct);
+            if (string.IsNullOrWhiteSpace(tableroNombre))
+            {
+                return Err($"Falta el nombre del tablero (tablero). Tableros disponibles: {string.Join(", ", nombres)}.");
+            }
+            var restringido = allowed is not null ? " permitido" : "";
+            return Err($"No existe un tablero{restringido} llamado '{tableroNombre}'. Tableros disponibles: {string.Join(", ", nombres)}.");
         }
 
         // Tipo de actividad por defecto (el mas basico del tenant): CreateAsync exige tipo o concepto.

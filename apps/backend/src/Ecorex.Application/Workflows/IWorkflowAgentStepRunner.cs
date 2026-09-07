@@ -39,5 +39,13 @@ public enum WorkflowAgentStepOutcome
     Proposed = 4,
 
     /// <summary>El agente no pudo: el paso volvio a una persona con el motivo registrado.</summary>
-    ReturnedToPerson = 5
+    ReturnedToPerson = 5,
+
+    /// <summary>ADR-0091: el agente PIDIO una llamada (Retell) para conseguir datos. Se coloco la llamada y
+    /// el paso quedo EN ESPERA (PendingVoiceCallId); al terminar la llamada, el webhook reanuda el agente.</summary>
+    WaitingForCall = 6,
+
+    /// <summary>ADR-0092: el agente PIDIO preguntar por WhatsApp. Se envio el mensaje y el paso quedo EN ESPERA
+    /// (PendingWhatsAppConversationId); al entrar la respuesta, la ingesta de chat reanuda el agente.</summary>
+    WaitingForReply = 7
 }

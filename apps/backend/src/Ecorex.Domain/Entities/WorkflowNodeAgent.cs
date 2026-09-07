@@ -29,4 +29,47 @@ public class WorkflowNodeAgent : TenantEntity
 
     /// <summary>Si el agente cierra el paso o solo propone y una persona confirma.</summary>
     public WorkflowAgentAutonomy Autonomy { get; set; } = WorkflowAgentAutonomy.Proposes;
+
+    // ---- ADR-0091: recursos para CONSEGUIR datos al llenar el formulario del paso ----
+    // Permiso EXPLICITO por nodo: el agente solo obtiene una herramienta si su recurso esta configurado aqui.
+
+    /// <summary>Cliente COLMENA (navegador on-prem) que el agente puede usar para 'buscar_web'. FK a
+    /// <see cref="DataClient"/> (restrict, nullable). Null = sin herramienta de busqueda web.</summary>
+    public Guid? ColmenaClientId { get; set; }
+    public DataClient? ColmenaClient { get; set; }
+
+    /// <summary>Perfil persistente del navegador para scraping LOGUEADO (ej. "linkedin"). Se pasa como
+    /// SessionKey a la orden Colmena. Null = sesion efimera.</summary>
+    public string? ColmenaSessionKey { get; set; }
+
+    /// <summary>Agente de VOZ (prompt de la llamada) que el agente puede usar para 'llamar_telefono' via
+    /// Retell. FK a <see cref="AiAgent"/> (restrict, nullable). Null = sin herramienta de llamada.</summary>
+    public Guid? VoiceAiAgentId { get; set; }
+    public AiAgent? VoiceAiAgent { get; set; }
+
+    // ---- ADR-0092: preguntar por WhatsApp para conseguir datos (pausa/reanudacion, como la llamada) ----
+
+    /// <summary>Linea WhatsApp desde la que el agente puede usar 'preguntar_whatsapp'. FK a
+    /// <see cref="WhatsAppLine"/> (restrict, nullable). Null = sin herramienta de WhatsApp.</summary>
+    public Guid? WhatsAppLineId { get; set; }
+    public WhatsAppLine? WhatsAppLine { get; set; }
+
+    /// <summary>Nombre de la PLANTILLA aprobada (HSM) para el PRIMER contacto en frio (ventana de 24h cerrada):
+    /// su unica variable de cuerpo {{1}} recibe la pregunta del agente. Null = solo texto libre (ventana abierta).</summary>
+    public string? WhatsAppTemplateName { get; set; }
+
+    /// <summary>Codigo de idioma de la plantilla (ej. "es"). Solo aplica si <see cref="WhatsAppTemplateName"/>
+    /// tiene valor. Null con plantilla presente = se asume "es".</summary>
+    public string? WhatsAppTemplateLang { get; set; }
+
+    // ---- ADR-0093: potenciar el agente en el nodo (instrucciones por paso + correo) ----
+
+    /// <summary>Instrucciones EXTRA para el agente SOLO en este paso, que se anteponen a su prompt de sistema
+    /// base. Es donde se le dice QUE hacer y COMO usar sus herramientas aqui (ej. que URL abrir con Colmena y
+    /// que extraer). Null = solo el prompt base del agente.</summary>
+    public string? ExtraPrompt { get; set; }
+
+    /// <summary>Si el agente puede ENVIAR correos en este paso (herramienta 'enviar_correo', ADR-0093). Usa el
+    /// correo saliente configurado del tenant; el FROM no lo elige el agente. Default false (permiso explicito).</summary>
+    public bool CanSendEmail { get; set; }
 }

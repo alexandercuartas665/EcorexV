@@ -251,7 +251,8 @@ public sealed class TaskItemService : ITaskItemService
             ProjectId = request.ProjectId,
             MilestoneId = request.MilestoneId,
             Color = Normalize(request.Color),
-            ParentId = request.ParentId
+            ParentId = request.ParentId,
+            SourceTaskId = request.SourceTaskId
         };
         _db.TaskItems.Add(task);
 

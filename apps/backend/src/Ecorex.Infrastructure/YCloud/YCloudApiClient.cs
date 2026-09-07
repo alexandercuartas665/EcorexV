@@ -100,6 +100,35 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return SendMessageAsync(apiKey, payload, cancellationToken);
     }
 
+    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default)
+    {
+        // Payload de plantilla (WhatsApp/YCloud v2): un componente BODY con los parametros de texto en orden.
+        // Si no hay variables, se omiten los components (plantilla de texto fijo).
+        var components = new List<object>();
+        if (bodyParams.Count > 0)
+        {
+            components.Add(new
+            {
+                type = "body",
+                parameters = bodyParams.Select(p => new { type = "text", text = p }).ToArray()
+            });
+        }
+        var template = new Dictionary<string, object?>
+        {
+            ["name"] = templateName,
+            ["language"] = new { code = language }
+        };
+        if (components.Count > 0) { template["components"] = components; }
+        var payload = new Dictionary<string, object?>
+        {
+            ["from"] = fromPhone,
+            ["to"] = toPhone,
+            ["type"] = "template",
+            ["template"] = template
+        };
+        return SendMessageAsync(apiKey, payload, cancellationToken);
+    }
+
     private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/whatsapp/messages");

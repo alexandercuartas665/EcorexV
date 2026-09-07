@@ -2487,6 +2487,25 @@ else
                                             <div class="fb-hint">La marca del item viaja como campo &quot;brand&quot;. Los campos de la ficha aparecen en la lista.</div>
                                         </div>
                                     }
+                                    @* Columna RESOLVER (VLOOKUP contra un Contenedor por clave compuesta). Solo se
+                                       configura por JSON/SQL; aqui se muestra un resumen no editable y se expone la
+                                       unica bandera util en el disenador: el modo hibrido (allowManual). *@
+                                    @if (ext?.Resolve is { } rsv)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Columna auto-resuelta (contenedor)</label>
+                                            <div class="fb-hint">
+                                                Auto-resuelta desde el contenedor por @(rsv.Match.Count > 0 ? string.Join(", ", rsv.Match.Keys) : "(sin claves)"); devuelve @rsv.ReturnField.
+                                            </div>
+                                            <label class="fb-check" style="margin-top:8px;"
+                                                   title="Donde el contenedor tiene tarifa autollena; donde no, la celda queda editable y lo tecleado no se borra.">
+                                                <input type="checkbox" @bind:get="rsv.AllowManual"
+                                                       @bind:set="@((bool v) => SetGridResolveAllowManualAsync(node.Q!, idx, v))" />
+                                                Permite ingreso manual
+                                            </label>
+                                            <div class="fb-hint">Donde el contenedor tiene tarifa autollena; donde no, la celda queda editable y lo tecleado no se borra.</div>
+                                        </div>
+                                    }
                                     @if (col.Calc is not null)
                                     {
                                         <div class="fb-gcp-field">
@@ -3377,6 +3396,15 @@ else
         {
             var v = value?.Trim();
             if (string.IsNullOrEmpty(v)) { obj.Remove("default"); } else { obj["default"] = v; }
+        });
+
+    /// <summary>Modo HIBRIDO de una columna RESOLVER (allowManual): escribe/quita la bandera DENTRO del objeto
+    /// resolve del options_json, preservando las demas claves (match/return/when/source). Quitar = default false.</summary>
+    private Task SetGridResolveAllowManualAsync(FormQuestionDto q, int index, bool on)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["resolve"] is not JsonObject rv) { return; }
+            if (on) { rv["allowManual"] = true; } else { rv.Remove("allowManual"); }
         });
 
     // ---- CAP 3 (ADR-0081): render agrupado a nivel de grilla ("groupRender") ----

@@ -71,6 +71,9 @@ public interface IWorkflowEngine
     /// </summary>
     Task<WorkflowResult<WorkflowInstanceDto>> ChooseGatewayRouteAsync(
         Guid instanceId, Guid stepId, Guid targetNodeId, Guid? tenantUserId, string? note = null,
+        // Agente de IA que eligio la ruta (ADR-0090 ola B). Se registra JUNTO al usuario, no en su lugar:
+        // una ruta elegida por un agente autonomo deja usuario null y agente con valor.
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

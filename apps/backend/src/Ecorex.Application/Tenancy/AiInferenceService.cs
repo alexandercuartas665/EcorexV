@@ -57,6 +57,18 @@ public sealed class AiInferenceService : IAiInferenceService
         return set;
     }
 
+    // Whitelist de tableros del agente (AiAgent.AllowedBoardIdsJson). Null/vacio = sin restriccion (todos).
+    private static IReadOnlyList<Guid>? ParseAllowedBoardIds(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<Guid>>(json)?.Where(g => g != Guid.Empty).Distinct().ToList();
+            return list is { Count: > 0 } ? list : null;
+        }
+        catch { return null; }
+    }
+
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
     public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, CancellationToken cancellationToken = default)
         => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, cancellationToken);
@@ -127,9 +139,11 @@ public sealed class AiInferenceService : IAiInferenceService
         // Si el modelo no llama ninguna herramienta, equivale a una respuesta normal.
         var actor = actorUserId;
         var disabledTools = ParseDisabledTools(agent.DisabledToolsJson);
+        // Whitelist de tableros del agente (null/[] = sin restriccion). La consume TasksToolset por el contexto.
+        var allowedBoardIds = ParseAllowedBoardIds(agent.AllowedBoardIdsJson);
         // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
-        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments);
+        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds);
         var (result, sessionCompleted) = await RunToolLoopAsync(
             agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 

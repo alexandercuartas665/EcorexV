@@ -118,6 +118,20 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             await DumpCapturedFormsAsync(voiceCall, call, callId!, cancellationToken);
         }
 
+        // ADR-0091: si un PASO de flujo estaba EN ESPERA de esta llamada, reanudarlo. Se limpia
+        // AgentAttemptedAt (conservando PendingVoiceCallId, que el agente lee para tener el resultado en su
+        // contexto) para que el barrido de agentes vuelva a correr el paso con el transcript/datos capturados.
+        if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase))
+        {
+            var waitingSteps = await _db.WorkflowStepHistories
+                .Where(s => s.PendingVoiceCallId == callId && s.IsCurrent)
+                .ToListAsync(cancellationToken);
+            foreach (var s in waitingSteps)
+            {
+                s.AgentAttemptedAt = null;
+            }
+        }
+
         // Actualizar el run del motor de acciones (best-effort) por su ExternalRef = call_id.
         var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.ExternalRef == callId, cancellationToken);
         if (run is not null)

@@ -5,6 +5,7 @@
 @using Ecorex.Application.Admin
 @using Ecorex.Domain.Enums
 @inject IAiAgentService AgentsSvc
+@inject ITaskBoardService BoardsSvc
 @inject IEnumerable<IAgentToolset> Toolsets
 @inject IAiAgentCacheService CacheSvc
 @inject IAiServerConfigService AiServersSvc
@@ -479,6 +480,46 @@ else
                                             <div style="min-width:0;">
                                                 <div style="font-weight:600;font-size:13px;">@Humanize(spec.Name)</div>
                                                 <div class="text-muted" style="font-size:11.5px;">@Trim(spec.Description ?? "", 130)</div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Tableros permitidos (whitelist dura para crear_tarea) - acordeon ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _boardsOpen = !_boardsOpen">
+                            <span class="ag-accordion-chev @(_boardsOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Tableros permitidos</span>
+                            <span class="ag-accordion-count">@(_fAllowedBoardIds.Count == 0 ? "Todos" : _fAllowedBoardIds.Count.ToString())</span>
+                        </div>
+                        @if (_boardsOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Restringe en QUE tableros puede crear tareas este agente. <strong>Vacio = puede usar TODOS los tableros.</strong> Con 1 o varios marcados, la herramienta solo admite esos y el resto ni los ve. Los cambios se guardan con "Guardar cambios".</div>
+                                @if (_allBoards.Count == 0)
+                                {
+                                    <div class="text-muted" style="font-size:12px;">No hay tableros en este tenant.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var b in _allBoards)
+                                    {
+                                        var marcado = _fAllowedBoardIds.Contains(b.Id);
+                                        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 2px;border-bottom:1px solid var(--border);">
+                                            <label class="ag-switch" style="margin-top:2px;flex:none;">
+                                                <input type="checkbox" checked="@marcado" @onchange="@(e => ToggleBoard(b.Id, (bool)e.Value!))" disabled="@_busy" />
+                                                <span class="ag-slider"></span>
+                                            </label>
+                                            <div style="min-width:0;">
+                                                <div style="font-weight:600;font-size:13px;">@b.Name</div>
+                                                @if (!string.IsNullOrWhiteSpace(b.Description))
+                                                {
+                                                    <div class="text-muted" style="font-size:11.5px;">@Trim(b.Description!, 130)</div>
+                                                }
                                             </div>
                                         </div>
                                     }
@@ -1022,6 +1063,11 @@ else
     private readonly HashSet<string> _disabledTools = new(StringComparer.OrdinalIgnoreCase);
     private bool _fActive;
 
+    // Whitelist de tableros que el agente puede usar al crear tareas. Vacio = TODOS (sin restriccion).
+    private bool _boardsOpen;
+    private List<TaskBoardDto> _allBoards = new();
+    private List<Guid> _fAllowedBoardIds = new();
+
     // Reacciones automaticas (emoji) a los mensajes del cliente, sin pasar por el LLM (cero tokens).
     private bool _reactionsOpen;
     private bool _fReactionsEnabled;
@@ -1128,6 +1174,7 @@ else
         _providerOptions = (await AiServersSvc.ListEnabledAsync()).ToList();
         _phoneLines = (await LinesSvc.ListAsync()).Where(l => l.Status == WhatsAppLineStatus.Connected).ToList();
         _phoneLineId = _phoneLines.FirstOrDefault()?.Id ?? Guid.Empty;
+        _allBoards = (await BoardsSvc.ListBoardsAsync()).ToList(); // no archivados; para la whitelist por agente
         await ReloadAsync();
         _loading = false;
     }
@@ -1176,6 +1223,8 @@ else
         _fActive = false;
         _disabledTools.Clear();
         _toolsOpen = false;
+        _fAllowedBoardIds = new();
+        _boardsOpen = false;
         _reactionsOpen = false;
         _fReactionsEnabled = false;
         _fReactionN = 3;
@@ -1231,6 +1280,8 @@ else
         _fActive = detail.Agent.IsActive;
         _disabledTools.Clear();
         foreach (var t in detail.Agent.DisabledTools ?? Array.Empty<string>()) { _disabledTools.Add(t); }
+        _fAllowedBoardIds = (detail.Agent.AllowedBoardIds ?? Array.Empty<Guid>()).ToList();
+        _boardsOpen = false;
         _fReactionsEnabled = detail.Agent.ReactionsEnabled;
         _fReactionN = detail.Agent.ReactionRatioN;
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;
@@ -1742,6 +1793,13 @@ else
     }
     private int TotalToolCount() => Toolsets.Sum(t => t.GetSpecs().Count);
     private int EnabledToolCount() => Toolsets.Sum(t => t.GetSpecs().Count(s => !_disabledTools.Contains(s.Name)));
+
+    // Whitelist de tableros: marca/desmarca un tablero permitido. Lista vacia = todos (sin restriccion).
+    private void ToggleBoard(Guid boardId, bool allowed)
+    {
+        if (allowed) { if (!_fAllowedBoardIds.Contains(boardId)) { _fAllowedBoardIds.Add(boardId); } }
+        else { _fAllowedBoardIds.Remove(boardId); }
+    }
     private static string Humanize(string toolName) =>
         string.IsNullOrEmpty(toolName) ? toolName : char.ToUpperInvariant(toolName[0]) + toolName[1..].Replace('_', ' ');
 
@@ -1763,7 +1821,7 @@ else
             }
             else
             {
-                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis), actor);
+                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList()), actor);
                 await ReloadVersionsAsync(_editId.Value);
             }
             await ReloadAsync();

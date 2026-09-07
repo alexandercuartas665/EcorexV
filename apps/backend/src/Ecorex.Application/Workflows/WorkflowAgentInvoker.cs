@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
+using Ecorex.Application.Forms.Calc;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -29,12 +30,21 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _secretProtector;
     private readonly IAiProviderClient _client;
+    private readonly IAgentBrowserFetch _browserFetch;
+    private readonly IEmailSender _email;
 
-    public WorkflowAgentInvoker(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client)
+    /// <summary>ADR-0093: tope de correos por paso, red de seguridad anti-bucle (el bucle ya tiene su tope de rondas).</summary>
+    private const int MaxEmailsPerStep = 3;
+
+    public WorkflowAgentInvoker(
+        IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client,
+        IAgentBrowserFetch browserFetch, IEmailSender email)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
+        _browserFetch = browserFetch;
+        _email = email;
     }
 
     public async Task<WorkflowAgentInvocationResult> InvokeAsync(
@@ -82,6 +92,14 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             : !string.IsNullOrWhiteSpace(providerCfg.Model) ? providerCfg.Model!
             : meta.DefaultModel;
 
+        // ADR-0090 ola C: si el nodo tiene FORMULARIO, el agente lo LLENA con tool-calling (ver/fijar/enviar).
+        // Es un bucle acotado que ACUMULA valores en memoria (este servicio no escribe BD); el runner los
+        // envia por SaveAsync con la misma validacion que un humano.
+        if (context.Node.Form is not null)
+        {
+            return await RunFormFillAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken);
+        }
+
         var systemPrompt = BuildSystemPrompt(agent.SystemPrompt, context);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars)
@@ -126,6 +144,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// respuesta la consume una maquina que va a CERRAR un paso de proceso; texto libre invitaria a
     /// adivinar, y adivinar en una aprobacion de compra es inaceptable.
     /// </summary>
+    private static void AppendExtraPrompt(StringBuilder sb, WorkflowAgentContextDto context)
+    {
+        // ADR-0093: instrucciones EXTRA de este paso. Se anteponen al resto del prompt de sistema para guiar
+        // QUE hacer aqui y COMO usar las herramientas (ej. que abrir con Colmena y que extraer).
+        var extra = context.Assignment?.ExtraPrompt;
+        if (!string.IsNullOrWhiteSpace(extra))
+        {
+            sb.AppendLine("Instrucciones para este paso:");
+            sb.AppendLine(extra!.Trim());
+            sb.AppendLine();
+        }
+    }
+
     private static string BuildSystemPrompt(string agentPrompt, WorkflowAgentContextDto context)
     {
         var sb = new StringBuilder();
@@ -134,14 +165,36 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             sb.AppendLine(agentPrompt.Trim());
             sb.AppendLine();
         }
+        AppendExtraPrompt(sb, context);
         sb.AppendLine("Atiendes un paso de un proceso de negocio. Vas a recibir el contexto completo del caso.");
-        sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
-        sb.AppendLine("""{"puede_resolver": true|false, "resultado": "<decision>", "comentario": "<justificacion breve>"}""");
-        sb.AppendLine();
-        sb.AppendLine("Reglas:");
-        sb.AppendLine("- Si el contexto NO alcanza para decidir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
-        sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
-        sb.AppendLine("- 'resultado' debe ser una sola palabra corta (por ejemplo Approved o Rejected) coherente con el paso.");
+        var esCompuerta = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
+        if (esCompuerta)
+        {
+            // Compuerta atendida (ADR-0090 ola B): la decision es ELEGIR una de las rutas listadas.
+            sb.AppendLine("Este paso es una COMPUERTA: debes ELEGIR por cual ruta continua el proceso.");
+            sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
+            sb.AppendLine("""{"puede_resolver": true|false, "ruta": "<clave de la ruta elegida>", "comentario": "<justificacion breve>"}""");
+            sb.AppendLine();
+            sb.AppendLine("Reglas:");
+            sb.AppendLine("- 'ruta' debe ser EXACTAMENTE la clave (o el nombre) de una de las rutas listadas en 'Rutas de la compuerta'. No inventes rutas.");
+            sb.AppendLine("- Si el contexto NO alcanza para elegir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
+            sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
+        }
+        else
+        {
+            sb.AppendLine("Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de codigo:");
+            sb.AppendLine("""{"puede_resolver": true|false, "resultado": "<decision>", "comentario": "<justificacion breve>"}""");
+            sb.AppendLine();
+            sb.AppendLine("Reglas:");
+            sb.AppendLine("- Si el contexto NO alcanza para decidir con seguridad, responde puede_resolver=false y explica que falta en comentario.");
+            sb.AppendLine("- Nunca inventes datos que no esten en el contexto: el caso pasa a una persona si dudas.");
+            sb.AppendLine("- 'resultado' debe ser una sola palabra corta (por ejemplo Approved o Rejected) coherente con el paso.");
+            if (context.Node.Routes is { Count: > 0 })
+            {
+                // Patron Task->compuerta: el 'resultado' debe cumplir una condicion listada para enrutar bien.
+                sb.AppendLine("- Tras este paso hay una compuerta: elige un 'resultado' que cumpla una de las condiciones listadas en 'Compuerta a continuacion'.");
+            }
+        }
         if (context.Assignment?.Autonomy == WorkflowAgentAutonomy.Proposes)
         {
             sb.AppendLine("- Tu respuesta es una PROPUESTA: una persona la revisara antes de que el proceso avance.");
@@ -151,6 +204,557 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             sb.AppendLine("- Tu respuesta CIERRA el paso y el proceso avanza sin revision humana. Ante la duda, puede_resolver=false.");
         }
         return sb.ToString();
+    }
+
+    // ---- ADR-0090 ola C: LLENAR el formulario del paso con tool-calling (ver/fijar/enviar) ----
+
+    /// <summary>Tope de rondas del bucle de llenado: ver/fijar/enviar no necesitan muchas vueltas; acota tokens.</summary>
+    private const int MaxFormRounds = 8;
+
+    /// <summary>Corre el bucle de function-calling para diligenciar el formulario del paso. ACUMULA los valores
+    /// en memoria (este servicio NO escribe BD); el runner los envia por SaveAsync con la validacion real. El
+    /// modelo termina llamando 'enviar_formulario'; si no lo hace, es "no pudo" y el paso vuelve a una persona.</summary>
+    private async Task<WorkflowAgentInvocationResult> RunFormFillAsync(
+        WorkflowAgentContextDto context, Domain.Entities.AiAgent agent, string? baseUrl, string apiKey, string model,
+        CancellationToken cancellationToken)
+    {
+        var form = context.Node.Form!;
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
+        // Solo se ofrece llamar si hay agente de voz Y no venimos ya de una llamada (reanudacion): en la
+        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada.
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
+        // ADR-0092: WhatsApp SI se sigue ofreciendo en la reanudacion (es multi-turno: el agente puede
+        // repreguntar si la respuesta no basta). El tope de preguntas lo pone el runner, no aqui.
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
+        // ADR-0093: enviar correo (sincrono, sin pausa). Permiso explicito por nodo.
+        var canSendEmail = context.Assignment?.CanSendEmail == true;
+        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var userPrompt = WorkflowAgentContextSerializer.ToText(context);
+        if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
+        var messages = new List<AiToolMessage> { new("user", userPrompt) };
+
+        var fields = new Dictionary<string, string?>(StringComparer.Ordinal);
+        string? finalComment = null;
+        var finished = false;
+        WorkflowAgentCallRequest? callRequest = null;
+        WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
+        var emailsSent = 0;
+        int inTokens = 0, outTokens = 0;
+
+        for (var round = 0; round < MaxFormRounds && !finished; round++)
+        {
+            AiCompletion completion;
+            try
+            {
+                completion = await _client.CompleteWithToolsAsync(
+                    agent.Provider, apiKey, baseUrl, model, system, messages, tools, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                return WorkflowAgentInvocationResult.Failed(
+                    $"Error llamando al proveedor {agent.Provider}: {ex.Message}", agent.Provider, model, inTokens, outTokens);
+            }
+
+            inTokens += completion.InputTokens;
+            outTokens += completion.OutputTokens;
+            if (!completion.Ok)
+            {
+                return WorkflowAgentInvocationResult.Failed(
+                    completion.Error ?? "El proveedor de IA no respondio.", agent.Provider, model, inTokens, outTokens);
+            }
+
+            if (completion.ToolCalls.Count == 0)
+            {
+                // El modelo termino sin llamar 'enviar_formulario': no completo el llenado.
+                finalComment ??= completion.Text;
+                break;
+            }
+
+            messages.Add(new AiToolMessage("assistant", completion.Text, completion.ToolCalls));
+            foreach (var call in completion.ToolCalls)
+            {
+                string result;
+                if (call.Name == "buscar_web" && canSearchWeb)
+                {
+                    // ADR-0091: el agente busca un dato en la web con el cliente Colmena del nodo (sincrono,
+                    // acotado). El invoker no escribe BD: solo trae el contenido para que el agente lo use.
+                    result = await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
+                }
+                else if (call.Name == "llamar_telefono" && canCall)
+                {
+                    // ADR-0091: el agente pide una llamada. NO se coloca aqui (asincrona): se registra y el
+                    // bucle termina; el runner coloca la llamada y pausa el paso hasta que llegue el resultado.
+                    callRequest = ReadCallRequest(call.ArgumentsJson);
+                    finished = true;
+                    result = callRequest is null
+                        ? """{"error": "falta 'numero' para la llamada"}"""
+                        : """{"ok": true, "mensaje": "llamada solicitada; el paso quedara en espera del resultado"}""";
+                }
+                else if (call.Name == "preguntar_whatsapp" && canAskWhatsApp)
+                {
+                    // ADR-0092: el agente pide preguntar por WhatsApp. NO se envia aqui (asincrono): se registra
+                    // y el bucle termina; el runner envia y pausa el paso hasta que llegue la respuesta.
+                    whatsAppRequest = ReadWhatsAppRequest(call.ArgumentsJson);
+                    finished = true;
+                    result = whatsAppRequest is null
+                        ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
+                        : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
+                }
+                else if (call.Name == "enviar_correo" && canSendEmail)
+                {
+                    // ADR-0093: el agente envia un correo (sincrono, sin pausa; el correo entrante no existe).
+                    // Tope por paso como red de seguridad anti-bucle.
+                    if (emailsSent >= MaxEmailsPerStep)
+                    {
+                        result = $$"""{"ok": false, "error": "ya se enviaron {{MaxEmailsPerStep}} correos en este paso (tope)"}""";
+                    }
+                    else
+                    {
+                        result = await ExecuteSendEmailAsync(call.ArgumentsJson, cancellationToken);
+                        emailsSent++;
+                    }
+                }
+                else
+                {
+                    result = call.Name switch
+                    {
+                        "ver_formulario" => FormSchemaJson(form),
+                        "fijar_campos" => ApplySetFields(call.ArgumentsJson, form, fields),
+                        "enviar_formulario" => MarkFinished(call.ArgumentsJson, ref finished, ref finalComment),
+                        _ => $$"""{"error": "herramienta '{{call.Name}}' no disponible"}"""
+                    };
+                }
+                messages.Add(new AiToolMessage("tool", result, ToolCallId: call.Id, ToolName: call.Name));
+            }
+        }
+
+        // ADR-0091: el agente pidio una llamada -> el runner la coloca y pausa el paso (los campos ya fijados,
+        // si hay, se conservan para completar el llenado cuando la llamada regrese con el dato faltante).
+        if (callRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null,
+                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest);
+        }
+
+        // ADR-0092: el agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso; los campos ya
+        // fijados se conservan para completar el llenado cuando llegue la respuesta.
+        if (whatsAppRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null,
+                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest);
+        }
+
+        if (!finished || fields.Count == 0)
+        {
+            var why = fields.Count == 0
+                ? "El agente no fijo ningun valor del formulario."
+                : "El agente no llamo 'enviar_formulario' (no termino de llenar el formulario).";
+            var reason = string.IsNullOrWhiteSpace(finalComment) ? why : $"{why} {finalComment}";
+            return WorkflowAgentInvocationResult.Failed(reason, agent.Provider, model, inTokens, outTokens);
+        }
+
+        return new WorkflowAgentInvocationResult(
+            true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
+            agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
+    }
+
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    {
+        var tools = new List<AiToolSpec>
+        {
+            new("ver_formulario",
+                "Devuelve el esquema del formulario del paso: campos con codigo, etiqueta, tipo, si es obligatorio y sus opciones.",
+                """{"type":"object","properties":{}}"""),
+            new("fijar_campos",
+                "Fija valores del formulario. 'campos' es un objeto {codigo_de_campo: valor}. Puedes llamarla varias veces; se acumulan. Para un campo TABLA (tipo GridDetail) el valor es un ARREGLO de filas: [{codigo_de_columna: valor, ...}, ...], usando solo las columnas de 'columnas' del esquema.",
+                """{"type":"object","properties":{"campos":{"type":"object"}},"required":["campos"]}"""),
+            new("enviar_formulario",
+                "Marca el formulario como LISTO cuando ya fijaste todos los campos obligatorios. Acepta 'comentario' opcional.",
+                """{"type":"object","properties":{"comentario":{"type":"string"}}}"""),
+        };
+        if (canSearchWeb)
+        {
+            // ADR-0091: buscar un dato en la web con el navegador Colmena del nodo.
+            tools.Add(new AiToolSpec("buscar_web",
+                "Abre una URL con el navegador Colmena y devuelve su contenido legible, para CONSEGUIR un dato que no esta en el contexto. 'url' obligatoria (http/https); 'selector' CSS opcional.",
+                """{"type":"object","properties":{"url":{"type":"string"},"selector":{"type":"string"}},"required":["url"]}"""));
+        }
+        if (canCall)
+        {
+            // ADR-0091: pedir una llamada telefonica para conseguir un dato. La llamada es asincrona: el paso
+            // queda EN ESPERA y el agente retoma cuando el resultado llegue. Llamala UNA sola vez y al final.
+            tools.Add(new AiToolSpec("llamar_telefono",
+                "Solicita una llamada telefonica (voz IA) para CONSEGUIR un dato faltante (ej. confirmar un telefono o correo con el cliente). 'numero' obligatorio (E.164, ej. +57...); 'objetivo' describe que dato conseguir. El paso quedara EN ESPERA del resultado de la llamada.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"objetivo":{"type":"string"}},"required":["numero"]}"""));
+        }
+        if (canAskWhatsApp)
+        {
+            // ADR-0092: preguntar por WhatsApp para conseguir un dato. Asincrono: el paso queda EN ESPERA de la
+            // respuesta y el agente retoma con ella; puede volver a preguntar si hace falta (con moderacion).
+            tools.Add(new AiToolSpec("preguntar_whatsapp",
+                "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
+        }
+        if (canSendEmail)
+        {
+            // ADR-0093: enviar un correo (sincrono, sin esperar respuesta). El agente redacta asunto+cuerpo.
+            tools.Add(new AiToolSpec("enviar_correo",
+                "Envia un correo electronico (para avisar, pedir o confirmar algo). 'destinatario' obligatorio (email); 'asunto' y 'cuerpo' obligatorios (los redactas tu con lo que sabes del caso). NO espera respuesta: es solo un envio. El remitente lo fija la empresa.",
+                """{"type":"object","properties":{"destinatario":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["destinatario","asunto","cuerpo"]}"""));
+        }
+        return tools;
+    }
+
+    /// <summary>Lee los argumentos de 'preguntar_whatsapp'. Null si falta el numero o la pregunta.</summary>
+    private static WorkflowAgentWhatsAppRequest? ReadWhatsAppRequest(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            var numero = root.TryGetProperty("numero", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            var pregunta = root.TryGetProperty("pregunta", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+            if (string.IsNullOrWhiteSpace(numero) || string.IsNullOrWhiteSpace(pregunta)) { return null; }
+            return new WorkflowAgentWhatsAppRequest(numero!.Trim(), Clip(pregunta, 1500)!);
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Lee los argumentos de 'llamar_telefono'. Null si falta el numero.</summary>
+    private static WorkflowAgentCallRequest? ReadCallRequest(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            var numero = root.TryGetProperty("numero", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            if (string.IsNullOrWhiteSpace(numero)) { return null; }
+            var objetivo = root.TryGetProperty("objetivo", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString() : null;
+            return new WorkflowAgentCallRequest(numero!.Trim(), Clip(objetivo, 1000));
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
+        AppendExtraPrompt(sb, context);
+        sb.AppendLine("Atiendes un paso de un proceso de negocio que exige DILIGENCIAR un formulario.");
+        sb.AppendLine("Herramientas: 'ver_formulario' (esquema), 'fijar_campos' (pon valores con {\"campos\":{codigo:valor}}), 'enviar_formulario' (marca LISTO al terminar).");
+        if (canSearchWeb)
+        {
+            sb.AppendLine("Ademas tienes 'buscar_web' (abre una URL con el navegador Colmena y te devuelve su contenido) para CONSEGUIR un dato que falte antes de fijarlo.");
+        }
+        if (canCall)
+        {
+            sb.AppendLine("Ademas tienes 'llamar_telefono' para CONSEGUIR un dato por una llamada de voz (ej. confirmar telefono/correo). Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera del resultado de la llamada y luego retomaras el llenado.");
+        }
+        if (canAskWhatsApp)
+        {
+            sb.AppendLine("Ademas tienes 'preguntar_whatsapp' para CONSEGUIR un dato preguntandole a una persona por WhatsApp. Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera de la respuesta y luego retomaras el llenado.");
+        }
+        if (canSendEmail)
+        {
+            sb.AppendLine("Ademas tienes 'enviar_correo' para ENVIAR un correo (avisar, pedir o confirmar algo). Redactas asunto y cuerpo. NO espera respuesta: no lo uses para CONSEGUIR un dato que necesites en este mismo paso.");
+        }
+        if (context.VoiceCallResult is { } vc)
+        {
+            // Reanudacion (ADR-0091): ya hay resultado de una llamada que pediste. Usalo para terminar de llenar.
+            sb.AppendLine("YA tienes el resultado de la llamada que solicitaste (ver 'Resultado de la llamada' en el contexto): usalo para fijar los campos faltantes y envia el formulario. No vuelvas a llamar.");
+        }
+        if (context.WhatsAppReplyResult is not null)
+        {
+            // Reanudacion (ADR-0092): ya llego una respuesta de WhatsApp. Usarla; solo repreguntar si es imprescindible.
+            sb.AppendLine("YA tienes la respuesta de WhatsApp (ver 'Respuesta por WhatsApp' en el contexto): usala para fijar los campos faltantes y envia el formulario. Solo vuelve a preguntar por WhatsApp si es imprescindible.");
+        }
+        sb.AppendLine("Reglas:");
+        sb.AppendLine("- Llena SOLO con datos del contexto o que CONSIGAS con las herramientas (ej. buscar_web). NUNCA inventes datos.");
+        sb.AppendLine("- Respeta los campos OBLIGATORIOS. En listas/opciones usa un valor valido de 'opciones'.");
+        sb.AppendLine("- Un campo TABLA (tipo GridDetail) se fija con un ARREGLO de filas [{columna: valor}, ...] usando los ids de 'columnas'; una fila por item. No incluyas columnas calculadas (no estan en 'columnas'): el sistema las calcula solo.");
+        sb.AppendLine("- Si NO puedes llenar los obligatorios con lo que hay, NO llames 'enviar_formulario' y explica que falta en 'comentario'.");
+        if (context.Assignment?.Autonomy == WorkflowAgentAutonomy.Proposes)
+        {
+            sb.AppendLine("- Lo que llenes es una PROPUESTA: una persona lo revisara antes de enviarlo.");
+        }
+        else
+        {
+            sb.AppendLine("- Al enviar, el formulario se guarda y el proceso avanza sin revision humana. Ante la duda, no envies.");
+        }
+        return sb.ToString();
+    }
+
+    private static string FormSchemaJson(WorkflowAgentFormDto form)
+    {
+        var payload = new
+        {
+            titulo = form.Title,
+            codigo = form.Code,
+            campos = form.Fields.Select(f => new
+            {
+                codigo = f.FieldCode,
+                etiqueta = f.Label,
+                tipo = f.ControlType.ToString(),
+                obligatorio = f.Required,
+                ayuda = f.HelpText,
+                // Para GridDetail (tabla de filas) NO se exponen las 'opciones' crudas: se decodifican en
+                // 'columnas' (solo las que el agente debe CAPTURAR; las calculadas/rollup las computa el
+                // servidor). El valor de un campo tabla es un ARREGLO de objetos {columna: valor} (ver 'valor').
+                opciones = f.ControlType == FormControlType.GridDetail ? null : f.OptionsJson,
+                columnas = f.ControlType == FormControlType.GridDetail ? GridColumnsSchema(f.OptionsJson) : null,
+                valor = f.ControlType == FormControlType.GridDetail
+                    ? "arreglo de filas: [{codigo_de_columna: valor, ...}, ...] (una entrada por columna capturable)"
+                    : null
+            })
+        };
+        return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>Decodifica las columnas CAPTURABLES de un GridDetail para el esquema del agente: excluye las
+    /// columnas calculadas/rollup (las recomputa el servidor al guardar) y las de gestion (subformularios por
+    /// fila, fuera de alcance del llenado automatico). Para columnas de lista expone sus opciones validas.</summary>
+    private static object[] GridColumnsSchema(string? optionsJson)
+    {
+        return FormGridCalculator.ParseColumns(optionsJson)
+            .Where(c => string.IsNullOrWhiteSpace(c.Calc) && !c.IsGestion)
+            .Select(c => (object)new
+            {
+                id = c.Id,
+                etiqueta = c.Label,
+                obligatoria = c.Required,
+                opciones = c.IsSelect && c.Options is { Count: > 0 }
+                    ? c.Options.Select(o => new { valor = o.Id, etiqueta = o.Label }).ToArray()
+                    : null
+            })
+            .ToArray();
+    }
+
+    /// <summary>Aplica 'fijar_campos': acepta SOLO codigos que existen en el formulario (ignora los demas),
+    /// convierte el valor a texto y los acumula. Devuelve al modelo que quedo fijado y que obligatorios faltan.</summary>
+    private static string ApplySetFields(string argsJson, WorkflowAgentFormDto form, Dictionary<string, string?> fields)
+    {
+        var byCode = form.Fields.ToDictionary(f => f.FieldCode, StringComparer.Ordinal);
+        var ignored = new List<string>();
+        var gridErrors = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            if (!doc.RootElement.TryGetProperty("campos", out var campos) || campos.ValueKind != JsonValueKind.Object)
+            {
+                return """{"error": "'campos' debe ser un objeto {codigo: valor}"}""";
+            }
+            foreach (var p in campos.EnumerateObject())
+            {
+                if (!byCode.TryGetValue(p.Name, out var field)) { ignored.Add(p.Name); continue; }
+                if (field.ControlType == FormControlType.GridDetail)
+                {
+                    // Campo tabla: el valor debe ser un ARREGLO de filas. Se serializa canonicamente (objetos de
+                    // strings, solo columnas capturables) para guardarlo tal cual espera FormResponseService.
+                    var (json, error) = BuildGridValue(p.Value, field.OptionsJson);
+                    if (error is not null) { gridErrors.Add($"{p.Name}: {error}"); continue; }
+                    fields[p.Name] = json;
+                }
+                else
+                {
+                    fields[p.Name] = ScalarToString(p.Value);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return """{"error": "JSON invalido en 'campos'"}""";
+        }
+
+        var missing = form.Fields
+            .Where(f => f.Required && (!fields.TryGetValue(f.FieldCode, out var v) || string.IsNullOrWhiteSpace(v)))
+            .Select(f => f.FieldCode).ToList();
+        var payload = new
+        {
+            ok = gridErrors.Count == 0,
+            fijados = fields.Keys.ToList(),
+            faltan_obligatorios = missing,
+            ignorados_desconocidos = ignored,
+            errores_tabla = gridErrors,
+        };
+        return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>Convierte el valor de un campo GridDetail (arreglo de filas emitido por el agente) al string JSON
+    /// canonico que guarda FormResponseService: un arreglo de objetos con SOLO las columnas capturables (se
+    /// ignoran calculadas/rollup/gestion, que recomputa el servidor) y todos los valores como texto. Valida que
+    /// cada fila tenga las columnas obligatorias. Devuelve (json, null) si ok, o (null, motivo) si no.</summary>
+    private static (string? Json, string? Error) BuildGridValue(JsonElement value, string? optionsJson)
+    {
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return (null, "el valor debe ser un arreglo de filas [{columna: valor}, ...]");
+        }
+        var columns = FormGridCalculator.ParseColumns(optionsJson)
+            .Where(c => string.IsNullOrWhiteSpace(c.Calc) && !c.IsGestion)
+            .ToList();
+        if (columns.Count == 0)
+        {
+            return (null, "la tabla no tiene columnas capturables");
+        }
+        var capturable = columns.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        var requiredCols = columns.Where(c => c.Required).Select(c => c.Id).ToList();
+
+        var rows = new List<Dictionary<string, string>>();
+        var rowIndex = 0;
+        foreach (var rowEl in value.EnumerateArray())
+        {
+            rowIndex++;
+            if (rowEl.ValueKind != JsonValueKind.Object)
+            {
+                return (null, $"la fila {rowIndex} no es un objeto {{columna: valor}}");
+            }
+            var row = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var col in rowEl.EnumerateObject())
+            {
+                if (!capturable.Contains(col.Name)) { continue; }
+                var s = ScalarToString(col.Value);
+                if (s is not null) { row[col.Name] = s; }
+            }
+            var missingCols = requiredCols
+                .Where(id => !row.TryGetValue(id, out var v) || string.IsNullOrWhiteSpace(v))
+                .ToList();
+            if (missingCols.Count > 0)
+            {
+                return (null, $"la fila {rowIndex} no tiene las columnas obligatorias: {string.Join(", ", missingCols)}");
+            }
+            rows.Add(row);
+        }
+        return (JsonSerializer.Serialize(rows), null);
+    }
+
+    private static string MarkFinished(string argsJson, ref bool finished, ref string? comment)
+    {
+        finished = true;
+        var c = ReadCommentArg(argsJson);
+        if (!string.IsNullOrWhiteSpace(c)) { comment = c; }
+        return """{"ok": true, "mensaje": "formulario marcado como listo"}""";
+    }
+
+    private static string? ReadCommentArg(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            return doc.RootElement.TryGetProperty("comentario", out var el) && el.ValueKind == JsonValueKind.String
+                ? el.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static string? ScalarToString(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null => null,
+        _ => el.GetRawText()
+    };
+
+    /// <summary>ADR-0091: ejecuta 'buscar_web' -> navega con el cliente Colmena del nodo y devuelve el contenido
+    /// legible al modelo. El invoker NO escribe BD; solo trae el dato. Un fallo (offline/timeout) vuelve como
+    /// {ok:false,error} y el agente lo trata como "no lo consegui".</summary>
+    private async Task<string> ExecuteWebSearchAsync(
+        string argsJson, WorkflowAgentAssignmentDto assignment, Guid tenantId, CancellationToken cancellationToken)
+    {
+        if (assignment.ColmenaClientId is not Guid clientId)
+        {
+            return """{"ok": false, "error": "este paso no tiene un cliente Colmena configurado"}""";
+        }
+
+        string? url, selector;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            url = root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+            selector = root.TryGetProperty("selector", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return """{"ok": false, "error": "argumentos JSON invalidos"}""";
+        }
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return """{"ok": false, "error": "falta 'url'"}""";
+        }
+
+        var res = await _browserFetch.FetchAsync(
+            clientId, assignment.ColmenaSessionKey, url!, selector, tenantId, cancellationToken);
+        return res.Ok
+            ? JsonSerializer.Serialize(new { ok = true, contenido = res.Content })
+            : JsonSerializer.Serialize(new { ok = false, error = res.Error });
+    }
+
+    /// <summary>ADR-0093: ejecuta 'enviar_correo' -> envia por IEmailSender (config del tenant). Sincrono, sin
+    /// pausa. Valida destinatario/asunto/cuerpo; el cuerpo (texto plano del agente) se pasa a HTML seguro. Un
+    /// fallo (sin config, SMTP caido) vuelve como {ok:false,error} y el agente lo trata como "no se envio".</summary>
+    private async Task<string> ExecuteSendEmailAsync(string argsJson, CancellationToken cancellationToken)
+    {
+        string? to, subject, body;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            to = root.TryGetProperty("destinatario", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
+            subject = root.TryGetProperty("asunto", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+            body = root.TryGetProperty("cuerpo", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return """{"ok": false, "error": "argumentos JSON invalidos"}""";
+        }
+        to = to?.Trim();
+        if (string.IsNullOrWhiteSpace(to) || !IsLikelyEmail(to))
+        {
+            return """{"ok": false, "error": "falta un 'destinatario' de correo valido"}""";
+        }
+        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(body))
+        {
+            return """{"ok": false, "error": "falta 'asunto' o 'cuerpo'"}""";
+        }
+
+        var html = PlainToHtml(body!);
+        var sent = await _email.SendAsync(to!, Clip(subject, 300)!, html, cancellationToken);
+        return sent.Ok
+            ? JsonSerializer.Serialize(new { ok = true, mensaje = "correo enviado" })
+            : JsonSerializer.Serialize(new { ok = false, error = sent.Error ?? "no se pudo enviar el correo" });
+    }
+
+    /// <summary>Validacion minima de email (hay un '@' con algo antes y un dominio con punto despues).</summary>
+    private static bool IsLikelyEmail(string value)
+    {
+        var at = value.IndexOf('@');
+        if (at <= 0 || at >= value.Length - 3) { return false; }
+        var domain = value[(at + 1)..];
+        return domain.Contains('.') && !value.Contains(' ');
+    }
+
+    /// <summary>Convierte el texto plano del agente en HTML seguro: escapa y respeta los saltos de linea. El
+    /// sender siempre manda HTML (IsBodyHtml=true), asi que sin esto los saltos se perderian y el texto podria
+    /// romper el markup.</summary>
+    private static string PlainToHtml(string text)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(text.Trim());
+        var withBreaks = escaped.Replace("\r\n", "\n").Replace("\n", "<br>");
+        return $"<p>{withBreaks}</p>";
+    }
+
+    private static string? Clip(string? value, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { return null; }
+        var t = value.Trim();
+        return t.Length <= max ? t : t[..max];
     }
 }
 
@@ -166,6 +770,10 @@ public static class WorkflowAgentDecisionParser
 
     /// <summary>Tope del resultado: la columna AgentProposalResult admite 20 caracteres.</summary>
     private const int MaxResultChars = 20;
+
+    /// <summary>Tope de la clave/ruta elegida (BpmnElementId del destino o su nombre); mas holgado que un
+    /// resultado corto pero acotado como red de seguridad.</summary>
+    private const int MaxRouteChars = 200;
 
     public static WorkflowAgentInvocationResult Parse(string text)
     {
@@ -196,11 +804,15 @@ public static class WorkflowAgentDecisionParser
             }
 
             var result = Clip(ReadString(root, "resultado") ?? ReadString(root, "result"), MaxResultChars);
-            if (string.IsNullOrWhiteSpace(result))
+            // ADR-0090 ola B: en una compuerta la decision es 'ruta' (clave del destino). El parser lee AMBOS
+            // y no impone cual; el runner exige el que corresponda al tipo de nodo. La ruta NO se recorta a 20:
+            // es una clave (BpmnElementId) o el nombre del destino, que puede ser mas largo.
+            var route = Clip(ReadString(root, "ruta") ?? ReadString(root, "route"), MaxRouteChars);
+            if (string.IsNullOrWhiteSpace(result) && string.IsNullOrWhiteSpace(route))
             {
-                return WorkflowAgentInvocationResult.Failed("El agente no indico un resultado para el paso.");
+                return WorkflowAgentInvocationResult.Failed("El agente no indico un resultado ni una ruta para el paso.");
             }
-            return new WorkflowAgentInvocationResult(true, result, comment, null);
+            return new WorkflowAgentInvocationResult(true, result, comment, null, Route: route);
         }
         catch (JsonException)
         {

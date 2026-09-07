@@ -148,6 +148,9 @@ else
                                     case 4:
                                         @NotifBody
                                         break;
+                                    case 6:
+                                        @AgentBody
+                                        break;
                                     default:
                                         @ExitBody
                                         break;
@@ -401,6 +404,141 @@ else
     </div>
 }
 
+@* ---- Modal: configuracion del agente de IA del nodo (ADR-0090/0091/0092) ---- *@
+@if (_agentModalOpen && Selected is FlowCanvasNodeDto agentNode)
+{
+    <div class="fe-modal-overlay" @onclick="@(() => _agentModalOpen = false)">
+        <div class="fe-modal" style="width:min(720px,95vw)" @onclick:stopPropagation>
+            <div class="fe-modal-head">
+                <div>
+                    <div class="fe-modal-title">Agente de IA del paso</div>
+                    <div class="fe-modal-sub">@(agentNode.Name ?? "Paso") - quien lo atiende y con que recursos consigue datos</div>
+                </div>
+                <button class="fe-modal-x" @onclick="@(() => _agentModalOpen = false)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="fe-modal-body">
+                <div class="fe-grid-2">
+                    <div>
+                        <label class="fe-label">@(agentNode.NodeType == WorkflowNodeType.ExclusiveGateway ? "AGENTE QUE ELIGE LA RUTA" : "AGENTE QUE ATIENDE EL PASO")</label>
+                        <select class="fe-input" value="@(_nodeAgent?.AiAgentId.ToString() ?? "")"
+                                @onchange="@(e => OnNodeAgentChangedAsync(agentNode, e))">
+                            <option value="">Sin agente (lo atiende una persona)</option>
+                            @foreach (var a in _agentCatalog)
+                            {
+                                <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_nodeAgent is not null)
+                    {
+                        <div>
+                            <label class="fe-label">AUTONOMIA</label>
+                            <select class="fe-input" value="@_nodeAgent.Autonomy"
+                                    @onchange="@(e => OnNodeAgentAutonomyChangedAsync(agentNode, e))">
+                                <option value="@WorkflowAgentAutonomy.Proposes">Propone (una persona confirma)</option>
+                                <option value="@WorkflowAgentAutonomy.Autonomous">Autonomo (cierra y avanza solo)</option>
+                            </select>
+                        </div>
+                    }
+                </div>
+                @if (_nodeAgent is not null)
+                {
+                    @if (!_nodeAgent.IsActive)
+                    {
+                        <div class="fe-acc-note" style="color:var(--t-amber);margin:0">El agente esta apagado: no atendera el paso hasta reactivarlo.</div>
+                    }
+                    <div class="fe-acc-note" style="margin:0">Si el agente falla, tiene baja confianza o se agota el cupo de IA, el paso vuelve a una persona (nunca se atasca). La accion queda auditada como hecha por el agente.</div>
+
+                    @* ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente). *@
+                    <div>
+                        <label class="fe-label">INSTRUCCIONES PARA ESTE PASO (PROMPT EXTRA)</label>
+                        <textarea class="fe-textarea" @bind="_agentExtraPromptDraft" @bind:event="oninput"
+                                  @onblur="@(() => OnNodeExtraPromptChangedAsync(agentNode))"
+                                  placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
+                    </div>
+
+                    <div class="fe-modal-section">Conseguir datos (opcional)</div>
+                    <div class="fe-grid-2">
+                        <div>
+                            <label class="fe-label">BUSCAR EN LA WEB (CLIENTE COLMENA)</label>
+                            <select class="fe-input" value="@(_nodeAgent.ColmenaClientId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeColmenaChangedAsync(agentNode, e))">
+                                <option value="">Sin busqueda web</option>
+                                @foreach (var c in _colmenaClients)
+                                {
+                                    <option value="@c.Id">@c.Name@(c.IsActive ? "" : " (inactivo)")</option>
+                                }
+                            </select>
+                        </div>
+                        @if (_nodeAgent.ColmenaClientId is not null)
+                        {
+                            <div>
+                                <label class="fe-label">PERFIL DEL NAVEGADOR (SESSIONKEY)</label>
+                                <input class="fe-input" value="@_nodeAgent.ColmenaSessionKey" placeholder="ej. linkedin (perfil logueado)"
+                                       @onchange="@(e => OnNodeSessionKeyChangedAsync(agentNode, e))" />
+                            </div>
+                        }
+                    </div>
+                    <div class="fe-grid-2">
+                        <div>
+                            <label class="fe-label">POR LLAMADA (AGENTE DE VOZ RETELL)</label>
+                            <select class="fe-input" value="@(_nodeAgent.VoiceAiAgentId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeVoiceAgentChangedAsync(agentNode, e))">
+                                <option value="">Sin llamada</option>
+                                @foreach (var a in _agentCatalog)
+                                {
+                                    <option value="@a.AiAgentId">@a.Name@(a.IsActive ? "" : " (apagado)")</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="fe-label">POR WHATSAPP (LINEA)</label>
+                            <select class="fe-input" value="@(_nodeAgent.WhatsAppLineId?.ToString() ?? "")"
+                                    @onchange="@(e => OnNodeWhatsAppLineChangedAsync(agentNode, e))">
+                                <option value="">Sin WhatsApp</option>
+                                @foreach (var l in _whatsAppLines)
+                                {
+                                    <option value="@l.Id">@l.Name@(l.Connected ? "" : " (desconectada)")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    @if (_nodeAgent.WhatsAppLineId is not null)
+                    {
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO (NOMBRE)</label>
+                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
+                                       @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">IDIOMA DE LA PLANTILLA</label>
+                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateLang" placeholder="ej. es"
+                                       @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
+                    }
+                    <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
+
+                    @* ADR-0093: permiso de correo (enviar, sin esperar respuesta). *@
+                    <div class="fe-modal-section">Comunicacion</div>
+                    <label class="fe-check">
+                        <input type="checkbox" checked="@_nodeAgent.CanSendEmail"
+                               @onchange="@(e => OnNodeCanSendEmailChangedAsync(agentNode, e))" />
+                        <span>Permitir enviar correos (redacta y envia; no espera respuesta)</span>
+                    </label>
+                    <div class="fe-acc-note" style="margin:0">Usa el correo saliente configurado de la empresa; el remitente lo fija la empresa, no el agente. Para pedir un dato y ESPERAR respuesta usa la llamada o el WhatsApp.</div>
+                }
+            </div>
+            <div class="fe-modal-foot">
+                <button class="fe-btn-save" @onclick="@(() => _agentModalOpen = false)">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // ---- Parametros ----
     [Parameter] public Guid DefinitionId { get; set; }
@@ -459,9 +597,22 @@ else
     private string? _ioError;
     private bool _formPickerOpen;
     private string _formPickerQuery = "";
+    // ADR-0092: config del agente del nodo en un modal (el panel solo muestra un resumen compacto).
+    private bool _agentModalOpen;
+    // ADR-0093: borrador LOCAL del prompt extra (se actualiza en vivo por oninput). CurrentAgentRes lo usa para
+    // que un guardado disparado por OTRO campo no pierda el texto que el usuario aun no ha confirmado (blur).
+    private string? _agentExtraPromptDraft;
     private List<FormDefinitionListItemDto> _forms = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
+
+    // Agente de IA por nodo (acordeon "Agente de IA", ADR-0090 ola A). El catalogo se carga una vez; el
+    // agente del nodo se lee al seleccionar (solo aplica a pasos Task).
+    private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
+    private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
+    private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
+    private bool _agentCatalogLoaded;
+    private FlowNodeAgentDto? _nodeAgent;
 
     // Asignacion por nodo (acordeon "Asignar usuarios", ADR-0035).
     private IReadOnlyList<NodePolicyDto> _nodePolicies = [];
@@ -612,16 +763,44 @@ else
     /// <summary>Carga las asignaciones por nodo (policies + selector + conteo de candidatos).</summary>
     private async Task LoadNodePoliciesAsync()
     {
+        // Al cambiar de nodo se cierra el modal del agente (no debe quedar abierto sobre otro nodo).
+        _agentModalOpen = false;
         if (Selected is not FlowCanvasNodeDto node)
         {
             _nodePolicies = [];
             _resolvedCandidates = 0;
+            _nodeAgent = null;
             return;
         }
         _nodePolicies = await NodePolicySvc.ListNodePoliciesAsync(node.Id);
         _assignableUnits = await NodePolicySvc.ListAssignableUnitsAsync();
         _resolvedCandidates = (await AssigneeResolver.ResolveCandidatesAsync(node.Id)).Count;
+
+        // Agente de IA: lo admiten un paso Task y una compuerta ATENDIDA (ADR-0090). El catalogo se carga una vez.
+        if (NodeAllowsAgent(node))
+        {
+            if (!_agentCatalogLoaded)
+            {
+                _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
+                _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
+                _whatsAppLines = await DesignSvc.ListWhatsAppLinesAsync();
+                _agentCatalogLoaded = true;
+            }
+            _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
+            _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+        }
+        else
+        {
+            _nodeAgent = null;
+            _agentExtraPromptDraft = null;
+        }
     }
+
+    /// <summary>Nodos que admiten un agente de IA (ADR-0090): un paso Task o una compuerta ATENDIDA
+    /// (ExclusiveGateway con "Permite asignacion"). Debe coincidir con la regla de SetNodeAgentAsync.</summary>
+    private static bool NodeAllowsAgent(FlowCanvasNodeDto node)
+        => node.NodeType == WorkflowNodeType.Task
+            || (node.NodeType == WorkflowNodeType.ExclusiveGateway && node.AllowsAssignment);
 
     private async Task AddNodePolicyAsync()
     {
@@ -709,6 +888,11 @@ else
         new(1, "Asignar usuarios",
             "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"3.2\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.85\"/></svg>",
             "var(--t-green-bg)", "var(--t-green)"),
+        // Agente de IA por nodo (ADR-0090, ola A). Index 6 (fuera del rango 0-5 del switch clasico) para no
+        // renumerar los demas acordeones; se renderiza aqui, junto a "Asignar usuarios", por su posicion.
+        new(6, "Agente de IA",
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"11\" width=\"18\" height=\"10\" rx=\"2\"/><circle cx=\"8.5\" cy=\"16\" r=\"1.3\"/><circle cx=\"15.5\" cy=\"16\" r=\"1.3\"/><path d=\"M12 7v4M12 3v1\"/><path d=\"M2 14v3M22 14v3\"/></svg>",
+            "var(--t-violet-bg)", "var(--t-violet)"),
         new(2, "Recursos y componentes",
             "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m7.5 4.3 9 5.2v9L12 21l-4.5-2.5v-9Z\"/></svg>",
             "var(--t-amber-bg)", "var(--t-amber)"),
@@ -1076,6 +1260,159 @@ else
         </div>
         <div class="fe-acc-note">Formato del motor: approval == 'Approved' (vacio = rama por defecto).</div>
     };
+
+    // Acordeon "Agente de IA" (ADR-0090, ola A): asigna un agente al paso + su autonomia. Solo pasos Task.
+    private RenderFragment AgentBody => __builder =>
+    {
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
+            return;
+        }
+        if (!NodeAllowsAgent(node))
+        {
+            var esCompuerta = node.NodeType == WorkflowNodeType.ExclusiveGateway;
+            <div class="fe-acc-empty">
+                @(esCompuerta
+                    ? "Una compuerta admite agente solo si esta ATENDIDA: activa \"Permite asignacion manual del paso\" en Configuracion basica."
+                    : "Solo un paso (Task) o una compuerta atendida admite un agente de IA.")
+            </div>
+            return;
+        }
+        @* ADR-0092: el panel solo muestra un RESUMEN; la configuracion completa (agente + autonomia +
+           recursos Colmena/voz/WhatsApp) se edita en un modal con mas espacio (boton "Configurar"). *@
+        if (_agentCatalog.Count == 0)
+        {
+            <div class="fe-acc-note">Este tenant no tiene agentes de IA. Crea uno en "Configuracion Agentes IA".</div>
+            return;
+        }
+        if (_nodeAgent is null)
+        {
+            <div class="fe-acc-empty">Sin agente: lo atiende una persona.</div>
+            <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">+ Configurar agente de IA</button>
+            return;
+        }
+        <div class="fe-agent-sum-name">@_nodeAgent.AgentName</div>
+        <div class="fe-acc-note" style="margin-top:3px">
+            @(_nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous ? "Autonomo (cierra y avanza solo)" : "Propone (una persona confirma)")@(_nodeAgent.IsActive ? "" : " - APAGADO")
+        </div>
+        <div class="fe-chips" style="margin-top:9px">
+            @if (_nodeAgent.ColmenaClientId is not null) { <span class="fe-chip static">Web (Colmena)</span> }
+            @if (_nodeAgent.VoiceAiAgentId is not null) { <span class="fe-chip static">Llamada</span> }
+            @if (_nodeAgent.WhatsAppLineId is not null) { <span class="fe-chip static">WhatsApp</span> }
+            @if (_nodeAgent.CanSendEmail) { <span class="fe-chip static">Correo</span> }
+            @if (_nodeAgent.ColmenaClientId is null && _nodeAgent.VoiceAiAgentId is null && _nodeAgent.WhatsAppLineId is null && !_nodeAgent.CanSendEmail)
+            {
+                <span class="fe-acc-note" style="margin:0">Sin recursos externos.</span>
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_nodeAgent.ExtraPrompt))
+        {
+            <div class="fe-acc-note" style="margin-top:7px">Con instrucciones para este paso.</div>
+        }
+        <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">Configurar agente</button>
+    };
+
+    /// <summary>Asigna/quita el agente del nodo (upsert por el indice unico). Al asignar por PRIMERA vez el
+    /// default seguro es Propone; si ya habia agente, conserva su autonomia.</summary>
+    private async Task OnNodeAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        await GuardAsync(async () =>
+        {
+            if (string.IsNullOrWhiteSpace(val))
+            {
+                await DesignSvc.RemoveNodeAgentAsync(node.Id); // NotFound si no habia: inocuo, el objetivo es quitarlo.
+                _nodeAgent = null;
+            }
+            else if (Guid.TryParse(val, out var agentId))
+            {
+                var autonomy = _nodeAgent?.Autonomy ?? WorkflowAgentAutonomy.Proposes;
+                var result = await DesignSvc.SetNodeAgentAsync(node.Id, agentId, autonomy);
+                if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+            }
+            _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+        });
+    }
+
+    private async Task OnNodeAgentAutonomyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        if (_nodeAgent is null || !Enum.TryParse<WorkflowAgentAutonomy>(e.Value?.ToString(), out var autonomy)) { return; }
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAgentAsync(node.Id, _nodeAgent.AiAgentId, autonomy);
+            if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+        });
+    }
+
+    // ADR-0091/0092/0093: recursos del agente del nodo. Cada cambio guarda el estado COMPLETO (los demas
+    // campos se toman del nodo actual via CurrentAgentRes y solo se sobreescribe el que cambio, con 'with').
+    private FlowNodeAgentResourcesInput CurrentAgentRes() => new(
+        _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
+        _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang,
+        // El prompt viene del borrador LOCAL (vivo por oninput): asi un guardado de otro campo no lo pierde.
+        _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false);
+
+    private Task OnNodeColmenaChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? cc = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // Al quitar el cliente Colmena se limpia tambien la SessionKey.
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with
+        {
+            ColmenaClientId = cc,
+            ColmenaSessionKey = cc is null ? null : _nodeAgent?.ColmenaSessionKey
+        });
+    }
+
+    private Task OnNodeSessionKeyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColmenaSessionKey = e.Value?.ToString() });
+
+    private Task OnNodeVoiceAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? va = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceAiAgentId = va });
+    }
+
+    private Task OnNodeWhatsAppLineChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? wl = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // Al quitar la linea se limpia tambien la plantilla (el service tambien lo hace; aqui se refleja en la UI).
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with
+        {
+            WhatsAppLineId = wl,
+            WhatsAppTemplateName = wl is null ? null : _nodeAgent?.WhatsAppTemplateName,
+            WhatsAppTemplateLang = wl is null ? null : _nodeAgent?.WhatsAppTemplateLang
+        });
+    }
+
+    private Task OnNodeWhatsAppTemplateChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateName = e.Value?.ToString() });
+
+    private Task OnNodeWhatsAppTemplateLangChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateLang = e.Value?.ToString() });
+
+    // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo. El texto vive en _agentExtraPromptDraft
+    // (oninput); aqui solo se persiste al salir del campo (blur). CurrentAgentRes ya toma el draft.
+    private Task OnNodeExtraPromptChangedAsync(FlowCanvasNodeDto node)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes());
+
+    private Task OnNodeCanSendEmailChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CanSendEmail = e.Value is bool b && b });
+
+    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, FlowNodeAgentResourcesInput input)
+    {
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, input);
+            if (result.IsOk)
+            {
+                _nodeAgent = result.Value;
+                // Re-sincroniza el borrador con lo persistido (trim del server), sin perder el foco de edicion.
+                _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            }
+            else { _error = result.Error; }
+        });
+    }
 
     private static string RuleTone(RuleStatus status) => status switch
     {

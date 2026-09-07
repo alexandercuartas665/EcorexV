@@ -184,4 +184,17 @@ public interface IWorkflowDesignService
 
     /// <summary>Quita el agente del nodo (el paso vuelve a ser 100% humano).</summary>
     Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Clientes COLMENA del tenant para el selector de 'buscar_web' del editor (ADR-0091).</summary>
+    Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Lineas WhatsApp del tenant para el selector de 'preguntar_whatsapp' del editor (ADR-0092).</summary>
+    Task<IReadOnlyList<FlowWhatsAppLineDto>> ListWhatsAppLinesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0091/0092/0093: fija los RECURSOS del agente del nodo para conseguir datos y potenciarlo:
+    /// cliente Colmena (+ perfil) para 'buscar_web', agente de voz para 'llamar_telefono', linea WhatsApp
+    /// (+ plantilla) para 'preguntar_whatsapp', instrucciones por paso (prompt extra) y permiso de correo
+    /// ('enviar_correo'). null/false en un recurso = lo deshabilita. Requiere que el nodo ya tenga agente.</summary>
+    Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
+        Guid nodeId, FlowNodeAgentResourcesInput input, CancellationToken cancellationToken = default);
 }

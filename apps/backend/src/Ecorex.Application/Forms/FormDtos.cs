@@ -202,6 +202,17 @@ public sealed record TaskStepFormDto(
     FormCardLayout CardLayout = FormCardLayout.Normal);
 
 /// <summary>
+/// El PASO ACTUAL (current + Pending) del flujo de una tarea, para ATENDERLO desde el lector movil cuando
+/// no hay un formulario por diligenciar (p.ej. una OT cuyo formulario ya se lleno y se reusa en cada nodo:
+/// el paso solo hay que CERRARLO para avanzar). Trae lo justo para cerrar el paso: instancia, paso, nombre
+/// del nodo, si el paso esta asignado al operario que escanea (solo su responsable puede avanzarlo) y, si
+/// adelante hay una compuerta, las rutas a elegir (que se pasan como approvalResult al cerrar).
+/// </summary>
+public sealed record TaskFlowStepDto(
+    Guid WorkflowInstanceId, Guid StepId, string? NodeName, bool AssignedToActor,
+    bool IsGatewayAhead, IReadOnlyList<string> ApprovalOptions);
+
+/// <summary>
 /// Formulario del PRIMER PASO del flujo (evento de inicio) que el wizard ofrece diligenciar AL CREAR
 /// la actividad cuando el concepto no define un formulario propio (ADR-0069). Se llena como los del
 /// concepto (tarjeta + modal) y se ancla al numero EXACTO de la tarea, para que la continuidad (mismo

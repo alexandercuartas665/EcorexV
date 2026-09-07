@@ -39,6 +39,14 @@ public interface IActivityBoardService
     Task<TaskCoreResult<ActivityBoardDetailDto>> GetBoardDetailAsync(Guid boardId, ActivityBoardDetailFilter filter, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Resuelve un numero de tarea ESCANEADO a la tarjeta que vive en el tablero indicado: devuelve el Id de la
+    /// propia tarea si esta en el tablero, o el de un DESCENDIENTE (hijo/nieto generado por regla/flujo via
+    /// SourceTaskId) que este en ese tablero. Null si nada aplica. Sirve al lector movil cuando la tarea salto a
+    /// otro tablero generando un nuevo codigo: escaneando el codigo ORIGEN se localiza la tarjeta descendiente.
+    /// </summary>
+    Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Guarda (o limpia con null) la config de columnas de la vista Lista del tablero (Ola 2
     /// ADR-0065). Config COMPARTIDA por tablero: la ven todos. Ver <c>TaskListViewConfig</c>.
     /// </summary>

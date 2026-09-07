@@ -23,11 +23,9 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
     public async Task<ReportDataSet> ExecuteAsync(ExternalQuery query, CancellationToken ct = default)
     {
         // Solo lectura por defecto (reportes, ADR-0064): defensa en profundidad antes de abrir conexion.
-        // Con escritura habilitada (conexion PROPIA del tenant con AllowWrite) se OMITE el guard.
-        if (!query.AllowWrite)
-        {
-            ExternalReadOnlyGuard.EnsureReadOnly(query.CommandText);
-        }
+        // Se OMITE el guard con opt-in explicito: AllowWrite (conexion propia con escritura) o AllowBatch
+        // (dataset con batch multi-statement habilitado por el dueño). La decision vive en el guard.
+        ExternalReadOnlyGuard.EnsureReadOnly(query.CommandText, query.AllowWrite, query.AllowBatch);
 
         await using var conn = CreateConnection(query.Provider, query.ConnectionString);
         await conn.OpenAsync(ct);
@@ -36,7 +34,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             ? await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct)
             : null;
 
-        if (tx is not null && query.Provider == ExternalDataProvider.Postgres && !query.AllowWrite)
+        if (tx is not null && query.Provider == ExternalDataProvider.Postgres && !query.AllowWrite && !query.AllowBatch)
         {
             // Transaccion READ ONLY real: el servidor rechaza cualquier escritura.
             await using var readOnly = conn.CreateCommand();
@@ -45,8 +43,12 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             await readOnly.ExecuteNonQueryAsync(ct);
         }
 
+        // Expande los parametros MULTI-VALOR (`IN (@p)` -> `IN (@p__0, @p__1, ...)`) y aplana la lista a
+        // parametros fisicos. Cero interpolacion: cada valor va como DbParameter tipado.
+        var (sql, flatParams) = ExternalCommandBuilder.ExpandInLists(query.CommandText, query.Parameters);
+
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = query.CommandText;
+        cmd.CommandText = sql;
         cmd.CommandType = CommandType.Text;
         cmd.CommandTimeout = query.TimeoutSeconds;
         if (tx is not null)
@@ -54,7 +56,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
             cmd.Transaction = tx;
         }
 
-        BindParameters(cmd, query.Parameters);
+        BindParameters(cmd, flatParams);
 
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleResult, ct);
         var dataSet = await MaterializeAsync(reader, query.MaxRows, ct);
@@ -108,7 +110,7 @@ public sealed class AdoExternalQueryExecutor : IExternalQueryExecutor
         _ => throw new ReportValidationException($"Proveedor externo no soportado: {provider}.")
     };
 
-    private static void BindParameters(DbCommand cmd, IReadOnlyList<ExternalBoundParameter> parameters)
+    private static void BindParameters(DbCommand cmd, IReadOnlyList<ExternalFlatParameter> parameters)
     {
         foreach (var p in parameters)
         {

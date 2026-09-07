@@ -168,13 +168,63 @@ public sealed class PanelDerived
 
 public sealed class PanelFilter
 {
-    /// <summary>Campo sobre el que filtra (de la fuente, un alias de lookup o un derivado).</summary>
+    /// <summary>Campo sobre el que filtra (de la fuente, un alias de lookup o un derivado). Para un filtro
+    /// <see cref="QueryParam"/> puede omitirse: en ese caso se usa como etiqueta y el enlace real es
+    /// <see cref="Param"/>.</summary>
     public string Field { get; set; } = "";
 
     /// <summary>Control: dropdown (distinct auto) | daterange | text (contiene).</summary>
     public string Control { get; set; } = "dropdown";
 
     /// <summary>Etiqueta opcional; si falta se usa el nombre del campo.</summary>
+    public string? Label { get; set; }
+
+    // ---- Re-consulta de una fuente EXTERNA (ADR-0064/0066) ----
+    // Un filtro NORMAL acota EN MEMORIA una columna del resultado. Pero un parametro que cambia la
+    // AGREGACION en el SQL (grupo/marca/rango de fechas de Director Comercial) NO es una columna: hay que
+    // RE-CONSULTAR el dataset externo con ese valor. Los siguientes campos habilitan ese modo.
+
+    /// <summary>Cuando true, este filtro NO filtra en memoria: enlaza a un PARAMETRO Input del dataset
+    /// externo Main y, al cambiarlo, el panel RE-CONSULTA la fuente con ese valor. Solo aplica si la fuente
+    /// principal es EXTERNA. Por defecto false (filtro clasico en memoria).</summary>
+    public bool QueryParam { get; set; }
+
+    /// <summary>Nombre del PARAMETRO Input del dataset externo al que enlaza (ej. "grupo_inven"). Si falta,
+    /// se usa <see cref="Field"/>. En un control 'daterange' es el parametro del extremo INFERIOR
+    /// (ej. fecha_ini); el extremo superior va en <see cref="ParamTo"/>.</summary>
+    public string? Param { get; set; }
+
+    /// <summary>Parametro del extremo SUPERIOR de un 'daterange' (ej. fecha_fin). Ignorado en otros controles.</summary>
+    public string? ParamTo { get; set; }
+
+    /// <summary>Tipo logico de la entrada (informativo): "date" | "string". El binder convierte por el tipo
+    /// DECLARADO del parametro; esto solo guia el control por defecto.</summary>
+    public string? Type { get; set; }
+
+    /// <summary>dropdown: permite elegir VARIOS valores (multi-valor SSRS, v0.15.173). Los codigos elegidos
+    /// viajan como una lista al parametro (un valor por linea). Por defecto false (un solo valor).</summary>
+    public bool Multi { get; set; }
+
+    /// <summary>Origen de las OPCIONES de un dropdown: un dataset de lookup (codigo -> etiqueta). Si falta,
+    /// las opciones se derivan por 'distinct' de la fuente principal (util para filtros en memoria; para un
+    /// <see cref="QueryParam"/> conviene un lookup estable).</summary>
+    public PanelFilterOptions? Options { get; set; }
+}
+
+/// <summary>Origen de opciones de un dropdown de filtro: un dataset de lookup (codigo -> etiqueta). El VALUE
+/// (codigo) es el que viaja al parametro; el Label es solo presentacion.</summary>
+public sealed class PanelFilterOptions
+{
+    /// <summary>Clave de la fuente del catalogo que lista las opciones (preferente; ej. "external:{guid}").</summary>
+    public string? Source { get; set; }
+
+    /// <summary>Alternativa a <see cref="Source"/>: nombre de negocio de la fuente de opciones.</summary>
+    public string? Container { get; set; }
+
+    /// <summary>Campo cuyo valor es el CODIGO que viaja al parametro (ValueField).</summary>
+    public string Value { get; set; } = "";
+
+    /// <summary>Campo a mostrar (LabelField). Si falta, se muestra el codigo.</summary>
     public string? Label { get; set; }
 }
 

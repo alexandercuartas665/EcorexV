@@ -2,6 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "validar-agro-5234",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; $env:ECOREX_DISABLE_WORKERS='true'; $env:ECOREX_DEV_LOGIN='calidad@agrometalicas.com'; $env:ASPNETCORE_DETAILEDERRORS='true'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5234"
+      ],
+      "port": 5234
+    },
+    {
       "name": "siigo-wt-5262",
       "runtimeExecutable": "pwsh",
       "runtimeArgs": [

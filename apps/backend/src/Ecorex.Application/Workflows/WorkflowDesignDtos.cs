@@ -77,8 +77,27 @@ public sealed record FlowRuleCatalogItemDto(
 /// </summary>
 public sealed record FlowNodeAgentDto(
     Guid LinkId, Guid AiAgentId, string AgentName, string? AgentRole,
-    bool IsActive, WorkflowAgentAutonomy Autonomy);
+    bool IsActive, WorkflowAgentAutonomy Autonomy,
+    // ADR-0091: recursos para conseguir datos al llenar el formulario (opcionales, permiso por nodo).
+    Guid? ColmenaClientId = null, string? ColmenaSessionKey = null, Guid? VoiceAiAgentId = null,
+    // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp' (opcionales, permiso por nodo).
+    Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo.
+    string? ExtraPrompt = null, bool CanSendEmail = false);
+
+/// <summary>ADR-0093: estado COMPLETO de los recursos del agente del nodo, para guardarlo de una en el modal
+/// (evita una firma con muchos parametros). Cada campo null/false = recurso deshabilitado.</summary>
+public sealed record FlowNodeAgentResourcesInput(
+    Guid? ColmenaClientId, string? ColmenaSessionKey, Guid? VoiceAiAgentId,
+    Guid? WhatsAppLineId, string? WhatsAppTemplateName, string? WhatsAppTemplateLang,
+    string? ExtraPrompt, bool CanSendEmail);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(
     Guid AiAgentId, string Name, string? Role, bool IsActive);
+
+/// <summary>Cliente COLMENA del tenant para el selector de "buscar_web" del editor (ADR-0091).</summary>
+public sealed record FlowColmenaClientDto(Guid Id, string Name, bool IsActive);
+
+/// <summary>Linea WhatsApp del tenant para el selector de "preguntar_whatsapp" del editor (ADR-0092).</summary>
+public sealed record FlowWhatsAppLineDto(Guid Id, string Name, bool Connected);

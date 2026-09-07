@@ -17,6 +17,8 @@ namespace Ecorex.Application.Forms;
 /// <para>Marcadores soportados (ver <see cref="FormTemplateMerge"/>):</para>
 /// <list type="bullet">
 /// <item><c>{{empresa}}</c>, <c>{{fecha}}</c>, <c>{{numero}}</c>: sistema (tenant, fecha, numero de registro).</item>
+/// <item><c>{{tarea}}</c>: numero de la TAREA (la Reference del registro sin el ordinal final, ej.
+/// "T00042-1" -> "T00042"). Tambien <c>{{barcode:tarea}}</c> para su codigo de barras.</item>
 /// <item><c>{{campo.codigo}}</c>: valor de un campo del formulario (con su formato de presentacion).</item>
 /// <item><c>{{#tabla.items}} ... {{col.idColumna}} ... {{fila}} ... {{/tabla.items}}</c>: bloque que se
 /// repite por cada fila del GridDetail <c>items</c>.</item>
@@ -79,9 +81,22 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
             .ToDictionary(q => q.FieldCode, q => q.OptionsJson, StringComparer.OrdinalIgnoreCase);
 
         var fecha = (response.TransactionDate ?? response.SubmittedAt ?? response.CreatedAt).ToLocalTime();
+        // Numero de la TAREA: la Reference SIN el ordinal final ("T00042-1" -> "T00042"). Alimenta {{tarea}} y
+        // {{barcode:tarea}} en la impresion. Fallback al numero de registro si la Reference viene vacia.
+        var tarea = StripTrailingOrdinal(response.Reference);
+        if (string.IsNullOrEmpty(tarea)) { tarea = response.RecordNumber ?? response.Reference ?? string.Empty; }
         return FormTemplateMerge.Render(
             template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions, canvasOptions,
-            tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty);
+            tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea);
+    }
+
+    // Numero de la tarea desde la Reference: si termina en "-<entero>" se corta ahi; si no, se deja igual.
+    // Misma logica que FormResponseService.StripOrdinal (se duplican 3 lineas por ser private alli).
+    private static string StripTrailingOrdinal(string? reference)
+    {
+        if (string.IsNullOrEmpty(reference)) { return string.Empty; }
+        var dash = reference.LastIndexOf('-');
+        return dash > 0 && int.TryParse(reference[(dash + 1)..], out _) ? reference[..dash] : reference;
     }
 }
 
@@ -100,7 +115,8 @@ public static class FormTemplateMerge
         IReadOnlyDictionary<string, string?> canvasOptions,
         string empresa,
         DateTimeOffset fecha,
-        string numero)
+        string numero,
+        string tarea)
     {
         var values = ParseResponseData(responseDataJson);
         var html = RenderGridBlocks(templateHtml, values, gridOptions);
@@ -109,16 +125,17 @@ public static class FormTemplateMerge
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw)
-                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero, fecha)
+                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero, tarea, fecha)
                 : string.Empty;
         });
 
-        // Codigo de barras: {{barcode:numero}} o {{barcode:campo.codigo}} -> SVG Code39 inline.
-        html = ResolveBarcodes(html, values, numero);
+        // Codigo de barras: {{barcode:numero}}, {{barcode:tarea}} o {{barcode:campo.codigo}} -> SVG Code39 inline.
+        html = ResolveBarcodes(html, values, numero, tarea);
 
         var sb = new StringBuilder(html);
         sb.Replace("{{empresa}}", Esc(empresa));
         sb.Replace("{{numero}}", Esc(numero));
+        sb.Replace("{{tarea}}", Esc(tarea));
         // Fechas: {{fecha}} (dd/MM/yyyy), {{fechahora}} (dd/MM/yyyy HH:mm del registro) e {{impreso}}
         // (dd/MM/yyyy HH:mm del momento de impresion). Texto plano.
         return ResolveDateTokens(sb.ToString(), fecha);
@@ -334,7 +351,7 @@ public static class FormTemplateMerge
     /// un SVG que empieza con '&lt;svg'; o una imagen data-URL 'data:image') se emiten como MARKUP sin escapar
     /// (Chromium los renderiza al generar el PDF); el resto se formatea y se escapa normal para prevenir HTML.</summary>
     private static string EmitField(string? format, string? raw, string? canvasOptionsJson,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, DateTimeOffset fecha)
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, string tarea, DateTimeOffset fecha)
     {
         var v = raw?.TrimStart();
         if (!string.IsNullOrEmpty(v))
@@ -346,8 +363,8 @@ public static class FormTemplateMerge
                 || (v[0] == '{' && FormCanvasHtml.IsCanvasValue(raw)))
             {
                 var (header, counter, skipFirst, footer) = ParseCanvasPrint(canvasOptionsJson);
-                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat, numero, fecha);
-                var resolvedFooter = string.IsNullOrWhiteSpace(footer) ? null : ResolveHeaderTokens(footer!, values, fieldFormat, numero, fecha);
+                var resolvedHeader = string.IsNullOrWhiteSpace(header) ? null : ResolveHeaderTokens(header!, values, fieldFormat, numero, tarea, fecha);
+                var resolvedFooter = string.IsNullOrWhiteSpace(footer) ? null : ResolveHeaderTokens(footer!, values, fieldFormat, numero, tarea, fecha);
                 return FormCanvasHtml.Render(raw, resolvedHeader, counter, skipFirst, resolvedFooter);
             }
             if (v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
@@ -404,29 +421,32 @@ public static class FormTemplateMerge
     /// campos: valor formateado y ESCAPADO) y los {{barcode:...}} (SVG inline). El HTML del cabezote
     /// (etiquetas) es de config y NO se escapa. Recibe <paramref name="numero"/> para {{barcode:numero}}.</summary>
     private static string ResolveHeaderTokens(string template,
-        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, DateTimeOffset fecha)
+        IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> fieldFormat, string numero, string tarea, DateTimeOffset fecha)
     {
         var html = Regex.Replace(template, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw) ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw)) : string.Empty;
         });
-        // Codigo de barras y fechas ({{fecha}}/{{fechahora}}/{{impreso}}), igual que en el cuerpo,
-        // para que el cabezote/pie por hoja los soporte.
-        return ResolveDateTokens(ResolveBarcodes(html, values, numero), fecha);
+        // Codigo de barras ({{barcode:numero|tarea|campo.x}}) y fechas ({{fecha}}/{{fechahora}}/{{impreso}}),
+        // igual que en el cuerpo, para que el cabezote/pie por hoja los soporte.
+        return ResolveDateTokens(ResolveBarcodes(html, values, numero, tarea), fecha);
     }
 
     /// <summary>Resuelve los marcadores de codigo de barras: <c>{{barcode:numero}}</c> (codifica el numero de
     /// registro) y <c>{{barcode:campo.codigo}}</c> (codifica el valor de un campo). Sintaxis opcional de altura:
     /// <c>{{barcode:target:48}}</c> (px, default 44). Emite un SVG Code39 INLINE (sin escapar); vacio si el
     /// valor no tiene caracteres codificables.</summary>
-    private static string ResolveBarcodes(string html, IReadOnlyDictionary<string, string> values, string numero)
-        => Regex.Replace(html, @"\{\{\s*barcode:\s*(numero|campo\.[a-zA-Z0-9_]+)\s*(?::\s*(\d+)\s*)?\}\}", m =>
+    private static string ResolveBarcodes(string html, IReadOnlyDictionary<string, string> values, string numero, string tarea)
+        => Regex.Replace(html, @"\{\{\s*barcode:\s*(numero|tarea|campo\.[a-zA-Z0-9_]+)\s*(?::\s*(\d+)\s*)?\}\}", m =>
         {
             var target = m.Groups[1].Value;
-            var data = target == "numero"
-                ? numero
-                : (values.TryGetValue(target.Substring("campo.".Length), out var v) ? v : string.Empty);
+            var data = target switch
+            {
+                "numero" => numero,
+                "tarea" => tarea,
+                _ => values.TryGetValue(target.Substring("campo.".Length), out var v) ? v : string.Empty
+            };
             if (string.IsNullOrWhiteSpace(data)) { return string.Empty; }
             var height = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var h) ? h : 44;
             return Barcode.Code39Svg(data, height);

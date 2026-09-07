@@ -215,14 +215,65 @@ public static class PanelSpecValidator
         // 6) Filtros.
         foreach (var f in spec.Filters)
         {
-            if (!available.Contains(f.Field))
+            var flabel = string.IsNullOrWhiteSpace(f.Label) ? f.Field : f.Label!;
+            if (f.QueryParam)
+            {
+                // queryParam (ADR-0066): NO filtra por columna; enlaza a un parametro Input del dataset
+                // externo Main. Su 'field' no tiene que ser una columna del resultado (los parametros que
+                // cambian la agregacion NO son columnas). Solo es valido sobre una fuente principal EXTERNA.
+                if (main.Kind != ReportSourceKind.External)
+                {
+                    errors.Add($"El filtro '{flabel}' es queryParam pero la fuente principal no es externa (solo aplica a fuentes ADR-0064).");
+                }
+
+                if (string.IsNullOrWhiteSpace(f.Param) && string.IsNullOrWhiteSpace(f.Field))
+                {
+                    errors.Add($"El filtro queryParam '{flabel}' necesita 'param' (o 'field') con el nombre del parametro del dataset.");
+                }
+
+                if (f.Control.Equals("daterange", StringComparison.OrdinalIgnoreCase)
+                    && string.IsNullOrWhiteSpace(f.ParamTo) && string.IsNullOrWhiteSpace(f.Param))
+                {
+                    errors.Add($"El filtro queryParam '{flabel}' de tipo daterange necesita 'param' (fecha inicial) y/o 'paramTo' (fecha final).");
+                }
+            }
+            else if (!available.Contains(f.Field))
             {
                 errors.Add($"El filtro sobre '{f.Field}' no es un campo disponible (fuente, alias de lookup o derivado).");
             }
 
             if (!KnownControls.Contains(f.Control ?? ""))
             {
-                errors.Add($"El filtro sobre '{f.Field}' tiene un control desconocido: '{f.Control}' (dropdown|daterange|text).");
+                errors.Add($"El filtro sobre '{flabel}' tiene un control desconocido: '{f.Control}' (dropdown|daterange|text).");
+            }
+
+            // Origen de opciones desde un dataset de lookup: la fuente debe existir en el catalogo y traer el
+            // campo de VALUE (codigo). Asi el dropdown ofrece codigo->etiqueta estable (no distinct del Main).
+            if (f.Options is not null
+                && (!string.IsNullOrWhiteSpace(f.Options.Source) || !string.IsNullOrWhiteSpace(f.Options.Container)))
+            {
+                var optSrc = FindByRef(catalog, f.Options.Source, f.Options.Container);
+                if (optSrc is null)
+                {
+                    errors.Add($"El filtro '{flabel}' declara opciones desde una fuente que no existe en el catalogo del tenant.");
+                }
+                else
+                {
+                    var optFields = NamesOf(optSrc);
+                    if (string.IsNullOrWhiteSpace(f.Options.Value))
+                    {
+                        errors.Add($"El filtro '{flabel}' declara opciones pero no dice cual es el campo de valor (options.value).");
+                    }
+                    else if (!optFields.Contains(f.Options.Value))
+                    {
+                        errors.Add($"El filtro '{flabel}': el campo de valor '{f.Options.Value}' no existe en la fuente de opciones.");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(f.Options.Label) && !optFields.Contains(f.Options.Label))
+                    {
+                        errors.Add($"El filtro '{flabel}': el campo de etiqueta '{f.Options.Label}' no existe en la fuente de opciones.");
+                    }
+                }
             }
         }
 

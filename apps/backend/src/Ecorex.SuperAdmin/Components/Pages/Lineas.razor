@@ -164,6 +164,16 @@ else
                 </div>
             </div>
 
+            @* ===== Webhook de YCloud (BSP oficial) ===== *@
+            <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;">
+                <div style="font-weight:700;margin-bottom:4px;">Webhook de YCloud</div>
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Para las lineas YCloud, pega esta URL en el panel de YCloud (Developers &gt; Webhooks) y suscribete al evento <strong>whatsapp.inbound_message.received</strong> para recibir los mensajes entrantes.</div>
+                <div class="field" style="max-width:620px;">
+                    <label class="form-label">Callback URL</label>
+                    <input class="form-control" readonly value="@(_webhook.YCloudCallbackUrl ?? "(inicia el tunel o configura la URL publica)")" />
+                </div>
+            </div>
+
             @if (_whMsg is not null)
             {
                 <div class="@(_whOk ? "text-success" : "text-danger")" style="font-size:12px;margin-top:8px;">@_whMsg</div>

@@ -2,6 +2,496 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.15.186: whitelist DURA de tableros por agente (crear_tarea) - ADR-0094
+
+- Pedido (usuario): el agente elige el tablero de crear_tarea sin restriccion real (solo el prompt lo guia);
+  se quiere una whitelist DURA, configurable POR AGENTE, de uno o varios tableros permitidos.
+- Hecho (ADR-0094):
+  - Esquema (migracion DUAL aditiva): AiAgent.AllowedBoardIdsJson (jsonb PG / nvarchar(max) SQL Server,
+    nullable). Migraciones: AddAgentAllowedBoards (PG 20260907143417) y AddAgentAllowedBoards (SqlServer
+    20260907143543); snapshots consistentes; columna allowed_board_ids_json en ai_agents.
+  - DTO/servicio: AllowedBoardIds en UpdateAiAgentRequest y AiAgentDto; SerializeBoards/ParseBoards
+    (null/[] -> null). DuplicateAsync copia la whitelist.
+  - Contexto: AiToolRunContext.AllowedBoardIds (nuevo), inyectado por AiInferenceService.RunCoreAsync desde
+    AllowedBoardIdsJson (null/[] = sin restriccion).
+  - Enforcement en TasksToolset: listar_tableros filtra a los permitidos; crear_tarea resuelve el nombre
+    SOLO entre permitidos; con 1 permitido, nombre ausente/no-calza usa ese unico (nunca escapa la lista);
+    con 2+ y nombre invalido, error listando SOLO los permitidos. Paridad: endpoints mgmt (prompt-set,
+    tools-set) reenvian AllowedBoardIds para no borrar la whitelist al tocar otro campo.
+  - UI (Agentes.razor): acordeon "Tableros permitidos" (checkboxes de tableros no archivados) con rotulo
+    "Vacio = puede usar TODOS los tableros"; carga desde AiAgentDto.AllowedBoardIds; guarda en UpdateAsync.
+  - SEMANTICA: lista vacia/null = SIN restriccion (preserva a los demas agentes, ej. "Clasificador de
+    contactos"); 1+ ids = solo esos.
+- Verificado: build de la solucion verde; TasksToolsetBoardWhitelistTests 7/7 (vacia=todos, [A] pide A,
+  [A] no escapa a B, [A] sin tablero usa A, [A,B] pide C -> error solo con A/B, listar con [A] = solo A,
+  listar sin whitelist = todos).
+- Siguiente: DEPLOY a senal del usuario (prod en v0.15.185). Post-merge (ops): setear whitelist de
+  SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) = [AGENTE COMERCIAL IA, PRY-0008]; los
+  demas agentes quedan con lista vacia = sin cambio.
+
+## 2026-09-06 - v0.15.185: el agente llena GRILLAS (GridDetail) en el formulario del paso
+
+- Pedido (usuario): "mejora el motor para el llenado de la grilla y probemos buscar en Homecenter". La
+  cotizacion usa un campo TABLA (items: detalle/cantidad/valor_unitario). Hasta ahora el agente solo sabia
+  fijar campos escalares; una grilla no se podia diligenciar automaticamente.
+- Hecho (solo logica del invoker, SIN esquema ni migracion):
+  - FormSchemaJson: para un campo GridDetail ya NO expone 'opciones' crudas; decodifica las columnas
+    CAPTURABLES con FormGridCalculator.ParseColumns (excluye calc/rollup y las de gestion, que recomputa el
+    servidor) y las emite en 'columnas' [{id, etiqueta, obligatoria, opciones}] + una nota de forma en 'valor'
+    (arreglo de filas [{columna: valor}, ...]).
+  - ApplySetFields: si el campo es GridDetail acepta un ARREGLO de filas y lo serializa canonicamente (objetos
+    de strings, solo columnas capturables, valida columnas obligatorias por fila) al string JSON que espera
+    FormResponseService.SaveAsync (que re-deriva Type=GridDetail y recalcula las columnas calc/rollup). Escalar
+    sigue igual. Errores por tabla vuelven al modelo en 'errores_tabla'.
+  - Tool spec de 'fijar_campos' y system prompt de llenado: se documenta que un campo tabla toma un arreglo de
+    filas con los ids de 'columnas' (una fila por item, sin columnas calculadas).
+- Verificado: build Debug verde (Application); dotnet format sin cambios en el archivo tocado. El SaveAsync ya
+  aceptaba el string JSON de la grilla (confirmado en prod: FRM-CRM-COT.items).
+- Siguiente: reconfigurar el flujo de cotizacion (FLW-004) para usar el form con grilla (FRM-CRM-COT) en el
+  nodo del agente + prompt extra que busque en Homecenter (homecenter.com.co); DEPLOY a senal del usuario y
+  re-test end-to-end cuando el cliente Colmena SERVER06 este en linea.
+
+## 2026-09-06 - v0.15.184: prompt extra por nodo + herramienta de correo del agente - ADR-0093
+
+- Pedido (usuario): "darle potencia: un prompt extra al configurar el agente, y que pueda escribir correos;
+  y como le decimos que puede hacer con Colmena". Decisiones: correo = "ambos, empezando por enviar" (fire-
+  and-forget ahora; esperar-respuesta a futuro cuando haya correo entrante) + redaccion "libre (asunto+cuerpo)".
+- Hecho (ADR-0093):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{ExtraPrompt(<=4000), CanSendEmail(bool default false)}.
+  - Prompt extra: se antepone al system prompt del agente en AMBOS caminos (BuildSystemPrompt de decision/
+    compuerta y BuildFormSystemPrompt de llenado). Es donde se le dice QUE hacer y COMO usar Colmena (que URL
+    abrir, que extraer): responde la duda del usuario sobre Colmena.
+  - Correo: herramienta 'enviar_correo(destinatario, asunto, cuerpo)' en el bucle de llenado (sincrona, sin
+    pausa; no hay correo entrante). Reusa IEmailSender (SMTP tenant-first con fallback global); texto plano ->
+    HTML seguro; tope MaxEmailsPerStep=3; permiso por nodo (CanSendEmail). Fallo de envio -> {ok:false} y el
+    agente no asume exito.
+  - Config en el modal del editor (ADR-0093): textarea "Instrucciones para este paso" + toggle "Permitir
+    enviar correos". SetNodeAgentResourcesAsync pasa a recibir un record (FlowNodeAgentResourcesInput) para no
+    crecer la firma. Chips del resumen: + "Correo"; indicador "Con instrucciones para este paso".
+  - Fix de UX: el prompt se edita en un borrador LOCAL (oninput) que CurrentAgentRes usa, para que un guardado
+    disparado por OTRO campo (ej. el checkbox de correo) no pierda el texto aun sin confirmar (clobber).
+- Verificado en Chrome (dev, AGROMETALICAS, FLW-003): el modal muestra prompt + toggle; autosave persiste
+  ambos; el clobber quedo resuelto (texto nuevo sobrevive al tocar el checkbox). Build Debug verde;
+  integracion dual 12/12; migracion aplica en dev (2 columnas). Runtime real (envio de correo) se valida en
+  prod (necesita SMTP del tenant configurado).
+- Siguiente: DEPLOY en espera de senal (prod en v0.15.175; 0.15.176-0.15.184 sin desplegar).
+
+## 2026-09-06 - v0.15.183: config del agente del nodo en un MODAL (editor de flujos)
+
+- Pedido (usuario, viendo el acordeon "Agente de IA" ya largo con Colmena+voz+WhatsApp): "las tareas del
+  agente podrian abrir en un modal para su configuracion". Decision: "todo el agente" en el modal.
+- Hecho (FlowEditor): el acordeon del panel pasa a ser un RESUMEN compacto (nombre del agente + autonomia +
+  chips Web/Llamada/WhatsApp + boton). El boton "Configurar agente" abre un modal (fe-modal, 2 columnas
+  fe-grid-2) con TODO: agente que atiende, autonomia, y los recursos (Colmena+SessionKey, voz Retell, linea
+  WhatsApp + plantilla/idioma). Autosave por campo (reusa los handlers existentes SetNodeAgent*/Resources);
+  el modal se cierra con "Listo" y al cambiar de nodo. Sin backend nuevo.
+- Verificado en Chrome (dev, AGROMETALICAS, FLW-003): el resumen muestra los 3 chips; el modal abre con los
+  valores correctos; el autosave persiste (cambie idioma es->es_CO->es y se reflejo en workflow_node_agents).
+  Build Debug verde.
+- Siguiente: DEPLOY en espera de senal del usuario (prod en v0.15.175; 0.15.176-0.15.183 sin desplegar).
+
+## 2026-09-05 - v0.15.182: el agente de flujo consigue datos por WhatsApp (pregunta y reanuda) - ADR-0092
+
+- Pedido (usuario): "el agente tambien deberia poder usar WhatsApp desde un flujo para conseguir datos".
+  Decisiones: quien conversa = "el agente del flujo (espejo Retell)"; alcance = "construir envio de plantilla
+  (sirve en frio)".
+- Hecho (ADR-0092, tercera herramienta de consecucion de datos, con el patron pausa/reanudacion de Retell pero
+  conducido por el propio agente del flujo, multi-turno):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{WhatsAppLineId(FK), WhatsAppTemplateName,
+    WhatsAppTemplateLang} + WorkflowStepHistory.PendingWhatsAppConversationId (indexado).
+  - Envio de plantilla (candado de 24h): IYCloudApiClient.SendTemplateAsync + IWhatsAppConnectorService.
+    SendTemplateAsync (YCloud; Emulator sintetico). Antes solo habia texto libre / crear-listar plantillas.
+  - Seam IWorkflowAgentWhatsApp (Application): resuelve/crea la conversacion (tenant, linea, telefono), decide
+    plantilla (frio) vs texto libre (ventana 24h abierta), envia y persiste el saliente.
+  - Tool 'preguntar_whatsapp(numero, pregunta)' en el bucle de llenado (se sigue ofreciendo en la reanudacion:
+    es multi-turno). El invoker solo la senala; el runner envia y PAUSA el paso (PendingWhatsAppConversationId +
+    AgentAttemptedAt, outcome WaitingForReply, tope 4 preguntas/conversacion).
+  - Reanudacion: ChatIngestService, al entrar la respuesta, limpia AgentAttemptedAt del paso que la esperaba;
+    el contexto inyecta el ultimo entrante (WhatsAppReplyResult) y el agente termina de llenar o repregunta.
+  - Colision: AgentConversationService (SARA) se calla si un paso de flujo posee la conversacion.
+  - Config por nodo (FlowEditor): selector de linea WhatsApp + plantilla (nombre/idioma) en el acordeon Agente
+    de IA.
+- Verificado: build Debug/Release verde; integracion (matriz dual) 12/12; migracion aplica en dev (4 columnas);
+  el editor persiste linea VENTAS_TEST + plantilla consulta_dato/es por nodo (AGROMETALICAS, flujo de pruebas
+  FLW-003). Pendiente validacion de RUNTIME real (linea conectada + plantilla aprobada + respuesta real): prod.
+- Siguiente: DEPLOY en espera de senal del usuario (prod en v0.15.175; 0.15.176-0.15.182 sin desplegar).
+
+## 2026-09-05 - v0.15.181: el agente de flujo consigue datos (Colmena web + llamada Retell) - ADR-0091
+
+- Pedido (usuario): "montamos un flujo de pruebas... llenar unos datos de formulario, pero sumale poder
+  al agente: configurarle un agente Colmena para llenar datos o hacer una llamada de telefono con Retell".
+  Decisiones: llamada asincrona = "Pausar y reanudar"; alcance = "Todo: Colmena + Retell".
+- Hecho (ADR-0091, marco de ADR-0090 ola C extendido con dos tools de CONSECUCION de datos, permiso
+  explicito por nodo):
+  - Esquema (migracion DUAL aditiva): WorkflowNodeAgent.{ColmenaClientId(FK DataClient), ColmenaSessionKey,
+    VoiceAiAgentId(FK AiAgent)} + WorkflowStepHistory.PendingVoiceCallId. Aplica al arrancar; verificado en
+    dev (4 columnas nuevas).
+  - Colmena (SINCRONO): costura IAgentBrowserFetch (Application) / AgentBrowserFetch (SuperAdmin sobre
+    IBrowserActionChannel: Navigate + ExtractReadable, ~50s, verifica IsOnline, cap 14k chars, no lanza).
+    Tool 'buscar_web(url, selector?)' en el bucle de llenado, ofrecida SOLO si el nodo tiene cliente Colmena.
+  - Retell (ASINCRONO, pausa/reanudacion): tool 'llamar_telefono(numero, objetivo)' -> el invoker solo la
+    "pide" (CallRequest), el bucle termina sin tocar BD -> el runner coloca la llamada (PlaceCallAsync,
+    objetivo LlenarFormulario, whitelist = form del paso), guarda PendingVoiceCallId + marca AgentAttemptedAt,
+    deja el paso vigente (outcome WaitingForCall) -> el webhook call_analyzed limpia AgentAttemptedAt para
+    reanudar -> en la re-corrida el contexto incluye transcript + datos capturados (VoiceCallResult) y el
+    agente termina de llenar. No se re-llama en la reanudacion.
+  - Config por nodo (FlowEditor, acordeon "Agente de IA"): selector de cliente Colmena (+ SessionKey) y de
+    agente de voz; SetNodeAgentResourcesAsync + ListColmenaClientsAsync.
+  - Guardarrailes heredados: cupo de IA, AiUsageLog, executedByAiAgentId, VoiceCall.CostUsd; offline/timeout/
+    llamada no colocada -> ReturnToPerson; multi-tenant intacto.
+- Verificado: build Release verde; integracion (matriz dual) 12/12; editor persiste los 3 campos por nodo en
+  dev (AGROMETALICAS). Pendiente validacion de RUNTIME real (cliente Colmena conectado + llamada Retell
+  real, billable): se prueba en prod.
+- Siguiente: montar el flujo de pruebas end-to-end; DEPLOY en espera de senal del usuario (prod en v0.15.175;
+  0.15.176-0.15.181 sin desplegar).
+
+## 2026-09-05 - SARA (agente comercial) enrutada a un tablero unico (AGROMETALICAS)
+
+Problema: el agente SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) creaba
+tareas via la herramienta crear_tarea eligiendo tablero por NOMBRE, sin whitelist dura
+(TasksToolset.CreateTaskAsync resuelve contra todos los tableros no archivados y si no calza
+devuelve la lista completa para reintentar). Su prompt decia GESTION COMERCIAL + "PQRS", pero
+PQRS no existe (solo habia GESTION COMERCIAL PRY-0001 y ORDENES DE TRABAJO PRY-0007), asi que
+una PQR podia caer en cualquier tablero.
+Solucion (data-ops, sin codigo): (1) cree el tablero "AGENTE COMERCIAL IA" (PRY-0008, color
+#6366f1, columnas Nuevo/En gestion/Resuelto). (2) reescribi el system_prompt de SARA (UPDATE
+replace de 2 frases exactas) para que TODO lo que gestione (comercial, cotizacion, venta, PQRS,
+soporte, cualquier caso) vaya SIEMPRE a "AGENTE COMERCIAL IA", y el fallback reintente con ese
+mismo nombre. Verificado: 0 menciones a "GESTION COMERCIAL"/"ORDENES DE TRABAJO"; las 5 de PQRS
+restantes son "PQRSF" (el concepto, no un tablero).
+Prueba end-to-end por el sandbox (Probar agente, logueado como Beatriz en app2): mensaje de PQR
+-> SARA cerro con crear_tarea -> ticket T00062 "Reclamo PQR" creado en AGENTE COMERCIAL IA (BD
+confirmada). Tarea de prueba archivada (is_archived=true).
+Backups: ecorex-2026-09-05-1412.sql.gz. Recomendacion pendiente (hand-off a codigo): darle a
+crear_tarea una whitelist REAL de tableros por agente para que la restriccion no dependa solo
+del prompt.
+
+## 2026-09-04 - v0.15.175: lector movil - avanzar paso de flujo sin form + numero case-insensitive
+
+- Pedido (usuario, probando v0.15.174): al escanear T00057 ya resuelve el descendiente T00058, pero (a) el
+  lector decia "su flujo no tiene un paso pendiente" pese a que el nodo "Recibir OT impresion" esta activo;
+  (b) el numero solo casaba en MAYUSCULA (si tecleaba "t00057" a mano, fallaba la resolucion).
+- Causa (a): el flujo OT reusa el MISMO formulario (FT-C-008) en sus 3 nodos. Al estar ya enviado, el
+  FormFlowLink del paso actual nace Completed, no Pending. El lector solo abria pasos con form Pending, asi
+  que un paso "solo-cerrar" (form ya lleno, o nodo sin form) quedaba sin accion. Causa (b):
+  ResolveScannedTaskOnBoardAsync consultaba t.Number == num exacto (Postgres es case-sensitive).
+- Fix:
+  1. ResolveScannedTaskOnBoardAsync normaliza la entrada a MAYUSCULA (los numeros se generan siempre "T"+
+     relleno; el match directo en memoria ya era case-insensitive).
+  2. IFormResponseService.GetTaskCurrentStepAsync(taskId, actorTenantUserId): devuelve el primer paso
+     current+Pending (con instancia, stepId, nodo, si esta asignado al operario, y rutas si hay compuerta).
+     CloseTaskStepAsync(taskId, stepId, actorTenantUserId, approvalResult): cierra/avanza ese paso via
+     WorkflowEngine.CompleteStepAsync; SOLO si el paso esta asignado al operario (decision del usuario:
+     mismo criterio que la bandeja). approvalResult = ruta elegida cuando adelante hay compuerta.
+  3. MovilTablero: si el paso actual no tiene form Pending, resuelve el paso actual; si esta asignado al
+     operario abre una HOJA de confirmacion "Avanzar" (o un boton por ruta si hay compuerta) que cierra el
+     paso y mueve la tarjeta; si es de otra persona, avisa. DTO nuevo TaskFlowStepDto.
+- Build Release verde. Sin migracion. NO desplegado (a senal).
+
+---
+
+## 2026-09-05 - v0.15.180: agentes de IA en nodos de flujo - Ola C (llenar formularios, ADR-0090)
+
+- Que el agente de un Task con formulario lo DILIGENCIE con tool-calling y (autonomo) lo ENVIE. Cierra las
+  3 olas de ADR-0090.
+- Invoker: si el nodo tiene WorkflowNodeForm, corre un bucle acotado (8 rondas) de CompleteWithToolsAsync con
+  un toolset de PASO: ver_formulario / fijar_campos / enviar_formulario. Acumula los valores EN MEMORIA (no
+  escribe BD, respeta la separacion de fases); el resultado gana Fields. Suma tokens de todas las rondas. Si
+  no llama enviar_formulario o no fija nada -> vuelve a humano.
+- Runner: SubmitAgentFormAsync reusa el camino de una persona -GetTaskStepFormsAsync materializa el draft +
+  FormFlowLink del paso; SaveAsync valida por tipo, corre reglas on-submit y al enviar completa el paso-.
+  Autonomo=envia (cierra), Propone=deja el draft lleno. Validacion falla -> ReturnToPerson (nunca fuerza).
+- SaveAsync (FormResponseService/IFormResponseService) gana executedByAiAgentId, hilado a CompleteStepAsync:
+  el envio queda auditado como hecho por el agente (usuario null en autonomo).
+- Tests: WorkflowAgentStepTests (integracion, matriz dual PG+SQL) nuevo caso: agente autonomo llena y ENVIA
+  el form del paso; queda Submitted por el agente (sin usuario), el paso cierra con el agente como autor y el
+  flujo avanza. 12/12 verde localmente. Build Release verde. Nota en ADR-0090. NO desplegado (a senal).
+- Extension natural (no en esta version): lookups externos (inventario/directorio) como tools del mismo bucle.
+
+---
+
+## 2026-09-05 - v0.15.179: agentes de IA en nodos de flujo - Ola B (compuertas, ADR-0090)
+
+- Que un agente decida en una COMPUERTA exclusiva, por los dos caminos (decision del usuario "ambos"):
+  1. B1 (patron Task->compuerta automatica): ya funcionaba; se enriquece el contexto del agente con las
+     rutas de la compuerta siguiente (destino+arista+condicion) y el prompt pide un 'resultado' que cumpla
+     una condicion. Sin cambio de motor.
+  2. B2 (agente DIRECTO en compuerta atendida, ADR-0068/0072): SetNodeAgentAsync admite un ExclusiveGateway
+     con AllowsAssignment; el editor lo habilita (label "Agente que elige la ruta de la compuerta"; una
+     compuerta no atendida muestra gating). El dispatcher/runner ya la toman.
+- Contrato aditivo: en compuerta el agente responde {puede_resolver, ruta, comentario} (ruta = clave del
+  destino = BpmnElementId, o su nombre); en Task sigue con 'resultado'. El parser lee ambos; el runner exige
+  el que corresponde al tipo de nodo.
+- Motor: ChooseGatewayRouteAsync gana executedByAiAgentId (autor maquina junto al humano; actor "Agente de
+  IA"). Runner en compuerta: resuelve la ruta a un destino que sea salida DIRECTA (match unico por
+  BpmnElementId o nombre; si no, ReturnToPerson, nunca enruta a ciegas); Autonomo enruta, Propone deja la
+  propuesta de ruta. (Se corrigio el llamador del inbox a ChooseGatewayRoute por el nuevo parametro.)
+- Sin migracion (Routes es contexto en memoria; ExecutedByAiAgentId ya existia). Tests: 8 nuevos
+  (WorkflowAgentDecisionTests). Verificado en dev (PROCESO COMERCIAL, compuerta "Cliente Decide si compra"
+  atendida): acepta agente, persiste con node_type=ExclusiveGateway, quitar borra. Build Release verde.
+  Nota en ADR-0090. NO desplegado (a senal). Pendiente: Ola C (llenar formularios).
+
+---
+
+## 2026-09-05 - v0.15.178: agentes de IA en nodos de flujo - Ola A (asignacion en el editor, ADR-0090)
+
+- Marco general en ADR-0090 (agente decide paso / elige ruta de compuerta / llena formulario; autonomia
+  configurable por nodo; guardarrailes). Hallazgo: la "ola 2" de agente-decide-paso ya esta construida
+  (WorkflowNodeAgent + Dispatcher + Runner + CompleteStepAsync(executedByAiAgentId)); faltaba la UI.
+- Ola A (esta version): cablear la asignacion nodo->agente (IWorkflowDesignService.{ListAgentCatalog,
+  GetNodeAgent, SetNodeAgent, RemoveNodeAgent}Async, ya existentes) al editor de flujos FlowEditor.razor:
+  1. Nuevo acordeon "Agente de IA" en el panel del nodo (junto a "Asignar usuarios"). Solo pasos Task;
+     en compuertas/eventos muestra el aviso de gating.
+  2. Selector de agente (catalogo del tenant, activos primero, "(apagado)") + selector de Autonomia
+     (Propone|Autonomo, default Propone al asignar). "Sin agente" quita la asignacion (upsert por indice
+     unico TenantId+NodeId). Se carga el agente del nodo al seleccionar; escrituras bajo el mutex de
+     DbContext del editor. Sin cambio de motor ni migracion.
+- Verificado en dev (AGROMETALICAS, flujo ORDENES DE TRABAJO, paso "Recibir OT impresion"): render de la
+  seccion, asignar persiste WorkflowNodeAgent, cambiar autonomia persiste (0/1), estado inicial en recarga
+  refleja lo guardado, quitar borra la fila, nodo no-Task muestra el gating. Dev dejado limpio. Build
+  Release verde. Nota en ADR-0090. NO desplegado (a senal).
+- Pendiente: Ola B (compuertas) y Ola C (llenar form del paso con toolset acotado + executedByAiAgentId).
+
+---
+
+## 2026-09-05 - v0.15.177: paneles-spec - filtros que RE-CONSULTAN una fuente externa (queryParam)
+
+- Pedido (sesion de reportes): un panel sobre una fuente EXTERNA (ADR-0064) corria el dataset UNA vez con
+  los defaults y filtraba en memoria; eso no sirve para parametros que cambian la agregacion en el SQL
+  (Director Comercial: Grupo/Marca/Tipo/Linea/SubGrupo + rango de fechas, que NO son columnas). Ahora un
+  filtro puede RE-CONSULTAR el dataset externo con esos parametros al cambiarlos.
+- Cambios:
+  1. PanelSpec.PanelFilter: QueryParam (bool), Param/ParamTo (parametro Input; daterange usa ambos), Type,
+     Multi (multi-valor SSRS v0.15.173, codigos por salto de linea), Options (PanelFilterOptions: dataset de
+     lookup codigo->etiqueta para el dropdown). Sin migracion (el spec vive en SpecJson).
+  2. ReportQuerySpec.Inputs (nombre->valor); ReportDataSource pasa spec.Inputs a ExternalReportReader.
+     QueryAsync (antes inputs=null). El binder enlaza solo parametros declarados y tipados (anti-inyeccion).
+     Fuentes no externas ignoran Inputs -> un panel sin queryParams se comporta igual que antes.
+  3. SpecPanelRenderer: si Main es externo y cambia un filtro queryParam, RE-EJECUTA la consulta del Main con
+     esos Inputs (debounce 400 ms + "Actualizando..."); reconstruye join/derivados/where y recomputa. Los
+     filtros normales siguen en memoria. UI: dropdown (multi-select con codigo->etiqueta desde lookup o
+     distinct) + daterange. Mantiene MaxRows/timeout/concesion; la cadena nunca se expone.
+  4. PanelSpecValidator: acepta queryParam SOLO si Main es externo; exige param/field; valida la fuente/campos
+     del origen de opciones.
+- Tests: PanelSpecValidatorTests (6 nuevos: valido en externa, rechazo en no-externa, falta param, opciones
+  de fuente/campo inexistentes, round-trip de campos nuevos). Suite Application 779/780 (el unico fallo es
+  ContactWorkflowDispatcher, EF ToListAsync, PRE-EXISTENTE y ajeno a este cambio). Build Release verde.
+- Nota en ADR-0066 (ref ADR-0064). NO desplegado (a senal).
+
+---
+
+## 2026-09-05 - v0.15.176: disenador - checkbox "Permite ingreso manual" para columnas resolver
+
+- Pedido: exponer en el disenador de formularios la bandera hibrida (allowManual) de las columnas RESOLVER
+  (VLOOKUP contra Contenedor). El motor y el parse ya la soportaban (FormGridResolveConfig.AllowManual,
+  FormGridColumnLookup.cs, v0.15.163); solo faltaba la UI (antes se ponia por SQL/JSON).
+- Cambios (solo UI, sin migracion), en FormDesigner.razor:
+  1. Bloque para columnas cuyo GridColumnExtras.Resolve != null: resumen no editable ("Auto-resuelta desde
+     el contenedor por {claves}; devuelve {campo}") + checkbox "Permite ingreso manual" con hint
+     ("Donde el contenedor tiene tarifa autollena; donde no, la celda queda editable y lo tecleado no se
+     borra.").
+  2. Persistencia: SetGridResolveAllowManualAsync via PatchGridColumnJsonAsync (mutacion del JsonObject),
+     escribe/quita allowManual DENTRO del objeto resolve de columns[idx] en el options_json, PRESERVANDO
+     las demas claves (match/return/source/sourceRef). Marcar=true; desmarcar quita la clave (default false).
+  3. Estado inicial via @bind:get (refleja Resolve.AllowManual) + @bind:set (guarda).
+- Verificado en dev (AGROMETALICAS, form COT SIMULADOR COTIZACIONES, columna precio_corte): el bloque
+  renderiza, el estado inicial refleja el valor guardado, y marcar/desmarcar persiste allowManual en el JSON
+  del grid sin perder match/return/source. Build Release verde. NO desplegado (a senal).
+
+---
+
+## 2026-09-04 - v0.15.174: lector movil - resolver descendiente tambien por ParentId (salto de flujo)
+
+- Bug (usuario): en el tablero movil "Seguimiento O.T.", al escanear T00057 sale "No se encontro 'T00057'
+  (ni un hijo/nieto...)", pese a que T00057 tiene un hijo T00058. T00057 vive en OTRO tablero.
+- Causa: ResolveScannedTaskOnBoardAsync (v0.15.172) recorria descendientes SOLO por SourceTaskId. Pero la
+  hija la habia generado ChildTaskStarter (ADR-0076, "salto de flujo -> tarea hija"), que enlaza por
+  ParentId y NO seteaba SourceTaskId; ademas la hija salta a otro tablero. El BFS por SourceTaskId nunca la
+  encontraba. (GenerarTareasDesdeTablaVerb si seteaba SourceTaskId; ChildTaskStarter era el hueco.)
+- Fix:
+  1. ActivityBoardService.ResolveScannedTaskOnBoardAsync: el BFS ahora sigue AMBAS relaciones,
+     SourceTaskId O ParentId (hijo/nieto = las dos). Arregla los datos EXISTENTES sin backfill (T00058 ya
+     tiene ParentId=T00057) y no depende de como se genero la hija.
+  2. ChildTaskStarter: la hija del salto de flujo ahora tambien nace con SourceTaskId=padre, dejando la
+     cadena origen->generada de primera clase hacia adelante (coherente con el doc de SourceTaskId).
+- Build Release verde. Sin migracion (solo lectura + un campo ya existente). NO desplegado (a senal).
+
+---
+
+## 2026-09-04 - v0.15.173: conector externo - parametros MULTI-VALOR (SSRS `IN (@p)`) para RDL
+
+- Pedido (sesion de reportes): el RDL "Director Comercial" (dataset director_comercial, conexion
+  SOLDARCO_MULTISYS, tenant SOLDARCO) renderiza pero trae 0 filas. Sus parametros vendedor/grupo/tipo_inven/
+  subgrupo/marca/linea son SSRS MultiValue=true usados como `... IN (@p)`. SSRS auto-expande a IN (v1,v2,...),
+  pero el binder enlazaba UN escalar => `IN ('01,02')` no casa nada.
+- Diseno (aditivo, SIN migracion): los parametros del ExternalDataSet viven como JSON en ParametersJson, asi
+  que agregar la marca no toca la BD (backward-compatible). El valor multi-valor viaja en el mismo diccionario
+  string->string de Inputs, codificado con varios valores (uno por linea o coma). Esto se aparta del
+  `IReadOnlyDictionary<string,IReadOnlyList<string>>` sugerido en el prompt, pero el prompt admite "un tipo
+  equivalente"; se prefirio el enfoque sin migracion ni cambio de contrato de binding.
+- Cambios:
+  1. ExternalDataSetParameter.MultiValue (bool, default false; JSON-only, sin columna). Checkbox "Multi-valor
+     (IN)" por parametro en ConexionesDatos.razor (editor de datasets).
+  2. ExternalParameterBinder.Bind: si MultiValue, parte la entrada (SplitMultiValues por salto de linea/coma),
+     convierte CADA valor al tipo declarado y los deja en ExternalBoundParameter.Values (nuevo); escalar sin
+     cambios. (Ademas arregla valores viejos tipo "01,02" que antes viajaban como un solo string.)
+  3. ExternalCommandBuilder.ExpandInLists (NUEVO, pieza pura): reemplaza el token @p por @p__0, @p__1, ...,
+     @p__{N-1} con limite de palabra (no pisa @p2 ni @precio) y emite un ExternalFlatParameter TIPADO por
+     valor; 0 valores => `IN (NULL)` (ninguna fila, sin error de sintaxis). Cero interpolacion.
+  4. AdoExternalQueryExecutor: llama ExpandInLists y enlaza la lista PLANA de parametros (cada valor como
+     DbParameter). Misma proteccion anti-inyeccion que un escalar, tambien por valor de una lista.
+  5. GrantedDataSetInputDto.MultiValue expuesto y poblado; el dialogo de importacion RDL (ReportGallery.razor)
+     pinta un textarea (un CODIGO=ValueField por linea) para los parametros multi-valor; el binding guarda esa
+     lista de VALORES (CODIGO, no el label NOMBRE).
+- Tests: ExternalParameterBinderTests (3 nuevos multi-valor: split por linea/coma, lista vacia, inyeccion por
+  valor) + ExternalCommandBuilderTests (NUEVO: escalar intacto, expansion N placeholders, IN (NULL), limite de
+  palabra, inyeccion como valor). 16/16 verde. Build Release verde; sin migracion (matriz dual sin cambios).
+- Nota ADR-0064. NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-04 - v0.15.172: lector del tablero movil - descendientes (hijo/nieto) + flujo siempre al paso
+
+- Pedido: al escanear, la tarea "salto a otro tablero y genero otro codigo"; el lector debe encontrar tambien
+  cualquier HIJO/NIETO de la tarea. Y si la tarea tiene FLUJO, debe saltar entre los PASOS del flujo, no columnas.
+- Hallazgo: el unico enlace tarea->tarea era subtarea (ParentId, un nivel); las tareas generadas por regla/flujo
+  NO guardaban enlace a la origen. Decision del usuario: agregar el enlace.
+- Cambios:
+  1. Dominio: TaskItem.SourceTaskId (tarea ORIGEN que la genero, distinto de ParentId; puede encadenarse) +
+     EF config (FK Restrict, indices) + migracion DUAL aditiva (source_task_id nullable).
+  2. CreateTaskItemRequest.SourceTaskId + CreateAsync lo persiste; GenerarTareasDesdeTablaVerb lo setea con
+     context.TaskItemId (la tarea que disparo la regla/flujo).
+  3. ActivityCardDto.HasFlow (WorkflowInstanceId != null), poblado por el board service.
+  4. IActivityBoardService.ResolveScannedTaskOnBoardAsync: dado un numero escaneado, devuelve la tarjeta de
+     ESE tablero que sea la tarea o un DESCENDIENTE (BFS por SourceTaskId, hasta 6 niveles).
+  5. MovilTablero.HandleCodeAsync: match directo -> si no, resolver descendiente en el tablero; y si la tarjeta
+     tiene flujo, SIEMPRE abre el paso pendiente del flujo (si no hay paso, avisa dentro del lector), nunca
+     ofrece avance por columna. Sin flujo: avance por columna como antes.
+- Verificado en dev (AGROMETALICAS): migracion aplica al arrancar; el lector muestra "No se encontro 'X' (ni un
+  hijo/nieto de esa tarea)" dentro de la hoja (ResolveScannedTaskOnBoardAsync corrio sin excepcion). Build
+  Release verde; matriz dual sin cambios de modelo pendientes (PG + SQL Server "No changes").
+- Nota EF: NO usar dotnet ef con --no-build (daba snapshots stale y PendingModelChangesWarning); se regenero
+  con build fresco.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-04 - v0.15.171: webhook ENTRANTE de YCloud (recibir mensajes)
+
+- Gap: YCloud estaba integrado solo para ENVIAR; no habia webhook entrante ni URL en la UI (por eso el
+  usuario no encontraba donde dar su Callback URL a YCloud). Evolution y Meta si tenian entrante.
+- Implementado, calcado del patron de Meta:
+  1. YCloudWebhookParser.cs (SuperAdmin/RealTime): traduce el evento v2 (whatsapp.inbound_message.received,
+     objeto o array) a mensaje normalizado; solo procesa inbound (ignora estados); tolerante a nombres de
+     campo (customerProfile/contact/profile, sendTime/timestamp ISO o unix); soporta text/media(caption)/
+     button/interactive/reaction.
+  2. Endpoint POST /webhooks/ycloud (Program.cs): resuelve la linea por whatsappInboundMessage.to ==
+     WhatsAppLine.YCloudPhoneNumberId (provider=YCloud) y reusa IChatIngestService.IngestTrustedAsync (mismo
+     pipeline que Meta/Evolution: conversacion + agente). Logger de diagnostico sin contenido.
+  3. WebhookConfigDto + WebhookAdminService.Map: nueva YCloudCallbackUrl ({base}/webhooks/ycloud).
+  4. Lineas.razor: seccion "Webhook de YCloud" con la Callback URL para copiar (suscribirse a
+     whatsapp.inbound_message.received en el panel de YCloud).
+- Verificado en dev: POST de un inbound valido -> parser OK (status "no-line" porque no hay linea con ese
+  numero en dev, el warning lo confirma); POST de un evento de estado -> "ignored". Build Release verde.
+- Seguridad: sin firma por ahora (parity con Meta): la puerta es que 'to' coincida con una linea YCloud
+  registrada. Media entrante: fase 2 (por ahora se capta el caption). Sin migracion.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-04 - v0.15.170: numero de la TAREA en la impresion ({{tarea}} y {{barcode:tarea}})
+
+- Pedido de la sesion de formularios/reportes: exponer en la plantilla de impresion el numero de la TAREA,
+  no solo el numero de registro ({{numero}}). La tarea es la Reference del FormResponse sin el ordinal final
+  ("T00042-1" -> "T00042").
+- FormTemplateRenderService.cs:
+  1. Caller: nuevo StripTrailingOrdinal(response.Reference) (misma logica que FormResponseService.StripOrdinal;
+     fallback a RecordNumber/Reference) -> se pasa como 'tarea' a FormTemplateMerge.Render.
+  2. Render gana parametro string tarea: sb.Replace("{{tarea}}", ...) y lo propaga a EmitField/ResolveHeaderTokens
+     y a ResolveBarcodes.
+  3. ResolveBarcodes: regex ampliado a (numero|tarea|campo.x); target=="tarea" usa data=tarea. Asi tambien
+     {{barcode:tarea}} (incluye cabezotes/pies de croquis).
+  - Doc de marcadores + descripcion del tool create_template actualizadas.
+- Tests: FormTemplateMergeTests 5/5 (nuevo: {{tarea}}->T00042, {{numero}}->T00042-1 intacto, {{barcode:tarea}}->SVG).
+  Build Release completo verde. Sin migracion.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-04 - v0.15.169: tablero movil - el resultado del lector se muestra DENTRO de la hoja de escaneo
+
+- Bug UX (MovilTablero): al escanear/teclear un codigo inexistente, el mensaje "No se encontro '{x}' en este
+  tablero" salia como toast en la pagina principal DETRAS del modal del lector, y solo se veia al cerrar el
+  lector. Causa: HandleCodeAsync llamaba CloseScanAsync() ANTES de resolver y usaba ShowToast (toast global).
+- Fix (MovilTablero.razor + .css): nuevo estado _scanError mostrado DENTRO de la hoja de escaneo (banner rojo
+  .mv-scan-error). HandleCodeAsync ya no cierra la hoja arriba: en "no encontrado" y "ya en el ultimo estado"
+  mantiene la hoja abierta, muestra el error dentro, limpia el input y RE-ARMA la camara (el lector JS se
+  detiene tras la 1ra deteccion) para reintentar; solo cierra en los EXITOS (abre el paso del flujo o la
+  tarjeta de confirmacion de avance).
+- Verificado en dev (AGROMETALICAS, tablero ORDENES DE TRABAJO): al buscar 'qwqwq' el error aparece dentro
+  del lector, la hoja sigue abierta, no hay toast en la pagina principal y el input se limpia. Build verde.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-04 - v0.15.168: datasets externos "batch" (multi-statement) opt-in por dataset (ADR-0064)
+
+- Pedido de la sesion de reportes: un dataset externo de SOLDARCO (director_comercial) cuyo CommandText es
+  un BATCH T-SQL de RDL real (DECLARE + INSERT INTO @tabla + EXEC sp_... + WITH + SELECT) corria en la
+  consola "Ejecutar" pero la ruta de reportes lo rechazaba con ExternalReadOnlyGuard ("solo un SELECT/WITH").
+- Decision (opcion B): OPT-IN por dataset ExternalDataSet.AllowBatch (default false). No relaja nada global.
+- Cambios (sin cambiar la proteccion anti-inyeccion: parametros DbParameter TIPADOS; MaxRows/timeout intactos):
+  1. Dominio: ExternalDataSet.AllowBatch + migracion DUAL aditiva (allow_batch bool NOT NULL DEFAULT false)
+     en PG y SQL Server.
+  2. ExternalQuery gana AllowBatch. Guard: overload EnsureReadOnly(cmd, allowWrite, allowBatch) centraliza el
+     bypass; el executor lo usa y, en Postgres, omite SET TRANSACTION READ ONLY tambien con AllowBatch.
+  3. ExternalReportReader pasa AllowBatch del dataset y AUDITA (dataset+tenant+usuario) via IAuditWriter
+     opcional cuando ejecuta un dataset AllowBatch en reportes.
+  4. TenantDataConnection (contracts+service): SaveTenantDatasetRequest/TenantDatasetDetail ganan AllowBatch;
+     se persiste; la consola RunDatasetAsync tambien lo honra.
+  5. ConexionesDatos.razor: checkbox "Permitir consulta multi-statement / batch (avanzado)" + aviso rojo.
+  6. ADR-0064 nota + casos de prueba.
+- Seguridad: lo activa el OWNER sobre SU conexion (tenant-scoped OwnerTenantId); cadena cifrada, nunca expuesta.
+- Tests: ExternalReadOnlyGuardTests 23/23 (nuevos para el bypass allowWrite/allowBatch + caso normal intacto).
+  Build Release solucion completa verde.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-03 - v0.15.167: croquis (Canvas) - compresion ADAPTATIVA de imagenes grandes
+
+- Mejora sobre v0.15.166: la compresion del croquis paso de un solo paso (1600px, q0.85) a ADAPTATIVA.
+- form-canvas.js prepImage: baja dimension y calidad por pasos [(1600,0.82),(1400,0.75),(1200,0.68),
+  (1024,0.6),(800,0.52),(640,0.45)] hasta caer bajo ~700 KB por imagen; a mayor peso original, mas se
+  comprime. Asi una foto muy pesada -o varias en el mismo croquis- siempre entra en el tope de ~2 MB del
+  guardado. Una imagen ya pequena (<500 KB y <=1600px) se conserva tal cual (mantiene PNG nitido). Helper
+  encodeJpeg extraido.
+- Verificado en dev (AGROMETALICAS, JS servida): un JPEG extremo de 18.83 MB (ruido puro, 4032x3024, peor
+  caso) baja a 1400x1050 / 541 KB (bajo el objetivo, cabe en 2 MB). Build Release verde.
+- NO desplegado (a senal del usuario).
+
+---
+
+## 2026-09-03 - v0.15.166: croquis (Canvas) del formulario acepta fotos JPG/JPEG grandes
+
+- Bug (AGROMETALICAS, form Orden de Trabajo): el modulo de carga de diagramas (control Canvas, croquis)
+  "no dejaba cargar" imagenes .jpg/.jpeg. Causa: NO habia bloqueo por tipo; el unico gate era el tope de
+  1.5 MB en OnCanvasImageSelectedAsync (DynamicFormRenderer). Las fotos de celular (JPG) pesan varios MB y
+  se rechazaban con "supera 1.5 MB"; un PNG (captura/diagrama) suele pesar menos y si entraba -> se percibia
+  como "el jpg no carga".
+- Fix (2 archivos, sin migracion):
+  1. DynamicFormRenderer.razor / OnCanvasImageSelectedAsync: sube el tope de 1.5 MB a 12 MB (acepta fotos).
+  2. form-canvas.js / addImage: ahora es async y REESCALA+COMPRIME la imagen antes de incrustarla (prepImage:
+     carga en Image, dibuja en canvas a max 1600px de lado sobre fondo blanco, reencoda a JPEG q0.85). Asi
+     una foto grande queda en ~100 KB-1 MB y el SVG guardado no revienta el tope de ~2 MB del croquis. Una
+     imagen ya pequena y liviana (<500 KB) se conserva tal cual (mantiene PNG nitido).
+- Verificado en dev (AGROMETALICAS, v0.15.166 servida): la form-canvas.js servida trae el fix; un JPEG de
+  6.27 MB decodifica y se reescala a 1600x1200 / 983 KB (cabe en el tope de 2 MB). Build Debug verde.
+  Confirmacion final con foto real de celular en el form OT queda a cargo del usuario.
+- NO desplegado (a senal del usuario).
+
+---
+
 ## 2026-09-03 - v0.15.165: KPI percentOfTotal (porcentaje del total) para tasas de conversion (ADR-0089)
 
 - Pedido de la sesion de reportes: un KPI headline de % de conversion ("18% conversion" = cuanto del

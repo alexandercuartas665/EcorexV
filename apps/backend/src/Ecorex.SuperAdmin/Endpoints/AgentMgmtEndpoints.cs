@@ -115,7 +115,7 @@ public static class AgentMgmtEndpoints
                 if (current is null) { return null; }
                 var a = current.Agent;
                 var upd = new UpdateAiAgentRequest(a.Name, a.Role, a.Provider, a.Model, body.SystemPrompt,
-                    a.DisabledTools, a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis);
+                    a.DisabledTools, a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, a.AllowedBoardIds);
                 var updated = await svc.Agents.UpdateAsync(id, upd, SystemActor, c);
                 if (updated is not null) { await AuditAsync(svc, tenant, "mgmt-api.agent.prompt-set", nameof(Ecorex.Domain.Entities.AiAgent), id, new { promptLength = body.SystemPrompt.Length }, c); }
                 return (object?)updated;
@@ -346,7 +346,7 @@ public static class AgentMgmtEndpoints
                 var disabled = all.Where(k => !enabled.Contains(k)).ToList();
                 var a = current.Agent;
                 var upd = new UpdateAiAgentRequest(a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt,
-                    disabled, a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis);
+                    disabled, a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, a.AllowedBoardIds);
                 var updated = await svc.Agents.UpdateAsync(id, upd, SystemActor, c);
                 if (updated is null) { return new ApiOutcome(404, null); }
                 await AuditAsync(svc, tenant, "mgmt-api.agent.tools", nameof(Ecorex.Domain.Entities.AiAgent), id, new { enabled = body.ToolKeys, disabled }, c);

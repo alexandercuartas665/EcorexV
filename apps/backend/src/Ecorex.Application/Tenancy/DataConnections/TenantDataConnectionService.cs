@@ -183,7 +183,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         var d = await OwnedDatasetAsync(id, tracking: false, ct);
         return d is null ? null : new TenantDatasetDetail(
             d.Id, d.ExternalDataSourceId, d.Name, d.Description, d.CommandText, d.IsEnabled, d.ParametersJson, d.AgentEnabled,
-            d.FieldsJson);
+            d.FieldsJson, d.AllowBatch);
     }
 
     public async Task<Guid?> SaveDatasetAsync(SaveTenantDatasetRequest request, Guid actorUserId, CancellationToken ct = default)
@@ -203,8 +203,9 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             d.FieldsJson = Trim(request.FieldsJson);
             d.IsEnabled = request.IsEnabled;
             d.AgentEnabled = request.AgentEnabled;
+            d.AllowBatch = request.AllowBatch;
             _audit.Write(actorUserId, "tenant-data-dataset.update", nameof(ExternalDataSet), d.Id,
-                previousValue: null, newValue: new { d.Name, d.IsEnabled }, tenantId: Tenant);
+                previousValue: null, newValue: new { d.Name, d.IsEnabled, d.AllowBatch }, tenantId: Tenant);
             await _db.SaveChangesAsync(ct);
             return d.Id;
         }
@@ -219,11 +220,12 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
             ParametersJson = Trim(request.ParametersJson),
             FieldsJson = Trim(request.FieldsJson),
             IsEnabled = request.IsEnabled,
-            AgentEnabled = request.AgentEnabled
+            AgentEnabled = request.AgentEnabled,
+            AllowBatch = request.AllowBatch
         };
         _db.ExternalDataSets.Add(ds);
         _audit.Write(actorUserId, "tenant-data-dataset.create", nameof(ExternalDataSet), ds.Id,
-            previousValue: null, newValue: new { ds.Name, ds.IsEnabled }, tenantId: Tenant);
+            previousValue: null, newValue: new { ds.Name, ds.IsEnabled, ds.AllowBatch }, tenantId: Tenant);
         await _db.SaveChangesAsync(ct);
         return ds.Id;
     }
@@ -260,7 +262,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         try { bound = ExternalParameterBinder.Bind(declared, context, inputs); }
         catch (Exception ex) { return new TenantQueryResult(false, null, "Parametro invalido: " + ex.Message); }
 
-        return await ExecuteOnAsync(s, d.CommandText, maxRows, actorUserId, "run-dataset:" + d.Name, ct, bound);
+        return await ExecuteOnAsync(s, d.CommandText, maxRows, actorUserId, "run-dataset:" + d.Name, ct, bound, d.AllowBatch);
     }
 
     // ---- superficie para AGENTES (solo datasets AgentEnabled + IsEnabled) ----
@@ -317,7 +319,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
 
     private async Task<TenantQueryResult> ExecuteOnAsync(
         ExternalDataSource s, string sql, int maxRows, Guid actorUserId, string what, CancellationToken ct,
-        IReadOnlyList<ExternalBoundParameter>? boundParams = null)
+        IReadOnlyList<ExternalBoundParameter>? boundParams = null, bool allowBatch = false)
     {
         if (string.IsNullOrWhiteSpace(sql)) { return new TenantQueryResult(false, null, "La consulta esta vacia."); }
         if (!s.IsEnabled) { return new TenantQueryResult(false, null, "La conexion esta deshabilitada."); }
@@ -337,7 +339,7 @@ public sealed class TenantDataConnectionService : ITenantDataConnectionService
         {
             var query = new ExternalQuery(
                 s.Provider, conn, sql.Trim(), boundParams ?? Array.Empty<ExternalBoundParameter>(),
-                MaxRows: cap, TimeoutSeconds: 60, AllowWrite: s.AllowWrite);
+                MaxRows: cap, TimeoutSeconds: 60, AllowWrite: s.AllowWrite, AllowBatch: allowBatch);
             var data = await _executor.ExecuteAsync(query, ct);
 
             var columns = data.Columns.Select(c => string.IsNullOrWhiteSpace(c.DisplayName) ? c.Key : c.DisplayName).ToList();

@@ -21,11 +21,34 @@ public sealed record WorkflowAgentContextDto(
     WorkflowAgentTaskDto? Task,
     WorkflowAgentHistoryDto History,
     // Agente asignado al nodo y su autonomia. Null si el nodo no tiene agente.
-    WorkflowAgentAssignmentDto? Assignment);
+    WorkflowAgentAssignmentDto? Assignment,
+    // ADR-0091: resultado de la llamada que el agente pidio en un intento anterior (reanudacion). No null
+    // cuando el paso esperaba una llamada que ya termino: el agente lo usa para terminar de llenar el form.
+    WorkflowAgentVoiceCallDto? VoiceCallResult = null,
+    // ADR-0092: respuesta de WhatsApp a la pregunta que el agente hizo en un intento anterior (reanudacion).
+    // No null cuando el paso esperaba una respuesta y ya llego: el agente la usa para seguir llenando/preguntar.
+    WorkflowAgentWhatsAppReplyDto? WhatsAppReplyResult = null);
 
-/// <summary>Agente asignado al nodo del paso y con que autonomia debe actuar.</summary>
+/// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
+/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>
+public sealed record WorkflowAgentVoiceCallDto(string? Transcript, string? CapturedJson);
+
+/// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092): el texto del ultimo
+/// mensaje entrante en la conversacion que el paso estaba esperando.</summary>
+public sealed record WorkflowAgentWhatsAppReplyDto(string? ReplyText);
+
+/// <summary>Agente asignado al nodo del paso, su autonomia y los RECURSOS que se le habilitaron para
+/// conseguir datos (ADR-0091): un cliente Colmena (busqueda web) y/o un agente de voz (llamada Retell).</summary>
 public sealed record WorkflowAgentAssignmentDto(
-    Guid AiAgentId, string AgentName, string? AgentRole, bool IsActive, WorkflowAgentAutonomy Autonomy);
+    Guid AiAgentId, string AgentName, string? AgentRole, bool IsActive, WorkflowAgentAutonomy Autonomy,
+    // Colmena: Guid del DataClient + perfil logueado (SessionKey). Null = sin herramienta 'buscar_web'.
+    Guid? ColmenaClientId = null, string? ColmenaSessionKey = null,
+    // Retell: Guid del AiAgent de voz. Null = sin herramienta 'llamar_telefono'.
+    Guid? VoiceAiAgentId = null,
+    // ADR-0092 WhatsApp: linea + plantilla (para contacto en frio). Null en la linea = sin 'preguntar_whatsapp'.
+    Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
+    string? ExtraPrompt = null, bool CanSendEmail = false);
 
 /// <summary>(a) El nodo actual y el formulario que el paso debe llenar, con sus campos.</summary>
 public sealed record WorkflowAgentNodeDto(
@@ -36,7 +59,21 @@ public sealed record WorkflowAgentNodeDto(
     string? Description,
     WorkflowNodeType NodeType,
     int? StepNumber,
-    WorkflowAgentFormDto? Form);
+    WorkflowAgentFormDto? Form,
+    // Rutas disponibles (ADR-0090 ola B). No null cuando el nodo es una COMPUERTA (el agente ELIGE una) o
+    // cuando el nodo es un Task cuyo siguiente nodo es una compuerta automatica (el 'resultado' del agente
+    // debe coincidir con la condicion de una arista para enrutar). Null en cualquier otro caso.
+    IReadOnlyList<WorkflowAgentRouteDto>? Routes = null);
+
+/// <summary>Una ruta de salida (arista) de una compuerta: el nodo destino (Key = su BpmnElementId, estable
+/// y legible para el modelo) + su nombre, el nombre de la arista y su condicion. En una compuerta ATENDIDA
+/// el agente devuelve <c>ruta</c> = esta Key; en el patron Task->compuerta automatica, la condicion dice
+/// que 'resultado' enruta por aqui.</summary>
+public sealed record WorkflowAgentRouteDto(
+    string Key,
+    string? TargetName,
+    string? EdgeName,
+    string? Condition);
 
 /// <summary>Formulario asociado al nodo (WorkflowNodeForm) y la definicion de sus campos.</summary>
 public sealed record WorkflowAgentFormDto(

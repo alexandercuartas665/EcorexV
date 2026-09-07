@@ -75,7 +75,9 @@ public sealed record CreateTaskItemRequest(
     // Proyectos P3: hito (debe pertenecer al ProjectId indicado).
     Guid? MilestoneId = null,
     // Subtareas: tarea padre (la subtarea hereda tablero/columna/tenant del padre).
-    Guid? ParentId = null);
+    Guid? ParentId = null,
+    // Tarea ORIGEN que genero esta por una regla/flujo (distinto de ParentId; suele nacer en otro tablero).
+    Guid? SourceTaskId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateTaskItemRequest(

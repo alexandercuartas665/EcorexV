@@ -59,6 +59,8 @@ public static class AgentChannel
         services.AddSingleton<IAgentActivityLog, AgentActivityLogWriter>();
         services.AddSingleton<IBrowserRunService, BrowserRunService>();
         services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
+        // Busqueda web del agente de FLUJO (ADR-0091): reemplaza el no-op de Application con el canal Colmena real.
+        services.AddScoped<Ecorex.Application.Workflows.IAgentBrowserFetch, AgentBrowserFetch>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();
         services.AddScoped<IScrapeRowSink, ScrapeRowSink>();
         services.AddScoped<IContactSearchRunner, ContactSearchRunner>();

@@ -1006,6 +1006,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Model).HasMaxLength(100);
             b.Property(x => x.SystemPrompt).HasColumnType(longTextColumnType);
             b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AllowedBoardIdsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
@@ -1295,6 +1296,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasOne(x => x.Parent).WithMany()
                 .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ParentId });
+            // Tarea origen que genero esta (regla/flujo). Sin cascada (Restrict); indice para seguir la cadena.
+            b.HasOne(x => x.SourceTask).WithMany()
+                .HasForeignKey(x => x.SourceTaskId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.SourceTaskId });
             // Consecutivo legible unico por tenant (emitido por TenantSequence).
             b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });
@@ -1503,6 +1508,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.AgentProposalResult).HasMaxLength(20);
             b.Property(x => x.AgentProposalComment).HasMaxLength(2000);
             b.Property(x => x.AgentFailureReason).HasMaxLength(500);
+            // ADR-0091: CallId de Retell que el paso espera (llamada del agente). Acotado.
+            b.Property(x => x.PendingVoiceCallId).HasMaxLength(120);
+            // ADR-0092: Id de la conversacion WhatsApp que el paso espera. Indexado: la reanudacion
+            // (webhook de entrada) y el guard de colision (SARA) lo consultan por conversacion.
+            b.HasIndex(x => x.PendingWhatsAppConversationId);
             b.HasOne(x => x.Instance).WithMany()
                 .HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el nodo: el historial es append-only y sobrevive a la
@@ -1864,6 +1874,23 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.AiAgent).WithMany()
                 .HasForeignKey(x => x.AiAgentId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0091: recursos opcionales para conseguir datos (Colmena web + llamada de voz). Restrict:
+            // un cliente/agente en uso por un flujo se apaga, no se borra. SessionKey acotado.
+            b.Property(x => x.ColmenaSessionKey).HasMaxLength(60);
+            b.HasOne(x => x.ColmenaClient).WithMany()
+                .HasForeignKey(x => x.ColmenaClientId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.VoiceAiAgent).WithMany()
+                .HasForeignKey(x => x.VoiceAiAgentId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp'. Restrict: una linea en uso por
+            // un flujo se desconecta, no se borra. Nombre/idioma de plantilla acotados.
+            b.Property(x => x.WhatsAppTemplateName).HasMaxLength(200);
+            b.Property(x => x.WhatsAppTemplateLang).HasMaxLength(20);
+            b.HasOne(x => x.WhatsAppLine).WithMany()
+                .HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0093: instrucciones por paso + permiso de correo. Prompt acotado; bool con default para las
+            // filas existentes (migracion aditiva).
+            b.Property(x => x.ExtraPrompt).HasMaxLength(4000);
+            b.Property(x => x.CanSendEmail).HasDefaultValue(false);
         });
 
         // Notas colaborativas del equipo por nodo de una instancia (ADR-0071): recados entre companeros.

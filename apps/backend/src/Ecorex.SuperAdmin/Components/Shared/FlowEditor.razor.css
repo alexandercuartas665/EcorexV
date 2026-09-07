@@ -319,6 +319,13 @@ textarea.fe-input { height: auto; padding: 8px 12px; line-height: 1.4; resize: v
     resize: vertical; outline: none; box-sizing: border-box;
 }
 .fe-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* ADR-0092: resumen del agente en el panel + boton que abre el modal de configuracion. */
+.fe-btn-block { width: 100%; margin-top: 10px; display: flex; align-items: center; justify-content: center; }
+.fe-agent-sum-name { font-size: 13.5px; font-weight: 700; color: var(--ink-1); }
+.fe-modal-section {
+    font-size: 12px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em;
+    padding-top: 6px; border-top: 1px solid var(--line-2); margin-top: 2px;
+}
 .fe-btn-ghost {
     height: 40px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-2);
     background: var(--surface); font: inherit; font-weight: 600; font-size: 13.5px;

@@ -29,9 +29,12 @@ public interface IWorkflowAgentInvoker
 /// alcanzo a facturar la llamada, el tenant la tiene que ver en su consumo.
 /// </summary>
 /// <param name="Ok">El agente resolvio. False = no pudo, y <paramref name="Error"/> dice por que.</param>
-/// <param name="Result">Resultado propuesto (mismo vocabulario que ApprovalResult, ej. "Approved").</param>
+/// <param name="Result">Resultado propuesto (mismo vocabulario que ApprovalResult, ej. "Approved"). Para un
+/// paso Task. Null en una compuerta (ahi la decision es <paramref name="Route"/>).</param>
 /// <param name="Comment">Justificacion del agente, legible por una persona.</param>
 /// <param name="Error">Motivo legible por el que no pudo resolver.</param>
+/// <param name="Route">Clave (BpmnElementId del destino) de la RUTA elegida en una compuerta (ADR-0090 ola
+/// B). Null en un paso Task.</param>
 public sealed record WorkflowAgentInvocationResult(
     bool Ok,
     string? Result,
@@ -40,8 +43,27 @@ public sealed record WorkflowAgentInvocationResult(
     AiProvider Provider = AiProvider.Claude,
     string Model = "",
     int InputTokens = 0,
-    int OutputTokens = 0)
+    int OutputTokens = 0,
+    string? Route = null,
+    // Valores que el agente puso en el FORMULARIO del paso (fieldCode -> valor), via tool-calling (ADR-0090
+    // ola C). Null si el nodo no tiene formulario. El runner los envia por SaveAsync (misma validacion que un
+    // humano); el invoker NO escribe: solo acumula lo que el modelo fijo.
+    IReadOnlyDictionary<string, string?>? Fields = null,
+    // ADR-0091: el agente PIDIO una llamada telefonica (Retell) para conseguir datos. El invoker NO coloca la
+    // llamada (es asincrona): la senala y el runner la coloca y PAUSA el paso. Null = no pidio llamada.
+    WorkflowAgentCallRequest? CallRequest = null,
+    // ADR-0092: el agente PIDIO preguntar por WhatsApp para conseguir datos. El invoker NO envia (asincrono):
+    // la senala y el runner envia y PAUSA el paso hasta la respuesta. Null = no pidio WhatsApp.
+    WorkflowAgentWhatsAppRequest? WhatsAppRequest = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);
 }
+
+/// <summary>Solicitud de llamada telefonica que el agente hizo durante el llenado (ADR-0091): a que numero y
+/// con que objetivo (para conseguir un dato que no estaba en el contexto).</summary>
+public sealed record WorkflowAgentCallRequest(string Numero, string? Objetivo);
+
+/// <summary>Solicitud de pregunta por WhatsApp que el agente hizo durante el llenado (ADR-0092): a que numero y
+/// que preguntar (para conseguir/confirmar un dato que no estaba en el contexto).</summary>
+public sealed record WorkflowAgentWhatsAppRequest(string Numero, string Pregunta);

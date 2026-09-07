@@ -109,7 +109,8 @@ public sealed class WebhookAdminService : IWebhookAdminService
             : c.WebhookActiveUrl;
         var effective = string.IsNullOrWhiteSpace(effectiveBase) ? null : $"{effectiveBase!.TrimEnd('/')}/webhooks/evolution";
         var metaCallback = string.IsNullOrWhiteSpace(effectiveBase) ? null : $"{effectiveBase!.TrimEnd('/')}/webhooks/meta";
-        return new WebhookConfigDto(c.WebhookMode, c.WebhookPublicUrl, c.WebhookToken, c.WebhookActiveUrl, _tunnel.IsRunning, effective, c.MetaWebhookVerifyToken, metaCallback);
+        var ycloudCallback = string.IsNullOrWhiteSpace(effectiveBase) ? null : $"{effectiveBase!.TrimEnd('/')}/webhooks/ycloud";
+        return new WebhookConfigDto(c.WebhookMode, c.WebhookPublicUrl, c.WebhookToken, c.WebhookActiveUrl, _tunnel.IsRunning, effective, c.MetaWebhookVerifyToken, metaCallback, ycloudCallback);
     }
 
     private static string GenerateToken()

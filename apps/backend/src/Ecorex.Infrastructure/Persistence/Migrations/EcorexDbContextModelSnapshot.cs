@@ -772,6 +772,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("AllowedBoardIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("allowed_board_ids_json");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -4836,6 +4840,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<bool>("AgentEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("agent_enabled");
+
+                    b.Property<bool>("AllowBatch")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_batch");
 
                     b.Property<string>("CommandText")
                         .IsRequired()
@@ -11798,6 +11806,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("requester_phone");
 
+                    b.Property<Guid?>("SourceTaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_task_id");
+
                     b.Property<DateTimeOffset?>("StartDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("start_date");
@@ -11866,6 +11878,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_task_items_project_id");
 
+                    b.HasIndex("SourceTaskId")
+                        .HasDatabaseName("ix_task_items_source_task_id");
+
                     b.HasIndex("SubcategoriaId")
                         .HasDatabaseName("ix_task_items_subcategoria_id");
 
@@ -11887,6 +11902,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "ProjectId")
                         .HasDatabaseName("ix_task_items_tenant_id_project_id");
+
+                    b.HasIndex("TenantId", "SourceTaskId")
+                        .HasDatabaseName("ix_task_items_tenant_id_source_task_id");
 
                     b.HasIndex("TenantId", "SubcategoriaId")
                         .HasDatabaseName("ix_task_items_tenant_id_subcategoria_id");
@@ -14858,6 +14876,21 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("autonomy");
 
+                    b.Property<bool>("CanSendEmail")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_send_email");
+
+                    b.Property<Guid?>("ColmenaClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("colmena_client_id");
+
+                    b.Property<string>("ColmenaSessionKey")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("colmena_session_key");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -14865,6 +14898,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("ExtraPrompt")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("extra_prompt");
 
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
@@ -14882,14 +14920,41 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceAiAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_ai_agent_id");
+
+                    b.Property<Guid?>("WhatsAppLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("whats_app_line_id");
+
+                    b.Property<string>("WhatsAppTemplateLang")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("whats_app_template_lang");
+
+                    b.Property<string>("WhatsAppTemplateName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("whats_app_template_name");
+
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");
 
                     b.HasIndex("AiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_ai_agent_id");
 
+                    b.HasIndex("ColmenaClientId")
+                        .HasDatabaseName("ix_workflow_node_agents_colmena_client_id");
+
                     b.HasIndex("NodeId")
                         .HasDatabaseName("ix_workflow_node_agents_node_id");
+
+                    b.HasIndex("VoiceAiAgentId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("WhatsAppLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
 
                     b.HasIndex("TenantId", "NodeId")
                         .IsUnique()
@@ -15211,6 +15276,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
 
+                    b.Property<string>("PendingVoiceCallId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("pending_voice_call_id");
+
+                    b.Property<Guid?>("PendingWhatsAppConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pending_whats_app_conversation_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -15234,6 +15308,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("NodeId")
                         .HasDatabaseName("ix_workflow_step_histories_node_id");
+
+                    b.HasIndex("PendingWhatsAppConversationId")
+                        .HasDatabaseName("ix_workflow_step_histories_pending_whats_app_conversation_id");
 
                     b.HasIndex("InstanceId", "IsCurrent")
                         .HasDatabaseName("ix_workflow_step_histories_instance_id_is_current");
@@ -16923,6 +17000,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_projects_project_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "SourceTask")
+                        .WithMany()
+                        .HasForeignKey("SourceTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_task_items_source_task_id");
+
                     b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
                         .WithMany()
                         .HasForeignKey("SubcategoriaId")
@@ -16950,6 +17033,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
 
                     b.Navigation("Project");
+
+                    b.Navigation("SourceTask");
 
                     b.Navigation("Subcategoria");
 
@@ -17310,6 +17395,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.DataClient", "ColmenaClient")
+                        .WithMany()
+                        .HasForeignKey("ColmenaClientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_data_clients_colmena_client_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
                         .WithMany()
                         .HasForeignKey("NodeId")
@@ -17317,9 +17408,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_workflow_node_agents_workflow_nodes_node_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.AiAgent", "VoiceAiAgent")
+                        .WithMany()
+                        .HasForeignKey("VoiceAiAgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
+                        .WithMany()
+                        .HasForeignKey("WhatsAppLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_whats_app_lines_whats_app_line_id");
+
                     b.Navigation("AiAgent");
 
+                    b.Navigation("ColmenaClient");
+
                     b.Navigation("Node");
+
+                    b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("WhatsAppLine");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>

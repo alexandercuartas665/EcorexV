@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - Whitelist de tableros aplicada a SARA (AGROMETALICAS)
+
+La feature de whitelist dura por agente (columna ai_agents.allowed_board_ids_json jsonb, ADR-0094,
+v0.15.186) ya esta en prod y la UI de agentes muestra los tableros permitidos. Config de datos:
+deje a SARA.agente_comercial_v1 (019fb90e-033c-7c4c-acd4-61fe40a3b6c6) restringida SOLO al tablero
+AGENTE COMERCIAL IA (PRY-0008, id 53e7fd29-bb17-49c0-9a7e-70f3099acafa) via
+allowed_board_ids_json=jsonb_build_array(...). Antes estaba vacia (= todos los tableros = sin candado).
+Clasificador de contactos queda vacio (no crea tareas). Ahora doble seguridad: prompt + candado real
+(TasksToolset valida contra la lista). El motor recarga el agente por corrida (sin restart).
+Backup ecorex-2026-09-07-1706.sql.gz.
+
 ## 2026-09-07 - v0.16.0: Directorio MODULAR (Capa 8, 2o motor de directorio) - ADR-0088
 
 - Hito Capa 8: el modulo de Directorio gana una VARIANTE por tenant. Un tenant puede correr el Directorio

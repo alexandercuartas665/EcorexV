@@ -1505,6 +1505,18 @@ app.MapPost("/webhooks/ycloud", async (
         return Results.Ok(new { status = "ignored" });
     }
 
+    // TEMP DIAG YCloud reacciones - quitar tras diagnosticar.
+    // Con ECOREX_YCLOUD_DEBUG=1 loguea el body crudo del evento INBOUND (truncado) y el ExternalId ya
+    // resuelto por el parser, para confirmar en vivo que el wamid de WhatsApp (no el id interno de YCloud)
+    // es lo que se guarda -> la reaccion lo reusa y WhatsApp deja de responder 131009.
+    if (Environment.GetEnvironmentVariable("ECOREX_YCLOUD_DEBUG") == "1")
+    {
+        var rawIn = doc.RootElement.GetRawText();
+        if (rawIn.Length > 1500) { rawIn = rawIn.Substring(0, 1500) + "...(+" + (rawIn.Length - 1500) + ")"; }
+        log.LogInformation("TEMP DIAG YCloud inbound externalIds={Ids} raw={Raw}",
+            string.Join(",", messages.Select(x => x.ExternalId)), rawIn);
+    }
+
     var ingested = 0;
     foreach (var m in messages)
     {

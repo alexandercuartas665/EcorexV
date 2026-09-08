@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.14: FIX reacciones YCloud - usar el WAMID (no el id interno) como ExternalId
+
+- Causa raiz (confirmada por el diagnostico de v0.16.13 en prod): YCloud ACEPTA la reaccion (HTTP 200,
+  status=accepted) pero WhatsApp la RECHAZA con error 131009 "Invalid message_id". El webhook de status lo
+  mostro: type=whatsapp.message.updated status=failed errorCode=131009 "(#131009) Parameter value is not
+  valid" / "Invalid message_id". Motivo: mandabamos como message_id el id INTERNO de YCloud (24-hex, ej.
+  6aa028192ec95856314f368d) en vez del WAMID de WhatsApp ("wamid.HBgM...=="). El inbound de YCloud trae
+  ambos: "id" (interno) y "wamid" (WhatsApp); guardabamos el "id" como ExternalId y la reaccion lo reusaba.
+- Fix (YCloudWebhookParser.cs): ExternalId del mensaje entrante = Str(msg,"wamid") ?? Str(msg,"id") (con
+  fallback a guid si faltan ambos). Ahora la reaccion referencia el wamid -> WhatsApp la acepta (fin del
+  131009). El fallback deja intacto el dedup por ExternalId y no regresiona si algun evento no trae wamid.
+- No rompe nada: ExternalId se usa para dedup (el wamid tambien es unico) y como message_id de la reaccion;
+  la descarga de media usa el LINK (no el id); Evolution usa su propio key id (no se toca).
+- Diag: se sumo (gated por ECOREX_YCLOUD_DEBUG, TEMP DIAG) un log del body crudo del INBOUND + ExternalId
+  resuelto, para que ops confirme en vivo el campo wamid. Todo el TEMP DIAG se quita en un commit de
+  limpieza cuando ops confirme que la reaccion entrega.
+- Pruebas: unit tests de YCloudWebhookParser (ExternalId == wamid; fallback al id; guid si faltan ambos).
+- Verificado: build de la solucion verde + tests verdes. Verificacion en vivo la hace ops (el status de la
+  reaccion debe pasar de failed/131009 a sent/delivered y el emoji aparecer en WhatsApp).
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.13). Tras confirmar el fix: commit de limpieza
+  que retira el TEMP DIAG y ops apaga ECOREX_YCLOUD_DEBUG.
+
 ## 2026-09-08 - v0.16.13: logging TEMPORAL de diagnostico para reacciones YCloud (gated)
 
 - Problema: SARA (linea YCloud) envia reacciones (emoji), YCloud responde 2xx con wamid, pero en WhatsApp del

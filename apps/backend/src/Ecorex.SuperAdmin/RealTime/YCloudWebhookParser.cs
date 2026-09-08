@@ -58,7 +58,10 @@ public static class YCloudWebhookParser
         if (to.Length == 0 || from.Length == 0) { return; }
 
         var name = Str(msg, "customerProfile", "name") ?? Str(msg, "contact", "name") ?? Str(msg, "profile", "name");
-        var externalId = Str(msg, "id");
+        // ExternalId = WAMID de WhatsApp ("wamid.HBgM...=="), NO el id interno de YCloud (24-hex). El id interno
+        // rompe las reacciones: WhatsApp responde 131009 "Invalid message_id" (la reaccion referencia por wamid).
+        // Fallback al id interno si el evento no trae wamid (sigue sirviendo para dedup por ExternalId).
+        var externalId = Str(msg, "wamid") ?? Str(msg, "id");
         if (string.IsNullOrWhiteSpace(externalId)) { externalId = Guid.NewGuid().ToString("N"); }
 
         var sentAt = ParseTime(Str(msg, "sendTime") ?? Str(msg, "timestamp"));

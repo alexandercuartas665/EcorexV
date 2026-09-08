@@ -45,6 +45,7 @@ public sealed record TaskItemDetailDto(
     TaskItemSummaryDto Item,
     string? Description,
     string? RequesterName, string? RequesterEmail, string? RequesterPhone,
+    string? RequesterDocument,
     IReadOnlyList<string> CcEmails,
     long TotalWorkSeconds,
     IReadOnlyList<TaskItemActivityDto> RecentActivity,
@@ -63,6 +64,8 @@ public sealed record CreateTaskItemRequest(
     TaskPriority Priority = TaskPriority.Medium,
     Guid? AssigneeTenantUserId = null, DateTimeOffset? DueDate = null,
     string? RequesterName = null, string? RequesterEmail = null, string? RequesterPhone = null,
+    // Identificacion/NIT del solicitante (opcional). El agente la pasa desde crear_tarea.
+    string? RequesterDocument = null,
     IReadOnlyList<string>? CcEmails = null, Guid? ProjectId = null, string? Color = null,
     IReadOnlyList<Guid>? TagIds = null,
     // ADR-0020: inicio planificado y cuelgue opcional en un tablero de actividades

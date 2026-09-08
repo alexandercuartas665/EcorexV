@@ -379,7 +379,7 @@ public class RuleVerbTests
                 request.AssigneeTenantUserId, request.DueDate, request.ProjectId,
                 request.Color, false, null, 1, DateTimeOffset.UtcNow, []);
             var detail = new TaskItemDetailDto(summary, request.Description,
-                request.RequesterName, request.RequesterEmail, request.RequesterPhone,
+                request.RequesterName, request.RequesterEmail, request.RequesterPhone, request.RequesterDocument,
                 [], 0, [], [], [], []);
             return Task.FromResult(TaskCoreResult<TaskItemDetailDto>.Ok(detail));
         }

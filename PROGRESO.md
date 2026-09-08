@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.15: crear_tarea (agente) liga los datos del contacto a la tarea
+
+- Bug: cuando el agente (SARA) cierra con crear_tarea, la tarea quedaba SIN datos de contacto: en el
+  detalle, RESUMEN -> "Contacto" salia "-" y sin telefono, aunque el agente si conoce al cliente. Causa:
+  crear_tarea no pasaba RequesterName/Phone/Email al CreateTaskItemRequest.
+- Fix:
+  - TasksToolset.GetSpecs(): el schema de crear_tarea suma params OPCIONALES cliente_nombre,
+    cliente_telefono, cliente_email, cliente_identificacion; la description instruye incluirlos SIEMPRE.
+  - TasksToolset.CreateTaskAsync: lee esos args (trim, null si vacio) y los pasa al request como
+    RequesterName/Email/Phone + RequesterDocument.
+  - La UI del RESUMEN (TaskDetailModal) ya mostraba Contacto/Email/Telefono; se sumo la fila
+    "Identificacion/NIT" cuando hay RequesterDocument.
+- Campo NUEVO RequesterDocument (identificacion/NIT del solicitante), empata con el hand-off del prellenado
+  {tareas.identificacion}: columna nullable varchar(60) en task_items + config EF (HasMaxLength 60, la
+  hereda el contexto SqlServer) + CreateTaskItemRequest + TaskItemDetailDto + persistencia en CreateAsync +
+  proyeccion en el detalle. Migracion DUAL: AddTaskRequesterDocument (PG + SqlServer), solo AddColumn.
+- Pruebas: unit tests de crear_tarea (con datos de contacto -> Requester* poblados incl. Document; sin
+  datos -> null, compat).
+- Verificado: build de la solucion verde + tests verdes.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.14). El deploy corre la migracion dual (aditiva).
+
 ## 2026-09-08 - v0.16.14: FIX reacciones YCloud - usar el WAMID (no el id interno) como ExternalId
 
 - Causa raiz (confirmada por el diagnostico de v0.16.13 en prod): YCloud ACEPTA la reaccion (HTTP 200,

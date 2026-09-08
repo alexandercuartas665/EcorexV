@@ -52,8 +52,10 @@ public sealed class TasksToolset : ITasksToolset
             "final, cuando ya tengas claro que necesita el cliente. Indica 'tablero' con el nombre EXACTO de un " +
             "tablero (ver listar_tableros), un 'titulo' corto y una 'descripcion' con el detalle. Los archivos/" +
             "imagenes que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE a la tarea. " +
+            "Incluye SIEMPRE los datos del cliente que ya tienes (cliente_nombre, cliente_telefono, cliente_email, " +
+            "cliente_identificacion) para que la tarea quede ligada al contacto y el asesor lo pueda contactar. " +
             "Devuelve un 'ticket' (numero de la solicitud) que DEBES entregarle al cliente como comprobante.",
-            """{"type":"object","properties":{"tablero":{"type":"string","description":"Nombre exacto del tablero destino (ver listar_tableros)"},"titulo":{"type":"string","description":"Titulo corto de la tarea"},"descripcion":{"type":"string","description":"Detalle de lo que necesita el cliente"},"prioridad":{"type":"string","enum":["baja","media","alta","urgente"],"description":"Prioridad (opcional, por defecto media)"},"vence":{"type":"string","description":"Fecha limite ISO 8601 opcional (ej. 2026-08-10)"}},"required":["tablero","titulo"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"tablero":{"type":"string","description":"Nombre exacto del tablero destino (ver listar_tableros)"},"titulo":{"type":"string","description":"Titulo corto de la tarea"},"descripcion":{"type":"string","description":"Detalle de lo que necesita el cliente"},"prioridad":{"type":"string","enum":["baja","media","alta","urgente"],"description":"Prioridad (opcional, por defecto media)"},"vence":{"type":"string","description":"Fecha limite ISO 8601 opcional (ej. 2026-08-10)"},"cliente_nombre":{"type":"string","description":"Nombre del cliente/contacto que solicita (opcional pero recomendado)"},"cliente_telefono":{"type":"string","description":"Telefono del cliente (opcional pero recomendado)"},"cliente_email":{"type":"string","description":"Email del cliente (opcional)"},"cliente_identificacion":{"type":"string","description":"Identificacion/NIT del cliente (opcional)"}},"required":["tablero","titulo"],"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -158,6 +160,14 @@ public sealed class TasksToolset : ITasksToolset
         var prioridad = ParsePriority(Str(args, "prioridad"));
         var vence = ParseDate(Str(args, "vence"));
 
+        // Datos del contacto que el agente ya conoce: se guardan como solicitante de la tarea para que el
+        // RESUMEN muestre Contacto/Telefono/Email/Identificacion y el asesor pueda contactar al cliente.
+        static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
+        var clienteNombre = Clean(Str(args, "cliente_nombre"));
+        var clienteTelefono = Clean(Str(args, "cliente_telefono"));
+        var clienteEmail = Clean(Str(args, "cliente_email"));
+        var clienteIdentificacion = Clean(Str(args, "cliente_identificacion"));
+
         // Reparto round-robin: el sistema asigna la tarea al SIGUIENTE asesor MARCADO como asignable
         // (con usuario vinculado). No todos los asesores entran: solo los que tienen la marca.
         var asignado = await PickNextAssigneeAsync(ct);
@@ -169,7 +179,11 @@ public sealed class TasksToolset : ITasksToolset
             Priority: prioridad,
             DueDate: vence,
             BoardId: board.Id,
-            AssigneeTenantUserId: asignado?.UserId);
+            AssigneeTenantUserId: asignado?.UserId,
+            RequesterName: clienteNombre,
+            RequesterEmail: clienteEmail,
+            RequesterPhone: clienteTelefono,
+            RequesterDocument: clienteIdentificacion);
 
         var res = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!res.IsOk || res.Value is null)

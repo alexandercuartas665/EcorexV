@@ -83,6 +83,8 @@ public class TaskItem : TenantEntity, IVersioned
     public string? RequesterName { get; set; }
     public string? RequesterEmail { get; set; }
     public string? RequesterPhone { get; set; }
+    // Identificacion/NIT del solicitante (opcional). La puebla, p.ej., el agente al cerrar con crear_tarea.
+    public string? RequesterDocument { get; set; }
 
     /// <summary>Correos en copia, serializados como arreglo JSON (jsonb / nvarchar(max) segun motor).</summary>
     public string? CcEmails { get; set; }

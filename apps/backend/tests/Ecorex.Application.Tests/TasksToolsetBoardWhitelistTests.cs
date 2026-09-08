@@ -49,11 +49,13 @@ public class TasksToolsetBoardWhitelistTests
     private sealed class FakeTasks : ITaskItemService
     {
         public Guid? LastBoardId { get; private set; }
+        public CreateTaskItemRequest? LastRequest { get; private set; }
         public int CreateCalls { get; private set; }
 
         public Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
         {
             LastBoardId = request.BoardId;
+            LastRequest = request;
             CreateCalls++;
             var item = new TaskItemSummaryDto(
                 Guid.NewGuid(), "T-1", request.Title, request.ActivityTypeId, null,
@@ -61,7 +63,7 @@ public class TasksToolsetBoardWhitelistTests
                 request.DueDate, null, null, false, null, 1, DateTimeOffset.UtcNow,
                 Array.Empty<TaskItemTagDto>(), BoardId: request.BoardId);
             var detail = new TaskItemDetailDto(
-                item, request.Description, null, null, null,
+                item, request.Description, null, null, null, null,
                 Array.Empty<string>(), 0,
                 Array.Empty<TaskItemActivityDto>(), Array.Empty<TaskItemAttachmentDto>(),
                 Array.Empty<TaskItemChecklistItemDto>(), Array.Empty<TaskItemAssigneeDto>());
@@ -445,5 +447,48 @@ public class TasksToolsetBoardWhitelistTests
                 .Select(t => t.GetProperty("nombre").GetString()).ToList();
             Assert.Equal(3, nombres.Count);
         }
+    }
+
+    // (f) crear_tarea LIGA el contacto: cliente_nombre/telefono/email/identificacion -> Requester* del request
+    // (para que el RESUMEN del detalle muestre Contacto/Telefono/Email/Identificacion).
+    [Fact]
+    public async Task CrearTarea_liga_datos_del_contacto()
+    {
+        var (ts, tasks, _) = NewToolset();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            var args = JsonSerializer.Serialize(new
+            {
+                tablero = "Tablero A",
+                titulo = "Necesito cotizacion",
+                cliente_nombre = "Juan Perez",
+                cliente_telefono = "573001112233",
+                cliente_email = "juan@correo.com",
+                cliente_identificacion = "CC 79.123.456"
+            });
+            var res = await ts.ExecuteAsync("crear_tarea", args, Guid.NewGuid(), autonomous: true);
+            Assert.True(JsonDocument.Parse(res.Json).RootElement.GetProperty("ok").GetBoolean());
+        }
+        Assert.NotNull(tasks.LastRequest);
+        Assert.Equal("Juan Perez", tasks.LastRequest!.RequesterName);
+        Assert.Equal("573001112233", tasks.LastRequest.RequesterPhone);
+        Assert.Equal("juan@correo.com", tasks.LastRequest.RequesterEmail);
+        Assert.Equal("CC 79.123.456", tasks.LastRequest.RequesterDocument);
+    }
+
+    // (f-bis) sin datos de contacto, los Requester* quedan null (compat con el comportamiento previo).
+    [Fact]
+    public async Task CrearTarea_sin_contacto_deja_requester_null()
+    {
+        var (ts, tasks, _) = NewToolset();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            await CreateAsync(ts, "Tablero A");
+        }
+        Assert.NotNull(tasks.LastRequest);
+        Assert.Null(tasks.LastRequest!.RequesterName);
+        Assert.Null(tasks.LastRequest.RequesterPhone);
+        Assert.Null(tasks.LastRequest.RequesterEmail);
+        Assert.Null(tasks.LastRequest.RequesterDocument);
     }
 }

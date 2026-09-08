@@ -247,6 +247,7 @@ public sealed class TaskItemService : ITaskItemService
             RequesterName = Normalize(request.RequesterName, 200),
             RequesterEmail = Normalize(request.RequesterEmail, 256),
             RequesterPhone = Normalize(request.RequesterPhone, 200),
+            RequesterDocument = Normalize(request.RequesterDocument, 60),
             CcEmails = SerializeCcEmails(request.CcEmails),
             ProjectId = request.ProjectId,
             MilestoneId = request.MilestoneId,
@@ -1377,7 +1378,7 @@ public sealed class TaskItemService : ITaskItemService
         var subtasks = await ToSummariesAsync(subs, cancellationToken);
 
         return new TaskItemDetailDto(summary, task.Description,
-            task.RequesterName, task.RequesterEmail, task.RequesterPhone,
+            task.RequesterName, task.RequesterEmail, task.RequesterPhone, task.RequesterDocument,
             DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
             checklist, assignees, task.CustomFieldsJson, subtasks);
     }

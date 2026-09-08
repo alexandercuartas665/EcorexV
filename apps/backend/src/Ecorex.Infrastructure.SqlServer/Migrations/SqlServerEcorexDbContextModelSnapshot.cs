@@ -11794,6 +11794,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("project_id");
 
+                    b.Property<string>("RequesterDocument")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("requester_document");
+
                     b.Property<string>("RequesterEmail")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)")

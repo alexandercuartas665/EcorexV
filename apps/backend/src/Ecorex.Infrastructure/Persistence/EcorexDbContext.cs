@@ -1258,6 +1258,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.RequesterName).HasMaxLength(200);
             b.Property(x => x.RequesterEmail).HasMaxLength(256);
             b.Property(x => x.RequesterPhone).HasMaxLength(200);
+            b.Property(x => x.RequesterDocument).HasMaxLength(60);
             b.Property(x => x.CcEmails).HasColumnType(jsonColumnType);
             // Campos personalizados del tablero (ADR-0065): documento JSON { fieldKey: valor }.
             // jsonb en PG / nvarchar(max) en SQL Server (DAL dual), como CcEmails.

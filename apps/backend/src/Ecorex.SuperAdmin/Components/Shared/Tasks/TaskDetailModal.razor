@@ -1011,6 +1011,16 @@
                                     </span>
                                 </div>
                             }
+                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterDocument))
+                            {
+                                <div class="tk-summary-row">
+                                    <span>Identificacion/NIT</span>
+                                    <span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">
+                                        <strong style="overflow:hidden;text-overflow:ellipsis;">@_detail.RequesterDocument</strong>
+                                        @CopyButton(_detail.RequesterDocument, "Copiar identificacion")
+                                    </span>
+                                </div>
+                            }
                             @if (_detail.CcEmails.Count > 0)
                             {
                                 <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _detail.CcEmails)</strong></div>

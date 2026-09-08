@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.8: 2 hooks del modal de gestion para tematizar/refrescar (ADR-0085, hand-off)
+
+- Pedido (sesion de diseno): 2 hooks del renderer para el modal de gestion por fila (el diseno visual lo
+  hace ella por custom_css; solo pide el dato).
+- Hook 1 - tematizacion por gestion: el contenedor del modal (div.card-soft) ahora emite
+  data-gestion="<DefCode>" (ej. FRM-CRM-COT) y la CSS var --g-color=<color de la pildora>
+  (FormGridPill.Color, default #334155). Nuevos campos _gestionPillKey/_gestionPillColor, seteados en
+  OpenGestionAsync y limpiados en CloseGestion. El renderer NO estiliza con esto; el CSS es de diseno.
+  (data-gestion-icon NO se emite: FormGridPill no tiene Icon; se puede sumar luego si se configura.)
+- Hook 2 - badge en vivo: OnGestionSubmittedAsync agrega await InvokeAsync(StateHasChanged) tras
+  LoadGestionCountsAsync + CloseGestion, para que el "(N)" de la pildora refleje el nuevo conteo al cerrar
+  el modal sin recargar.
+- Sin cambio de esquema. Solo DynamicFormRenderer (markup del modal + callback de submit).
+- Verificado: build de SuperAdmin verde. Requiere DEPLOY para verse en prod.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.7).
+
 ## 2026-09-08 - v0.16.7: la pildora de gestion por fila REABRE el registro guardado (ADR-0085, hand-off)
 
 - Bug (SOLDARCO FRM-CONTACTO): reclicar una pildora de gestion (Cotizacion/Leads/Oportunidad/Pedido/PQR/

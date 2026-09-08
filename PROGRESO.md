@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.5: fix UX - editar el nombre del formulario ya no "se traga" letras
+
+- Bug (usuario): al editar el nombre de un formulario en el disenador, se sentia atrasado y "se tragaba"
+  letras. Causa: el input usaba el anti-patron value="@_titleDraft" + @oninput, que en Blazor Server hace
+  round-trip Y re-renderiza TODO el lienzo por cada tecla; en remoto el re-render pisa lo que escribes.
+- Fix (FormDesigner.razor): el input pasa a @bind:event="onchange" (commit al perder foco / Enter): NO hay
+  round-trip ni re-render por tecla, la escritura es fluida. Enter confirma haciendo blur
+  (document.activeElement.blur via IJSRuntime) -> dispara change -> _titleDraft y luego onblur -> guardar;
+  fallback a guardar directo si el blur falla. Sin cambios de datos ni de servicio.
+- Verificado: build de SuperAdmin verde. El sintoma solo aparece con latencia (remoto/prod), no en
+  localhost, asi que la validacion fina la hace el usuario en app2 tras desplegar.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.0; pendientes 0.16.1-0.16.5).
+
 ## 2026-09-07 - v0.16.4: reacciones (emoji) en lineas WhatsApp YCloud (paridad Evolution) - ADR-0096
 
 - Pedido (usuario): en Evolution podia reaccionar a los mensajes de los clientes; poder hacerlo tambien

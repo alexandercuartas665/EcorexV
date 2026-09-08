@@ -20,6 +20,7 @@
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Organization.IWorkflowNodePolicyService NodePolicySvc
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 @* ============================================================
    CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
@@ -55,8 +56,12 @@ else
                 <span class="fb-code">FORX-@_def.Code</span>
                 @if (_editingTitle)
                 {
-                    <input class="fb-title-input" value="@_titleDraft" @oninput="@(e => _titleDraft = e.Value?.ToString() ?? "")"
-                           @onblur="SaveTitleAsync" @onkeydown="@(async e => { if (e.Key == "Enter") { await SaveTitleAsync(); } })" />
+                    @* Bind en 'change' (no 'input'): NO se hace round-trip ni se re-renderiza el lienzo por cada
+                       tecla, asi la escritura es fluida en remoto (antes "se tragaba" letras). Enter confirma
+                       haciendo blur: dispara change -> _titleDraft y luego onblur -> guardar. *@
+                    <input class="fb-title-input" @bind="_titleDraft" @bind:event="onchange"
+                           @onblur="SaveTitleAsync"
+                           @onkeydown="@(async e => { if (e.Key == "Enter") { try { await JS.InvokeVoidAsync("document.activeElement.blur"); } catch { await SaveTitleAsync(); } } })" />
                 }
                 else
                 {

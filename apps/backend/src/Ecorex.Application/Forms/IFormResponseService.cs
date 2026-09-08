@@ -222,11 +222,6 @@ public interface IFormResponseService
     /// <summary>Gestiones (hijos) de una FILA concreta del grid del padre.</summary>
     Task<IReadOnlyList<FormRecordListItemDto>> ListRowChildrenAsync(Guid parentResponseId, string parentFieldCode, string parentRowId, CancellationToken cancellationToken = default);
 
-    /// <summary>Id del hijo YA EXISTENTE de una definicion concreta ligado a la FILA (una gestion por tipo por
-    /// fila): permite REABRIR el registro guardado en vez de crear uno nuevo al reclicar la pildora. Null si
-    /// aun no hay ninguno; si hubiera varios, devuelve el primero por orden.</summary>
-    Task<Guid?> FindRowChildAsync(Guid parentResponseId, string parentFieldCode, string parentRowId, Guid childDefinitionId, CancellationToken cancellationToken = default);
-
     /// <summary>Conteo de gestiones por fila y por definicion-hija: rowId -> (childDefinitionId -> conteo).
     /// Para pintar los badges de las pildoras sin N consultas.</summary>
     Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default);

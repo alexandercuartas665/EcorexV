@@ -2497,26 +2497,15 @@ else
         }
         if (defId is not Guid childDef) { _globalError = $"No existe (o no esta activa) la definicion '{pill.DefCode}'."; return; }
 
-        // 3) Si esta fila YA tiene una gestion de esta def, REABRIR ese registro (no crear otro);
-        //    si no existe, crearlo. Asi la pildora edita lo guardado en vez de duplicar.
+        // 3) Crear la gestion ligada a la fila y abrir el modal.
         await _dbGate.WaitAsync();
         try
         {
             using var ambient = BeginAmbient();
-            var existing = await ResponsesSvc.FindRowChildAsync(_response.Id, q.FieldCode, rowId!, childDef);
-            Guid childResp;
-            if (existing is Guid found)
-            {
-                childResp = found;
-            }
-            else
-            {
-                var res = await ResponsesSvc.AddRowChildAsync(_response.Id, q.FieldCode, rowId!, childDef);
-                if (!res.IsOk) { _globalError = res.Error; return; }
-                childResp = res.Value;
-            }
+            var res = await ResponsesSvc.AddRowChildAsync(_response.Id, q.FieldCode, rowId!, childDef);
+            if (!res.IsOk) { _globalError = res.Error; return; }
             _gestionChildDef = childDef;
-            _gestionChildResponse = childResp;
+            _gestionChildResponse = res.Value;
             _gestionTitle = pill.Label;
             _gestionOpen = true;
         }

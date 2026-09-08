@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.4: reacciones (emoji) en lineas WhatsApp YCloud (paridad Evolution) - ADR-0096
+
+- Pedido (usuario): en Evolution podia reaccionar a los mensajes de los clientes; poder hacerlo tambien
+  en YCloud. Antes: SendReactionAsync bloqueaba todo lo que no fuera Evolution y el cliente YCloud no tenia
+  metodo de reaccion (el toggle "Reacciones" del agente no hacia nada en YCloud).
+- Hecho (ADR-0096, paridad con Evolution):
+  - IYCloudApiClient.SendReactionAsync(apiKey, from, to, messageId, emoji) + impl en YCloudApiClient:
+    POST /whatsapp/messages type=reaction, reaction:{message_id, emoji} (emoji vacio quita la reaccion).
+  - WhatsAppConnectorService.SendReactionAsync: enruta YCloud (resuelve YCloudApiKey + YCloudPhoneNumberId)
+    ademas de Evolution; el externalMessageId es el wamid del entrante (ya guardado en Message.ExternalId).
+    Sirve para la reaccion automatica del agente (ReactionsEnabled) y para reacciones manuales.
+  - No se toco el dispatcher ni el modelo; enum sin cambios.
+- Verificado: build de la solucion verde; Application 795/795 (sin regresion). SuperAdmin 71/73 (2 rojos
+  PREEXISTENTES: AiStepOrchestrator, ajenos). Caveat: se envia reaction.message_id (estilo WhatsApp nativo,
+  como los campos de media de YCloud); si YCloud exige messageId camelCase es 1 linea, lo revela la prueba
+  en vivo.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.0; pendientes 0.16.1-0.16.4). Validacion real
+  (una reaccion llegando al chat del cliente por YCloud) tras desplegar.
+
 ## 2026-09-07 - v0.16.3: ingesta de media entrante en YCloud (paridad Evolution) - ADR-0095
 
 - Bug: una IMAGEN/ARCHIVO entrante por una linea WhatsApp YCloud NO se persistia como media del mensaje;

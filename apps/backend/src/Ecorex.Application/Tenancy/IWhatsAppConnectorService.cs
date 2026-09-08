@@ -48,7 +48,7 @@ public interface IWhatsAppConnectorService
     /// <summary>Elimina un mensaje PARA TODOS en WhatsApp (solo lineas Evolution). messageId = id de WhatsApp del mensaje. Ver remoteJid en SendTestAsync.</summary>
     Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Envia una reaccion (emoji) al mensaje entrante identificado por externalId (solo lineas Evolution). Lo usa el dispatcher del agente. Ver remoteJid en SendTestAsync.</summary>
+    /// <summary>Envia una reaccion (emoji) al mensaje entrante identificado por externalId (lineas Evolution y YCloud). Lo usa el dispatcher del agente. Ver remoteJid en SendTestAsync.</summary>
     Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default);
 
     /// <summary>Descarga la media ENTRANTE de un mensaje (imagen) a base64. Solo lineas Evolution. Lo usa el webhook.</summary>

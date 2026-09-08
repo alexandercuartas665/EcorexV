@@ -530,15 +530,28 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         // IgnoreQueryFilters: lo llama el dispatcher del agente (webhook entrante, sin tenant en sesion).
         var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
         if (line is null) { return new LineSendResult(false, "La linea no existe."); }
+        if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+
+        // YCloud (BSP oficial, ADR-0096): reacciona por el wamid del mensaje entrante (externalMessageId).
+        if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            var ycloudKey = YCloudApiKey(line);
+            if (ycloudKey is null || string.IsNullOrWhiteSpace(line.YCloudPhoneNumberId))
+            {
+                return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud.");
+            }
+            var yr = await _ycloud.SendReactionAsync(ycloudKey, line.YCloudPhoneNumberId!, digits, externalMessageId, emoji, cancellationToken);
+            return new LineSendResult(yr.IsSuccess, yr.Error);
+        }
+
         if (line.Provider != WhatsAppProvider.Evolution)
         {
-            return new LineSendResult(false, "Las reacciones por id solo aplican a lineas Evolution en este corte.");
+            return new LineSendResult(false, "Las reacciones por id solo aplican a lineas Evolution o YCloud en este corte.");
         }
-        if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
         // key.remoteJid: el jid guardado (con @lid para contactos LID) o, si no hay, se reconstruye desde los digitos.
         var jid = string.IsNullOrWhiteSpace(remoteJid) ? $"{digits}@s.whatsapp.net" : remoteJid;
         var result = await _client.SendReactionAsync(baseUrl, apiKey, EvoInstance(line), jid, externalMessageId, emoji, cancellationToken);

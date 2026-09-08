@@ -29,6 +29,10 @@ public interface IYCloudApiClient
     /// el codigo de idioma de la plantilla aprobada (ej. "es").</summary>
     Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default);
 
+    /// <summary>ADR-0096: envia una REACCION (emoji) al mensaje entrante identificado por <paramref name="messageId"/>
+    /// (el wamid del mensaje del cliente). Un <paramref name="emoji"/> vacio QUITA la reaccion. Paridad con Evolution.</summary>
+    Task<YCloudSendResult> SendReactionAsync(string apiKey, string fromPhone, string toPhone, string messageId, string emoji, CancellationToken cancellationToken = default);
+
     // === Plantillas HSM =======================================================
     /// <summary>Crea/somete una plantilla a revision de Meta a traves de YCloud.
     /// <paramref name="components"/> es el arreglo de componentes ya armado por el servicio

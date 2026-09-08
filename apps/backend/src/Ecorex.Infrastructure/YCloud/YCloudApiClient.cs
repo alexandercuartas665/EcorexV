@@ -129,6 +129,20 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return SendMessageAsync(apiKey, payload, cancellationToken);
     }
 
+    public Task<YCloudSendResult> SendReactionAsync(string apiKey, string fromPhone, string toPhone, string messageId, string emoji, CancellationToken cancellationToken = default)
+    {
+        // WhatsApp/YCloud v2: mensaje type=reaction con el wamid del mensaje a reaccionar y el emoji.
+        // Un emoji vacio quita la reaccion (comportamiento nativo de WhatsApp).
+        var payload = new Dictionary<string, object?>
+        {
+            ["from"] = fromPhone,
+            ["to"] = toPhone,
+            ["type"] = "reaction",
+            ["reaction"] = new { message_id = messageId, emoji }
+        };
+        return SendMessageAsync(apiKey, payload, cancellationToken);
+    }
+
     private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/whatsapp/messages");

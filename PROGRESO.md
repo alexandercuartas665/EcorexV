@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.18: saludo de /inicio usa la hora del tenant + muestra la hora
+
+- Bug (usuario): a las 3pm el dashboard saludaba "Buenas noches". El servidor corre en UTC dentro del
+  contenedor y el saludo/fecha usaban DateTime.Now (del server): a las 15:00 de Bogota (UTC-5) el server
+  marca 20:00 -> "noches".
+- Fix (Inicio.razor): se resuelve Tenant.TimeZoneId (IANA; default America/Bogota via
+  ScheduledJobRecurrence.ResolveTimeZone) y se convierte UtcNow a hora local del tenant (_localNow). El
+  saludo (Buenos dias <12, Buenas tardes <18, Buenas noches) y la fecha se calculan sobre _localNow.
+- Ademas se AGREGA la hora al encabezado: la linea de fecha ahora muestra "... . h:mm tt" (ej.
+  "Martes 8 de septiembre, 2026 . 3:05 p. m.").
+- Sin cambio de esquema. Solo la pagina /inicio.
+- Verificado: build de SuperAdmin verde.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.17, deploy en curso al momento del fix).
+
 ## 2026-09-08 - v0.16.17: modal Propiedades del formulario reorganizado en pestanas
 
 - Pedido (usuario): el modal de Propiedades del formulario estaba muy largo; redistribuirlo en pestanas y

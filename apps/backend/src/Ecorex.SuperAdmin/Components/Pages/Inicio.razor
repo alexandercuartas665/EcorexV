@@ -298,20 +298,22 @@
     private List<TaskItemSummaryDto> _myToday = [];
     private List<TaskItemSummaryDto> _overdue = [];
 
-    private static string TodayLabel
+    // Ahora en la zona horaria del tenant (no la del servidor, que corre en UTC dentro del contenedor).
+    // Se fija en OnInitializedAsync tras resolver Tenant.TimeZoneId; default sensato mientras tanto.
+    private DateTime _localNow = DateTime.UtcNow;
+
+    private string TodayLabel
     {
         get
         {
-            var s = DateTime.Now.ToString("dddd d 'de' MMMM, yyyy", Es);
-            return char.ToUpper(s[0], Es) + s[1..];
+            var s = _localNow.ToString("dddd d 'de' MMMM, yyyy", Es);
+            s = char.ToUpper(s[0], Es) + s[1..];
+            return s + " · " + _localNow.ToString("h:mm tt", Es);
         }
     }
 
     protected override async Task OnInitializedAsync()
     {
-        var hour = DateTime.Now.Hour;
-        _greeting = hour < 12 ? "Buenos dias" : hour < 18 ? "Buenas tardes" : "Buenas noches";
-
         Guid? platformUserId = null;
         Guid? tenantId = null;
         if (AuthState is not null)
@@ -343,6 +345,17 @@
 
         // Npgsql solo acepta DateTimeOffset con offset 0 en "timestamp with time zone".
         var now = DateTimeOffset.UtcNow;
+
+        // Saludo y fecha en la ZONA HORARIA DEL TENANT (el servidor corre en UTC): a las 3pm de Bogota
+        // (UTC-5) DateTime.Now del contenedor daria las 20:00 y saludaria "Buenas noches". Se resuelve
+        // Tenant.TimeZoneId (IANA; default America/Bogota) y se convierte el UtcNow.
+        var tzId = tenantId is Guid tzTid
+            ? await db.Tenants.Where(t => t.Id == tzTid).Select(t => t.TimeZoneId).FirstOrDefaultAsync()
+            : null;
+        var tz = Ecorex.Application.Scheduling.ScheduledJobRecurrence.ResolveTimeZone(tzId);
+        _localNow = TimeZoneInfo.ConvertTime(now, tz).DateTime;
+        var hour = _localNow.Hour;
+        _greeting = hour < 12 ? "Buenos dias" : hour < 18 ? "Buenas tardes" : "Buenas noches";
 
         // KPI 1: tareas en estados activos (solo cuenta: PageSize 1 y se usa TotalCount).
         _activeTasks = (await tasksSvc.ListAsync(new TaskItemListFilter(Statuses: ActiveStatuses, PageSize: 1))).TotalCount;

@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.12: CSS del modal de gestion en el renderer (ADR-0085, hand-off diseno)
+
+- Pedido (sesion de diseno de formularios): colocar en el RENDERER el CSS que tematiza el modal de gestion
+  por fila. No lo puede poner ella por custom_css porque el modal se renderiza FUERA del @scope del
+  formulario (.card-soft es HERMANO de .dfr-root, no descendiente), asi que el @scope al .dfr-root no lo
+  alcanza. El diseno es de ella; aqui solo se COLOCA.
+- Hecho (DynamicFormRenderer.razor): se agrego un <style> global dentro del bloque @if del modal de gestion,
+  100% data-driven por --g-color (que ya emitia el hook v0.16.8 en .card-soft[data-gestion]): barra superior
+  con borde/relleno color-mix del color de la gestion, titulo con punto del color, y padding del form
+  anidado. Usa !important donde hace falta para vencer los estilos inline del card (padding/border-radius/
+  margin del header).
+- Por que <style> inline y NO el .razor.css scoped: el selector > .dfr-root apunta al renderer ANIDADO,
+  cuyo elemento lleva OTRO atributo de scope Blazor; el scoped-css lo reescribiria y no calzaria. Blazor no
+  reescribe los <style> inline del markup, asi que quedan globales y funcionan.
+- Sin cambio de esquema. Solo markup del modal en el renderer.
+- Verificado: build de SuperAdmin verde. Requiere DEPLOY para verse en prod.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.8; 0.16.9-0.16.12 sin desplegar).
+
 ## 2026-09-08 - v0.16.11: campos de SISTEMA como columnas de la bandeja del modulo
 
 - Pedido (usuario): al configurar el modulo del formulario, poder AGREGAR como columnas de la bandeja los

@@ -238,6 +238,38 @@ else
 @* ===== Modal de GESTION por fila (ADR-0085): abre el subformulario de la gestion ligado a la fila ===== *@
 @if (_gestionOpen && _gestionChildDef is Guid gestionDef && _gestionChildResponse is Guid gestionResp)
 {
+    @* Tematizacion del modal de gestion (ADR-0085), 100% data-driven por --g-color (que este renderer ya
+       emite en .card-soft[data-gestion]). Vive AQUI y NO en el .razor.css scoped ni en custom_css del form:
+       el modal se renderiza FUERA del @@scope del formulario (es hermano de .dfr-root), y ademas el selector
+       > .dfr-root apunta al renderer ANIDADO -> el scoped-css de Blazor no lo alcanzaria. Un <style> inline
+       en el markup NO lo reescribe Blazor, asi que queda global y calza. El diseno lo define la sesion de
+       autoria de formularios; aqui solo se COLOCA. *@
+    <style>
+        .card-soft[data-gestion]{
+            border-top: 4px solid var(--g-color, #4f46e5);
+            padding: 0 !important;
+            overflow: hidden;
+            border-radius: 16px !important;
+        }
+        .card-soft[data-gestion] > div:first-child{
+            margin: 0 !important;
+            padding: 15px 20px;
+            background: color-mix(in srgb, var(--g-color, #4f46e5) 9%, #fff);
+            border-bottom: 1px solid color-mix(in srgb, var(--g-color, #4f46e5) 22%, #eef2f7);
+        }
+        .card-soft[data-gestion] > div:first-child h3{
+            color: var(--g-color, #4f46e5);
+            font-weight: 800; font-size: 1.05rem; letter-spacing: -.01em;
+            display: flex; align-items: center; gap: .55rem;
+        }
+        .card-soft[data-gestion] > div:first-child h3::before{
+            content: ""; width: .85rem; height: .85rem; border-radius: 4px;
+            background: var(--g-color, #4f46e5); flex: none;
+        }
+        .card-soft[data-gestion] > div:first-child .btn{ border-color: transparent; background: transparent; color: #64748b; }
+        .card-soft[data-gestion] > div:first-child .btn:hover{ color: var(--g-color, #4f46e5); background: #f1f5f9; }
+        .card-soft[data-gestion] > .dfr-root{ display: block; padding: 18px 20px 20px; }
+    </style>
     <div style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1200;display:flex;align-items:flex-start;justify-content:center;padding:32px 12px;overflow:auto;">
         @* Hook de tematizacion (ADR-0085): data-gestion = clave (DefCode) de la gestion + --g-color = color
            de la pildora, para que custom_css pinte el encabezado/acento por gestion. El renderer no estiliza

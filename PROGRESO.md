@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.17: modal Propiedades del formulario reorganizado en pestanas
+
+- Pedido (usuario): el modal de Propiedades del formulario estaba muy largo; redistribuirlo en pestanas y
+  que CSS sea su propia pestana.
+- Hecho (FormDesigner.razor): el modal-body pasa a 4 pestanas: General (ancho del formulario + ocultar
+  barra de envio), Registro (transaccional + identidad/consecutivo), Modulo (es modulo + menu/grupo/
+  identificacion/nombre/icono/columnas/filtros) y CSS (CSS personalizado). Barra de tabs con estado
+  _propsTab (default "general", reseteado en OpenFormProps) y helper PropTabCss. Modal un poco mas ancho
+  (520->600). Sin cambios funcionales en cada seccion (solo se agruparon); Guardar sigue guardando todo.
+- Verificado: build de SuperAdmin verde + prueba en vivo (las 4 pestanas cambian y muestran su seccion).
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.16).
+
 ## 2026-09-08 - v0.16.16: wizard Nueva actividad - auto-selecciona la Empresa/Area si hay una sola
 
 - Pedido (usuario): en el paso 1 (Informacion) del wizard de Nueva actividad, si el tenant tiene UNA sola

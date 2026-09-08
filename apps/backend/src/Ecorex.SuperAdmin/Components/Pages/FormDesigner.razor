@@ -393,12 +393,23 @@ else
 @if (_showFormProps && _def is not null)
 {
     <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showFormProps = false)">
-        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="max-width:600px;" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Propiedades del formulario</h3>
                 <button class="modal-close" @onclick="@(() => _showFormProps = false)">&times;</button>
             </div>
             <div class="modal-body">
+                @* Propiedades agrupadas en pestanas para no dejar el modal larguisimo: General (presentacion),
+                   Registro (transaccionalidad/identidad), Modulo (menu + bandeja) y CSS (estilos). *@
+                <div role="tablist" style="display:flex;gap:2px;border-bottom:1px solid var(--line);margin:-4px -4px 16px;flex-wrap:wrap;">
+                    <button type="button" style='@PropTabCss("general")' @onclick='() => _propsTab = "general"'>General</button>
+                    <button type="button" style='@PropTabCss("registro")' @onclick='() => _propsTab = "registro"'>Registro</button>
+                    <button type="button" style='@PropTabCss("modulo")' @onclick='() => _propsTab = "modulo"'>Modulo</button>
+                    <button type="button" style='@PropTabCss("css")' @onclick='() => _propsTab = "css"'>CSS</button>
+                </div>
+
+                @if (_propsTab == "general")
+                {
                 @* Ancho de la tarjeta al llenar el formulario. Util para cotizadores con tablas anchas. *@
                 <div class="field">
                     <label class="form-label">Ancho del formulario</label>
@@ -420,7 +431,9 @@ else
                         muestra Enviar.
                     </p>
                 </div>
-                <hr style="margin:14px 0;border:none;border-top:1px solid var(--line);" />
+                }
+                @if (_propsTab == "registro")
+                {
                 <label class="pl-toggle"><input type="checkbox" @bind="_txIsTransactional" /> Es transaccional (cada envio confirmado es un registro)</label>
                 @if (_txIsTransactional)
                 {
@@ -477,7 +490,9 @@ else
                     }
                 }
 
-                <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+                }
+                @if (_propsTab == "modulo")
+                {
                 <label class="pl-toggle"><input type="checkbox" @bind="_isModule" @bind:after="OnModuleToggledAsync" /> Es un modulo del sistema (menu propio + bandeja en /m/@_def.Code)</label>
                 @if (_isModule)
                 {
@@ -536,7 +551,9 @@ else
                         <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
                     }
                 }
-                <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+                }
+                @if (_propsTab == "css")
+                {
                 @* CSS personalizado de todo el formulario (#8). Se aplica al llenar (URL publica, modulo
                    y vista previa), acotado a este formulario con @@scope. Para dar estilo a un objeto
                    puntual, usa su clase estable field-{codigo} (el codigo aparece en cada campo). *@
@@ -551,6 +568,7 @@ else
                         o usa clases del formulario como <code>.dfr-title</code>, <code>.dfr-body</code>.
                     </p>
                 </div>
+                }
                 @if (_modalError is not null)
                 {
                     <div class="tk-field-error">@_modalError</div>
@@ -595,6 +613,11 @@ else
     private bool _showTokenModal;
     // Propiedades del formulario / transaccionalidad (ola F3).
     private bool _showFormProps;
+    // Pestana activa del modal de Propiedades (General / Registro / Modulo / CSS).
+    private string _propsTab = "general";
+    private string PropTabCss(string key) => _propsTab == key
+        ? "padding:8px 14px;border:none;border-bottom:2px solid var(--brand,#4f46e5);background:none;font:inherit;font-size:13px;font-weight:700;color:var(--brand,#4f46e5);cursor:pointer;"
+        : "padding:8px 14px;border:none;border-bottom:2px solid transparent;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--ink-2,#64748b);cursor:pointer;";
     private bool _txIsTransactional;
     private string _txMode = nameof(FormIdentityMode.None);
     private string? _txField;
@@ -1524,6 +1547,7 @@ else
     private async void OpenFormProps()
     {
         _modalError = null;
+        _propsTab = "general";
         _txIsTransactional = _def!.IsTransactional;
         _txMode = _def.IdentityMode.ToString();
         _txField = _def.IdentitySourceFieldCode;

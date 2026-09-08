@@ -1,0 +1,37 @@
+.clrp {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.clrp-native {
+    width: 42px;
+    height: 34px;
+    padding: 2px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    flex: none;
+}
+
+.clrp-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.clrp-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px #e5e7eb;
+    cursor: pointer;
+    padding: 0;
+}
+
+.clrp-dot.active {
+    box-shadow: 0 0 0 2px #4f46e5;
+}

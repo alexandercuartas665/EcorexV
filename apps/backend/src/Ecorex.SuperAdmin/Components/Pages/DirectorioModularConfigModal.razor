@@ -97,21 +97,11 @@
                         <div class="cfg-row2">
                             <div class="cfg-fld">
                                 <label>Icono</label>
-                                <select class="cfg-input" @bind="_tIcono">
-                                    @foreach (var i in Iconos)
-                                    {
-                                        <option value="@i">@i.Replace("fa-", "")</option>
-                                    }
-                                </select>
+                                <FaIconPicker @bind-Value="_tIcono" Options="Iconos" />
                             </div>
                             <div class="cfg-fld">
                                 <label>Color</label>
-                                <select class="cfg-input" @bind="_tColor">
-                                    @foreach (var x in Colores)
-                                    {
-                                        <option value="@x">@x</option>
-                                    }
-                                </select>
+                                <ColorPicker @bind-Value="_tColor" Swatches="Colores" />
                             </div>
                         </div>
                         <div class="cfg-fld">
@@ -211,21 +201,11 @@
                             </div>
                             <div class="cfg-fld cfg-c3">
                                 <label>Icono</label>
-                                <select class="cfg-input" @bind="_sIcono">
-                                    @foreach (var ic in Iconos)
-                                    {
-                                        <option value="@ic">@ic.Replace("fa-", "")</option>
-                                    }
-                                </select>
+                                <FaIconPicker @bind-Value="_sIcono" Options="Iconos" />
                             </div>
                             <div class="cfg-fld cfg-c3">
                                 <label>Color</label>
-                                <select class="cfg-input" @bind="_sColor">
-                                    @foreach (var col in Colores)
-                                    {
-                                        <option value="@col">@col</option>
-                                    }
-                                </select>
+                                <ColorPicker @bind-Value="_sColor" Swatches="Colores" />
                             </div>
                             <div class="cfg-fld cfg-c12">
                                 <label>Descripcion</label>
@@ -431,7 +411,10 @@
     {
         "fa-globe", "fa-chart-line", "fa-file-invoice-dollar", "fa-user-tie", "fa-truck",
         "fa-id-badge", "fa-folder", "fa-briefcase", "fa-scale-balanced", "fa-headset", "fa-warehouse",
-        "fa-star", "fa-handshake", "fa-building-columns"
+        "fa-star", "fa-handshake", "fa-building-columns", "fa-building", "fa-user", "fa-users",
+        "fa-address-book", "fa-address-card", "fa-phone", "fa-envelope", "fa-location-dot",
+        "fa-tag", "fa-box", "fa-gear", "fa-heart", "fa-flag", "fa-bell", "fa-calendar",
+        "fa-clipboard", "fa-file-lines", "fa-coins", "fa-industry", "fa-shop", "fa-seedling"
     };
     private static readonly string[] Colores = { "#111827", "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0891b2", "#64748b" };
     private static readonly KeyValuePair<string, string>[] Naturalezas =

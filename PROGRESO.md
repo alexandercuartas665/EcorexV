@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - v0.16.6: UX del Directorio Modular - selector de icono (grilla) + color picker
+
+- Pedido (usuario): en "Configurar directorio" del Directorio Modular, el icono y el color eran <select>
+  de texto; que el color sea un SELECTOR DE COLOR real y el icono un SELECTOR DE ICONOS al estilo del que
+  el sistema ya tiene.
+- Hecho (componentes reutilizables en Components/Shared):
+  - FaIconPicker.razor: grilla visual de iconos (mismo estilo que MenuIconPicker) pero sobre las clases
+    FontAwesome 'fa-*' que el Directorio Modular ya usa (todo el modulo es FA). El valor sigue siendo la
+    clase fa -> NO cambia el formato de dato ni el render en otros lados (los fa-* guardados se preservan).
+  - ColorPicker.razor: input nativo type=color (cualquier color) + swatches de acceso rapido a la paleta.
+    Valor hex sin cambio.
+  - DirectorioModularConfigModal: los 4 <select> (icono/color de categoria y de seccion) pasan a
+    <FaIconPicker> / <ColorPicker>; se amplio el catalogo Iconos.
+- Decision: NO se uso MenuIcons (SVG Lucide) porque rompia los datos fa-* y seria inconsistente con el
+  resto del modulo (FA). Se replico el ESTILO del picker del sistema sobre iconos FA. Sin migracion.
+- Verificado: build de SuperAdmin verde; validado en vivo (dev SOLDARCO): el modal muestra la grilla de
+  iconos (con el fa-globe guardado preseleccionado) y el color picker; al hacer clic cambia la seleccion.
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-07 - fix: pildora de gestion por fila REABRE el registro guardado (ADR-0085)
 
 - Bug (usuario, form SOLDARCO "Contacto Cliente"): al reclicar una pildora de gestion (ej. Cotizacion) sobre

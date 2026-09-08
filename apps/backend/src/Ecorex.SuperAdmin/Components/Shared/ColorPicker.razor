@@ -1,0 +1,45 @@
+@* ===================================================================================
+   Selector de COLOR: input nativo type=color (rueda/selector del SO, cualquier color) +
+   swatches de acceso rapido a la paleta del modulo. El valor es un hex "#rrggbb".
+   Reemplaza al <select> de colores fijos: ahora se puede elegir CUALQUIER color.
+   Uso: <ColorPicker @bind-Value="_color" Swatches="Colores" />   (Swatches opcional)
+   Solo ASCII.
+   =================================================================================== *@
+
+<div class="clrp">
+    <input type="color" class="clrp-native" value="@Safe(Value)"
+           @onchange="@(e => PickAsync(e.Value?.ToString()))" title="Elegir color" />
+    <div class="clrp-swatches">
+        @foreach (var c in Effective)
+        {
+            var x = c;
+            <button type="button" title="@x"
+                    class="clrp-dot @(string.Equals(Value, x, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                    style="background:@x" @onclick="() => PickAsync(x)"></button>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Color elegido en hex "#rrggbb". Null/vacio = usa el default para el input nativo.</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Paleta de acceso rapido. Vacio/null = paleta por defecto.</summary>
+    [Parameter] public IReadOnlyList<string>? Swatches { get; set; }
+
+    private IReadOnlyList<string> Effective => Swatches is { Count: > 0 } ? Swatches : Default;
+
+    private static readonly string[] Default =
+        { "#111827", "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0891b2", "#64748b" };
+
+    // El input nativo exige un hex valido de 6 digitos; si no hay valor, arranca en el indigo por defecto.
+    private static string Safe(string? v) => string.IsNullOrWhiteSpace(v) ? "#4f46e5" : v!.Trim();
+
+    private async Task PickAsync(string? color)
+    {
+        var c = string.IsNullOrWhiteSpace(color) ? null : color!.Trim();
+        Value = c;
+        await ValueChanged.InvokeAsync(c);
+    }
+}

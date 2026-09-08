@@ -1,0 +1,47 @@
+@* ===================================================================================
+   Selector VISUAL de icono FontAwesome (grilla de botones), al estilo del picker de
+   iconos del sistema (MenuIconPicker) pero sobre las clases 'fa-*' que ya usa el modulo
+   (el Directorio Modular es FontAwesome de punta a punta). El valor es la clase fa
+   (ej. "fa-globe") y se pinta con <i class="fa @Value">, asi NO cambia el formato de dato
+   ni el render en el resto del modulo. Reemplaza al <select> donde el icono se tecleaba.
+
+   Uso: <FaIconPicker @bind-Value="_icono" Options="Iconos" />   (Options opcional)
+   Solo ASCII.
+   =================================================================================== *@
+
+<div class="faip">
+    @foreach (var ic in Effective)
+    {
+        var i = ic;
+        <button type="button" title="@i.Replace("fa-", "")"
+                class="faip-opt @(string.Equals(Value, i, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                @onclick="() => PickAsync(i)"><i class="fa @i"></i></button>
+    }
+</div>
+
+@code {
+    /// <summary>Clase fa elegida (ej. "fa-globe"). Null/vacio = ninguno.</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Catalogo de clases fa a ofrecer. Vacio/null = set por defecto.</summary>
+    [Parameter] public IReadOnlyList<string>? Options { get; set; }
+
+    private IReadOnlyList<string> Effective => Options is { Count: > 0 } ? Options : Default;
+
+    private static readonly string[] Default =
+    {
+        "fa-globe", "fa-chart-line", "fa-file-invoice-dollar", "fa-user-tie", "fa-truck",
+        "fa-id-badge", "fa-folder", "fa-briefcase", "fa-scale-balanced", "fa-headset",
+        "fa-warehouse", "fa-star", "fa-handshake", "fa-building-columns", "fa-building",
+        "fa-user", "fa-users", "fa-address-book", "fa-address-card", "fa-phone",
+        "fa-envelope", "fa-location-dot", "fa-tag", "fa-box", "fa-gear", "fa-heart",
+        "fa-flag", "fa-bell", "fa-calendar", "fa-clipboard", "fa-file-lines", "fa-coins"
+    };
+
+    private async Task PickAsync(string icon)
+    {
+        Value = icon;
+        await ValueChanged.InvokeAsync(icon);
+    }
+}

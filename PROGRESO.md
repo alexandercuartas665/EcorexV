@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-07 - fix: pildora de gestion por fila REABRE el registro guardado (ADR-0085)
+
+- Bug (usuario, form SOLDARCO "Contacto Cliente"): al reclicar una pildora de gestion (ej. Cotizacion) sobre
+  una fila que YA tiene esa gestion, se creaba un registro NUEVO en vez de abrir el guardado.
+- Fix (commit 9e04c645): IFormResponseService.FindRowChildAsync(parent, field, rowId, childDef) -> Id del
+  hijo existente de esa def ligado a la fila (por FormRecordLink.ParentRowId, join a FormResponses filtrando
+  DefinitionId). OpenGestionAsync (DynamicFormRenderer) ahora REABRE ese hijo si existe y solo crea si no.
+  Semantica: una gestion por tipo por persona, editable. Build de la solucion verde.
+- Config (SQL prod, sin codigo): se reconstruyeron los form-detalle de gestion calcando el prototipo
+  contacto_cliente.html: FRM-CRM-COT (Cotizacion, 13 campos + grilla items con subtotal/rollup a total),
+  FRM-CRM-PED (Pedido, 15), FRM-CRM-SOL (Soporte, 10, criticidad en tarjetas), FRM-CRM-PQR (PQR, 11, tipo/
+  impacto en tarjetas). Verificado en app2: la Cotizacion pinta todos los campos del prototipo.
+- Siguiente: deploy a senal del usuario (el fix de reabrir requiere desplegar; la config de campos ya esta
+  viva). Pendiente afinar el chrome del modal por gestion y revisar Oportunidad/Leads vs prototipo.
+
 ## 2026-09-07 - v0.16.5: fix UX - editar el nombre del formulario ya no "se traga" letras
 
 - Bug (usuario): al editar el nombre de un formulario en el disenador, se sentia atrasado y "se tragaba"

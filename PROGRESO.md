@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.16: wizard Nueva actividad - auto-selecciona la Empresa/Area si hay una sola
+
+- Pedido (usuario): en el paso 1 (Informacion) del wizard de Nueva actividad, si el tenant tiene UNA sola
+  Empresa/Area (sede), que se seleccione sola en vez de pedir que el usuario la escoja.
+- Hecho (TaskWizard.razor OpenAsync): tras cargar _entidades, si no vino preseleccionada y _entidades.Count
+  == 1, _entidadId = _entidades[0].Id. Con 2+ opciones, sigue pidiendo elegir (sin cambio). No toca el
+  filtrado de conceptos por Empresa/Area (se recalcula reactivo desde _entidadId).
+- Sin cambio de esquema. Solo UI del wizard.
+- Verificado: build de SuperAdmin verde.
+- Siguiente: push/deploy a senal del usuario (prod quedando en v0.16.15 con el deploy en curso).
+
 ## 2026-09-08 - v0.16.15: crear_tarea (agente) liga los datos del contacto a la tarea
 
 - Bug: cuando el agente (SARA) cierra con crear_tarea, la tarea quedaba SIN datos de contacto: en el

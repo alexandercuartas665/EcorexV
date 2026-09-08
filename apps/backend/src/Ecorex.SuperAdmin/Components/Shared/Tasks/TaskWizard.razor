@@ -889,6 +889,9 @@
         _presetColumnId = presetColumnId;
 
         _entidades = (await EntidadSvc.ListOptionsAsync()).ToList();
+        // Comodidad: si el tenant tiene UNA sola Empresa/Area y no vino preseleccionada, se elige sola
+        // (no tiene sentido pedir que el usuario escoja cuando hay una unica opcion).
+        if (_entidadId is null && _entidades.Count == 1) { _entidadId = _entidades[0].Id; }
         _priorities = (await ActCatalogSvc.ListAsync(ActivityCatalogKind.Priority)).ToList();
         // Preselecciona la prioridad del catalogo que mapea al default (Medium), o la primera.
         var defPrio = _priorities.FirstOrDefault(p => p.MappedPriority == _priority) ?? _priorities.FirstOrDefault();

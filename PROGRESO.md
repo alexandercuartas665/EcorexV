@@ -29,6 +29,13 @@
 - Siguiente: push/deploy a senal del usuario (prod en v0.16.18). Nota: el bloque de notas resumen no se
   pudo ver en vivo (las tareas con notas del equipo no estaban como tarjeta en la copia local), pero
   compila y sigue el spec.
+- Pulido (feedback del usuario, mismo v0.16.19): EVENTOS con icono dentro del aro (play verde=inicio,
+  stop=fin) que ES el trigger del menu, + nombre en NEGRITA y subtitulo semantico debajo ("Inicio del
+  proceso" / "Finaliza el proceso"). COMPUERTA exclusiva: el diamante es el boton, con icono de
+  ramificacion (git-branch) contra-rotado dentro, acento default violeta, y nombre negrita + "Decision"
+  debajo. Nuevos estilos .tk-flow-nodelabel (nm/sub); shapes centrados; hover/anillo current en shapes.
+  Compilo verde; validacion visual pendiente (maquina saturada al momento: build de 31 min, dev server no
+  levanto).
 
 ## 2026-09-08 - v0.16.18: saludo de /inicio usa la hora del tenant + muestra la hora
 

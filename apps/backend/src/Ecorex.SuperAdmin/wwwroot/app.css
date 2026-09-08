@@ -1648,12 +1648,22 @@ h1, h2, h3 { letter-spacing: -0.01em; }
    consultable (menu/notas), pero visualmente queda claro que el proceso no paso por ahi. */
 .tk-flow-node.abandoned { opacity: 0.5; filter: grayscale(1); }
 .tk-flow-menu { cursor: default; }
-.tk-flow-node.gw, .tk-flow-node.ev { background: none; border: none; box-shadow: none; padding: 0; overflow: visible; }
-.tk-flow-gw { width: 72%; height: 72%; background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px; box-shadow: var(--sh-sm); transform: rotate(45deg); }
-.tk-flow-node.gw.current .tk-flow-gw { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.tk-flow-node.gw, .tk-flow-node.ev { background: none; border: none; box-shadow: none; padding: 0; overflow: visible; align-items: center; justify-content: center; }
+/* Compuerta (diamante) y evento (aro): el shape ES el boton que abre el menu; el icono va dentro. */
+.tk-flow-gw { width: 74%; height: 74%; background: var(--surface); border: 1.5px solid var(--line-2); border-radius: 7px; box-shadow: var(--sh-sm); transform: rotate(45deg); display: grid; place-items: center; padding: 0; cursor: pointer; appearance: none; transition: box-shadow .12s, transform .12s; }
+.tk-flow-gw svg { width: 42%; height: 42%; transform: rotate(-45deg); }
+.tk-flow-gw:hover { box-shadow: 0 6px 16px -6px rgba(20,20,25,.28); }
+.tk-flow-node.gw.current .tk-flow-gw { box-shadow: 0 0 0 2px var(--brand-soft); }
 .tk-flow-gw-dots { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-.tk-flow-ev-dot { width: 66%; height: 66%; border-radius: 50%; border: 2px solid var(--ink-3); background: var(--surface); box-shadow: var(--sh-sm); }
-.tk-flow-ev-dot.end { border-width: 3px; border-color: var(--ink-2); }
+.tk-flow-ev-dot { width: 68%; height: 68%; border-radius: 50%; border: 2px solid var(--ink-3); background: var(--surface); box-shadow: var(--sh-sm); display: grid; place-items: center; padding: 0; cursor: pointer; appearance: none; transition: box-shadow .12s, transform .12s; }
+.tk-flow-ev-dot svg { width: 44%; height: 44%; }
+.tk-flow-ev-dot.end { border-width: 2.5px; }
+.tk-flow-ev-dot:hover { box-shadow: 0 6px 16px -6px rgba(20,20,25,.28); }
+.tk-flow-node.ev.current .tk-flow-ev-dot { box-shadow: 0 0 0 2px var(--brand-soft); }
+/* Etiqueta bajo compuertas/eventos: nombre en negrita + subtitulo de ayuda semantico. */
+.tk-flow-nodelabel { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 5px; text-align: center; white-space: nowrap; pointer-events: none; display: flex; flex-direction: column; gap: 1px; }
+.tk-flow-nodelabel .nm { font-size: 11.5px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; color: var(--ink); }
+.tk-flow-nodelabel .sub { font-size: 9.5px; font-weight: 500; line-height: 1.1; color: var(--ink-3); }
 .tk-flow-node-body { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 /* NIVEL 1 -- encabezado: icono de tipo + titulo (flex) + badge de estado + menu. */
 .tk-flow-node-head { display: flex; align-items: center; gap: 6px; }

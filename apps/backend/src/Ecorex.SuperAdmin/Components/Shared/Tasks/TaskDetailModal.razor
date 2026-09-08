@@ -359,24 +359,40 @@
                                      @onclick:stopPropagation="true">
                                     @if (isGw)
                                     {
-                                        @* Color configurado del nodo (si lo tiene) en el borde del diamante. *@
-                                        <div class="tk-flow-gw" style="@(FlowNodeColor(nn.Color) is string gc ? $"border-color:{gc};border-width:2px;background:color-mix(in srgb, {gc} 16%, var(--surface));" : "")"></div>
-                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @* Compuerta EXCLUSIVA: diamante (el propio boton es el trigger del menu) con icono de
+                                           ramificacion dentro. Acento configurable, default violeta. Nombre + "Decision" debajo. *@
+                                        var gwAccent = FlowNodeColor(nn.Color) ?? "var(--t-violet)";
+                                        <button class="tk-flow-gw" title="Ver decision" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))"
+                                                style="border-color:@gwAccent;color:@gwAccent;background:color-mix(in srgb, @gwAccent 12%, var(--surface));">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                                        </button>
                                         @if (nn.TeamNotes is { Count: > 0 } gwn) { <span class="tk-flow-notecount" title="@(gwn.Count) nota(s) del equipo">&#128172; @gwn.Count</span> }
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
-                                            <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
+                                            <div class="tk-flow-nodelabel"><span class="nm">@nn.Name</span><span class="sub">Decision</span></div>
                                         }
                                     }
                                     else if (isEvent)
                                     {
-                                        @* Color configurado del nodo (si lo tiene) en el aro del evento. *@
-                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")" style="@(FlowNodeColor(nn.Color) is string ec ? $"border-color:{ec};background:color-mix(in srgb, {ec} 18%, var(--surface));" : "")"></div>
-                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                        @* Evento inicio/fin: aro con icono (play=inicio verde, stop=fin) que ES el trigger del menu.
+                                           Nombre en negrita + subtitulo semantico (Inicio/Finaliza el proceso) debajo. *@
+                                        var evStart = nn.NodeType == WorkflowNodeType.StartEvent;
+                                        var evAccent = FlowNodeColor(nn.Color) ?? (evStart ? "var(--t-green)" : "var(--t-slate)");
+                                        <button class="tk-flow-ev-dot @(evStart ? "" : "end")" title="Ver evento" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))"
+                                                style="border-color:@evAccent;color:@evAccent;background:color-mix(in srgb, @evAccent 14%, var(--surface));">
+                                            @if (evStart)
+                                            {
+                                                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z" /></svg>
+                                            }
+                                            else
+                                            {
+                                                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
+                                            }
+                                        </button>
                                         @if (nn.TeamNotes is { Count: > 0 } gwn) { <span class="tk-flow-notecount" title="@(gwn.Count) nota(s) del equipo">&#128172; @gwn.Count</span> }
                                         @if (!string.IsNullOrWhiteSpace(nn.Name))
                                         {
-                                            <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:11px;line-height:1.2;text-align:center;white-space:nowrap;color:var(--ink-2);font-weight:600;pointer-events:none;">@nn.Name</div>
+                                            <div class="tk-flow-nodelabel"><span class="nm">@nn.Name</span><span class="sub">@(evStart ? "Inicio del proceso" : "Finaliza el proceso")</span></div>
                                         }
                                     }
                                     else

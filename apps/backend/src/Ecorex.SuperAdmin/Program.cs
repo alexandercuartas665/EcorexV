@@ -1457,6 +1457,50 @@ app.MapPost("/webhooks/ycloud", async (
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {
+        // TEMP DIAG YCloud reacciones - quitar tras diagnosticar.
+        // Los eventos que NO son mensaje entrante son, en su mayoria, STATUS de entrega (sent/delivered/
+        // read/failed) que hoy se descartan. Con ECOREX_YCLOUD_DEBUG=1 se loguean: type + wamid + status +
+        // error de cada evento, y el body crudo (truncado) para no perder ningun campo. Asi, tras enviar una
+        // reaccion, se ve el status que WhatsApp devuelve (y si dice failed, el motivo).
+        if (Environment.GetEnvironmentVariable("ECOREX_YCLOUD_DEBUG") == "1")
+        {
+            static string DescribeYCloudEvent(System.Text.Json.JsonElement e)
+            {
+                if (e.ValueKind != System.Text.Json.JsonValueKind.Object) { return "(evento no-objeto)"; }
+                string? Read(System.Text.Json.JsonElement o, params string[] path)
+                {
+                    var cur = o;
+                    foreach (var p in path)
+                    {
+                        if (cur.ValueKind != System.Text.Json.JsonValueKind.Object || !cur.TryGetProperty(p, out var nx)) { return null; }
+                        cur = nx;
+                    }
+                    return cur.ValueKind == System.Text.Json.JsonValueKind.String ? cur.GetString()
+                        : cur.ValueKind == System.Text.Json.JsonValueKind.Number ? cur.GetRawText()
+                        : cur.ValueKind is System.Text.Json.JsonValueKind.Array or System.Text.Json.JsonValueKind.Object ? cur.GetRawText()
+                        : null;
+                }
+                var type = Read(e, "type");
+                var wamid = Read(e, "whatsappMessage", "id") ?? Read(e, "whatsappMessage", "wamid") ?? Read(e, "id");
+                var status = Read(e, "whatsappMessage", "status") ?? Read(e, "status");
+                var error = Read(e, "whatsappMessage", "errorCode") ?? Read(e, "whatsappMessage", "errors") ?? Read(e, "errorCode") ?? Read(e, "errors");
+                return $"type={type} wamid={wamid} status={status} error={error}";
+            }
+            var raw = doc.RootElement.GetRawText();
+            if (raw.Length > 1500) { raw = raw.Substring(0, 1500) + "...(+" + (raw.Length - 1500) + ")"; }
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var e in doc.RootElement.EnumerateArray())
+                {
+                    log.LogInformation("TEMP DIAG YCloud status event {Event}", DescribeYCloudEvent(e));
+                }
+            }
+            else
+            {
+                log.LogInformation("TEMP DIAG YCloud status event {Event}", DescribeYCloudEvent(doc.RootElement));
+            }
+            log.LogInformation("TEMP DIAG YCloud status raw body {Raw}", raw);
+        }
         log.LogInformation("Webhook YCloud IGNORADO (evento no procesable o sin mensaje entrante).");
         return Results.Ok(new { status = "ignored" });
     }

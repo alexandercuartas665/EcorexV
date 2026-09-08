@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Ecorex.Application.Tenancy;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.Infrastructure.YCloud;
 
@@ -15,11 +16,18 @@ internal sealed class YCloudApiClient : IYCloudApiClient
     private const string ApiBase = "https://api.ycloud.com/v2";
 
     private readonly HttpClient _http;
+    private readonly ILogger<YCloudApiClient> _log;
 
-    public YCloudApiClient(HttpClient http)
+    public YCloudApiClient(HttpClient http, ILogger<YCloudApiClient> log)
     {
         _http = http;
+        _log = log;
     }
+
+    // TEMP DIAG YCloud reacciones - quitar tras diagnosticar.
+    // Logging de diagnostico gated por ECOREX_YCLOUD_DEBUG=1: se activa/desactiva por variable de entorno
+    // sin otro deploy. Solo cuando el flag esta on Y hay un contexto (ej. "reaction").
+    private static bool DiagOn => Environment.GetEnvironmentVariable("ECOREX_YCLOUD_DEBUG") == "1";
 
     public async Task<YCloudCheckResult> CheckAsync(string apiKey, string? phoneNumber, CancellationToken cancellationToken = default)
     {
@@ -140,10 +148,10 @@ internal sealed class YCloudApiClient : IYCloudApiClient
             ["type"] = "reaction",
             ["reaction"] = new { message_id = messageId, emoji }
         };
-        return SendMessageAsync(apiKey, payload, cancellationToken);
+        return SendMessageAsync(apiKey, payload, cancellationToken, diagContext: "reaction");
     }
 
-    private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)
+    private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct, string? diagContext = null)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/whatsapp/messages");
         req.Headers.Add("X-API-Key", apiKey);
@@ -152,6 +160,14 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         {
             using var res = await _http.SendAsync(req, ct);
             var body = await res.Content.ReadAsStringAsync(ct);
+            // TEMP DIAG YCloud reacciones - quitar tras diagnosticar.
+            // Respuesta CRUDA del envio (status + body truncado). NO se loguea el request (lleva telefonos);
+            // el body de una reaccion es minimo (wamid/id/errores). Solo con contexto y flag on.
+            if (diagContext is not null && DiagOn)
+            {
+                _log.LogInformation("TEMP DIAG YCloud send [{Context}] status={Status} body={Body}",
+                    diagContext, (int)res.StatusCode, Truncate(body, 1000));
+            }
             if (!res.IsSuccessStatusCode)
             {
                 return new YCloudSendResult(false, null, ExtractError(body) ?? $"HTTP {(int)res.StatusCode}");
@@ -250,6 +266,10 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         }
         return new YCloudTemplateListResult(true, list, null);
     }
+
+    // TEMP DIAG YCloud reacciones - quitar tras diagnosticar. Acorta el body para no inflar el log.
+    private static string Truncate(string? s, int max)
+        => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max) + "...(+" + (s.Length - max) + ")");
 
     private static string? TryStr(JsonElement el, string prop)
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String

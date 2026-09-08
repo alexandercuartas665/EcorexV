@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.13: logging TEMPORAL de diagnostico para reacciones YCloud (gated)
+
+- Problema: SARA (linea YCloud) envia reacciones (emoji), YCloud responde 2xx con wamid, pero en WhatsApp del
+  cliente NO aparece la reaccion. Se necesita ver (a) la respuesta CRUDA del envio y (b) el status de entrega
+  que YCloud reporta despues por webhook (sent/delivered/failed + error), que hoy se descartan.
+- Hecho (SOLO logs, sin cambio funcional; TODO gated por ECOREX_YCLOUD_DEBUG=1 y marcado
+  "// TEMP DIAG YCloud reacciones - quitar tras diagnosticar"):
+  1. YCloudApiClient.cs: inyecta ILogger; SendMessageAsync toma un diagContext opcional; SendReactionAsync lo
+     pasa como "reaction". Con el flag on loguea a Information el status + BODY CRUDO (truncado ~1000) de la
+     respuesta del envio. NO se loguea el request (lleva telefonos).
+  2. WhatsAppConnectorService.SendReactionAsync (YCloud): devuelve el wamid (yr.MessageId) en LineSendResult
+     para correlacionar el envio con el status posterior.
+  3. AgentConversationService: el log de exito "Reaccion automatica {emoji}" incluye wamid={result.MessageId}.
+  4. Program.cs /webhooks/ycloud (rama IGNORADO): con el flag on loguea type + wamid + status + error de cada
+     evento de status y el body crudo (truncado ~1500) que hoy se ignoraban.
+- Activar: setear ECOREX_YCLOUD_DEBUG=1 en el entorno de prod (docker compose env) y reiniciar el contenedor.
+  Desactivar: quitar la var (o ponerla != "1") y reiniciar. Al terminar el diagnostico, retirar los bloques
+  marcados TEMP DIAG y bajar version.
+- Verificado: build de la solucion verde. Sin tests nuevos (es logging).
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.8; 0.16.9-0.16.13 sin desplegar). RECORDAR setear
+  ECOREX_YCLOUD_DEBUG=1 en prod para que el logging se active.
+
 ## 2026-09-08 - v0.16.12: CSS del modal de gestion en el renderer (ADR-0085, hand-off diseno)
 
 - Pedido (sesion de diseno de formularios): colocar en el RENDERER el CSS que tematiza el modal de gestion

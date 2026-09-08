@@ -21,20 +21,20 @@
   iconos (con el fa-globe guardado preseleccionado) y el color picker; al hacer clic cambia la seleccion.
 - Siguiente: push/deploy a senal del usuario.
 
-## 2026-09-07 - fix: pildora de gestion por fila REABRE el registro guardado (ADR-0085)
+## 2026-09-07 - CRM SOLDARCO Contacto Cliente: config de gestiones (SQL) + hand-off del fix de reabrir
 
-- Bug (usuario, form SOLDARCO "Contacto Cliente"): al reclicar una pildora de gestion (ej. Cotizacion) sobre
-  una fila que YA tiene esa gestion, se creaba un registro NUEVO en vez de abrir el guardado.
-- Fix (commit 9e04c645): IFormResponseService.FindRowChildAsync(parent, field, rowId, childDef) -> Id del
-  hijo existente de esa def ligado a la fila (por FormRecordLink.ParentRowId, join a FormResponses filtrando
-  DefinitionId). OpenGestionAsync (DynamicFormRenderer) ahora REABRE ese hijo si existe y solo crea si no.
-  Semantica: una gestion por tipo por persona, editable. Build de la solucion verde.
-- Config (SQL prod, sin codigo): se reconstruyeron los form-detalle de gestion calcando el prototipo
+- Contexto de rol: en el trabajo de formularios/SOLDARCO yo NO modifico codigo; cableo config por SQL y pido
+  los cambios de motor en formato prompt (hand-off). Un intento de fix directo en codigo (commits 9e04c645/
+  8ec38490) fue REVERTIDO (revert 1d638815) por indicacion del usuario.
+- Config (SQL prod, mi lane): se reconstruyeron los form-detalle de gestion calcando el prototipo
   contacto_cliente.html: FRM-CRM-COT (Cotizacion, 13 campos + grilla items con subtotal/rollup a total),
   FRM-CRM-PED (Pedido, 15), FRM-CRM-SOL (Soporte, 10, criticidad en tarjetas), FRM-CRM-PQR (PQR, 11, tipo/
   impacto en tarjetas). Verificado en app2: la Cotizacion pinta todos los campos del prototipo.
-- Siguiente: deploy a senal del usuario (el fix de reabrir requiere desplegar; la config de campos ya esta
-  viva). Pendiente afinar el chrome del modal por gestion y revisar Oportunidad/Leads vs prototipo.
+- Hand-off pendiente (motor, para la sesion de codigo): la pildora de gestion por fila debe REABRIR el
+  registro ya guardado de esa fila+gestion en vez de crear otro (OpenGestionAsync busca hijo existente por
+  FormRecordLink.ParentRowId+DefinitionId y lo reabre; solo crea si no hay). ADR-0085.
+- Siguiente: entregar ese prompt a la sesion de codigo; afinar chrome del modal por gestion; revisar
+  Oportunidad/Leads vs prototipo.
 
 ## 2026-09-07 - v0.16.5: fix UX - editar el nombre del formulario ya no "se traga" letras
 

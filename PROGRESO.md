@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.7: la pildora de gestion por fila REABRE el registro guardado (ADR-0085, hand-off)
+
+- Bug (SOLDARCO FRM-CONTACTO): reclicar una pildora de gestion (Cotizacion/Leads/Oportunidad/Pedido/PQR/
+  Soporte) sobre una fila que YA tiene esa gestion creaba un registro NUEVO en vez de reabrir el guardado.
+- Contexto: este fix se intento antes (9e04c645) y se revirtio (1d638815) para dejarlo como hand-off
+  coordinado con la sesion de diseno (config de gestiones por SQL ya lista). Este es ese hand-off.
+- Hecho (re-aplica el fix revisado, ADR-0085):
+  - IFormResponseService/FormResponseService: FindRowChildAsync(parentResponseId, parentFieldCode,
+    parentRowId, childDefinitionId) -> sobre FormRecordLinks filtrando parent/field/row, join a
+    FormResponses, filtra DefinitionId, ordena SortOrder->CreatedAt, devuelve el primer Id (o null).
+    Tenant-scoped por el filtro global.
+  - DynamicFormRenderer.OpenGestionAsync (paso 3): antes de crear, busca el hijo existente de esa def para
+    la fila y lo REABRE (_gestionChildResponse); solo AddRowChildAsync si no existe. Una gestion por (fila,
+    tipo), editable. Corre igual en el visor publico /f/{token} (mismo renderer server-side).
+- Sin cambio de esquema (usa FormRecordLink.ParentRowId, v0.15.140).
+- Verificado: build verde; Application tests verdes. Requiere DEPLOY para verse en prod.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.6).
+
 ## 2026-09-07 - v0.16.6: UX del Directorio Modular - selector de icono (grilla) + color picker
 
 - Pedido (usuario): en "Configurar directorio" del Directorio Modular, el icono y el color eran <select>

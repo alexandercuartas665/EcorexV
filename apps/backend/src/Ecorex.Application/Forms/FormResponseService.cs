@@ -707,6 +707,19 @@ public sealed class FormResponseService : IFormResponseService
         }).ToList();
     }
 
+    public async Task<Guid?> FindRowChildAsync(
+        Guid parentResponseId, string parentFieldCode, string parentRowId, Guid childDefinitionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(parentRowId)) { return null; }
+        return await _db.FormRecordLinks.AsNoTracking()
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId == parentRowId)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .Where(r => r.DefinitionId == childDefinitionId)
+            .Select(r => (Guid?)r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(
         Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
     {

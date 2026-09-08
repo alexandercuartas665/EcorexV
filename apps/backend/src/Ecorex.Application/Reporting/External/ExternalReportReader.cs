@@ -1,7 +1,9 @@
+using System.Text;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Ecorex.Application.Reporting.External;
 
@@ -23,20 +25,49 @@ public sealed class ExternalReportReader
     /// se enlazan a este valor (no a su DefaultValue de autoria) y la query lo aplica como MaxRows.</summary>
     public const int ReportMaxRows = 50_000;
 
+    /// <summary>TTL (segundos) de la cache de resultados de un dataset externo en la ruta de reportes. Los
+    /// datos son SNAPSHOTS de lectura; cachear por (tenant + dataset + updatedAt + parametros) evita re-correr
+    /// el batch pesado al reabrir el panel o volver a una combinacion de filtros ya consultada. La clave
+    /// incluye <c>UpdatedAt</c> del dataset, asi que editarlo invalida la cache. 0 => sin cache.</summary>
+    public const int CacheSeconds = 300;
+
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _protector;
     private readonly IExternalQueryExecutor _executor;
     private readonly IAuditWriter? _audit;
+    private readonly IMemoryCache? _cache;
 
-    // El auditor es OPCIONAL (default null) para no obligar a los dobles de test que solo satisfacen el
-    // catalogo; en produccion DI inyecta el IAuditWriter real. Solo se usa para dejar traza cuando se ejecuta
-    // un dataset con AllowBatch (batch multi-statement) en la ruta de reportes.
-    public ExternalReportReader(IApplicationDbContext db, ISecretProtector protector, IExternalQueryExecutor executor, IAuditWriter? audit = null)
+    // El auditor y la cache son OPCIONALES (default null) para no obligar a los dobles de test que solo
+    // satisfacen el catalogo; en produccion DI inyecta el IAuditWriter y el IMemoryCache reales. El audit deja
+    // traza cuando se ejecuta un dataset con AllowBatch (batch multi-statement) en la ruta de reportes.
+    public ExternalReportReader(
+        IApplicationDbContext db, ISecretProtector protector, IExternalQueryExecutor executor,
+        IAuditWriter? audit = null, IMemoryCache? cache = null)
     {
         _db = db;
         _protector = protector;
         _executor = executor;
         _audit = audit;
+        _cache = cache;
+    }
+
+    // Clave estable de cache: tenant + dataset + version del dataset (UpdatedAt) + parametros de entrada
+    // ordenados. El tenant en la clave evita que un resultado se sirva cross-tenant (ademas la concesion se
+    // re-verifica ANTES de mirar la cache). La version invalida al editar el dataset.
+    private static string CacheKeyFor(
+        Guid dataSetId, Guid tenantId, DateTimeOffset version, IReadOnlyDictionary<string, string?>? inputs)
+    {
+        var sb = new StringBuilder("extq:").Append(tenantId).Append(':').Append(dataSetId)
+            .Append(':').Append(version.UtcTicks).Append(':');
+        if (inputs is not null)
+        {
+            foreach (var kv in inputs.OrderBy(k => k.Key, StringComparer.Ordinal))
+            {
+                sb.Append(kv.Key).Append('=').Append(kv.Value ?? "\0").Append(';');
+            }
+        }
+
+        return sb.ToString();
     }
 
     public static bool Handles(string sourceKey) => sourceKey.StartsWith(KeyPrefix, StringComparison.OrdinalIgnoreCase);
@@ -149,6 +180,17 @@ public sealed class ExternalReportReader
         var ds = await _db.ExternalDataSets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == dataSetId, ct)
             ?? throw new ReportValidationException("El dataset externo no existe.");
 
+        // Cache de solo lectura (ADR-0064/0066): un dataset externo devuelve un SNAPSHOT; con los mismos
+        // parametros no hace falta re-correr el batch pesado. La concesion ya se verifico arriba; la clave
+        // lleva el tenant (nada cross-tenant) y el UpdatedAt del dataset (editarlo invalida). Nunca cachea la
+        // cadena de conexion (solo el ReportDataSet resultante).
+        var cacheKey = CacheKeyFor(dataSetId, context.TenantId, ds.UpdatedAt ?? ds.CreatedAt, inputs);
+        if (_cache is not null && CacheSeconds > 0
+            && _cache.TryGetValue(cacheKey, out ReportDataSet? cached) && cached is not null)
+        {
+            return cached;
+        }
+
         var source = await _db.ExternalDataSources.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == ds.ExternalDataSourceId, ct)
             ?? throw new ReportValidationException("La fuente externa no existe.");
@@ -194,6 +236,13 @@ public sealed class ExternalReportReader
         var query = new ExternalQuery(
             source.Provider, connectionString, ds.CommandText, bound,
             MaxRows: ReportMaxRows, AllowBatch: ds.AllowBatch);
-        return await _executor.ExecuteAsync(query, ct);
+        var result = await _executor.ExecuteAsync(query, ct);
+
+        if (_cache is not null && CacheSeconds > 0)
+        {
+            _cache.Set(cacheKey, result, TimeSpan.FromSeconds(CacheSeconds));
+        }
+
+        return result;
     }
 }

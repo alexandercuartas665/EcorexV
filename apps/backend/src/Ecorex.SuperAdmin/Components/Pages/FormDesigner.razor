@@ -524,12 +524,12 @@ else
                     <div class="field">
                         <label class="form-label">Columnas de la bandeja</label>
                         <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">Elige y ORDENA (subir/bajar) las columnas; ese es el orden en la bandeja.</p>
-                        @ModuleFieldPicker(_moduleColumns)
+                        @ModuleFieldPicker((_moduleColumns, true))
                     </div>
                     <div class="field">
                         <label class="form-label">Campos de filtro</label>
                         <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">Elige y ORDENA los filtros; ese es el orden en que se muestran.</p>
-                        @ModuleFieldPicker(_moduleFilters)
+                        @ModuleFieldPicker((_moduleFilters, false))
                     </div>
                     @if (_def.IsModule)
                     {
@@ -1352,7 +1352,26 @@ else
     // Selector ORDENABLE de campos del modulo (columnas de bandeja / campos de filtro): arriba los elegidos
     // EN ORDEN con subir/bajar/quitar; abajo los disponibles para agregar (se anexan al final). El orden
     // aqui es el que se guarda (ListColumnsJson / FilterFieldsJson) y con el que se pinta la bandeja/filtros.
-    private RenderFragment<List<string>> ModuleFieldPicker => selected => @<div class="fb-modpick">
+    // Campos de SISTEMA que se pueden agregar como COLUMNAS de la bandeja (no dependen del formulario):
+    // consecutivo, fecha, fecha+hora, estado y usuario de registro. Los codigos 'sys:*' viajan tal cual en
+    // ListColumnsJson y la bandeja (FormModule) sabe pintarlos. Solo se ofrecen donde 'allowSys' es true.
+    private static readonly (string Code, string Label)[] ModuleSysFields =
+    {
+        ("sys:number", "Consecutivo"),
+        ("sys:created", "Fecha de registro"),
+        ("sys:created_dt", "Fecha y hora de registro"),
+        ("sys:status", "Estado del registro"),
+        ("sys:user", "Usuario (registro)"),
+    };
+
+    private string ModuleFieldLabel(string code)
+    {
+        var sys = ModuleSysFields.FirstOrDefault(s => s.Code == code).Label;
+        return sys ?? _def!.Questions.FirstOrDefault(x => x.FieldCode == code)?.Label ?? code;
+    }
+
+    private RenderFragment<(List<string> Selected, bool AllowSys)> ModuleFieldPicker => arg => @<div class="fb-modpick">
+        @{ var selected = arg.Selected; }
         @if (selected.Count == 0)
         {
             <div style="font-size:12px;color:var(--ink-3);margin-bottom:4px;">Ninguno seleccionado. Agrega abajo.</div>
@@ -1360,27 +1379,30 @@ else
         @foreach (var code in selected)
         {
             var c = code;
-            var q = _def!.Questions.FirstOrDefault(x => x.FieldCode == c);
             <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--line,#eef2f7);">
                 <button type="button" title="Subir" @onclick="() => MoveInList(selected, c, -1)"
                         style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;">&#8593;</button>
                 <button type="button" title="Bajar" @onclick="() => MoveInList(selected, c, 1)"
                         style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;">&#8595;</button>
-                <span style="flex:1;font-size:13px;">@(q?.Label ?? c)</span>
+                <span style="flex:1;font-size:13px;">@ModuleFieldLabel(c)@(c.StartsWith("sys:", StringComparison.Ordinal) ? " (sistema)" : "")</span>
                 <button type="button" title="Quitar" @onclick="() => selected.Remove(c)"
                         style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;color:var(--danger,#ef4444);">&times;</button>
             </div>
         }
-        @{ var avail = _def!.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType) && !selected.Contains(x.FieldCode)).ToList(); }
+        @{
+            var avail = _def!.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType) && !selected.Contains(x.FieldCode))
+                .Select(x => (Code: x.FieldCode, Label: x.Label)).ToList();
+            if (arg.AllowSys) { avail.AddRange(ModuleSysFields.Where(s => !selected.Contains(s.Code))); }
+        }
         @if (avail.Count > 0)
         {
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;">
                 <span style="font-size:12px;color:var(--ink-3);">Agregar:</span>
-                @foreach (var q in avail)
+                @foreach (var f in avail)
                 {
-                    var c = q.FieldCode;
+                    var c = f.Code;
                     <button type="button" @onclick="() => ToggleSet(selected, c, true)"
-                            style="border:1px dashed var(--line,#cbd5e1);background:#f8fafc;border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;">+ @q.Label</button>
+                            style="border:1px dashed var(--line,#cbd5e1);background:#f8fafc;border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;">+ @f.Label</button>
                 }
             </div>
         }

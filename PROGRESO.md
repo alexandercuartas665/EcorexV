@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.11: campos de SISTEMA como columnas de la bandeja del modulo
+
+- Pedido (usuario): al configurar el modulo del formulario, poder AGREGAR como columnas de la bandeja los
+  campos de sistema del registro (no del formulario): Usuario (quien registro), Consecutivo del formulario,
+  Fecha de registro, Fecha y hora de registro, Estado del registro.
+- Hecho:
+  - FormDesigner.razor: ModuleFieldPicker pasa a firma (List<string> Selected, bool AllowSys). En la seccion
+    COLUMNAS (AllowSys=true) se anexan a "Agregar" los 5 campos de sistema con codigos sys:*: sys:user,
+    sys:number, sys:created, sys:created_dt, sys:status. Se ordenan/suben/bajan/quitan igual que los del
+    formulario y se etiquetan "(sistema)". El picker de FILTROS queda AllowSys=false (los filtros de sistema
+    van en un incremento aparte). Catalogo estatico ModuleSysFields + helper ModuleFieldLabel.
+  - FormModule.razor (bandeja /m/{code}): si el autor agrega cualquier columna sys:*, se OCULTA el trio fijo
+    Numero/Fecha/Estado y todo se pinta desde las columnas ordenadas (opt-in, retro-compatible). Nuevos
+    helpers SysColLabels/IsSysCol/HasSysColumns/SysColText; ColSpan y export CSV ajustados.
+  - FormDtos.cs + FormResponseService.cs: FormRecordListItemDto suma SubmittedByName; ListRecordsAsync
+    resuelve el nombre del usuario que registro (join TenantUsers -> PlatformUsers, DisplayName ?? Email) en
+    lote, para la columna sys:user.
+- Sin cambio de esquema (los codigos sys:* viajan en ListColumnsJson; se interpretan al pintar).
+- Verificado: build de SuperAdmin verde. Requiere DEPLOY para verse en prod.
+- Siguiente: incremento de FILTROS de sistema (estado, usuario, consecutivo, rango de fechas). Push/deploy a
+  senal del usuario (prod en v0.16.8; v0.16.9/0.16.10 aun sin desplegar).
+
 ## 2026-09-08 - v0.16.9: config de modulo del formulario - ordenar columnas/filtros + mostrar codigo/ID
 
 - Pedido (usuario): al activar un formulario como modulo, poder no solo ELEGIR sino ORDENAR los campos

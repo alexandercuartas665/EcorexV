@@ -98,7 +98,10 @@ public sealed record SetFormCssRequest(string? CustomCss);
 public sealed record FormRecordListItemDto(
     Guid Id, string? RecordNumber, FormRecordStatus RecordStatus,
     DateTimeOffset? TransactionDate, DateTimeOffset? SubmittedAt, string? Reference,
-    IReadOnlyDictionary<string, string?> Fields);
+    IReadOnlyDictionary<string, string?> Fields,
+    // Nombre del usuario que registro (campo de sistema "Usuario" de la bandeja). Null si no se resolvio o
+    // el registro no tiene autor (ej. envio anonimo /f). Opcional: solo lo llena la bandeja (ListRecordsAsync).
+    string? SubmittedByName = null);
 
 /// <summary>Config de formulario-modulo (ola F4). Al promover, el usuario elige la vista de menu y el
 /// grupo padre DONDE colgar el modulo; el icono es opcional. <see cref="ListColumns"/> y

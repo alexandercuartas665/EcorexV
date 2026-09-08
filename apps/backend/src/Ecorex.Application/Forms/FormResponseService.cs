@@ -560,15 +560,27 @@ public sealed class FormResponseService : IFormResponseService
         var rows = await _db.FormResponses.AsNoTracking()
             .Where(r => r.DefinitionId == definitionId && r.Status == FormResponseStatus.Submitted)
             .OrderByDescending(r => r.TransactionDate ?? r.SubmittedAt)
-            .Select(r => new { r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, r.Data })
+            .Select(r => new { r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, r.SubmittedByTenantUserId, r.Data })
             .ToListAsync(cancellationToken);
+
+        // Campo de sistema "Usuario": resuelve el nombre del autor (TenantUser -> PlatformUser.DisplayName,
+        // fallback Email) en UN batch para no consultar por fila. Registros anonimos (/f) quedan sin nombre.
+        var userIds = rows.Where(r => r.SubmittedByTenantUserId is Guid).Select(r => r.SubmittedByTenantUserId!.Value).Distinct().ToList();
+        var userNames = userIds.Count == 0
+            ? new Dictionary<Guid, string?>()
+            : await _db.TenantUsers.AsNoTracking()
+                .Where(tu => userIds.Contains(tu.Id))
+                .Join(_db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(), tu => tu.PlatformUserId, pu => pu.Id,
+                    (tu, pu) => new { tu.Id, Name = pu.DisplayName ?? tu.Email })
+                .ToDictionaryAsync(x => x.Id, x => (string?)x.Name, cancellationToken);
 
         return rows.Select(r =>
         {
             var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            var userName = r.SubmittedByTenantUserId is Guid uid && userNames.TryGetValue(uid, out var n) ? n : null;
             return new FormRecordListItemDto(
                 r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference,
-                fields);
+                fields, userName);
         }).ToList();
     }
 

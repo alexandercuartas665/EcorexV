@@ -149,7 +149,9 @@ else
         <table class="fm-table">
             <thead>
                 <tr>
-                    <th>Numero</th><th>Fecha</th><th>Estado</th>
+                    @* Columnas FIJAS (Numero/Fecha/Estado) SOLO si el autor no configuro campos de sistema:
+                       si agrego alguno (sys:*), toma el control total del orden y estas salen del _columns. *@
+                    @if (!HasSysColumns) { <th>Numero</th><th>Fecha</th><th>Estado</th> }
                     @foreach (var c in _columns) { <th>@c.Label</th> }
                     @if (_columns.Count == 0) { <th>Referencia</th> }
                     <th class="fm-actions-col"></th>
@@ -163,12 +165,23 @@ else
                 @foreach (var r in Filtered)
                 {
                     <tr>
-                        <td>@(r.RecordNumber ?? "-")</td>
-                        <td>@((r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</td>
-                        <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
+                        @if (!HasSysColumns)
+                        {
+                            <td>@(r.RecordNumber ?? "-")</td>
+                            <td>@((r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</td>
+                            <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
+                        }
                         @foreach (var c in _columns)
                         {
-                            @if (_gridCols.ContainsKey(c.Code))
+                            @if (c.Code == "sys:status")
+                            {
+                                <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
+                            }
+                            else if (IsSysCol(c.Code))
+                            {
+                                <td>@SysColText(r, c.Code)</td>
+                            }
+                            else if (_gridCols.ContainsKey(c.Code))
                             {
                                 @* Columna tipo tabla (GridDetail): en vez del JSON crudo, un chip con el conteo
                                    que despliega una sub-fila con la mini-tabla de las filas. *@
@@ -400,7 +413,7 @@ else
             if (_def is { IsModule: true })
             {
                 var labels = _def.Questions.ToDictionary(q => q.FieldCode, q => q.Label, StringComparer.Ordinal);
-                _columns = ParseCodes(_def.ListColumnsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
+                _columns = ParseCodes(_def.ListColumnsJson).Select(c => (c, SysColLabels.GetValueOrDefault(c) ?? labels.GetValueOrDefault(c, c))).ToList();
                 // Columnas tipo tabla (GridDetail): se guardan sus sub-columnas para pintar la sub-fila
                 // en vez del JSON crudo.
                 _gridCols = _def.Questions
@@ -452,7 +465,33 @@ else
         }
     }
 
-    private int ColSpan => 3 + (_columns.Count == 0 ? 1 : _columns.Count) + 1;
+    private int ColSpan => (HasSysColumns ? 0 : 3) + (_columns.Count == 0 ? 1 : _columns.Count) + 1;
+
+    // ---- Campos de SISTEMA como columnas de la bandeja (sys:*): consecutivo, fecha, fecha+hora, estado,
+    // usuario. Si el autor agrega alguno, las columnas fijas Numero/Fecha/Estado se ocultan y todo el orden
+    // sale del _columns configurado. Los codigos sys:* nunca colisionan con field codes del formulario. ----
+    private static readonly Dictionary<string, string> SysColLabels = new(StringComparer.Ordinal)
+    {
+        ["sys:number"] = "Consecutivo",
+        ["sys:created"] = "Fecha de registro",
+        ["sys:created_dt"] = "Fecha y hora de registro",
+        ["sys:status"] = "Estado",
+        ["sys:user"] = "Usuario",
+    };
+    private static bool IsSysCol(string code) => code.StartsWith("sys:", StringComparison.Ordinal);
+    private bool HasSysColumns => _columns.Any(c => IsSysCol(c.Code));
+
+    // Valor de una columna de sistema para una fila (texto). El estado en la tabla se pinta como badge
+    // aparte; aqui (y en el export) devuelve su etiqueta.
+    private string SysColText(FormRecordListItemDto r, string code) => code switch
+    {
+        "sys:number" => r.RecordNumber ?? "-",
+        "sys:created" => (r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy") ?? "-",
+        "sys:created_dt" => (r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-",
+        "sys:status" => RecordStatusLabel(r.RecordStatus),
+        "sys:user" => r.SubmittedByName ?? "-",
+        _ => "-"
+    };
 
     private int ActiveCount => _records.Count(r => r.RecordStatus != FormRecordStatus.Voided);
     private int VoidedCount => _records.Count(r => r.RecordStatus == FormRecordStatus.Voided);
@@ -732,14 +771,18 @@ else
     private string CsvDataUri()
     {
         var sb = new StringBuilder();
-        var head = new List<string> { "Numero", "Fecha", "Estado" };
+        var head = new List<string>();
+        if (!HasSysColumns) { head.AddRange(new[] { "Numero", "Fecha", "Estado" }); }
         head.AddRange(_columns.Count > 0 ? _columns.Select(c => c.Label) : new[] { "Referencia" });
         sb.AppendLine(string.Join(",", head.Select(Csv)));
         foreach (var r in Filtered)
         {
             var fecha = (r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
-            var cells = new List<string?> { r.RecordNumber, fecha, RecordStatusLabel(r.RecordStatus) };
-            cells.AddRange(_columns.Count > 0 ? _columns.Select(c => r.Fields.GetValueOrDefault(c.Code)) : new[] { r.Reference });
+            var cells = new List<string?>();
+            if (!HasSysColumns) { cells.Add(r.RecordNumber); cells.Add(fecha); cells.Add(RecordStatusLabel(r.RecordStatus)); }
+            cells.AddRange(_columns.Count > 0
+                ? _columns.Select(c => IsSysCol(c.Code) ? SysColText(r, c.Code) : r.Fields.GetValueOrDefault(c.Code))
+                : new[] { r.Reference });
             sb.AppendLine(string.Join(",", cells.Select(Csv)));
         }
         return "data:text/csv;charset=utf-8;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString()));

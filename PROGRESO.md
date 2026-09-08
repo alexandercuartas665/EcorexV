@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.19: rediseno visual de las tarjetas de nodo del flujo (WorkflowStepCard)
+
+- Pedido (usuario): llevar las tarjetas/nodos del runtime de flujos (diagrama al abrir una tarea) a una
+  estetica SaaS moderna, SIN tocar logica ni inventar datos. Plan documentado en el vault
+  ("Rediseño visual de las tarjetas de nodo (WorkflowStepCard)", Capa 3). Decision: compacto que crece.
+- Hecho (TaskDetailModal.razor + app.css), solo capa de presentacion del nodo de PASO:
+  - Header: icono POR TIPO (rayo=automatico, documento=manual) + titulo (2 lineas, legible) + menu; el
+    badge de estado (Actual/Auto/Manual/Cerrado) en su propia linea como pildora calmada (fondo tenue +
+    texto del acento, sin relleno saturado).
+  - Descripcion: ConfigNote reubicada bajo el titulo (2 lineas, secundaria); condicional.
+  - Metadata: caja sutil surface-2 con filas CONDICIONALES (responsable, ultima actividad, en espera-ambar);
+    la caja no se pinta si no hay ninguna.
+  - Notas: bloque resumen (bg surface-2 + borde-izq 3px del acento) con la nota mas reciente + autor/fecha
+    + contador "+N"; abre el popover/hilo existente. Sin notas -> no se pinta (la tarjeta se reduce).
+  - Alto CONSCIENTE DEL CONTENIDO (FlowNodeH): el nodo parte compacto y crece solo con lo que tiene; las
+    aristas usan ese alto -> siguen calzando. FlowYScale=1.4 da aire vertical (los nodos ahora son mas
+    altos). Ancho min 132->150. Acento via --node-accent (barra lateral de 4px ya existente); se quito el
+    tintado del fondo completo.
+  - Estados por borde/anillo/badge/acento (current, done, abandoned) sin pintar toda la tarjeta.
+- NO se toco: drag & drop, zoom, popover a nivel raiz, reglas de cierre, compuertas (rombo) / eventos
+  (circulo), DTOs/servicios. Todo con tokens existentes (dark mode por construccion).
+- Verificado en vivo (AGROMETALICAS, flujo ORDENES DE TRABAJO): tarjetas legibles, badge Actual/Manual,
+  descripcion, metadata (en espera ambar), nodo actual mas alto, eventos como circulos, aristas
+  subordinadas, y el menu (...) abre el popover sin recortarse. Build de SuperAdmin verde.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.18). Nota: el bloque de notas resumen no se
+  pudo ver en vivo (las tareas con notas del equipo no estaban como tarjeta en la copia local), pero
+  compila y sigue el spec.
+
 ## 2026-09-08 - v0.16.18: saludo de /inicio usa la hora del tenant + muestra la hora
 
 - Bug (usuario): a las 3pm el dashboard saludaba "Buenas noches". El servidor corre en UTC dentro del

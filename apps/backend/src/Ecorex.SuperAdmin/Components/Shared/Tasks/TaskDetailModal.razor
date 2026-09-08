@@ -382,43 +382,74 @@
                                     else
                                     {
                                         <div class="tk-flow-node-body">
-                                            <div class="tk-flow-node-title">
+                                            @* NIVEL 1: tipo + titulo + estado + menu. *@
+                                            <div class="tk-flow-node-head">
+                                                <span class="tk-flow-type" aria-hidden="true">
+                                                    @if (nn.IsAuto)
+                                                    {
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+                                                    }
+                                                    else
+                                                    {
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M9 13h6M9 17h6" /></svg>
+                                                    }
+                                                </span>
                                                 <span class="tk-flow-node-name">@(nn.Name ?? "(paso)")</span>
                                                 <button class="tk-flow-dots" title="Menu del paso" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
                                             </div>
-                                            <div class="tk-flow-meta">
-                                                @if (!string.IsNullOrWhiteSpace(nn.CargoLabel) || !string.IsNullOrWhiteSpace(nn.AssigneeLabel))
-                                                {
-                                                    <div class="tk-flow-metarow" title="Cargo: @(nn.CargoLabel ?? "-") &#183; Usuario: @(nn.AssigneeLabel ?? "sin asignar")">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                                                        <span>@FlowCargoLine(nn)</span>
-                                                    </div>
-                                                }
-                                                @if (nn.LastActivityAt is not null)
-                                                {
-                                                    <div class="tk-flow-metarow" title="Ultima actividad reportada">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                                                        <span>@FlowShortDate(nn.LastActivityAt)</span>
-                                                    </div>
-                                                }
-                                                @if (nn.WaitingSince is not null)
-                                                {
-                                                    <div class="tk-flow-metarow wait" title="Tiempo en espera de este paso">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2" /></svg>
-                                                        <span>en espera @FlowWaiting(nn.WaitingSince)</span>
-                                                    </div>
-                                                }
-                                            </div>
-                                            <div class="tk-flow-badges">
-                                                @if (nn.IsAuto) { <span class="tk-flow-badge auto">AUTOMATICO</span> }
-                                                @if (nn.State == TaskFlowNodeState.Completed) { <span class="tk-flow-badge done">CERRADO</span> }
-                                                @if (nn.HasNote) { <span title="Tiene anotacion del paso">&#128172;</span> }
-                                                @if (nn.TeamNotes is { Count: > 0 } tnc) { <span class="tk-flow-badge notes" title="@(tnc.Count) nota(s) del equipo">&#128172; @tnc.Count</span> }
-                                            </div>
-                                            @* Nota dejada en la CONFIGURACION del nodo (editor de flujos): descripcion/instruccion del paso. *@
+                                            @{
+                                                var (bLabel, bClass) = nn.IsCurrent ? ("Actual", "cur")
+                                                    : nn.State == TaskFlowNodeState.Completed ? ("Cerrado", "done")
+                                                    : nn.IsAuto ? ("Auto", "auto")
+                                                    : ("Manual", "manual");
+                                            }
+                                            <span class="tk-flow-hbadge @bClass">@bLabel</span>
+                                            @* Descripcion del paso (nota de configuracion del nodo). Condicional: si no hay, colapsa. *@
                                             @if (!string.IsNullOrWhiteSpace(nn.ConfigNote))
                                             {
-                                                <div class="tk-flow-confignote" title="@nn.ConfigNote" style="margin-top:6px;font-size:11px;line-height:1.35;color:var(--ink-3);background:var(--surface-2);border-left:2px solid @accent;border-radius:6px;padding:5px 7px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;">@nn.ConfigNote</div>
+                                                <div class="tk-flow-desc" title="@nn.ConfigNote">@nn.ConfigNote</div>
+                                            }
+                                            @* NIVEL 2: metadata. Cada fila condicional; la caja no se pinta si no hay ninguna. *@
+                                            @if (!string.IsNullOrWhiteSpace(nn.CargoLabel) || !string.IsNullOrWhiteSpace(nn.AssigneeLabel) || nn.LastActivityAt is not null || nn.WaitingSince is not null)
+                                            {
+                                                <div class="tk-flow-meta">
+                                                    @if (!string.IsNullOrWhiteSpace(nn.CargoLabel) || !string.IsNullOrWhiteSpace(nn.AssigneeLabel))
+                                                    {
+                                                        <div class="tk-flow-metarow" title="Cargo: @(nn.CargoLabel ?? "-") &#183; Usuario: @(nn.AssigneeLabel ?? "sin asignar")">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                                                            <span>@FlowCargoLine(nn)</span>
+                                                        </div>
+                                                    }
+                                                    @if (nn.LastActivityAt is not null)
+                                                    {
+                                                        <div class="tk-flow-metarow" title="Ultima actividad reportada">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                                                            <span>@FlowShortDate(nn.LastActivityAt)</span>
+                                                        </div>
+                                                    }
+                                                    @if (nn.WaitingSince is not null)
+                                                    {
+                                                        <div class="tk-flow-metarow wait" title="Tiempo en espera de este paso">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2" /></svg>
+                                                            <span>en espera @FlowWaiting(nn.WaitingSince)</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            @* NIVEL 3: resumen de notas del equipo. Muestra la mas reciente + contador; abre el
+                                               popover del nodo (hilo completo). NO apila todas las notas dentro del nodo. *@
+                                            @if (nn.TeamNotes is { Count: > 0 } tnotes)
+                                            {
+                                                var lastNote = tnotes.OrderByDescending(x => x.CreatedAt).First();
+                                                <div class="tk-flow-notes" title="Ver todas las notas del equipo" @onclick="@(() => ToggleFlowMenu(nn))" @onclick:stopPropagation="true">
+                                                    <div class="tk-flow-notes-head">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                                                        <span class="tk-flow-notes-title">Notas</span>
+                                                        @if (tnotes.Count > 1) { <span class="tk-flow-notes-count">+@(tnotes.Count - 1)</span> }
+                                                    </div>
+                                                    <div class="tk-flow-notes-text">@lastNote.Text</div>
+                                                    <div class="tk-flow-notes-by">@lastNote.AuthorName &#183; @FlowShortDate(lastNote.CreatedAt)</div>
+                                                </div>
                                             }
                                         </div>
                                     }
@@ -2010,6 +2041,9 @@
 
     // Separacion horizontal entre columnas del layout BPMN (algo de aire entre tarjetas). El eje Y se respeta.
     private const double FlowXScale = 1.02;
+    // Aire vertical: como las tarjetas ahora crecen en alto (descripcion/metadata/notas), se separan las
+    // filas verticales del editor para que no se solapen. El editor las coloco pensando en nodos de ~112px.
+    private const double FlowYScale = 1.4;
 
     private static string FlowEdgeStroke(TaskFlowRouteKind k) => k switch
     {
@@ -2038,11 +2072,9 @@
     private static string FlowNodeCardStyle(TaskFlowNodeDto n, string accent, bool isGw, bool isEvent)
     {
         if (isGw || isEvent) { return ""; }
-        var s = $"border-left:4px solid {accent};";
-        if (FlowNodeColor(n.Color) is not null)
-        {
-            s += $"background:color-mix(in srgb, {accent} 12%, var(--surface));";
-        }
+        // --node-accent lo consumen los hijos (badge de estado, borde del bloque de notas, icono de tipo).
+        // La barra lateral de 4px sigue marcando el acento del tipo/estado. NO se tiñe toda la tarjeta.
+        var s = $"--node-accent:{accent};border-left:4px solid {accent};";
         return s;
     }
 
@@ -2072,8 +2104,23 @@
     private static bool FlowIsEvent(TaskFlowNodeDto n) => n.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
     private static int FlowEventOrigW(TaskFlowNodeDto n) => Math.Min(n.W, 38);
     private static int FlowEventOrigH(TaskFlowNodeDto n) => Math.Min(n.H, 38);
-    private static int FlowNodeW(TaskFlowNodeDto n) => FlowIsEvent(n) ? FlowEventSize : Math.Max(n.W, 132);
-    private static int FlowNodeH(TaskFlowNodeDto n) => FlowIsEvent(n) ? FlowEventSize : Math.Max(n.H, 112);
+    private static int FlowNodeW(TaskFlowNodeDto n) => FlowIsEvent(n) ? FlowEventSize : Math.Max(n.W, 150);
+
+    // Alto CONSCIENTE DEL CONTENIDO (progressive disclosure): la tarjeta parte compacta y crece solo con lo
+    // que realmente tiene (descripcion / metadata / notas). Las aristas usan este alto -> siguen calzando.
+    private static int FlowNodeH(TaskFlowNodeDto n)
+    {
+        if (FlowIsEvent(n)) { return FlowEventSize; }
+        var h = 62; // header (icono + titulo + menu) + linea del badge de estado
+        var metaRows = 0;
+        if (!string.IsNullOrWhiteSpace(n.CargoLabel) || !string.IsNullOrWhiteSpace(n.AssigneeLabel)) { metaRows++; }
+        if (n.LastActivityAt is not null) { metaRows++; }
+        if (n.WaitingSince is not null) { metaRows++; }
+        if (metaRows > 0) { h += 12 + metaRows * 17; }          // caja de metadata
+        if (!string.IsNullOrWhiteSpace(n.ConfigNote)) { h += 34; } // descripcion (2 lineas)
+        if (n.TeamNotes is { Count: > 0 }) { h += 60; }            // bloque de notas (resumen)
+        return Math.Max(h, 96);
+    }
 
     // Arrastre "un poco": desplazamiento por nodo (solo de sesion, no se persiste) para reacomodar el
     // diagrama a gusto. Se suma a la posicion calculada. Se usa HTML5 drag (ondragstart/ondragend), que
@@ -2089,7 +2136,7 @@
         => (int)((n.X - flow.MinX) * FlowXScale) + 30 + FlowOffX(n.NodeId)
            - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigW(n)) / 2 : 0);
     private int FlowNodeTop(TaskFlowDiagramDto flow, TaskFlowNodeDto n)
-        => (n.Y - flow.MinY) + 30 + FlowOffY(n.NodeId)
+        => (int)((n.Y - flow.MinY) * FlowYScale) + 30 + FlowOffY(n.NodeId)
            - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigH(n)) / 2 : 0);
     private int FlowCanvasW(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 200 : flow.Nodes.Max(n => FlowNodeLeft(flow, n) + FlowNodeW(n)) + 20;
     private int FlowCanvasH(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 140 : flow.Nodes.Max(n => FlowNodeTop(flow, n) + FlowNodeH(n)) + 20;

@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.9: config de modulo del formulario - ordenar columnas/filtros + mostrar codigo/ID
+
+- Pedido (usuario): al activar un formulario como modulo, poder no solo ELEGIR sino ORDENAR los campos
+  (columnas de bandeja y campos de filtro); ver el id del formulario; y tener un nombre de menu aparte del
+  titulo.
+- Hecho (FormDesigner.razor):
+  - Ordenar: _moduleColumns/_moduleFilters pasan de HashSet a LISTA ORDENADA. Nuevo selector
+    ModuleFieldPicker: arriba los elegidos EN ORDEN con subir/bajar/quitar, abajo los disponibles para
+    agregar (se anexan al final). Ese orden es el que se guarda (ListColumnsJson/FilterFieldsJson) y con el
+    que se pinta la bandeja/filtros. ToggleSet ahora preserva orden; MoveInList sube/baja.
+  - ID: en el panel del modulo se muestra Codigo (@_def.Code, = FORX-<code>) e ID interno (GUID @_def.Id),
+    seleccionables para copiar.
+  - Nombre de menu aparte: YA EXISTIA (_moduleLabel, campo "Nombre en el menu", placeholder = titulo). Se
+    aclaro el texto de ayuda de que es independiente del titulo. Sin cambio funcional ahi.
+- Sin cambio de esquema (el almacenamiento ya era lista ordenada; antes la UI perdia el orden con HashSet).
+- Verificado: build de SuperAdmin verde. Requiere DEPLOY para verse en prod.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.8).
+
 ## 2026-09-08 - v0.16.8: 2 hooks del modal de gestion para tematizar/refrescar (ADR-0085, hand-off)
 
 - Pedido (sesion de diseno): 2 hooks del renderer para el modal de gestion por fila (el diseno visual lo

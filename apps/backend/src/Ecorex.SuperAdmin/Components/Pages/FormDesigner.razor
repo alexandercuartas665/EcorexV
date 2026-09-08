@@ -505,9 +505,17 @@ else
                         </div>
                     </div>
                     <div class="field">
+                        <label class="form-label">Identificacion del formulario</label>
+                        <div style="font-size:12px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 14px;">
+                            <span>Codigo: <code style="user-select:all;background:var(--surface-2,#f1f5f9);padding:1px 6px;border-radius:5px;">@_def.Code</code></span>
+                            <span>ID: <code style="user-select:all;background:var(--surface-2,#f1f5f9);padding:1px 6px;border-radius:5px;">@_def.Id</code></span>
+                        </div>
+                        <p style="font-size:12px;color:var(--ink-3);margin-top:4px;">Codigo de negocio (aparece como FORX-@_def.Code) e ID interno del formulario. Selecciona para copiar.</p>
+                    </div>
+                    <div class="field">
                         <label class="form-label">Nombre en el menu</label>
                         <input class="form-control" @bind="_moduleLabel" maxlength="80" placeholder="@_def.Title" />
-                        <p style="font-size:12px;color:var(--ink-3);margin-top:4px;">Como se muestra en el menu. Si lo dejas vacio, usa el titulo del formulario.</p>
+                        <p style="font-size:12px;color:var(--ink-3);margin-top:4px;">Nombre con el que se muestra en el menu, INDEPENDIENTE del titulo del formulario. Si lo dejas vacio, usa el titulo.</p>
                     </div>
                     <div class="field">
                         <label class="form-label">Icono</label>
@@ -515,23 +523,13 @@ else
                     </div>
                     <div class="field">
                         <label class="form-label">Columnas de la bandeja</label>
-                        <div class="fb-chkgrid">
-                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
-                            {
-                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleColumns.Contains(q.FieldCode)"
-                                    @onchange="@(e => ToggleSet(_moduleColumns, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
-                            }
-                        </div>
+                        <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">Elige y ORDENA (subir/bajar) las columnas; ese es el orden en la bandeja.</p>
+                        @ModuleFieldPicker(_moduleColumns)
                     </div>
                     <div class="field">
                         <label class="form-label">Campos de filtro</label>
-                        <div class="fb-chkgrid">
-                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
-                            {
-                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleFilters.Contains(q.FieldCode)"
-                                    @onchange="@(e => ToggleSet(_moduleFilters, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
-                            }
-                        </div>
+                        <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">Elige y ORDENA los filtros; ese es el orden en que se muestran.</p>
+                        @ModuleFieldPicker(_moduleFilters)
                     </div>
                     @if (_def.IsModule)
                     {
@@ -619,8 +617,9 @@ else
     private string? _moduleLabel;
     private IReadOnlyList<MenuViewDto> _menuViews = [];
     private readonly List<(Guid Id, string Label)> _menuGroups = new();
-    private readonly HashSet<string> _moduleColumns = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _moduleFilters = new(StringComparer.Ordinal);
+    // Listas ORDENADAS (no HashSet): el orden en que quedan aqui es el orden en la bandeja / los filtros.
+    private readonly List<string> _moduleColumns = new();
+    private readonly List<string> _moduleFilters = new();
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -1332,10 +1331,60 @@ else
 
     private void OpenPreview() => _showPreview = true;
 
-    private static void ToggleSet(HashSet<string> set, string code, bool on)
+    // Selecciona/retira PRESERVANDO EL ORDEN: al activar se agrega AL FINAL; al retirar se saca sin
+    // reordenar el resto. (Antes era HashSet: no habia orden controlable por el usuario.)
+    private static void ToggleSet(List<string> list, string code, bool on)
     {
-        if (on) { set.Add(code); } else { set.Remove(code); }
+        if (on) { if (!list.Contains(code)) { list.Add(code); } }
+        else { list.Remove(code); }
     }
+
+    // Mueve un codigo dentro de la lista (delta -1 = subir, +1 = bajar). Ignora si queda fuera de rango.
+    private static void MoveInList(List<string> list, string code, int delta)
+    {
+        var i = list.IndexOf(code);
+        if (i < 0) { return; }
+        var j = i + delta;
+        if (j < 0 || j >= list.Count) { return; }
+        (list[i], list[j]) = (list[j], list[i]);
+    }
+
+    // Selector ORDENABLE de campos del modulo (columnas de bandeja / campos de filtro): arriba los elegidos
+    // EN ORDEN con subir/bajar/quitar; abajo los disponibles para agregar (se anexan al final). El orden
+    // aqui es el que se guarda (ListColumnsJson / FilterFieldsJson) y con el que se pinta la bandeja/filtros.
+    private RenderFragment<List<string>> ModuleFieldPicker => selected => @<div class="fb-modpick">
+        @if (selected.Count == 0)
+        {
+            <div style="font-size:12px;color:var(--ink-3);margin-bottom:4px;">Ninguno seleccionado. Agrega abajo.</div>
+        }
+        @foreach (var code in selected)
+        {
+            var c = code;
+            var q = _def!.Questions.FirstOrDefault(x => x.FieldCode == c);
+            <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--line,#eef2f7);">
+                <button type="button" title="Subir" @onclick="() => MoveInList(selected, c, -1)"
+                        style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;">&#8593;</button>
+                <button type="button" title="Bajar" @onclick="() => MoveInList(selected, c, 1)"
+                        style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;">&#8595;</button>
+                <span style="flex:1;font-size:13px;">@(q?.Label ?? c)</span>
+                <button type="button" title="Quitar" @onclick="() => selected.Remove(c)"
+                        style="border:1px solid var(--line,#e5e7eb);background:#fff;border-radius:6px;width:26px;height:26px;cursor:pointer;line-height:1;color:var(--danger,#ef4444);">&times;</button>
+            </div>
+        }
+        @{ var avail = _def!.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType) && !selected.Contains(x.FieldCode)).ToList(); }
+        @if (avail.Count > 0)
+        {
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;">
+                <span style="font-size:12px;color:var(--ink-3);">Agregar:</span>
+                @foreach (var q in avail)
+                {
+                    var c = q.FieldCode;
+                    <button type="button" @onclick="() => ToggleSet(selected, c, true)"
+                            style="border:1px dashed var(--line,#cbd5e1);background:#f8fafc;border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;">+ @q.Label</button>
+                }
+            </div>
+        }
+    </div>;
 
     // Permisos por campo (ola F6): roles del tenant + lectura/escritura de FieldVisibilityJson.
     private static readonly string[] TenantRoles = { "Owner", "Admin", "Supervisor", "Advisor" };

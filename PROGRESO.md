@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.23: limpieza del logging TEMPORAL de diagnostico YCloud (post-fix 131009)
+
+- Contexto: el fix del wamid (v0.16.14) resolvio el 131009 de las reacciones YCloud. Ya no se necesita el
+  logging TEMP DIAG gated por ECOREX_YCLOUD_DEBUG (v0.16.13/0.16.14); se retira TODO.
+- Quitado:
+  - YCloudApiClient.cs: ILogger + diagContext + DiagOn + Truncate + el log de status/body del envio. El
+    ctor vuelve a (HttpClient http).
+  - WhatsAppConnectorService.SendReactionAsync (YCloud): vuelve a new LineSendResult(yr.IsSuccess, yr.Error)
+    (se retira la propagacion del wamid que era solo para correlacionar el diagnostico).
+  - AgentConversationService: el log de reaccion vuelve a "Sin consumo de IA (reaccion directa)." (sin wamid).
+  - Program.cs /webhooks/ycloud: se quitan los 2 bloques diag (status events en la rama IGNORADO + body
+    crudo del inbound). La rama IGNORADO vuelve a su log simple.
+- SE MANTIENE el fix real: YCloudWebhookParser usa el WAMID como ExternalId (v0.16.14) + sus unit tests.
+- Ya no queda ninguna lectura de ECOREX_YCLOUD_DEBUG en el codigo: el flag queda inerte (ops lo puede
+  apagar/quitar del compose de prod; ya no hace nada).
+- Sin cambios de schema. Verificado: build de la solucion verde.
+- Siguiente: push/deploy a senal del usuario. Ops: apagar ECOREX_YCLOUD_DEBUG en prod.
+
 ## 2026-09-08 - v0.16.22: subdescripcion opcional en las tarjetas opt-card (hook para diseno)
 
 - Pedido (sesion de diseno): las opt-cards del prototipo llevan una subdescripcion bajo cada opcion

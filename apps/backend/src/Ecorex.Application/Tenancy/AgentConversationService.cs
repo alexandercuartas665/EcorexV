@@ -208,10 +208,8 @@ public sealed class AgentConversationService : IAgentConversationService
         {
             lastInbound.Reaction = emoji;
             await _db.SaveChangesAsync(ct);
-            // TEMP DIAG YCloud reacciones - quitar tras diagnosticar: se incluye el wamid del envio en el
-            // detalle para cruzarlo con el status de entrega entrante (webhook de status de YCloud).
             await LogAsync(tenantId, conversationId, agentId, AiAgentRunLogKind.Tool,
-                $"Reaccion automatica {emoji}", $"Sin consumo de IA (reaccion directa). wamid={result.MessageId}", null, ct);
+                $"Reaccion automatica {emoji}", "Sin consumo de IA (reaccion directa).", null, ct);
         }
         else
         {

@@ -542,9 +542,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
                 return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud.");
             }
             var yr = await _ycloud.SendReactionAsync(ycloudKey, line.YCloudPhoneNumberId!, digits, externalMessageId, emoji, cancellationToken);
-            // TEMP DIAG YCloud reacciones - quitar tras diagnosticar: propaga el wamid (yr.MessageId) para
-            // poder correlacionar el envio con el status de entrega que YCloud reporta luego por webhook.
-            return new LineSendResult(yr.IsSuccess, yr.Error, yr.MessageId);
+            return new LineSendResult(yr.IsSuccess, yr.Error);
         }
 
         if (line.Provider != WhatsAppProvider.Evolution)

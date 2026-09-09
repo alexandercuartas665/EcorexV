@@ -12051,3 +12051,12 @@ Pendiente de validacion en la UI (mi equipo no alcanza 192.168.0.8 hoy): (1) "Pr
 (last_validated_at estaba null); (2) STRING_SPLIT exige SQL Server 2016+/compat 130 - si falla, se
 cambia por tokenizador XML; (3) el login de la conexion necesita EXECUTE sobre sp_visualizar_data_
 formulario_sql y las funciones para clientes_perfil_comercial.
+
+## 2026-09-08 (cont.) - SOLDARCO_ALEJITO: los 5 datasets expuestos al agente IA
+
+Por pedido del usuario ("todos estos dataset son de uso del agente"), UPDATE agent_enabled=true en los
+5 datasets de SOLDARCO_ALEJITO (marcas, grupos, subgrupos, consultar_directorio,
+clientes_perfil_comercial). Ahora el toolset "datos" del agente puede listarlos, ver sus parametros y
+ejecutarlos (respeta AllowWrite de la conexion=OFF y AllowBatch por dataset). Backup
+ecorex-2026-09-08-2101.sql.gg. Sigue pendiente la validacion en la UI (Probar conexion + STRING_SPLIT
++ EXECUTE del login para el batch).

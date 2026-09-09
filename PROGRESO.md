@@ -12029,3 +12029,25 @@ ETL server-side (SQL) del contenedor a terceros, sin re-consultar Alegra:
   dependen de las fichas del tenant; se dejaron fuera por ahora.)
 BITCODE terceros: 37 -> 241 (204 con perfil Cliente). Backup ecorex-2026-09-03-1028. SQL directo (ETL).
 Nota: algunos contactos personas traen telefono como "identificacion" en Alegra (calidad del dato origen).
+
+## 2026-09-08 - SOLDARCO: conjunto de datos externos "SOLDARCO_ALEJITO" (web service agente comercial)
+
+Agente: Claude Opus 4.8 (sesion config-datos; el usuario pidio "no codeas, solo config/prompts").
+El usuario creo en la UI (/conexiones-datos de SOLDARCO) una conexion NUEVA ExternalDataSource
+"SOLDARCO_ALEJITO" (SqlServer, AllowWrite=OFF, id 01a083d6-6716-7422-89c8-443d8e6297c4) contra el
+servidor M700 de SOLDARCO. Yo cargue 5 datasets curados que replican los servicios del web service
+legacy D:\Desarrollo\core\Bootstrap\Servicios\Soldarco\sweb_agentecomercial.asmx(.vb):
+  - marcas / grupos / subgrupos  -> [dbx.INVEN].dbo.MARCA|GRUPOS|SUBGRUPOS (SELECT, 1 SELECT)
+  - consultar_directorio         -> M700_GEN.dbo.DIRECTORIO + estado RUT (M700_DOD)
+  - clientes_perfil_comercial    -> CustomersListXML (BATCH: EXEC sp_visualizar_data_formulario_sql
+    + @SALDOS via saldocarteraDocCorte + CROSS APPLY fn_DisponibleCliente); allow_batch=ON.
+Parametrizacion tipada (cero concatenacion): busqueda multi-palabra del legacy replicada con
+STRING_SPLIT(@Name/@CustomersName,' ') (AND por palabra, fn_quitar_acentuados), TOP (@TopNumber),
+se quito Token. EXCLUIDOS por ahora: ProductList y MisVentas (escriben en la BD: carga_ref_compra /
+DELETE-INSERT en M700_TRA.FECHAS) y CustomersAccount (devuelve URL de PDF, no es SQL). AgentEnabled
+en false en los 5. INSERT directo por SQL (excepcion ETL; los datasets no llevan secreto - la cadena
+cifrada la creo el usuario en la UI). Backup ecorex-2026-09-08-2057.sql.gz.
+Pendiente de validacion en la UI (mi equipo no alcanza 192.168.0.8 hoy): (1) "Probar conexion"
+(last_validated_at estaba null); (2) STRING_SPLIT exige SQL Server 2016+/compat 130 - si falla, se
+cambia por tokenizador XML; (3) el login de la conexion necesita EXECUTE sobre sp_visualizar_data_
+formulario_sql y las funciones para clientes_perfil_comercial.

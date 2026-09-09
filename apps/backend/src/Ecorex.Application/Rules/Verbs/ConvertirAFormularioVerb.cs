@@ -44,6 +44,11 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
             new RuleVerbParamDescriptor("mapping", "Mapeo de campos", RuleParamType.Json, Required: false,
                 "Opcional. JSON { campoOrigen: campoDestino } solo para los campos que cambian de nombre. Los "
                 + "campos con el MISMO codigo en ambos formularios se copian automaticamente."),
+            new RuleVerbParamDescriptor("gridMapping", "Mapeo de columnas de grilla", RuleParamType.Json, Required: false,
+                "Opcional. Para grillas (tablas) cuyos IDs de columna difieren entre origen y destino: JSON "
+                + "{ grilla: { colOrigen: colDestino } }. Cada fila del destino queda SOLO con las columnas "
+                + "mapeadas; las no mapeadas se omiten. Sin entrada para la grilla se copia tal cual. Ej.: "
+                + "{ \"items\": { \"producto\": \"descripcion\", \"cantidad\": \"cant\" } }."),
             new RuleVerbParamDescriptor("defaults", "Valores por defecto / transformacion", RuleParamType.Json, Required: false,
                 "Opcional. JSON { campoDestino: valor } que RELLENA campos del destino que NO vienen del origen "
                 + "(solo si quedan vacios). El valor puede ser una constante o un token de contexto: "
@@ -77,9 +82,10 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
 
         var mapping = ParseMapping(context, "mapping");
         var defaults = ParseMapping(context, "defaults");
+        var gridMapping = ParseGridMapping(context, "gridMapping");
 
         var result = await _forms.CreateDerivedFormAsync(
-            sourceId, targetDef.Id, mapping, defaults, context.ExecutedByTenantUserId, cancellationToken);
+            sourceId, targetDef.Id, mapping, defaults, context.ExecutedByTenantUserId, gridMapping, cancellationToken);
         if (!result.IsOk)
         {
             return RuleVerbResult.Fail(result.Error ?? "No se pudo crear el formulario destino.");
@@ -124,5 +130,37 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
             }
         }
         return map.Count > 0 ? map : null;
+    }
+
+    /// <summary>Lee 'gridMapping' anidado { grilla: { colOrigen: colDestino } }. Acepta objeto JSON o cadena
+    /// con JSON. Cada grilla reusa ReadMap para su mapa de columnas.</summary>
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ParseGridMapping(RuleContext context, string paramName)
+    {
+        if (!context.Params.TryGetValue(paramName, out var el)) { return null; }
+        if (el.ValueKind == JsonValueKind.Object) { return ReadGridMap(el); }
+        if (el.ValueKind == JsonValueKind.String)
+        {
+            var s = el.GetString();
+            if (string.IsNullOrWhiteSpace(s)) { return null; }
+            try
+            {
+                using var doc = JsonDocument.Parse(s);
+                return doc.RootElement.ValueKind == JsonValueKind.Object ? ReadGridMap(doc.RootElement) : null;
+            }
+            catch (JsonException) { return null; }
+        }
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? ReadGridMap(JsonElement obj)
+    {
+        var outer = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        foreach (var grid in obj.EnumerateObject())
+        {
+            if (grid.Value.ValueKind != JsonValueKind.Object) { continue; }
+            var inner = ReadMap(grid.Value);
+            if (inner is not null) { outer[grid.Name] = inner; }
+        }
+        return outer.Count > 0 ? outer : null;
     }
 }

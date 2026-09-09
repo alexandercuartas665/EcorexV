@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.26: mapeo de COLUMNAS de grilla en CONVERTIR_A_FORMULARIO (ADR-0078)
+
+- Bug: al convertir un registro a otro formulario, las grillas (GridDetail) se copiaban por jsonb completo
+  asumiendo mismos ids de columna. Con ids distintos (SIMULADOR COTIZACIONES -> CUENTA DE COBRO en SKY
+  SYSTEM), la tabla del destino quedaba vacia.
+- Hecho:
+  - ConvertirAFormularioVerb.cs: nuevo param OPCIONAL de regla `gridMapping` (RuleVerbParamDescriptor,
+    RuleParamType.Json) con forma { grilla: { colOrigen: colDestino } }. Parser ParseGridMapping/ReadGridMap
+    (reusa ReadMap). Se pasa a CreateDerivedFormAsync.
+  - IFormResponseService + FormResponseService.CreateDerivedFormAsync: nuevo param
+    gridMapping (IReadOnlyDictionary<string, IReadOnlyDictionary<string,string>>?). En el armado de `mapped`,
+    si hay entrada para el campo (por su codigo de origen O el ya remapeado de destino) y es grilla, cada fila
+    del destino se arma SOLO con las columnas mapeadas (destRow[colDestino]=srcRow[colOrigen]); las no
+    mapeadas se omiten. Los campos calc/rollup del destino (valor_total, tot_subtotal) se recomputan al guardar.
+  - Compatibilidad: sin gridMapping para el campo -> copia tal cual (comportamiento actual). El `mapping` de
+    renombrado de campos sigue igual; una grilla puede renombrarse Y remapear columnas.
+- Sin migraciones. Verificado: build de la solucion verde.
+- Config: la aplica el usuario por SQL tras el deploy (quitar items de mapping y agregar gridMapping
+  {"items":{"producto":"descripcion","cantidad":"cant","p_unitario":"valor_unitario"}}).
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-08 - v0.16.25: fix z-index de la ficha modular en el wizard (quedaba detras del modal)
 
 - Bug (usuario): en el wizard de crear tarea (v0.16.21), "Crear tercero" en tenant modular abria la ficha

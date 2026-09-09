@@ -132,11 +132,15 @@ public interface IFormResponseService
     /// '@usuario.email', '@fecha.hoy', '@fecha.hora'); cualquier otro valor se toma como constante literal.
     /// <paramref name="actorTenantUserId"/> es el TenantUser que dispara la conversion (para resolver '@usuario.*').
     /// </summary>
+    /// <param name="gridMapping">Opcional. Remapeo de COLUMNAS por grilla (GridDetail) cuando los ids difieren
+    /// entre origen y destino: { gridFieldCode: { colOrigen: colDestino } }. Cada fila del destino queda SOLO
+    /// con las columnas mapeadas; las no mapeadas se omiten. Sin entrada para la grilla -> se copia tal cual.</param>
     Task<FormResult<Guid>> CreateDerivedFormAsync(
         Guid sourceResponseId, Guid targetDefinitionId,
         IReadOnlyDictionary<string, string>? fieldMapping,
         IReadOnlyDictionary<string, string>? contextDefaults = null,
         Guid? actorTenantUserId = null,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? gridMapping = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

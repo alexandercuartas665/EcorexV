@@ -1351,6 +1351,7 @@ public sealed class FormResponseService : IFormResponseService
         IReadOnlyDictionary<string, string>? fieldMapping,
         IReadOnlyDictionary<string, string>? contextDefaults = null,
         Guid? actorTenantUserId = null,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? gridMapping = null,
         CancellationToken cancellationToken = default)
     {
         var src = await _db.FormResponses.AsNoTracking()
@@ -1379,10 +1380,34 @@ public sealed class FormResponseService : IFormResponseService
             var targetCode = fieldMapping is not null && fieldMapping.TryGetValue(srcCode, out var mc) && !string.IsNullOrWhiteSpace(mc)
                 ? mc.Trim()
                 : srcCode;
-            if (targetCodes.Contains(targetCode))
+            if (!targetCodes.Contains(targetCode)) { continue; }
+
+            // Remapeo de COLUMNAS de grilla (ADR-0078): si hay gridMapping para este campo (por su codigo de
+            // origen o el ya remapeado de destino), cada fila del destino se arma SOLO con las columnas
+            // mapeadas (destRow[colDestino] = srcRow[colOrigen]); las no mapeadas se omiten. Los campos calc /
+            // rollup del destino (ej. valor_total, tot_subtotal) se recomputan solos al guardar.
+            var colMap = gridMapping is null ? null
+                : gridMapping.TryGetValue(srcCode, out var cm1) ? cm1
+                : gridMapping.TryGetValue(targetCode, out var cm2) ? cm2
+                : null;
+            if (colMap is not null)
             {
-                mapped[targetCode] = val;
+                var srcRows = FormFieldValidator.ParseGridRows(val.Value);
+                var destRows = new List<Dictionary<string, string?>>(srcRows.Count);
+                foreach (var row in srcRows)
+                {
+                    var dest = new Dictionary<string, string?>(StringComparer.Ordinal);
+                    foreach (var (colSrc, colDest) in colMap)
+                    {
+                        if (row.TryGetValue(colSrc, out var cell)) { dest[colDest] = cell; }
+                    }
+                    destRows.Add(dest);
+                }
+                mapped[targetCode] = new FormFieldValue(JsonSerializer.Serialize(destRows), val.Type);
+                continue;
             }
+
+            mapped[targetCode] = val;
         }
 
         // Valores por defecto / TRANSFORMACION configurable (contextDefaults): rellenan campos del destino SIN

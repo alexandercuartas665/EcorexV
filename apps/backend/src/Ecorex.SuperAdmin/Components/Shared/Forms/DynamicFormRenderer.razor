@@ -3234,6 +3234,26 @@ else
         return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
     }
 
+    /// <summary>Lee el mensaje de confirmacion opcional de un boton (options_json {"confirm":"..."}).
+    /// Vacio/ausente => sin confirmacion. Lo usa OnButtonClickAsync para pedir OK/Cancelar antes de la regla.</summary>
+    private static string? ButtonConfirmMessage(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return null; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(optionsJson);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("confirm", out var c)
+                && c.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var s = c.GetString();
+                return string.IsNullOrWhiteSpace(s) ? null : s;
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return null;
+    }
+
     /// <summary>Resuelve un valor por defecto dinamico al abrir el formulario (Hoy / Usuario actual).</summary>
     private string? ResolveDynamicDefault(FormDefaultDynamic d) => d switch
     {
@@ -3589,6 +3609,15 @@ else
     {
         if (Mode != FormRenderMode.Fill || IsLocked || _response is null) { return; }
         if (!_ruleTriggerFields.Contains(q.FieldCode)) { return; }
+
+        // Confirmacion opcional del boton (options_json {"confirm":"mensaje"}): si esta definida, pide
+        // OK/Cancelar antes de disparar la regla. Reusa el confirm nativo (igual que el borrado de fila).
+        var confirmMsg = ButtonConfirmMessage(q.OptionsJson);
+        if (!string.IsNullOrWhiteSpace(confirmMsg)
+            && !await JS.InvokeAsync<bool>("confirm", confirmMsg))
+        {
+            return;
+        }
 
         await _dbGate.WaitAsync();
         FormFieldRulesOutcome outcome;

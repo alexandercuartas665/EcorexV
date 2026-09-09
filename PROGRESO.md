@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.25: fix z-index de la ficha modular en el wizard (quedaba detras del modal)
+
+- Bug (usuario): en el wizard de crear tarea (v0.16.21), "Crear tercero" en tenant modular abria la ficha
+  modular pero quedaba DETRAS del modal del wizard. Causa: .fm-overlay (ficha modular) tenia z-index:70 y el
+  overlay del wizard esta en 1060/1090; en el Cargador no se notaba porque abre sobre la pagina.
+- Fix (DirectorioModularFichaModal.razor): .fm-overlay z-index 70 -> 1100 (por encima del wizard). Solo lo
+  usa esta ficha, asi que el Cargador sigue igual. CSS-only.
+- Sin cambios de schema. Verificado: build de SuperAdmin verde.
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-08 - v0.16.23: limpieza del logging TEMPORAL de diagnostico YCloud (post-fix 131009)
 
 - Contexto: el fix del wamid (v0.16.14) resolvio el 131009 de las reacciones YCloud. Ya no se necesita el

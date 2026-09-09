@@ -9,6 +9,7 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @using Ecorex.SuperAdmin.Components.Shared.Lookups
+@using Ecorex.SuperAdmin.Components.Pages
 @inject ITaskItemService TasksSvc
 @inject IEntidadService EntidadSvc
 @inject IActividadCatalogoService CatalogoSvc
@@ -19,6 +20,7 @@
 @inject IFormResponseService FormResponsesSvc
 @inject IFormDefinitionService FormDefinitionsSvc
 @inject ITerceroService TerceroSvc
+@inject IDirectoryVariantService DirVariant
 @inject IActivityCatalogService ActCatalogSvc
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 
@@ -478,6 +480,10 @@
 @* Crear un tercero SIN salir de la creacion de la tarea: se abre desde el "Crear tercero" del
    autocompletar de Contacto y, al guardar, se SELECCIONA el recien creado (OnCreated). *@
 <TerceroModal @ref="_terceroModal" OnCreated="OnTerceroCreadoAsync" />
+@* Ficha MODULAR publica (2do motor): se abre en vez del modal clasico cuando el tenant esta en variante
+   'modular' (mismo patron que el Cargador de contactos). Driven por parametro _modularNuevoKey. *@
+<DirectorioModularFichaModal CategoriaKey="@_modularNuevoKey" TerceroId="@_modularEditId"
+                             OnClosed="OnModularClosed" OnSaved="OnModularSavedAsync" />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -1171,15 +1177,37 @@
 
     // --- Crear tercero desde el autocompletar de Contacto (sin salir de la creacion) ---
     private TerceroModal? _terceroModal;
+    // Ruteo por variante: si el tenant esta en 'modular' se abre la ficha modular publica en vez del modal
+    // clasico. _modularNuevoKey != null la abre (categoria "publico"); null la cierra (mismo patron que el
+    // Cargador de contactos). El wizard solo CREA desde aqui, asi que _modularEditId queda en null.
+    private string? _modularNuevoKey;
+    private Guid? _modularEditId;
 
-    /// <summary>"Crear tercero" del autocompletar: abre el modal de tercero en modo creacion, con el nombre
-    /// que se venia escribiendo prellenado.</summary>
+    /// <summary>"Crear tercero" del autocompletar: si el tenant es MODULAR abre la ficha modular publica;
+    /// si no, el modal clasico con el nombre prellenado (comportamiento actual).</summary>
     private async Task OpenCrearTerceroAsync(string? nombre)
     {
+        if (await DirVariant.GetAsync() == DirectoryVariant.Modular)
+        {
+            // La ficha modular no recibe prefill de nombre (paridad con el Cargador); el asesor lo escribe
+            // en la seccion publica. Lo tecleado en el wizard no se pierde: al guardar se vuelca el tercero.
+            _modularNuevoKey = "publico";
+            return;
+        }
         if (_terceroModal is not null)
         {
             await _terceroModal.OpenCreate(nombre: nombre);
         }
+    }
+
+    private void OnModularClosed() { _modularNuevoKey = null; _modularEditId = null; }
+
+    /// <summary>La ficha modular guardo el tercero: se cierra y se SELECCIONA en el campo de contacto del
+    /// wizard (mismo volcado que OnTerceroCreadoAsync / elegirlo del directorio).</summary>
+    private async Task OnModularSavedAsync(Guid? terceroId)
+    {
+        _modularNuevoKey = null; _modularEditId = null;
+        if (terceroId is Guid id) { await OnTerceroCreadoAsync(id); }
     }
 
     /// <summary>El modal creo el tercero: se SELECCIONA en el campo de contacto (mismo volcado que elegirlo

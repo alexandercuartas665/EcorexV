@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.21: "Crear tercero" del wizard rutea por variante (ficha modular publica)
+
+- Bug (sesion de diagnostico): en el wizard de crear tarea, "Crear tercero" desde el paso de contacto
+  abria SIEMPRE el modal clasico, aunque el tenant estuviera en variante 'modular' (SOLDARCO). El tercero
+  quedaba engine=Modular en BD (estampado en TerceroService), pero la UI mostrada era la simple.
+- Fix (mismo patron del Cargador / GestorContactos):
+  - TaskWizard.razor: inyecta IDirectoryVariantService; declara <DirectorioModularFichaModal> junto al
+    <TerceroModal>; OpenCrearTerceroAsync ahora rutea: si DirVariant.GetAsync()==Modular abre la ficha
+    modular publica (_modularNuevoKey="publico"), si no, mantiene _terceroModal.OpenCreate(nombre). Al
+    guardar (OnModularSavedAsync(Guid?)) selecciona el tercero recien creado en el contacto del wizard
+    reusando OnTerceroCreadoAsync (mismo volcado que elegirlo del directorio).
+  - DirectorioModularFichaModal.razor: OnSaved pasa de EventCallback a EventCallback<Guid?> para devolver
+    el id del tercero guardado (el padre lo selecciona). GestorContactos (handler sin parametro) sigue
+    enlazando sin cambios.
+- Desvio respecto al prompt: la ficha modular NO recibe prefill del nombre tecleado (el componente no tiene
+  ese parametro); se mantiene PARIDAD con el Cargador (que tampoco prefilllea). El modal clasico si sigue
+  prellenando el nombre. El path clasico (tenant no modular) queda intacto.
+- Sin cambios de schema ni migraciones. Multi-tenant intacto (DirVariant resuelve el tenant actual).
+- Verificado: build de SuperAdmin verde (incl. GestorContactos con el OnSaved nuevo). Validacion visual
+  pendiente (maquina cargada).
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-08 - v0.16.20: telefono del contacto por respaldo de la conversacion + fix rotulo del RESUMEN
 
 - Ajuste 1 (TasksToolset.CreateTaskAsync): en WhatsApp el cliente casi nunca DICTA su numero (es el de la

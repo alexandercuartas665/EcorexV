@@ -4,8 +4,10 @@ namespace Ecorex.Application.Forms;
 
 // ---- Formularios dinamicos (FASE 4, ADR-0015) ----
 
-/// <summary>Opcion de un control Select/MultiCheck/Radio ([{id,label,value}] en OptionsJson).</summary>
-public sealed record FormOption(string Id, string Label, string? Value = null);
+/// <summary>Opcion de un control Select/MultiCheck/Radio ([{id,label,value,desc}] en OptionsJson).
+/// Desc = subdescripcion opcional que la tarjeta opt-card pinta bajo el label (se mapea desde la clave
+/// "desc" del options_json por el JSON web-default case-insensitive de ParseOptions).</summary>
+public sealed record FormOption(string Id, string Label, string? Value = null, string? Desc = null);
 
 /// <summary>Reglas de validacion declaradas en ValidationJson de la pregunta.</summary>
 public sealed record FormValidationRules(

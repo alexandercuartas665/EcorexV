@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.22: subdescripcion opcional en las tarjetas opt-card (hook para diseno)
+
+- Pedido (sesion de diseno): las opt-cards del prototipo llevan una subdescripcion bajo cada opcion
+  (Soporte/Criticidad, PQR/Tipo, PQR/Impacto); hoy solo pintan el label. Es solo el HOOK de codigo; el CSS
+  y las descripciones (config options_json) los pone la sesion de diseno.
+- Hecho:
+  - FormDtos.cs: FormOption suma Desc opcional -> record (Id, Label, Value?, Desc?).
+  - Parseo: SIN codigo nuevo. FormFieldValidator.ParseOptions deserializa directo a List<FormOption> con
+    JsonSerializerDefaults.Web (case-insensitive), asi que la clave "desc" del options_json se mapea sola a
+    Desc. options_json puede ser [{"id":"alta","label":"Alta","desc":"..."}].
+  - DynamicFormRenderer.razor: en las DOS ramas IsOptionCards (Radio y MultiCheck), tras
+    <span class="dfr-optcard-label"> se agrega <span class="dfr-optcard-desc">@option.Desc</span>
+    condicional (si Desc no vacio). El CSS de la tarjeta de 2 lineas lo aplica diseno por custom_css
+    (las opt-cards estan dentro del @scope del formulario).
+- Sin cambios de schema. Retro-compatible: opciones sin "desc" no cambian.
+- Verificado: build de SuperAdmin verde.
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-08 - v0.16.21: "Crear tercero" del wizard rutea por variante (ficha modular publica)
 
 - Bug (sesion de diagnostico): en el wizard de crear tarea, "Crear tercero" desde el paso de contacto

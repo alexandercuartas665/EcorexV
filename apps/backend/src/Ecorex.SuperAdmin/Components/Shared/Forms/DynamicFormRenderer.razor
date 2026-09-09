@@ -965,6 +965,10 @@ else
                                        @onchange="@(() => SetValue(q, option.Id))" />
                                 <span class="dfr-optcard-tick">@(option.Id == value ? "✓" : "")</span>
                                 <span class="dfr-optcard-label">@option.Label</span>
+                                @if (!string.IsNullOrWhiteSpace(option.Desc))
+                                {
+                                    <span class="dfr-optcard-desc">@option.Desc</span>
+                                }
                             </label>
                         }
                         else
@@ -991,6 +995,10 @@ else
                                        @onchange="@(e => ToggleMulti(q, option.Id, (bool)e.Value!))" />
                                 <span class="dfr-optcard-tick">@(selected.Contains(option.Id) ? "✓" : "")</span>
                                 <span class="dfr-optcard-label">@option.Label</span>
+                                @if (!string.IsNullOrWhiteSpace(option.Desc))
+                                {
+                                    <span class="dfr-optcard-desc">@option.Desc</span>
+                                }
                             </label>
                         }
                         else

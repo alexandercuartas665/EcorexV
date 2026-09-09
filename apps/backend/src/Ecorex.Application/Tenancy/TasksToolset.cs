@@ -168,6 +168,18 @@ public sealed class TasksToolset : ITasksToolset
         var clienteEmail = Clean(Str(args, "cliente_email"));
         var clienteIdentificacion = Clean(Str(args, "cliente_identificacion"));
 
+        // Respaldo del telefono: en WhatsApp el cliente casi nunca DICTA su numero (es el de la conversacion
+        // desde la que escribe). Si el agente no paso cliente_telefono, se toma el ContactPhone de la
+        // conversacion en curso para que la tarea SIEMPRE quede con el telefono del cliente.
+        if (clienteTelefono is null && AiToolRunContext.ConversationId is Guid convPhoneId)
+        {
+            var convPhone = await _db.Conversations.AsNoTracking()
+                .Where(c => c.Id == convPhoneId)
+                .Select(c => c.ContactPhone)
+                .FirstOrDefaultAsync(ct);
+            clienteTelefono = Clean(convPhone);
+        }
+
         // Reparto round-robin: el sistema asigna la tarea al SIGUIENTE asesor MARCADO como asignable
         // (con usuario vinculado). No todos los asesores entran: solo los que tienen la marca.
         var asignado = await PickNextAssigneeAsync(ct);

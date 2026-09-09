@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-08 - v0.16.20: telefono del contacto por respaldo de la conversacion + fix rotulo del RESUMEN
+
+- Ajuste 1 (TasksToolset.CreateTaskAsync): en WhatsApp el cliente casi nunca DICTA su numero (es el de la
+  conversacion), asi que crear_tarea dejaba la tarea sin telefono. Ahora, si el arg cliente_telefono viene
+  vacio, se usa como RESPALDO el ContactPhone de la conversacion en curso (AiToolRunContext.ConversationId
+  -> _db.Conversations.ContactPhone). Toda tarea creada desde un chat real queda con el telefono del cliente
+  y el RESUMEN muestra la fila Telefono.
+- Ajuste 2 (app.css .tk-summary-row > span:first-child): el rotulo "IDENTIFICACION/NIT" (uppercase +
+  letter-spacing) era mas ancho que 92px y se solapaba con el valor. Se subio la columna del rotulo a 104px
+  y se agrego overflow-wrap:anywhere para que parta en su columna sin invadir; el valor ya tiene min-width:0.
+- Sin cambios de schema (no hay migraciones). Solo TasksToolset.cs + app.css + AppVersion.
+- Verificado: build de la solucion verde.
+- Siguiente: push/deploy a senal del usuario (prod en v0.16.18; 0.16.19/0.16.20 sin desplegar).
+
 ## 2026-09-08 - v0.16.19: rediseno visual de las tarjetas de nodo del flujo (WorkflowStepCard)
 
 - Pedido (usuario): llevar las tarjetas/nodos del runtime de flujos (diagrama al abrir una tarea) a una

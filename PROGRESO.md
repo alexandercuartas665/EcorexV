@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.28: Diagrama de flujo en la tarea - nodo de AGENTE IA rediseniado (ADR-0090)
+
+- Contexto: pedido del usuario para leer de un golpe cuales pasos los ejecuta un agente, con mas aire y
+  senal de "trabajando" + tokens. Solo UI del diagrama en el detalle de la tarea (TaskDetailModal).
+- Hecho (frontend, TaskDetailModal.razor + app.css):
+  - Mas espacio entre nodos (FlowXScale 1.02 -> 1.42); tarjetas ~10% mas grandes (FlowNodeW/FlowNodeH).
+  - Nodo de agente (IsAuto) = tarjeta OSCURA (negro del app) con acento indigo, robot, tag "IA", nombre
+    del agente y pildora de TOKENS reales. Leyenda "Agente IA" (antes "Automatico").
+  - Chips de CAPACIDADES del nodo (Colmena/Voz/WhatsApp/Correo) con su color, segun WorkflowNodeAgent.
+  - Aura animada "El agente esta trabajando..." cuando el paso de agente es el actual (CSS keyframes).
+- Hecho (backend, TaskFlowNodeDto + WorkflowInboxService): + AgentTokens (suma ai_usage_logs source
+  'workflow-agent' por agente) y + AgentWeb/Voice/WhatsApp/Email (capacidades del WorkflowNodeAgent).
+- Prod (AGROMETALICAS, incidente): FLW-001 v12 publicada tenia un agente SARA.agente_comercial_v1 colado
+  en el nodo "Cotizacion del Proyecto" (fila creada 2026-09-09 16:33, directo sobre la publicada; ni v8-11
+  ni v13 lo tienen) -> 6 instancias vivas atascadas (nodo IsAuto = sin boton de cierre humano; agente en
+  Propone que fallo, sin UI de confirmacion). Fix aplicado por SQL en prod (autorizado): DELETE de esa
+  fila -> el nodo vuelve a humano y las 6 se destraban. Origen del agente: probable SQL/API, no el editor.
+- Siguiente: hueco de producto real = un paso con agente (Propone) que falla no tiene salida humana
+  (boton de confirmar/cerrar); vale implementarlo. Y la Capa 2 (stream en vivo por SignalR) del nodo agente.
+
 ## 2026-09-10 - v0.16.27: Directorio Modular - campo "Notas de desarrollador" + UX del config modal (ADR-0088)
 
 - Contexto: rama feat/directorio-modular re-fusionada con el tronco (v0.16.26) por fast-forward; estos

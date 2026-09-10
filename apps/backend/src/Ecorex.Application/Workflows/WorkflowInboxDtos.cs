@@ -80,7 +80,16 @@ public sealed record TaskFlowNodeDto(
     bool IsAbandoned = false,
     // Notas colaborativas del equipo sobre este nodo (ADR-0071): recados entre companeros, visibles en
     // el menu del nodo. Cualquiera con acceso a la tarea puede agregarlas, incluso en pasos futuros.
-    IReadOnlyList<TaskFlowNoteDto>? TeamNotes = null);
+    IReadOnlyList<TaskFlowNoteDto>? TeamNotes = null,
+    // Tokens de IA consumidos por el agente de este nodo (solo pasos IsAuto). Se calcula sumando
+    // ai_usage_logs del agente con source='workflow-agent'. Para pintar el contador en la tarjeta.
+    long? AgentTokens = null,
+    // Capacidades/herramientas configuradas del agente del nodo (WorkflowNodeAgent), para pintar
+    // los chips (Colmena/web, Voz, WhatsApp, Correo) dentro de la tarjeta oscura del agente.
+    bool AgentWeb = false,
+    bool AgentVoice = false,
+    bool AgentWhatsApp = false,
+    bool AgentEmail = false);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

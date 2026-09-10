@@ -96,13 +96,38 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             .Where(f => nodeIds.Contains(f.NodeId))
             .Select(f => f.NodeId)
             .ToListAsync(cancellationToken)).ToHashSet();
-        var agentByNode = await (
+        var agentRows = await (
             from a in _db.WorkflowNodeAgents.AsNoTracking()
             where nodeIds.Contains(a.NodeId)
             join ag in _db.AiAgents.AsNoTracking() on a.AiAgentId equals ag.Id into agj
             from ag in agj.DefaultIfEmpty()
-            select new { a.NodeId, AgentName = ag != null ? ag.Name : null })
-            .ToDictionaryAsync(x => x.NodeId, x => x.AgentName, cancellationToken);
+            select new
+            {
+                a.NodeId,
+                a.AiAgentId,
+                AgentName = ag != null ? ag.Name : null,
+                Web = a.ColmenaClientId != null,
+                Voice = a.VoiceAiAgentId != null,
+                WhatsApp = a.WhatsAppLineId != null,
+                Email = a.CanSendEmail
+            })
+            .ToListAsync(cancellationToken);
+        var agentByNode = agentRows.ToDictionary(x => x.NodeId, x => x.AgentName);
+        var agentIdByNode = agentRows.ToDictionary(x => x.NodeId, x => x.AiAgentId);
+        var agentCapsByNode = agentRows.ToDictionary(
+            x => x.NodeId, x => (x.Web, x.Voice, x.WhatsApp, x.Email));
+
+        // Tokens de IA consumidos por cada agente en pasos de flujo (source='workflow-agent'). Se suma por
+        // agente y luego se atribuye al nodo que lo usa. El filtro global de tenant aisla el conteo.
+        var agentIds = agentRows.Select(x => x.AiAgentId).Distinct().ToList();
+        var tokensByAgent = agentIds.Count == 0
+            ? new Dictionary<Guid, long>()
+            : (await _db.AiUsageLogs.AsNoTracking()
+                .Where(u => u.AgentId != null && agentIds.Contains(u.AgentId.Value) && u.Source == "workflow-agent")
+                .GroupBy(u => u.AgentId!.Value)
+                .Select(g => new { AgentId = g.Key, Tokens = g.Sum(u => (long)u.TotalTokens) })
+                .ToListAsync(cancellationToken))
+                .ToDictionary(x => x.AgentId, x => x.Tokens);
 
         // Etiqueta del usuario = NOMBRE (display_name del platform user); si no hay, el correo. Para que
         // el diagrama muestre "Lilian Loaiza" y no el correo/cedula.
@@ -305,7 +330,12 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 CanReopen: canReopen,
                 ReopenStepId: canReopen ? h!.Id : (Guid?)null,
                 IsAbandoned: isAbandoned,
-                TeamNotes: notesByNode.TryGetValue(n.Id, out var teamNotes) ? teamNotes : null);
+                TeamNotes: notesByNode.TryGetValue(n.Id, out var teamNotes) ? teamNotes : null,
+                AgentTokens: isAuto && agentIdByNode.TryGetValue(n.Id, out var aid) && tokensByAgent.TryGetValue(aid, out var tk) ? tk : null,
+                AgentWeb: isAuto && agentCapsByNode.TryGetValue(n.Id, out var caps) && caps.Web,
+                AgentVoice: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsV) && capsV.Voice,
+                AgentWhatsApp: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsW) && capsW.WhatsApp,
+                AgentEmail: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsE) && capsE.Email);
         }).ToList();
 
         var edges = canvas.Edges

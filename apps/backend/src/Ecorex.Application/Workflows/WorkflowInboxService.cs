@@ -73,7 +73,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.ApprovalComment,
                 s.AssignedToTenantUserId,
                 s.CreatedAt,
-                s.CompletedAt
+                s.CompletedAt,
+                s.AgentAttemptedAt,
+                s.AgentFailureReason
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -335,7 +337,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 AgentWeb: isAuto && agentCapsByNode.TryGetValue(n.Id, out var caps) && caps.Web,
                 AgentVoice: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsV) && capsV.Voice,
                 AgentWhatsApp: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsW) && capsW.WhatsApp,
-                AgentEmail: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsE) && capsE.Email);
+                AgentEmail: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsE) && capsE.Email,
+                AgentFailureReason: isAuto && h is { IsCurrent: true, Status: WorkflowStepStatus.Pending, AgentAttemptedAt: not null }
+                    ? h.AgentFailureReason : null);
         }).ToList();
 
         var edges = canvas.Edges

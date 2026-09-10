@@ -51,6 +51,11 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentAttemptedAt { get; set; }
 
+    /// <summary>Cuantas veces INTENTO el agente este paso (para la politica de reintentos, OnFailure=Retry).
+    /// Se incrementa en cada intento fallido; mientras quedan reintentos, AgentAttemptedAt sigue null para
+    /// que el worker vuelva a tomarlo en el siguiente ciclo.</summary>
+    public int AgentAttemptCount { get; set; }
+
     /// <summary>
     /// Resultado PROPUESTO por el agente (mismo vocabulario que <see cref="ApprovalResult"/>).
     /// Campo propio y no reuso de ApprovalResult porque CompleteStepAsync SOBRESCRIBE

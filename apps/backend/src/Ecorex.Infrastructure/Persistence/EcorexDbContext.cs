@@ -1509,6 +1509,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.AgentProposalResult).HasMaxLength(20);
             b.Property(x => x.AgentProposalComment).HasMaxLength(2000);
             b.Property(x => x.AgentFailureReason).HasMaxLength(500);
+            b.Property(x => x.AgentAttemptCount).HasDefaultValue(0);
             // ADR-0091: CallId de Retell que el paso espera (llamada del agente). Acotado.
             b.Property(x => x.PendingVoiceCallId).HasMaxLength(120);
             // ADR-0092: Id de la conversacion WhatsApp que el paso espera. Indexado: la reanudacion
@@ -1892,6 +1893,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // filas existentes (migracion aditiva).
             b.Property(x => x.ExtraPrompt).HasMaxLength(4000);
             b.Property(x => x.CanSendEmail).HasDefaultValue(false);
+            // Politica de FALLO del agente (que hacer si no resuelve el paso). Migracion aditiva: enum como
+            // int con default ReturnToHuman(0), reintentos default 0, ruta de contingencia acotada.
+            b.Property(x => x.OnFailure).HasDefaultValue(WorkflowAgentFailureAction.ReturnToHuman);
+            b.Property(x => x.FailureRetries).HasDefaultValue(0);
+            b.Property(x => x.FailureRoute).HasMaxLength(64);
         });
 
         // Notas colaborativas del equipo por nodo de una instancia (ADR-0071): recados entre companeros.

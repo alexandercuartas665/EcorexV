@@ -1264,7 +1264,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
-                    x.ExtraPrompt, x.CanSendEmail))
+                    x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1318,7 +1318,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
-            existing.ExtraPrompt, existing.CanSendEmail));
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
     }
 
     public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
@@ -1377,6 +1377,12 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         // ADR-0093: instrucciones por paso + permiso de correo.
         existing.ExtraPrompt = string.IsNullOrWhiteSpace(input.ExtraPrompt) ? null : input.ExtraPrompt.Trim();
         existing.CanSendEmail = input.CanSendEmail;
+        // Politica de FALLO: que hacer si el agente no resuelve. La ruta solo se guarda si el modo es TakeRoute;
+        // los reintentos solo si es Retry (evita config muerta si luego cambia el modo).
+        existing.OnFailure = input.OnFailure;
+        existing.FailureRetries = input.OnFailure == WorkflowAgentFailureAction.Retry ? Math.Clamp(input.FailureRetries, 0, 10) : 0;
+        existing.FailureRoute = input.OnFailure == WorkflowAgentFailureAction.TakeRoute && !string.IsNullOrWhiteSpace(input.FailureRoute)
+            ? input.FailureRoute.Trim() : null;
         await _db.SaveChangesAsync(cancellationToken);
 
         var agent = await _db.AiAgents.AsNoTracking().FirstAsync(a => a.Id == existing.AiAgentId, cancellationToken);
@@ -1384,7 +1390,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, existing.Autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
-            existing.ExtraPrompt, existing.CanSendEmail));
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

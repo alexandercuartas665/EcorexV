@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.31: Politica de FALLO del agente configurable + recurso humano (ADR-0090)
+
+- Contexto: incidente en prod (AGROMETALICAS) donde un paso de agente que fallaba quedaba atascado
+  (nodo IsAuto = sin boton de cierre humano). Se cierra el hueco y se hace configurable.
+- Hecho (recurso humano en pasos de agente, TaskDetailModal.razor + app.css):
+  - El menu del nodo de agente ya NO bloquea: muestra su info Y, si el paso es del viewer, boton
+    "Retomar y cerrar" (o ruta). Rotulo "PASO DE AGENTE".
+  - Estado de FALLO en el nodo: si el agente intento y no pudo (AgentFailureReason), pinta en ambar
+    "El agente no pudo - requiere una persona" en vez del aura azul "trabajando".
+  - TaskFlowNodeDto + AgentFailureReason (poblado en WorkflowInboxService; se corrigio la proyeccion
+    'histories' que no traia los campos de agente).
+- Hecho (politica de fallo configurable por nodo):
+  - Enum WorkflowAgentFailureAction (ReturnToHuman/Retry/TakeRoute/Notify). WorkflowNodeAgent += OnFailure,
+    FailureRetries, FailureRoute. WorkflowStepHistory += AgentAttemptCount.
+  - WorkflowAgentStepRunner.ReturnToPersonAsync (chokepoint unico de fallo) aplica la politica:
+    Retry (N ciclos sin fijar AgentAttemptedAt), TakeRoute (CompleteStepAsync con la ruta), Notify
+    (Notification al encargado), ReturnToHuman (default).
+  - FlowEditor: selector "Si el agente no puede resolver" + campos reintentos/ruta. FlowNodeAgentDto +
+    FlowNodeAgentResourcesInput + SetNodeAgentResourcesAsync extendidos.
+  - Migraciones aditivas AddNodeAgentFailurePolicy en AMBOS proveedores (PG + SqlServer); aplicadas a la
+    BD local (ecorex). Default ReturnToHuman = comportamiento previo (flujos actuales sin cambio).
+- Validado en local (BITCODE). Doc del vault (Capa 3) actualizada. Siguiente: deploy a prod.
+
 ## 2026-09-10 - v0.16.30: Directorio Modular - Pais/Departamento/Ciudad con cascada (ADR-0088)
 
 - Pedido: "poner a funcionar" Ciudad y Pais del Directorio Modular (estaban como Select sin opciones).

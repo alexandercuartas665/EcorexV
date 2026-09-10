@@ -89,7 +89,10 @@ public sealed record TaskFlowNodeDto(
     bool AgentWeb = false,
     bool AgentVoice = false,
     bool AgentWhatsApp = false,
-    bool AgentEmail = false);
+    bool AgentEmail = false,
+    // Si el AGENTE de este paso ya intento y no pudo completar (devolvio el paso a una persona), el
+    // motivo que dejo. Para mostrarlo en el menu y ofrecer al humano retomar y cerrar el paso.
+    string? AgentFailureReason = null);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

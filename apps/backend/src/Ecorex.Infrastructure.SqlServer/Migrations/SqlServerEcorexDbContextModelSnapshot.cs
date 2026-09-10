@@ -14917,9 +14917,26 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(4000)")
                         .HasColumnName("extra_prompt");
 
+                    b.Property<int>("FailureRetries")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("failure_retries");
+
+                    b.Property<string>("FailureRoute")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("failure_route");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("node_id");
+
+                    b.Property<int>("OnFailure")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("on_failure");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -15215,6 +15232,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
+
+                    b.Property<int>("AgentAttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("agent_attempt_count");
 
                     b.Property<DateTimeOffset?>("AgentAttemptedAt")
                         .HasColumnType("datetimeoffset")

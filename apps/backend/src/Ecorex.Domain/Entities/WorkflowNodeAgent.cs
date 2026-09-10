@@ -72,4 +72,17 @@ public class WorkflowNodeAgent : TenantEntity
     /// <summary>Si el agente puede ENVIAR correos en este paso (herramienta 'enviar_correo', ADR-0093). Usa el
     /// correo saliente configurado del tenant; el FROM no lo elige el agente. Default false (permiso explicito).</summary>
     public bool CanSendEmail { get; set; }
+
+    // ---- Politica de FALLO del agente (que hacer si no logra resolver el paso) ----
+
+    /// <summary>Que hacer si el agente no logra resolver el paso. Default ReturnToHuman.</summary>
+    public WorkflowAgentFailureAction OnFailure { get; set; } = WorkflowAgentFailureAction.ReturnToHuman;
+
+    /// <summary>Cuando OnFailure = Retry: cuantas veces reintentar al agente (una por ciclo del worker)
+    /// antes de rendirse. 0 = sin reintentos.</summary>
+    public int FailureRetries { get; set; }
+
+    /// <summary>Cuando OnFailure = TakeRoute: nombre de la ruta/opcion de salida con la que se cierra el
+    /// paso para que el motor enrute por esa rama de contingencia. Null si no aplica.</summary>
+    public string? FailureRoute { get; set; }
 }

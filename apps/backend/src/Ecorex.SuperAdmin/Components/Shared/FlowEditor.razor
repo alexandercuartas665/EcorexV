@@ -530,6 +530,34 @@ else
                         <span>Permitir enviar correos (redacta y envia; no espera respuesta)</span>
                     </label>
                     <div class="fe-acc-note" style="margin:0">Usa el correo saliente configurado de la empresa; el remitente lo fija la empresa, no el agente. Para pedir un dato y ESPERAR respuesta usa la llamada o el WhatsApp.</div>
+
+                    @* Politica de FALLO: que hacer si el agente no logra resolver el paso. *@
+                    <div class="fe-modal-section">Si el agente no puede resolver</div>
+                    <select class="fe-input" value="@_nodeAgent.OnFailure"
+                            @onchange="@(e => OnNodeOnFailureChangedAsync(agentNode, e))">
+                        <option value="@WorkflowAgentFailureAction.ReturnToHuman">Devolver a una persona (por defecto)</option>
+                        <option value="@WorkflowAgentFailureAction.Retry">Reintentar y luego devolver a una persona</option>
+                        <option value="@WorkflowAgentFailureAction.TakeRoute">Tomar una ruta de salida (contingencia)</option>
+                        <option value="@WorkflowAgentFailureAction.Notify">Devolver a una persona y notificarle</option>
+                    </select>
+                    @if (_nodeAgent.OnFailure == WorkflowAgentFailureAction.Retry)
+                    {
+                        <div class="fe-acc-note" style="margin:8px 0 3px">Cuantas veces reintentar (0-10)</div>
+                        <input class="fe-input" type="number" min="0" max="10" value="@_nodeAgent.FailureRetries"
+                               @onchange="@(e => OnNodeFailureRetriesChangedAsync(agentNode, e))" />
+                        <div class="fe-acc-note" style="margin:0">Cada reintento ocurre en un ciclo distinto del motor (~30s). Agotados, el paso vuelve a una persona.</div>
+                    }
+                    else if (_nodeAgent.OnFailure == WorkflowAgentFailureAction.TakeRoute)
+                    {
+                        <div class="fe-acc-note" style="margin:8px 0 3px">Ruta / opcion de salida a tomar</div>
+                        <input class="fe-input" value="@_nodeAgent.FailureRoute" placeholder="ej. Escalar / No encontrado"
+                               @onchange="@(e => OnNodeFailureRouteChangedAsync(agentNode, e))" />
+                        <div class="fe-acc-note" style="margin:0">Debe coincidir con una opcion de la compuerta siguiente para que el motor enrute por esa rama.</div>
+                    }
+                    else
+                    {
+                        <div class="fe-acc-note" style="margin:0">El paso queda pendiente para el encargado (o su cargo), con el motivo del fallo y el boton "Retomar y cerrar".</div>
+                    }
                 }
             </div>
             <div class="fe-modal-foot">
@@ -1351,7 +1379,24 @@ else
         _nodeAgent?.ColmenaClientId, _nodeAgent?.ColmenaSessionKey, _nodeAgent?.VoiceAiAgentId,
         _nodeAgent?.WhatsAppLineId, _nodeAgent?.WhatsAppTemplateName, _nodeAgent?.WhatsAppTemplateLang,
         // El prompt viene del borrador LOCAL (vivo por oninput): asi un guardado de otro campo no lo pierde.
-        _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false);
+        _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false,
+        _nodeAgent?.OnFailure ?? WorkflowAgentFailureAction.ReturnToHuman,
+        _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute);
+
+    private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var action = Enum.TryParse<WorkflowAgentFailureAction>(e.Value?.ToString(), out var a) ? a : WorkflowAgentFailureAction.ReturnToHuman;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { OnFailure = action });
+    }
+
+    private Task OnNodeFailureRetriesChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var n = int.TryParse(e.Value?.ToString(), out var v) ? Math.Clamp(v, 0, 10) : 0;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { FailureRetries = n });
+    }
+
+    private Task OnNodeFailureRouteChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { FailureRoute = e.Value?.ToString() });
 
     private Task OnNodeColmenaChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {

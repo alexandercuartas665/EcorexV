@@ -107,7 +107,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             // No se pudo armar el contexto: es un "no pudo" como cualquier otro, con su motivo.
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId,
+                step, nodeAgent,
                 $"No se pudo preparar el contexto del paso para el agente: {contextResult.Error}",
                 cancellationToken);
         }
@@ -120,7 +120,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (quota.Exceeded && quota.Hard)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId,
+                step, nodeAgent,
                 $"Se agoto el cupo mensual de tokens de IA del plan ({quota.MonthlyLimitTokens:N0}). "
                     + "El paso queda para atencion humana.",
                 cancellationToken);
@@ -143,7 +143,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (!invocation.Ok)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId,
+                step, nodeAgent,
                 invocation.Error ?? "El agente no pudo resolver el paso.",
                 cancellationToken);
         }
@@ -178,13 +178,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             if (string.IsNullOrWhiteSpace(invocation.Route))
             {
                 return await ReturnToPersonAsync(
-                    step, nodeAgent.AiAgentId, "El agente no eligio una ruta para la compuerta.", cancellationToken);
+                    step, nodeAgent, "El agente no eligio una ruta para la compuerta.", cancellationToken);
             }
             var (targetId, targetName) = await ResolveRouteTargetAsync(step.NodeId, invocation.Route!, cancellationToken);
             if (targetId is null)
             {
                 return await ReturnToPersonAsync(
-                    step, nodeAgent.AiAgentId,
+                    step, nodeAgent,
                     $"El agente eligio una ruta ('{invocation.Route}') que no es una salida de esta compuerta.",
                     cancellationToken);
             }
@@ -194,7 +194,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         else if (!isForm && string.IsNullOrWhiteSpace(invocation.Result))
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, "El agente no indico un resultado para el paso.", cancellationToken);
+                step, nodeAgent, "El agente no indico un resultado para el paso.", cancellationToken);
         }
 
         var now = _clock.GetUtcNow();
@@ -234,7 +234,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                     "El agente {AgentId} no pudo avanzar el paso {StepId}: {Error}",
                     nodeAgent.AiAgentId, step.Id, completed.Error);
                 return await ReturnToPersonAsync(
-                    step, nodeAgent.AiAgentId,
+                    step, nodeAgent,
                     $"El agente eligio {decision} pero el flujo no lo acepto: {completed.Error}",
                     cancellationToken);
             }
@@ -268,7 +268,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (context.Assignment?.VoiceAiAgentId is not Guid voiceAgentId)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, "El paso no tiene un agente de voz configurado para llamar.", cancellationToken);
+                step, nodeAgent, "El paso no tiene un agente de voz configurado para llamar.", cancellationToken);
         }
 
         var formIds = context.Node.Form is { } f ? new[] { f.DefinitionId } : Array.Empty<Guid>();
@@ -283,7 +283,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (!placed.Placed || string.IsNullOrWhiteSpace(placed.CallId))
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, $"No se pudo colocar la llamada: {placed.Error}", cancellationToken);
+                step, nodeAgent, $"No se pudo colocar la llamada: {placed.Error}", cancellationToken);
         }
 
         // PAUSA: el paso sigue vigente y Pending, pero marcado como en espera de esta llamada. AgentAttemptedAt
@@ -321,7 +321,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (context.Assignment?.WhatsAppLineId is not Guid lineId)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, "El paso no tiene una linea de WhatsApp configurada para preguntar.", cancellationToken);
+                step, nodeAgent, "El paso no tiene una linea de WhatsApp configurada para preguntar.", cancellationToken);
         }
 
         // Tope de reintentos: si ya se venia preguntando en una conversacion y hay demasiados salientes, se corta.
@@ -332,7 +332,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             if (asked >= MaxWhatsAppAsks)
             {
                 return await ReturnToPersonAsync(
-                    step, nodeAgent.AiAgentId,
+                    step, nodeAgent,
                     $"El agente pregunto por WhatsApp {asked} veces sin conseguir el dato; el paso queda para atencion humana.",
                     cancellationToken);
             }
@@ -345,7 +345,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (!sent.Sent || sent.ConversationId is not Guid conversationId)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, $"No se pudo enviar el WhatsApp: {sent.Error}", cancellationToken);
+                step, nodeAgent, $"No se pudo enviar el WhatsApp: {sent.Error}", cancellationToken);
         }
 
         // PAUSA: el paso sigue vigente y Pending, marcado como en espera de esta conversacion. AgentAttemptedAt
@@ -411,7 +411,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (taskId is not Guid tid)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId,
+                step, nodeAgent,
                 "El paso no esta asociado a una tarea: el agente no puede diligenciar su formulario.", cancellationToken);
         }
 
@@ -421,7 +421,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         if (target is null)
         {
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId, "No se encontro el formulario del paso para diligenciar.", cancellationToken);
+                step, nodeAgent, "No se encontro el formulario del paso para diligenciar.", cancellationToken);
         }
 
         // El Type del FormFieldValue lo re-deriva SaveAsync de la definicion del campo; aqui solo viaja el valor.
@@ -442,7 +442,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 "El agente {AgentId} lleno el formulario del paso {StepId} pero no valido: {Detail}",
                 nodeAgent.AiAgentId, step.Id, detail);
             return await ReturnToPersonAsync(
-                step, nodeAgent.AiAgentId,
+                step, nodeAgent,
                 $"El formulario que lleno el agente no paso la validacion: {detail}", cancellationToken);
         }
 
@@ -473,18 +473,75 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// Tambien marca AgentAttemptedAt, para no reintentar en bucle contra un proveedor caido.
     /// </summary>
     private async Task<WorkflowAgentStepOutcome> ReturnToPersonAsync(
-        WorkflowStepHistory step, Guid agentId, string reason, CancellationToken cancellationToken)
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, string reason, CancellationToken cancellationToken)
     {
+        var agentId = nodeAgent.AiAgentId;
+
+        // POLITICA DE FALLO (configurable por nodo). 1) REINTENTAR: si quedan reintentos, NO se marca
+        // AgentAttemptedAt -> el worker retoma el paso en el proximo ciclo. Solo se cuenta el intento;
+        // el nodo sigue viendose "trabajando" (no se fija motivo de fallo hasta rendirse).
+        if (nodeAgent.OnFailure == WorkflowAgentFailureAction.Retry
+            && step.AgentAttemptCount < nodeAgent.FailureRetries)
+        {
+            step.AgentAttemptCount += 1;
+            step.ExecutedByAiAgentId = null;
+            step.PendingWhatsAppConversationId = null;
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Agente {AgentId}: paso {StepId} no resuelto; reintento {N}/{Max}.",
+                agentId, step.Id, step.AgentAttemptCount, nodeAgent.FailureRetries);
+            return WorkflowAgentStepOutcome.ReturnedToPerson;
+        }
+
+        // 2) TOMAR RUTA de contingencia: cerrar el paso con esa ruta para que el motor enrute por la rama
+        // de respaldo. Si el motor no la acepta, cae a "devolver a persona" mas abajo.
+        if (nodeAgent.OnFailure == WorkflowAgentFailureAction.TakeRoute
+            && !string.IsNullOrWhiteSpace(nodeAgent.FailureRoute))
+        {
+            step.AgentAttemptedAt = _clock.GetUtcNow();
+            step.AgentAttemptCount += 1;
+            step.AgentFailureReason = Clip(reason, 500);
+            await _db.SaveChangesAsync(cancellationToken);
+            var routed = await _engine.CompleteStepAsync(
+                step.InstanceId, step.Id, executedByTenantUserId: null,
+                approvalResult: nodeAgent.FailureRoute!.Trim(),
+                approvalComment: $"El agente no pudo resolver; ruta de contingencia. {reason}",
+                executedByAiAgentId: agentId, cancellationToken: cancellationToken);
+            if (routed.IsOk)
+            {
+                _logger.LogInformation(
+                    "Agente {AgentId}: paso {StepId} enrutado por contingencia '{Route}'.",
+                    agentId, step.Id, nodeAgent.FailureRoute);
+                return WorkflowAgentStepOutcome.Completed;
+            }
+            _logger.LogWarning(
+                "Agente {AgentId}: no se pudo enrutar por contingencia '{Route}' ({Err}); vuelve a persona.",
+                agentId, nodeAgent.FailureRoute, routed.Error);
+        }
+
+        // 3) DEVOLVER A PERSONA (default) y, si la politica es Notify, avisar al encargado. El paso sigue
+        // Pending y vigente: nunca se pierde ni se cierra en falso.
         step.AgentAttemptedAt = _clock.GetUtcNow();
-        step.ExecutedByAiAgentId = null;   // nadie ejecuto el paso todavia: solo se intento
+        step.AgentAttemptCount += 1;
+        step.ExecutedByAiAgentId = null;
         step.AgentFailureReason = Clip(reason, 500);
-        // ADR-0092: si esperaba una respuesta de WhatsApp, deja de "poseer" el hilo: el agente conversacional
-        // (SARA) y las personas pueden volver a atender esa conversacion.
         step.PendingWhatsAppConversationId = null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AssignToPersonIfUnambiguousAsync(step, cancellationToken);
         await AddTaskNoteAsync(step, $"el agente de IA no pudo atender el paso: {reason}", cancellationToken);
+        if (nodeAgent.OnFailure == WorkflowAgentFailureAction.Notify
+            && step.AssignedToTenantUserId is Guid notifyUser)
+        {
+            _db.Notifications.Add(new Notification
+            {
+                TenantId = step.TenantId,
+                RecipientTenantUserId = notifyUser,
+                Kind = NotificationKind.General,
+                Title = "Un paso necesita tu atencion",
+                Body = Clip($"El agente de IA no pudo completar un paso y lo dejo para ti: {reason}", 500),
+            });
+        }
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {

@@ -353,8 +353,11 @@
                                 // llevan un acento indigo propio (distinto del manual/violeta) para leerse como "lo hace un agente".
                                 var accent = FlowNodeColor(nn.Color) ?? (nn.IsAuto ? "var(--ai-accent, #6366f1)" : "var(--t-violet)");
                                 // Un paso de agente que es el ACTUAL y sigue abierto = el agente lo esta (o va a) atender: se pinta "trabajando".
-                                var agentWorking = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned;
-                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
+                                // El agente ya intento y NO pudo (dejo un motivo de fallo): el paso requiere una persona.
+                                var agentFailed = nn.IsAuto && !string.IsNullOrWhiteSpace(nn.AgentFailureReason);
+                                // "Trabajando": paso de agente vigente que aun NO ha fallado (pendiente de/atendiendose).
+                                var agentWorking = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned && !agentFailed;
+                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(agentFailed ? "agent-failed" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
                                      style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@FlowNodeCardStyle(nn, accent, isGw, isEvent)"
                                      draggable="true"
                                      @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
@@ -463,6 +466,13 @@
                                                     <div class="tk-flow-thinking">
                                                         <span class="dots"><i></i><i></i><i></i></span>
                                                         <span>El agente esta trabajando...</span>
+                                                    </div>
+                                                }
+                                                else if (agentFailed)
+                                                {
+                                                    <div class="tk-flow-failed" title="@nn.AgentFailureReason">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4M12 17h.01" /></svg>
+                                                        <span>El agente no pudo - requiere una persona</span>
                                                     </div>
                                                 }
                                             }
@@ -1390,12 +1400,18 @@
         {
             <div class="tk-flow-menu-note" style="margin:0 0 8px;padding:6px 8px;background:var(--surface-2);border-radius:6px;border-left:2px solid @maccent;white-space:pre-wrap;">@mnode.ConfigNote</div>
         }
+        @* Info del AGENTE (si el nodo lo tiene): contexto + fallo. NO es exclusiva: si el paso es del viewer,
+           debajo salen igual los controles humanos (retomar/cerrar/ruta) como recurso cuando el agente falla. *@
         @if (mnode.IsAuto)
         {
-            <div class="tk-flow-menu-t">PASO AUTOMATICO</div>
-            <div class="tk-flow-menu-note">Lo atiende el agente@(string.IsNullOrWhiteSpace(mnode.AgentName) ? "" : " " + mnode.AgentName). El cierre por agente llega en una proxima ola.</div>
+            <div class="tk-flow-menu-t">PASO DE AGENTE</div>
+            <div class="tk-flow-menu-note">Lo atiende el agente@(string.IsNullOrWhiteSpace(mnode.AgentName) ? "" : " " + mnode.AgentName). @(mcanAct ? "Si no puede completarlo, puedes retomarlo y cerrarlo tu." : "Cierra y avanza solo cuando lo completa.")</div>
+            @if (!string.IsNullOrWhiteSpace(mnode.AgentFailureReason))
+            {
+                <div class="tk-flow-menu-note" style="margin:6px 0 0;padding:6px 8px;background:var(--t-amber-bg);border-radius:6px;border-left:2px solid var(--t-amber);white-space:pre-wrap;">El agente no pudo completar el paso: @mnode.AgentFailureReason</div>
+            }
         }
-        else if (mcanAct && (mnode.Routes is { Count: > 0 } || mnode.ApprovalOptions.Count > 0))
+        @if (mcanAct && (mnode.Routes is { Count: > 0 } || mnode.ApprovalOptions.Count > 0))
         {
             <div class="tk-flow-menu-t">QUE RUTA TOMAR?</div>
             @if (mnode.Routes is { Count: > 0 } routes)
@@ -1430,9 +1446,9 @@
         }
         else if (mcanAct)
         {
-            <div class="tk-flow-menu-t">CERRAR ACTIVIDAD</div>
+            <div class="tk-flow-menu-t">@(mnode.IsAuto ? "RETOMAR Y CERRAR" : "CERRAR ACTIVIDAD")</div>
             <textarea class="tk-flow-textarea" placeholder="Anotacion al cerrar (opcional)..." @bind="_flowNote"></textarea>
-            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, null, _flowNote))">Cerrar actividad</button>
+            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, null, _flowNote))">@(mnode.IsAuto ? "Retomar y cerrar" : "Cerrar actividad")</button>
             @if (mnode.HasForm)
             {
                 <button class="tk-flow-link" disabled="@_busy" @onclick="@(() => { _modalTab = "formularios"; _flowMenuNodeId = null; })">Diligenciar formulario</button>
@@ -2190,8 +2206,9 @@
         if (n.WaitingSince is not null) { metaRows++; }
         if (n.IsAuto) { h += 26; }                                 // chip "Agente IA" + IA + tokens
         if (n.AgentWeb || n.AgentVoice || n.AgentWhatsApp || n.AgentEmail) { h += 26; } // fila de capacidades
-        var working = n.IsAuto && n.IsCurrent && n.State != TaskFlowNodeState.Completed && !n.IsAbandoned;
-        if (working) { h += 24; }                                  // linea "El agente esta trabajando..."
+        var agentFailed = n.IsAuto && !string.IsNullOrWhiteSpace(n.AgentFailureReason);
+        var working = n.IsAuto && n.IsCurrent && n.State != TaskFlowNodeState.Completed && !n.IsAbandoned && !agentFailed;
+        if (working || agentFailed) { h += 24; }                   // linea "trabajando" o "requiere una persona"
         if (metaRows > 0) { h += 13 + metaRows * 19; }          // caja de metadata
         if (!string.IsNullOrWhiteSpace(n.ConfigNote)) { h += 37; } // descripcion (2 lineas)
         if (n.TeamNotes is { Count: > 0 }) { h += 66; }            // bloque de notas (resumen)

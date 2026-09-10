@@ -2120,6 +2120,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
             // 2do motor de contactos (Directorio Modular, Capa 8): obligatorio por naturaleza.
             b.Property(x => x.RequeridoEn).HasMaxLength(40);
+            // Notas internas del configurador sobre el campo (Directorio Modular). No se muestra en la ficha.
+            b.Property(x => x.NotasDesarrollador).HasMaxLength(2000);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
         });

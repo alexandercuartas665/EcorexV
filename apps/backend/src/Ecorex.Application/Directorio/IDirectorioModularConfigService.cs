@@ -28,11 +28,13 @@ public interface IDirectorioModularConfigService
 
     /// <summary>Agrega un campo a la seccion. Devuelve error o null.</summary>
     Task<string?> CrearCampoAsync(string fichaKey, string label, TerceroFieldType tipo, string ancho,
-        string? opciones, bool requerido, string? descripcion, CancellationToken cancellationToken = default);
+        string? opciones, bool requerido, string? descripcion, string? notasDesarrollador,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Edita un campo (no cambia su FieldKey). Devuelve error o null.</summary>
     Task<string?> ActualizarCampoAsync(Guid id, string label, TerceroFieldType tipo, string ancho,
-        string? opciones, bool requerido, string? descripcion, CancellationToken cancellationToken = default);
+        string? opciones, bool requerido, string? descripcion, string? notasDesarrollador,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Elimina un campo. No si es de sistema. Devuelve error o null.</summary>
     Task<string?> BorrarCampoAsync(Guid id, CancellationToken cancellationToken = default);

@@ -1,13 +1,68 @@
 .faip {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    max-height: 140px;
-    overflow-y: auto;
-    padding: 6px;
+    position: relative;
+}
+
+/* Boton compacto: muestra el icono actual + un caret. */
+.faip-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     background: #fff;
+    color: #334155;
+    cursor: pointer;
+    font-size: 14px;
+    transition: border-color .12s, box-shadow .12s;
+}
+
+.faip-trigger:hover {
+    border-color: #cbd5e1;
+}
+
+.faip-trigger.open {
+    border-color: #94a3b8;
+    box-shadow: 0 0 0 3px rgba(17,24,39,.08);
+}
+
+.faip-cur {
+    font-size: 15px;
+}
+
+.faip-caret {
+    margin-left: auto;
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+/* Capa transparente que cierra el popover al hacer clic afuera (sin JS). */
+.faip-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+
+/* Popover flotante con la grilla de iconos. */
+.faip-pop {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 260px;
+    max-width: 80vw;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 12px 28px -8px rgba(15,23,42,.28);
 }
 
 .faip-opt {

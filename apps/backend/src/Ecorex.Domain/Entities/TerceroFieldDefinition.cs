@@ -74,4 +74,11 @@ public class TerceroFieldDefinition : TenantEntity
     /// <summary>Campo de solo lectura en la ficha (p.ej. codigo, fecha de creacion, usuario). Distinto de
     /// <see cref="TerceroFieldType.Calculated"/>, que ademas evalua una formula.</summary>
     public bool ReadOnly { get; set; }
+
+    /// <summary>
+    /// Notas INTERNAS del desarrollador/configurador sobre este campo (para que sirve, de donde sale el
+    /// dato, decisiones). No se muestra en la ficha del tercero; solo vive en el editor de campo del
+    /// modal "Configurar directorio". Distinta de <see cref="Description"/>, que si es ayuda al usuario.
+    /// </summary>
+    public string? NotasDesarrollador { get; set; }
 }

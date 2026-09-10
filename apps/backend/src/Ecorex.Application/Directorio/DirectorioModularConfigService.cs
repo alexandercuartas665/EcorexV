@@ -108,7 +108,8 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
     // ---- Campos ----
 
     public async Task<string?> CrearCampoAsync(string fichaKey, string label, TerceroFieldType tipo, string ancho,
-        string? opciones, bool requerido, string? descripcion, CancellationToken cancellationToken = default)
+        string? opciones, bool requerido, string? descripcion, string? notasDesarrollador,
+        CancellationToken cancellationToken = default)
     {
         var key = (fichaKey ?? string.Empty).Trim();
         if (!key.StartsWith(DirectorioModularDefaults.SeccionPrefix)) { return "La seccion no es del motor Modular."; }
@@ -133,6 +134,7 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
             Options = NormalizeOptions(tipo, opciones),
             RequeridoEn = requerido ? "empresa,contacto" : null,
             Description = string.IsNullOrWhiteSpace(descripcion) ? null : descripcion.Trim(),
+            NotasDesarrollador = string.IsNullOrWhiteSpace(notasDesarrollador) ? null : notasDesarrollador.Trim(),
             SortOrder = maxOrder + 1,
             IsSystem = false
         });
@@ -141,7 +143,8 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
     }
 
     public async Task<string?> ActualizarCampoAsync(Guid id, string label, TerceroFieldType tipo, string ancho,
-        string? opciones, bool requerido, string? descripcion, CancellationToken cancellationToken = default)
+        string? opciones, bool requerido, string? descripcion, string? notasDesarrollador,
+        CancellationToken cancellationToken = default)
     {
         var f = await _app.TerceroFieldDefinitions.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (f is null) { return "El campo no existe."; }
@@ -155,6 +158,7 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
         f.Options = NormalizeOptions(tipo, opciones);
         f.RequeridoEn = requerido ? "empresa,contacto" : null;
         f.Description = string.IsNullOrWhiteSpace(descripcion) ? null : descripcion.Trim();
+        f.NotasDesarrollador = string.IsNullOrWhiteSpace(notasDesarrollador) ? null : notasDesarrollador.Trim();
         await _app.SaveChangesAsync(cancellationToken);
         return null;
     }

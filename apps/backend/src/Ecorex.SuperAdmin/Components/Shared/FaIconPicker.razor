@@ -1,21 +1,30 @@
 @* ===================================================================================
-   Selector VISUAL de icono FontAwesome (grilla de botones), al estilo del picker de
-   iconos del sistema (MenuIconPicker) pero sobre las clases 'fa-*' que ya usa el modulo
-   (el Directorio Modular es FontAwesome de punta a punta). El valor es la clase fa
-   (ej. "fa-globe") y se pinta con <i class="fa @Value">, asi NO cambia el formato de dato
-   ni el render en el resto del modulo. Reemplaza al <select> donde el icono se tecleaba.
+   Selector VISUAL de icono FontAwesome. Antes pintaba la grilla completa inline (ocupaba
+   mucho alto en el formulario); ahora es un BOTON compacto que muestra el icono actual y
+   abre la grilla en un POPOVER flotante. El valor sigue siendo la clase fa (ej. "fa-globe")
+   y se pinta con <i class="fa @Value">, asi NO cambia el formato de dato ni el render.
 
    Uso: <FaIconPicker @bind-Value="_icono" Options="Iconos" />   (Options opcional)
    Solo ASCII.
    =================================================================================== *@
 
 <div class="faip">
-    @foreach (var ic in Effective)
+    <button type="button" class="faip-trigger @(_open ? "open" : "")" @onclick="Toggle" title="Elegir icono">
+        <i class="fa @(string.IsNullOrWhiteSpace(Value) ? "fa-icons" : Value) faip-cur"></i>
+        <i class="fa fa-chevron-down faip-caret"></i>
+    </button>
+    @if (_open)
     {
-        var i = ic;
-        <button type="button" title="@i.Replace("fa-", "")"
-                class="faip-opt @(string.Equals(Value, i, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-                @onclick="() => PickAsync(i)"><i class="fa @i"></i></button>
+        <div class="faip-backdrop" @onclick="Close"></div>
+        <div class="faip-pop">
+            @foreach (var ic in Effective)
+            {
+                var i = ic;
+                <button type="button" title="@i.Replace("fa-", "")"
+                        class="faip-opt @(string.Equals(Value, i, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                        @onclick="() => PickAsync(i)"><i class="fa @i"></i></button>
+            }
+        </div>
     }
 </div>
 
@@ -26,6 +35,8 @@
 
     /// <summary>Catalogo de clases fa a ofrecer. Vacio/null = set por defecto.</summary>
     [Parameter] public IReadOnlyList<string>? Options { get; set; }
+
+    private bool _open;
 
     private IReadOnlyList<string> Effective => Options is { Count: > 0 } ? Options : Default;
 
@@ -39,9 +50,13 @@
         "fa-flag", "fa-bell", "fa-calendar", "fa-clipboard", "fa-file-lines", "fa-coins"
     };
 
+    private void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+
     private async Task PickAsync(string icon)
     {
         Value = icon;
+        _open = false;
         await ValueChanged.InvokeAsync(icon);
     }
 }

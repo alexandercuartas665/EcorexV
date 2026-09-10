@@ -100,7 +100,8 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             var flds = campos.Where(c => c.FichaKey == sec.FichaKey)
                 .Select(c => new ModularCampoConfigDto(
                     c.Id, c.FieldKey, c.Label, c.FieldType, AnchoDe(c.Column),
-                    c.Options, c.RequeridoEn, c.ReadOnly, c.IsSystem, c.Description, c.SortOrder))
+                    c.Options, c.RequeridoEn, c.ReadOnly, c.IsSystem, c.Description, c.SortOrder,
+                    c.NotasDesarrollador))
                 .ToList();
             var usada = comp.Where(x => x.FichaKey == sec.FichaKey)
                 .Select(x => catByKey.TryGetValue(x.CategoriaKey, out var c)

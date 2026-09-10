@@ -13663,6 +13663,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("label");
 
+                    b.Property<string>("NotasDesarrollador")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("notas_desarrollador");
+
                     b.Property<string>("Options")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")

@@ -57,3 +57,13 @@ Build verde. En dev (AGROMETALICAS): con Ligero (por defecto) `/directorio-gener
 `/configuracion-entidad`, `/directorio-general` redirige a `/directorio-especializado` ("Directorio
 Especializado") y el modal muestra "ESPECIALIZADO"; al volver a Ligero, regresa. El valor persiste en
 `tenant_configurations` con el TenantId correcto.
+
+## Nota (v0.16.27, 2026-09-10): campo "Notas de desarrollador" + UX del config modal
+
+- Se agrega `TerceroFieldDefinition.NotasDesarrollador` (nullable, max 2000): notas INTERNAS del
+  configurador sobre un campo, editables en el editor de campo del modal "Configurar directorio". No se
+  muestra en la ficha del tercero (distinta de `Description`, que si es ayuda al usuario). Migracion
+  aditiva `AddTerceroFieldNotasDesarrollador` en ambos proveedores (PG + SQL Server).
+- UX del modal (motor Modular): el editor de campo es sticky mientras se hace scroll en la lista; la fila
+  en edicion queda resaltada; los selectores de icono (`FaIconPicker`) y color (`ColorPicker`) pasan a
+  boton compacto + popover flotante para no ocupar tanto alto.

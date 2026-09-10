@@ -1,23 +1,39 @@
 @* ===================================================================================
-   Selector de COLOR: input nativo type=color (rueda/selector del SO, cualquier color) +
-   swatches de acceso rapido a la paleta del modulo. El valor es un hex "#rrggbb".
-   Reemplaza al <select> de colores fijos: ahora se puede elegir CUALQUIER color.
+   Selector de COLOR. Antes pintaba el input nativo + toda la paleta inline (ocupaba
+   espacio); ahora es un BOTON compacto que muestra el color actual y abre un POPOVER
+   flotante con la paleta de acceso rapido + un "Personalizado" (input nativo type=color
+   para cualquier color). El valor sigue siendo un hex "#rrggbb".
+
    Uso: <ColorPicker @bind-Value="_color" Swatches="Colores" />   (Swatches opcional)
    Solo ASCII.
    =================================================================================== *@
 
 <div class="clrp">
-    <input type="color" class="clrp-native" value="@Safe(Value)"
-           @onchange="@(e => PickAsync(e.Value?.ToString()))" title="Elegir color" />
-    <div class="clrp-swatches">
-        @foreach (var c in Effective)
-        {
-            var x = c;
-            <button type="button" title="@x"
-                    class="clrp-dot @(string.Equals(Value, x, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
-                    style="background:@x" @onclick="() => PickAsync(x)"></button>
-        }
-    </div>
+    <button type="button" class="clrp-trigger @(_open ? "open" : "")" @onclick="Toggle" title="Elegir color">
+        <span class="clrp-cur" style="background:@Safe(Value)"></span>
+        <span class="clrp-hex">@Safe(Value)</span>
+        <i class="fa fa-chevron-down clrp-caret"></i>
+    </button>
+    @if (_open)
+    {
+        <div class="clrp-backdrop" @onclick="Close"></div>
+        <div class="clrp-pop">
+            <div class="clrp-swatches">
+                @foreach (var c in Effective)
+                {
+                    var x = c;
+                    <button type="button" title="@x"
+                            class="clrp-dot @(string.Equals(Value, x, StringComparison.OrdinalIgnoreCase) ? "active" : "")"
+                            style="background:@x" @onclick="() => PickAsync(x)"></button>
+                }
+            </div>
+            <label class="clrp-custom">
+                <input type="color" class="clrp-native" value="@Safe(Value)"
+                       @onchange="@(e => PickAsync(e.Value?.ToString()))" title="Color personalizado" />
+                <span>Personalizado</span>
+            </label>
+        </div>
+    }
 </div>
 
 @code {
@@ -28,6 +44,8 @@
     /// <summary>Paleta de acceso rapido. Vacio/null = paleta por defecto.</summary>
     [Parameter] public IReadOnlyList<string>? Swatches { get; set; }
 
+    private bool _open;
+
     private IReadOnlyList<string> Effective => Swatches is { Count: > 0 } ? Swatches : Default;
 
     private static readonly string[] Default =
@@ -36,10 +54,14 @@
     // El input nativo exige un hex valido de 6 digitos; si no hay valor, arranca en el indigo por defecto.
     private static string Safe(string? v) => string.IsNullOrWhiteSpace(v) ? "#4f46e5" : v!.Trim();
 
+    private void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+
     private async Task PickAsync(string? color)
     {
         var c = string.IsNullOrWhiteSpace(color) ? null : color!.Trim();
         Value = c;
+        _open = false;
         await ValueChanged.InvokeAsync(c);
     }
 }

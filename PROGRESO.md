@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.27: Directorio Modular - campo "Notas de desarrollador" + UX del config modal (ADR-0088)
+
+- Contexto: rama feat/directorio-modular re-fusionada con el tronco (v0.16.26) por fast-forward; estos
+  ajustes salen de ahi y se integran al tronco.
+- Hecho (campo "Notas de desarrollador" en el editor de campo del Directorio Modular):
+  - TerceroFieldDefinition.NotasDesarrollador (nullable, max 2000): notas INTERNAS del configurador sobre
+    un campo. Distinta de Description (esa si es ayuda al usuario). NO se muestra en la ficha del tercero.
+  - EcorexDbContext: mapeo HasMaxLength(2000). DTO ModularCampoConfigDto + GetEstructuraAsync la proyectan.
+  - IDirectorioModularConfigService/DirectorioModularConfigService: Crear/ActualizarCampoAsync reciben y
+    guardan notasDesarrollador. DirectorioModularConfigModal: textarea + estado _fNotas + load/reset/save.
+  - Migraciones aditivas AddTerceroFieldNotasDesarrollador en AMBOS proveedores (PG + SQL Server), solo
+    AddColumn notas_desarrollador. Aplicada a la BD local (ecorex).
+- Hecho (UX del modal "Configurar directorio", pedido del usuario):
+  - Editor de campo STICKY: .cfg-lateral queda fijo (top:0, con scroll propio) mientras se hace scroll en
+    la lista de campos; en <=900px vuelve a estatico.
+  - Campo en edicion RESALTADO: clase .cfg-campo-sel (borde negro) en la fila cuyo Id == _fEditId.
+  - Selector de ICONO (FaIconPicker) y COLOR (ColorPicker) pasan de grilla inline a un BOTON compacto que
+    abre un POPOVER flotante (backdrop que cierra al clic afuera, sin JS). Menos alto ocupado en el form.
+- Validado en Chrome (LENOVO/SOLDARCO): crear/editar campo con nota persiste (BD) y recarga; la nota NO
+  aparece en la ficha; editor sticky, fila resaltada y ambos popovers OK. Build verde.
+- Siguiente: pendiente el fix del wizard de tareas (abrir la ficha MODULAR al crear tercero segun variante).
+
 ## 2026-09-08 - v0.16.26: mapeo de COLUMNAS de grilla en CONVERTIR_A_FORMULARIO (ADR-0078)
 
 - Bug: al convertir un registro a otro formulario, las grillas (GridDetail) se copiaban por jsonb completo

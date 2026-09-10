@@ -47,7 +47,8 @@ public sealed record ModularSeccionConfigDto(
 /// <summary>Un campo de una seccion como lo ve el configurador (incluye ancho y si es de sistema).</summary>
 public sealed record ModularCampoConfigDto(
     Guid Id, string FieldKey, string Label, TerceroFieldType Type, string Ancho,
-    string? Options, string? RequeridoEn, bool ReadOnly, bool IsSystem, string? Descripcion, int SortOrder);
+    string? Options, string? RequeridoEn, bool ReadOnly, bool IsSystem, string? Descripcion, int SortOrder,
+    string? NotasDesarrollador);
 
 /// <summary>Categoria que usa una seccion (para el bloque "Usada por las categorias").</summary>
 public sealed record ModularUsoCategoriaDto(string CategoriaKey, string Title, string? Color);

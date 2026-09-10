@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-09-10 - v0.16.29: Directorio Modular - Pais/Departamento/Ciudad con cascada (ADR-0088)
+## 2026-09-10 - v0.16.30: Directorio Modular - Pais/Departamento/Ciudad con cascada (ADR-0088)
 
 - Pedido: "poner a funcionar" Ciudad y Pais del Directorio Modular (estaban como Select sin opciones).
   Decision del usuario: campos SEPARADOS con cascada; alcance Publico + RUT.
@@ -26,6 +26,21 @@
   pais="Colombia"/ciudad="Bogota" (texto plano en BD). RUT -> Pais=Colombia habilita Departamento=Antioquia
   y carga sus municipios en Ciudad. Sin errores de circuito. Build verde.
 - Nota: el catalogo DANE es SOLO Colombia (217 municipios locales). Otros paises no tienen cascada de ciudad.
+
+## 2026-09-10 - v0.16.29: Auto-envio del formulario al CERRAR el paso (fix del "gotcha")
+
+- Problema: una persona diligencia el formulario de un paso pero CIERRA el paso sin pulsar "Enviar"
+  -> la respuesta queda en borrador (link Pending) y el dato NO llega a los pasos siguientes (p.ej. el
+  agente que lee la 'necesidad' se queda sin requerimiento y falla). Visto en el ejercicio BITCODE.
+- Fix (WorkflowInboxService.CompletePendingStepAsync): AutoSubmitFilledStepFormsAsync corre al cerrar
+  el paso, DESPUES del guard de formulario obligatorio: los form_flow_links Pending de ese nodo cuyo
+  form tiene DATOS pasan a respuesta Submitted + link Completed (un borrador vacio se deja igual). No se
+  disparan reglas on-submit (set directo), para no meter efectos sorpresa. No debilita el guard de
+  obligatorios (ese sigue bloqueando el cierre si falta enviar el requerido).
+- Validado en local (BITCODE): con el formulario lleno en borrador, al Cerrar el paso el BIT-REQ quedo
+  Submitted/Completed y el agente recibio la 'necesidad'. Build verde.
+- Nota: el paso de agente luego fallo por Colmena (Navigate ok=False, navegador en mal estado), no por
+  el fix. Sigue pendiente el hueco de fondo: un paso de AGENTE que falla no tiene boton humano de cierre.
 
 ## 2026-09-10 - v0.16.28: Diagrama de flujo en la tarea - nodo de AGENTE IA rediseniado (ADR-0090)
 

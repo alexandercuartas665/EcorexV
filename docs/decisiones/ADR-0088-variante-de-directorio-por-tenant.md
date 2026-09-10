@@ -68,7 +68,7 @@ Especializado") y el modal muestra "ESPECIALIZADO"; al volver a Ligero, regresa.
   en edicion queda resaltada; los selectores de icono (`FaIconPicker`) y color (`ColorPicker`) pasan a
   boton compacto + popover flotante para no ocupar tanto alto.
 
-## Nota (v0.16.29, 2026-09-10): campos geograficos Pais/Departamento/Ciudad con cascada
+## Nota (v0.16.30, 2026-09-10): campos geograficos Pais/Departamento/Ciudad con cascada
 
 - Se agregan 3 tipos a `TerceroFieldType`: `Pais`, `Departamento`, `Ciudad` (al final; `field_type` se
   persiste como texto, sin choque de ordinales). Guardan el NOMBRE en texto plano, asi que siguen

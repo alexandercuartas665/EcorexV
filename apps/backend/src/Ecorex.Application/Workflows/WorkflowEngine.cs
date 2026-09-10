@@ -1,5 +1,6 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Forms;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -954,6 +955,25 @@ public sealed class WorkflowEngine : IWorkflowEngine
             && node.AssigneeSource != WorkflowAssigneeSource.Policy)
         {
             step.AssignedToTenantUserId = await ResolveDynamicAssigneeAsync(instance, node, predecessorUserId, cancellationToken);
+        }
+
+        // Modo Policy (por cargo/dependencia): historicamente el paso nace SIN dueno y la bandeja expande los
+        // candidatos del cargo. Mejora: si el cargo/dependencia resuelve a UN SOLO candidato, se asigna directo
+        // a esa persona (mismo criterio "sin ambiguedad" que ya usa la ruta de fallo del agente,
+        // AssignToPersonIfUnambiguousAsync); con varios candidatos sigue siendo bandeja compartida. Asi un cargo
+        // unipersonal cae directo en su titular en vez de pedir "Tomar este paso". Resolver perezoso via
+        // IServiceProvider (mismo patron que IChildTaskStarter): en tests sin proveedor, se omite.
+        if (step.Status == WorkflowStepStatus.Pending
+            && node.WaitsForHuman
+            && node.AssigneeSource == WorkflowAssigneeSource.Policy
+            && step.AssignedToTenantUserId is null
+            && _serviceProvider?.GetService(typeof(INodeAssigneeResolver)) is INodeAssigneeResolver assigneeResolver)
+        {
+            var candidates = await assigneeResolver.ResolveCandidatesAsync(node.Id, cancellationToken);
+            if (candidates.Count == 1)
+            {
+                step.AssignedToTenantUserId = candidates[0];
+            }
         }
 
         // Enlace flujo <-> tableros: cuando el paso QUEDA pendiente (espera a un humano) y el nodo tiene

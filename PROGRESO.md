@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.35: paso por Cargo con UN candidato se auto-asigna (consistencia con la ruta de fallo)
+
+- Sintoma (usuario): tras cerrar un paso de agente, el paso humano siguiente ("Revision y cierre",
+  asignado por Cargo=DIRECTOR con UN solo miembro) salia "PASO SIN RECLAMAR / Tomar este paso" en vez
+  de caer directo en la persona.
+- Diagnostico (antes de codear): la logica "un candidato -> asignar" YA existia, pero SOLO en la ruta de
+  fallo del agente (WorkflowAgentStepRunner.AssignToPersonIfUnambiguousAsync, v0.16.30, via
+  INodeAssigneeResolver.ResolveCandidatesAsync + if Count==1). El avance NORMAL del motor
+  (WorkflowEngine.ActivateNodeAsync -> ResolveDynamicAssigneeAsync) nunca la tuvo: para AssigneeSource
+  Policy dejaba el asignado null a proposito (historico ADR-0056) y la bandeja expandia el cargo. No era
+  regresion: la mejora nunca llego al camino normal, solo al de fallo. Dos caminos inconsistentes.
+- Fix (WorkflowEngine.ActivateNodeAsync): para un paso Pending humano en modo Policy, si el cargo/dependencia
+  resuelve a UN solo candidato se asigna directo a esa persona (mismo criterio "sin ambiguedad"); con varios
+  sigue siendo bandeja compartida. Resolver perezoso via IServiceProvider (mismo patron que IChildTaskStarter;
+  tests sin proveedor lo omiten). Sin migracion.
+- Validado E2E en local (BITCODE/FLW-005): el agente cerro "Buscar productos" (busqueda paralela) y "Revision
+  y cierre" nacio ASIGNADA a acuartas@bitcode.com.co (unico DIRECTOR), sin "Tomar este paso".
+
 ## 2026-09-10 - v0.16.34: buscar_web en PARALELO (varios navegadores Colmena a la vez, ADR-0091)
 
 - Pedido del usuario: el agente deberia poder "abrir varios navegadores al tiempo" para aprovechar la

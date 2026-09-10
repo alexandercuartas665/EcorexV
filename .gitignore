@@ -54,6 +54,10 @@ artifacts/
 
 # ECOREX.tareas - secretos y datos locales
 .claude/scheduled_tasks.lock
+# Config de arranque local (trae la clave del Postgres dev) y volcados temporales de datos de
+# usuarios (PII): NO se versionan, el repo es publico (CLAUDE.md regla #6).
+.claude/launch.json
+existing_users.txt
 .env
 .env.local
 appsettings.*.local.json

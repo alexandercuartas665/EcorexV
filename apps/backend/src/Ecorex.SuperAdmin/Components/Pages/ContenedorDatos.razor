@@ -347,8 +347,20 @@ else
                             }
                             @if (_canEdit)
                             {
-                                <div class="dc-mini-form">
-                                    <div class="dc-section-sub">@(_conEditId is null ? "Nuevo conector" : "Editar conector")</div>
+                                <button class="btn btn-sm btn-primary" style="margin-top:8px;" @onclick="OpenNewConnector" disabled="@_busy">+ Nuevo conector</button>
+                            }
+                            @* Modal de conector (overlay fijo; escapa del acordeon). *@
+                            @if (_conModalOpen)
+                            {
+                                <div class="modal-overlay" style="z-index:1065;" @onclick="CloseConnectorModal">
+                                    <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+                                        <div class="modal-head">
+                                            <h5 style="margin:0;">@(_conEditId is null ? "Nuevo conector" : "Editar conector")</h5>
+                                            <button class="modal-close" @onclick="CloseConnectorModal">&times;</button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="dc-mini-form">
+                                    <div class="dc-section-sub">Conexion</div>
                                     <input class="form-control" placeholder="Nombre" @bind="_conName" />
                                     <select class="form-control" @bind="_conKind">
                                         <option value="@ConnectorKind.Excel">Excel</option>
@@ -520,16 +532,18 @@ else
                                     }
 
                                     <label class="dc-req"><input type="checkbox" @bind="_conActive" /> Activo</label>
-                                    @if (_conError is not null)
-                                    {
-                                        <div class="tk-field-error">@_conError</div>
-                                    }
-                                    <div style="display:flex;gap:6px;">
-                                        <button class="btn btn-sm btn-primary" @onclick="SaveConnectorAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_conName))">@(_conEditId is null ? "+ Agregar" : "Guardar")</button>
-                                        @if (_conEditId is not null)
-                                        {
-                                            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetConnectorForm">Cancelar</button>
-                                        }
+                                            </div>
+                                        </div>
+                                        <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:6px;">
+                                            @if (_conError is not null)
+                                            {
+                                                <div class="tk-field-error">@_conError</div>
+                                            }
+                                            <div style="display:flex;gap:6px;justify-content:flex-end;">
+                                                <button class="btn btn-outline-secondary" @onclick="CloseConnectorModal" disabled="@_busy">Cancelar</button>
+                                                <button class="btn btn-primary" @onclick="SaveConnectorAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_conName))">@(_conEditId is null ? "Crear conector" : "Guardar")</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             }
@@ -589,8 +603,7 @@ else
                                                 <strong>@p.Name</strong> <span class="dc-badge">@ScheduleLabel(p.ScheduleKind)</span>
                                                 <div class="text-muted" style="font-size:11px;">
                                                     @(p.ConnectorName ?? "sin conector")@(p.ClientName is not null ? " · " + p.ClientName : "")
-                                                    @(p.ScheduleKind == ImportScheduleKind.Interval && p.IntervalMinutes is int m ? $" · cada {m} min" : "")
-                                                    @(p.ScheduleKind == ImportScheduleKind.Cron && !string.IsNullOrWhiteSpace(p.CronExpression) ? $" · {p.CronExpression}" : "")
+                                                    · @FriendlySchedule.Describe(p.ScheduleKind, p.IntervalMinutes, p.CronExpression)
                                                     @(p.IsActive ? "" : " · inactivo")
                                                     @* La proxima ventana es lo que responde "esto de verdad va a correr?". *@
                                                     @(p.NextRunAt is DateTimeOffset nr ? $" · proxima: {nr.ToLocalTime():dd MMM HH:mm}" : "")
@@ -653,47 +666,108 @@ else
                             }
                             @if (_canEdit)
                             {
-                                <div class="dc-mini-form">
-                                    <div class="dc-section-sub">@(_procEditId is null ? "Nuevo proceso" : "Editar proceso")</div>
-                                    <input class="form-control" placeholder="Nombre" @bind="_procName" />
-                                    <select class="form-control" @bind="_procConnector">
-                                        <option value="">(Sin conector)</option>
-                                        @foreach (var c in _connectors)
-                                        {
-                                            <option value="@c.Id">@c.Name</option>
-                                        }
-                                    </select>
-                                    <select class="form-control" @bind="_procClient">
-                                        <option value="">(Sin cliente)</option>
-                                        @foreach (var c in _clients)
-                                        {
-                                            <option value="@c.Id">@c.Name</option>
-                                        }
-                                    </select>
-                                    <select class="form-control" @bind="_procSchedule">
-                                        <option value="@ImportScheduleKind.Manual">Manual</option>
-                                        <option value="@ImportScheduleKind.Interval">Intervalo</option>
-                                        <option value="@ImportScheduleKind.Cron">Cron</option>
-                                    </select>
-                                    @if (_procSchedule == ImportScheduleKind.Interval)
-                                    {
-                                        <input class="form-control" type="number" min="1" placeholder="Minutos" @bind="_procIntervalText" />
-                                    }
-                                    else if (_procSchedule == ImportScheduleKind.Cron)
-                                    {
-                                        <input class="form-control" placeholder="Expresion cron (ej. 0 * * * *)" @bind="_procCron" />
-                                    }
-                                    <label class="dc-req"><input type="checkbox" @bind="_procActive" /> Activo</label>
-                                    @if (_procError is not null)
-                                    {
-                                        <div class="tk-field-error">@_procError</div>
-                                    }
-                                    <div style="display:flex;gap:6px;">
-                                        <button class="btn btn-sm btn-primary" @onclick="SaveProcessAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_procName))">@(_procEditId is null ? "+ Agregar" : "Guardar")</button>
-                                        @if (_procEditId is not null)
-                                        {
-                                            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetProcessForm">Cancelar</button>
-                                        }
+                                <button class="btn btn-sm btn-primary" style="margin-top:8px;" @onclick="OpenNewProcess" disabled="@_busy">+ Nuevo proceso</button>
+                            }
+                            @* Modal de proceso (overlay fijo; escapa del acordeon). Incluye el programador de horario amigable. *@
+                            @if (_procModalOpen)
+                            {
+                                <div class="modal-overlay" style="z-index:1065;" @onclick="CloseProcessModal">
+                                    <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+                                        <div class="modal-head">
+                                            <h5 style="margin:0;">@(_procEditId is null ? "Nuevo proceso" : "Editar proceso")</h5>
+                                            <button class="modal-close" @onclick="CloseProcessModal">&times;</button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="dc-mini-form">
+                                                <div class="dc-section-sub">Datos del proceso</div>
+                                                <input class="form-control" placeholder="Nombre" @bind="_procName" />
+                                                <select class="form-control" @bind="_procConnector">
+                                                    <option value="">(Sin conector)</option>
+                                                    @foreach (var c in _connectors)
+                                                    {
+                                                        <option value="@c.Id">@c.Name</option>
+                                                    }
+                                                </select>
+                                                <select class="form-control" @bind="_procClient">
+                                                    <option value="">(Sin agente)</option>
+                                                    @foreach (var c in _clients)
+                                                    {
+                                                        <option value="@c.Id">@c.Name</option>
+                                                    }
+                                                </select>
+
+                                                @* ----- Programador de horario amigable ----- *@
+                                                <div class="dc-section-sub" style="margin-top:8px;">Cuando se ejecuta</div>
+                                                <select class="form-control" @bind="_procRecurrence">
+                                                    <option value="@ScheduleRecurrence.Manual">Manual (sin horario)</option>
+                                                    <option value="@ScheduleRecurrence.Daily">Todos los dias</option>
+                                                    <option value="@ScheduleRecurrence.Weekly">Ciertos dias de la semana</option>
+                                                    <option value="@ScheduleRecurrence.Monthly">Un dia del mes</option>
+                                                    <option value="@ScheduleRecurrence.EveryN">Cada cierto tiempo</option>
+                                                </select>
+
+                                                @if (_procRecurrence == ScheduleRecurrence.Weekly)
+                                                {
+                                                    <div class="dc-day-chips">
+                                                        @foreach (var chip in DayChips)
+                                                        {
+                                                            <button type="button" class="dc-day-chip @(_procDays.Contains(chip.Day) ? "on" : "")"
+                                                                    @onclick="() => ToggleProcDay(chip.Day)">@chip.Label</button>
+                                                        }
+                                                    </div>
+                                                }
+                                                @if (_procRecurrence == ScheduleRecurrence.Monthly)
+                                                {
+                                                    <label class="dc-inline-field">Dia del mes
+                                                        <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_procDayOfMonth" />
+                                                    </label>
+                                                }
+                                                @if (_procRecurrence is ScheduleRecurrence.Daily or ScheduleRecurrence.Weekly or ScheduleRecurrence.Monthly)
+                                                {
+                                                    <label class="dc-inline-field">Hora
+                                                        <input class="form-control" type="time" style="max-width:130px;" @bind="_procTime" />
+                                                    </label>
+                                                }
+                                                @if (_procRecurrence == ScheduleRecurrence.EveryN)
+                                                {
+                                                    <div class="dc-inline-field">Cada
+                                                        <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_procEveryValue" />
+                                                        <select class="form-control" style="max-width:130px;" @bind="_procEveryUnit">
+                                                            <option value="@ScheduleEveryUnit.Minutes">minutos</option>
+                                                            <option value="@ScheduleEveryUnit.Hours">horas</option>
+                                                        </select>
+                                                    </div>
+                                                }
+
+                                                <div class="dc-sched-summary">@ScheduleSummary()</div>
+
+                                                <details class="dc-advanced">
+                                                    <summary>Avanzado (expresion cron)</summary>
+                                                    <label class="dc-req"><input type="checkbox" @bind="_procAdvanced" @bind:after="OnAdvancedToggled" /> Usar esta expresion cron (ignora lo de arriba)</label>
+                                                    @if (_procAdvanced)
+                                                    {
+                                                        <input class="form-control" placeholder="minuto hora dia-mes mes dia-semana (ej. 0 8 * * 1,4)" @bind="_procCron" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <input class="form-control" value="@CurrentCronPreview()" readonly disabled />
+                                                    }
+                                                    <div class="text-muted" style="font-size:11px;">Zona horaria del tenant. 5 campos.</div>
+                                                </details>
+
+                                                <label class="dc-req"><input type="checkbox" @bind="_procActive" /> Activo</label>
+                                            </div>
+                                        </div>
+                                        <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:6px;">
+                                            @if (_procError is not null)
+                                            {
+                                                <div class="tk-field-error">@_procError</div>
+                                            }
+                                            <div style="display:flex;gap:6px;justify-content:flex-end;">
+                                                <button class="btn btn-outline-secondary" @onclick="CloseProcessModal" disabled="@_busy">Cancelar</button>
+                                                <button class="btn btn-primary" @onclick="SaveProcessAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_procName))">@(_procEditId is null ? "Crear proceso" : "Guardar")</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             }
@@ -1164,6 +1238,17 @@ else
     .dc-map-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
     .dc-map-col { font-size: 13px; }
     .dc-api-sample { max-height: 340px; overflow: auto; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); border-radius: 8px; padding: 10px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+    /* ----- Programador de horario amigable (modal de proceso) ----- */
+    .dc-day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; }
+    .dc-day-chip { width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--line, var(--border)); background: var(--card); color: var(--ink-2, var(--muted-foreground)); font-weight: 700; font-size: 13px; cursor: pointer; transition: all .12s ease; }
+    .dc-day-chip:hover { border-color: var(--accent); }
+    .dc-day-chip.on { background: var(--accent, #6b4bd8); border-color: var(--accent, #6b4bd8); color: #fff; }
+    .dc-inline-field { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-3, var(--muted-foreground)); }
+    .dc-sched-summary { font-size: 12.5px; font-weight: 600; color: var(--accent, #6b4bd8); background: rgba(124,92,255,.10); border-radius: 8px; padding: 7px 10px; margin: 2px 0; }
+    .dc-advanced { border-top: 1px dashed var(--line, var(--border)); padding-top: 6px; margin-top: 2px; }
+    .dc-advanced > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-3, var(--muted-foreground)); }
+    .dc-advanced[open] > summary { margin-bottom: 6px; }
 </style>
 
 @code {
@@ -1257,6 +1342,7 @@ else
 
     // Conectores.
     private IReadOnlyList<DataConnectorDto> _connectors = Array.Empty<DataConnectorDto>();
+    private bool _conModalOpen;
     private Guid? _conEditId;
     private string _conName = "";
     private ConnectorKind _conKind = ConnectorKind.Excel;
@@ -1512,6 +1598,20 @@ else
     private string _procCron = "";
     private bool _procActive = true;
     private string? _procError;
+
+    // Modal + programador de horario amigable (Capa UX). El scheduler traduce a ScheduleKind + cron/interval
+    // via FriendlySchedule (Application); el contrato SaveImportProcessRequest no cambia.
+    private bool _procModalOpen;
+    private ScheduleRecurrence _procRecurrence = ScheduleRecurrence.Manual;
+    private TimeOnly _procTime = new(8, 0);                    // hora del <input type=time>
+    private readonly HashSet<int> _procDays = new();           // 0=domingo..6=sabado
+    private int _procDayOfMonth = 1;
+    private int _procEveryValue = 1;
+    private ScheduleEveryUnit _procEveryUnit = ScheduleEveryUnit.Hours;
+    private bool _procAdvanced;                                // true = usar el cron crudo en vez del amigable
+
+    private static readonly (int Day, string Label)[] DayChips =
+        { (1, "L"), (2, "M"), (3, "X"), (4, "J"), (5, "V"), (6, "S"), (0, "D") };
 
     // Serializa el acceso a la BD del circuito (evita "A second operation was started on this context").
     private readonly SemaphoreSlim _dbGate = new(1, 1);
@@ -1982,6 +2082,20 @@ else
         _conContainerId = c.ContainerId?.ToString() ?? "";
         _conError = null;
         LoadRestConfigStructured(c);
+        _conModalOpen = true;
+    }
+
+    /// <summary>Abre el modal de un conector NUEVO (form en blanco).</summary>
+    private void OpenNewConnector()
+    {
+        ResetConnectorForm();
+        _conModalOpen = true;
+    }
+
+    private void CloseConnectorModal()
+    {
+        _conModalOpen = false;
+        ResetConnectorForm();
     }
 
     private void ResetConnectorForm()
@@ -2153,6 +2267,7 @@ else
             var saved = await ConfigSvc.SaveConnectorAsync(req, _actor);
             if (saved is null) { _conError = "No se pudo guardar el conector."; return; }
             _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
+            _conModalOpen = false;
             ResetConnectorForm();
         }
         catch (Exception ex) { _conError = ex.Message; }
@@ -2326,6 +2441,89 @@ else
         _procCron = p.CronExpression ?? "";
         _procActive = p.IsActive;
         _procError = null;
+        LoadFriendlySchedule(p.ScheduleKind, p.IntervalMinutes, p.CronExpression);
+        _procModalOpen = true;
+    }
+
+    /// <summary>Abre el modal de un proceso NUEVO con el scheduler en su estado por defecto.</summary>
+    private void OpenNewProcess()
+    {
+        ResetProcessForm();
+        ResetFriendlySchedule();
+        _procModalOpen = true;
+    }
+
+    private void CloseProcessModal()
+    {
+        _procModalOpen = false;
+        ResetProcessForm();
+    }
+
+    /// <summary>Deja el programador amigable en su estado por defecto (Manual, 08:00, sin dias).</summary>
+    private void ResetFriendlySchedule()
+    {
+        _procRecurrence = ScheduleRecurrence.Manual;
+        _procTime = new TimeOnly(8, 0);
+        _procDays.Clear();
+        _procDayOfMonth = 1;
+        _procEveryValue = 1;
+        _procEveryUnit = ScheduleEveryUnit.Hours;
+        _procAdvanced = false;
+    }
+
+    /// <summary>Precarga el programador amigable desde lo guardado. Si el cron no es un patron amigable,
+    /// abre el modo avanzado con el cron crudo (sin perderlo).</summary>
+    private void LoadFriendlySchedule(ImportScheduleKind kind, int? interval, string? cron)
+    {
+        ResetFriendlySchedule();
+        _procCron = cron ?? "";
+        var spec = FriendlySchedule.FromStorage(kind, interval, cron);
+        if (spec is null)
+        {
+            _procAdvanced = true;   // cron no amigable -> lo edita a mano
+            return;
+        }
+        _procRecurrence = spec.Recurrence;
+        if (spec.Time is TimeOnly t) { _procTime = t; }
+        if (spec.DaysOfWeek is not null) { foreach (var d in spec.DaysOfWeek) { _procDays.Add(d); } }
+        if (spec.DayOfMonth is int dom) { _procDayOfMonth = dom; }
+        if (spec.EveryValue is int ev) { _procEveryValue = ev; _procEveryUnit = spec.EveryUnit; }
+    }
+
+    private void ToggleProcDay(int day)
+    {
+        if (!_procDays.Remove(day)) { _procDays.Add(day); }
+    }
+
+    /// <summary>Arma la eleccion humana actual desde los campos del modal.</summary>
+    private FriendlyScheduleSpec CurrentScheduleSpec()
+        => new(_procRecurrence, _procTime, _procDays.OrderBy(x => x).ToList(), _procDayOfMonth, _procEveryValue, _procEveryUnit);
+
+    /// <summary>Cron que generaria la eleccion amigable actual (vacio si es Manual/Intervalo o esta incompleta).
+    /// Se muestra en el campo avanzado deshabilitado, para que el usuario tecnico VEA lo que se guardara.</summary>
+    private string CurrentCronPreview()
+    {
+        try
+        {
+            var (k, _, c) = FriendlySchedule.ToStorage(CurrentScheduleSpec());
+            return k == ImportScheduleKind.Cron ? (c ?? "") : "";
+        }
+        catch { return ""; }
+    }
+
+    private string ScheduleSummary()
+        => _procAdvanced
+            ? FriendlySchedule.Describe(ImportScheduleKind.Cron, null, _procCron)
+            : FriendlySchedule.DescribeSpec(CurrentScheduleSpec());
+
+    /// <summary>Al activar "avanzado", precarga el cron con lo que la eleccion amigable generaria, para no
+    /// arrancar de una caja vacia.</summary>
+    private void OnAdvancedToggled()
+    {
+        if (_procAdvanced && string.IsNullOrWhiteSpace(_procCron))
+        {
+            _procCron = CurrentCronPreview();
+        }
     }
 
     private void ResetProcessForm()
@@ -2346,15 +2544,26 @@ else
         if (_mId is not Guid modelId) { return; }
         _procError = null;
         if (string.IsNullOrWhiteSpace(_procName)) { _procError = "El nombre es obligatorio."; return; }
+
+        // El programador amigable (o el cron avanzado) define kind + interval/cron. El contrato no cambia.
+        ImportScheduleKind kind;
         int? interval = null;
-        if (_procSchedule == ImportScheduleKind.Interval)
+        string? cron = null;
+        try
         {
-            if (!int.TryParse(_procIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m) || m <= 0)
+            if (_procAdvanced)
             {
-                _procError = "Indica un intervalo en minutos valido."; return;
+                cron = NullIfBlank(_procCron);
+                if (cron is null) { _procError = "Indica una expresion cron (o desactiva el modo avanzado)."; return; }
+                kind = ImportScheduleKind.Cron;
             }
-            interval = m;
+            else
+            {
+                (kind, interval, cron) = FriendlySchedule.ToStorage(CurrentScheduleSpec());
+            }
         }
+        catch (Exception ex) { _procError = ex.Message; return; }
+
         _busy = true;
         try
         {
@@ -2363,13 +2572,14 @@ else
                 Guid.TryParse(_procConnector, out var conId) ? conId : null,
                 Guid.TryParse(_procClient, out var cliId) ? cliId : null,
                 _procName.Trim(),
-                _procSchedule,
+                kind,
                 interval,
-                _procSchedule == ImportScheduleKind.Cron ? NullIfBlank(_procCron) : null,
+                cron,
                 _procActive);
             var saved = await ConfigSvc.SaveProcessAsync(req, _actor);
             if (saved is null) { _procError = "No se pudo guardar el proceso."; return; }
             _processes = await ConfigSvc.ListProcessesAsync(modelId);
+            _procModalOpen = false;
             ResetProcessForm();
         }
         catch (Exception ex) { _procError = ex.Message; }

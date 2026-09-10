@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.37: Contenedor de datos (Alimentacion) - conectores/procesos en MODAL + horario amigable
+
+- Pedido (UX): en ContenedorDatos.razor los formularios de ALTA/EDICION de conectores y procesos eran
+  inline dentro del acordeon (campos apilados, "desparramados"). Ahora abren en MODAL; el acordeon queda
+  como LISTA + boton "+ Nuevo conector"/"+ Nuevo proceso". Solo UI: NO cambia el contrato ni el motor.
+- Modales (wrap-in-place con .modal-overlay z-index alto; escapan del acordeon porque no hay
+  transform/filter/contain en ancestros). EditConnector/EditProcess abren el modal precargado; guardar
+  cierra el modal. La lista de procesos muestra el horario en LENGUAJE HUMANO.
+- Programador de horario amigable (lo importante): selector Manual / Todos los dias / Ciertos dias de la
+  semana (chips L M X J V S D) / Un dia del mes / Cada N (min|horas). Bajo el capo genera cron de 5 campos
+  (guardado como ScheduleKind.Cron) o Interval; SaveImportProcessRequest intacto. Resumen legible en vivo
+  ("Cada lunes y jueves a las 07:30") + desplegable "Avanzado" con el cron crudo editable (sincroniza y,
+  si el cron guardado no es amigable, se abre solo sin perderlo). Zona horaria del tenant (Cronos, ADR-0041).
+- Nuevo helper Application: FriendlySchedule (ToStorage/FromStorage/Describe) + FriendlyScheduleSpec +
+  enums ScheduleRecurrence/ScheduleEveryUnit. 33 tests unitarios (ida/vuelta, cron no-amigable -> avanzado,
+  resumenes, validaciones). Build + 830 tests de Application verdes.
+- Pendiente: validacion visual del usuario y deploy A SU SENAL. No rompe SOLDARCO (MAESTROS DIRECTORIO
+  PUBLICO): conectores/procesos existentes se listan y ejecutan igual (contrato sin cambios).
+
 ## 2026-09-10 - v0.16.36: Capa 2 - "pensamiento" del agente + tokens EN VIVO en el nodo (ADR-0091)
 
 - Pedido (usuario): ver el pensamiento del agente (letras semi-transparentes) y el consumo de tokens

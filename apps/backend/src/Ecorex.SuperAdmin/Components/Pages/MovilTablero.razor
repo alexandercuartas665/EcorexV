@@ -451,7 +451,13 @@
     [JSInvokable]
     public async Task OnScanned(string value)
     {
-        await HandleCodeAsync(value);
+        // Ajuste de diagnostico (pedido del usuario): la lectura de la CAMARA solo DEPOSITA el valor en
+        // la caja de texto (el camino manual, que si funciona) y detiene el lector para que quede estable;
+        // la persona confirma con "Buscar". Asi aislamos si la deteccion de la camara llega a .NET.
+        try { await JS.InvokeVoidAsync("ecorexScan.stop"); } catch { }
+        _scanManual = (value ?? string.Empty).Trim();
+        _scanError = null;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnManualKey(KeyboardEventArgs e)

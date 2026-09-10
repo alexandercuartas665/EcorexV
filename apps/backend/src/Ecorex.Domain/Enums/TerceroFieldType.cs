@@ -58,5 +58,20 @@ public enum TerceroFieldType
 
     /// <summary>Correo electronico: se pinta como &lt;input type="email"&gt; (validacion nativa del navegador).
     /// Se agrego al final para no correr los valores enteros de los demas tipos ya persistidos.</summary>
-    Email
+    Email,
+
+    // ---- Tipos geograficos (Directorio Modular): selects SEPARADOS que se encadenan dentro de la seccion.
+    // Guardan el NOMBRE (texto plano) para que sigan filtrando/exportando como cualquier campo. La cascada
+    // la resuelve la ficha: Pais gatea Departamento (solo Colombia tiene catalogo); Departamento filtra Ciudad.
+
+    /// <summary>Pais: lista corta de paises (catalogo en codigo, Colombia por defecto).</summary>
+    Pais,
+
+    /// <summary>Departamento de Colombia (catalogo DANE via ICiudadCatalogService). Habilitado cuando el
+    /// Pais de la seccion es Colombia; al cambiar limpia la Ciudad de la seccion.</summary>
+    Departamento,
+
+    /// <summary>Ciudad/municipio (catalogo DANE). Si la seccion tiene un campo Departamento, se muestra como
+    /// select de los municipios de ese departamento; si no, como autocompletar sobre todos los municipios.</summary>
+    Ciudad
 }

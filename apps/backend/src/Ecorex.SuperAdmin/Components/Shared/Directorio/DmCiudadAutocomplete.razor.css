@@ -1,0 +1,43 @@
+.dm-ciudad-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 40;
+    max-height: 240px;
+    overflow: auto;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(16, 24, 40, .16);
+}
+
+.dm-ciudad-opt {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid #f3f4f6;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.dm-ciudad-opt:hover {
+    background: #f5f3ff;
+}
+
+.dm-ciudad-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.dm-ciudad-dep {
+    font-size: 11.5px;
+    color: #6b7280;
+}

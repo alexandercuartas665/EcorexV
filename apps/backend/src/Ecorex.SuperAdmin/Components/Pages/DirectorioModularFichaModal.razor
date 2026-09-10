@@ -334,6 +334,34 @@
         d[campo] = valor ?? "";
     }
 
+    // ---- Cascada geografica (Pais -> Departamento -> Ciudad), resuelta a nivel de seccion ----
+
+    /// <summary>Cambia el Pais; si deja de ser Colombia limpia Departamento/Ciudad de la seccion
+    /// (solo Colombia tiene catalogo de ciudades).</summary>
+    private void OnPaisChanged(string ficha, string campo, string? valor)
+    {
+        SetVal(ficha, campo, valor);
+        if (valor == Ecorex.Application.Catalogos.GeoPaises.Colombia) { return; }
+        var sec = _ficha?.Secciones.FirstOrDefault(s => s.FichaKey == ficha);
+        if (sec is null) { return; }
+        foreach (var c in sec.Campos.Where(c => c.Type is TerceroFieldType.Departamento or TerceroFieldType.Ciudad))
+        {
+            SetVal(ficha, c.FieldKey, "");
+        }
+    }
+
+    /// <summary>Cambia el Departamento; limpia la(s) Ciudad(es) de la seccion (dependen del departamento).</summary>
+    private void OnDepartamentoChanged(string ficha, string campo, string? valor)
+    {
+        SetVal(ficha, campo, valor);
+        var sec = _ficha?.Secciones.FirstOrDefault(s => s.FichaKey == ficha);
+        if (sec is null) { return; }
+        foreach (var c in sec.Campos.Where(c => c.Type == TerceroFieldType.Ciudad))
+        {
+            SetVal(ficha, c.FieldKey, "");
+        }
+    }
+
     private static bool EsRequerido(ModularCampoDto f) => !string.IsNullOrWhiteSpace(f.RequeridoEn);
 
     private string? Find(string campo)
@@ -524,6 +552,59 @@
                 builder.CloseElement();
                 builder.CloseElement();
                 break;
+            case TerceroFieldType.Pais:
+                // Pais: lista corta (catalogo en codigo). Al cambiar a un pais != Colombia limpia
+                // departamento/ciudad de la seccion (solo Colombia tiene catalogo de ciudades).
+                builder.OpenElement(0, "select");
+                builder.AddAttribute(1, "class", "fm-select");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => OnPaisChanged(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.OpenElement(4, "option"); builder.AddAttribute(5, "value", ""); builder.AddContent(6, "-- Pais --"); builder.CloseElement();
+                foreach (var p in Ecorex.Application.Catalogos.GeoPaises.Todos)
+                {
+                    builder.OpenElement(7, "option");
+                    builder.AddAttribute(8, "value", p);
+                    if (p == val) { builder.AddAttribute(9, "selected", true); }
+                    builder.AddContent(10, p);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
+            case TerceroFieldType.Departamento:
+            {
+                var secD = _ficha?.Secciones.FirstOrDefault(s => s.FichaKey == ficha);
+                var paisD = secD?.Campos.FirstOrDefault(c => c.Type == TerceroFieldType.Pais);
+                var habilitado = paisD is null || GetVal(ficha, paisD.FieldKey) == Ecorex.Application.Catalogos.GeoPaises.Colombia;
+                builder.OpenComponent<Ecorex.SuperAdmin.Components.Shared.Directorio.DmDepartamentoSelect>(0);
+                builder.AddAttribute(1, "Value", val);
+                builder.AddAttribute(2, "Enabled", habilitado);
+                builder.AddAttribute(3, "ValueChanged", EventCallback.Factory.Create<string>(this, v => OnDepartamentoChanged(ficha, f.FieldKey, v)));
+                builder.CloseComponent();
+                break;
+            }
+            case TerceroFieldType.Ciudad:
+            {
+                var secC = _ficha?.Secciones.FirstOrDefault(s => s.FichaKey == ficha);
+                var deptoC = secC?.Campos.FirstOrDefault(c => c.Type == TerceroFieldType.Departamento);
+                if (deptoC is not null)
+                {
+                    // La seccion tiene Departamento: Ciudad = municipios de ese departamento (encadenado).
+                    builder.OpenComponent<Ecorex.SuperAdmin.Components.Shared.Directorio.DmMunicipioSelect>(0);
+                    builder.AddAttribute(1, "Value", val);
+                    builder.AddAttribute(2, "Departamento", GetVal(ficha, deptoC.FieldKey));
+                    builder.AddAttribute(3, "ValueChanged", EventCallback.Factory.Create<string>(this, v => SetVal(ficha, f.FieldKey, v)));
+                    builder.CloseComponent();
+                }
+                else
+                {
+                    // Sin Departamento en la seccion (ej. Seccion publica): autocompletar sobre todos los municipios.
+                    builder.OpenComponent<Ecorex.SuperAdmin.Components.Shared.Directorio.DmCiudadAutocomplete>(0);
+                    builder.AddAttribute(1, "Value", val);
+                    builder.AddAttribute(2, "ValueChanged", EventCallback.Factory.Create<string>(this, v => SetVal(ficha, f.FieldKey, v)));
+                    builder.CloseComponent();
+                }
+                break;
+            }
             case TerceroFieldType.Lookup:
             case TerceroFieldType.DirectoryLookup:
             case TerceroFieldType.Calculated:

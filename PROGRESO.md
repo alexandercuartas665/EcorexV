@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.29: Directorio Modular - Pais/Departamento/Ciudad con cascada (ADR-0088)
+
+- Pedido: "poner a funcionar" Ciudad y Pais del Directorio Modular (estaban como Select sin opciones).
+  Decision del usuario: campos SEPARADOS con cascada; alcance Publico + RUT.
+- Hecho:
+  - 3 tipos nuevos en TerceroFieldType: Pais, Departamento, Ciudad (al final del enum; field_type se
+    guarda como TEXTO, sin choque de ordinales). Guardan el NOMBRE en texto plano (siguen filtrando/exportando).
+  - Catalogo de paises en codigo (GeoPaises, Colombia primero). Departamento/Ciudad leen el catalogo DANE
+    global existente (ICiudadCatalogService: ListDepartamentos/ListMunicipios/Search).
+  - Ficha Modular (DirectorioModularFichaModal.RenderControl): Pais = select; Departamento = select
+    gateado (habilitado solo si el Pais de la seccion es Colombia); Ciudad = select de municipios del
+    departamento si la seccion tiene Departamento (RUT), o autocompletar sobre todos los municipios si no
+    (Publico). Cascada resuelta por seccion: cambiar Pais (!= Colombia) o Departamento limpia los hijos.
+  - Componentes nuevos: DmDepartamentoSelect, DmMunicipioSelect, DmCiudadAutocomplete (+ .razor.css).
+    Serializan las consultas con CircuitFormGate (el catalogo comparte el DbContext del circuito; sin el
+    gate, teclear rapido lanzaba "A second operation was started on this context instance").
+  - Seed (DirectorioModularDefaults): pais/ciudad (publica) y pais_rut/departamento/ciudad_rut (tributaria)
+    pasan a los tipos tipados. Config modal: los 3 tipos agregados al desplegable "Tipo".
+  - Migracion de datos ConvertModularGeoFieldTypes (PG + SQL Server): convierte esos campos de sistema de
+    'Select' a los tipos geo en tenants YA sembrados (idempotente, solo mod_%). Aplicada a la BD local.
+- Validado en Chrome (LENOVO/SOLDARCO): Publico -> Pais select + Ciudad autocompletar (Bogota) guarda
+  pais="Colombia"/ciudad="Bogota" (texto plano en BD). RUT -> Pais=Colombia habilita Departamento=Antioquia
+  y carga sus municipios en Ciudad. Sin errores de circuito. Build verde.
+- Nota: el catalogo DANE es SOLO Colombia (217 municipios locales). Otros paises no tienen cascada de ciudad.
+
 ## 2026-09-10 - v0.16.28: Diagrama de flujo en la tarea - nodo de AGENTE IA rediseniado (ADR-0090)
 
 - Contexto: pedido del usuario para leer de un golpe cuales pasos los ejecuta un agente, con mas aire y

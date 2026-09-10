@@ -1,0 +1,38 @@
+@* Select de MUNICIPIOS de un departamento (catalogo DANE) para el motor Modular. Encadenado a un
+   campo Departamento de la misma seccion: la ficha le pasa el departamento elegido. Guarda el NOMBRE
+   del municipio (texto plano). *@
+@inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadesSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+<select class="fm-select" disabled="@(string.IsNullOrEmpty(Departamento))" @onchange="OnChanged">
+    <option value="">@(string.IsNullOrEmpty(Departamento) ? "Elige departamento" : "-- Ciudad --")</option>
+    @foreach (var m in _municipios)
+    {
+        <option value="@m" selected="@(m == Value)">@m</option>
+    }
+</select>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Departamento actual de la seccion (lo pasa la ficha). Al cambiar se recargan municipios.</summary>
+    [Parameter] public string? Departamento { get; set; }
+
+    private IReadOnlyList<string> _municipios = Array.Empty<string>();
+    private string? _cargadoPara;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var dep = Departamento ?? "";
+        if (dep == _cargadoPara) { return; }
+        _cargadoPara = dep;
+        if (string.IsNullOrEmpty(dep)) { _municipios = Array.Empty<string>(); return; }
+        await FormGate.Gate.WaitAsync();
+        try { _municipios = await CiudadesSvc.ListMunicipiosAsync(dep); }
+        finally { FormGate.Gate.Release(); }
+    }
+
+    private async Task OnChanged(ChangeEventArgs e)
+        => await ValueChanged.InvokeAsync(e.Value?.ToString() ?? "");
+}

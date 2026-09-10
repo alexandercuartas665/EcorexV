@@ -67,3 +67,19 @@ Especializado") y el modal muestra "ESPECIALIZADO"; al volver a Ligero, regresa.
 - UX del modal (motor Modular): el editor de campo es sticky mientras se hace scroll en la lista; la fila
   en edicion queda resaltada; los selectores de icono (`FaIconPicker`) y color (`ColorPicker`) pasan a
   boton compacto + popover flotante para no ocupar tanto alto.
+
+## Nota (v0.16.29, 2026-09-10): campos geograficos Pais/Departamento/Ciudad con cascada
+
+- Se agregan 3 tipos a `TerceroFieldType`: `Pais`, `Departamento`, `Ciudad` (al final; `field_type` se
+  persiste como texto, sin choque de ordinales). Guardan el NOMBRE en texto plano, asi que siguen
+  filtrando/exportando como cualquier campo. Decision del usuario: campos SEPARADOS con cascada (no un
+  control unico), alcance Publico + RUT.
+- `Pais` usa un catalogo en codigo (`GeoPaises`, Colombia por defecto). `Departamento`/`Ciudad` leen el
+  catalogo global DANE ya existente (`ICiudadCatalogService`), que es SOLO Colombia. La cascada se resuelve
+  por seccion: `Departamento` se habilita solo si el `Pais` de la seccion es Colombia; `Ciudad` es select
+  de municipios del departamento cuando la seccion tiene `Departamento` (RUT) o autocompletar sobre todos
+  los municipios cuando no lo tiene (Publico). Cambiar el padre limpia los hijos.
+- Componentes nuevos (`DmDepartamentoSelect`, `DmMunicipioSelect`, `DmCiudadAutocomplete`) serializan sus
+  consultas con `CircuitFormGate` (el catalogo comparte el DbContext scoped del circuito).
+- Migracion de datos `ConvertModularGeoFieldTypes` (PG + SQL Server) convierte esos campos de sistema de
+  `Select` a los tipos geo en tenants ya sembrados (idempotente, `ficha_key LIKE 'mod%'`).

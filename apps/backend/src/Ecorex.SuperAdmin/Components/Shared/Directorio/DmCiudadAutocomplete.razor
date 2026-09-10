@@ -1,0 +1,77 @@
+@* Autocompletar de CIUDAD/municipio (catalogo DANE global) para el motor Modular, cuando la seccion
+   NO tiene un campo Departamento (ej. Seccion publica). Se escribe para filtrar y se elige de la lista;
+   guarda el NOMBRE del municipio (texto plano). Calcado del autocompletar de ciudad del Clasico. *@
+@using Ecorex.Application.Catalogos
+@inject ICiudadCatalogService CiudadesSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+<div class="dm-ciudad" style="position:relative" @onfocusout="OnBlur">
+    <input class="fm-input" placeholder="Buscar ciudad..." autocomplete="off"
+           value="@_query" @oninput="OnInput" @onfocus="OnFocus" />
+    @if (_open && _matches.Count > 0)
+    {
+        <div class="dm-ciudad-menu">
+            @foreach (var c in _matches)
+            {
+                var cc = c;
+                <button type="button" class="dm-ciudad-opt" @onmousedown:preventDefault="true"
+                        @onmousedown="() => Select(cc)">
+                    <span class="dm-ciudad-name">@cc.Nombre</span>
+                    @if (!string.IsNullOrWhiteSpace(cc.Departamento))
+                    {
+                        <span class="dm-ciudad-dep">@cc.Departamento</span>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private string _query = "";
+    private bool _open;
+    private IReadOnlyList<CiudadDto> _matches = Array.Empty<CiudadDto>();
+    private string? _lastEmitted;
+
+    protected override void OnParametersSet()
+    {
+        // Re-hidrata el texto desde Value solo si el cambio viene de afuera (edicion/autollenado).
+        if (Value != _lastEmitted) { _query = Value ?? ""; }
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        if (_query.Trim().Length < 2) { _matches = Array.Empty<CiudadDto>(); _open = false; return; }
+        await BuscarAsync();
+    }
+
+    private async Task OnFocus(FocusEventArgs _)
+    {
+        if (_query.Trim().Length >= 2) { await BuscarAsync(); }
+    }
+
+    // Serializa contra el DbContext del circuito (el catalogo comparte el contexto scoped): sin esto,
+    // teclear rapido lanza "A second operation was started on this context instance" y tumba el circuito.
+    private async Task BuscarAsync()
+    {
+        await FormGate.Gate.WaitAsync();
+        try { _matches = await CiudadesSvc.SearchAsync(_query.Trim(), 20); }
+        catch { _matches = Array.Empty<CiudadDto>(); }
+        finally { FormGate.Gate.Release(); }
+        _open = _matches.Count > 0;
+    }
+
+    private void OnBlur(FocusEventArgs _) => _open = false;
+
+    private async Task Select(CiudadDto c)
+    {
+        _open = false;
+        _query = c.Nombre;
+        _lastEmitted = c.Nombre;
+        await ValueChanged.InvokeAsync(c.Nombre);
+    }
+}

@@ -1,0 +1,33 @@
+@* Select de DEPARTAMENTOS de Colombia (catalogo DANE) para el motor Modular. Encadenado: la ficha
+   lo habilita solo cuando el Pais de la seccion es Colombia y limpia la Ciudad al cambiar. Guarda el
+   NOMBRE del departamento (texto plano). *@
+@inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadesSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+<select class="fm-select" disabled="@(!Enabled)" @onchange="OnChanged">
+    <option value="">@(Enabled ? "-- Departamento --" : "Elige Colombia como pais")</option>
+    @foreach (var d in _departamentos)
+    {
+        <option value="@d" selected="@(d == Value)">@d</option>
+    }
+</select>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Solo Colombia tiene catalogo: la ficha pasa true cuando el Pais de la seccion es Colombia.</summary>
+    [Parameter] public bool Enabled { get; set; } = true;
+
+    private IReadOnlyList<string> _departamentos = Array.Empty<string>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await FormGate.Gate.WaitAsync();
+        try { _departamentos = await CiudadesSvc.ListDepartamentosAsync(); }
+        finally { FormGate.Gate.Release(); }
+    }
+
+    private async Task OnChanged(ChangeEventArgs e)
+        => await ValueChanged.InvokeAsync(e.Value?.ToString() ?? "");
+}

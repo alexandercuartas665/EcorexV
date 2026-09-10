@@ -437,7 +437,9 @@
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2" /><path d="M12 8V4M9 4h6" /><circle cx="9" cy="14" r="1" /><circle cx="15" cy="14" r="1" /><path d="M2 13v3M22 13v3" /></svg>
                                                     <span class="nm">@(string.IsNullOrWhiteSpace(nn.AgentName) ? "Agente IA" : nn.AgentName)</span>
                                                     <span class="ia">IA</span>
-                                                    @{ var effTokens = _liveTokens.TryGetValue(nn.NodeId, out var lvTok) ? lvTok : (nn.AgentTokens ?? 0); }
+                                                    @* Base (acumulado del DTO, aun sin esta corrida) + delta EN VIVO de la corrida actual: asi el contador
+                                                       solo CRECE mientras trabaja y nunca "salta hacia abajo". Sin stream, muestra el acumulado del DTO. *@
+                                                    @{ var effTokens = (nn.AgentTokens ?? 0) + (_liveTokens.TryGetValue(nn.NodeId, out var lvTok) ? lvTok : 0L); }
                                                     @if (effTokens > 0)
                                                     {
                                                         <span class="tk-flow-tokpill" title="@effTokens tokens de IA consumidos por el agente">@FlowTokens(effTokens) tok</span>

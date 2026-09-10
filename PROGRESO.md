@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.34: buscar_web en PARALELO (varios navegadores Colmena a la vez, ADR-0091)
+
+- Pedido del usuario: el agente deberia poder "abrir varios navegadores al tiempo" para aprovechar la
+  Colmena. Hallazgo: la pila de abajo YA es paralela -el canal (BrowserActionChannel) es concurrente
+  por correlationId y el agente on-prem (WebView2BrowserSubAgent) abre un navegador aislado por orden-;
+  lo unico que serializaba era el bucle de tool-calling del invoker.
+- Hecho (WorkflowAgentInvoker.cs, solo servidor): si el modelo pide VARIAS 'buscar_web' en un mismo
+  turno, se lanzan a la vez con Task.WhenAll acotado por MaxParallelWebSearches=3 (SemaphoreSlim) y se
+  cosechan EN ORDEN para no romper el orden de tool-messages. Solo buscar_web se paraleliza (no toca
+  fields/finished ni pausa el paso -> sin carrera); el resto de herramientas sigue secuencial. Una sola
+  buscar_web se comporta igual que antes (sin regresion).
+- Nudge al prompt y a la descripcion de la tool: "si consultas varias fuentes, pidelas TODAS en el mismo
+  turno; se abren en navegadores separados en paralelo".
+- Validacion de la politica de fallo Retry=2 (v0.16.31): corrida controlada forzando fallo (modelo
+  inexistente) -> agent_attempt_count 1->2->3, en el 3o se rinde y deja el paso para persona, sin bucle.
+- Sin migracion. Siguiente: validar el paralelo en local (BITCODE) y deploy a prod A SU SENAL.
+
 ## 2026-09-10 - v0.16.31: Politica de FALLO del agente configurable + recurso humano (ADR-0090)
 
 - Contexto: incidente en prod (AGROMETALICAS) donde un paso de agente que fallaba quedaba atascado
@@ -12223,3 +12240,19 @@ Peticion: crear usuario en BITCODE prod. Creado por SQL (excepcion ETL):
 - tenant_users: tenant BITCODE (019f478d-...), rol Owner, OwnOnly, menu 'Completo' (87104d1f-...).
 Validado: POST /auth/login -> 302 /inicio (ingreso OK). Correo no existia (sin duplicado).
 Backup ecorex-2026-09-10-1131. Sin secretos en el repo (la clave solo entro al hash).
+
+## 2026-09-10 - SOLDARCO: contenedor "MAESTROS DIRECTORIO PUBLICO" (agente Colmena -> SQL Server, Fase 1)
+
+Agente: Claude Opus 4.8. El usuario quiere traer 4 tablas maestras del SQL Server del cliente (M700)
+a un contenedor, via el agente Colmena (conector Database). Analisis del camino end-to-end:
+ProcessRunner (Database via agente) usa connector.ContainerId como tabla destino y mapea AUTOMATICO
+por NOMBRE (columnas de la tabla <- campos homonimos del SELECT); el agente (GatewayExecutor)
+ejecuta el SQL solo-lectura en la LAN y devuelve chunks que AgentImportService ingiere. La credencial
+la gestiona el modulo de conectores (cifrada, ISecretProtector; ADR-0040 la envia al agente al correr).
+FASE 1 (hecha, por SQL): modelo MAESTROS DIRECTORIO PUBLICO (c539f758-2a72-5190-9cbc-9d9cf43c3b7b) +
+4 tablas con TODAS las columnas:
+  MERCADOS 18e932db-... (6), GRUECOS 050ebe91-... (4), ESTADOS f3ea20cb-... (8), CARGOS 774a11e0-... (9).
+Nombres de columna = nombres del origen (para el mapeo por nombre). Backup ecorex-2026-09-10-1621.sql.gz.
+FASE 2 (pendiente): 4 conectores Database (Host 192.168.0.8, Username Remoto, credencial por el modulo;
+SELECT por tabla con nombres de 3 partes m700_car/m700_gen) + 4 ImportProcess ligados al agente
+soldarco_server6 (cli_bf450c7fc275), Manual para validar y luego cron. Via Config API (token ecx_) o UI.

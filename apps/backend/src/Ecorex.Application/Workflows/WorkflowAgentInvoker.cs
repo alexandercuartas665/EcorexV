@@ -211,6 +211,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// <summary>Tope de rondas del bucle de llenado: ver/fijar/enviar no necesitan muchas vueltas; acota tokens.</summary>
     private const int MaxFormRounds = 8;
 
+    /// <summary>Cuantas 'buscar_web' de un MISMO turno se corren a la vez. La Colmena abre un navegador
+    /// aislado por orden (WebView2BrowserSubAgent) y el canal es concurrente por correlationId, asi que el
+    /// paralelismo es real; el tope acota la RAM de la maquina Colmena (cada navegador ~= un Chromium).</summary>
+    private const int MaxParallelWebSearches = 3;
+
     /// <summary>Corre el bucle de function-calling para diligenciar el formulario del paso. ACUMULA los valores
     /// en memoria (este servicio NO escribe BD); el runner los envia por SaveAsync con la validacion real. El
     /// modelo termina llamando 'enviar_formulario'; si no lo hace, es "no pudo" y el paso vuelve a una persona.</summary>
@@ -272,6 +277,32 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             }
 
             messages.Add(new AiToolMessage("assistant", completion.Text, completion.ToolCalls));
+
+            // ADR-0091 (paralelo): la Colmena ya abre un navegador aislado por orden y el canal es
+            // concurrente por correlationId; lo unico que serializaba era este bucle. Si el modelo pide
+            // VARIAS 'buscar_web' en un mismo turno, se lanzan a la vez (acotadas por MaxParallelWebSearches)
+            // y se cosechan EN ORDEN mas abajo. Solo buscar_web se paraleliza: no toca 'fields'/'finished'
+            // ni pausa el paso, asi que no hay carrera. El resto de herramientas sigue estrictamente en fila.
+            Dictionary<string, Task<string>>? webTasks = null;
+            if (canSearchWeb)
+            {
+                var webCalls = completion.ToolCalls.Where(c => c.Name == "buscar_web").ToList();
+                if (webCalls.Count > 1)
+                {
+                    using var gate = new SemaphoreSlim(MaxParallelWebSearches);
+                    async Task<string> RunGatedAsync(string argsJson)
+                    {
+                        await gate.WaitAsync(cancellationToken);
+                        try { return await ExecuteWebSearchAsync(argsJson, context.Assignment!, agent.TenantId, cancellationToken); }
+                        finally { gate.Release(); }
+                    }
+                    webTasks = new Dictionary<string, Task<string>>(StringComparer.Ordinal);
+                    foreach (var wc in webCalls) { webTasks[wc.Id] = RunGatedAsync(wc.ArgumentsJson); }
+                    // WhenAll dentro del 'using': el semaforo no se libera hasta que todas terminaron.
+                    await Task.WhenAll(webTasks.Values);
+                }
+            }
+
             foreach (var call in completion.ToolCalls)
             {
                 string result;
@@ -279,7 +310,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 {
                     // ADR-0091: el agente busca un dato en la web con el cliente Colmena del nodo (sincrono,
                     // acotado). El invoker no escribe BD: solo trae el contenido para que el agente lo use.
-                    result = await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
+                    // Si venia en un lote paralelo ya esta resuelto (Task completado); si no, se ejecuta aqui.
+                    result = webTasks is not null && webTasks.TryGetValue(call.Id, out var wt)
+                        ? await wt
+                        : await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
                 }
                 else if (call.Name == "llamar_telefono" && canCall)
                 {
@@ -381,7 +415,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         {
             // ADR-0091: buscar un dato en la web con el navegador Colmena del nodo.
             tools.Add(new AiToolSpec("buscar_web",
-                "Abre una URL con el navegador Colmena y devuelve su contenido legible, para CONSEGUIR un dato que no esta en el contexto. 'url' obligatoria (http/https); 'selector' CSS opcional.",
+                "Abre una URL con el navegador Colmena y devuelve su contenido legible, para CONSEGUIR un dato que no esta en el contexto. 'url' obligatoria (http/https); 'selector' CSS opcional. Si necesitas consultar VARIAS paginas, pide todas las 'buscar_web' JUNTAS en el mismo turno: se abren en navegadores separados a la vez y es mucho mas rapido.",
                 """{"type":"object","properties":{"url":{"type":"string"},"selector":{"type":"string"}},"required":["url"]}"""));
         }
         if (canCall)
@@ -450,6 +484,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (canSearchWeb)
         {
             sb.AppendLine("Ademas tienes 'buscar_web' (abre una URL con el navegador Colmena y te devuelve su contenido) para CONSEGUIR un dato que falte antes de fijarlo.");
+            sb.AppendLine("Si vas a consultar varias fuentes, PIDELAS TODAS EN EL MISMO TURNO (varias 'buscar_web' a la vez): la Colmena las abre en navegadores separados en paralelo y respondes mas rapido. No las hagas de a una si puedes lanzarlas juntas.");
         }
         if (canCall)
         {

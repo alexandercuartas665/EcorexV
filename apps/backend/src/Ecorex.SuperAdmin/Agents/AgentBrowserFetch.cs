@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Workflows;
 using Ecorex.Contracts.Agent;
+using Ecorex.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.SuperAdmin.Agents;
@@ -21,6 +22,11 @@ public sealed class AgentBrowserFetch : IAgentBrowserFetch
     private readonly IBrowserActionChannel _channel;
     private readonly IAgentRegistry _registry;
 
+    // Varias 'buscar_web' del mismo paso pueden entrar a la vez (ADR-0091 paralelo). El DbContext NO es
+    // thread-safe: se serializa SOLO la unica lectura de BD (resolver el cliente Colmena, ~ms). La parte cara
+    // -la orden al navegador por el canal- queda FUERA del candado y sigue corriendo en paralelo real.
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
     public AgentBrowserFetch(IApplicationDbContext db, IBrowserActionChannel channel, IAgentRegistry registry)
     {
         _db = db;
@@ -39,8 +45,14 @@ public sealed class AgentBrowserFetch : IAgentBrowserFetch
 
         // El cliente Colmena del tenant (filtro global). Se guarda su Guid en el nodo; aqui se resuelve al
         // ClientId publico con el que se dirige la orden al agente on-prem.
-        var client = await _db.DataClients.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == clientId, cancellationToken);
+        DataClient? client;
+        await _dbGate.WaitAsync(cancellationToken);
+        try
+        {
+            client = await _db.DataClients.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == clientId, cancellationToken);
+        }
+        finally { _dbGate.Release(); }
         if (client is null)
         {
             return AgentBrowserFetchResult.Fail("El cliente Colmena configurado en el paso ya no existe.");

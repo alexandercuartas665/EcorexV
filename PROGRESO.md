@@ -12191,3 +12191,12 @@ clientes_perfil_comercial). Ahora el toolset "datos" del agente puede listarlos,
 ejecutarlos (respeta AllowWrite de la conexion=OFF y AllowBatch por dataset). Backup
 ecorex-2026-09-08-2101.sql.gg. Sigue pendiente la validacion en la UI (Probar conexion + STRING_SPLIT
 + EXECUTE del login para el batch).
+
+## 2026-09-10 - BITCODE: usuario Nathalia Santiago Trivino (Owner)
+
+Peticion: crear usuario en BITCODE prod. Creado por SQL (excepcion ETL):
+- platform_users: nas768@gmail.com, display 'Nathalia Santiago Trivino', auth local, Active,
+  email_verified=true, password_hash PBKDF2 v1.100000 (clave = cedula 1113646026, elegida por el usuario).
+- tenant_users: tenant BITCODE (019f478d-...), rol Owner, OwnOnly, menu 'Completo' (87104d1f-...).
+Validado: POST /auth/login -> 302 /inicio (ingreso OK). Correo no existia (sin duplicado).
+Backup ecorex-2026-09-10-1131. Sin secretos en el repo (la clave solo entro al hash).

@@ -378,6 +378,7 @@ public abstract class WorkflowAgentStepTestsBase
             forms,
             new FakeRetellVoiceService(),
             new FakeWorkflowAgentWhatsApp(),
+            new Ecorex.Application.Tenancy.NoOpAgentProgressBroadcaster(),
             TimeProvider.System,
             NullLogger<WorkflowAgentStepRunner>.Instance);
     }

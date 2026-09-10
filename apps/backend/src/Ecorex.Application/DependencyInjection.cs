@@ -57,6 +57,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IChatBroadcaster, Tenancy.NoOpChatBroadcaster>();
         // Broadcaster del nucleo de tareas por defecto (no-op); la app host con SignalR lo reemplaza.
         services.AddScoped<Tenancy.ITaskBroadcaster, Tenancy.NoOpTaskBroadcaster>();
+        // Progreso EN VIVO del agente en un paso (Capa 2, ADR-0091): default no-op; el host con SignalR lo reemplaza.
+        services.AddScoped<Tenancy.IAgentProgressBroadcaster, Tenancy.NoOpAgentProgressBroadcaster>();
         // Busqueda web del agente de flujo (ADR-0091): default no-op; el host con el canal Colmena lo reemplaza.
         services.AddScoped<Workflows.IAgentBrowserFetch, Workflows.NoOpAgentBrowserFetch>();
         // WhatsApp del agente de flujo (ADR-0092): impl real en Application (usa el conector WhatsApp + el

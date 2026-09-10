@@ -48,7 +48,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     }
 
     public async Task<WorkflowAgentInvocationResult> InvokeAsync(
-        WorkflowAgentContextDto context, CancellationToken cancellationToken = default)
+        WorkflowAgentContextDto context, CancellationToken cancellationToken = default,
+        Action<string, long>? onProgress = null)
     {
         if (context.Assignment is not { } assignment)
         {
@@ -97,7 +98,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // envia por SaveAsync con la misma validacion que un humano.
         if (context.Node.Form is not null)
         {
-            return await RunFormFillAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken);
+            return await RunFormFillAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken, onProgress);
         }
 
         var systemPrompt = BuildSystemPrompt(agent.SystemPrompt, context);
@@ -221,7 +222,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// modelo termina llamando 'enviar_formulario'; si no lo hace, es "no pudo" y el paso vuelve a una persona.</summary>
     private async Task<WorkflowAgentInvocationResult> RunFormFillAsync(
         WorkflowAgentContextDto context, Domain.Entities.AiAgent agent, string? baseUrl, string apiKey, string model,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action<string, long>? onProgress = null)
     {
         var form = context.Node.Form!;
         var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
@@ -246,6 +247,9 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
+
+        // Capa 2 (ADR-0091): primer latido de progreso, antes de la primera llamada al proveedor.
+        onProgress?.Invoke("Analizando el requerimiento...", 0);
 
         for (var round = 0; round < MaxFormRounds && !finished; round++)
         {
@@ -277,6 +281,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             }
 
             messages.Add(new AiToolMessage("assistant", completion.Text, completion.ToolCalls));
+
+            // Capa 2 (ADR-0091): latido de progreso EN VIVO. La "fase" es lo que el agente dice/hace en esta
+            // ronda (su propio texto si lo hay, o una etiqueta derivada de las herramientas que invoco); los
+            // tokens son el acumulado hasta aqui. Best-effort/decorativo (el runner lo transmite por SignalR).
+            onProgress?.Invoke(
+                DescribeRound(completion.Text, completion.ToolCalls.Select(c => c.Name)),
+                inTokens + outTokens);
 
             // ADR-0091 (paralelo): la Colmena ya abre un navegador aislado por orden y el canal es
             // concurrente por correlationId; lo unico que serializaba era este bucle. Si el modelo pide
@@ -790,6 +801,28 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (string.IsNullOrWhiteSpace(value)) { return null; }
         var t = value.Trim();
         return t.Length <= max ? t : t[..max];
+    }
+
+    /// <summary>Capa 2 (ADR-0091): describe en una linea legible lo que el agente hizo en una ronda, para
+    /// mostrarlo como su "pensamiento" en vivo. Prefiere el texto propio del modelo (su narracion) si lo hay;
+    /// si no, deriva una etiqueta de las herramientas que invoco. Nunca inventa: refleja lo que de verdad paso.</summary>
+    private static string DescribeRound(string? modelText, IEnumerable<string> toolNames)
+    {
+        var names = toolNames.ToList();
+        var webCount = names.Count(n => n == "buscar_web");
+        string action =
+            names.Contains("enviar_formulario") ? "Cerrando el paso..."
+            : names.Contains("fijar_campos") ? "Diligenciando el formulario..."
+            : webCount > 1 ? $"Consultando {webCount} paginas en la web..."
+            : webCount == 1 ? "Consultando la web..."
+            : names.Contains("ver_formulario") ? "Revisando el formulario..."
+            : names.Contains("llamar_telefono") ? "Pidiendo una llamada..."
+            : names.Contains("preguntar_whatsapp") ? "Preguntando por WhatsApp..."
+            : names.Contains("enviar_correo") ? "Enviando un correo..."
+            : "Pensando...";
+        // El texto del modelo (si viene) es su propia narracion: se muestra tal cual, acotado. Si no, la accion.
+        var text = Clip(modelText, 160);
+        return string.IsNullOrWhiteSpace(text) ? action : text!;
     }
 }
 

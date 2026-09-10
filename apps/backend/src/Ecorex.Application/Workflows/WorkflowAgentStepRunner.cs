@@ -41,6 +41,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly IFormResponseService _forms;
     private readonly Voice.IRetellVoiceService _voice;
     private readonly IWorkflowAgentWhatsApp _whatsApp;
+    private readonly IAgentProgressBroadcaster _progress;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
 
@@ -58,6 +59,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         IFormResponseService forms,
         Voice.IRetellVoiceService voice,
         IWorkflowAgentWhatsApp whatsApp,
+        IAgentProgressBroadcaster progress,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -70,6 +72,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _forms = forms;
         _voice = voice;
         _whatsApp = whatsApp;
+        _progress = progress;
         _clock = clock;
         _logger = logger;
     }
@@ -128,7 +131,17 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         // ---- Fase 2: llamar al proveedor (NADA abierto: ni transaccion, ni bloqueos) ----
 
-        var invocation = await _invoker.InvokeAsync(context, cancellationToken);
+        // Capa 2 (ADR-0091): progreso EN VIVO. Se resuelve el taskId una vez y el invoker llama al callback
+        // cada ronda; el runner lo transmite por SignalR (best-effort, fire-and-forget) para que el nodo abierto
+        // muestre el "pensamiento" del agente y los tokens creciendo. El broadcaster usa su propio IHubContext
+        // (no el _db), asi que no interfiere con la regla de "nada abierto" de la fase 2.
+        var taskId = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
+        Action<string, long>? onProgress = taskId is Guid tid
+            ? (phase, tokens) => ReportProgress(step.TenantId, tid, step.NodeId, phase, tokens)
+            : null;
+
+        var invocation = await _invoker.InvokeAsync(context, cancellationToken, onProgress);
 
         // Consumo: se registra aunque el intento fallara (los tokens de una llamada fallida a mitad
         // de camino tambien se facturan). Va en su propio SaveChanges, fuera de la transaccion de
@@ -573,6 +586,18 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             step.AssignedToTenantUserId = candidates[0];
         }
+    }
+
+    /// <summary>Capa 2 (ADR-0091): transmite un latido de progreso del agente SIN esperar (fire-and-forget) y
+    /// tragandose cualquier error: el progreso en vivo es decorativo y jamas debe frenar ni tumbar la corrida
+    /// del agente. Usa el broadcaster (IHubContext propio), no el _db, asi que corre en paralelo al bucle.</summary>
+    private void ReportProgress(Guid tenantId, Guid taskId, Guid nodeId, string phase, long tokens)
+        => _ = SafeProgressAsync(tenantId, taskId, nodeId, phase, tokens);
+
+    private async Task SafeProgressAsync(Guid tenantId, Guid taskId, Guid nodeId, string phase, long tokens)
+    {
+        try { await _progress.AgentProgressAsync(tenantId, taskId, nodeId, phase, tokens); }
+        catch { /* best-effort: un fallo del stream no afecta al paso */ }
     }
 
     /// <summary>

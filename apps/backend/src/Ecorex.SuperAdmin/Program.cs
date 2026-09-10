@@ -189,6 +189,7 @@ builder.Services.AddAgentChannel(builder.Configuration);
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRChatBroadcaster>();
 // Nucleo de tareas en tiempo real (FASE 3): reemplaza el broadcaster no-op por el real.
 builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
+builder.Services.AddScoped<Ecorex.Application.Tenancy.IAgentProgressBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRAgentProgressBroadcaster>();
 // #4b: badge de notificaciones en vivo.
 builder.Services.AddScoped<Ecorex.Application.Notifications.INotificationBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRNotificationBroadcaster>();
 // Formularios-modulo (ola F4): bandeja en vivo.

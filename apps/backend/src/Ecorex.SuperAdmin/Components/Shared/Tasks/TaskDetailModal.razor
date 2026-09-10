@@ -10,6 +10,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @using Ecorex.SuperAdmin.Components.Shared.Lookups
 @using Microsoft.Extensions.DependencyInjection
+@using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
 @inject ITaskItemService TasksSvc
 @inject ITaskFieldService FieldSvc
@@ -25,6 +26,7 @@
 @inject IServiceScopeFactory ScopeFactory
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject Ecorex.Application.Common.ITenantContext TenantCtx
+@inject NavigationManager Nav
 
 @if (_detail is not null)
 {
@@ -435,9 +437,10 @@
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2" /><path d="M12 8V4M9 4h6" /><circle cx="9" cy="14" r="1" /><circle cx="15" cy="14" r="1" /><path d="M2 13v3M22 13v3" /></svg>
                                                     <span class="nm">@(string.IsNullOrWhiteSpace(nn.AgentName) ? "Agente IA" : nn.AgentName)</span>
                                                     <span class="ia">IA</span>
-                                                    @if (nn.AgentTokens is long tks && tks > 0)
+                                                    @{ var effTokens = _liveTokens.TryGetValue(nn.NodeId, out var lvTok) ? lvTok : (nn.AgentTokens ?? 0); }
+                                                    @if (effTokens > 0)
                                                     {
-                                                        <span class="tk-flow-tokpill" title="@tks tokens de IA consumidos por el agente">@FlowTokens(tks) tok</span>
+                                                        <span class="tk-flow-tokpill" title="@effTokens tokens de IA consumidos por el agente">@FlowTokens(effTokens) tok</span>
                                                     }
                                                 </div>
                                                 @if (nn.AgentWeb || nn.AgentVoice || nn.AgentWhatsApp || nn.AgentEmail)
@@ -463,9 +466,11 @@
                                                 }
                                                 @if (agentWorking)
                                                 {
+                                                    var think = _liveThinking.TryGetValue(nn.NodeId, out var lvTh) && !string.IsNullOrWhiteSpace(lvTh)
+                                                        ? lvTh : "El agente esta trabajando...";
                                                     <div class="tk-flow-thinking">
                                                         <span class="dots"><i></i><i></i><i></i></span>
-                                                        <span>El agente esta trabajando...</span>
+                                                        <span class="think-txt" @key="think">@think</span>
                                                     </div>
                                                 }
                                                 else if (agentFailed)
@@ -1524,6 +1529,13 @@
             ["numero"] = _detail.Item.Number,
         };
     }
+
+    // Capa 2 (ADR-0091): stream EN VIVO del progreso del agente en el nodo abierto. El worker transmite por
+    // SignalR (evento "AgentProgress" del TaskHub) y aqui se guarda, por NodeId, el "pensamiento" actual y los
+    // tokens acumulados; el nodo los pinta sin recargar. Mapa vacio = se cae al texto/estado del DTO.
+    private HubConnection? _agentHub;
+    private readonly Dictionary<Guid, string> _liveThinking = new();
+    private readonly Dictionary<Guid, long> _liveTokens = new();
 
     private TaskItemDetailDto? _detail;
     private long _totalSeconds;
@@ -2687,11 +2699,42 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender) { await InitAgentStreamAsync(); }
         // Blazor pisa el textContent del display al re-render: lo repinta desde el estado JS.
         if (_detail is not null && _timerRunning)
         {
             try { await JS.InvokeVoidAsync("ecorexTaskTimer.sync", "tk-timer-display"); } catch { /* best-effort */ }
         }
+    }
+
+    /// <summary>Capa 2 (ADR-0091): abre el canal SignalR (TaskHub) y escucha "AgentProgress" para pintar el
+    /// pensamiento del agente y los tokens en vivo en el nodo. Best-effort: sin canal, el nodo sigue mostrando
+    /// el estado del DTO (recargas). Mismo hub/patron que ya usan los tableros.</summary>
+    private async Task InitAgentStreamAsync()
+    {
+        if (_agentHub is not null) { return; }
+        if (await TenantIdAsync() is not Guid tid) { return; }
+        try
+        {
+            _agentHub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/tasks"))
+                .WithAutomaticReconnect()
+                .Build();
+            _agentHub.On<string, string, string, long>("AgentProgress", async (taskId, nodeId, phase, tokens) =>
+            {
+                // Solo interesa el progreso de la tarea ABIERTA en este modal.
+                if (_detail?.Item.Id.ToString() != taskId) { return; }
+                if (Guid.TryParse(nodeId, out var nid))
+                {
+                    _liveThinking[nid] = phase;
+                    _liveTokens[nid] = tokens;
+                    await InvokeAsync(StateHasChanged);
+                }
+            });
+            await _agentHub.StartAsync();
+            await _agentHub.SendAsync("JoinTenant", tid.ToString());
+        }
+        catch { _agentHub = null; /* sin stream: el nodo sigue con recargas */ }
     }
 
     private void ToggleMenu(string name) => _openMenu = _openMenu == name ? null : name;
@@ -3396,5 +3439,10 @@
     public async ValueTask DisposeAsync()
     {
         try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* circuito cerrado */ }
+        if (_agentHub is not null)
+        {
+            try { await _agentHub.DisposeAsync(); } catch { /* ya cerrado */ }
+            _agentHub = null;
+        }
     }
 }

@@ -20,8 +20,12 @@ public interface IWorkflowAgentInvoker
     /// de red o una respuesta ilegible se devuelven como resultado no-Ok con su motivo legible,
     /// porque para el flujo "el agente no pudo" es un caso de negocio, no una excepcion.
     /// </summary>
+    /// <param name="onProgress">Capa 2 (ADR-0091): callback OPCIONAL de progreso en vivo. Se invoca una vez por
+    /// ronda del bucle de llenado con (fase legible, tokens acumulados) para transmitir el "pensamiento" del
+    /// agente y el consumo creciente. Best-effort: null = sin stream (comportamiento previo intacto).</param>
     Task<WorkflowAgentInvocationResult> InvokeAsync(
-        WorkflowAgentContextDto context, CancellationToken cancellationToken = default);
+        WorkflowAgentContextDto context, CancellationToken cancellationToken = default,
+        Action<string, long>? onProgress = null);
 }
 
 /// <summary>

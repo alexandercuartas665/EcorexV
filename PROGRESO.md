@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.36: Capa 2 - "pensamiento" del agente + tokens EN VIVO en el nodo (ADR-0091)
+
+- Pedido (usuario): ver el pensamiento del agente (letras semi-transparentes) y el consumo de tokens
+  creciendo en vivo mientras trabaja el nodo, sin recargar.
+- Backend: nueva IAgentProgressBroadcaster (Application, +NoOp) e impl SignalRAgentProgressBroadcaster
+  (SuperAdmin) que difunde "AgentProgress" {taskId, nodeId, fase, tokens} al grupo del tenant por el
+  MISMO TaskHub que ya usan los tableros. El invoker (RunFormFillAsync) recibe un callback opcional
+  onProgress(fase, tokens) y lo llama RONDA POR RONDA (fase = texto propio del modelo si lo hay, o una
+  etiqueta derivada de las herramientas: "Consultando N paginas en la web...", "Diligenciando el
+  formulario...", "Cerrando el paso..."); tokens = acumulado. El runner resuelve el taskId una vez y
+  transmite best-effort/fire-and-forget (SafeProgressAsync se traga errores: el stream jamas tumba la
+  corrida). Nota honesta: NO es el chain-of-thought crudo token a token (la API sincrona no lo expone);
+  es narracion real de acciones + tokens por ronda.
+- Frontend (TaskDetailModal): HubConnection a /hubs/tasks (patron identico a ActivityBoardDetail),
+  escucha "AgentProgress" y guarda por NodeId el pensamiento + tokens; el nodo pinta la linea fantasma
+  (letras claras semi-transparentes, con @key -> fade-in en cada frase nueva) y el token pill en vivo.
+  Sin stream, el nodo cae al estado del DTO (comportamiento previo intacto).
+- Sin migracion. Build verde, DI OK. Verificacion visual final la hace el usuario (dar clic y mirar).
+
 ## 2026-09-10 - v0.16.35: paso por Cargo con UN candidato se auto-asigna (consistencia con la ruta de fallo)
 
 - Sintoma (usuario): tras cerrar un paso de agente, el paso humano siguiente ("Revision y cierre",

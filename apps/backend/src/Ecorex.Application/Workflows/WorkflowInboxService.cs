@@ -602,6 +602,13 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 "Este paso tiene un formulario obligatorio. Diligencialo y envialo antes de cerrar.");
         }
 
+        // Auto-envio al cerrar (fix del "gotcha"): si el paso tiene formularios DILIGENCIADOS pero aun en
+        // borrador (link Pending con datos), al cerrar el paso se dan por ENVIADOS (respuesta Submitted +
+        // link Completed). Asi el dato llega a los pasos siguientes -p.ej. el agente que lee la 'necesidad'-
+        // en vez de perderse porque la persona cerro el paso sin pulsar "Enviar". Solo aplica a formularios
+        // CON datos; los obligatorios ya se validaron arriba, y un borrador vacio se deja como esta.
+        await AutoSubmitFilledStepFormsAsync(step, tenantUserId, cancellationToken);
+
         // La decision (approvalResult) se captura EN el paso Task que entra a la compuerta. El
         // motor la propaga: al avanzar, el exclusiveGateway se auto-resuelve heredando este
         // ApprovalResult y enruta por el ConditionExpression de sus aristas (ADR-0037). La
@@ -609,6 +616,54 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         return await _engine.CompleteStepAsync(
             step.InstanceId, step.Id, tenantUserId, approvalResult, approvalComment,
             cancellationToken: cancellationToken);
+    }
+
+    /// <summary>Da por ENVIADOS los formularios del paso que estan diligenciados pero aun en borrador (link
+    /// Pending con datos): respuesta -> Submitted, link -> Completed. Solo los que tienen datos (un borrador
+    /// vacio se ignora). Se usa al CERRAR el paso para que el dato llegue a los pasos siguientes aunque la
+    /// persona no haya pulsado "Enviar" en el formulario.</summary>
+    private async Task AutoSubmitFilledStepFormsAsync(
+        Domain.Entities.WorkflowStepHistory step, Guid tenantUserId, CancellationToken cancellationToken)
+    {
+        var links = await _db.FormFlowLinks
+            .Where(l => l.WorkflowInstanceId == step.InstanceId
+                && l.WorkflowNodeId == step.NodeId
+                && l.Status == FormFlowLinkStatus.Pending)
+            .ToListAsync(cancellationToken);
+        if (links.Count == 0) { return; }
+
+        var responseIds = links.Select(l => l.FormResponseId).ToList();
+        var responses = await _db.FormResponses
+            .Where(r => responseIds.Contains(r.Id))
+            .ToListAsync(cancellationToken);
+        var byId = responses.ToDictionary(r => r.Id);
+
+        var now = DateTimeOffset.UtcNow;
+        var changed = false;
+        foreach (var link in links)
+        {
+            if (!byId.TryGetValue(link.FormResponseId, out var response) || !FormHasData(response.Data))
+            {
+                continue;
+            }
+            if (response.Status != FormResponseStatus.Submitted)
+            {
+                response.Status = FormResponseStatus.Submitted;
+                response.SubmittedAt = now;
+                response.SubmittedByTenantUserId = tenantUserId;
+            }
+            link.Status = FormFlowLinkStatus.Completed;
+            changed = true;
+        }
+        if (changed) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>true si el jsonb de la respuesta tiene ALGUN dato (no es null/vacio ni "{}").</summary>
+    private static bool FormHasData(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) { return false; }
+        var t = data.Trim();
+        return t.Length > 2 && t != "{}" && t != "[]" && t != "null";
     }
 
     public async Task<WorkflowResult<bool>> ReopenStepAsync(

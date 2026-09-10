@@ -12256,3 +12256,15 @@ Nombres de columna = nombres del origen (para el mapeo por nombre). Backup ecore
 FASE 2 (pendiente): 4 conectores Database (Host 192.168.0.8, Username Remoto, credencial por el modulo;
 SELECT por tabla con nombres de 3 partes m700_car/m700_gen) + 4 ImportProcess ligados al agente
 soldarco_server6 (cli_bf450c7fc275), Manual para validar y luego cron. Via Config API (token ecx_) o UI.
+
+## 2026-09-10 (cont.) - SOLDARCO MAESTROS: Fase 2 (4 conectores Database + 4 procesos)
+
+Creados por SQL (idempotente uuid5): 4 DataConnector Kind=Database (DbEngine=SqlServer, host 192.168.0.8,
+port 1433, database_name m700_car [CARGOS m700_gen], username Remoto, query con nombres de 3 partes,
+container_id = su tabla) y 4 ImportProcess (client_id = agente soldarco_server6 019fa68d-ff11-7dff-b194-
+ba6bf29aa655, schedule Manual, mode Replace). credentials_encrypted queda NULL a proposito: el
+ISecretProtector es ASP.NET Data Protection (Ecorex.TenantSecrets.v1), la clave la cifra la app con su
+llave -> NO se puede inyectar por SQL. Paso restante: cargar la clave del usuario Remoto por el modulo
+(campo Credenciales en la UI, o Config API /connectors/{id}/secret que la cifra). Sin la clave, el
+conector cae a la fuente local del agente (BuildConnectionString devuelve null sin Secret); con la clave
+usa 192.168.0.8. Backup ecorex-2026-09-10-1657.sql.gz. Validar con Import MERCADOS via agente y seguir.

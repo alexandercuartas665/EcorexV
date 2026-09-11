@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.46: importar plantillas de WhatsApp desde YCloud
+
+- El modulo de plantillas HSM (/plantillas-whatsapp) ya se podia llenar A MANO; ahora se pueden TRAER
+  las plantillas que ya existen en la cuenta de YCloud del tenant, de un clic.
+- Reusa el cliente YCloud que ya existia: IYCloudApiClient.ListTemplatesAsync (GET /v2/whatsapp/templates,
+  con paginacion) que ANTES no llamaba nadie y solo traia name/language/status/id. Se EXTENDIO su
+  parseo para traer tambien category + components (HEADER/BODY/FOOTER + ejemplos de variables).
+- Parseo aislado en YCloudTemplateParser (Application, publico y testeable) que consume el cliente de
+  Infraestructura; 4 tests con payload realista (cabecera texto/imagen, cuerpo con {{1}}/{{2}} + ejemplos,
+  pie, item sin nombre).
+- WhatsAppTemplateService.ImportFromYCloudAsync(lineId): resuelve la linea (Provider=YCloud + API key +
+  WABA), desencripta la key (ISecretProtector), lista y hace UPSERT por (Nombre, Idioma) -> mapea a
+  WhatsAppTemplate (cuerpo, categoria, estado APPROVED/REJECTED/..., header/footer, ProviderTemplateId,
+  WABA). Variables POSICIONALES tal cual ({{1}}...) con sus ejemplos (decision del usuario). No borra nada;
+  devuelve reporte (nuevas/actualizadas/sin cambios/omitidas). Auditoria wa-template.import-ycloud.
+- UI: boton "Importar desde YCloud" en /plantillas-whatsapp (solo si hay lineas YCloud) + modal con
+  selector de linea (si hay varias) y el reporte. Sin migracion.
+- Verificado: build de la solucion + 4 tests del parser verdes. La verificacion en vivo contra la cuenta
+  real de YCloud queda pendiente de una sesion en el tenant que la tiene conectada (no esta en el dump
+  local; solo Cloud/Evolution).
+
 ## 2026-09-11 - v0.16.45: modelo de publicacion del marketplace + plantillas de arranque
 
 - Resuelto "como publica el Super Admin": autora en el TENANT INTERNO "Plataforma ECOREX"

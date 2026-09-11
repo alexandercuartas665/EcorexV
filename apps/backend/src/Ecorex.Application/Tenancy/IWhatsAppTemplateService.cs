@@ -32,6 +32,12 @@ public interface IWhatsAppTemplateService
     /// </summary>
     Task<WhatsAppTemplateResult<bool>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Trae (importa) al tenant las plantillas HSM que ya existen en la cuenta de YCloud de la
+    /// linea indicada (debe ser una linea con Provider=YCloud y API key + WABA configurados). Hace UPSERT
+    /// por (Nombre, Idioma): crea las nuevas, actualiza las existentes con lo que trae el proveedor y deja
+    /// las variables POSICIONALES ({{1}}...). No borra nada. Devuelve el conteo por resultado.</summary>
+    Task<WhatsAppTemplateResult<WhatsAppImportReport>> ImportFromYCloudAsync(Guid whatsAppLineId, CancellationToken cancellationToken = default);
+
     /// <summary>Catalogo de variables que el editor puede insertar.</summary>
     IReadOnlyList<WhatsAppTemplateVariableDef> Catalog();
 }

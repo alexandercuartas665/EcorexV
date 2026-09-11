@@ -26,7 +26,11 @@
         <h1 class="page-title" style="margin-top:12px;">Plantillas de WhatsApp</h1>
         <p class="page-sub" style="margin-bottom:0;">Mensajes plantilla (HSM) con categoria, idioma, variables y ciclo de aprobacion.</p>
     </div>
-    <div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        @if (YCloudLines.Count > 0)
+        {
+            <button class="btn btn-outline-primary" @onclick="OpenImport" disabled="@_busy" title="Traer las plantillas que ya existen en tu cuenta de YCloud">Importar desde YCloud</button>
+        }
         <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nueva plantilla</button>
     </div>
 </div>
@@ -180,6 +184,60 @@ else
     </div>
 }
 
+@* ===== Modal: importar plantillas desde YCloud ===== *@
+@if (_showImport)
+{
+    <div class="modal-overlay" @onclick="CloseImport">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3 style="margin:0;">Importar plantillas desde YCloud</h3>
+            </div>
+            <div class="modal-body">
+                <p class="page-sub" style="margin-top:0;">Trae las plantillas HSM que ya existen en tu cuenta de YCloud. Se crean o actualizan por nombre e idioma; las variables llegan como <code>&#123;&#123;1&#125;&#125;</code>, <code>&#123;&#123;2&#125;&#125;</code>... con sus ejemplos.</p>
+
+                @if (YCloudLines.Count > 1)
+                {
+                    <label class="tk-label" for="imp-line">Linea de YCloud</label>
+                    <select id="imp-line" class="form-select" @bind="_importLineId" disabled="@_importBusy">
+                        @foreach (var l in YCloudLines)
+                        {
+                            <option value="@l.Id">@l.InstanceName @(string.IsNullOrWhiteSpace(l.PhoneNumber) ? "" : $"({l.PhoneNumber})")</option>
+                        }
+                    </select>
+                }
+
+                @if (_importError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:10px;">@_importError</div>
+                }
+
+                @if (_importReport is not null)
+                {
+                    <div class="wa-banner" role="note" style="margin-top:12px;">
+                        <div>
+                            <strong>Resultado:</strong> @_importReport.Imported nuevas, @_importReport.Updated actualizadas,
+                            @_importReport.Unchanged sin cambios@(_importReport.Skipped > 0 ? $", {_importReport.Skipped} omitidas" : "").
+                        </div>
+                        @if (_importReport.Messages.Count > 0)
+                        {
+                            <ul style="margin:8px 0 0; padding-left:18px;">
+                                @foreach (var m in _importReport.Messages)
+                                {
+                                    <li style="font-size:12.5px;">@m</li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseImport" disabled="@_importBusy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="DoImportAsync" disabled="@_importBusy">@(_importBusy ? "Importando..." : "Importar ahora")</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .wa-banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 16px; border-radius: 10px; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); color: var(--ink-2, var(--muted-foreground)); font-size: 13px; }
     .wa-banner svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--t-blue, var(--primary)); }
@@ -201,6 +259,14 @@ else
 
     private IReadOnlyList<WhatsAppTemplateDto> _templates = [];
     private IReadOnlyList<WhatsAppLineDto> _lines = [];
+
+    // Importar desde YCloud
+    private bool _showImport;
+    private bool _importBusy;
+    private string _importLineId = "";
+    private string? _importError;
+    private WhatsAppImportReport? _importReport;
+    private IReadOnlyList<WhatsAppLineDto> YCloudLines => _lines.Where(l => l.Provider == WhatsAppProvider.YCloud).ToList();
 
     // Editor
     private bool _showEditor;
@@ -352,6 +418,39 @@ else
         WhatsAppTemplateStatus.Paused => "wa-paused",
         _ => "wa-draft"
     };
+
+    private void OpenImport()
+    {
+        _importError = null;
+        _importReport = null;
+        _importLineId = YCloudLines.Count > 0 ? YCloudLines[0].Id.ToString() : "";
+        _showImport = true;
+    }
+
+    private void CloseImport() => _showImport = false;
+
+    private async Task DoImportAsync()
+    {
+        if (!Guid.TryParse(_importLineId, out var lineId))
+        {
+            _importError = "Elige una linea de YCloud.";
+            return;
+        }
+        _importBusy = true;
+        _importError = null;
+        _importReport = null;
+        var result = await TemplateSvc.ImportFromYCloudAsync(lineId);
+        if (result.IsOk && result.Value is not null)
+        {
+            _importReport = result.Value;
+            await ReloadAsync();
+        }
+        else
+        {
+            _importError = result.Error ?? "No se pudo importar.";
+        }
+        _importBusy = false;
+    }
 
     private static string StatusLabel(WhatsAppTemplateStatus status) => status switch
     {

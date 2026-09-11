@@ -128,8 +128,29 @@ public abstract class WhatsAppTemplatesTestsBase
     {
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.UserId);
-        var service = new WhatsAppTemplateService(ctx, tenantContext, new AuditWriter(ctx), TimeProvider.System);
+        var service = new WhatsAppTemplateService(ctx, tenantContext, new AuditWriter(ctx), TimeProvider.System,
+            new UnusedYCloudClient(), new PassthroughProtector());
         return await action(service);
+    }
+
+    // Dobles para satisfacer las nuevas dependencias del servicio (import desde YCloud). Estos tests NO
+    // ejercitan el import, asi que el cliente de YCloud nunca se invoca y el protector es passthrough.
+    private sealed class PassthroughProtector : ISecretProtector
+    {
+        public string Protect(string plaintext) => plaintext;
+        public string Unprotect(string ciphertext) => ciphertext;
+    }
+
+    private sealed class UnusedYCloudClient : IYCloudApiClient
+    {
+        private static Task<T> Fail<T>() => throw new InvalidOperationException("No debe llamarse a YCloud en este test.");
+        public Task<YCloudCheckResult> CheckAsync(string apiKey, string? phoneNumber, CancellationToken cancellationToken = default) => Fail<YCloudCheckResult>();
+        public Task<YCloudSendResult> SendTextAsync(string apiKey, string fromPhone, string toPhone, string text, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendMediaAsync(string apiKey, string fromPhone, string toPhone, YCloudMediaKind kind, string mediaUrl, string? caption, string? fileName, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendReactionAsync(string apiKey, string fromPhone, string toPhone, string messageId, string emoji, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudTemplateResult> CreateTemplateAsync(string apiKey, string wabaId, string name, string language, string category, object components, int? ttlSeconds, CancellationToken cancellationToken = default) => Fail<YCloudTemplateResult>();
+        public Task<YCloudTemplateListResult> ListTemplatesAsync(string apiKey, string wabaId, CancellationToken cancellationToken = default) => Fail<YCloudTemplateListResult>();
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

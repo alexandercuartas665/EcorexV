@@ -45,6 +45,11 @@ public sealed record SaveWhatsAppTemplateRequest(
 /// defecto). Sirve para armar la ayuda del editor.</summary>
 public sealed record WhatsAppTemplateVariableDef(string Token, string Label, string Description, string DefaultExample);
 
+/// <summary>Resultado de traer plantillas desde el proveedor (YCloud): cuantas se crearon, se
+/// actualizaron, quedaron sin cambios y cuantas se omitieron, mas mensajes por plantilla.</summary>
+public sealed record WhatsAppImportReport(
+    int Imported, int Updated, int Unchanged, int Skipped, IReadOnlyList<string> Messages);
+
 /// <summary>Catalogo de variables de sesion que el editor puede insertar.</summary>
 public static class WhatsAppTemplateVariableCatalog
 {

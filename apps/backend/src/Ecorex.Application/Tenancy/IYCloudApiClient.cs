@@ -53,6 +53,17 @@ public sealed record YCloudSendResult(bool IsSuccess, string? MessageId, string?
 /// PENDING al crear (Meta la revisa); APPROVED inmediato solo para AUTHENTICATION.</summary>
 public sealed record YCloudTemplateResult(bool IsSuccess, string? Id, string? Status, string? Error);
 
-public sealed record YCloudTemplateStatus(string Name, string? Language, string Status, string? Id, string? RejectedReason);
+/// <summary>Una plantilla HSM tal como la devuelve YCloud (formato Meta). Ademas del estado, trae el
+/// contenido para poder IMPORTARLA (ADR-0097 / traer plantillas). Las variables del cuerpo son
+/// POSICIONALES ({{1}}, {{2}}...); <paramref name="VariableExamples"/> son sus valores de ejemplo en
+/// orden. <paramref name="HeaderFormat"/> es "TEXT"|"IMAGE"|"VIDEO"|"DOCUMENT" (o null si no hay header).</summary>
+public sealed record YCloudTemplateStatus(
+    string Name, string? Language, string Status, string? Id, string? RejectedReason,
+    string? Category = null,
+    string? HeaderFormat = null,
+    string? HeaderText = null,
+    string? BodyText = null,
+    string? FooterText = null,
+    IReadOnlyList<string>? VariableExamples = null);
 
 public sealed record YCloudTemplateListResult(bool IsSuccess, IReadOnlyList<YCloudTemplateStatus> Items, string? Error);

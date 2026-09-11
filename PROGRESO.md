@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.42: Ola B2 de ADR-0097 - catalogo del marketplace + publicar
+
+- MarketplaceItem (PLATAFORMA, BaseEntity sin TenantId: lo leen todos, lo escribe PlatformAdmin): Kind,
+  Title, Description, ImageRef (URL o data-URL de imagen chica), Category, SnapshotJson (+version),
+  SourceCode, IsActive, ImportCount, PublishedBy/At. Migraciones AddMarketplaceItems PG + SqlServer.
+- IMarketplaceService/MarketplaceService: PublishFlowAsync / PublishFormAsync (toman el snapshot portable
+  ya existente - FlowPackageService B1 para flujos, FormDefinitionService.Export para formularios),
+  ListAsync/ListCategoriesAsync/GetAsync (con snapshot para B3), UpdateAsync/DeleteAsync. Tope imagen ~480KB.
+- UI: boton "Publicar al marketplace" en las tarjetas de Flujos y Formularios (gated con AuthorizeView
+  Policy=SuperAdminOnly) -> modal con Titulo/Descripcion/Categoria + imagen (InputFile -> data-URL).
+  Nueva pagina /marketplace (SuperAdminOnly) = catalogo admin: tarjetas con imagen/tipo/categoria/descr,
+  filtros por tipo + busqueda, activar/desactivar y eliminar.
+- Build + 843 tests verdes; 5 fakes de IApplicationDbContext actualizados.
+- PENDIENTE: verificacion visual del loop completo (publicar -> catalogo) con sesion PlatformAdmin
+  (admin@ecorex.local / SuperAdminOnly) dentro de un tenant con flujos. Siguiente: Ola B3 (galeria en el
+  tenant + "Traer" con el asistente que pregunta si migrar los formularios de los nodos).
+
 ## 2026-09-11 - v0.16.41: Ola B1 de ADR-0097 - paquete PORTABLE de flujo (export/import marketplace)
 
 - Corazon del marketplace: empaquetar un flujo a JSON portable y traerlo a otro tenant. Solo backend

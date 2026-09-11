@@ -7253,6 +7253,94 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("lead_notes", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MarketplaceItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ImageRef")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("image_ref");
+
+                    b.Property<int>("ImportCount")
+                        .HasColumnType("int")
+                        .HasColumnName("import_count");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("published_at");
+
+                    b.Property<Guid?>("PublishedByPlatformUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("published_by_platform_user_id");
+
+                    b.Property<int>("SnapshotFormatVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("snapshot_format_version");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("snapshot_json");
+
+                    b.Property<string>("SourceCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("source_code");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_marketplace_items");
+
+                    b.HasIndex("Category")
+                        .HasDatabaseName("ix_marketplace_items_category");
+
+                    b.HasIndex("Kind", "IsActive")
+                        .HasDatabaseName("ix_marketplace_items_kind_is_active");
+
+                    b.ToTable("marketplace_items", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.MenuNode", b =>
                 {
                     b.Property<Guid>("Id")

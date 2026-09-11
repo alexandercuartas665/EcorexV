@@ -5,9 +5,12 @@
 @using System.Globalization
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Cards
+@using Ecorex.Application.Marketplace
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
 @inject IFormDefinitionService FormsSvc
 @inject ICardTagService TagSvc
+@inject IMarketplaceService MarketSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -160,6 +163,13 @@
                                     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
                                 </span>
                                 <span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span>
+                                <AuthorizeView Policy="SuperAdminOnly">
+                                    <button class="fx-card-del" title="Publicar al marketplace" aria-label="Publicar @d.Title"
+                                            disabled="@_busy" @onclick:stopPropagation="true"
+                                            @onclick="@(() => OpenPublish(d.Id, d.Title))">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                                    </button>
+                                </AuthorizeView>
                                 <button class="fx-card-del" title="Etiquetas" aria-label="Etiquetas @d.Title"
                                         disabled="@_busy" @onclick:stopPropagation="true"
                                         @onclick="@(() => OpenAssign(d.Code, d.Title))">
@@ -302,6 +312,33 @@
     </div>
 }
 
+@* ---- Modal: publicar al marketplace ---- *@
+@if (_publishOpen)
+{
+    <div class="fx-overlay" @onclick="() => _publishOpen = false">
+        <div class="fx-modal" @onclick:stopPropagation="true">
+            <div class="fx-m-body">
+                <div class="fx-m-title">Publicar al marketplace</div>
+                <p class="fx-muted">Se publica una PLANTILLA de este formulario para que otros tenants lo puedan traer.</p>
+                <input class="fx-tag-input" placeholder="Titulo" value="@_pubTitle" @oninput="@(e => _pubTitle = e.Value?.ToString() ?? "")" />
+                <textarea class="fx-tag-input" rows="3" placeholder="Descripcion (para que sirve)" @oninput="@(e => _pubDesc = e.Value?.ToString() ?? "")">@_pubDesc</textarea>
+                <input class="fx-tag-input" placeholder="Categoria (ej. Comercial)" value="@_pubCat" @oninput="@(e => _pubCat = e.Value?.ToString() ?? "")" />
+                <div class="fx-muted" style="margin-top:6px;">Imagen (opcional, max ~480 KB)</div>
+                <InputFile OnChange="OnPublishImagePicked" accept="image/*" />
+                @if (!string.IsNullOrEmpty(_pubImage))
+                {
+                    <img src="@_pubImage" alt="vista previa" style="max-height:120px;border-radius:8px;margin-top:6px;display:block;" />
+                }
+                @if (_pubError is not null) { <div class="tk-field-error">@_pubError</div> }
+                <div class="fx-m-foot">
+                    <button class="fx-btn-ghost" @onclick="() => _publishOpen = false" disabled="@_busy">Cancelar</button>
+                    <button class="fx-btn-new" @onclick="PublishAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_pubTitle))">Publicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Modal: gestionar categorias de formularios ---- *@
 @if (_manageOpen)
 {
@@ -387,7 +424,53 @@
     private string _assignName = "";
     private readonly HashSet<Guid> _assignSel = new();
 
+    // Publicar al marketplace (ADR-0097 Ola B2).
+    private bool _publishOpen;
+    private Guid _pubDefId;
+    private string _pubTitle = "";
+    private string _pubDesc = "";
+    private string _pubCat = "";
+    private string? _pubImage;
+    private string? _pubError;
+
     private sealed record FormGroup(string Title, string? Color, List<FormDefinitionListItemDto> Cards);
+
+    private void OpenPublish(Guid defId, string title)
+    {
+        _pubDefId = defId; _pubTitle = title; _pubDesc = ""; _pubCat = ""; _pubImage = null; _pubError = null;
+        _publishOpen = true;
+    }
+
+    private async Task OnPublishImagePicked(InputFileChangeEventArgs e)
+    {
+        _pubError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        if (file.Size > 480 * 1024) { _pubError = "La imagen supera ~480 KB."; return; }
+        try
+        {
+            using var stream = file.OpenReadStream(600 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+            _pubImage = $"data:{mime};base64,{Convert.ToBase64String(ms.ToArray())}";
+        }
+        catch (Exception ex) { _pubError = "No se pudo leer la imagen: " + ex.Message; }
+    }
+
+    private async Task PublishAsync()
+    {
+        _busy = true; _pubError = null;
+        try
+        {
+            var res = await MarketSvc.PublishFormAsync(_pubDefId,
+                new MarketplacePublishInput(_pubTitle.Trim(), _pubDesc, _pubCat, _pubImage), null);
+            if (!res.Ok) { _pubError = res.Error ?? "No se pudo publicar."; return; }
+            _publishOpen = false;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _busy = false; }
+    }
 
     /// <summary>Formulario cuyo archivado se esta confirmando (null = sin dialogo abierto).</summary>
     private FormDefinitionListItemDto? _confirming;

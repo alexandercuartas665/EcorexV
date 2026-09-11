@@ -119,6 +119,8 @@ public interface IApplicationDbContext
     DbSet<ModuleDefinition> ModuleDefinitions { get; }
     DbSet<TenantModule> TenantModules { get; }
     DbSet<SaasPlan> SaasPlans { get; }
+    // Marketplace de plantillas (ADR-0097 Ola B2): de PLATAFORMA (sin TenantId; lo leen todos, lo escribe PlatformAdmin).
+    DbSet<MarketplaceItem> MarketplaceItems { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }
     DbSet<TenantPayment> TenantPayments { get; }

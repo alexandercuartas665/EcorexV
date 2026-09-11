@@ -218,3 +218,5 @@
 .fl-chip-toggle { border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: var(--ink-2, #475569); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: all .12s ease; }
 .fl-chip-toggle:hover { border-color: var(--accent, #6b4bd8); }
 .fl-chip-toggle.on { background: var(--accent, #6b4bd8); border-color: var(--accent, #6b4bd8); color: #fff; }
+.fl-plabel { display: block; font-size: 12px; font-weight: 700; color: var(--ink-3, #64748b); margin: 8px 0 3px; }
+.fl-plabel:first-of-type { margin-top: 2px; }

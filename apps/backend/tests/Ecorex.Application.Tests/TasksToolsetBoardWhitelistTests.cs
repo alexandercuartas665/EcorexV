@@ -203,6 +203,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<CardTag> CardTags => throw new NotSupportedException();
         public DbSet<FlowTag> FlowTags => throw new NotSupportedException();
         public DbSet<FormTag> FormTags => throw new NotSupportedException();
+        public DbSet<MarketplaceItem> MarketplaceItems => throw new NotSupportedException();
         public DbSet<WorkflowNode> WorkflowNodes => throw new NotSupportedException();
         public DbSet<WorkflowEdge> WorkflowEdges => throw new NotSupportedException();
         public DbSet<WorkflowInstance> WorkflowInstances => throw new NotSupportedException();

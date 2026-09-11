@@ -1,0 +1,125 @@
+@page "/marketplace"
+@attribute [Authorize(Policy = "SuperAdminOnly")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Marketplace
+@using Ecorex.Domain.Enums
+@inject IMarketplaceService MarketSvc
+
+@* Catalogo del MARKETPLACE de plantillas (ADR-0097 Ola B2): el PlatformAdmin administra lo publicado.
+   La publicacion se hace desde una tarjeta de Flujos o Formularios; el "Traer" (a un tenant) es la Ola B3. *@
+
+<PageTitle>Marketplace de plantillas - ECOREX.tareas</PageTitle>
+
+<div class="mk-page">
+    <div class="mk-head">
+        <div class="mk-eyebrow">ADR-0097 - PLANTILLAS</div>
+        <h1 class="mk-title">Marketplace de plantillas</h1>
+        <p class="mk-sub">Catalogo de flujos y formularios publicados para que los tenants los traigan. Para publicar, usa el boton "Publicar al marketplace" en una tarjeta de Flujos o Formularios.</p>
+    </div>
+
+    <div class="mk-toolbar">
+        <input class="mk-search" placeholder="Buscar plantilla..." value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" />
+        <div class="mk-tabs">
+            <button class="mk-tab @(_kind is null ? "on" : "")" @onclick="() => _kind = null">Todos <span class="mk-n">@_items.Count</span></button>
+            <button class="mk-tab @(_kind == MarketplaceItemKind.Flow ? "on" : "")" @onclick="() => _kind = MarketplaceItemKind.Flow">Flujos <span class="mk-n">@_items.Count(i => i.Kind == MarketplaceItemKind.Flow)</span></button>
+            <button class="mk-tab @(_kind == MarketplaceItemKind.Form ? "on" : "")" @onclick="() => _kind = MarketplaceItemKind.Form">Formularios <span class="mk-n">@_items.Count(i => i.Kind == MarketplaceItemKind.Form)</span></button>
+        </div>
+    </div>
+
+    @if (_error is not null) { <div class="mk-error">@_error</div> }
+
+    @if (_loading)
+    {
+        <p class="mk-loading"><em>Cargando plantillas...</em></p>
+    }
+    else if (Filtered.Count == 0)
+    {
+        <div class="mk-empty">Aun no hay plantillas publicadas. Publica una desde Flujos o Formularios.</div>
+    }
+    else
+    {
+        <div class="mk-grid">
+            @foreach (var it in Filtered)
+            {
+                <div class="mk-card @(it.IsActive ? "" : "off")">
+                    <div class="mk-img">
+                        @if (!string.IsNullOrEmpty(it.ImageRef))
+                        {
+                            <img src="@it.ImageRef" alt="@it.Title" />
+                        }
+                        else
+                        {
+                            <div class="mk-noimg">@(it.Kind == MarketplaceItemKind.Flow ? "Flujo" : "Formulario")</div>
+                        }
+                    </div>
+                    <div class="mk-body">
+                        <div class="mk-kind">
+                            <span class="mk-badge @(it.Kind == MarketplaceItemKind.Flow ? "flow" : "form")">@(it.Kind == MarketplaceItemKind.Flow ? "FLUJO" : "FORMULARIO")</span>
+                            @if (!string.IsNullOrWhiteSpace(it.Category)) { <span class="mk-cat">@it.Category</span> }
+                            @if (!it.IsActive) { <span class="mk-off">inactivo</span> }
+                        </div>
+                        <div class="mk-ctitle">@it.Title</div>
+                        <div class="mk-desc">@(it.Description ?? "")</div>
+                        <div class="mk-foot">
+                            <span class="mk-meta">@it.ImportCount traidas@(it.SourceCode is not null ? " - " + it.SourceCode : "")</span>
+                            <div class="mk-actions">
+                                <button class="mk-abtn" @onclick="() => ToggleActiveAsync(it)" disabled="@_busy">@(it.IsActive ? "Desactivar" : "Activar")</button>
+                                <button class="mk-abtn del" @onclick="() => DeleteAsync(it.Id)" disabled="@_busy">Eliminar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string _query = "";
+    private MarketplaceItemKind? _kind;
+    private List<MarketplaceItemDto> _items = new();
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        try { _items = (await MarketSvc.ListAsync(null, null, null, includeInactive: true)).ToList(); _error = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private List<MarketplaceItemDto> Filtered
+    {
+        get
+        {
+            var q = _items.AsEnumerable();
+            if (_kind is MarketplaceItemKind k) { q = q.Where(i => i.Kind == k); }
+            var t = _query.Trim();
+            if (t.Length > 0)
+            {
+                q = q.Where(i => i.Title.Contains(t, StringComparison.OrdinalIgnoreCase)
+                    || (i.Description ?? "").Contains(t, StringComparison.OrdinalIgnoreCase));
+            }
+            return q.ToList();
+        }
+    }
+
+    private async Task ToggleActiveAsync(MarketplaceItemDto it)
+    {
+        _busy = true;
+        try { await MarketSvc.UpdateAsync(it.Id, new MarketplacePublishInput(it.Title, it.Description, it.Category, it.ImageRef), !it.IsActive); await ReloadAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try { await MarketSvc.DeleteAsync(id); await ReloadAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

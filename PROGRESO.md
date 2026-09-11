@@ -12344,3 +12344,15 @@ mode Replace, next_run_at NULL (el ImportScheduleDispatcher lo auto-calcula; zon
 America/Bogota ya que el tenant no tiene time_zone_id -> 05:00 hora Colombia). Backup
 ecorex-2026-09-10-2113.sql.gz. Conectores actuales: MERCADOS 7a56f261, GRUECOS c5884ea7,
 ESTADOS ea7ad582, CARGOS 73170fe2 (todos con credentials cargadas por el modulo).
+
+## 2026-09-10 (cont.) - SOLDARCO MAESTROS: horario reconfigurado por la UI amigable (validacion MCP)
+
+Validado por MCP Chrome (navegador del usuario, logueado como LEON/SOLDARCO): edite los 4 procesos con
+el programador amigable nuevo (v0.16.37) -> "Ciertos dias de la semana" L-M-X-J-V-S + hora 05:00. Guarda
+OK (UI muestra "Cada lunes...sabado a las 05:00"; BD: cron '0 5 * * 1,2,3,4,5,6', proxima 11 Sep 05:00
+Bogota). Confirmado que el modulo SI persiste (el proceso "CARGA" del usuario no habia quedado, pero el
+alta/edicion funciona).
+BUGS UI para dev (v0.16.37): (1) "Editar proceso" NO reverse-mapea un cron existente al selector amigable:
+abre en "Manual (sin horario)" con "Usar esta expresion cron" activado -> confuso; deberia parsear el cron
+a Semanal+dias+hora. (2) Cambiar el <select> de recurrencia por binding no dispara el onchange (hubo que
+alternar Manual->Weekly); el input de hora necesito blur para propagar al resumen/cron.

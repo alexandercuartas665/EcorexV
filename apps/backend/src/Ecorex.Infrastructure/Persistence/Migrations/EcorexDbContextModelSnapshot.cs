@@ -1767,6 +1767,65 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("business_units", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.CardTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("integer")
+                        .HasColumnName("scope");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_card_tags");
+
+                    b.HasIndex("TenantId", "Scope")
+                        .HasDatabaseName("ix_card_tags_tenant_id_scope");
+
+                    b.HasIndex("TenantId", "Scope", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_card_tags_tenant_id_scope_name");
+
+                    b.ToTable("card_tags", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Cita", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5033,6 +5092,59 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("external_data_source_grants", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CardTagId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("card_tag_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ProcessCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("process_code");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_flow_tags");
+
+                    b.HasIndex("CardTagId")
+                        .HasDatabaseName("ix_flow_tags_card_tag_id");
+
+                    b.HasIndex("TenantId", "ProcessCode")
+                        .HasDatabaseName("ix_flow_tags_tenant_id_process_code");
+
+                    b.HasIndex("TenantId", "ProcessCode", "CardTagId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_flow_tags_tenant_id_process_code_card_tag_id");
+
+                    b.ToTable("flow_tags", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FollowUpTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5920,6 +6032,59 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_form_submit_rules_definition_id_rule_id");
 
                     b.ToTable("form_submit_rules", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CardTagId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("card_tag_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FormCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("form_code");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_tags");
+
+                    b.HasIndex("CardTagId")
+                        .HasDatabaseName("ix_form_tags_card_tag_id");
+
+                    b.HasIndex("TenantId", "FormCode")
+                        .HasDatabaseName("ix_form_tags_tenant_id_form_code");
+
+                    b.HasIndex("TenantId", "FormCode", "CardTagId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_tags_tenant_id_form_code_card_tag_id");
+
+                    b.ToTable("form_tags", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>
@@ -16068,6 +16233,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("ExternalDataSource");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.CardTag", "CardTag")
+                        .WithMany()
+                        .HasForeignKey("CardTagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_flow_tags_card_tags_card_tag_id");
+
+                    b.Navigation("CardTag");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FollowUpTask", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Lead", "Lead")
@@ -16223,6 +16400,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Definition");
 
                     b.Navigation("Rule");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormTag", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.CardTag", "CardTag")
+                        .WithMany()
+                        .HasForeignKey("CardTagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_tags_card_tags_card_tag_id");
+
+                    b.Navigation("CardTag");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>

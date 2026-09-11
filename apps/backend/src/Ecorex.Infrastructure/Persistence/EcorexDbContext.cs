@@ -174,6 +174,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     // estado por tenant (scoped).
     public DbSet<OrgUnit> OrgUnits => Set<OrgUnit>();
     public DbSet<OrgUnitMember> OrgUnitMembers => Set<OrgUnitMember>();
+    public DbSet<CardTag> CardTags => Set<CardTag>();
+    public DbSet<FlowTag> FlowTags => Set<FlowTag>();
+    public DbSet<FormTag> FormTags => Set<FormTag>();
     public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => Set<WorkflowNodePolicy>();
     public DbSet<ModuleDefinition> ModuleDefinitions => Set<ModuleDefinition>();
     public DbSet<TenantModule> TenantModules => Set<TenantModule>();
@@ -2026,6 +2029,34 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.WorkflowNodeId, x.OrgUnitId }).IsUnique();
             b.HasIndex(x => x.OrgUnitId);
+        });
+
+        // Etiquetas de tarjetas (ADR-0097 Fase A): catalogo por tenant + enlaces N:N a flujos/formularios.
+        modelBuilder.Entity<CardTag>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(16);
+            // Una etiqueta unica por (tenant, ambito, nombre).
+            b.HasIndex(x => new { x.TenantId, x.Scope, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Scope });
+        });
+        modelBuilder.Entity<FlowTag>(b =>
+        {
+            b.Property(x => x.ProcessCode).HasMaxLength(32).IsRequired();
+            b.HasOne(x => x.CardTag).WithMany()
+                .HasForeignKey(x => x.CardTagId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ProcessCode, x.CardTagId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ProcessCode });
+            b.HasIndex(x => x.CardTagId);
+        });
+        modelBuilder.Entity<FormTag>(b =>
+        {
+            b.Property(x => x.FormCode).HasMaxLength(64).IsRequired();
+            b.HasOne(x => x.CardTag).WithMany()
+                .HasForeignKey(x => x.CardTagId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.FormCode, x.CardTagId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.FormCode });
+            b.HasIndex(x => x.CardTagId);
         });
 
         modelBuilder.Entity<ModuleDefinition>(b =>

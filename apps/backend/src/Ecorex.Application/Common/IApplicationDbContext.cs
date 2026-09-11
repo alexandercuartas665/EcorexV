@@ -111,6 +111,10 @@ public interface IApplicationDbContext
     DbSet<WorkflowNodeRule> WorkflowNodeRules { get; }
     DbSet<OrgUnit> OrgUnits { get; }
     DbSet<OrgUnitMember> OrgUnitMembers { get; }
+    // Etiquetas de tarjetas de flujos/formularios (ADR-0097 Fase A).
+    DbSet<CardTag> CardTags { get; }
+    DbSet<FlowTag> FlowTags { get; }
+    DbSet<FormTag> FormTags { get; }
     DbSet<WorkflowNodePolicy> WorkflowNodePolicies { get; }
     DbSet<ModuleDefinition> ModuleDefinitions { get; }
     DbSet<TenantModule> TenantModules { get; }

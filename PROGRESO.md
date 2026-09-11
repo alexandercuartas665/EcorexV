@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.40: Ola A1 de ADR-0097 - etiquetas (categorias) de tarjetas de flujos/formularios
+
+- ADR-0097 (categorias + marketplace de plantillas): decisiones = etiquetas multi por tarjeta, clonar +
+  mapear cargos/agentes por nombre, publica solo PlatformAdmin desde uno existente; el asistente de
+  importacion pregunta si migrar los formularios vinculados a los nodos. Documento en docs/decisiones.
+- Ola A1 (esta entrega, solo Fase A): agrupar las tarjetas por CATEGORIA + filtros + crear categorias.
+  - Modelo (aditivo, DAL dual): CardTag (Scope Flow/Form, Name/Color/SortOrder), FlowTag (ProcessCode),
+    FormTag (FormCode); N:N por identidad estable. Migraciones AddCardTags en PG + SqlServer.
+  - Application: ICardTagService/CardTagService (listar/crear/renombrar/borrar/reordenar, asignar por
+    tarjeta, GetAssignments) + backfill idempotente de WorkflowDefinition.Category -> etiquetas. DI.
+  - UI: Flujos.razor y Formularios.razor -> vista AGRUPADA por etiqueta (titulo + tarjetas), chips de
+    filtro (multi, union), boton "+ Categorias" (crear/renombrar/eliminar) y accion "Etiquetas" por
+    tarjeta (asignar). CSS nuevo. Flujos migra su Category actual a etiquetas via backfill.
+  - Build + 838 tests de Application verdes; fakes de IApplicationDbContext actualizados (5 en tests).
+- PENDIENTE: aplicar la migracion a la BD local + verificacion visual (Docker Desktop estaba caido).
+  Siguientes olas: B1 (paquete portable de flujo), B2 (catalogo marketplace + publicar), B3 (traer).
+
 ## 2026-09-10 - v0.16.39: fixes del programador de horario del Contenedor (Editar carga + refresco vivo)
 
 - BUG 1 (principal): al "Editar" un proceso con cron de RANGO de dias (ej. SOLDARCO "0 5 * * 1-6") el

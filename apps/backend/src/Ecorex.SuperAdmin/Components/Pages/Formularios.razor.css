@@ -226,3 +226,28 @@
 .fx-mbtn-go { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
 .fx-mbtn-go:hover { opacity: .9; color: var(--on-brand); }
 .fx-mbtn:disabled { opacity: .55; cursor: default; }
+
+/* ----- Categorias / etiquetas (ADR-0097 Fase A) ----- */
+.fx-tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fx-tab-manage { border-style: dashed !important; color: var(--ink-3, #64748b); font-weight: 600; }
+.fx-group { margin-bottom: 18px; }
+.fx-group-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.fx-group-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.fx-group-title { font-size: 14px; font-weight: 800; color: var(--ink-1, #0f172a); letter-spacing: .2px; }
+.fx-group-count { font-size: 11px; font-weight: 700; color: var(--ink-3, #64748b); background: var(--surface-2, #f1f5f9); border-radius: 999px; padding: 1px 8px; }
+.fx-card-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fx-chip { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, #f1f5f9); color: var(--ink-2, #475569); border: 1px solid var(--line, #e2e8f0); }
+.fx-manage-list { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; margin: 8px 0; }
+.fx-manage-row { display: flex; align-items: center; gap: 6px; }
+.fx-manage-row .fx-tag-input { flex: 1; }
+.fx-tag-input { width: 100%; box-sizing: border-box; border: 1px solid var(--line, #e2e8f0); border-radius: 9px; padding: 8px 10px; font-size: 13px; background: var(--card, #fff); color: var(--ink-1, #0f172a); }
+.fx-mini-del { width: 32px; height: 32px; border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: #c23b3b; border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1; flex: none; }
+.fx-mini-del:hover { background: rgba(224,60,60,.10); }
+.fx-manage-new { display: flex; gap: 6px; margin-top: 8px; }
+.fx-manage-new .fx-tag-input { flex: 1; }
+.fx-m-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.fx-muted { color: var(--ink-3, #64748b); font-size: 12.5px; }
+.fx-assign-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.fx-chip-toggle { border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: var(--ink-2, #475569); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: all .12s ease; }
+.fx-chip-toggle:hover { border-color: var(--brand, #6b4bd8); }
+.fx-chip-toggle.on { background: var(--brand, #6b4bd8); border-color: var(--brand, #6b4bd8); color: var(--on-brand, #fff); }

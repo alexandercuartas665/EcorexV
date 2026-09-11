@@ -150,6 +150,8 @@ public static class DependencyInjection
         // resolver de candidatos (nodo -> TenantUserIds). La bandeja/atender es la ola F2.
         services.AddScoped<Organization.IWorkflowNodePolicyService, Organization.WorkflowNodePolicyService>();
         services.AddScoped<Organization.INodeAssigneeResolver, Organization.NodeAssigneeResolver>();
+        // Etiquetas (categorias) de tarjetas de flujos/formularios (ADR-0097 Fase A).
+        services.AddScoped<Cards.ICardTagService, Cards.CardTagService>();
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
         // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.

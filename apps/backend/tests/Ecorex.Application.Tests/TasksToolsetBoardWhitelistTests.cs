@@ -200,6 +200,9 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<TaskFieldDefinition> TaskFieldDefinitions => throw new NotSupportedException();
         public DbSet<TenantSequence> TenantSequences => throw new NotSupportedException();
         public DbSet<WorkflowDefinition> WorkflowDefinitions => throw new NotSupportedException();
+        public DbSet<CardTag> CardTags => throw new NotSupportedException();
+        public DbSet<FlowTag> FlowTags => throw new NotSupportedException();
+        public DbSet<FormTag> FormTags => throw new NotSupportedException();
         public DbSet<WorkflowNode> WorkflowNodes => throw new NotSupportedException();
         public DbSet<WorkflowEdge> WorkflowEdges => throw new NotSupportedException();
         public DbSet<WorkflowInstance> WorkflowInstances => throw new NotSupportedException();

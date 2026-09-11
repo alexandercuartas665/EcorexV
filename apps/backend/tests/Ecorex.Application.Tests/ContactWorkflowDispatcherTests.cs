@@ -239,6 +239,9 @@ public class ContactWorkflowDispatcherTests
         public DbSet<TaskFieldDefinition> TaskFieldDefinitions => NotUsed<TaskFieldDefinition>();
         public DbSet<TenantSequence> TenantSequences => NotUsed<TenantSequence>();
         public DbSet<WorkflowDefinition> WorkflowDefinitions => NotUsed<WorkflowDefinition>();
+        public DbSet<CardTag> CardTags => NotUsed<CardTag>();
+        public DbSet<FlowTag> FlowTags => NotUsed<FlowTag>();
+        public DbSet<FormTag> FormTags => NotUsed<FormTag>();
         public DbSet<WorkflowNode> WorkflowNodes => NotUsed<WorkflowNode>();
         public DbSet<WorkflowEdge> WorkflowEdges => NotUsed<WorkflowEdge>();
         public DbSet<WorkflowInstance> WorkflowInstances => NotUsed<WorkflowInstance>();

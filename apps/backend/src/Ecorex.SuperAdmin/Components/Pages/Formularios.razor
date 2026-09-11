@@ -4,8 +4,10 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Cards
 @using Ecorex.Domain.Enums
 @inject IFormDefinitionService FormsSvc
+@inject ICardTagService TagSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -74,6 +76,16 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" placeholder="Buscar formulario..." />
         </div>
+        <div class="fx-tagfilter">
+            <button class="fx-viewtab @(_filterTags.Count == 0 ? "on" : "")" @onclick="() => _filterTags.Clear()">Todas</button>
+            @foreach (var t in _tags)
+            {
+                <button class="fx-viewtab @(_filterTags.Contains(t.Id) ? "on" : "")" @onclick="() => ToggleFilter(t.Id)">
+                    @t.Name <span class="fx-tabn">@TagCount(t.Id)</span>
+                </button>
+            }
+            <button class="fx-viewtab fx-tab-manage" @onclick="OpenManage" title="Crear y gestionar categorias">+ Categorias</button>
+        </div>
         @* Activos / Archivados: el indice mostraba todo mezclado y lo archivado solo se distinguia
            por el badge, asi que archivar no despejaba nada. Ahora el principal son los activos y lo
            archivado se consulta aparte. El contador solo aparece si hay algo que ver. *@
@@ -129,54 +141,72 @@
     }
     else if (!_listView)
     {
-        <div class="fx-cards">
-            @foreach (var d in Filtered)
-            {
-                @* La tarjeta era un <button> y el de archivar va DENTRO: un boton no puede anidar
-                   otro boton (HTML invalido, y el navegador desarma el marcado). Por eso la tarjeta
-                   es un div con rol de boton, que conserva teclado (Enter/Espacio) y foco. *@
-                <div class="fx-card" role="button" tabindex="0"
-                     @onclick="@(() => OpenDesigner(d.Id))"
-                     @onkeydown="@(e => OnCardKeyAsync(e, d.Id))">
-                    <div class="fx-card-top">
-                        <span class="fx-card-ic">
-                            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-                        </span>
-                        <span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span>
-                        @* stopPropagation: sin esto el clic tambien abriria el disenador detras. *@
-                        <button class="fx-card-del" title="Exportar a JSON" aria-label="Exportar @d.Title"
-                                disabled="@_busy" @onclick:stopPropagation="true"
-                                @onclick="@(() => ExportAsync(d))">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
-                        </button>
-                        <button class="fx-card-del @(d.IsArchived ? "on" : "")"
-                                title="@(d.IsArchived ? "Restaurar formulario" : "Archivar formulario")"
-                                aria-label="@(d.IsArchived ? "Restaurar" : "Archivar") @d.Title"
-                                disabled="@_busy" @onclick:stopPropagation="true"
-                                @onclick="@(() => AskArchiveAsync(d))">
-                            @if (d.IsArchived)
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
-                            }
-                            else
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>
-                            }
-                        </button>
-                    </div>
-                    <div class="fx-card-name">@d.Title</div>
-                    <div class="fx-card-meta">
-                        <span class="fx-code">FORX-@d.Code</span>
-                        <span class="fx-cat">@Category(d)</span>
-                    </div>
-                    <div class="fx-card-stats">
-                        <div><div class="fx-stat-v">@d.QuestionCount</div><div class="fx-stat-l">campos</div></div>
-                        <div><div class="fx-stat-v">@N(d.ResponseCount)</div><div class="fx-stat-l">respuestas</div></div>
-                        <div><div class="fx-stat-v amber">@d.RuleCount</div><div class="fx-stat-l">reglas</div></div>
-                    </div>
+        @foreach (var grp in GroupedForms())
+        {
+            <div class="fx-group">
+                <div class="fx-group-head">
+                    <span class="fx-group-dot" style="background:@(grp.Color ?? "var(--ink-3,#94a3b8)")"></span>
+                    <span class="fx-group-title">@grp.Title</span>
+                    <span class="fx-group-count">@grp.Cards.Count</span>
                 </div>
-            }
-        </div>
+                <div class="fx-cards">
+                    @foreach (var d in grp.Cards)
+                    {
+                        <div class="fx-card" role="button" tabindex="0"
+                             @onclick="@(() => OpenDesigner(d.Id))"
+                             @onkeydown="@(e => OnCardKeyAsync(e, d.Id))">
+                            <div class="fx-card-top">
+                                <span class="fx-card-ic">
+                                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+                                </span>
+                                <span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span>
+                                <button class="fx-card-del" title="Etiquetas" aria-label="Etiquetas @d.Title"
+                                        disabled="@_busy" @onclick:stopPropagation="true"
+                                        @onclick="@(() => OpenAssign(d.Code, d.Title))">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-9-9V3h10l7.59 7.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+                                </button>
+                                @* stopPropagation: sin esto el clic tambien abriria el disenador detras. *@
+                                <button class="fx-card-del" title="Exportar a JSON" aria-label="Exportar @d.Title"
+                                        disabled="@_busy" @onclick:stopPropagation="true"
+                                        @onclick="@(() => ExportAsync(d))">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                                </button>
+                                <button class="fx-card-del @(d.IsArchived ? "on" : "")"
+                                        title="@(d.IsArchived ? "Restaurar formulario" : "Archivar formulario")"
+                                        aria-label="@(d.IsArchived ? "Restaurar" : "Archivar") @d.Title"
+                                        disabled="@_busy" @onclick:stopPropagation="true"
+                                        @onclick="@(() => AskArchiveAsync(d))">
+                                    @if (d.IsArchived)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>
+                                    }
+                                </button>
+                            </div>
+                            <div class="fx-card-name">@d.Title</div>
+                            <div class="fx-card-meta fx-card-tags">
+                                <span class="fx-code">FORX-@d.Code</span>
+                                @foreach (var tid in TagsOf(d.Code))
+                                {
+                                    @if (_tagById.TryGetValue(tid, out var tg))
+                                    {
+                                        <span class="fx-chip" style="@ChipStyle(tg.Color)">@tg.Name</span>
+                                    }
+                                }
+                            </div>
+                            <div class="fx-card-stats">
+                                <div><div class="fx-stat-v">@d.QuestionCount</div><div class="fx-stat-l">campos</div></div>
+                                <div><div class="fx-stat-v">@N(d.ResponseCount)</div><div class="fx-stat-l">respuestas</div></div>
+                                <div><div class="fx-stat-v amber">@d.RuleCount</div><div class="fx-stat-l">reglas</div></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
     }
     else
     {
@@ -195,7 +225,15 @@
                         <div class="fx-list-title">@d.Title</div>
                         <div class="fx-code">FORX-@d.Code</div>
                     </div>
-                    <div class="fx-list-cell">@Category(d)</div>
+                    <div class="fx-list-cell fx-card-tags">
+                        @foreach (var tid in TagsOf(d.Code))
+                        {
+                            @if (_tagById.TryGetValue(tid, out var tg))
+                            {
+                                <span class="fx-chip" style="@ChipStyle(tg.Color)">@tg.Name</span>
+                            }
+                        }
+                    </div>
                     <div class="fx-list-cell">@d.QuestionCount</div>
                     <div class="fx-list-cell">@N(d.ResponseCount)</div>
                     <div class="fx-list-estado"><span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span></div>
@@ -264,6 +302,65 @@
     </div>
 }
 
+@* ---- Modal: gestionar categorias de formularios ---- *@
+@if (_manageOpen)
+{
+    <div class="fx-overlay" @onclick="() => _manageOpen = false">
+        <div class="fx-modal" @onclick:stopPropagation="true">
+            <div class="fx-m-body">
+                <div class="fx-m-title">Categorias de formularios</div>
+                <div class="fx-manage-list">
+                    @foreach (var t in _tags)
+                    {
+                        <div class="fx-manage-row">
+                            <input class="fx-tag-input" value="@t.Name" @onchange="@(e => RenameTagAsync(t.Id, e.Value?.ToString()))" />
+                            <button class="fx-mini-del" title="Eliminar categoria" @onclick="() => DeleteTagAsync(t.Id)">&times;</button>
+                        </div>
+                    }
+                    @if (_tags.Count == 0)
+                    {
+                        <p class="fx-muted">Aun no hay categorias. Crea la primera abajo.</p>
+                    }
+                </div>
+                <div class="fx-manage-new">
+                    <input class="fx-tag-input" placeholder="Nueva categoria..." value="@_newTagName" @oninput="@(e => _newTagName = e.Value?.ToString() ?? "")"
+                           @onkeydown="@(async e => { if (e.Key == "Enter") { await CreateTagAsync(); } })" />
+                    <button class="fx-btn-new" @onclick="CreateTagAsync" disabled="@string.IsNullOrWhiteSpace(_newTagName)">+ Crear</button>
+                </div>
+                <div class="fx-m-foot">
+                    <button class="fx-btn-new" @onclick="() => _manageOpen = false">Listo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Modal: asignar etiquetas a un formulario ---- *@
+@if (_assignOpen)
+{
+    <div class="fx-overlay" @onclick="() => _assignOpen = false">
+        <div class="fx-modal" @onclick:stopPropagation="true">
+            <div class="fx-m-body">
+                <div class="fx-m-title">Etiquetas de "@_assignName"</div>
+                <div class="fx-assign-chips">
+                    @foreach (var t in _tags)
+                    {
+                        <button class="fx-chip-toggle @(_assignSel.Contains(t.Id) ? "on" : "")" @onclick="() => ToggleAssign(t.Id)">@t.Name</button>
+                    }
+                    @if (_tags.Count == 0)
+                    {
+                        <p class="fx-muted">No hay categorias. Crea alguna en "+ Categorias".</p>
+                    }
+                </div>
+                <div class="fx-m-foot">
+                    <button class="fx-btn-ghost" @onclick="() => _assignOpen = false">Cancelar</button>
+                    <button class="fx-btn-new" @onclick="SaveAssignAsync" disabled="@_busy">Guardar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
@@ -278,6 +375,20 @@
     private string? _error;
     private List<FormDefinitionListItemDto> _definitions = new();
 
+    // ---- Etiquetas de tarjetas (ADR-0097 Fase A) ----
+    private List<CardTagDto> _tags = new();
+    private Dictionary<Guid, CardTagDto> _tagById = new();
+    private IReadOnlyDictionary<string, IReadOnlyList<Guid>> _assignments = new Dictionary<string, IReadOnlyList<Guid>>();
+    private readonly HashSet<Guid> _filterTags = new();
+    private bool _manageOpen;
+    private string _newTagName = "";
+    private bool _assignOpen;
+    private string _assignCode = "";
+    private string _assignName = "";
+    private readonly HashSet<Guid> _assignSel = new();
+
+    private sealed record FormGroup(string Title, string? Color, List<FormDefinitionListItemDto> Cards);
+
     /// <summary>Formulario cuyo archivado se esta confirmando (null = sin dialogo abierto).</summary>
     private FormDefinitionListItemDto? _confirming;
     private string? _confirmError;
@@ -288,7 +399,99 @@
     {
         // Igual que el prototipo: los archivados aparecen con badge "Archivado".
         _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
+        try { await LoadTagsAsync(); } catch { /* etiquetas no debe tumbar la pagina */ }
         _loading = false;
+    }
+
+    // ---- Etiquetas ----
+    private async Task LoadTagsAsync()
+    {
+        _tags = (await TagSvc.ListTagsAsync(CardTagScope.Form)).ToList();
+        _tagById = _tags.ToDictionary(t => t.Id);
+        _assignments = await TagSvc.GetAssignmentsAsync(CardTagScope.Form);
+    }
+
+    private void ToggleFilter(Guid id) { if (!_filterTags.Remove(id)) { _filterTags.Add(id); } }
+
+    private IReadOnlyList<Guid> TagsOf(string code)
+        => _assignments.TryGetValue(code, out var ids) ? ids : Array.Empty<Guid>();
+
+    private int TagCount(Guid tagId)
+        => _definitions.Count(d => d.IsArchived == _showArchived && TagsOf(d.Code).Contains(tagId));
+
+    private static string ChipStyle(string? color)
+        => string.IsNullOrWhiteSpace(color) ? "" : $"background:{color}1f;color:{color};border-color:{color}55;";
+
+    /// <summary>Agrupa las tarjetas por etiqueta (una tarjeta bajo CADA una de sus etiquetas); "Sin
+    /// categoria" para las que no tienen (solo si no hay filtro). Respeta la pestana Activos/Archivados
+    /// y la busqueda.</summary>
+    private List<FormGroup> GroupedForms()
+    {
+        var q = _query.Trim();
+        bool MatchesQuery(FormDefinitionListItemDto d) => q.Length == 0
+            || d.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase);
+        var cards = _definitions.Where(d => d.IsArchived == _showArchived && MatchesQuery(d)).ToList();
+
+        var result = new List<FormGroup>();
+        foreach (var t in _tags)
+        {
+            if (_filterTags.Count > 0 && !_filterTags.Contains(t.Id)) { continue; }
+            var inTag = cards.Where(d => TagsOf(d.Code).Contains(t.Id)).ToList();
+            if (inTag.Count > 0) { result.Add(new FormGroup(t.Name, t.Color, inTag)); }
+        }
+        if (_filterTags.Count == 0)
+        {
+            var untagged = cards.Where(d => TagsOf(d.Code).Count == 0).ToList();
+            if (untagged.Count > 0) { result.Add(new FormGroup("Sin categoria", null, untagged)); }
+        }
+        return result;
+    }
+
+    private void OpenManage() { _newTagName = ""; _manageOpen = true; }
+
+    private async Task CreateTagAsync()
+    {
+        var name = _newTagName.Trim();
+        if (name.Length == 0) { return; }
+        _newTagName = "";
+        await TagSvc.CreateTagAsync(CardTagScope.Form, name, null);
+        await LoadTagsAsync();
+    }
+
+    private async Task RenameTagAsync(Guid id, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return; }
+        await TagSvc.UpdateTagAsync(id, name!.Trim(), null);
+        await LoadTagsAsync();
+    }
+
+    private async Task DeleteTagAsync(Guid id)
+    {
+        _filterTags.Remove(id);
+        await TagSvc.DeleteTagAsync(id);
+        await LoadTagsAsync();
+    }
+
+    private void OpenAssign(string code, string name)
+    {
+        _assignCode = code; _assignName = name;
+        _assignSel.Clear();
+        foreach (var id in TagsOf(code)) { _assignSel.Add(id); }
+        _assignOpen = true;
+    }
+
+    private void ToggleAssign(Guid id) { if (!_assignSel.Remove(id)) { _assignSel.Add(id); } }
+
+    private async Task SaveAssignAsync()
+    {
+        _busy = true;
+        try
+        {
+            await TagSvc.SetCardTagsAsync(CardTagScope.Form, _assignCode, _assignSel.ToList());
+            await LoadTagsAsync();
+        }
+        finally { _busy = false; _assignOpen = false; }
     }
 
     private int ActiveCount => _definitions.Count(d => !d.IsArchived);
@@ -303,11 +506,18 @@
         get
         {
             var scope = _definitions.Where(d => d.IsArchived == _showArchived);
-            if (string.IsNullOrWhiteSpace(_query)) { return scope; }
             var q = _query.Trim();
-            return scope.Where(d =>
-                d.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase));
+            if (q.Length > 0)
+            {
+                scope = scope.Where(d =>
+                    d.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+                    || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase));
+            }
+            if (_filterTags.Count > 0)
+            {
+                scope = scope.Where(d => TagsOf(d.Code).Any(id => _filterTags.Contains(id)));
+            }
+            return scope;
         }
     }
 

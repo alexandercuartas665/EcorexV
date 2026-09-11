@@ -194,3 +194,27 @@
 @media (max-width: 1000px) {
     .fl-kpis { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ----- Categorias / etiquetas (ADR-0097 Fase A) ----- */
+.fl-tab-manage { border-style: dashed !important; color: var(--ink-3, #64748b); font-weight: 600; }
+.fl-group { margin-bottom: 18px; }
+.fl-group-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.fl-group-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.fl-group-title { font-size: 14px; font-weight: 800; color: var(--ink-1, #0f172a); letter-spacing: .2px; }
+.fl-group-count { font-size: 11px; font-weight: 700; color: var(--ink-3, #64748b); background: var(--surface-2, #f1f5f9); border-radius: 999px; padding: 1px 8px; }
+.fl-card-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.fl-chip { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, #f1f5f9); color: var(--ink-2, #475569); border: 1px solid var(--line, #e2e8f0); }
+.fl-manage-list { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; margin: 8px 0; }
+.fl-manage-row { display: flex; align-items: center; gap: 6px; }
+.fl-manage-row .fl-input { flex: 1; }
+.fl-mini-del { width: 30px; height: 30px; border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: #c23b3b; border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1; }
+.fl-mini-del:hover { background: rgba(224,60,60,.10); }
+.fl-manage-new { display: flex; gap: 6px; margin-top: 8px; }
+.fl-manage-new .fl-input { flex: 1; }
+.fl-btn-sm { border: 0; background: var(--accent, #6b4bd8); color: #fff; font-weight: 700; font-size: 13px; padding: 8px 14px; border-radius: 9px; cursor: pointer; }
+.fl-btn-sm:disabled { opacity: .5; cursor: not-allowed; }
+.fl-muted { color: var(--ink-3, #64748b); font-size: 12.5px; }
+.fl-assign-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.fl-chip-toggle { border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: var(--ink-2, #475569); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: all .12s ease; }
+.fl-chip-toggle:hover { border-color: var(--accent, #6b4bd8); }
+.fl-chip-toggle.on { background: var(--accent, #6b4bd8); border-color: var(--accent, #6b4bd8); color: #fff; }

@@ -157,6 +157,7 @@ public class TenantUserServiceTests
         public DbSet<CardTag> CardTags => throw new NotSupportedException();
         public DbSet<FlowTag> FlowTags => throw new NotSupportedException();
         public DbSet<FormTag> FormTags => throw new NotSupportedException();
+        public DbSet<MarketplaceItem> MarketplaceItems => throw new NotSupportedException();
         public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => throw new NotSupportedException();
         public DbSet<ModuleDefinition> ModuleDefinitions => throw new NotSupportedException();
         public DbSet<TenantModule> TenantModules => throw new NotSupportedException();

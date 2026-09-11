@@ -1,6 +1,6 @@
 # ADR-0097: Categorias (etiquetas) de tarjetas + Marketplace de plantillas de flujos y formularios
 
-**Status:** Proposed
+**Status:** Accepted (A1/B1/B2/B3 implementados; A1 en prod desde v0.16.43)
 **Date:** 2026-09-11
 **Deciders:** Alexander (producto/PlatformAdmin), sesion de desarrollo
 
@@ -159,8 +159,8 @@ Piezas del codigo que YA existen y se reusan:
 
 ## Action Items
 
-1. [ ] A1: entidades + migracion dual + UI (Flujos/Formularios) + migrar Category.
-2. [ ] B1: paquete portable de flujo + tests.
-3. [ ] B2: catalogo de plataforma + publicar + imagen.
-4. [ ] B3: explorar + traer + reporte.
+1. [x] A1: entidades + migracion dual + UI (Flujos/Formularios) + migrar Category. (v0.16.40, en prod v0.16.43)
+2. [x] B1: paquete portable de flujo + tests. (v0.16.41)
+3. [x] B2: catalogo de plataforma + publicar + imagen. (v0.16.42)
+4. [x] B3: explorar + traer + reporte + asistente de formularios de nodo. (v0.16.44)
 5. [ ] Reflejar este ADR en el vault (Capa 3 / Capa de formularios) y en PROGRESO.md.

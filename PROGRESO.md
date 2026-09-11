@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.44: Ola B3 de ADR-0097 - galeria en el tenant + "Traer" (import)
+
+- Cierra el ciclo del marketplace: el TENANT busca una plantilla publicada y la TRAE (crea una copia en
+  BORRADOR en su tenant). Reusa el import portable: FlowPackageService.ImportAsync (flujos, con remapeo de
+  cargos/agentes/reglas por nombre) y FormDefinitionService.ImportAsync (formularios, codigo unico).
+- MarketplaceService (B2) + 3 metodos B3: GetImportPreviewAsync (dice si el flujo trae formularios de
+  nodo, para el asistente), ImportAsync(id, includeNodeForms) (importa al tenant activo + suma 1 a
+  ImportCount), y el detector FlowPackageInspector.CountNodeForms (lee el snapshot sin materializar).
+- UI: pagina /plantillas (galeria del tenant, policy TenantMember): tarjetas activas con filtro por tipo
+  + busqueda, boton "Traer". Para un FLUJO con formularios en los nodos, un ASISTENTE pregunta si migrar
+  esos formularios (checkbox) antes de importar. Al terminar, modal de REPORTE: codigo nuevo + formularios
+  de nodo importados + cargos/agentes/reglas SIN mapear (para cablear antes de publicar). Botones "Galeria"
+  en los encabezados de Flujos y Formularios (?kind=flow|form).
+- Verificado en local (admin@ecorex.local, tenant PLATAFORMA ECOREX): traer FORMULARIO -> FRM-001-2 en
+  borrador + contador; traer FLUJO -> FLW-A925FF en borrador, 0 formularios de nodo, todo mapeado. El
+  disparo del asistente (deteccion de formularios de nodo) cubierto por 7 tests (FlowPackageInspectorTests).
+- Sin migracion (todo lectura + reuso de import existente).
+
 ## 2026-09-11 - v0.16.43: codigo QR en impresion de plantillas (marcador {{qr:...}})
 
 - En impresoras de baja calidad el Code39 (1D, sin digito de control) se lee mal; se agrega QR (2D).
@@ -14,6 +32,42 @@
 - Sin migracion. 7 tests nuevos (QrMarkerTests) verdes. El numero legible para humano lo pone la
   plantilla con {{tarea}} debajo del QR (QrSvg no dibuja texto). El cambio de la plantilla OT lo hace
   el usuario por config.
+
+## 2026-09-11 - v0.16.42: Ola B2 de ADR-0097 - catalogo del marketplace + publicar
+
+- MarketplaceItem (PLATAFORMA, BaseEntity sin TenantId: lo leen todos, lo escribe PlatformAdmin): Kind,
+  Title, Description, ImageRef (URL o data-URL de imagen chica), Category, SnapshotJson (+version),
+  SourceCode, IsActive, ImportCount, PublishedBy/At. Migraciones AddMarketplaceItems PG + SqlServer.
+- IMarketplaceService/MarketplaceService: PublishFlowAsync / PublishFormAsync (toman el snapshot portable
+  ya existente - FlowPackageService B1 para flujos, FormDefinitionService.Export para formularios),
+  ListAsync/ListCategoriesAsync/GetAsync (con snapshot para B3), UpdateAsync/DeleteAsync. Tope imagen ~480KB.
+- UI: boton "Publicar al marketplace" en las tarjetas de Flujos y Formularios (gated con AuthorizeView
+  Policy=SuperAdminOnly) -> modal con Titulo/Descripcion/Categoria + imagen (InputFile -> data-URL).
+  Nueva pagina /marketplace (SuperAdminOnly) = catalogo admin: tarjetas con imagen/tipo/categoria/descr,
+  filtros por tipo + busqueda, activar/desactivar y eliminar.
+- Build + 843 tests verdes; 5 fakes de IApplicationDbContext actualizados.
+- PENDIENTE: verificacion visual del loop completo (publicar -> catalogo) con sesion PlatformAdmin
+  (admin@ecorex.local / SuperAdminOnly) dentro de un tenant con flujos. Siguiente: Ola B3 (galeria en el
+  tenant + "Traer" con el asistente que pregunta si migrar los formularios de los nodos).
+
+## 2026-09-11 - v0.16.41: Ola B1 de ADR-0097 - paquete PORTABLE de flujo (export/import marketplace)
+
+- Corazon del marketplace: empaquetar un flujo a JSON portable y traerlo a otro tenant. Solo backend
+  (aun sin UI; eso es B2/B3).
+- Modelo FlowPackage (Application/Workflows): grafo + por nodo { formularios EMBEBIDOS (export JSON del
+  formulario), cargos por NOMBRE, agente por NOMBRE + su config (autonomia/extra prompt/politica de fallo/
+  correo/voz por nombre), reglas por NOMBRE, config del nodo (asignacion/apariencia) }. Sin ids de tenant.
+  + FlowImportOptions (IncludeNodeForms, para el asistente de B3) + FlowImportReport.
+- IFlowPackageService/FlowPackageService: ExportAsync(defId)->json; ImportAsync(json, options)->reporte.
+  REUSA piezas validadas: ImportJsonAsync (crea def+nodos+edges), FormDefinitionService Export/Import,
+  y los setters de nodo (SetNodeForm/Assignee/Appearance/AddNodeRule/SetNodeAgent(+Resources)) +
+  IWorkflowNodePolicyService.AddNodePolicy. El import crea un flujo BORRADOR con ProcessCode NUEVO
+  (no versiona uno existente) y mapea cargos/agentes/reglas por nombre; lo que no coincide -> reporte.
+- Tests: 5 unitarios del round-trip del paquete (cabecera/nodos/forms/cargos/agente/reglas/edges, y que
+  NO viajan ids de tenant). 843 tests de Application verdes. El round-trip completo contra BD se ejercita
+  en B3 (UI "Traer") o con un test de integracion (Testcontainers) si se pide.
+- Siguientes: B2 (catalogo marketplace + publicar con imagen/descripcion) y B3 (galeria + Traer + asistente
+  que pregunta si migrar los formularios de los nodos).
 
 ## 2026-09-11 - v0.16.40: Ola A1 de ADR-0097 - etiquetas (categorias) de tarjetas de flujos/formularios
 

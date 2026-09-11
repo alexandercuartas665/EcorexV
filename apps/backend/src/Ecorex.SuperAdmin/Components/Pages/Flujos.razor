@@ -5,9 +5,12 @@
 @using System.Globalization
 @using Ecorex.Application.Workflows
 @using Ecorex.Application.Cards
+@using Ecorex.Application.Marketplace
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
 @inject IWorkflowDesignService DesignSvc
 @inject ICardTagService TagSvc
+@inject IMarketplaceService MarketSvc
 
 @* ============================================================
    INDICE DE FLUJOS del prototipo (ECOREX.dc.html, pantalla
@@ -25,10 +28,16 @@
             <h1 class="fl-title">Flujos del proceso</h1>
             <p class="fl-subtitle">Todos los flujos BPMN del sistema con sus indicadores de ejecucion. Abre uno para editarlo.</p>
         </div>
-        <button class="fl-btn-new" @onclick="OpenNewFlow" disabled="@_busy">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-            Nuevo flujo
-        </button>
+        <div class="fl-head-actions">
+            <a class="fl-btn-ghost" href="plantillas?kind=flow">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+                Galeria
+            </a>
+            <button class="fl-btn-new" @onclick="OpenNewFlow" disabled="@_busy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                Nuevo flujo
+            </button>
+        </div>
     </div>
 
     @if (_error is not null)
@@ -113,6 +122,12 @@
                                         }
                                         @card.Estado
                                     </span>
+                                    <AuthorizeView Policy="SuperAdminOnly">
+                                        <button title="Publicar al marketplace" @onclick:stopPropagation="true" @onclick="@(() => OpenPublish(card.DefinitionId, card.Name))" disabled="@_busy"
+                                                style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
+                                            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                                        </button>
+                                    </AuthorizeView>
                                     <button title="Etiquetas" @onclick:stopPropagation="true" @onclick="@(() => OpenAssign(card.ProcessCode, card.Name))" disabled="@_busy"
                                             style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
                                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-9-9V3h10l7.59 7.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
@@ -260,6 +275,34 @@
     </div>
 }
 
+@* ---- Modal: publicar al marketplace ---- *@
+@if (_publishOpen)
+{
+    <div class="fl-overlay" @onclick="() => _publishOpen = false">
+        <div class="fl-modal" style="width:min(480px,94vw)" @onclick:stopPropagation>
+            <h3 class="fl-modal-title">Publicar al marketplace</h3>
+            <p class="fl-muted">Se publica una PLANTILLA de este flujo (con sus formularios, y cargos/agentes por nombre) para que otros tenants la puedan traer.</p>
+            <label class="fl-plabel">Titulo</label>
+            <input class="fl-input" value="@_pubTitle" @oninput="@(e => _pubTitle = e.Value?.ToString() ?? "")" />
+            <label class="fl-plabel">Descripcion (para que sirve)</label>
+            <textarea class="fl-input" rows="3" @oninput="@(e => _pubDesc = e.Value?.ToString() ?? "")">@_pubDesc</textarea>
+            <label class="fl-plabel">Categoria</label>
+            <input class="fl-input" value="@_pubCat" @oninput="@(e => _pubCat = e.Value?.ToString() ?? "")" placeholder="Ej. Comercial" />
+            <label class="fl-plabel">Imagen (opcional, max ~480 KB)</label>
+            <InputFile OnChange="OnPublishImagePicked" accept="image/*" />
+            @if (!string.IsNullOrEmpty(_pubImage))
+            {
+                <img src="@_pubImage" alt="vista previa" style="max-height:120px;border-radius:8px;margin-top:6px;display:block;" />
+            }
+            @if (_pubError is not null) { <div class="tk-field-error">@_pubError</div> }
+            <div class="fl-modal-foot">
+                <button class="fl-btn-ghost" @onclick="() => _publishOpen = false" disabled="@_busy">Cancelar</button>
+                <button class="fl-btn-sm" @onclick="PublishAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_pubTitle))">Publicar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Modal: gestionar categorias (crear / renombrar / eliminar) ---- *@
 @if (_manageOpen)
 {
@@ -340,6 +383,15 @@
     private string _assignCode = "";
     private string _assignName = "";
     private readonly HashSet<Guid> _assignSel = new();
+
+    // Publicar al marketplace (ADR-0097 Ola B2).
+    private bool _publishOpen;
+    private Guid _pubDefId;
+    private string _pubTitle = "";
+    private string _pubDesc = "";
+    private string _pubCat = "";
+    private string? _pubImage;
+    private string? _pubError;
 
     private sealed record CardGroup(string Title, string? Color, List<FlowCardDto> Cards);
 
@@ -517,6 +569,45 @@
         await RunTagOpAsync(() => TagSvc.SetCardTagsAsync(CardTagScope.Flow, code, sel));
         _busy = false;
         _assignOpen = false;
+    }
+
+    // ---- Publicar al marketplace ----
+    private void OpenPublish(Guid defId, string name)
+    {
+        _pubDefId = defId; _pubTitle = name; _pubDesc = ""; _pubCat = ""; _pubImage = null; _pubError = null;
+        _publishOpen = true;
+    }
+
+    private async Task OnPublishImagePicked(InputFileChangeEventArgs e)
+    {
+        _pubError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        if (file.Size > 480 * 1024) { _pubError = "La imagen supera ~480 KB."; return; }
+        try
+        {
+            using var stream = file.OpenReadStream(600 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+            _pubImage = $"data:{mime};base64,{Convert.ToBase64String(ms.ToArray())}";
+        }
+        catch (Exception ex) { _pubError = "No se pudo leer la imagen: " + ex.Message; }
+    }
+
+    private async Task PublishAsync()
+    {
+        _busy = true; _pubError = null;
+        await _gate.WaitAsync();
+        try
+        {
+            var res = await MarketSvc.PublishFlowAsync(_pubDefId,
+                new MarketplacePublishInput(_pubTitle.Trim(), _pubDesc, _pubCat, _pubImage), null);
+            if (!res.Ok) { _pubError = res.Error ?? "No se pudo publicar."; return; }
+            _publishOpen = false;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _gate.Release(); _busy = false; }
     }
 
     private async Task ReloadAsync()

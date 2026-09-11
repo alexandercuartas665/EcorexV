@@ -31,6 +31,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     // Globales (administradas por Super Admin / plataforma)
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<SaasPlan> SaasPlans => Set<SaasPlan>();
+    public DbSet<MarketplaceItem> MarketplaceItems => Set<MarketplaceItem>();
     public DbSet<SaasPlanLimit> SaasPlanLimits => Set<SaasPlanLimit>();
     public DbSet<TenantSubscription> TenantSubscriptions => Set<TenantSubscription>();
     public DbSet<TenantPayment> TenantPayments => Set<TenantPayment>();
@@ -2057,6 +2058,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => new { x.TenantId, x.FormCode, x.CardTagId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.FormCode });
             b.HasIndex(x => x.CardTagId);
+        });
+
+        // Marketplace de plantillas (ADR-0097 Ola B2): de PLATAFORMA (BaseEntity, sin filtro de tenant).
+        modelBuilder.Entity<MarketplaceItem>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Category).HasMaxLength(60);
+            b.Property(x => x.SourceCode).HasMaxLength(64);
+            b.Property(x => x.SnapshotJson).IsRequired();
+            b.HasIndex(x => new { x.Kind, x.IsActive });
+            b.HasIndex(x => x.Category);
         });
 
         modelBuilder.Entity<ModuleDefinition>(b =>

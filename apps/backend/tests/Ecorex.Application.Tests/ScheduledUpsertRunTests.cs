@@ -143,6 +143,7 @@ public class ScheduledUpsertRunTests
         public DbSet<CardTag> CardTags => NotUsed<CardTag>();
         public DbSet<FlowTag> FlowTags => NotUsed<FlowTag>();
         public DbSet<FormTag> FormTags => NotUsed<FormTag>();
+        public DbSet<MarketplaceItem> MarketplaceItems => NotUsed<MarketplaceItem>();
         public DbSet<WorkflowNode> WorkflowNodes => NotUsed<WorkflowNode>();
         public DbSet<WorkflowEdge> WorkflowEdges => NotUsed<WorkflowEdge>();
         public DbSet<WorkflowInstance> WorkflowInstances => NotUsed<WorkflowInstance>();

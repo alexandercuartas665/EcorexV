@@ -28,6 +28,14 @@
 }
 .fl-btn-new:hover { opacity: .9; }
 .fl-btn-new:disabled { opacity: .6; cursor: default; }
+.fl-head-actions { display: flex; align-items: center; gap: 10px; }
+.fl-btn-ghost {
+    display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px;
+    border-radius: 11px; border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff);
+    color: var(--ink-2, #475569); font: inherit; font-weight: 600; font-size: 13.5px;
+    text-decoration: none; cursor: pointer;
+}
+.fl-btn-ghost:hover { border-color: var(--brand); color: var(--brand); }
 
 .fl-error {
     font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg);
@@ -218,3 +226,5 @@
 .fl-chip-toggle { border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: var(--ink-2, #475569); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: all .12s ease; }
 .fl-chip-toggle:hover { border-color: var(--accent, #6b4bd8); }
 .fl-chip-toggle.on { background: var(--accent, #6b4bd8); border-color: var(--accent, #6b4bd8); color: #fff; }
+.fl-plabel { display: block; font-size: 12px; font-weight: 700; color: var(--ink-3, #64748b); margin: 8px 0 3px; }
+.fl-plabel:first-of-type { margin-top: 2px; }

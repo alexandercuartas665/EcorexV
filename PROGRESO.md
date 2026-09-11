@@ -12324,3 +12324,13 @@ llave -> NO se puede inyectar por SQL. Paso restante: cargar la clave del usuari
 (campo Credenciales en la UI, o Config API /connectors/{id}/secret que la cifra). Sin la clave, el
 conector cae a la fuente local del agente (BuildConnectionString devuelve null sin Secret); con la clave
 usa 192.168.0.8. Backup ecorex-2026-09-10-1657.sql.gz. Validar con Import MERCADOS via agente y seguir.
+
+## 2026-09-10 (cont.) - SOLDARCO MAESTROS: horario diario (lun-sab 05:00)
+
+El usuario recreo los 4 conectores Database por la UI nueva (v0.16.37, ids nuevos, con clave cargada)
+y los 4 procesos previos ya no estaban. Cree 4 ImportProcess (uno por conector, agente
+soldarco_server6) con schedule_kind=Cron, cron '0 5 * * 1-6' (lunes a sabado 05:00, sin domingos),
+mode Replace, next_run_at NULL (el ImportScheduleDispatcher lo auto-calcula; zona por defecto
+America/Bogota ya que el tenant no tiene time_zone_id -> 05:00 hora Colombia). Backup
+ecorex-2026-09-10-2113.sql.gz. Conectores actuales: MERCADOS 7a56f261, GRUECOS c5884ea7,
+ESTADOS ea7ad582, CARGOS 73170fe2 (todos con credentials cargadas por el modulo).

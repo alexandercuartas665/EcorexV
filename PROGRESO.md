@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.45: modelo de publicacion del marketplace + plantillas de arranque
+
+- Resuelto "como publica el Super Admin": autora en el TENANT INTERNO "Plataforma ECOREX"
+  (Kind=Internal, del que admin@ecorex.local ya es Owner) con los editores normales /flujos y
+  /formularios, y publica desde las tarjetas (boton SuperAdminOnly). No requiere infra nueva ni
+  impersonacion; ya funcionaba, se documenta como el modelo oficial.
+- Aclaracion del snapshot (confirmada con el usuario): la copia que "cae" en un tenant cliente es
+  INDEPENDIENTE - el cliente la edita, agrega pasos/campos/formularios y es su dueno; el Super Admin
+  conserva su original; no hay sincronizacion de vuelta. Es el comportamiento deseado, sin cambios.
+- MarketplaceStarterSeeder (SuperAdmin/Seeders): siembra 3 FORMULARIOS genericos utiles ya publicados
+  (Solicitud de vacaciones / Registro de visita / Encuesta de satisfaccion) para que la galeria no
+  nazca vacia. Los crea via los servicios validados (CreateAsync/AddContainer/AddQuestion) en el tenant
+  interno (AmbientTenantContext.Begin) y los publica con MarketplaceService.PublishFormAsync.
+  Idempotente por CATALOGO: solo corre si el marketplace esta VACIO, asi borrar una plantilla NO la
+  resucita. Corre en el arranque de prod (bloque de migraciones) y de dev, best-effort (no rompe boot).
+- Verificado en local: catalogo vaciado -> reinicio -> "3 plantilla(s) publicadas"; se ven en
+  /marketplace (Todos 3) y quedan traibles desde /plantillas.
+
 ## 2026-09-11 - v0.16.44: Ola B3 de ADR-0097 - galeria en el tenant + "Traer" (import)
 
 - Cierra el ciclo del marketplace: el TENANT busca una plantilla publicada y la TRAE (crea una copia en

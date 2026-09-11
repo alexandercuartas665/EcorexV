@@ -240,6 +240,9 @@ builder.Services.AddScoped<Ecorex.Application.Admin.IStorageConfigService,
     Ecorex.SuperAdmin.Services.StorageConfigService>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
+// Plantillas de arranque del marketplace (ADR-0097): siembra formularios genericos publicados si el
+// catalogo esta vacio. Idempotente por catalogo (no resucita lo que el usuario borre).
+builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>();
 // Onboarding one-shot desde db3dev (crea tenants cliente + usuarios). Se dispara con
 // ECOREX_RUN_ONBOARDING=true al arrancar; los datos sensibles (cadena db3dev, cedulas) van en
 // configuracion NO versionada (appsettings.Development.local.json).
@@ -288,6 +291,10 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsureCiudadesAsync();
         // Catalogo global de plantillas de reportes (ADR-0062): metadato de plataforma, no dato demo. Idempotente.
         await seeder.EnsureReportTemplatesAsync();
+        // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
+        // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
+        await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
+            .EnsureStarterFormTemplatesAsync();
     }
 }
 else
@@ -439,6 +446,10 @@ else
     await seeder.EnsureAgentesColmenaMenuItemAsync();
     // Backfill idempotente (voz IA, ADR-0056): item "Configuracion de voz" bajo Infraestructura IA.
     await seeder.EnsureVozMenuItemAsync();
+    // Plantillas de arranque del marketplace (ADR-0097): igual que en prod, corre tras ambas ramas
+    // (skip/demo) porque el tenant interno ya quedo asegurado. Idempotente por catalogo.
+    await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
+        .EnsureStarterFormTemplatesAsync();
 }
 
 // Onboarding one-shot desde db3dev (ECOREX_RUN_ONBOARDING=true). Corre despues de migraciones/seed,

@@ -334,7 +334,8 @@ public abstract class WorkflowAgentStepTestsBase
                 true, null, comment, null, AiProvider.Claude, "modelo-de-prueba", 100, 50, Route: null, Fields: fields));
 
         public Task<WorkflowAgentInvocationResult> InvokeAsync(
-            WorkflowAgentContextDto context, CancellationToken cancellationToken = default)
+            WorkflowAgentContextDto context, CancellationToken cancellationToken = default,
+            Action<string, long>? onProgress = null)
         {
             Calls++;
             // El contexto de la ola 1 tiene que llegar armado hasta aqui.

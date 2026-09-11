@@ -19,6 +19,9 @@ namespace Ecorex.Application.Forms;
 /// <item><c>{{empresa}}</c>, <c>{{fecha}}</c>, <c>{{numero}}</c>: sistema (tenant, fecha, numero de registro).</item>
 /// <item><c>{{tarea}}</c>: numero de la TAREA (la Reference del registro sin el ordinal final, ej.
 /// "T00042-1" -> "T00042"). Tambien <c>{{barcode:tarea}}</c> para su codigo de barras.</item>
+/// <item><c>{{barcode:numero|tarea|campo.x[:alto]}}</c>: codigo de barras Code39 (SVG, 1D).</item>
+/// <item><c>{{qr:numero|tarea|campo.x[:lado]}}</c>: codigo QR (SVG, 2D, correccion de errores H;
+/// mas robusto que el Code39 para impresoras de baja calidad + escaneo con celular).</item>
 /// <item><c>{{campo.codigo}}</c>: valor de un campo del formulario (con su formato de presentacion).</item>
 /// <item><c>{{#tabla.items}} ... {{col.idColumna}} ... {{fila}} ... {{/tabla.items}}</c>: bloque que se
 /// repite por cada fila del GridDetail <c>items</c>.</item>
@@ -131,6 +134,8 @@ public static class FormTemplateMerge
 
         // Codigo de barras: {{barcode:numero}}, {{barcode:tarea}} o {{barcode:campo.codigo}} -> SVG Code39 inline.
         html = ResolveBarcodes(html, values, numero, tarea);
+        // Codigo QR: {{qr:numero}}, {{qr:tarea}} o {{qr:campo.codigo}} -> SVG QR (correccion H) inline.
+        html = ResolveQr(html, values, numero, tarea);
 
         var sb = new StringBuilder(html);
         sb.Replace("{{empresa}}", Esc(empresa));
@@ -428,9 +433,9 @@ public static class FormTemplateMerge
             var code = m.Groups[1].Value;
             return values.TryGetValue(code, out var raw) ? Esc(FormatCell(fieldFormat.GetValueOrDefault(code), raw)) : string.Empty;
         });
-        // Codigo de barras ({{barcode:numero|tarea|campo.x}}) y fechas ({{fecha}}/{{fechahora}}/{{impreso}}),
-        // igual que en el cuerpo, para que el cabezote/pie por hoja los soporte.
-        return ResolveDateTokens(ResolveBarcodes(html, values, numero, tarea), fecha);
+        // Codigo de barras ({{barcode:numero|tarea|campo.x}}), QR ({{qr:...}}) y fechas
+        // ({{fecha}}/{{fechahora}}/{{impreso}}), igual que en el cuerpo, para que el cabezote/pie los soporte.
+        return ResolveDateTokens(ResolveQr(ResolveBarcodes(html, values, numero, tarea), values, numero, tarea), fecha);
     }
 
     /// <summary>Resuelve los marcadores de codigo de barras: <c>{{barcode:numero}}</c> (codifica el numero de
@@ -450,5 +455,24 @@ public static class FormTemplateMerge
             if (string.IsNullOrWhiteSpace(data)) { return string.Empty; }
             var height = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var h) ? h : 44;
             return Barcode.Code39Svg(data, height);
+        });
+
+    /// <summary>Resuelve los marcadores de codigo QR: <c>{{qr:numero}}</c> (codifica el numero de registro),
+    /// <c>{{qr:tarea}}</c> (numero de la tarea) y <c>{{qr:campo.codigo}}</c> (valor de un campo). Sintaxis
+    /// opcional de lado: <c>{{qr:target:120}}</c> (px, clamp 40..400, default 110). Emite un SVG QR (correccion
+    /// de errores H) INLINE (sin escapar); vacio si el valor esta vacio.</summary>
+    private static string ResolveQr(string html, IReadOnlyDictionary<string, string> values, string numero, string tarea)
+        => Regex.Replace(html, @"\{\{\s*qr:\s*(numero|tarea|campo\.[a-zA-Z0-9_]+)\s*(?::\s*(\d+)\s*)?\}\}", m =>
+        {
+            var target = m.Groups[1].Value;
+            var data = target switch
+            {
+                "numero" => numero,
+                "tarea" => tarea,
+                _ => values.TryGetValue(target.Substring("campo.".Length), out var v) ? v : string.Empty
+            };
+            if (string.IsNullOrWhiteSpace(data)) { return string.Empty; }
+            var side = m.Groups[2].Success && int.TryParse(m.Groups[2].Value, out var s) ? Math.Clamp(s, 40, 400) : 110;
+            return Barcode.QrSvg(data, side);
         });
 }

@@ -99,6 +99,55 @@ public static class Barcode
         return svg.ToString();
     }
 
+    /// <summary>
+    /// Codigo QR (2D) del valor como SVG autocontenido, SERVER-SIDE (libreria pura-managed, sin System.Drawing
+    /// ni navegador). Nivel de correccion de errores ALTO (H) y quiet zone estandar (4 modulos) para que
+    /// impresoras de baja calidad sigan siendo escaneables desde un celular. Codifica el string TAL CUAL (sin
+    /// logo ni texto). <paramref name="sizePx"/> es el lado de despliegue en px. Emite barras negras sobre
+    /// blanco con <c>shape-rendering="crispEdges"</c>; se rinde SIN escapar (igual que el Code39). Cadena
+    /// vacia si <paramref name="data"/> es vacio.
+    /// </summary>
+    public static string QrSvg(string? data, int sizePx = 110)
+    {
+        if (string.IsNullOrEmpty(data)) { return string.Empty; }
+        sizePx = Math.Max(1, sizePx);
+
+        // Correccion de errores H (alta): reconstruye el codigo aunque se manche/desalinee en impresion mala.
+        var qr = Net.Codecrete.QrCodeGenerator.QrCode.EncodeText(data, Net.Codecrete.QrCodeGenerator.QrCode.Ecc.High);
+        const int quiet = 4; // quiet zone estandar (modulos)
+        var modules = qr.Size;
+        var total = modules + 2 * quiet; // lado del viewBox en unidades de modulo
+
+        var body = new StringBuilder();
+        // Un rect por CORRIDA horizontal de modulos oscuros (mantiene el SVG compacto y nitido).
+        for (var y = 0; y < modules; y++)
+        {
+            var x = 0;
+            while (x < modules)
+            {
+                if (!qr.GetModule(x, y)) { x++; continue; }
+                var run = 1;
+                while (x + run < modules && qr.GetModule(x + run, y)) { run++; }
+                body.Append("<rect x=\"").Append((x + quiet).ToString(CultureInfo.InvariantCulture))
+                    .Append("\" y=\"").Append((y + quiet).ToString(CultureInfo.InvariantCulture))
+                    .Append("\" width=\"").Append(run.ToString(CultureInfo.InvariantCulture))
+                    .Append("\" height=\"1\" fill=\"#000\"/>");
+                x += run;
+            }
+        }
+
+        var side = sizePx.ToString(CultureInfo.InvariantCulture);
+        var tot = total.ToString(CultureInfo.InvariantCulture);
+        var svg = new StringBuilder();
+        svg.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ").Append(tot).Append(' ').Append(tot)
+           .Append("\" role=\"img\" aria-label=\"Codigo QR\" style=\"width:").Append(side)
+           .Append("px;height:").Append(side).Append("px;max-width:100%\" shape-rendering=\"crispEdges\" preserveAspectRatio=\"xMidYMid meet\">");
+        svg.Append("<rect x=\"0\" y=\"0\" width=\"").Append(tot).Append("\" height=\"").Append(tot).Append("\" fill=\"#fff\"/>");
+        svg.Append(body);
+        svg.Append("</svg>");
+        return svg.ToString();
+    }
+
     private static string Esc(string s)
         => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 }

@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.43: codigo QR en impresion de plantillas (marcador {{qr:...}})
+
+- En impresoras de baja calidad el Code39 (1D, sin digito de control) se lee mal; se agrega QR (2D).
+- Barcode.QrSvg(data, sizePx=110): SVG server-side, pura-managed (Net.Codecrete.QrCodeGenerator 3.2.1,
+  MIT, sin System.Drawing ni navegador). Correccion de errores H (alta) + quiet zone 4 modulos;
+  <svg> cuadrado con shape-rendering=crispEdges; cadena vacia si data vacio. Codifica el string tal cual.
+- Marcador {{qr:numero|tarea|campo.x[:lado]}} en FormTemplateMerge.Render (ResolveQr, calcado de
+  ResolveBarcodes) y tambien en ResolveHeaderTokens (paridad con barcode). Lado opcional en px (clamp
+  40..400, default 110). El {{barcode:...}} (Code39) SIGUE disponible (no se remueve).
+- Sin migracion. 7 tests nuevos (QrMarkerTests) verdes. El numero legible para humano lo pone la
+  plantilla con {{tarea}} debajo del QR (QrSvg no dibuja texto). El cambio de la plantilla OT lo hace
+  el usuario por config.
+
 ## 2026-09-11 - v0.16.40: Ola A1 de ADR-0097 - etiquetas (categorias) de tarjetas de flujos/formularios
 
 - ADR-0097 (categorias + marketplace de plantillas): decisiones = etiquetas multi por tarjeta, clonar +

@@ -24,6 +24,25 @@ public sealed record MarketplaceItemDetailDto(
 public sealed record MarketplacePublishInput(
     string Title, string? Description, string? Category, string? ImageRef);
 
+/// <summary>Vista previa para el asistente de "Traer" (Ola B3): para un flujo dice si trae formularios
+/// vinculados a los nodos, para preguntarle al usuario si desea migrarlos.</summary>
+public sealed record MarketplaceImportPreviewDto(
+    Guid Id, MarketplaceItemKind Kind, string Title, bool HasNodeForms, int NodeFormsCount);
+
+/// <summary>Reporte del "Traer" (import a un tenant) de un item del marketplace (Ola B3). Para un flujo
+/// incluye lo que quedo SIN mapear (cargos/agentes/reglas que no existen en el tenant destino) para que
+/// el usuario lo cablee antes de publicar el flujo importado.</summary>
+public sealed record MarketplaceImportResult(
+    MarketplaceItemKind Kind,
+    Guid NewDefinitionId,
+    string NewCode,
+    string NewTitle,
+    int FormsImported,
+    IReadOnlyList<string> UnmappedCargos,
+    IReadOnlyList<string> UnmappedAgents,
+    IReadOnlyList<string> UnmappedRules,
+    IReadOnlyList<string> Warnings);
+
 /// <summary>
 /// Catalogo del MARKETPLACE de plantillas (ADR-0097 Ola B2). El PlatformAdmin PUBLICA un flujo o formulario
 /// existente (con su snapshot portable + imagen/descripcion); todos los tenants lo LEEN. El "Traer" (import
@@ -40,4 +59,15 @@ public interface IMarketplaceService
 
     Task<MarketplaceResult<MarketplaceItemDto>> UpdateAsync(Guid id, MarketplacePublishInput input, bool isActive, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // ---- Ola B3: "Traer" al tenant activo ----
+
+    /// <summary>Vista previa para el asistente: si el item es un flujo con formularios en sus nodos (para
+    /// preguntar si migrarlos). Null si el item no existe o no esta activo.</summary>
+    Task<MarketplaceImportPreviewDto?> GetImportPreviewAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Importa el item al TENANT ACTIVO (crea un flujo/formulario BORRADOR nuevo) y suma 1 a
+    /// ImportCount. <paramref name="includeNodeForms"/> solo aplica a flujos (migrar o no los formularios
+    /// vinculados a los nodos).</summary>
+    Task<MarketplaceResult<MarketplaceImportResult>> ImportAsync(Guid id, bool includeNodeForms, CancellationToken cancellationToken = default);
 }

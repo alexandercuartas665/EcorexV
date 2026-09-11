@@ -146,6 +146,56 @@ public sealed class MarketplaceService : IMarketplaceService
         return true;
     }
 
+    // ---- Ola B3: "Traer" al tenant activo ----
+
+    public async Task<MarketplaceImportPreviewDto?> GetImportPreviewAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var i = await _db.MarketplaceItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken);
+        if (i is null) { return null; }
+
+        var (hasForms, count) = i.Kind == MarketplaceItemKind.Flow
+            ? FlowPackageInspector.CountNodeForms(i.SnapshotJson)
+            : (false, 0);
+        return new MarketplaceImportPreviewDto(i.Id, i.Kind, i.Title, hasForms, count);
+    }
+
+    public async Task<MarketplaceResult<MarketplaceImportResult>> ImportAsync(
+        Guid id, bool includeNodeForms, CancellationToken cancellationToken = default)
+    {
+        var item = await _db.MarketplaceItems.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (item is null) { return MarketplaceResult<MarketplaceImportResult>.Fail("La plantilla no existe."); }
+        if (!item.IsActive) { return MarketplaceResult<MarketplaceImportResult>.Fail("La plantilla esta inactiva."); }
+
+        MarketplaceImportResult result;
+        if (item.Kind == MarketplaceItemKind.Flow)
+        {
+            var rep = await _flowPackage.ImportAsync(item.SnapshotJson, new FlowImportOptions(includeNodeForms), cancellationToken);
+            if (!rep.IsOk || rep.Value is null)
+            {
+                return MarketplaceResult<MarketplaceImportResult>.Fail(rep.Error ?? "No se pudo traer el flujo.");
+            }
+            var r = rep.Value;
+            result = new MarketplaceImportResult(MarketplaceItemKind.Flow, r.NewDefinitionId, r.NewProcessCode, item.Title,
+                r.FormsImported, r.UnmappedCargos, r.UnmappedAgents, r.UnmappedRules, r.Warnings);
+        }
+        else
+        {
+            var imp = await _forms.ImportAsync(item.SnapshotJson, cancellationToken);
+            if (!imp.IsOk || imp.Value is null)
+            {
+                return MarketplaceResult<MarketplaceImportResult>.Fail(imp.Error ?? "No se pudo traer el formulario.");
+            }
+            var d = imp.Value;
+            result = new MarketplaceImportResult(MarketplaceItemKind.Form, d.Id, d.Code, d.Title,
+                0, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+        }
+
+        // Contador de "traidas" (best-effort, se lee en la galeria/admin).
+        item.ImportCount += 1;
+        await _db.SaveChangesAsync(cancellationToken);
+        return MarketplaceResult<MarketplaceImportResult>.Success(result);
+    }
+
     private static string? ValidateInput(MarketplacePublishInput input)
     {
         if (string.IsNullOrWhiteSpace(input.Title)) { return "El titulo es obligatorio."; }

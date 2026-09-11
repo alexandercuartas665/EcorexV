@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.44: Ola B3 de ADR-0097 - galeria en el tenant + "Traer" (import)
+
+- Cierra el ciclo del marketplace: el TENANT busca una plantilla publicada y la TRAE (crea una copia en
+  BORRADOR en su tenant). Reusa el import portable: FlowPackageService.ImportAsync (flujos, con remapeo de
+  cargos/agentes/reglas por nombre) y FormDefinitionService.ImportAsync (formularios, codigo unico).
+- MarketplaceService (B2) + 3 metodos B3: GetImportPreviewAsync (dice si el flujo trae formularios de
+  nodo, para el asistente), ImportAsync(id, includeNodeForms) (importa al tenant activo + suma 1 a
+  ImportCount), y el detector FlowPackageInspector.CountNodeForms (lee el snapshot sin materializar).
+- UI: pagina /plantillas (galeria del tenant, policy TenantMember): tarjetas activas con filtro por tipo
+  + busqueda, boton "Traer". Para un FLUJO con formularios en los nodos, un ASISTENTE pregunta si migrar
+  esos formularios (checkbox) antes de importar. Al terminar, modal de REPORTE: codigo nuevo + formularios
+  de nodo importados + cargos/agentes/reglas SIN mapear (para cablear antes de publicar). Botones "Galeria"
+  en los encabezados de Flujos y Formularios (?kind=flow|form).
+- Verificado en local (admin@ecorex.local, tenant PLATAFORMA ECOREX): traer FORMULARIO -> FRM-001-2 en
+  borrador + contador; traer FLUJO -> FLW-A925FF en borrador, 0 formularios de nodo, todo mapeado. El
+  disparo del asistente (deteccion de formularios de nodo) cubierto por 7 tests (FlowPackageInspectorTests).
+- Sin migracion (todo lectura + reuso de import existente).
+
 ## 2026-09-11 - v0.16.42: Ola B2 de ADR-0097 - catalogo del marketplace + publicar
 
 - MarketplaceItem (PLATAFORMA, BaseEntity sin TenantId: lo leen todos, lo escribe PlatformAdmin): Kind,

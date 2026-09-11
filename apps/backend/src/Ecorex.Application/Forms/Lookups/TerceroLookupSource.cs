@@ -46,7 +46,8 @@ public sealed class TerceroLookupSource : IFormLookupSource
             .OrderBy(t => t.Nombre)
             .Skip(Math.Max(0, request.Skip))
             .Take(Math.Clamp(request.Take, 1, 100))
-            .Select(t => new Row(t.Id, t.Nombre, t.IdValor, t.Ciudad, t.Email, t.Telefono, t.Vendedor, t.Sector, t.Cargo, t.Estado, t.FichasJson))
+            .Select(t => new Row(t.Id, t.Nombre, t.IdValor, t.Ciudad, t.Email, t.Telefono, t.Vendedor, t.Sector, t.Cargo, t.Estado, t.FichasJson,
+                t.Empresa != null ? t.Empresa.Nombre : null))
             .ToListAsync(cancellationToken);
 
         var items = rows.Select(r => ToItem(r, request.DisplayField, request.Fields)).ToList();
@@ -59,7 +60,8 @@ public sealed class TerceroLookupSource : IFormLookupSource
 
         var r = await _db.Terceros.AsNoTracking()
             .Where(t => t.Id == id)
-            .Select(t => new Row(t.Id, t.Nombre, t.IdValor, t.Ciudad, t.Email, t.Telefono, t.Vendedor, t.Sector, t.Cargo, t.Estado, t.FichasJson))
+            .Select(t => new Row(t.Id, t.Nombre, t.IdValor, t.Ciudad, t.Email, t.Telefono, t.Vendedor, t.Sector, t.Cargo, t.Estado, t.FichasJson,
+                t.Empresa != null ? t.Empresa.Nombre : null))
             .FirstOrDefaultAsync(cancellationToken);
 
         return r is null ? null : ToItem(r, displayField: null, fields);
@@ -86,6 +88,7 @@ public sealed class TerceroLookupSource : IFormLookupSource
             new("sector", "Sector"),
             new("cargo", "Cargo"),
             new("estado", "Estado"),
+            new("empresa", "Empresa (nivel superior)"),
         };
 
         // Campos dinamicos (fichas) del tenant, para el mapa de autollenado.
@@ -114,6 +117,7 @@ public sealed class TerceroLookupSource : IFormLookupSource
             ["sector"] = r.Sector,
             ["cargo"] = r.Cargo,
             ["estado"] = r.Estado.ToString(),
+            ["empresa"] = r.Empresa,
         };
         FlattenFichas(r.FichasJson, all);
 
@@ -192,5 +196,6 @@ public sealed class TerceroLookupSource : IFormLookupSource
 
     private sealed record Row(
         Guid Id, string Nombre, string? IdValor, string? Ciudad, string? Email, string? Telefono,
-        string? Vendedor, string? Sector, string? Cargo, TerceroEstado Estado, string? FichasJson);
+        string? Vendedor, string? Sector, string? Cargo, TerceroEstado Estado, string? FichasJson,
+        string? Empresa);
 }

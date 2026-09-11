@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.38: lookup de Directorio expone la EMPRESA PADRE del contacto (autollenado)
+
+- Pedido (sesion de diseno de formularios): que TerceroLookupSource exponga la empresa del nivel superior
+  de un contacto (terceros.empresa_id, self-FK) para autollenar el campo "Empresa" al elegir un contacto.
+- Cambio (TerceroLookupSource.cs, solo lectura, contrato de lookup intacto): el proyectado Row (Search y
+  Resolve) trae `t.Empresa != null ? t.Empresa.Nombre : null` (nav-prop Empresa sobre EmpresaId); ToItem
+  agrega `["empresa"] = r.Empresa`; DescribeFieldsAsync agrega `new("empresa", "Empresa (nivel superior)")`.
+- Clave del campo para autofill_map_json: **empresa**. La sesion de diseno lo cablea por SQL
+  (FRM-LEAD.nombre en SOLDARCO). Build de Application verde. REQUIERE DEPLOY (cambio de codigo).
+
 ## 2026-09-10 - v0.16.37: Contenedor de datos (Alimentacion) - conectores/procesos en MODAL + horario amigable
 
 - Pedido (UX): en ContenedorDatos.razor los formularios de ALTA/EDICION de conectores y procesos eran

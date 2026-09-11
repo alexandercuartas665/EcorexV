@@ -153,14 +153,86 @@ public class FriendlyScheduleTests
     }
 
     [Theory]
-    [InlineData("0 * * * *")]      // cada hora (hora comodin) -> no amigable
-    [InlineData("*/15 * * * *")]   // paso -> no amigable
-    [InlineData("0 8 1 6 *")]      // mes fijo -> no amigable
-    [InlineData("0 8 * * 1-5")]    // rango de dias -> no amigable
+    [InlineData("0 * * * *")]        // cada hora (hora comodin) -> no amigable
+    [InlineData("*/15 * * * *")]     // paso en minuto -> no amigable
+    [InlineData("0 8 1 6 *")]        // mes fijo -> no amigable
+    [InlineData("*/5 8-17 * * *")]   // paso + rango de HORAS -> no amigable
+    [InlineData("0 8 * * 6-1")]      // rango de dias INVERTIDO -> no representable
+    [InlineData("0 8 * * mon")]      // nombre de dia -> no amigable
     [InlineData("no es cron")]
     [InlineData("")]
     public void FromStorage_NonFriendlyCron_ReturnsNull(string cron)
         => Assert.Null(FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, cron));
+
+    // ---- BUG 1: rangos de dias de semana + equivalencia lista/rango ----
+
+    [Fact]
+    public void FromStorage_WeeklyRange_1to6_ParsesToMonToSat()
+    {
+        var back = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 5 * * 1-6");
+        Assert.NotNull(back);
+        Assert.Equal(ScheduleRecurrence.Weekly, back!.Recurrence);
+        Assert.Equal(new TimeOnly(5, 0), back.Time);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6 }, back.DaysOfWeek);
+    }
+
+    [Fact]
+    public void FromStorage_WeeklyList_And_Range_AreEquivalent()
+    {
+        var fromList = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 5 * * 1,2,3,4,5,6");
+        var fromRange = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 5 * * 1-6");
+        Assert.NotNull(fromList);
+        Assert.NotNull(fromRange);
+        Assert.Equal(fromList!.Recurrence, fromRange!.Recurrence);
+        Assert.Equal(fromList.Time, fromRange.Time);
+        Assert.Equal(fromList.DaysOfWeek, fromRange.DaysOfWeek);
+        // Y sus resumenes legibles coinciden.
+        Assert.Equal(
+            FriendlySchedule.Describe(ImportScheduleKind.Cron, null, "0 5 * * 1,2,3,4,5,6"),
+            FriendlySchedule.Describe(ImportScheduleKind.Cron, null, "0 5 * * 1-6"));
+    }
+
+    [Fact]
+    public void FromStorage_WeeklyRange_1to5_ParsesToWorkweek()
+    {
+        var back = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 8 * * 1-5");
+        Assert.NotNull(back);
+        Assert.Equal(ScheduleRecurrence.Weekly, back!.Recurrence);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, back.DaysOfWeek);
+    }
+
+    [Fact]
+    public void FromStorage_WeeklyRange_1to7_NormalizesSundayToZero_AllDays()
+    {
+        var back = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 6 * * 1-7");
+        Assert.NotNull(back);
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5, 6 }, back!.DaysOfWeek);
+    }
+
+    [Fact]
+    public void FromStorage_MixedRangeAndList()
+    {
+        // 1-5 (lun-vie) + 0 (domingo)
+        var back = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 7 * * 1-5,0");
+        Assert.NotNull(back);
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5 }, back!.DaysOfWeek);
+    }
+
+    [Fact]
+    public void RoundTrip_WeeklyRange_PreservesSchedule()
+    {
+        // Abrir "0 5 * * 1-6" y guardar sin tocar: el string se normaliza a lista, pero el HORARIO es el mismo.
+        var parsed = FriendlySchedule.FromStorage(ImportScheduleKind.Cron, null, "0 5 * * 1-6");
+        Assert.NotNull(parsed);
+        var (kind, interval, cron) = FriendlySchedule.ToStorage(parsed!);
+        Assert.Equal(ImportScheduleKind.Cron, kind);
+        Assert.Null(interval);
+        var reparsed = FriendlySchedule.FromStorage(kind, interval, cron);
+        Assert.NotNull(reparsed);
+        Assert.Equal(parsed!.DaysOfWeek, reparsed!.DaysOfWeek);
+        Assert.Equal(parsed.Time, reparsed.Time);
+        Assert.Equal(parsed.Recurrence, reparsed.Recurrence);
+    }
 
     // ---- Describe: resumen legible ----
 

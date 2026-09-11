@@ -698,7 +698,7 @@ else
 
                                                 @* ----- Programador de horario amigable ----- *@
                                                 <div class="dc-section-sub" style="margin-top:8px;">Cuando se ejecuta</div>
-                                                <select class="form-control" @bind="_procRecurrence">
+                                                <select class="form-control" @bind="_procRecurrence" @bind:after="OnRecurrenceChanged">
                                                     <option value="@ScheduleRecurrence.Manual">Manual (sin horario)</option>
                                                     <option value="@ScheduleRecurrence.Daily">Todos los dias</option>
                                                     <option value="@ScheduleRecurrence.Weekly">Ciertos dias de la semana</option>
@@ -719,19 +719,19 @@ else
                                                 @if (_procRecurrence == ScheduleRecurrence.Monthly)
                                                 {
                                                     <label class="dc-inline-field">Dia del mes
-                                                        <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_procDayOfMonth" />
+                                                        <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_procDayOfMonth" @bind:event="oninput" />
                                                     </label>
                                                 }
                                                 @if (_procRecurrence is ScheduleRecurrence.Daily or ScheduleRecurrence.Weekly or ScheduleRecurrence.Monthly)
                                                 {
                                                     <label class="dc-inline-field">Hora
-                                                        <input class="form-control" type="time" style="max-width:130px;" @bind="_procTime" />
+                                                        <input class="form-control" type="time" style="max-width:130px;" @bind="_procTime" @bind:event="oninput" />
                                                     </label>
                                                 }
                                                 @if (_procRecurrence == ScheduleRecurrence.EveryN)
                                                 {
                                                     <div class="dc-inline-field">Cada
-                                                        <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_procEveryValue" />
+                                                        <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_procEveryValue" @bind:event="oninput" />
                                                         <select class="form-control" style="max-width:130px;" @bind="_procEveryUnit">
                                                             <option value="@ScheduleEveryUnit.Minutes">minutos</option>
                                                             <option value="@ScheduleEveryUnit.Hours">horas</option>
@@ -2525,6 +2525,12 @@ else
             _procCron = CurrentCronPreview();
         }
     }
+
+    /// <summary>Al elegir una recurrencia amigable, se SALE del modo avanzado: el resumen y el cron
+    /// generado reflejan la eleccion de arriba (no la expresion cruda). Si el usuario quiere cron a
+    /// mano, marca "Usar esta expresion cron". Corrige que el resumen se quedara "pegado" al abrir un
+    /// cron no-amigable y luego cambiar la recurrencia.</summary>
+    private void OnRecurrenceChanged() => _procAdvanced = false;
 
     private void ResetProcessForm()
     {

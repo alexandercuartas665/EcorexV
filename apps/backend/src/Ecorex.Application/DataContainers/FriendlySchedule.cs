@@ -210,14 +210,35 @@ public static class FriendlySchedule
         return null;
     }
 
+    /// <summary>Parsea el campo dia-de-semana de un cron a dias 0-6 (0=domingo). Acepta:
+    /// numeros sueltos ("1"), LISTAS ("1,2,3,4,5,6"), RANGOS ("1-6") y combinaciones ("1-5,0"),
+    /// con el domingo como 0 o 7 (7 se normaliza a 0). Asi "1-6" y "1,2,3,4,5,6" resultan IGUALES.
+    /// Devuelve null si algo no es representable (rango invertido, texto no numerico, etc.).</summary>
     private static List<int>? ParseDayList(string csv)
     {
         var result = new List<int>();
         foreach (var token in csv.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!IsInt(token, 0, 7, out var d)) { return null; }
-            if (d == 7) { d = 0; } // cron admite 7 como domingo; normalizamos a 0.
-            if (!result.Contains(d)) { result.Add(d); }
+            var dash = token.IndexOf('-');
+            if (dash > 0)
+            {
+                // Rango a-b inclusive (ej. 1-6). Ambos extremos 0-7; se expande y se normaliza cada valor.
+                if (!IsInt(token[..dash], 0, 7, out var a) || !IsInt(token[(dash + 1)..], 0, 7, out var b) || a > b)
+                {
+                    return null;
+                }
+                for (var d = a; d <= b; d++)
+                {
+                    var nd = d == 7 ? 0 : d;   // 7 = domingo -> 0
+                    if (!result.Contains(nd)) { result.Add(nd); }
+                }
+            }
+            else
+            {
+                if (!IsInt(token, 0, 7, out var d)) { return null; }
+                if (d == 7) { d = 0; }         // cron admite 7 como domingo; normalizamos a 0.
+                if (!result.Contains(d)) { result.Add(d); }
+            }
         }
         if (result.Count == 0) { return null; }
         result.Sort();

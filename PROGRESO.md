@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-10 - v0.16.39: fixes del programador de horario del Contenedor (Editar carga + refresco vivo)
+
+- BUG 1 (principal): al "Editar" un proceso con cron de RANGO de dias (ej. SOLDARCO "0 5 * * 1-6") el
+  selector abria en "Manual" con "Usar cron" marcada. Causa: el parser inverso (FriendlySchedule.ParseDayList)
+  solo aceptaba LISTAS ("1,2,3,4,5,6"), no RANGOS ("1-6"). Fix: ParseDayList ahora acepta rangos (a-b),
+  listas, valores sueltos y domingo como 0 o 7; "1-6" y "1,2,3,4,5,6" son EQUIVALENTES. Ahora Editar parsea
+  y precarga "Ciertos dias" + chips + hora, con "Usar cron" DESMARCADA; solo un cron NO representable cae a
+  avanzado. Round-trip: el horario no cambia (el string se normaliza a lista, semanticamente igual).
+- BUG 2 (refresco): (A) al elegir una recurrencia el resumen se quedaba "pegado" si venia de un cron
+  avanzado -> nuevo handler OnRecurrenceChanged sale del modo avanzado (@bind:after en el select). (B) el
+  campo Hora (input type=time) y los numericos actualizaban recien al perder foco -> @bind:event="oninput"
+  actualiza resumen + cron al instante.
+- Tests: +8 unit tests del parser inverso (rangos 1-6/1-5/1-7, equivalencia lista/rango, mezcla rango+lista,
+  round-trip, no-representable). Se corrigio un test previo que marcaba "0 8 * * 1-5" como no-amigable (ahora
+  SI parsea). 41 tests de FriendlySchedule verdes; contrato/esquema sin cambios. No rompe SOLDARCO MAESTROS
+  (sus 4 procesos "0 5 * * 1-6" siguen listandose/editandose/disparandose). REQUIERE DEPLOY (UI + Application).
+
 ## 2026-09-10 - v0.16.38: lookup de Directorio expone la EMPRESA PADRE del contacto (autollenado)
 
 - Pedido (sesion de diseno de formularios): que TerceroLookupSource exponga la empresa del nivel superior

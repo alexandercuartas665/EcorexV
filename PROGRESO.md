@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-11 - v0.16.41: Ola B1 de ADR-0097 - paquete PORTABLE de flujo (export/import marketplace)
+
+- Corazon del marketplace: empaquetar un flujo a JSON portable y traerlo a otro tenant. Solo backend
+  (aun sin UI; eso es B2/B3).
+- Modelo FlowPackage (Application/Workflows): grafo + por nodo { formularios EMBEBIDOS (export JSON del
+  formulario), cargos por NOMBRE, agente por NOMBRE + su config (autonomia/extra prompt/politica de fallo/
+  correo/voz por nombre), reglas por NOMBRE, config del nodo (asignacion/apariencia) }. Sin ids de tenant.
+  + FlowImportOptions (IncludeNodeForms, para el asistente de B3) + FlowImportReport.
+- IFlowPackageService/FlowPackageService: ExportAsync(defId)->json; ImportAsync(json, options)->reporte.
+  REUSA piezas validadas: ImportJsonAsync (crea def+nodos+edges), FormDefinitionService Export/Import,
+  y los setters de nodo (SetNodeForm/Assignee/Appearance/AddNodeRule/SetNodeAgent(+Resources)) +
+  IWorkflowNodePolicyService.AddNodePolicy. El import crea un flujo BORRADOR con ProcessCode NUEVO
+  (no versiona uno existente) y mapea cargos/agentes/reglas por nombre; lo que no coincide -> reporte.
+- Tests: 5 unitarios del round-trip del paquete (cabecera/nodos/forms/cargos/agente/reglas/edges, y que
+  NO viajan ids de tenant). 843 tests de Application verdes. El round-trip completo contra BD se ejercita
+  en B3 (UI "Traer") o con un test de integracion (Testcontainers) si se pide.
+- Siguientes: B2 (catalogo marketplace + publicar con imagen/descripcion) y B3 (galeria + Traer + asistente
+  que pregunta si migrar los formularios de los nodos).
+
 ## 2026-09-11 - v0.16.40: Ola A1 de ADR-0097 - etiquetas (categorias) de tarjetas de flujos/formularios
 
 - ADR-0097 (categorias + marketplace de plantillas): decisiones = etiquetas multi por tarjeta, clonar +

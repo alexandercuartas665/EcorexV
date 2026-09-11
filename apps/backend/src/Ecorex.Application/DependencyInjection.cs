@@ -152,6 +152,8 @@ public static class DependencyInjection
         services.AddScoped<Organization.INodeAssigneeResolver, Organization.NodeAssigneeResolver>();
         // Etiquetas (categorias) de tarjetas de flujos/formularios (ADR-0097 Fase A).
         services.AddScoped<Cards.ICardTagService, Cards.CardTagService>();
+        // Paquete portable de flujo para el marketplace (ADR-0097 Ola B1).
+        services.AddScoped<Workflows.IFlowPackageService, Workflows.FlowPackageService>();
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
         // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.

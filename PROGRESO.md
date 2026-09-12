@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.50: herramienta de agente crear_actividad (actividad por concepto + form lleno)
+
+- Toolset NUEVO y SEPARADO ActividadesToolset (IAgentToolset, GroupKey "actividades", ADR-0098): el agente
+  (Ana/SOLDARCO) crea una ACTIVIDAD de un CONCEPTO (ActividadSubcategoria -> tablero/columna/formulario/
+  flujo) y ademas LLENA+ENVIA el formulario del concepto con los datos de la charla. NO crea Tercero.
+  - ver_formulario_concepto(concepto): campos (field_code/label/tipo/requerido) + opciones de seleccion.
+  - crear_actividad(concepto, titulo?, datos): CreateAsync(SubcategoriaId, BoardId null -> hereda) +
+    CreateTaskConceptFormAsync + SaveAsync(submit:true, executedByAiAgentId) + auto-adjunta media entrante.
+  - PRE-VALIDA datos contra la definicion (requeridos + opcion valida) ANTES de crear: si falla, ok:false
+    con campos y NO crea nada (sin actividad huerfana). Si SaveAsync fallara igual, archiva la actividad.
+- NO toca crear_tarea / TasksToolset (SARA sigue identica). Cada agente elige por disabled_tools_json.
+- AiToolRunContext gana AgentId (lo setea AiInferenceService al iniciar el run); el toolset lo usa como
+  autor del formulario. DI: 3 lineas nuevas. Sin migraciones.
+- Tests: 5 nuevos (ActividadesToolsetTests: ver campos+opciones, exito con SubcategoriaId+form enviado por
+  field_code, opcion invalida/requerido faltante -> no crea, concepto inexistente). 866 tests verdes; los de
+  crear_tarea (TasksToolsetBoardWhitelistTests) intactos. NO desplegado (a senal del usuario).
+- Config post (ops): habilitar "actividades" y deshabilitar crear_tarea/crear_lead en Ana; ajustar el
+  tablero del concepto por SQL.
+
 ## 2026-09-12 - v0.16.49: pulido del menu Super Admin (rail + Flujos/Formularios + imagen en tarjetas)
 
 - Barra rapida (rail de iconos) OCULTA en la consola del operador de plataforma (Super Admin):

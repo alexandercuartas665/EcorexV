@@ -290,6 +290,12 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.FormAuthoringToolset>();
         services.AddScoped<Tenancy.IFormAuthoringToolset>(sp => sp.GetRequiredService<Tenancy.FormAuthoringToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.FormAuthoringToolset>());
+        // Toolset de Actividades por concepto (ADR-0098, Opcion A): crear una actividad tipada por concepto y
+        // llenar+enviar su formulario. SEPARADO de crear_tarea (TasksToolset), que no se toca. Cada agente
+        // elige su via por disabled_tools_json.
+        services.AddScoped<Tenancy.ActividadesToolset>();
+        services.AddScoped<Tenancy.IActividadesToolset>(sp => sp.GetRequiredService<Tenancy.ActividadesToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.ActividadesToolset>());
         // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
         services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();

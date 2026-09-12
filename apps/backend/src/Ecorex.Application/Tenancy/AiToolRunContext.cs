@@ -12,7 +12,7 @@ public static class AiToolRunContext
     /// Lo usa la herramienta de pruebas del agente para simular "el cliente envio un archivo".</summary>
     public sealed record PendingAttachment(string Url, string FileName, string? MimeType);
 
-    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments, IReadOnlyList<Guid>? AllowedBoardIds);
+    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments, IReadOnlyList<Guid>? AllowedBoardIds, Guid? AgentId);
     private static readonly AsyncLocal<Scope?> _current = new();
 
     public static Guid? ConversationId => _current.Value?.ConversationId;
@@ -24,11 +24,16 @@ public static class AiToolRunContext
     /// restriccion (todos los tableros del tenant). La consume TasksToolset (crear_tarea / listar_tableros).</summary>
     public static IReadOnlyList<Guid>? AllowedBoardIds => _current.Value?.AllowedBoardIds;
 
+    /// <summary>Id del AiAgent en ejecucion. Lo usa ActividadesToolset para registrar al agente como autor
+    /// del formulario que llena (executedByAiAgentId en IFormResponseService.SaveAsync).</summary>
+    public static Guid? AgentId => _current.Value?.AgentId;
+
     public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime,
-        IReadOnlyList<PendingAttachment>? attachments = null, IReadOnlyList<Guid>? allowedBoardIds = null)
+        IReadOnlyList<PendingAttachment>? attachments = null, IReadOnlyList<Guid>? allowedBoardIds = null,
+        Guid? agentId = null)
     {
         var previous = _current.Value;
-        _current.Value = new Scope(conversationId, imageBase64, imageMime, attachments, allowedBoardIds);
+        _current.Value = new Scope(conversationId, imageBase64, imageMime, attachments, allowedBoardIds, agentId);
         return new Resetter(previous);
     }
 

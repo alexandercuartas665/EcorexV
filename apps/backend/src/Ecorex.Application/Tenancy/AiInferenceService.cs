@@ -143,7 +143,7 @@ public sealed class AiInferenceService : IAiInferenceService
         var allowedBoardIds = ParseAllowedBoardIds(agent.AllowedBoardIdsJson);
         // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
-        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds);
+        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds, agent.Id);
         var (result, sessionCompleted) = await RunToolLoopAsync(
             agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, audioBase64, audioMime, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 

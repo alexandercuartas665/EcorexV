@@ -29,10 +29,10 @@
             <p class="fl-subtitle">Todos los flujos BPMN del sistema con sus indicadores de ejecucion. Abre uno para editarlo.</p>
         </div>
         <div class="fl-head-actions">
-            <a class="fl-btn-ghost" href="plantillas?kind=flow">
+            <button class="fl-btn-ghost" @onclick="() => _showGallery = true" disabled="@_busy">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
                 Galeria
-            </a>
+            </button>
             <button class="fl-btn-new" @onclick="OpenNewFlow" disabled="@_busy">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 Nuevo flujo
@@ -358,9 +358,18 @@
     </div>
 }
 
+@* Galeria del marketplace (modal): traer un flujo publicado a este tenant. *@
+@if (_showGallery)
+{
+    <MarketplaceGalleryModal Kind="MarketplaceItemKind.Flow"
+                             OnClose="() => _showGallery = false"
+                             OnImported="OnGalleryImportedAsync" />
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
+    private bool _showGallery;
     private string? _error;
     private string _query = "";
     private string _category = "Todos";
@@ -608,6 +617,12 @@
         }
         catch (Exception ex) { _pubError = ex.Message; }
         finally { _gate.Release(); _busy = false; }
+    }
+
+    // Se trajo un flujo desde la galeria del marketplace: recargar el indice para que aparezca.
+    private async Task OnGalleryImportedAsync()
+    {
+        await ReloadAsync();
     }
 
     private async Task ReloadAsync()

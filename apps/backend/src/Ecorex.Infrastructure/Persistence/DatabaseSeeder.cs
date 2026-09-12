@@ -3060,7 +3060,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // "Actividades" (indice de tableros) retirado de Sistema.General: es redundante con
         // "Mis Procesos > Administrar actividades". Los tableros se referencian desde Conceptos.
         Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
-        Item(gen.Id, "Plantillas", "plantillas", "000893");
+        // El marketplace de plantillas (ADR-0097) YA NO es un item de menu suelto: la galeria se abre como
+        // MODAL desde Flujos y Formularios (boton "Galeria"). El item "plantillas" se retira aqui y se limpia
+        // de las BD ya sembradas con RemovePlantillasMenuItemAsync.
         Item(gen.Id, "Dependencias", "dependencias", "000850");
         // Administrador de Menu (menu configurable por perfil, Ola 2, ADR-0030). Reutiliza el
         // code 000194 (antes "Roles y permisos", que era un stub modulo/...) apuntandolo a la
@@ -3149,6 +3151,24 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         }
 
         if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Reconciliacion IDEMPOTENTE (ADR-0097): RETIRA el item de menu "plantillas" de TODAS las vistas ya
+    /// sembradas. El marketplace de plantillas dejo de ser una pagina/menu suelto (/plantillas) y pasa a
+    /// abrirse como MODAL desde Flujos y Formularios (boton "Galeria"). Borrado fisico (no soft-delete),
+    /// igual que <see cref="RemoveMenuItemFromSectionAsync"/>. Corre en cada arranque; si ya no existe, no hace nada.
+    /// </summary>
+    public async Task RemovePlantillasMenuItemAsync(CancellationToken cancellationToken = default)
+    {
+        var stale = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Item && n.Route == "plantillas")
+            .ToListAsync(cancellationToken);
+        if (stale.Count == 0) { return; }
+
+        _db.MenuNodes.RemoveRange(stale);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Menu: item 'plantillas' RETIRADO de {Count} vista(s) (galeria ahora es modal).", stale.Count);
     }
 
     /// <summary>
@@ -3482,7 +3502,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         (string Route, string Name, string? Legacy, string Destino)[] mudanzas =
         [
             ("contenedor-datos", "Contenedor de datos", null,     "dev"),
-            ("plantillas",       "Plantillas",          "000893", "dev"),
+            // "plantillas" ya no se mueve a dev: el item se retiro (galeria ahora es modal en Flujos/Formularios).
             ("extraccion-datos", "Extraccion de datos", "000730", "ia"),
         ];
         foreach (var m in mudanzas)

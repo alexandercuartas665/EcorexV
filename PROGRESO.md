@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.47: galeria del marketplace como MODAL + etiquetas de formularios
+
+- La galeria de plantillas dejo de ser una pagina/menu suelto (/plantillas) y pasa a abrirse como
+  MODAL GRANDE con buscador prominente desde los botones "Galeria" de Flujos y Formularios.
+  - Componente reutilizable Components/Shared/MarketplaceGalleryModal.razor (Kind Flow|Form fija el
+    filtro inicial; OnClose/OnImported para que el host recargue tras "Traer"). Conserva el asistente
+    de formularios de nodo y el reporte.
+  - Se ELIMINA Plantillas.razor (+ css) y el item de menu "plantillas": RemovePlantillasMenuItemAsync
+    (idempotente, cross-tenant) lo retira de las vistas ya sembradas (corre en prod y dev); se quitan el
+    seed (EnsureDefaultMenuAsync) y la mudanza (ReorganizarMenuComoSoldarco). MainLayout: mapeo muerto quitado.
+- Etiquetas de formularios en el tenant (la ola A1 ya existia; se mejora la usabilidad):
+  - El boton "Etiquetas" (asignar categorias) se agrega a la vista LISTA (antes solo en Tarjetas).
+  - El buscador de formularios ahora tambien matchea por NOMBRE de la etiqueta/categoria asignada.
+  - (Recordatorio: crear categorias con "+ Categorias"; asignar con "Etiquetas"; filtrar con los chips.)
+- Verificado en local: modal grande con buscador que filtra; Traer -> reporte -> host recarga (5->6);
+  crear categoria + asignar desde Lista + filtrar + buscar por etiqueta. Build verde. Sin migracion.
+
 ## 2026-09-11 - v0.16.46: importar plantillas de WhatsApp desde YCloud
 
 - El modulo de plantillas HSM (/plantillas-whatsapp) ya se podia llenar A MANO; ahora se pueden TRAER

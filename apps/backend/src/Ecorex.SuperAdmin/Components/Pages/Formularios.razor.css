@@ -190,7 +190,19 @@
 .fx-list-name { padding: 12px 20px; }
 .fx-list-title { font-size: 14px; font-weight: 600; }
 .fx-list-cell { padding: 12px; font-size: 13px; color: var(--ink-2); }
+.fx-list-cell.fx-card-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .fx-list-estado { padding: 12px 20px; }
+/* Boton "Etiquetas" en la fila de lista: visible en hover/focus para no cargar la vista. */
+.fx-list-tagbtn {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px dashed var(--line);
+    background: none; color: var(--ink-3); font: inherit; font-size: 11.5px; font-weight: 600;
+    padding: 3px 9px; border-radius: 999px; cursor: pointer; opacity: 0; transition: opacity .12s ease;
+}
+.fx-list-tagbtn svg { width: 13px; height: 13px; }
+.fx-list-row:hover .fx-list-tagbtn, .fx-list-tagbtn:focus-visible { opacity: 1; }
+.fx-list-tagbtn:hover { border-color: var(--accent, #6b4bd8); color: var(--accent, #6b4bd8); border-style: solid; }
+.fx-list-tagbtn:disabled { opacity: 0; }
+@media (hover: none) { .fx-list-tagbtn { opacity: 1; } }
 
 /* ---- Confirmacion de archivado ---- */
 .fx-overlay {

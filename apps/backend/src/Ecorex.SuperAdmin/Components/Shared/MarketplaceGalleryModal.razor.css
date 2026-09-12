@@ -1,0 +1,65 @@
+/* Overlay + panel grande */
+.mg-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 24px; }
+.mg-panel { background: var(--card, #fff); border-radius: 18px; width: min(1120px, 95vw); height: min(88vh, 900px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 80px -24px rgba(15,23,42,.55); }
+
+.mg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 24px 12px; border-bottom: 1px solid var(--line, #e2e8f0); }
+.mg-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .8px; color: var(--ink-3, #64748b); }
+.mg-title { font-size: 21px; font-weight: 800; color: var(--ink-1, #0f172a); margin: 2px 0 0; }
+.mg-x { border: none; background: transparent; font-size: 26px; line-height: 1; color: var(--ink-3, #64748b); cursor: pointer; padding: 2px 8px; border-radius: 8px; }
+.mg-x:hover { background: var(--surface-2, #f1f5f9); color: var(--ink-1, #0f172a); }
+
+/* Toolbar con buscador prominente */
+.mg-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--line, #e2e8f0); }
+.mg-searchwrap { position: relative; flex: 1; min-width: 260px; }
+.mg-searchico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--ink-3, #94a3b8); pointer-events: none; }
+.mg-search { width: 100%; border: 1.5px solid var(--line, #e2e8f0); border-radius: 12px; padding: 12px 14px 12px 40px; font: inherit; font-size: 15px; background: var(--surface-2, #f8fafc); color: var(--ink-1, #0f172a); }
+.mg-search:focus { outline: none; border-color: var(--brand, #6b4bd8); background: var(--card, #fff); }
+.mg-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.mg-tab { border: 1px solid var(--line, #e2e8f0); background: var(--card, #fff); color: var(--ink-2, #475569); font: inherit; font-size: 13px; font-weight: 600; padding: 9px 13px; border-radius: 999px; cursor: pointer; }
+.mg-tab.on { background: var(--brand, #6b4bd8); border-color: var(--brand, #6b4bd8); color: var(--on-brand, #fff); }
+.mg-n { font-size: 11px; opacity: .8; margin-left: 3px; }
+
+/* Cuerpo scrollable */
+.mg-body { flex: 1; overflow-y: auto; padding: 18px 24px 24px; }
+.mg-msg { color: var(--ink-3, #64748b); font-size: 14px; padding: 30px 4px; text-align: center; }
+.mg-error { color: #c23b3b; background: rgba(224,60,60,.08); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+
+.mg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+.mg-card { border: 1px solid var(--line, #e2e8f0); border-radius: 14px; overflow: hidden; background: var(--card, #fff); display: flex; flex-direction: column; transition: box-shadow .15s ease; }
+.mg-card:hover { box-shadow: 0 10px 26px -14px rgba(15,23,42,.28); }
+.mg-img { height: 120px; background: var(--surface-2, #f1f5f9); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mg-img img { width: 100%; height: 100%; object-fit: cover; }
+.mg-noimg { color: var(--ink-3, #94a3b8); font-weight: 800; font-size: 13px; letter-spacing: .5px; }
+.mg-cbody { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.mg-kind { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mg-badge { font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 2px 8px; border-radius: 999px; }
+.mg-badge.flow { background: rgba(124,92,255,.14); color: #6b4bd8; }
+.mg-badge.form { background: rgba(16,185,129,.14); color: #0d9668; }
+.mg-cat { font-size: 11px; font-weight: 700; color: var(--ink-3, #64748b); background: var(--surface-2, #f1f5f9); border-radius: 999px; padding: 2px 8px; }
+.mg-ctitle { font-size: 15px; font-weight: 800; color: var(--ink-1, #0f172a); }
+.mg-desc { font-size: 12.5px; color: var(--ink-2, #475569); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; min-height: 18px; }
+.mg-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 6px; }
+.mg-meta { font-size: 11px; color: var(--ink-3, #94a3b8); }
+.mg-bring { border: none; background: var(--brand, #6b4bd8); color: var(--on-brand, #fff); font: inherit; font-size: 12.5px; font-weight: 700; padding: 8px 18px; border-radius: 9px; cursor: pointer; }
+.mg-bring:hover { opacity: .9; }
+.mg-bring:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Sub-modales (asistente + reporte) por encima del panel */
+.mg-modal-back { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 80; padding: 20px; }
+.mg-modal { background: var(--card, #fff); border-radius: 16px; width: 100%; max-width: 460px; padding: 20px 22px; box-shadow: 0 24px 60px -20px rgba(15,23,42,.5); }
+.mg-modal-h { font-size: 17px; font-weight: 800; color: var(--ink-1, #0f172a); margin-bottom: 8px; }
+.mg-modal-p { font-size: 13.5px; color: var(--ink-2, #475569); line-height: 1.5; margin: 0 0 12px; }
+.mg-modal-p code, .mg-rep code { background: var(--surface-2, #f1f5f9); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
+.mg-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink-1, #0f172a); cursor: pointer; }
+.mg-check input { width: 16px; height: 16px; }
+.mg-hint { font-size: 12px; color: var(--ink-3, #94a3b8); margin: 6px 0 0; }
+.mg-rep { margin: 0 0 6px; padding-left: 18px; font-size: 13px; color: var(--ink-2, #475569); }
+.mg-rep li { margin: 3px 0; }
+.mg-rep li.warn { color: #b45309; }
+.mg-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.mg-mbtn { border-radius: 10px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid var(--line, #e2e8f0); }
+.mg-mbtn.ghost { background: var(--card, #fff); color: var(--ink-2, #475569); }
+.mg-mbtn.ghost:hover { border-color: var(--brand, #6b4bd8); color: var(--brand, #6b4bd8); }
+.mg-mbtn.go { background: var(--brand, #6b4bd8); border-color: var(--brand, #6b4bd8); color: var(--on-brand, #fff); }
+.mg-mbtn.go:hover { opacity: .9; }
+.mg-mbtn:disabled { opacity: .5; cursor: not-allowed; }

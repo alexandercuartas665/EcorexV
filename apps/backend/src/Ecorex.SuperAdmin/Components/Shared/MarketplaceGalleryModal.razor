@@ -1,0 +1,245 @@
+@using Ecorex.Application.Marketplace
+@using Ecorex.Domain.Enums
+@inject IMarketplaceService MarketSvc
+
+@* Galeria del MARKETPLACE como MODAL (ADR-0097): se abre desde Flujos y Formularios. El usuario busca
+   una plantilla y la TRAE (import) a su tenant. Para un flujo con formularios de nodo, el asistente
+   pregunta si migrarlos; al terminar muestra el reporte. `Kind` fija el filtro inicial (Flujo/Formulario).
+   Al cerrar, si trajo algo, avisa al host (OnImported) para que recargue su lista. *@
+
+<div class="mg-overlay" @onclick="CloseAll">
+    <div class="mg-panel" @onclick:stopPropagation="true">
+        <div class="mg-head">
+            <div>
+                <div class="mg-eyebrow">GALERIA DE PLANTILLAS</div>
+                <h2 class="mg-title">@Title</h2>
+            </div>
+            <button class="mg-x" @onclick="CloseAll" title="Cerrar" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <div class="mg-toolbar">
+            <div class="mg-searchwrap">
+                <svg class="mg-searchico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="mg-search" placeholder="Buscar plantilla por nombre o descripcion..." value="@_query"
+                       @oninput="@(e => _query = e.Value?.ToString() ?? "")" />
+            </div>
+            <div class="mg-tabs">
+                <button class="mg-tab @(_kind is null ? "on" : "")" @onclick="() => _kind = null">Todos <span class="mg-n">@_items.Count</span></button>
+                <button class="mg-tab @(_kind == MarketplaceItemKind.Flow ? "on" : "")" @onclick="() => _kind = MarketplaceItemKind.Flow">Flujos <span class="mg-n">@_items.Count(i => i.Kind == MarketplaceItemKind.Flow)</span></button>
+                <button class="mg-tab @(_kind == MarketplaceItemKind.Form ? "on" : "")" @onclick="() => _kind = MarketplaceItemKind.Form">Formularios <span class="mg-n">@_items.Count(i => i.Kind == MarketplaceItemKind.Form)</span></button>
+            </div>
+        </div>
+
+        <div class="mg-body">
+            @if (_error is not null) { <div class="mg-error">@_error</div> }
+
+            @if (_loading)
+            {
+                <p class="mg-msg"><em>Cargando plantillas...</em></p>
+            }
+            else if (Filtered.Count == 0)
+            {
+                <div class="mg-msg">@(string.IsNullOrWhiteSpace(_query) ? "Aun no hay plantillas publicadas para traer." : "Ninguna plantilla coincide con tu busqueda.")</div>
+            }
+            else
+            {
+                <div class="mg-grid">
+                    @foreach (var it in Filtered)
+                    {
+                        <div class="mg-card">
+                            <div class="mg-img">
+                                @if (!string.IsNullOrEmpty(it.ImageRef))
+                                {
+                                    <img src="@it.ImageRef" alt="@it.Title" />
+                                }
+                                else
+                                {
+                                    <div class="mg-noimg">@(it.Kind == MarketplaceItemKind.Flow ? "Flujo" : "Formulario")</div>
+                                }
+                            </div>
+                            <div class="mg-cbody">
+                                <div class="mg-kind">
+                                    <span class="mg-badge @(it.Kind == MarketplaceItemKind.Flow ? "flow" : "form")">@(it.Kind == MarketplaceItemKind.Flow ? "FLUJO" : "FORMULARIO")</span>
+                                    @if (!string.IsNullOrWhiteSpace(it.Category)) { <span class="mg-cat">@it.Category</span> }
+                                </div>
+                                <div class="mg-ctitle">@it.Title</div>
+                                <div class="mg-desc">@(it.Description ?? "")</div>
+                                <div class="mg-foot">
+                                    <span class="mg-meta">@it.ImportCount traidas</span>
+                                    <button class="mg-bring" @onclick="() => StartTraerAsync(it)" disabled="@_busy">Traer</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ---- Asistente: migrar formularios de los nodos (solo flujo con node-forms) ---- *@
+@if (_wizard is not null)
+{
+    <div class="mg-modal-back" @onclick="CloseWizard">
+        <div class="mg-modal" @onclick:stopPropagation="true">
+            <div class="mg-modal-h">Traer flujo: @_wizard.Title</div>
+            <p class="mg-modal-p">
+                Este flujo trae <b>@_wizard.NodeFormsCount formulario(s)</b> vinculado(s) a sus nodos.
+                Deseas migrarlos junto con el flujo?
+            </p>
+            <label class="mg-check">
+                <input type="checkbox" checked="@_wizardIncludeForms" @onchange="@(e => _wizardIncludeForms = (bool)(e.Value ?? false))" />
+                Migrar los formularios de los nodos
+            </label>
+            <p class="mg-hint">Si no los migras, el flujo llega sin sus formularios de paso (podras enlazarlos luego a mano).</p>
+            <div class="mg-modal-actions">
+                <button class="mg-mbtn ghost" @onclick="CloseWizard" disabled="@_busy">Cancelar</button>
+                <button class="mg-mbtn go" @onclick="ConfirmWizardAsync" disabled="@_busy">@(_busy ? "Trayendo..." : "Traer")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Reporte de la importacion ---- *@
+@if (_report is not null)
+{
+    <div class="mg-modal-back" @onclick="CloseReport">
+        <div class="mg-modal" @onclick:stopPropagation="true">
+            <div class="mg-modal-h">Plantilla traida</div>
+            <p class="mg-modal-p">
+                Se creo @(_report.Kind == MarketplaceItemKind.Flow ? "el flujo" : "el formulario")
+                <b>@_report.NewTitle</b> (<code>@_report.NewCode</code>) en tu tenant, en estado BORRADOR.
+            </p>
+            @if (_report.Kind == MarketplaceItemKind.Flow)
+            {
+                <ul class="mg-rep">
+                    <li>Formularios de nodo importados: <b>@_report.FormsImported</b></li>
+                    @if (_report.UnmappedCargos.Count > 0) { <li class="warn">Cargos sin mapear: @string.Join(", ", _report.UnmappedCargos)</li> }
+                    @if (_report.UnmappedAgents.Count > 0) { <li class="warn">Agentes sin mapear: @string.Join(", ", _report.UnmappedAgents)</li> }
+                    @if (_report.UnmappedRules.Count > 0) { <li class="warn">Reglas sin mapear: @string.Join(", ", _report.UnmappedRules)</li> }
+                    @foreach (var w in _report.Warnings) { <li class="warn">@w</li> }
+                    @if (_report.UnmappedCargos.Count == 0 && _report.UnmappedAgents.Count == 0 && _report.UnmappedRules.Count == 0 && _report.Warnings.Count == 0)
+                    {
+                        <li>Todo se mapeo sin pendientes.</li>
+                    }
+                </ul>
+                <p class="mg-hint">Revisa lo que quedo sin asignar antes de publicar el flujo.</p>
+            }
+            <div class="mg-modal-actions">
+                <button class="mg-mbtn ghost" @onclick="CloseReport">Traer otra</button>
+                <button class="mg-mbtn go" @onclick="CloseAll">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Filtro inicial de tipo: Flow desde /flujos, Form desde /formularios, null = todos.</summary>
+    [Parameter] public MarketplaceItemKind? Kind { get; set; }
+    /// <summary>Cerrar el modal (el host oculta el componente).</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+    /// <summary>Se trajo al menos una plantilla: el host debe recargar su lista.</summary>
+    [Parameter] public EventCallback OnImported { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _importedAny;
+    private string? _error;
+    private string _query = "";
+    private MarketplaceItemKind? _kind;
+    private List<MarketplaceItemDto> _items = new();
+
+    private MarketplaceImportPreviewDto? _wizard;
+    private bool _wizardIncludeForms = true;
+    private MarketplaceImportResult? _report;
+
+    private string Title => _kind switch
+    {
+        MarketplaceItemKind.Flow => "Traer un flujo",
+        MarketplaceItemKind.Form => "Traer un formulario",
+        _ => "Traer una plantilla"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _kind = Kind;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try { _items = (await MarketSvc.ListAsync(null, null, null, includeInactive: false)).ToList(); _error = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private List<MarketplaceItemDto> Filtered
+    {
+        get
+        {
+            var q = _items.AsEnumerable();
+            if (_kind is MarketplaceItemKind k) { q = q.Where(i => i.Kind == k); }
+            var t = _query.Trim();
+            if (t.Length > 0)
+            {
+                q = q.Where(i => i.Title.Contains(t, StringComparison.OrdinalIgnoreCase)
+                    || (i.Description ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
+                    || (i.Category ?? "").Contains(t, StringComparison.OrdinalIgnoreCase));
+            }
+            return q.ToList();
+        }
+    }
+
+    private async Task StartTraerAsync(MarketplaceItemDto it)
+    {
+        _error = null;
+        if (it.Kind == MarketplaceItemKind.Flow)
+        {
+            _busy = true;
+            MarketplaceImportPreviewDto? prev;
+            try { prev = await MarketSvc.GetImportPreviewAsync(it.Id); }
+            catch (Exception ex) { _error = ex.Message; _busy = false; return; }
+            _busy = false;
+            if (prev is { HasNodeForms: true })
+            {
+                _wizard = prev;
+                _wizardIncludeForms = true;
+                return;
+            }
+        }
+        await DoImportAsync(it.Id, includeNodeForms: true);
+    }
+
+    private async Task ConfirmWizardAsync()
+    {
+        if (_wizard is null) { return; }
+        var id = _wizard.Id;
+        var inc = _wizardIncludeForms;
+        _wizard = null;
+        await DoImportAsync(id, inc);
+    }
+
+    private async Task DoImportAsync(Guid id, bool includeNodeForms)
+    {
+        _busy = true;
+        try
+        {
+            var res = await MarketSvc.ImportAsync(id, includeNodeForms);
+            if (res.Ok && res.Value is not null) { _report = res.Value; _importedAny = true; await ReloadAsync(); }
+            else { _error = res.Error ?? "No se pudo traer la plantilla."; }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void CloseWizard() => _wizard = null;
+    private void CloseReport() => _report = null;
+
+    private async Task CloseAll()
+    {
+        _report = null;
+        _wizard = null;
+        if (_importedAny) { await OnImported.InvokeAsync(); }
+        await OnClose.InvokeAsync();
+    }
+}

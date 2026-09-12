@@ -31,10 +31,10 @@
             <p class="fx-subtitle">Todos los formularios del motor EAV. Abre uno para editarlo en el constructor.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center;">
-            <a class="fx-btn-ghost" href="plantillas?kind=form" style="text-decoration:none;">
+            <button class="fx-btn-ghost" @onclick="() => _showGallery = true" disabled="@_busy">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
                 Galeria
-            </a>
+            </button>
             <button class="fx-btn-ghost" @onclick="OpenImport" disabled="@_busy" title="Crear un formulario a partir de un JSON exportado">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>
                 Importar JSON
@@ -234,7 +234,9 @@
             </div>
             @foreach (var d in Filtered)
             {
-                <button class="fx-list-row" @onclick="@(() => OpenDesigner(d.Id))">
+                <div class="fx-list-row" role="button" tabindex="0"
+                     @onclick="@(() => OpenDesigner(d.Id))"
+                     @onkeydown="@(e => OnCardKeyAsync(e, d.Id))">
                     <div class="fx-list-name">
                         <div class="fx-list-title">@d.Title</div>
                         <div class="fx-code">FORX-@d.Code</div>
@@ -247,11 +249,17 @@
                                 <span class="fx-chip" style="@ChipStyle(tg.Color)">@tg.Name</span>
                             }
                         }
+                        <button class="fx-list-tagbtn" title="Etiquetas" aria-label="Etiquetas @d.Title"
+                                disabled="@_busy" @onclick:stopPropagation="true"
+                                @onclick="@(() => OpenAssign(d.Code, d.Title))">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-9-9V3h10l7.59 7.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+                            Etiquetas
+                        </button>
                     </div>
                     <div class="fx-list-cell">@d.QuestionCount</div>
                     <div class="fx-list-cell">@N(d.ResponseCount)</div>
                     <div class="fx-list-estado"><span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span></div>
-                </button>
+                </div>
             }
         </div>
     }
@@ -402,9 +410,18 @@
     </div>
 }
 
+@* Galeria del marketplace (modal): traer un formulario publicado a este tenant. *@
+@if (_showGallery)
+{
+    <MarketplaceGalleryModal Kind="MarketplaceItemKind.Form"
+                             OnClose="() => _showGallery = false"
+                             OnImported="OnGalleryImportedAsync" />
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
+    private bool _showGallery;
     private bool _listView;
     private bool _importOpen;
     private string _importJson = "";
@@ -488,6 +505,13 @@
         _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
         try { await LoadTagsAsync(); } catch { /* etiquetas no debe tumbar la pagina */ }
         _loading = false;
+    }
+
+    // Se trajo un formulario desde la galeria del marketplace: recargar la lista para que aparezca.
+    private async Task OnGalleryImportedAsync()
+    {
+        _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
+        try { await LoadTagsAsync(); } catch { /* etiquetas no debe tumbar la pagina */ }
     }
 
     // ---- Etiquetas ----
@@ -598,7 +622,10 @@
             {
                 scope = scope.Where(d =>
                     d.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
-                    || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase));
+                    || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase)
+                    // Tambien busca por el nombre de la etiqueta/categoria asignada.
+                    || TagsOf(d.Code).Any(id => _tagById.TryGetValue(id, out var tg)
+                        && tg.Name.Contains(q, StringComparison.OrdinalIgnoreCase)));
             }
             if (_filterTags.Count > 0)
             {

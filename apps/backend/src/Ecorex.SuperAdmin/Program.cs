@@ -291,6 +291,9 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsureCiudadesAsync();
         // Catalogo global de plantillas de reportes (ADR-0062): metadato de plataforma, no dato demo. Idempotente.
         await seeder.EnsureReportTemplatesAsync();
+        // Retira el item de menu "plantillas" de las vistas ya sembradas: la galeria ahora es modal en
+        // Flujos/Formularios (ADR-0097). Idempotente; corre siempre.
+        await seeder.RemovePlantillasMenuItemAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
         // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
         await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
@@ -446,6 +449,8 @@ else
     await seeder.EnsureAgentesColmenaMenuItemAsync();
     // Backfill idempotente (voz IA, ADR-0056): item "Configuracion de voz" bajo Infraestructura IA.
     await seeder.EnsureVozMenuItemAsync();
+    // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.
+    await seeder.RemovePlantillasMenuItemAsync();
     // Plantillas de arranque del marketplace (ADR-0097): igual que en prod, corre tras ambas ramas
     // (skip/demo) porque el tenant interno ya quedo asegurado. Idempotente por catalogo.
     await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()

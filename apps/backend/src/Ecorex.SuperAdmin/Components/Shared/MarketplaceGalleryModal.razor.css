@@ -1,6 +1,6 @@
 /* Overlay + panel grande */
-.mg-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 24px; }
-.mg-panel { background: var(--card, #fff); border-radius: 18px; width: min(1120px, 95vw); height: min(88vh, 900px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 80px -24px rgba(15,23,42,.55); }
+.mg-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 16px; }
+.mg-panel { background: var(--card, #fff); border-radius: 16px; width: 97vw; height: 95vh; max-width: 1760px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 80px -24px rgba(15,23,42,.55); }
 
 .mg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 24px 12px; border-bottom: 1px solid var(--line, #e2e8f0); }
 .mg-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .8px; color: var(--ink-3, #64748b); }

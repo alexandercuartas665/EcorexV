@@ -43,6 +43,8 @@ public sealed record FlowCanvasNodeDto(
     IReadOnlyList<FlowNodeRuleDto> Rules,
     // Apariencia del nodo en el graficador (color de paleta + nota post-it). Metadatos, no viajan en el XML.
     string? Color = null, string? Note = null,
+    // Posicion del post-it de la nota RELATIVA al nodo (px de diagrama). Null = por defecto (debajo del nodo).
+    int? NoteOffsetX = null, int? NoteOffsetY = null,
     // Destino en tablero: al activarse este paso, la actividad salta a este tablero/columna (enlace flujo<->tableros).
     Guid? TargetBoardId = null, Guid? TargetColumnId = null,
     // TODOS los formularios del nodo (1:N), en orden. Vacio si ninguno.

@@ -108,4 +108,14 @@ public class WorkflowNode : TenantEntity
 
     /// <summary>Nota libre del nodo, visible como post-it en el lienzo (overlay). Metadato, no viaja en el XML.</summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Desplazamiento X del post-it de la nota RELATIVO a la esquina superior izquierda del nodo (px de
+    /// diagrama). Null = posicion por defecto (debajo del nodo). El usuario arrastra la nota en el lienzo y
+    /// esta posicion se persiste. Metadato del editor, no viaja en el XML BPMN.
+    /// </summary>
+    public int? NoteOffsetX { get; set; }
+
+    /// <summary>Desplazamiento Y del post-it relativo al nodo (px de diagrama). Null = por defecto. Ver <see cref="NoteOffsetX"/>.</summary>
+    public int? NoteOffsetY { get; set; }
 }

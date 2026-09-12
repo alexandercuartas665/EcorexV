@@ -777,7 +777,9 @@ else
     {
         if (!_bpmnReady || _bpmn is null || _canvas is null) { return; }
         var colors = _canvas.Nodes.Select(n => new { id = n.BpmnElementId, color = n.Color }).ToList();
-        var notes = _canvas.Nodes.Select(n => new { id = n.BpmnElementId, note = n.Note }).ToList();
+        var notes = _canvas.Nodes
+            .Select(n => new { id = n.BpmnElementId, note = n.Note, offsetX = n.NoteOffsetX, offsetY = n.NoteOffsetY })
+            .ToList();
         try
         {
             await _bpmn.InvokeVoidAsync("applyNodeColors", CanvasId, colors);
@@ -796,6 +798,27 @@ else
         _selectedRawName = name;
         _assignUnitId = "";
         await GuardAsync(LoadNodePoliciesAsync);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// El usuario arrastro el post-it de la nota en el lienzo (JS interop): persiste la posicion (offset
+    /// relativo al nodo) para que sobreviva al guardar y a los re-imports. No repinta (el JS ya movio la
+    /// nota); solo refresca _canvas para que un cambio posterior de color/nota conserve el offset.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnNoteMoved(string? bpmnId, int offsetX, int offsetY)
+    {
+        if (string.IsNullOrWhiteSpace(bpmnId) || _canvas is null) { return; }
+        var node = _canvas.Nodes.FirstOrDefault(n => n.BpmnElementId == bpmnId);
+        if (node is null) { return; }
+        _error = null;
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeNotePositionAsync(node.Id, offsetX, offsetY);
+            if (!result.IsOk) { _error = result.Error; return; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
         StateHasChanged();
     }
 

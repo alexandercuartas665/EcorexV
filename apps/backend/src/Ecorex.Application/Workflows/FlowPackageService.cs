@@ -99,7 +99,7 @@ public sealed class FlowPackageService : IFlowPackageService
             pkgNodes.Add(new FlowPackageNode(
                 n.BpmnElementId, TipoOf(n.NodeType), n.Name, n.X, n.Y, n.W, n.H,
                 n.AssigneeSource.ToString(), n.AssigneeFormFieldCode, n.Color, n.Note,
-                forms, cargoNames, agent, rules));
+                forms, cargoNames, agent, rules, n.NoteOffsetX, n.NoteOffsetY));
         }
 
         var pkgEdges = edges
@@ -161,6 +161,10 @@ public sealed class FlowPackageService : IFlowPackageService
             if (!string.IsNullOrWhiteSpace(pn.Color) || !string.IsNullOrWhiteSpace(pn.Note))
             {
                 await _design.SetNodeAppearanceAsync(nodeId, pn.Color, pn.Note, cancellationToken);
+            }
+            if (pn.NoteOffsetX is not null || pn.NoteOffsetY is not null)
+            {
+                await _design.SetNodeNotePositionAsync(nodeId, pn.NoteOffsetX, pn.NoteOffsetY, cancellationToken);
             }
 
             // Formularios del nodo (solo si el asistente pidio migrarlos).

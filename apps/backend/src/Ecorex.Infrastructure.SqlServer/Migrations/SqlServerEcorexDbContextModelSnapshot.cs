@@ -15070,6 +15070,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(1000)")
                         .HasColumnName("note");
 
+                    b.Property<int?>("NoteOffsetX")
+                        .HasColumnType("int")
+                        .HasColumnName("note_offset_x");
+
+                    b.Property<int?>("NoteOffsetY")
+                        .HasColumnType("int")
+                        .HasColumnName("note_offset_y");
+
                     b.Property<Guid?>("RestartNodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("restart_node_id");

@@ -249,7 +249,10 @@ function injectStyle() {
         '.ecorex-node-note { width: 168px; box-sizing: border-box; font: 500 11px system-ui, sans-serif;' +
         ' color: #4b3b00; background: #fff7cc; border: 1px solid #e8d98a; border-radius: 6px; padding: 4px 8px;' +
         ' box-shadow: 0 1px 3px rgba(0,0,0,.15); white-space: normal; overflow-wrap: break-word;' +
-        ' word-break: normal; line-height: 1.3; position: relative; cursor: default; }' +
+        ' word-break: normal; line-height: 1.3; position: relative; cursor: grab; pointer-events: all;' +
+        ' user-select: none; touch-action: none; }' +
+        '.ecorex-node-note.ecorex-node-note-drag { cursor: grabbing; box-shadow: 0 3px 8px rgba(0,0,0,.25);' +
+        ' opacity: .95; }' +
         '.ecorex-node-note-pin { display: inline-block; width: 6px; height: 6px; border-radius: 50%;' +
         ' background: #d98a00; margin-right: 5px; vertical-align: middle; }';
     const style = document.createElement('style');
@@ -454,7 +457,70 @@ export function applyNodeColors(containerId, items) {
     paintColors(state, items);
 }
 
-// Muestra la nota como post-it anclado al nodo. `items` = [{ id, note }]; note vacio = quita el post-it.
+// Escala actual del lienzo (px de diagrama -> px de pantalla). Convierte el delta del arrastre.
+function noteScale(state) {
+    try { return state.modeler.get('canvas').viewbox().scale || 1; } catch (err) { return 1; }
+}
+
+// Ancla (o re-ancla) el post-it de la nota en el nodo, en la posicion `off` (offset RELATIVO a la esquina
+// superior izquierda del nodo, en px de diagrama). Adjunta el arrastre; al soltar persiste via Blazor.
+function renderNodeNote(state, overlays, registry, nodeId, text, off) {
+    if (!registry.get(nodeId)) { return; }
+    try { overlays.remove({ element: nodeId, type: 'ecorex-note' }); } catch (err) { /* sin overlay previo */ }
+    if (!text) { return; }
+
+    const div = document.createElement('div');
+    div.className = 'ecorex-node-note';
+    div.title = text;
+    const pin = document.createElement('span');
+    pin.className = 'ecorex-node-note-pin';
+    div.appendChild(pin);
+    div.appendChild(document.createTextNode(text)); // sin HTML: el texto no puede inyectar markup.
+
+    // ---- Arrastre de la nota (pointer events con captura) ----
+    let dragging = false, moved = false, sx = 0, sy = 0;
+    div.addEventListener('pointerdown', function (ev) {
+        if (ev.button !== 0) { return; }
+        ev.stopPropagation();   // que bpmn-js NO mueva/seleccione el nodo.
+        ev.preventDefault();
+        dragging = true; moved = false; sx = ev.clientX; sy = ev.clientY;
+        div.classList.add('ecorex-node-note-drag');
+        try { div.setPointerCapture(ev.pointerId); } catch (e) { /* no soportado */ }
+    });
+    div.addEventListener('pointermove', function (ev) {
+        if (!dragging) { return; }
+        const scale = noteScale(state);
+        const dx = (ev.clientX - sx) / scale;
+        const dy = (ev.clientY - sy) / scale;
+        if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 2) { moved = true; }
+        div.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    });
+    function endDrag(ev) {
+        if (!dragging) { return; }
+        dragging = false;
+        div.classList.remove('ecorex-node-note-drag');
+        try { div.releasePointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+        if (!moved) { return; }  // fue un click, no un arrastre: no mover ni persistir.
+        const scale = noteScale(state);
+        const newOff = {
+            x: Math.round(off.x + (ev.clientX - sx) / scale),
+            y: Math.round(off.y + (ev.clientY - sy) / scale)
+        };
+        // Re-ancla en la nueva posicion (crea un div nuevo, sin transform) y persiste en la BD.
+        renderNodeNote(state, overlays, registry, nodeId, text, newOff);
+        if (state.dotnetRef) {
+            state.dotnetRef.invokeMethodAsync('OnNoteMoved', nodeId, newOff.x, newOff.y)
+                .catch(function () { /* circuito cerrado */ });
+        }
+    }
+    div.addEventListener('pointerup', endDrag);
+    div.addEventListener('pointercancel', endDrag);
+
+    overlays.add(nodeId, 'ecorex-note', { position: { top: off.y, left: off.x }, html: div });
+}
+
+// Muestra las notas como post-it arrastrable. `items` = [{ id, note, offsetX?, offsetY? }].
+// note vacio = quita el post-it. Sin offset almacenado = posicion por defecto (debajo del nodo, con hueco).
 export function applyNodeNotes(containerId, items) {
     const state = instances.get(containerId);
     if (!state || !Array.isArray(items)) { return; }
@@ -462,16 +528,13 @@ export function applyNodeNotes(containerId, items) {
     try { overlays = state.modeler.get('overlays'); } catch (err) { return; }
     const registry = state.modeler.get('elementRegistry');
     items.forEach(function (it) {
-        if (!registry.get(it.id)) { return; }
-        try { overlays.remove({ element: it.id, type: 'ecorex-note' }); } catch (err) { /* sin overlay previo */ }
+        const el = registry.get(it.id);
+        if (!el) { return; }
         const text = (it.note || '').trim();
-        if (!text) { return; }
-        const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        overlays.add(it.id, 'ecorex-note', {
-            position: { bottom: -8, left: 0 },
-            html: '<div class="ecorex-node-note" title="' + safe + '">'
-                + '<span class="ecorex-node-note-pin"></span>' + safe + '</div>'
-        });
+        const hasStored = (typeof it.offsetX === 'number' && typeof it.offsetY === 'number');
+        // Por defecto la nota nace DEBAJO del nodo con un hueco (antes nacia encimada: { bottom:-8, left:0 }).
+        const off = hasStored ? { x: it.offsetX, y: it.offsetY } : { x: 0, y: (el.height || 80) + 14 };
+        renderNodeNote(state, overlays, registry, it.id, text, off);
     });
 }
 

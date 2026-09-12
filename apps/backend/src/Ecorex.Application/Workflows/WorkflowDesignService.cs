@@ -814,6 +814,23 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<bool>> SetNodeNotePositionAsync(
+        Guid nodeId, int? offsetX, int? offsetY, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // La posicion de la nota es metadato del editor (como color/nota): editable sobre publicada, no
+        // regenera el XML. Se acota a un rango razonable para no perder la nota fuera del lienzo.
+        static int? Clamp(int? v) => v is int x ? Math.Clamp(x, -4000, 4000) : null;
+        node.NoteOffsetX = Clamp(offsetX);
+        node.NoteOffsetY = Clamp(offsetY);
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     /// <summary>Fija el TABLERO y la COLUMNA destino del nodo (enlace flujo &lt;-&gt; tableros): al activarse
     /// este paso, la actividad salta alli. Son metadatos por nodo (no viajan en el XML), editables tambien
     /// sobre una definicion publicada. boardId null = el paso no mueve la actividad de tablero. columnId
@@ -1724,7 +1741,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.AllowsAssignment, n.RestartNodeId,
                 firstForm?.DefinitionId, firstForm?.Code, firstForm?.Title,
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
-                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId, nodeForms,
+                n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
                 n.AssigneeSource, n.AssigneeFormFieldCode);
         }).ToList();

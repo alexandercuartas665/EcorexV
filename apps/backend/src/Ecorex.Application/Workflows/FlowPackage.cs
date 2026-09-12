@@ -31,7 +31,10 @@ public sealed record FlowPackageNode(
     IReadOnlyList<FlowPackageForm> Forms,
     IReadOnlyList<string> CargoNames,
     FlowPackageAgent? Agent,
-    IReadOnlyList<FlowPackageRule> Rules);
+    IReadOnlyList<FlowPackageRule> Rules,
+    // Posicion del post-it de la nota RELATIVA al nodo (px de diagrama). Opcional: paquetes viejos no la traen.
+    int? NoteOffsetX = null,
+    int? NoteOffsetY = null);
 
 /// <summary>Formulario vinculado a un nodo: el export JSON portable del formulario + sus flags de nodo.</summary>
 public sealed record FlowPackageForm(

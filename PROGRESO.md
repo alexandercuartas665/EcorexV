@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.52: notas de nodo en el editor de flujos - mejor disposicion + arrastrables y persistentes
+
+- Sintoma (usuario): las notas post-it de los nodos "nacen muy cerca de los graficos", no se pueden mover y
+  estorban. Pedido: mejorar como se disponen y que, si se mueven, la posicion sea PERSISTENTE tras guardar.
+- Aclaracion clave: la nota del lienzo es WorkflowNode.Note (metadato de CONFIGURACION del editor), NO
+  WorkflowNodeNote (esa es otra cosa: notas colaborativas de una INSTANCIA en ejecucion, ADR-0071).
+- Disposicion por defecto: antes el overlay nacia encimado al nodo ({ bottom:-8, left:0 }). Ahora nace
+  DEBAJO del nodo con un hueco ({ top: alto+14, left:0 }), sin tapar el grafico.
+- Arrastrable + persistente: el post-it se arrastra en el lienzo (pointer events con captura; el delta de
+  pantalla se convierte a px de diagrama via viewbox().scale; feedback en vivo con transform). Al soltar,
+  re-ancla en la nueva posicion e invoca [JSInvokable] OnNoteMoved(bpmnId, x, y). La posicion se guarda como
+  OFFSET RELATIVO al nodo (la nota viaja con su nodo si se reacomoda el diagrama).
+- Persistencia: WorkflowNode gana NoteOffsetX/NoteOffsetY (int?, null = por defecto). Servicio nuevo
+  IWorkflowDesignService.SetNodeNotePositionAsync (metadato, editable sobre publicada, no regenera XML,
+  clamp +-4000). DTO FlowCanvasNodeDto + mapeo de GetCanvasAsync extendidos. FlowEditor: payload de notas con
+  offset + callback OnNoteMoved (persiste y refresca _canvas, no repinta). CSS: cursor grab/grabbing.
+- Export/import COMPLETO: FlowPackageNode lleva NoteOffsetX/Y (opcionales, compat con paquetes viejos);
+  export los emite e import los re-aplica via SetNodeNotePositionAsync (paridad con color/nota).
+- Migraciones DUALES aditivas AddNodeNotePosition (PG EcorexDbContext + SQL Server SqlServerEcorexDbContext,
+  --context explicito): 2 columnas nullable. has-pending-model-changes = "No changes" en ambos. La app las
+  auto-aplica al arrancar.
+- Tests: +1 (FlowPackageInspectorTests: la posicion de la nota sobrevive el round-trip del paquete y los
+  paquetes viejos sin campo => null). Application.Tests 867/867 verdes. Build de la solucion verde.
+- Siguiente: validacion visual del usuario en local; deploy a su senal (regla: pedir OK antes de cada prod).
+
 ## 2026-09-12 - v0.16.51: menu de voz (Configuracion de voz) visible en PROD para todos los tenants
 
 - Sintoma: en produccion no aparecia el item de menu "Configuracion de voz" (config-voz, capacidad de

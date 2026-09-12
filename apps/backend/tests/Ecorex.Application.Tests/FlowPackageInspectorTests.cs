@@ -45,6 +45,27 @@ public class FlowPackageInspectorTests
         Assert.Equal(3, count); // 2 en 'a' + 0 en 'b' + 1 en 'c'
     }
 
+    [Fact]
+    public void PosicionDeNota_SobreviveElRoundTripDelPaquete()
+    {
+        // La posicion del post-it de la nota (offset relativo al nodo) viaja en el paquete y debe
+        // conservarse tras exportar/importar (JSON). Paquetes viejos sin el campo => null (compat).
+        var conPos = new FlowPackageNode("a", "task", "a", 0, 0, null, null, "None", null, null, null,
+            Array.Empty<FlowPackageForm>(), Array.Empty<string>(), null, Array.Empty<FlowPackageRule>(),
+            NoteOffsetX: 120, NoteOffsetY: -40);
+        var pkg = new FlowPackage(1, "Flujo", null, null,
+            new[] { conPos, Node("b") }, Array.Empty<FlowPackageEdge>());
+
+        var back = JsonSerializer.Deserialize<FlowPackage>(Serialize(pkg), Json)!;
+
+        var a = back.Nodes.Single(n => n.BpmnElementId == "a");
+        Assert.Equal(120, a.NoteOffsetX);
+        Assert.Equal(-40, a.NoteOffsetY);
+        var b = back.Nodes.Single(n => n.BpmnElementId == "b");
+        Assert.Null(b.NoteOffsetX);
+        Assert.Null(b.NoteOffsetY);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

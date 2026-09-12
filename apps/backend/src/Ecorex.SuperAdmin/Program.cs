@@ -294,6 +294,12 @@ if (!app.Environment.IsDevelopment())
         // Retira el item de menu "plantillas" de las vistas ya sembradas: la galeria ahora es modal en
         // Flujos/Formularios (ADR-0097). Idempotente; corre siempre.
         await seeder.RemovePlantillasMenuItemAsync();
+        // Backfills de menu que ANTES solo corrian en Development: en PROD los tenants sembrados antes de que
+        // existieran estos items NO los tenian. Idempotentes y cross-tenant (no duplican).
+        //  - "Agentes Colmena" (ADR-0045) y "Configuracion de voz" (voz IA / llamadas telefonicas, ADR-0056)
+        //    bajo Infraestructura IA.
+        await seeder.EnsureAgentesColmenaMenuItemAsync();
+        await seeder.EnsureVozMenuItemAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
         // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
         await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()

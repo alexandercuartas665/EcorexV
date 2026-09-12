@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.51: menu de voz (Configuracion de voz) visible en PROD para todos los tenants
+
+- Sintoma: en produccion no aparecia el item de menu "Configuracion de voz" (config-voz, capacidad de
+  llamadas telefonicas / voz IA, ADR-0056) en los tenants cliente. Causa: los backfills de menu
+  (EnsureVozMenuItemAsync, EnsureAgentesColmenaMenuItemAsync) corrian SOLO en el bloque Development de
+  Program.cs; los tenants de prod sembrados antes nunca recibieron el item.
+- Fix: correr ambos backfills tambien en el bloque de PROD (idempotentes y cross-tenant via
+  IgnoreQueryFilters; no duplican). En el proximo arranque, todos los tenants con seccion Infraestructura
+  IA reciben "Configuracion de voz" (y "Agentes Colmena" si faltaba). La pagina /config-voz esta protegida
+  solo con [Authorize] (cualquier usuario del tenant), asi que el item no genera 403.
+- Sin migraciones. Solo Program.cs + version.
+
 ## 2026-09-12 - v0.16.50: herramienta de agente crear_actividad (actividad por concepto + form lleno)
 
 - Toolset NUEVO y SEPARADO ActividadesToolset (IAgentToolset, GroupKey "actividades", ADR-0098): el agente

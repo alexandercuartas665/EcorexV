@@ -171,7 +171,7 @@
                                     <button class="fx-card-del" title="Publicar al marketplace" aria-label="Publicar @d.Title"
                                             disabled="@_busy" @onclick:stopPropagation="true"
                                             @onclick="@(() => OpenPublish(d.Id, d.Title))">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 12v9"/><path d="m8 16 4-4 4 4"/></svg>
                                     </button>
                                 </AuthorizeView>
                                 <button class="fx-card-del" title="Etiquetas" aria-label="Etiquetas @d.Title"
@@ -183,7 +183,7 @@
                                 <button class="fx-card-del" title="Exportar a JSON" aria-label="Exportar @d.Title"
                                         disabled="@_busy" @onclick:stopPropagation="true"
                                         @onclick="@(() => ExportAsync(d))">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
                                 </button>
                                 <button class="fx-card-del @(d.IsArchived ? "on" : "")"
                                         title="@(d.IsArchived ? "Restaurar formulario" : "Archivar formulario")"

@@ -11,6 +11,7 @@
 @inject IWorkflowDesignService DesignSvc
 @inject ICardTagService TagSvc
 @inject IMarketplaceService MarketSvc
+@inject IFlowPackageService FlowPkgSvc
 
 @* ============================================================
    INDICE DE FLUJOS del prototipo (ECOREX.dc.html, pantalla
@@ -32,6 +33,10 @@
             <button class="fl-btn-ghost" @onclick="() => _showGallery = true" disabled="@_busy">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
                 Galeria
+            </button>
+            <button class="fl-btn-ghost" @onclick="OpenImport" disabled="@_busy" title="Crear un flujo a partir de un JSON exportado (paquete completo)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>
+                Importar JSON
             </button>
             <button class="fl-btn-new" @onclick="OpenNewFlow" disabled="@_busy">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -366,10 +371,66 @@
                              OnImported="OnGalleryImportedAsync" />
 }
 
+@* ---- Importar flujo desde JSON (paquete completo) ---- *@
+@if (_importOpen)
+{
+    <div class="fl-overlay" @onclick="CloseImport">
+        <div class="fl-modal" style="width:min(600px,94vw)" @onclick:stopPropagation>
+            <div class="fl-modal-head">
+                <h3 style="margin:0;">Importar flujo (JSON)</h3>
+            </div>
+            @if (_importReport is null)
+            {
+                <p class="fl-muted">
+                    Pega el JSON de un flujo exportado (paquete completo). Se crea un flujo NUEVO en BORRADOR con
+                    su grafo, formularios de nodo y config. Los <b>cargos, agentes y reglas se remapean por NOMBRE</b>
+                    segun la configuracion de este tenant; lo que no exista quedara sin asignar (se reporta).
+                </p>
+                <textarea class="fe-json-input" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;"
+                          @bind="_importJson" @bind:event="oninput"
+                          placeholder='{"formatVersion":1,"name":"...","nodes":[...],"edges":[...]}'></textarea>
+                @if (_importError is not null) { <div class="fl-error" style="margin-top:8px;">@_importError</div> }
+                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+                    <button class="fl-btn-ghost" @onclick="CloseImport" disabled="@_busy">Cancelar</button>
+                    <button class="fl-btn-new" @onclick="DoImportAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_importJson))">
+                        @(_busy ? "Importando..." : "Importar")
+                    </button>
+                </div>
+            }
+            else
+            {
+                <p class="fl-muted">
+                    Se creo el flujo <b>@_importReport.NewProcessCode</b> en BORRADOR.
+                    Formularios de nodo importados: <b>@_importReport.FormsImported</b>.
+                </p>
+                <ul style="margin:0 0 6px;padding-left:18px;font-size:13px;">
+                    @if (_importReport.UnmappedCargos.Count > 0) { <li style="color:#b45309;">Cargos sin mapear: @string.Join(", ", _importReport.UnmappedCargos)</li> }
+                    @if (_importReport.UnmappedAgents.Count > 0) { <li style="color:#b45309;">Agentes sin mapear: @string.Join(", ", _importReport.UnmappedAgents)</li> }
+                    @if (_importReport.UnmappedRules.Count > 0) { <li style="color:#b45309;">Reglas sin mapear: @string.Join(", ", _importReport.UnmappedRules)</li> }
+                    @foreach (var w in _importReport.Warnings) { <li style="color:#b45309;">@w</li> }
+                    @if (_importReport.UnmappedCargos.Count == 0 && _importReport.UnmappedAgents.Count == 0 && _importReport.UnmappedRules.Count == 0 && _importReport.Warnings.Count == 0)
+                    {
+                        <li>Todo se mapeo sin pendientes.</li>
+                    }
+                </ul>
+                <p class="fl-muted" style="font-size:12px;">Revisa lo que quedo sin asignar (cargos/agentes/reglas) antes de publicar el flujo.</p>
+                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
+                    <button class="fl-btn-ghost" @onclick="CloseImport">Cerrar</button>
+                    <button class="fl-btn-new" @onclick="OpenImportedEditorAsync">Abrir flujo</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
     private bool _showGallery;
+    private bool _importOpen;
+    private string _importJson = "";
+    private string? _importError;
+    private FlowImportReport? _importReport;
     private string? _error;
     private string _query = "";
     private string _category = "Todos";
@@ -623,6 +684,43 @@
     private async Task OnGalleryImportedAsync()
     {
         await ReloadAsync();
+    }
+
+    // ---- Importar flujo desde JSON (paquete completo, mismo formato que exporta el diseñador) ----
+    private void OpenImport()
+    {
+        _importJson = "";
+        _importError = null;
+        _importReport = null;
+        _importOpen = true;
+    }
+
+    private void CloseImport() => _importOpen = false;
+
+    private async Task DoImportAsync()
+    {
+        _busy = true;
+        _importError = null;
+        try
+        {
+            var res = await FlowPkgSvc.ImportAsync(_importJson, new FlowImportOptions(IncludeNodeForms: true));
+            if (res.IsOk && res.Value is not null) { _importReport = res.Value; await ReloadAsync(); }
+            else { _importError = res.Error ?? "No se pudo importar el flujo."; }
+        }
+        catch (Exception ex) { _importError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task OpenImportedEditorAsync()
+    {
+        if (_importReport is null) { return; }
+        var id = _importReport.NewDefinitionId;
+        _importOpen = false;
+        _importReport = null;
+        // Recargar el indice ANTES de montar el editor: si se setea _editorId primero, el LoadAsync del
+        // editor corre en paralelo con ReloadAsync sobre el MISMO DbContext del circuito (second operation).
+        await ReloadAsync();
+        _editorId = id;
     }
 
     private async Task ReloadAsync()

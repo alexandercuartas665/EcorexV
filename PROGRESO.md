@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.48: simetria import/export completo en Flujos y Formularios
+
+- Flujos: nuevo boton "Importar JSON" en el header (como Formularios) que importa el PAQUETE COMPLETO
+  (FlowPackageService.ImportAsync, B1): grafo + formularios de nodo + cargos/agentes/reglas por NOMBRE.
+  Crea un flujo NUEVO en BORRADOR, muestra reporte (codigo + no mapeados) y ofrece "Abrir flujo".
+- Flujos (diseñador FlowEditor): el "Exportar" ahora ofrece "Descargar paquete completo" (.json via
+  FlowPackageService.ExportAsync + ecorexDownloadText) ademas del "Copiar XML" BPMN (bpmn.io) que ya
+  existia. Antes solo exportaba XML (topologia+diagrama), no el paquete completo.
+- El paquete completo de export empareja con el import: un flujo exportado se importa limpio. La
+  config de CARGOS no viaja tal cual; se remapea por nombre segun las dependencias de cada tenant
+  (lo que no exista queda sin asignar, en el reporte). Misma semantica del marketplace (B1/B2/B3).
+- Formularios: ya era simetrico y completo (header "Importar JSON" = FormDefinitionService.ImportAsync;
+  export por tarjeta = FormDefinitionService.ExportAsync + descarga). Sin cambios de codigo alli.
+- Iconos: en tarjetas de formulario y flujo, "Publicar al marketplace" (nube-subir) vs "Exportar"
+  (bandeja-bajar) ya diferenciados (v0.16.47 + este).
+- Fix: al "Abrir flujo" tras importar se recarga el indice ANTES de montar el editor (evita "second
+  operation on this context" por correr LoadAsync del editor en paralelo con ReloadAsync).
+- Verificado en local (BITCODE): importar paquete -> FLW nuevo con reporte -> abrir editor (grafo
+  Inicio->Revisar->Fin correcto) -> exportar paquete completo ("Paquete del flujo descargado"). Build verde.
+
 ## 2026-09-12 - v0.16.47: galeria del marketplace como MODAL + etiquetas de formularios
 
 - La galeria de plantillas dejo de ser una pagina/menu suelto (/plantillas) y pasa a abrirse como

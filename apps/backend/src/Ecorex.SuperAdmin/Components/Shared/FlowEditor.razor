@@ -12,6 +12,7 @@
 @inject IFormDefinitionService FormsSvc
 @inject IWorkflowNodePolicyService NodePolicySvc
 @inject INodeAssigneeResolver AssigneeResolver
+@inject IFlowPackageService FlowPkgSvc
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -245,8 +246,12 @@ else
         <div class="fe-modal" style="width:min(620px,95vw)" @onclick:stopPropagation>
             <div class="fe-modal-head">
                 <div>
-                    <div class="fe-modal-title">@(_ioExport ? "Exportar flujo (BPMN 2.0)" : "Importar flujo (BPMN 2.0)")</div>
-                    <div class="fe-modal-sub">XML BPMN estandar (portabilidad bpmn.io): topologia + layout del diagrama</div>
+                    <div class="fe-modal-title">@(_ioExport ? "Exportar flujo" : "Importar flujo (BPMN 2.0)")</div>
+                    <div class="fe-modal-sub">
+                        @(_ioExport
+                            ? "Paquete COMPLETO (.json): grafo + formularios de nodo + cargos/agentes/reglas por nombre. O el XML BPMN (bpmn.io): solo topologia + diagrama."
+                            : "XML BPMN estandar (portabilidad bpmn.io): topologia + layout del diagrama")
+                    </div>
                 </div>
                 <button class="fe-modal-x" @onclick="@(() => _ioOpen = false)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
@@ -255,6 +260,8 @@ else
             <div class="fe-modal-body">
                 @if (_ioExport)
                 {
+                    @if (_ioError is not null) { <div class="fe-error" style="margin-bottom:8px;">@_ioError</div> }
+                    <label class="fe-label">XML BPMN del diagrama (solo topologia + layout)</label>
                     <pre class="fe-json">@_exportXml</pre>
                 }
                 else
@@ -272,9 +279,13 @@ else
                 <button class="fe-btn-ghost" @onclick="@(() => _ioOpen = false)">Cerrar</button>
                 @if (_ioExport)
                 {
-                    <button class="fe-btn-save with-ic" @onclick="CopyXmlAsync">
+                    <button class="fe-btn-ghost with-ic" @onclick="CopyXmlAsync">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
                         Copiar XML
+                    </button>
+                    <button class="fe-btn-save with-ic" @onclick="DownloadPackageAsync" disabled="@_busy">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                        @(_busy ? "Generando..." : "Descargar paquete completo")
                     </button>
                 }
                 else
@@ -1851,6 +1862,41 @@ else
             _notice = "XML copiado al portapapeles.";
             _ioOpen = false;
         }
+    }
+
+    /// <summary>Exporta el PAQUETE COMPLETO del flujo (grafo + formularios de nodo + cargos/agentes/reglas
+    /// por nombre, ADR-0097 B1) y lo descarga como .json. Importable desde "Importar JSON" en Flujos.</summary>
+    private async Task DownloadPackageAsync()
+    {
+        _busy = true;
+        _ioError = null;
+        await _dbGate.WaitAsync();
+        try
+        {
+            var res = await FlowPkgSvc.ExportAsync(DefinitionId);
+            if (!res.IsOk || string.IsNullOrWhiteSpace(res.Value))
+            {
+                _ioError = res.Error ?? "No se pudo exportar el paquete del flujo.";
+                return;
+            }
+            var name = "flujo";
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(res.Value!);
+                if (doc.RootElement.TryGetProperty("Name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var raw = n.GetString() ?? "flujo";
+                    var safe = new string(raw.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray());
+                    if (!string.IsNullOrWhiteSpace(safe)) { name = safe; }
+                }
+            }
+            catch (System.Text.Json.JsonException) { /* nombre por defecto */ }
+            await JS.InvokeVoidAsync("ecorexDownloadText", $"flujo-{name}.json", res.Value);
+            _notice = "Paquete del flujo descargado.";
+            _ioOpen = false;
+        }
+        catch (Exception ex) { _ioError = ex.Message; }
+        finally { _dbGate.Release(); _busy = false; }
     }
 
     /// <summary>Importar BPMN: crea una definicion nueva en Borrador via el motor (ImportBpmn).</summary>

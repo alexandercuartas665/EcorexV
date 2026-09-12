@@ -108,6 +108,22 @@ public sealed class MarketplaceService : IMarketplaceService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<string, string>> GetImageRefsBySourceCodeAsync(
+        MarketplaceItemKind kind, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.MarketplaceItems.AsNoTracking()
+            .Where(i => i.Kind == kind && i.IsActive
+                && i.SourceCode != null && i.SourceCode != ""
+                && i.ImageRef != null && i.ImageRef != "")
+            .OrderBy(i => i.PublishedAt)
+            .Select(i => new { Code = i.SourceCode!, Image = i.ImageRef! })
+            .ToListAsync(cancellationToken);
+        // Si un mismo origen se publico mas de una vez, gana la mas reciente (ultimo por PublishedAt).
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in rows) { map[r.Code] = r.Image; }
+        return map;
+    }
+
     public async Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default)
         => await _db.MarketplaceItems.AsNoTracking()
             .Where(i => i.IsActive && i.Category != null && i.Category != "")

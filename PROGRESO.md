@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.49: pulido del menu Super Admin (rail + Flujos/Formularios + imagen en tarjetas)
+
+- Barra rapida (rail de iconos) OCULTA en la consola del operador de plataforma (Super Admin):
+  MainLayout ahora usa `_isTenantWorkspace` (tenant_id AND no operador) en vez de `_hasTenant`. Se
+  mantiene para usuarios de tenant.
+- Menu Super Admin: se agregan NavLinks "Flujos" y "Formularios" (antes solo se llegaba por el rail),
+  para que el Super Admin diseñe/publique plantillas. admin@ecorex.local satisface las policies
+  (es Owner del tenant interno; handler fail-open).
+- Imagen del marketplace en las tarjetas de Flujos/Formularios SOLO en Super Admin: nuevo
+  MarketplaceService.GetImageRefsBySourceCodeAsync(kind) -> mapa SourceCode->ImageRef; las paginas lo
+  cargan SOLO si platform_role=SuperAdmin (en tenant queda vacio, sin imagen). Banner .fl-card-img /
+  .fx-card-img en la tarjeta.
+- Verificado en local (admin): rail oculto, Flujos/Formularios en el menu, paginas cargan sin error.
+  La imagen se ve cuando el flujo/formulario fue publicado con imagen. Build verde. Sin migracion.
+
 ## 2026-09-12 - v0.16.48: simetria import/export completo en Flujos y Formularios
 
 - Flujos: nuevo boton "Importar JSON" en el header (como Formularios) que importa el PAQUETE COMPLETO

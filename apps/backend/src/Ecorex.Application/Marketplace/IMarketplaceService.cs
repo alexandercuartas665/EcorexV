@@ -55,6 +55,10 @@ public interface IMarketplaceService
 
     Task<IReadOnlyList<MarketplaceItemDto>> ListAsync(MarketplaceItemKind? kind, string? category, string? query, bool includeInactive, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Mapa SourceCode -> ImageRef de los items ACTIVOS de un tipo que tienen imagen. Lo usa la
+    /// vista de Super Admin para mostrar la imagen publicada sobre la tarjeta del flujo/formulario origen.</summary>
+    Task<IReadOnlyDictionary<string, string>> GetImageRefsBySourceCodeAsync(MarketplaceItemKind kind, CancellationToken cancellationToken = default);
     Task<MarketplaceItemDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<MarketplaceResult<MarketplaceItemDto>> UpdateAsync(Guid id, MarketplacePublishInput input, bool isActive, CancellationToken cancellationToken = default);

@@ -117,6 +117,11 @@
                     {
                         @* Clic en el cuerpo abre el editor; los botones (etiquetas / papelera) tienen stopPropagation. *@
                         <div class="fl-card" @onclick="@(() => OpenEditor(card.DefinitionId))" style="cursor:pointer;">
+                            @* Imagen publicada al marketplace: SOLO Super Admin (el mapa se carga solo para el). *@
+                            @if (_cardImages.TryGetValue(card.ProcessCode, out var cimg) && !string.IsNullOrEmpty(cimg))
+                            {
+                                <div class="fl-card-img"><img src="@cimg" alt="@card.Name" /></div>
+                            }
                             <div class="fl-card-top">
                                 <span class="fl-card-id">@card.ProcessCode</span>
                                 <div style="display:flex;align-items:center;gap:6px;">
@@ -521,6 +526,11 @@
     // this context".
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    // Imagen del marketplace por ProcessCode: SOLO se carga para el Super Admin (queda vacio para el resto,
+    // asi la tarjeta no muestra imagen en la vista de tenant).
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private IReadOnlyDictionary<string, string> _cardImages = new Dictionary<string, string>();
+
     private async Task ConfirmDeleteAsync()
     {
         if (_deleteId is not Guid id) { return; }
@@ -542,6 +552,22 @@
         await ReloadAsync();
         await _gate.WaitAsync();
         try { await LoadTagsCoreAsync(); } catch { /* etiquetas no debe tumbar la pagina */ } finally { _gate.Release(); }
+        await LoadCardImagesAsync();
+    }
+
+    // Carga el mapa de imagenes del marketplace SOLO si el usuario es Super Admin (platform_role=SuperAdmin).
+    private async Task LoadCardImagesAsync()
+    {
+        try
+        {
+            if (AuthState is null) { return; }
+            var st = await AuthState;
+            if (!st.User.HasClaim("platform_role", "SuperAdmin")) { return; }
+            await _gate.WaitAsync();
+            try { _cardImages = await MarketSvc.GetImageRefsBySourceCodeAsync(MarketplaceItemKind.Flow); }
+            finally { _gate.Release(); }
+        }
+        catch { /* la imagen es decorativa: nunca debe tumbar la pagina */ }
     }
 
     // ---- Etiquetas: carga + operaciones (serializadas por _gate como el resto de la pagina) ----

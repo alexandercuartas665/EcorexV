@@ -124,6 +124,9 @@
 .fx-card-top {
     display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px;
 }
+/* Banner con la imagen publicada al marketplace (solo Super Admin). Sangra a los bordes de la tarjeta. */
+.fx-card-img { margin: -18px -18px 12px; height: 110px; overflow: hidden; border-radius: 18px 18px 0 0; background: var(--surface-2, #f1f5f9); }
+.fx-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* Archivar: discreto hasta que el raton entra en la tarjeta, para no competir con el estado.
    En pantalla tactil no hay hover, asi que ahi se muestra siempre. */

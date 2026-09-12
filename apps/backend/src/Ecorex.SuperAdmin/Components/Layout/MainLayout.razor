@@ -9,7 +9,9 @@
     <!-- Toggle solo-CSS del menu (off-canvas en movil). Funciona en cualquier render mode. -->
     <input type="checkbox" id="ecorex-nav-toggle" class="ecorex-nav-toggle" autocomplete="off" />
 
-    @if (_hasTenant)
+    @* La barra rapida (rail) es navegacion del ESPACIO DE TRABAJO del tenant; no se muestra en la
+       consola del operador de plataforma (Super Admin), que navega por su propio menu. *@
+    @if (_isTenantWorkspace)
     {
         @* Rail vertical de iconos (doble panel del prototipo): navegacion rapida a los
            modulos principales; el sidebar contextual queda a su derecha. Oculto en movil. *@

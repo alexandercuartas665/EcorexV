@@ -2123,10 +2123,11 @@
     // ===== Diagrama del flujo (ADR-0051): geometria de edges + acciones por nodo =====
 
     // Separacion horizontal entre columnas del layout BPMN (mas aire entre tarjetas). El eje Y se respeta.
-    private const double FlowXScale = 1.42;
-    // Aire vertical: como las tarjetas ahora crecen en alto (descripcion/metadata/notas), se separan las
-    // filas verticales del editor para que no se solapen. El editor las coloco pensando en nodos de ~112px.
-    private const double FlowYScale = 1.4;
+    private const double FlowXScale = 1.72;
+    // Aire vertical: como las tarjetas ahora crecen en alto (descripcion/metadata/notas, y la compuerta ya es
+    // una tarjeta), se separan mas las filas del editor para que NO se piquen/solapen. El editor las coloco
+    // pensando en nodos de ~112px; aqui se compensa ese crecimiento.
+    private const double FlowYScale = 1.85;
 
     private static string FlowEdgeStroke(TaskFlowRouteKind k) => k switch
     {

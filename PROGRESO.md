@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.55: mas aire en el diagrama de la tarea (que no se piquen las tarjetas)
+
+- Sintoma (usuario): tras hacer las tarjetas mas altas (notas) y la compuerta como tarjeta, algunas se
+  solapaban ("se pican") porque el diagrama no tiene auto-layout.
+- Fix: subir la escala del lienzo en TaskDetailModal (mismas coords BPMN, mas separacion en pantalla; las
+  tarjetas conservan tamano): FlowXScale 1.42 -> 1.72 y FlowYScale 1.4 -> 1.85. Solo presentacion. El
+  trade-off es un diagrama algo mas grande (mas scroll). Sin migraciones ni tests nuevos.
+
 ## 2026-09-12 - v0.16.54: opcion `min` por columna en el grid (bloquear negativos)
 
 - Pedido: que las columnas numericas de un GridDetail puedan declarar un MINIMO por columna (min=0 =

@@ -87,6 +87,7 @@ public static class DependencyInjection
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
         // Correo saliente via SMTP configurable por el Super Admin (clave cifrada).
         services.AddScoped<Application.Common.IEmailSender, Email.SmtpEmailSender>();
+        services.AddSingleton<Application.Workflows.INotifyLinkBuilder, Notifications.NotifyLinkBuilder>();
         // Consola SQL admin (000077): ejecuta SQL crudo + audita en sql_console_logs.
         services.AddScoped<Ecorex.Application.Admin.ISqlConsoleService, Sql.SqlConsoleService>();
         services.AddHttpClient<Ecorex.Application.Admin.IWompiApiClient, Wompi.WompiApiClient>();

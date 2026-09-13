@@ -814,6 +814,27 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<bool>> SetNodeNotifyAsync(
+        Guid nodeId, string? notifyJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Reglas de notificacion: metadato del nodo (como color/nota/tablero), editable sobre publicada, no
+        // regenera el XML. Se normaliza vacio -> null; se valida que sea un JSON parseable (si no, se ignora).
+        var trimmed = string.IsNullOrWhiteSpace(notifyJson) ? null : notifyJson.Trim();
+        if (trimmed is not null)
+        {
+            var parsed = NodeNotifyConfig.Parse(trimmed);
+            trimmed = parsed.IsEmpty ? null : parsed.Serialize();
+        }
+        node.NotifyJson = trimmed;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<bool>> SetNodeNotePositionAsync(
         Guid nodeId, int? offsetX, int? offsetY, CancellationToken cancellationToken = default)
     {
@@ -1743,7 +1764,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
-                n.AssigneeSource, n.AssigneeFormFieldCode);
+                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

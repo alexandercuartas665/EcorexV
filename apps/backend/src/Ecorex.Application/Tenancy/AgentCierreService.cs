@@ -1,7 +1,6 @@
-using System.Globalization;
 using System.Text;
-using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Notifications;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Tenancy;
@@ -10,20 +9,14 @@ namespace Ecorex.Application.Tenancy;
 public sealed class AgentCierreService : IAgentCierreService
 {
     private readonly IApplicationDbContext _db;
-    private readonly IWhatsAppConnectorService _wa;
-    private readonly IEmailSender _email;
-    private readonly ITelegramClient _telegram;
-    private readonly ISecretProtector _secretProtector;
+    private readonly INotificationChannelSender _sender;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _clock;
 
-    public AgentCierreService(IApplicationDbContext db, IWhatsAppConnectorService wa, IEmailSender email, ITelegramClient telegram, ISecretProtector secretProtector, IAuditWriter audit, TimeProvider clock)
+    public AgentCierreService(IApplicationDbContext db, INotificationChannelSender sender, IAuditWriter audit, TimeProvider clock)
     {
         _db = db;
-        _wa = wa;
-        _email = email;
-        _telegram = telegram;
-        _secretProtector = secretProtector;
+        _sender = sender;
         _audit = audit;
         _clock = clock;
     }
@@ -99,28 +92,22 @@ public sealed class AgentCierreService : IAgentCierreService
     private async Task DispatchAlertAsync(AgentCierreAlerta alerta, Domain.Entities.Conversation conv,
         IReadOnlyDictionary<string, string> tokenMap, string? summary, Guid actor, CancellationToken ct)
     {
-        // Ola 2: grupo de Evolution -> texto plano al jid del grupo (no depende de un usuario destino).
+        // Grupo de Evolution -> texto plano al jid del grupo (no depende de un usuario destino).
         if (alerta.Canal == CierreCanal.WhatsAppGrupo)
         {
             var groupJid = alerta.GrupoJid?.Trim();
             var groupLine = alerta.LineaId ?? conv.WhatsAppLineId;
             if (string.IsNullOrWhiteSpace(groupJid) || groupLine is not Guid glid) { return; }
-            // Evolution enruta al grupo cuando el jid "...@g.us" viaja en remoteJid (campo "number").
-            await _wa.SendTestAsync(glid, groupJid!, BuildGroupText(tokenMap, summary), actor, remoteJid: groupJid, ct);
+            await _sender.SendWhatsAppGroupAsync(glid, groupJid!, BuildGroupText(tokenMap, summary), actor, ct);
             return;
         }
 
-        // Ola 3: Telegram -> mensaje al chat_id via el bot del tenant (token cifrado).
+        // Telegram -> mensaje al chat_id via el bot del tenant.
         if (alerta.Canal == CierreCanal.Telegram)
         {
             var chatId = alerta.ChatId?.Trim();
             if (string.IsNullOrWhiteSpace(chatId)) { return; }
-            var cfg = await _db.TenantTelegramConfigs.AsNoTracking().FirstOrDefaultAsync(ct);
-            if (cfg is not { IsEnabled: true } || string.IsNullOrWhiteSpace(cfg.BotTokenEncrypted)) { return; }
-            string token;
-            try { token = _secretProtector.Unprotect(cfg.BotTokenEncrypted!); }
-            catch { return; } // token cifrado con una version anterior: no rompemos el cierre
-            await _telegram.SendMessageAsync(token, chatId!, BuildGroupText(tokenMap, summary), ct);
+            await _sender.SendTelegramAsync(chatId!, BuildGroupText(tokenMap, summary), ct);
             return;
         }
 
@@ -141,18 +128,13 @@ public sealed class AgentCierreService : IAgentCierreService
                 var subject = string.IsNullOrWhiteSpace(alerta.Asunto)
                     ? $"Cierre de atencion - {tokenMap.GetValueOrDefault("cliente", conv.ContactPhone)}"
                     : alerta.Asunto!;
-                await _email.SendAsync(user.Email!, subject, BuildEmailHtml(tokenMap, summary), ct);
+                await _sender.SendEmailAsync(user.Email!, subject, BuildEmailHtml(tokenMap, summary), ct);
                 break;
 
             case CierreCanal.WhatsApp when !string.IsNullOrWhiteSpace(user.Phone) && !string.IsNullOrWhiteSpace(alerta.Plantilla):
                 var fromLine = alerta.LineaId ?? conv.WhatsAppLineId;
                 if (fromLine is not Guid lineId) { return; }
-                var q = _db.WhatsAppTemplates.AsNoTracking().Where(t => t.Name == alerta.Plantilla && t.IsActive);
-                if (!string.IsNullOrWhiteSpace(alerta.Idioma)) { q = q.Where(t => t.Language == alerta.Idioma); }
-                var tpl = await q.FirstOrDefaultAsync(ct);
-                if (tpl is null) { return; } // solo enviamos plantillas que existen (la UI las ofrece del catalogo)
-                var lang = string.IsNullOrWhiteSpace(alerta.Idioma) ? tpl.Language : alerta.Idioma!;
-                await _wa.SendTemplateAsync(lineId, user.Phone!, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokenMap), actor, ct);
+                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, alerta.Plantilla!, alerta.Idioma, tokenMap, actor, ct);
                 break;
         }
     }
@@ -166,7 +148,7 @@ public sealed class AgentCierreService : IAgentCierreService
             .FirstOrDefaultAsync(ct);
     }
 
-    // ---- Composicion del contenido ----
+    // ---- Composicion del contenido (especifica del Cierre) ----
 
     private static Dictionary<string, string> BuildTokenMap(string agentName, Domain.Entities.Conversation conv, string? summary)
     {
@@ -190,27 +172,7 @@ public sealed class AgentCierreService : IAgentCierreService
         };
     }
 
-    // Construye los parametros posicionales de la plantilla resolviendo cada variable {{token}} por su nombre.
-    private static IReadOnlyList<string> BuildTemplateParams(string? variablesJson, IReadOnlyDictionary<string, string> tokenMap)
-    {
-        var result = new List<string>();
-        if (string.IsNullOrWhiteSpace(variablesJson)) { return result; }
-        try
-        {
-            using var doc = JsonDocument.Parse(variablesJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return result; }
-            foreach (var el in doc.RootElement.EnumerateArray())
-            {
-                var token = el.TryGetProperty("token", out var t) ? t.GetString() : null;
-                var key = StripAccents((token ?? "").Trim().ToLowerInvariant());
-                result.Add(tokenMap.TryGetValue(key, out var val) ? val : "");
-            }
-        }
-        catch { /* variables mal formadas: sin parametros */ }
-        return result;
-    }
-
-    // Texto plano para el grupo de WhatsApp (Evolution no usa plantilla HSM en grupos).
+    // Texto plano para el grupo de WhatsApp / Telegram (no usan plantilla HSM).
     private static string BuildGroupText(IReadOnlyDictionary<string, string> tokenMap, string? summary)
     {
         var cliente = tokenMap.GetValueOrDefault("cliente", "");
@@ -240,16 +202,5 @@ public sealed class AgentCierreService : IAgentCierreService
         sb.Append($"<div style=\"margin-top:10px;padding:10px 12px;background:#f6f7f9;border-radius:8px;\">{resumen}</div>");
         sb.Append("</div>");
         return sb.ToString();
-    }
-
-    private static string StripAccents(string text)
-    {
-        var normalized = text.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(normalized.Length);
-        foreach (var ch in normalized)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark) { sb.Append(ch); }
-        }
-        return sb.ToString().Normalize(NormalizationForm.FormC);
     }
 }

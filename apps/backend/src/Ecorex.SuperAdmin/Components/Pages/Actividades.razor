@@ -31,12 +31,34 @@ else
     <ActivityBoardsIndex OnOpenBoard="OpenBoard" />
 }
 
+@* Deep-link a una tarea (?task={id}): abre su detalle en modal sobre la vista actual (enlace de las
+   notificaciones por nodo, ADR-0100). Funciona desde el indice o un tablero. *@
+<TaskDetailModal @ref="_deepTaskDetail" OnChanged="NoopChangedAsync" />
+
 @code {
     [SupplyParameterFromQuery(Name = "board")]
     public string? Board { get; set; }
 
     [SupplyParameterFromQuery(Name = "sub")]
     public string? Sub { get; set; }
+
+    [SupplyParameterFromQuery(Name = "task")]
+    public string? TaskParam { get; set; }
+
+    private TaskDetailModal? _deepTaskDetail;
+    private bool _deepTaskOpened;
+
+    private Task NoopChangedAsync() => Task.CompletedTask;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Al primer render, si el deep-link trae ?task={id}, abre el detalle de esa tarea (una sola vez).
+        if (!_deepTaskOpened && _deepTaskDetail is not null && Guid.TryParse(TaskParam, out var taskId))
+        {
+            _deepTaskOpened = true;
+            await _deepTaskDetail.OpenAsync(taskId);
+        }
+    }
 
     private Guid? _resolvedBoardId;   // tablero del concepto (Ola 6, ?sub=)
     private Guid? _resolvedSubId;     // concepto que preselecciona el modal rapido (paso corto)

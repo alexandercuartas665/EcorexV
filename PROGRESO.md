@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-13 - v0.16.56: reglas de NOTIFICACION por nodo de flujo (Ola 1, ADR-0100)
+
+- Reemplaza el stub "Reglas de notificacion" del editor por un MOTOR real, reusando lo del Cierre del agente
+  (canales correo / WhatsApp plantilla / WhatsApp grupo / Telegram). Gatillo de programa determinista, sin
+  MCP: se dispara al LLEGAR el paso (WorkflowEngine.ActivateNodeAsync, cuando queda Pending).
+- Entrega DESPUES del commit: las llegadas se acumulan en la operacion y se envian en BroadcastTaskAsync
+  (FlushArrivalNotificationsAsync), una vez por activacion, sin bloquear el avance con HTTP en la transaccion.
+  Buffer limpiado al inicio de cada operacion (LoadRunningInstanceAsync / StartInstanceAsync). Best-effort.
+- Config por nodo en WorkflowNode.NotifyJson (jsonb) via IWorkflowDesignService.SetNodeNotifyAsync (metadato,
+  editable sobre publicada). MODAL nuevo en FlowEditor (patron del modal de Agente): lista de reglas con
+  canal / destinatario (asignado del paso / usuario / grupo / chat) / plantilla o mensaje libre / enlace opcional.
+- Plantillas con TOKENS: NotifyTokenResolver arma {tarea.numero|titulo|contacto|telefono|email|...} desde el
+  TaskItem y {form.<codigo_de_campo>} leyendo las respuestas ancladas a la tarea (Reference == numero). Sirve
+  para texto libre y para llenar por NOMBRE las variables de una plantilla HSM.
+- REUSO sin duplicar: se extrajo INotificationChannelSender (Notifications) que ahora usan el Cierre
+  (AgentCierreService refactorizado) y el motor de nodo (NodeNotifyService). Centraliza mapeo HSM + token Telegram.
+- Enlace a la tarea (opcional por regla): ruta nueva /actividades?task={id} (abre el detalle en modal) +
+  INotifyLinkBuilder (Infra) que arma la URL absoluta desde Ecorex:PublicBaseUrl / env ECOREX_PUBLIC_BASE_URL.
+  OJO PROD: hay que fijar ECOREX_PUBLIC_BASE_URL en el .env del docker para que el enlace salga.
+- Migracion DUAL aditiva AddNodeNotify (workflow_nodes.notify_json; PG jsonb / SQL Server nvarchar(max)).
+  has-pending-model-changes = "No changes" en ambos. Tests: +10 (NodeNotifyConfigTests, NotifyTokenResolverTests).
+  Application.Tests 888/888 verdes. Build de la solucion verde. NO toca crear_tarea/TasksToolset.
+- Decisiones del usuario: disparo al llegar; best-effort; deep-link a la tarea. Olas siguientes posibles:
+  disparo al cerrar; picker dinamico de campos de formulario en el modal.
+- Siguiente: validacion del usuario en local; deploy a su senal (y setear ECOREX_PUBLIC_BASE_URL en prod).
+
 ## 2026-09-12 - v0.16.55: mas aire en el diagrama de la tarea (que no se piquen las tarjetas)
 
 - Sintoma (usuario): tras hacer las tarjetas mas altas (notas) y la compuerta como tarjeta, algunas se

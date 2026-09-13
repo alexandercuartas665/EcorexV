@@ -1475,6 +1475,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // Apariencia del nodo en el graficador (color de paleta + nota post-it). Aditivas, nullable.
             b.Property(x => x.Color).HasMaxLength(20);
             b.Property(x => x.Note).HasMaxLength(1000);
+            // Reglas de notificacion del nodo (ADR-0100): jsonb.
+            b.Property(x => x.NotifyJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
         });

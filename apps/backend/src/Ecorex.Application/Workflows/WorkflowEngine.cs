@@ -243,6 +243,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         Guid definitionId, Guid? taskItemId = null, Guid? actorUserId = null, string actorName = "Sistema",
         CancellationToken cancellationToken = default)
     {
+        _arrivalNotifyBuffer.Clear();
         if (_tenantContext.TenantId is not Guid tenantId)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid("No hay tenant activo.");
@@ -984,6 +985,14 @@ public sealed class WorkflowEngine : IWorkflowEngine
         {
             await MoveTaskToNodeTargetAsync(task, node, cancellationToken);
         }
+
+        // Reglas de notificacion por nodo (ADR-0100): el paso quedo vigente (Pending) -> es una LLEGADA real.
+        // Se guarda para disparar los avisos DESPUES del commit (ver FlushArrivalNotificationsAsync). Una sola
+        // vez por activacion (este metodo se llama una vez por transicion).
+        if (step.Status == WorkflowStepStatus.Pending)
+        {
+            _arrivalNotifyBuffer.Add((node.Id, step, task?.Id));
+        }
         return step;
     }
 
@@ -1201,6 +1210,9 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
     private async Task<LoadedInstance> LoadRunningInstanceAsync(Guid instanceId, CancellationToken cancellationToken)
     {
+        // Nueva operacion de escritura: descarta avisos de llegada de una operacion previa que no llego a
+        // notificar (p.ej. termino en conflicto), para no disparar avisos de pasos que no se persistieron.
+        _arrivalNotifyBuffer.Clear();
         var instance = await _db.WorkflowInstances.FirstOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
         if (instance is null)
         {
@@ -1242,6 +1254,26 @@ public sealed class WorkflowEngine : IWorkflowEngine
         if (task is not null)
         {
             await _broadcaster.TaskChangedAsync(task.TenantId, task.Id, task.Status, cancellationToken);
+        }
+        // Reglas de notificacion por nodo (ADR-0100): se disparan DESPUES del commit (aqui, ya fuera de la
+        // transaccion) para no bloquear el avance con llamadas HTTP externas. Best-effort, una vez por llegada.
+        await FlushArrivalNotificationsAsync(cancellationToken);
+    }
+
+    // Pasos que ACABAN de activarse (Pending) en la operacion en curso, para notificar tras el commit.
+    private readonly List<(Guid NodeId, WorkflowStepHistory Step, Guid? TaskId)> _arrivalNotifyBuffer = new();
+
+    private async Task FlushArrivalNotificationsAsync(CancellationToken cancellationToken)
+    {
+        if (_arrivalNotifyBuffer.Count == 0) { return; }
+        var pending = _arrivalNotifyBuffer.ToList();
+        _arrivalNotifyBuffer.Clear();
+        // Resolver perezoso (mismo patron que INodeAssigneeResolver): en tests sin proveedor, se omite.
+        if (_serviceProvider?.GetService(typeof(INodeNotifyService)) is not INodeNotifyService notify) { return; }
+        foreach (var (nodeId, step, taskId) in pending)
+        {
+            // step.Id ya esta persistido (el commit ocurrio antes de BroadcastTaskAsync). Best-effort: no lanza.
+            await notify.NotifyStepArrivalAsync(nodeId, step.Id, taskId, Guid.Empty, cancellationToken);
         }
     }
 

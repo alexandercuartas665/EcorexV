@@ -2,6 +2,7 @@
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Organization
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Notifications
 @using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @implements IAsyncDisposable
@@ -13,6 +14,9 @@
 @inject IWorkflowNodePolicyService NodePolicySvc
 @inject INodeAssigneeResolver AssigneeResolver
 @inject IFlowPackageService FlowPkgSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IWhatsAppLineService LinesSvc
+@inject IWhatsAppTemplateService TemplatesSvc
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -573,6 +577,137 @@ else
             </div>
             <div class="fe-modal-foot">
                 <button class="fe-btn-save" @onclick="@(() => _agentModalOpen = false)">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: Reglas de notificacion del nodo (ADR-0100) ===== *@
+@if (_notifyModalOpen && Selected is FlowCanvasNodeDto notifyNode)
+{
+    <div class="fe-modal-overlay" @onclick="@(() => _notifyModalOpen = false)">
+        <div class="fe-modal" style="width:min(860px,96vw)" @onclick:stopPropagation>
+            <div class="fe-modal-head">
+                <div>
+                    <div class="fe-modal-title">Reglas de notificacion</div>
+                    <div class="fe-modal-sub">@(notifyNode.Name ?? "Paso") - a quien avisar cuando LLEGA este paso</div>
+                </div>
+                <button class="fe-modal-x" @onclick="@(() => _notifyModalOpen = false)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="fe-modal-body">
+                @if (_notifyRules.Count == 0)
+                {
+                    <div class="fe-acc-note" style="margin:0 0 8px">Sin reglas. Agrega una para avisar cuando este paso se vuelva actual.</div>
+                }
+                @foreach (var r in _notifyRules)
+                {
+                    <div class="fe-modal-section" style="margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:10px;">
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <select class="fe-input sm" style="width:140px" @bind="r.Canal">
+                                <option value="@NotifyChannel.Correo">Correo</option>
+                                <option value="@NotifyChannel.WhatsApp">WhatsApp</option>
+                                <option value="@NotifyChannel.WhatsAppGrupo">WhatsApp (grupo)</option>
+                                <option value="@NotifyChannel.Telegram">Telegram</option>
+                            </select>
+                            @if (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
+                            {
+                                <select class="fe-input sm" style="width:170px" @bind="r.Destino">
+                                    <option value="@NodeNotifyRecipient.StepAssignee">Asignado del paso</option>
+                                    <option value="@NodeNotifyRecipient.Usuario">Otro usuario...</option>
+                                </select>
+                                @if (r.Destino == NodeNotifyRecipient.Usuario)
+                                {
+                                    <select class="fe-input sm" style="min-width:180px" @bind="r.UsuarioId">
+                                        <option value="">-- usuario --</option>
+                                        @foreach (var u in _notifyUsers)
+                                        {
+                                            <option value="@u.Id">@NotifyUserLabel(u)</option>
+                                        }
+                                    </select>
+                                }
+                            }
+                            <span style="flex:1"></span>
+                            <button class="fe-btn sm danger" @onclick="@(() => RemoveNotifyRule(r))" title="Quitar regla">Quitar</button>
+                        </div>
+
+                        @if (r.Canal == NotifyChannel.WhatsApp)
+                        {
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                                <select class="fe-input sm" style="min-width:170px" @bind="r.LineaId">
+                                    <option value="">-- linea (YCloud) --</option>
+                                    @foreach (var l in _notifyLines.Where(l => l.Provider == WhatsAppProvider.YCloud))
+                                    {
+                                        <option value="@l.Id">@l.InstanceName</option>
+                                    }
+                                </select>
+                                <select class="fe-input sm" style="min-width:180px" @bind="r.Plantilla">
+                                    <option value="">-- plantilla --</option>
+                                    @foreach (var t in _notifyTemplates)
+                                    {
+                                        <option value="@t.Name">@t.Name (@t.Language)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="fe-acc-note" style="margin:4px 0 0">Plantilla HSM: sus variables se llenan por nombre con los tokens ({{cliente}}, {{numero}}, etc.). No usa el mensaje libre.</div>
+                        }
+                        else if (r.Canal == NotifyChannel.WhatsAppGrupo)
+                        {
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                                <select class="fe-input sm" style="min-width:170px" @bind="r.LineaGrupoId">
+                                    <option value="">-- linea (Evolution) --</option>
+                                    @foreach (var l in _notifyLines.Where(l => l.Provider == WhatsAppProvider.Evolution))
+                                    {
+                                        <option value="@l.Id">@l.InstanceName</option>
+                                    }
+                                </select>
+                                <input class="fe-input sm" style="min-width:220px" placeholder="jid del grupo (...@@g.us)" @bind="r.GrupoJid" />
+                            </div>
+                        }
+                        else if (r.Canal == NotifyChannel.Telegram)
+                        {
+                            <div style="margin-top:8px;">
+                                <input class="fe-input sm" placeholder="chat_id de Telegram" @bind="r.ChatId" />
+                            </div>
+                            <div class="fe-acc-note" style="margin:4px 0 0">Usa el bot de Telegram del tenant (se configura en el agente, seccion Cierre).</div>
+                        }
+                        else
+                        {
+                            <div style="margin-top:8px;">
+                                <input class="fe-input sm" placeholder="Asunto del correo (admite tokens)" @bind="r.Asunto" />
+                            </div>
+                        }
+
+                        @if (r.Canal != NotifyChannel.WhatsApp)
+                        {
+                            <div style="margin-top:8px;">
+                                <textarea class="fe-textarea" rows="3" placeholder="Mensaje. Ej: Nueva tarea {tarea.numero} - {tarea.contacto}. Revisa {form.detalle}."
+                                          @bind="r.Mensaje"></textarea>
+                            </div>
+                            <label class="fe-check" style="margin-top:6px;">
+                                <input type="checkbox" checked="@r.IncluirEnlace" @onchange="@(e => r.IncluirEnlace = (bool)e.Value!)" />
+                                Adjuntar enlace a la tarea
+                            </label>
+                        }
+                    </div>
+                }
+
+                <button class="fe-btn sm" style="margin-top:10px;" @onclick="AddNotifyRule">+ Agregar regla</button>
+
+                <div class="fe-acc-note" style="margin-top:10px;">
+                    Tokens: <code>{tarea.numero}</code> <code>{tarea.titulo}</code> <code>{tarea.contacto}</code>
+                    <code>{tarea.telefono}</code> <code>{tarea.email}</code> y <code>{form.&lt;codigo_de_campo&gt;}</code>
+                    de los formularios del flujo.
+                </div>
+                @if (!string.IsNullOrEmpty(_notifyError))
+                {
+                    <div class="fe-acc-note" style="color:var(--t-rose);margin-top:6px;">@_notifyError</div>
+                }
+            </div>
+            <div class="fe-modal-foot">
+                <button class="fe-btn" @onclick="@(() => _notifyModalOpen = false)">Cancelar</button>
+                <button class="fe-btn-save" @onclick="SaveNotifyAsync">Guardar</button>
             </div>
         </div>
     </div>
@@ -1278,14 +1413,22 @@ else
         </div>
     };
 
-    // Acordeon 4: Reglas de notificacion (placeholder, motor de notificaciones pendiente).
+    // Acordeon 4: Reglas de notificacion (ADR-0100). Avisan al LLEGAR el paso; se editan en un modal.
     private RenderFragment NotifBody => __builder =>
     {
-        <div class="fe-chips">
-            <span class="fe-chip static">Correo al aprobador</span>
-            <span class="fe-chip static">Push SignalR</span>
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
+            return;
+        }
+        var count = NodeNotifyConfig.Parse(node.NotifyJson).Reglas?.Count ?? 0;
+        <div class="fe-acc-note" style="margin:0 0 8px">
+            Avisa cuando el paso LLEGA (se vuelve actual) por correo / WhatsApp / grupo / Telegram, con mensaje
+            por plantilla (tokens de la tarea y de sus formularios) y enlace opcional a la actividad.
         </div>
-        <div class="fe-todo">TODO: motor de notificaciones por nodo pendiente (los chips son ilustrativos del prototipo).</div>
+        <button class="fe-btn" @onclick="OpenNotifyModalAsync">
+            @(count == 0 ? "Configurar notificaciones" : $"Notificaciones ({count})")
+        </button>
     };
 
     // Acordeon 5: Reglas de salida (ConditionExpression de las aristas salientes).
@@ -1602,6 +1745,108 @@ else
         });
         // Repinta el lienzo (JS interop, fuera del gate de BD).
         if (_error is null) { await ApplyNodeAppearanceAsync(); }
+    }
+
+    // ===== Reglas de notificacion del nodo (ADR-0100) =====
+    private bool _notifyModalOpen;
+    private bool _notifyDataLoaded;
+    private string? _notifyError;
+    private List<NotifyRuleRow> _notifyRules = new();
+    private List<TenantUserDto> _notifyUsers = new();
+    private List<WhatsAppLineDto> _notifyLines = new();
+    private List<WhatsAppTemplateDto> _notifyTemplates = new();
+
+    // Fila editable (strings para los ids: bind de <select> seguro con opcion vacia).
+    private sealed class NotifyRuleRow
+    {
+        public NotifyChannel Canal { get; set; } = NotifyChannel.Correo;
+        public NodeNotifyRecipient Destino { get; set; } = NodeNotifyRecipient.StepAssignee;
+        public string? UsuarioId { get; set; }
+        public string? LineaId { get; set; }
+        public string? Plantilla { get; set; }
+        public string? Idioma { get; set; }
+        public string? Asunto { get; set; }
+        public string? LineaGrupoId { get; set; }
+        public string? GrupoJid { get; set; }
+        public string? ChatId { get; set; }
+        public string? Mensaje { get; set; }
+        public bool IncluirEnlace { get; set; }
+    }
+
+    private static string NotifyUserLabel(TenantUserDto u)
+        => string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : $"{u.DisplayName} ({u.Email})";
+
+    private async Task OpenNotifyModalAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node) { return; }
+        _notifyError = null;
+        var cfg = NodeNotifyConfig.Parse(node.NotifyJson);
+        _notifyRules = (cfg.Reglas ?? Array.Empty<NodeNotifyRule>()).Select(r => new NotifyRuleRow
+        {
+            Canal = r.Canal,
+            Destino = r.Destino,
+            UsuarioId = r.UsuarioId?.ToString(),
+            LineaId = r.LineaId?.ToString(),
+            Plantilla = r.Plantilla,
+            Idioma = r.Idioma,
+            Asunto = r.Asunto,
+            LineaGrupoId = r.LineaGrupoId?.ToString(),
+            GrupoJid = r.GrupoJid,
+            ChatId = r.ChatId,
+            Mensaje = r.Mensaje,
+            IncluirEnlace = r.IncluirEnlace
+        }).ToList();
+        if (!_notifyDataLoaded)
+        {
+            _notifyUsers = (await TenantUsersSvc.ListAsync()).ToList();
+            _notifyLines = (await LinesSvc.ListAsync()).ToList();
+            _notifyTemplates = (await TemplatesSvc.ListAsync()).ToList();
+            _notifyDataLoaded = true;
+        }
+        _notifyModalOpen = true;
+    }
+
+    private void AddNotifyRule() => _notifyRules.Add(new NotifyRuleRow());
+    private void RemoveNotifyRule(NotifyRuleRow r) => _notifyRules.Remove(r);
+
+    private async Task SaveNotifyAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node) { return; }
+        _notifyError = null;
+        foreach (var r in _notifyRules)
+        {
+            if (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp
+                && r.Destino == NodeNotifyRecipient.Usuario && !Guid.TryParse(r.UsuarioId, out _))
+            { _notifyError = "Elige el usuario destino en cada regla 'Otro usuario'."; return; }
+            if (r.Canal == NotifyChannel.WhatsApp && (string.IsNullOrWhiteSpace(r.Plantilla) || !Guid.TryParse(r.LineaId, out _)))
+            { _notifyError = "En WhatsApp elige linea (YCloud) y plantilla."; return; }
+            if (r.Canal == NotifyChannel.WhatsAppGrupo && (string.IsNullOrWhiteSpace(r.GrupoJid) || !Guid.TryParse(r.LineaGrupoId, out _)))
+            { _notifyError = "En WhatsApp grupo elige linea Evolution y el jid del grupo."; return; }
+            if (r.Canal == NotifyChannel.Telegram && string.IsNullOrWhiteSpace(r.ChatId))
+            { _notifyError = "En Telegram indica el chat_id."; return; }
+        }
+
+        var cfg = new NodeNotifyConfig(_notifyRules.Select(r => new NodeNotifyRule(
+            r.Canal,
+            r.Destino,
+            Guid.TryParse(r.UsuarioId, out var uid) ? uid : (Guid?)null,
+            Guid.TryParse(r.LineaId, out var lid) ? lid : (Guid?)null,
+            string.IsNullOrWhiteSpace(r.Plantilla) ? null : r.Plantilla,
+            string.IsNullOrWhiteSpace(r.Idioma) ? null : r.Idioma,
+            string.IsNullOrWhiteSpace(r.Asunto) ? null : r.Asunto,
+            Guid.TryParse(r.LineaGrupoId, out var glid) ? glid : (Guid?)null,
+            string.IsNullOrWhiteSpace(r.GrupoJid) ? null : r.GrupoJid!.Trim(),
+            string.IsNullOrWhiteSpace(r.ChatId) ? null : r.ChatId!.Trim(),
+            string.IsNullOrWhiteSpace(r.Mensaje) ? null : r.Mensaje,
+            r.IncluirEnlace)).ToList());
+
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeNotifyAsync(node.Id, cfg.IsEmpty ? null : cfg.Serialize());
+            if (!result.IsOk) { _notifyError = result.Error; return; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+        if (_notifyError is null) { _notifyModalOpen = false; }
     }
 
     private async Task OpenFormPickerAsync()

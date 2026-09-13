@@ -118,4 +118,12 @@ public class WorkflowNode : TenantEntity
 
     /// <summary>Desplazamiento Y del post-it relativo al nodo (px de diagrama). Null = por defecto. Ver <see cref="NoteOffsetX"/>.</summary>
     public int? NoteOffsetY { get; set; }
+
+    /// <summary>
+    /// Reglas de NOTIFICACION del nodo (jsonb): a quien y por que canal avisar cuando el paso LLEGA (se
+    /// vuelve actual). Cada regla trae canal (correo/WhatsApp/grupo/Telegram), destinatario, plantilla de
+    /// mensaje con tokens ({tarea.x} / {form.x}) y si adjunta el enlace a la tarea. Null/vacio = sin avisos.
+    /// Metadato del nodo (no viaja en el XML BPMN), editable sobre una definicion publicada. Ver NodeNotifyConfig.
+    /// </summary>
+    public string? NotifyJson { get; set; }
 }

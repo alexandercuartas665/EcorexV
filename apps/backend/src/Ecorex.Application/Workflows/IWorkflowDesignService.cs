@@ -100,6 +100,13 @@ public interface IWorkflowDesignService
     /// </summary>
     Task<WorkflowResult<bool>> SetNodeNotePositionAsync(Guid nodeId, int? offsetX, int? offsetY, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reglas de notificacion del nodo (ADR-0100): JSON con las reglas (canal/destinatario/mensaje/enlace)
+    /// que se disparan al LLEGAR el paso. Metadato del nodo (no viaja en el XML), editable sobre publicada.
+    /// notifyJson null/vacio = sin avisos. Devuelve NotFound si el nodo no existe.
+    /// </summary>
+    Task<WorkflowResult<bool>> SetNodeNotifyAsync(Guid nodeId, string? notifyJson, CancellationToken cancellationToken = default);
+
     /// <summary>Fija el tablero + columna destino del nodo (enlace flujo &lt;-&gt; tableros); la actividad salta
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);

@@ -15137,6 +15137,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("note_offset_y");
 
+                    b.Property<string>("NotifyJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("notify_json");
+
                     b.Property<Guid?>("RestartNodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("restart_node_id");

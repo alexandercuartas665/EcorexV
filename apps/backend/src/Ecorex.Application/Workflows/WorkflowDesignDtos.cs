@@ -52,7 +52,9 @@ public sealed record FlowCanvasNodeDto(
     // Salto a otro flujo (handoff): definicion destino + su nombre (para mostrar en el panel del nodo).
     Guid? JumpToDefinitionId = null, string? JumpToName = null,
     // Origen del asignado (ADR-0056): modo + (solo FormField) codigo del campo de formulario.
-    WorkflowAssigneeSource AssigneeSource = WorkflowAssigneeSource.Policy, string? AssigneeFormFieldCode = null);
+    WorkflowAssigneeSource AssigneeSource = WorkflowAssigneeSource.Policy, string? AssigneeFormFieldCode = null,
+    // Reglas de notificacion del nodo (ADR-0100), JSON. Null/vacio = sin avisos. Metadato, no viaja en el XML.
+    string? NotifyJson = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

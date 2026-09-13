@@ -66,6 +66,9 @@ services:
       # (deshabilitada). Se activa poniendo ECOREX_MGMT_API_KEY en .env y recreando el contenedor.
       # Opcional: ECOREX_MGMT_API_ALLOW_IPS (lista de IPs separadas por coma) para restringir origen.
       ECOREX_MGMT_API_KEY: "${ECOREX_MGMT_API_KEY}"
+      # URL publica base para los enlaces de notificacion por nodo (ADR-0100): deep-link a la tarea
+      # ({base}/actividades?task={id}). Vacia = las notificaciones salen sin enlace. Se fija en .env.
+      ECOREX_PUBLIC_BASE_URL: "${ECOREX_PUBLIC_BASE_URL:-}"
       # Confianza al proxy/Caddy que termina TLS por delante.
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     ports:

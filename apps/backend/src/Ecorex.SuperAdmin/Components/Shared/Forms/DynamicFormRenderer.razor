@@ -2004,6 +2004,19 @@ else
                                             }
                                         </select>
                                     }
+                                    else if (col.Min is decimal colMin)
+                                    {
+                                        @* Columna con MINIMO (ej. sin negativos): input numerico nativo con min/step; el valor se
+                                           muestra CRUDO (type=number no admite mascara). El guardado ademas clampa en el servidor. *@
+                                        <input class="form-control form-control-sm@(NumCls(col.Format))" type="number"
+                                               min="@colMin.ToString(System.Globalization.CultureInfo.InvariantCulture)" step="any" disabled="@IsDisabled"
+                                               value="@cell"
+                                               @onchange="@(e => SetGridCell(q, rowIndex, colId, UnformatNumber(col.Format, e.Value?.ToString())))" />
+                                        @if (_gridMinClamped.Contains(GridCellKey(q, rowIndex, colId)))
+                                        {
+                                            <div class="dfr-gridlk-note" title="El valor se ajusto al minimo permitido">@(colMin == 0m ? "no se permiten negativos" : $"minimo {colMin.ToString(System.Globalization.CultureInfo.InvariantCulture)}")</div>
+                                        }
+                                    }
                                     else
                                     {
                                         @* Texto/numero editable. Con formato: muestra formateado y al salir guarda el numero CRUDO
@@ -2704,6 +2717,10 @@ else
             .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal))
             .ToList();
 
+    // Celdas cuyo ultimo valor tecleado se CLAMPO al minimo de la columna (aviso sutil "no se permiten
+    // negativos"). Se marca al clampar y se limpia cuando la celda recibe un valor valido (>= min).
+    private readonly HashSet<string> _gridMinClamped = new();
+
     private async Task SetGridCell(FormQuestionDto q, int rowIndex, string colId, string? cellValue)
     {
         var rows = GridRowsOf(q);
@@ -2711,6 +2728,28 @@ else
         {
             return;
         }
+
+        // Control de MINIMO por columna (ej. bloquear negativos): si la columna declara 'min' y el numero
+        // tecleado queda por debajo, se clampa al minimo (nunca se persiste ni entra al calculo un valor por
+        // debajo). Cultura invariante, igual que el resto del parseo numerico (UnformatNumber).
+        var minCol = GridColumnsOf(q).FirstOrDefault(c => string.Equals(c.Id, colId, StringComparison.OrdinalIgnoreCase));
+        if (minCol?.Min is decimal min)
+        {
+            var cellKey = GridCellKey(q, rowIndex, colId);
+            var cleaned = (cellValue ?? string.Empty).Replace("$", "").Replace("%", "").Replace(" ", "").Replace(",", "").Trim();
+            if (!string.IsNullOrEmpty(cleaned)
+                && decimal.TryParse(cleaned, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var num)
+                && num < min)
+            {
+                cellValue = min.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _gridMinClamped.Add(cellKey);
+            }
+            else
+            {
+                _gridMinClamped.Remove(cellKey);
+            }
+        }
+
         rows[rowIndex][colId] = cellValue;
         // Re-resuelve las columnas 'resolve' de ESTA fila (sus dependencias pudieron cambiar) ANTES de
         // persistir, para que el calculo que corre en SetValue use los precios ya resueltos.

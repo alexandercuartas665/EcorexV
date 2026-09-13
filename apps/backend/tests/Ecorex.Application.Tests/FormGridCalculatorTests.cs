@@ -37,6 +37,16 @@ public class FormGridCalculatorTests
     }
 
     [Fact]
+    public void ParseColumns_lee_min_por_columna()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            """[{"id":"precio","label":"Precio","min":0},{"id":"desc","label":"Desc","min":"1.5"},{"id":"x","label":"X"}]""");
+        Assert.Equal(0m, cols[0].Min);    // numero: min=0 bloquea negativos
+        Assert.Equal(1.5m, cols[1].Min);  // texto numerico en cultura invariante
+        Assert.Null(cols[2].Min);         // sin min
+    }
+
+    [Fact]
     public void ParseColumns_columnas_viejas_sin_calc_siguen_valiendo()
     {
         var cols = FormGridCalculator.ParseColumns("""[{"id":"a","label":"A"},{"id":"b","label":"B"}]""");

@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.54: opcion `min` por columna en el grid (bloquear negativos)
+
+- Pedido: que las columnas numericas de un GridDetail puedan declarar un MINIMO por columna (min=0 =
+  sin negativos). Caso AGRO: "Precio Operaciones" y ningun valor de la cotizacion deben aceptar negativos.
+- Modelo: FormGridColumn gana `Min` (decimal?, en options_json "min": numero o texto invariante). Se parsea
+  en FormGridCalculator.ParseColumns junto a format/width/calc. Opcional (null = sin minimo), compat total.
+- Captura (DynamicFormRenderer, celda editable del else): si la columna trae `min`, el input se rinde como
+  numerico nativo (type=number min="{min}" step="any") mostrando el valor CRUDO (type=number no admite
+  mascara). Aviso sutil bajo la celda si se clampo ("no se permiten negativos" con min=0, "minimo N" si no).
+- Guardado (SetGridCell): si el numero tecleado queda por debajo del min de la columna, se CLAMPA al min
+  antes de resolver/persistir/calcular (cultura invariante, mismo limpiado que UnformatNumber). Asi nunca se
+  persiste ni entra al calculo un valor por debajo del minimo (defensa server-side ademas del input nativo).
+- Solo MOTOR: la config del `min` la pone la sesion de datos en el options_json de la columna. Tests: +1
+  (ParseColumns_lee_min_por_columna). Application.Tests 878/878 verdes. Build verde.
+- Siguiente: validacion del usuario en local; deploy a su senal.
+
 ## 2026-09-12 - v0.16.53: motor de CIERRE del agente (Ola 1) + editar nombre de linea WhatsApp
 
 ### Editar nombre de linea WhatsApp (rename sin reconectar)

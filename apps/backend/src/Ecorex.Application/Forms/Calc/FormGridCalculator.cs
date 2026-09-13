@@ -40,7 +40,10 @@ public sealed record FormGridColumn(
     bool GroupRender = false,
     // Columna de GESTIONES (ADR-0085, Kind="gestion"): pildoras que abren subformularios LIGADOS A LA FILA.
     // Cada pildora apunta a una def-detalle por CODIGO. Null/vacio si la columna no es de tipo gestion.
-    IReadOnlyList<FormGridPill>? Pills = null)
+    IReadOnlyList<FormGridPill>? Pills = null,
+    // Valor MINIMO permitido en la celda (DATO, en options_json: "min"). Null = sin minimo. Con min=0 se
+    // bloquean negativos. El renderer lo aplica en captura (input type=number min) y al guardar (clampa).
+    decimal? Min = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -110,6 +113,15 @@ public static class FormGridCalculator
                     width = wv;
                 }
                 var format = el.TryGetProperty("format", out var pfmt) ? pfmt.GetString() : null;
+                // Minimo por columna ("min"): numero (o texto numerico) en cultura invariante. min=0 = sin
+                // negativos. Cualquier otra cosa se ignora (sin minimo).
+                decimal? min = null;
+                if (el.TryGetProperty("min", out var pmin))
+                {
+                    if (pmin.ValueKind == JsonValueKind.Number && pmin.TryGetDecimal(out var mnv)) { min = mnv; }
+                    else if (pmin.ValueKind == JsonValueKind.String
+                        && decimal.TryParse(pmin.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var mns)) { min = mns; }
+                }
                 // CAP 1: id de la columna clave por la que se agrupan los subtotales de ESTA columna agregada.
                 var groupBy = el.TryGetProperty("groupBy", out var pgb) ? pgb.GetString() : null;
                 // CAP 3: esta columna es la CLAVE de agrupacion visual de la grilla (opt-in de presentacion).
@@ -157,7 +169,8 @@ public static class FormGridCalculator
                     string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant(),
                     string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim(),
                     groupRender,
-                    pills));
+                    pills,
+                    min));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

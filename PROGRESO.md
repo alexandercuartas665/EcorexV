@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-13 - v0.16.57: crear_actividad pone la DESCRIPCION de la actividad (patron de crear_tarea)
+
+- Gap unico: la herramienta crear_actividad (ActividadesToolset, ADR-0098) creaba la actividad, llenaba el
+  formulario, adjuntaba media y ligaba el contacto (todo OK en prod), pero dejaba la DESCRIPCION vacia.
+- Fix (solo ActividadesToolset.cs, reusando el patron de crear_tarea): (1) schema de crear_actividad gana
+  "descripcion" + frase en el texto del AiToolSpec; (2) CrearActividadAsync lee var descripcion = Str(args,
+  "descripcion"); (3) CreateTaskItemRequest ahora pasa Description = trim(descripcion) o null si vacia.
+- NO se toca: media (AttachConversationMediaAsync) ni contacto (RequesterName/Email/Phone) - intactos. NO se
+  toca crear_tarea/TasksToolset (solo se copia el patron). Sin migraciones.
+- Tests: +2 (descripcion trim llega a Description; sin descripcion -> Description null). ActividadesToolset
+  7/7, Application.Tests 890/890 verdes. Build de SuperAdmin verde.
+- Siguiente: deploy a senal del usuario.
+
 ## 2026-09-13 - v0.16.56: reglas de NOTIFICACION por nodo de flujo (Ola 1, ADR-0100)
 
 - Reemplaza el stub "Reglas de notificacion" del editor por un MOTOR real, reusando lo del Cierre del agente

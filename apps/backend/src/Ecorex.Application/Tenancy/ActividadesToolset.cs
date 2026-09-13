@@ -65,8 +65,9 @@ public sealed class ActividadesToolset : IActividadesToolset
             "contacto en el directorio. 'datos' es un objeto { field_code: valor } (usa ver_formulario_concepto " +
             "para conocer los field_code y, en los campos de seleccion, las opciones validas). Los archivos que " +
             "el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE. Devuelve un 'ticket' " +
-            "(numero de la actividad) que DEBES entregarle al cliente como comprobante.",
-            """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"},"titulo":{"type":"string","description":"Titulo corto de la actividad (opcional; si falta se genera uno)"},"datos":{"type":"object","description":"Valores del formulario por field_code (ver ver_formulario_concepto). En campos de seleccion usa una opcion valida.","additionalProperties":true}},"required":["concepto","datos"],"additionalProperties":false}"""),
+            "(numero de la actividad) que DEBES entregarle al cliente como comprobante. Incluye una " +
+            "'descripcion' con un resumen corto de la necesidad del cliente.",
+            """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"},"titulo":{"type":"string","description":"Titulo corto de la actividad (opcional; si falta se genera uno)"},"descripcion":{"type":"string","description":"Resumen breve de lo que necesita el cliente (va a la descripcion de la actividad). Opcional pero recomendado."},"datos":{"type":"object","description":"Valores del formulario por field_code (ver ver_formulario_concepto). En campos de seleccion usa una opcion valida.","additionalProperties":true}},"required":["concepto","datos"],"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -203,6 +204,9 @@ public sealed class ActividadesToolset : IActividadesToolset
         var titulo = Str(args, "titulo");
         if (string.IsNullOrWhiteSpace(titulo)) { titulo = clienteNombre ?? sub.Nombre; }
 
+        // Resumen de la necesidad -> descripcion de la actividad (mismo patron que crear_tarea).
+        var descripcion = Str(args, "descripcion");
+
         // 1) Alta de la actividad tipada por el concepto (BoardId null -> hereda tablero/columna/flujo).
         var req = new CreateTaskItemRequest(
             Title: titulo!.Trim(),
@@ -211,7 +215,8 @@ public sealed class ActividadesToolset : IActividadesToolset
             BoardId: null,
             RequesterName: clienteNombre,
             RequesterEmail: clienteEmail,
-            RequesterPhone: clienteTelefono);
+            RequesterPhone: clienteTelefono,
+            Description: string.IsNullOrWhiteSpace(descripcion) ? null : descripcion!.Trim());
 
         var created = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!created.IsOk || created.Value is null) { return Err(created.Error ?? "No se pudo crear la actividad."); }

@@ -498,6 +498,42 @@ public class ActividadesToolsetTests
     }
 
     [Fact]
+    public async Task CrearActividad_pone_la_descripcion_en_la_actividad()
+    {
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _) = NewToolset(def);
+
+        JsonElement r;
+        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        {
+            r = await RunAsync(ts, "crear_actividad", new
+            {
+                concepto = "LEAD-01",
+                descripcion = "  Cliente quiere cotizar 3 equipos  ",
+                datos = new { nombre = "Juan Perez" }
+            });
+        }
+
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        // La descripcion se guarda (trim) en la actividad, igual que crear_tarea.
+        Assert.Equal("Cliente quiere cotizar 3 equipos", tasks.LastRequest!.Description);
+    }
+
+    [Fact]
+    public async Task CrearActividad_sin_descripcion_deja_Description_null()
+    {
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _) = NewToolset(def);
+
+        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        {
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan" } });
+        }
+
+        Assert.Null(tasks.LastRequest!.Description);
+    }
+
+    [Fact]
     public async Task CrearActividad_opcion_invalida_no_crea_y_devuelve_campos()
     {
         var def = Def(

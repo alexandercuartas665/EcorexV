@@ -158,6 +158,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();
+        public DbSet<TenantTelegramConfig> TenantTelegramConfigs => NotUsed<TenantTelegramConfig>();
         public DbSet<StorageConfig> StorageConfigs => NotUsed<StorageConfig>();
         public DbSet<Asesor> Asesores => NotUsed<Asesor>();
         public DbSet<DataModelRelation> DataModelRelations => NotUsed<DataModelRelation>();

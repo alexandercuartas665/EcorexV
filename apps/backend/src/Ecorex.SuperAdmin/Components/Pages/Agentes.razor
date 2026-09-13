@@ -14,6 +14,10 @@
 @inject IWhatsAppLineService LinesSvc
 @inject IAiAgentLineService AgentLinesSvc
 @inject IWhatsAppConnectorService Connector
+@inject IAgentCierreService CierreSvc
+@inject IWhatsAppTemplateService TemplatesSvc
+@inject ITenantUserService TenantUsersSvc
+@inject ITelegramConfigService TelegramSvc
 @inject IWebHostEnvironment Env
 @inject IJSRuntime JS
 @inject Ecorex.Application.Documentos.IDocumentoFileStore FileStore
@@ -306,6 +310,160 @@ else
                                     }
                                 </div>
                                 <div class="text-muted" style="font-size:11.5px;margin-top:10px;">Esta configuracion se guarda con el boton <strong>Guardar cambios</strong> de arriba.</div>
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Cierre (olvidar cliente + alertas) - acordeon ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleCierreAsync">
+                            <span class="ag-accordion-chev @(_cierreOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Cierre</span>
+                            <span class="ag-accordion-count">@_cierreAlertas.Count</span>
+                            <span class="ag-accordion-spacer"></span>
+                            <span class="small @(_cierreOlvidar ? "" : "text-muted")" style="@(_cierreOlvidar ? "color:var(--success);" : "")">@(_cierreOlvidar ? "Olvida al cerrar" : "Recuerda")</span>
+                        </div>
+                        @if (_cierreOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+                                    Se dispara al CERRAR la atencion (al crear una actividad/lead, o con el marcador <code>[[cierre]]</code>). Corre en el servidor: <strong>no consume tokens</strong>.
+                                </div>
+
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                                    <label class="ag-switch">
+                                        <input type="checkbox" checked="@_cierreOlvidar" @onchange="@(e => _cierreOlvidar = (bool)e.Value!)" disabled="@_busy" />
+                                        <span class="ag-slider"></span>
+                                    </label>
+                                    <div>
+                                        <div style="font-weight:500;">Olvidar al cliente al cerrar</div>
+                                        <div class="text-muted" style="font-size:11.5px;">El agente lo saluda desde cero la proxima vez. El historial NO se borra (queda visible para humanos).</div>
+                                    </div>
+                                </div>
+
+                                @* Bot de Telegram (nivel TENANT): credencial compartida por todas las alertas de Telegram. *@
+                                <div class="card" style="padding:10px;margin-bottom:12px;background:var(--surface-2);">
+                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                        <span style="font-weight:600;font-size:13px;">Bot de Telegram (del tenant)</span>
+                                        @if (_tgHasToken)
+                                        {
+                                            <span class="small" style="color:var(--success);">Configurado@(string.IsNullOrWhiteSpace(_tgUsername) ? "" : " (" + _tgUsername + ")")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-muted">No configurado</span>
+                                        }
+                                    </div>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                        <input class="form-control" style="min-width:240px;" type="password" autocomplete="new-password"
+                                               placeholder="@(_tgHasToken ? "Token nuevo (vacio = conservar)" : "Token del bot (de BotFather)")" @bind="_tgToken" disabled="@_busy" />
+                                        <input class="form-control" style="min-width:150px;" placeholder="@@usuario_bot (opcional)" @bind="_tgUsername" disabled="@_busy" />
+                                        <label class="small" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" checked="@_tgEnabled" @onchange="@(e => _tgEnabled = (bool)e.Value!)" disabled="@_busy" /> Habilitado</label>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="SaveTelegramAsync" disabled="@_busy">Guardar bot</button>
+                                        @if (_tgSaved) { <span class="small" style="color:var(--success);">Guardado.</span> }
+                                    </div>
+                                    <div class="text-muted" style="font-size:11px;margin-top:4px;">Aplica a TODO el tenant. Crea el bot con @@BotFather, pega el token aqui, y usa su <code>chat_id</code> en las alertas de Telegram.</div>
+                                </div>
+
+                                <div class="form-label">Alertas al cierre</div>
+                                @if (_cierreAlertas.Count == 0)
+                                {
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin alertas. Agrega una para avisar al comercial u otro usuario cuando se cierre la atencion.</div>
+                                }
+                                @foreach (var a in _cierreAlertas)
+                                {
+                                    <div class="card" style="padding:10px;margin-bottom:8px;">
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                            <select class="form-control" style="width:150px;" @bind="a.Canal" disabled="@_busy">
+                                                <option value="@CierreCanal.Correo">Correo</option>
+                                                <option value="@CierreCanal.WhatsApp">WhatsApp</option>
+                                                <option value="@CierreCanal.WhatsAppGrupo">WhatsApp (grupo)</option>
+                                                <option value="@CierreCanal.Telegram">Telegram</option>
+                                            </select>
+                                            @if (a.Canal != CierreCanal.WhatsAppGrupo)
+                                            {
+                                                <select class="form-control" style="width:170px;" @bind="a.Destino" disabled="@_busy">
+                                                    <option value="@CierreDestino.Asignado">Usuario asignado</option>
+                                                    <option value="@CierreDestino.Usuario">Otro usuario...</option>
+                                                </select>
+                                                @if (a.Destino == CierreDestino.Usuario)
+                                                {
+                                                    <select class="form-control" style="min-width:180px;" @bind="a.UsuarioId" disabled="@_busy">
+                                                        <option value="">-- usuario --</option>
+                                                        @foreach (var u in _cierreUsers)
+                                                        {
+                                                            <option value="@u.Id">@CierreUserLabel(u)</option>
+                                                        }
+                                                    </select>
+                                                }
+                                            }
+                                            <span class="ag-accordion-spacer"></span>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveCierreAlerta(a)" disabled="@_busy" title="Quitar alerta">x</button>
+                                        </div>
+                                        @if (a.Canal == CierreCanal.WhatsApp)
+                                        {
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                                <select class="form-control" style="min-width:170px;" @bind="a.LineaId" disabled="@_busy">
+                                                    <option value="">Linea de la conversacion</option>
+                                                    @foreach (var l in _cierreLines)
+                                                    {
+                                                        <option value="@l.Id">@l.InstanceName</option>
+                                                    }
+                                                </select>
+                                                <select class="form-control" style="min-width:180px;" @bind="a.Plantilla" disabled="@_busy">
+                                                    <option value="">-- plantilla --</option>
+                                                    @foreach (var t in _cierreTemplates)
+                                                    {
+                                                        <option value="@t.Name">@t.Name (@t.Language)</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM (YCloud). Variables por nombre: {{cliente}}, {{telefono}}, {{resumen}}, {{agente}}. Se envia al telefono del usuario.</div>
+                                        }
+                                        else if (a.Canal == CierreCanal.WhatsAppGrupo)
+                                        {
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                                <select class="form-control" style="min-width:170px;" @bind="a.LineaId" disabled="@_busy">
+                                                    <option value="">Linea de la conversacion</option>
+                                                    @foreach (var l in _cierreLines.Where(l => l.Provider == WhatsAppProvider.Evolution))
+                                                    {
+                                                        <option value="@l.Id">@l.InstanceName</option>
+                                                    }
+                                                </select>
+                                                <input class="form-control" style="min-width:220px;" placeholder="Jid del grupo (...@@g.us)" @bind="a.GrupoJid" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Texto plano a un GRUPO de WhatsApp (solo lineas Evolution). El jid del grupo termina en <code>@@g.us</code>.</div>
+                                        }
+                                        else if (a.Canal == CierreCanal.Telegram)
+                                        {
+                                            <div style="margin-top:8px;">
+                                                <input class="form-control" placeholder="chat_id de Telegram (usuario o grupo)" @bind="a.ChatId" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Usa el bot del tenant (arriba). El destinatario debe haberle escrito al bot, o el bot estar en el grupo.@(_tgHasToken ? "" : " Falta configurar el bot de Telegram.")</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="margin-top:8px;">
+                                                <input class="form-control" placeholder="Asunto del correo (opcional)" @bind="a.Asunto" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Se envia al correo del usuario, con el resumen del cierre.</div>
+                                        }
+                                    </div>
+                                }
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddCierreAlerta" disabled="@_busy">+ Agregar alerta</button>
+
+                                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                                    <button class="btn btn-primary" @onclick="SaveCierreAsync" disabled="@_busy">Guardar cierre</button>
+                                    @if (_cierreSaved)
+                                    {
+                                        <span class="small" style="color:var(--success);">Guardado.</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(_cierreError))
+                                    {
+                                        <span class="small" style="color:var(--danger);">@_cierreError</span>
+                                    }
+                                </div>
                             </div>
                         }
                     </div>
@@ -1312,6 +1470,8 @@ else
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;
         _fReactionEmojis = detail.Agent.ReactionEmojis;
         _reactionsOpen = false;
+        await LoadCierreAsync(id);
+        _cierreOpen = false;
         _resources = detail.Resources.ToList();
         _prompts = detail.Prompts.ToList();
         await ReloadCacheAsync(id);
@@ -1846,6 +2006,141 @@ else
     }
     private static string Humanize(string toolName) =>
         string.IsNullOrEmpty(toolName) ? toolName : char.ToUpperInvariant(toolName[0]) + toolName[1..].Replace('_', ' ');
+
+    // ===== Cierre (olvidar cliente + alertas) =====
+    private bool _cierreOpen;
+    private bool _cierreDataLoaded;
+    private bool _cierreOlvidar;
+    private bool _cierreSaved;
+    private string? _cierreError;
+    private List<CierreAlertaRow> _cierreAlertas = new();
+    private List<TenantUserDto> _cierreUsers = new();
+    private List<WhatsAppLineDto> _cierreLines = new();
+    private List<WhatsAppTemplateDto> _cierreTemplates = new();
+
+    // Fila editable de una alerta (usa strings para los ids: bind de <select> seguro con opcion vacia).
+    private sealed class CierreAlertaRow
+    {
+        public CierreCanal Canal { get; set; } = CierreCanal.Correo;
+        public CierreDestino Destino { get; set; } = CierreDestino.Asignado;
+        public string? UsuarioId { get; set; }
+        public string? LineaId { get; set; }
+        public string? Plantilla { get; set; }
+        public string? Idioma { get; set; }
+        public string? Asunto { get; set; }
+        public string? GrupoJid { get; set; }
+        public string? ChatId { get; set; }
+    }
+
+    // Bot de Telegram del tenant (compartido por las alertas de Telegram).
+    private bool _tgHasToken;
+    private string? _tgUsername;
+    private bool _tgEnabled;
+    private string? _tgToken;
+    private bool _tgSaved;
+
+    private static string CierreUserLabel(TenantUserDto u)
+        => string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : $"{u.DisplayName} ({u.Email})";
+
+    private async Task LoadCierreAsync(Guid agentId)
+    {
+        var cfg = await CierreSvc.GetConfigAsync(agentId);
+        _cierreOlvidar = cfg.Olvidar;
+        _cierreAlertas = (cfg.Alertas ?? Array.Empty<AgentCierreAlerta>())
+            .Select(a => new CierreAlertaRow
+            {
+                Canal = a.Canal,
+                Destino = a.Destino,
+                UsuarioId = a.UsuarioId?.ToString(),
+                LineaId = a.LineaId?.ToString(),
+                Plantilla = a.Plantilla,
+                Idioma = a.Idioma,
+                Asunto = a.Asunto,
+                GrupoJid = a.GrupoJid,
+                ChatId = a.ChatId
+            }).ToList();
+        _cierreSaved = false;
+        _cierreError = null;
+        _cierreDataLoaded = false;
+    }
+
+    private async Task ToggleCierreAsync()
+    {
+        _cierreOpen = !_cierreOpen;
+        if (_cierreOpen && !_cierreDataLoaded)
+        {
+            _cierreUsers = (await TenantUsersSvc.ListAsync()).ToList();
+            _cierreLines = (await LinesSvc.ListAsync()).ToList();
+            _cierreTemplates = (await TemplatesSvc.ListAsync()).ToList();
+            var tg = await TelegramSvc.GetAsync();
+            _tgHasToken = tg.HasToken;
+            _tgUsername = tg.BotUsername;
+            _tgEnabled = tg.IsEnabled;
+            _tgToken = null;
+            _tgSaved = false;
+            _cierreDataLoaded = true;
+        }
+    }
+
+    private async Task SaveTelegramAsync()
+    {
+        _tgSaved = false;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var tg = await TelegramSvc.SaveAsync(_tgToken, _tgUsername, _tgEnabled, actor);
+            _tgHasToken = tg.HasToken;
+            _tgUsername = tg.BotUsername;
+            _tgEnabled = tg.IsEnabled;
+            _tgToken = null; // no se conserva en pantalla
+            _tgSaved = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private void AddCierreAlerta() { _cierreAlertas.Add(new CierreAlertaRow()); _cierreSaved = false; }
+    private void RemoveCierreAlerta(CierreAlertaRow r) { _cierreAlertas.Remove(r); _cierreSaved = false; }
+
+    private async Task SaveCierreAsync()
+    {
+        if (_editId is not Guid id) { return; }
+        _cierreError = null;
+        _busy = true;
+        try
+        {
+            var alertas = _cierreAlertas.Select(r => new AgentCierreAlerta(
+                r.Canal,
+                r.Destino,
+                Guid.TryParse(r.UsuarioId, out var uid) ? uid : (Guid?)null,
+                Guid.TryParse(r.LineaId, out var lid) ? lid : (Guid?)null,
+                string.IsNullOrWhiteSpace(r.Plantilla) ? null : r.Plantilla,
+                string.IsNullOrWhiteSpace(r.Idioma) ? null : r.Idioma,
+                string.IsNullOrWhiteSpace(r.Asunto) ? null : r.Asunto,
+                string.IsNullOrWhiteSpace(r.GrupoJid) ? null : r.GrupoJid!.Trim(),
+                string.IsNullOrWhiteSpace(r.ChatId) ? null : r.ChatId!.Trim())).ToList();
+
+            // Validacion minima por canal.
+            var perUser = new[] { CierreCanal.Correo, CierreCanal.WhatsApp };
+            foreach (var a in alertas)
+            {
+                if (perUser.Contains(a.Canal) && a.Destino == CierreDestino.Usuario && a.UsuarioId is null)
+                { _cierreError = "Elige el usuario destino en cada alerta 'Otro usuario'."; return; }
+                if (a.Canal == CierreCanal.WhatsApp && string.IsNullOrWhiteSpace(a.Plantilla))
+                { _cierreError = "Elige la plantilla en cada alerta de WhatsApp."; return; }
+                if (a.Canal == CierreCanal.WhatsAppGrupo && string.IsNullOrWhiteSpace(a.GrupoJid))
+                { _cierreError = "Indica el jid del grupo (...@g.us) en cada alerta de grupo."; return; }
+                if (a.Canal == CierreCanal.Telegram && string.IsNullOrWhiteSpace(a.ChatId))
+                { _cierreError = "Indica el chat_id en cada alerta de Telegram."; return; }
+            }
+
+            var actor = await ActorAsync();
+            var ok = await CierreSvc.SaveConfigAsync(id, new AgentCierreConfig(_cierreOlvidar, alertas), actor);
+            _cierreSaved = ok;
+            if (!ok) { _cierreError = "No se pudo guardar."; }
+        }
+        finally { _busy = false; }
+    }
 
     private async Task SaveAgentAsync()
     {

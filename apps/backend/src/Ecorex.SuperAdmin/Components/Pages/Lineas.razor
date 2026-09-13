@@ -244,6 +244,7 @@ else
                                     <button class="btn btn-sm btn-primary" @onclick="() => ConnectAsync(l)" disabled="@_busy">@(l.Provider is WhatsAppProvider.Cloud or WhatsAppProvider.YCloud ? "Validar / Conectar" : "Conectar / QR")</button>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => RefreshAsync(l.Id)" disabled="@_busy">Actualizar</button>
                                 }
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenRename(l)" disabled="@_busy" title="Editar nombre">Editar</button>
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => AskDeleteLine(l)" disabled="@_busy" title="Eliminar linea">Eliminar</button>
                             </td>
                         </tr>
@@ -414,6 +415,37 @@ else
     </div>
 }
 
+@* ===== Modal: renombrar linea ===== *@
+@if (_renameLineId is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:420px;">
+            <div class="modal-head">
+                <h3>Editar nombre de la linea</h3>
+                <button class="modal-close" @onclick="() => _renameLineId = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre</label>
+                    <input class="form-control" @bind="_renameName" @bind:event="oninput" autocomplete="off"
+                           placeholder="Ventas, Soporte, etc." @onkeydown="RenameOnKeyDown" />
+                </div>
+                <p style="font-size:12px;color:var(--muted-foreground);margin-top:8px;">
+                    Solo cambia la etiqueta de la linea. No afecta el numero, el proveedor ni la conexion.
+                </p>
+                @if (!string.IsNullOrEmpty(_renameError))
+                {
+                    <div class="alert alert-danger" style="margin-top:8px;">@_renameError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _renameLineId = null">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ConfirmRenameAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_renameName))">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -461,6 +493,10 @@ else
 
     private Guid? _deleteLineId;
     private string? _deleteLineName;
+
+    private Guid? _renameLineId;
+    private string? _renameName;
+    private string? _renameError;
 
     private WebhookConfigDto? _webhook;
     private string _whMode = "Development";
@@ -714,6 +750,39 @@ else
             await ConnectorSvc.DeleteLineAsync(id, actor);
             _deleteLineId = null;
             _deleteLineName = null;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void OpenRename(WhatsAppLineDto line)
+    {
+        _renameError = null;
+        _renameLineId = line.Id;
+        _renameName = line.InstanceName;
+    }
+
+    private async Task RenameOnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_busy && !string.IsNullOrWhiteSpace(_renameName))
+        {
+            await ConfirmRenameAsync();
+        }
+    }
+
+    private async Task ConfirmRenameAsync()
+    {
+        if (_renameLineId is not Guid id) { return; }
+        if (string.IsNullOrWhiteSpace(_renameName)) { _renameError = "Escribe un nombre."; return; }
+        _renameError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var updated = await LinesSvc.RenameAsync(id, _renameName!.Trim(), actor);
+            if (updated is null) { _renameError = "No se pudo renombrar la linea."; return; }
+            _renameLineId = null;
+            _renameName = null;
             await ReloadAsync();
         }
         finally { _busy = false; }

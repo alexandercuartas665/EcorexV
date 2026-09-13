@@ -15,6 +15,12 @@ public interface IWhatsAppLineService
 
     Task<WhatsAppLineDto?> ChangeStatusAsync(Guid lineId, WhatsAppLineStatus status, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Renombra la linea (solo la etiqueta InstanceName): NO toca la sesion del proveedor, el telefono ni la
+    /// conexion, asi que no requiere reconectar. Devuelve null si la linea no existe o el nombre queda vacio.
+    /// </summary>
+    Task<WhatsAppLineDto?> RenameAsync(Guid lineId, string newName, Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Asigna (o desasigna con null) la linea a un usuario del tenant. Devuelve null si la linea no existe o el usuario no pertenece al tenant.</summary>
     Task<WhatsAppLineDto?> AssignAsync(Guid lineId, Guid? tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default);
 }

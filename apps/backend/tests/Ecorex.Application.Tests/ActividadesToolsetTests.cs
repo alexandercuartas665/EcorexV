@@ -201,6 +201,7 @@ public class ActividadesToolsetTests
         public DbSet<TenantUser> TenantUsers => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => throw new NotSupportedException();
         public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
+        public DbSet<TenantTelegramConfig> TenantTelegramConfigs => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => throw new NotSupportedException();

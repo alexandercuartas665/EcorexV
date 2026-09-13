@@ -16,6 +16,7 @@ public sealed class AiInferenceService : IAiInferenceService
     private readonly IAiProviderClient _client;
     private readonly IAiUsageService _usage;
     private readonly IAiAgentCacheService _cache;
+    private readonly IAgentCierreService _cierre;
     private readonly IReadOnlyList<IAgentToolset> _toolsets;
     private readonly TimeProvider _clock;
 
@@ -30,13 +31,14 @@ public sealed class AiInferenceService : IAiInferenceService
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
-    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IEnumerable<IAgentToolset> toolsets, TimeProvider clock)
+    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IAgentCierreService cierre, IEnumerable<IAgentToolset> toolsets, TimeProvider clock)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
         _usage = usage;
         _cache = cache;
+        _cierre = cierre;
         _toolsets = toolsets.ToList();
         _clock = clock;
         _allToolNames = _toolsets.SelectMany(t => t.GetSpecs()).Select(s => s.Name)
@@ -170,12 +172,32 @@ public sealed class AiInferenceService : IAiInferenceService
             }
         }
 
-        // Cierre del proceso: si en esta vuelta se concreto un cierre, vaciamos la cache de la sesion para
-        // dejar al agente listo para atender a un nuevo cliente desde cero.
-        if (sessionCompleted)
+        // Cierre del proceso. Se dispara de forma DETERMINISTA (sin herramienta/MCP extra) por dos vias:
+        //  (1) una herramienta de cierre lo marco (sessionCompleted: crear_actividad/crear_lead), o
+        //  (2) el modelo emitio el marcador [[cierre: resumen?]] (cierre tacito, sin crear actividad).
+        // El marcador se extrae y se quita del texto (como [[enviar:]]).
+        string? cierreBody = null;
+        if (result.Ok && !string.IsNullOrEmpty(result.Text))
         {
+            var (withoutCierre, body, found) = ExtractCierreMarker(result.Text!);
+            if (found) { result = result with { Text = withoutCierre }; cierreBody = body; }
+        }
+        var closing = sessionCompleted || cierreBody is not null;
+
+        if (closing)
+        {
+            // Vaciar la cache de la sesion (deja al agente listo para atender a un nuevo cliente desde cero).
             try { await _cache.ClearValuesAsync(agentId, sessionId, actor, cancellationToken); }
             catch { /* limpiar la cache no debe romper la respuesta */ }
+
+            // Handler de cierre (reset de memoria + alertas), SOLO en atencion real (hay conversationId).
+            // Es best-effort e interno: no consume tokens del modelo.
+            if (conversationId is Guid convId)
+            {
+                var summary = !string.IsNullOrWhiteSpace(cierreBody) ? cierreBody : (result.Text ?? string.Empty).Trim();
+                try { await _cierre.HandleCloseAsync(agentId, convId, summary, actor, cancellationToken); }
+                catch { /* el cierre nunca debe romper la respuesta al cliente */ }
+            }
         }
 
         // Entrega de recursos: el modelo marca [[enviar: Nombre]] y aqui adjuntamos el recurso (archivo o texto).
@@ -650,6 +672,23 @@ public sealed class AiInferenceService : IAiInferenceService
         // Limpia espacios/lineas sobrantes que deja el marcador.
         clean = Regex.Replace(clean, @"[ \t]+\n", "\n").Trim();
         return (clean, attachments);
+    }
+
+    // Extrae el marcador de CIERRE TACITO [[cierre]] o [[cierre: resumen]] (el modelo lo emite cuando cierra
+    // sin crear una actividad/lead). Lo quita del texto saliente y devuelve el resumen (si lo trae). Solo se
+    // procesa el primero. found=false si no hay marcador.
+    private static (string Text, string? Body, bool Found) ExtractCierreMarker(string text)
+    {
+        var match = Regex.Match(text, @"\[\[\s*cierre\s*(?::\s*(?<body>.*?))?\s*\]\]",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!match.Success) { return (text, null, false); }
+
+        var body = match.Groups["body"].Success ? match.Groups["body"].Value.Trim() : null;
+        // Quita TODOS los marcadores de cierre del texto (por si el modelo lo repitio) y limpia sobrantes.
+        var clean = Regex.Replace(text, @"\[\[\s*cierre\b[^\]]*\]\]", string.Empty, RegexOptions.IgnoreCase);
+        clean = Regex.Replace(clean, @"[ \t]+\n", "\n");
+        clean = Regex.Replace(clean, @"\n{3,}", "\n\n").Trim();
+        return (clean, string.IsNullOrWhiteSpace(body) ? null : body, true);
     }
 
     // Red de seguridad: a veces el modelo escribe la LLAMADA de una herramienta como texto dentro de la

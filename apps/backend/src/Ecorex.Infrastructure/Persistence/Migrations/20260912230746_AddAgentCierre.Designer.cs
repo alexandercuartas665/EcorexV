@@ -3,6 +3,7 @@ using System;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    partial class EcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912230746_AddAgentCierre")]
+    partial class AddAgentCierre
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -13393,60 +13396,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_tenant_subscriptions_tenant_id");
 
                     b.ToTable("tenant_subscriptions", (string)null);
-                });
-
-            modelBuilder.Entity("Ecorex.Domain.Entities.TenantTelegramConfig", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("BotTokenEncrypted")
-                        .HasColumnType("text")
-                        .HasColumnName("bot_token_encrypted");
-
-                    b.Property<string>("BotUsername")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("bot_username");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_enabled");
-
-                    b.Property<DateTimeOffset?>("LastValidatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_validated_at");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("updated_by");
-
-                    b.HasKey("Id")
-                        .HasName("pk_tenant_telegram_configs");
-
-                    b.HasIndex("TenantId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_tenant_telegram_configs_tenant_id");
-
-                    b.ToTable("tenant_telegram_configs", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantUser", b =>

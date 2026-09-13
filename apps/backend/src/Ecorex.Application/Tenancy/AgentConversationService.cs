@@ -80,9 +80,16 @@ public sealed class AgentConversationService : IAgentConversationService
             if (lead is { AssignedToTenantUserId: not null, ArchivedAt: null }) { return; }
         }
 
-        // Reconstruimos la conversacion como turnos (lo mas reciente al final).
-        var messages = await _db.Messages.AsNoTracking()
-            .Where(m => m.ConversationId == conversationId)
+        // Reconstruimos la conversacion como turnos (lo mas reciente al final). Si la conversacion tiene un
+        // punto de REINICIO de contexto (cierre "olvidar cliente", no destructivo), solo consideramos los
+        // mensajes POSTERIORES a esa marca: el agente saluda desde cero aunque el historial siga en la BD.
+        var messagesQuery = _db.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId);
+        if (conv.AgentContextResetAt is DateTimeOffset resetAt)
+        {
+            messagesQuery = messagesQuery.Where(m => m.SentAt > resetAt);
+        }
+        var messages = await messagesQuery
             .OrderByDescending(m => m.SentAt)
             .Take(MaxTurns)
             .ToListAsync(cancellationToken);

@@ -100,6 +100,39 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
         return Map(line);
     }
 
+    public async Task<WhatsAppLineDto?> RenameAsync(Guid lineId, string newName, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var trimmed = newName?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return null;
+        }
+        if (trimmed.Length > 120)
+        {
+            trimmed = trimmed[..120];
+        }
+
+        var line = await _db.WhatsAppLines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null)
+        {
+            return null;
+        }
+
+        var previous = line.InstanceName;
+        if (previous != trimmed)
+        {
+            // Solo la etiqueta: no se toca proveedor, telefono ni estado de sesion (no requiere reconectar).
+            line.InstanceName = trimmed;
+            _audit.Write(actorUserId, "whatsapp-line.rename", nameof(WhatsAppLine), line.Id,
+                previousValue: new { InstanceName = previous },
+                newValue: new { InstanceName = trimmed },
+                tenantId: line.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Map(line);
+    }
+
     public async Task<WhatsAppLineDto?> AssignAsync(Guid lineId, Guid? tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var line = await _db.WhatsAppLines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);

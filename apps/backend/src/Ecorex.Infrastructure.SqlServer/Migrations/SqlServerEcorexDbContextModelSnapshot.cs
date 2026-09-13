@@ -776,6 +776,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<string>("CierreJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("cierre_json");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -2583,6 +2587,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("AgentContextResetAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("agent_context_reset_at");
 
                     b.Property<DateTimeOffset?>("ArchivedAt")
                         .HasColumnType("datetimeoffset")
@@ -13388,6 +13396,60 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_tenant_subscriptions_tenant_id");
 
                     b.ToTable("tenant_subscriptions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TenantTelegramConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BotTokenEncrypted")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("bot_token_encrypted");
+
+                    b.Property<string>("BotUsername")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("bot_username");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<DateTimeOffset?>("LastValidatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_validated_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tenant_telegram_configs");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_telegram_configs_tenant_id");
+
+                    b.ToTable("tenant_telegram_configs", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantUser", b =>

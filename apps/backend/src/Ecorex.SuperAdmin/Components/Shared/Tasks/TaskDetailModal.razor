@@ -359,28 +359,13 @@
                                 var agentFailed = nn.IsAuto && !string.IsNullOrWhiteSpace(nn.AgentFailureReason);
                                 // "Trabajando": paso de agente vigente que aun NO ha fallado (pendiente de/atendiendose).
                                 var agentWorking = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned && !agentFailed;
-                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(agentFailed ? "agent-failed" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
+                                <div class="tk-flow-node @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(agentFailed ? "agent-failed" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
                                      style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@FlowNodeCardStyle(nn, accent, isGw, isEvent)"
                                      draggable="true"
                                      @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
                                      @ondragend="FlowDragEnd" @ondragend:stopPropagation="true"
                                      @onclick:stopPropagation="true">
-                                    @if (isGw)
-                                    {
-                                        @* Compuerta EXCLUSIVA: diamante (el propio boton es el trigger del menu) con icono de
-                                           ramificacion dentro. Acento configurable, default violeta. Nombre + "Decision" debajo. *@
-                                        var gwAccent = FlowNodeColor(nn.Color) ?? "var(--t-violet)";
-                                        <button class="tk-flow-gw" title="Ver decision" data-flow-anchor="@nn.NodeId" @onclick="@(() => ToggleFlowMenu(nn))"
-                                                style="border-color:@gwAccent;color:@gwAccent;background:color-mix(in srgb, @gwAccent 12%, var(--surface));">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
-                                        </button>
-                                        @if (nn.TeamNotes is { Count: > 0 } gwn) { <span class="tk-flow-notecount" title="@(gwn.Count) nota(s) del equipo">&#128172; @gwn.Count</span> }
-                                        @if (!string.IsNullOrWhiteSpace(nn.Name))
-                                        {
-                                            <div class="tk-flow-nodelabel"><span class="nm">@nn.Name</span><span class="sub">Decision</span></div>
-                                        }
-                                    }
-                                    else if (isEvent)
+                                    @if (isEvent)
                                     {
                                         @* Evento inicio/fin: aro con icono (play=inicio verde, stop=fin) que ES el trigger del menu.
                                            Nombre en negrita + subtitulo semantico (Inicio/Finaliza el proceso) debajo. *@
@@ -409,7 +394,12 @@
                                             @* NIVEL 1: tipo + titulo + estado + menu. *@
                                             <div class="tk-flow-node-head">
                                                 <span class="tk-flow-type" aria-hidden="true">
-                                                    @if (nn.IsAuto)
+                                                    @if (isGw)
+                                                    {
+                                                        @* Ramificacion: deja claro que este paso es una COMPUERTA (decision), ahora como tarjeta. *@
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                                                    }
+                                                    else if (nn.IsAuto)
                                                     {
                                                         @* Robot: deja claro que este paso lo ejecuta un agente de IA. *@
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2" /><path d="M12 8V4M9 4h6" /><circle cx="9" cy="14" r="1" /><circle cx="15" cy="14" r="1" /><path d="M2 13v3M22 13v3" /></svg>
@@ -425,6 +415,7 @@
                                             @{
                                                 var (bLabel, bClass) = nn.IsCurrent ? ("Actual", "cur")
                                                     : nn.State == TaskFlowNodeState.Completed ? ("Cerrado", "done")
+                                                    : isGw ? ("Decision", "gw")
                                                     : nn.IsAuto ? ("Auto", "auto")
                                                     : ("Manual", "manual");
                                             }
@@ -524,7 +515,7 @@
                                                     <div class="tk-flow-notes-head">
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
                                                         <span class="tk-flow-notes-title">Notas</span>
-                                                        @if (tnotes.Count > 1) { <span class="tk-flow-notes-count">+@(tnotes.Count - 1)</span> }
+                                                        @if (tnotes.Count > 1) { <span class="tk-flow-notes-count" title="@tnotes.Count notas en total">@tnotes.Count</span> }
                                                     </div>
                                                     <div class="tk-flow-notes-text">@lastNote.Text</div>
                                                     <div class="tk-flow-notes-by">@lastNote.AuthorName &#183; @FlowShortDate(lastNote.CreatedAt)</div>
@@ -2163,7 +2154,9 @@
     /// CONFIGURADO en el editor, un tinte suave para que ese color se vea claro (no una linea fina).</summary>
     private static string FlowNodeCardStyle(TaskFlowNodeDto n, string accent, bool isGw, bool isEvent)
     {
-        if (isGw || isEvent) { return ""; }
+        // La compuerta ahora es una TARJETA normal (rectangulo con icono de ramificacion): recibe acento como
+        // cualquier nodo. Solo los EVENTOS (inicio/fin) siguen sin chrome (se dibujan como aro).
+        if (isEvent) { return ""; }
         // --node-accent lo consumen los hijos (badge de estado, borde del bloque de notas, icono de tipo).
         // La barra lateral de 4px sigue marcando el acento del tipo/estado. NO se tiñe toda la tarjeta.
         var s = $"--node-accent:{accent};border-left:4px solid {accent};";
@@ -2225,7 +2218,10 @@
         if (working || agentFailed) { h += 24; }                   // linea "trabajando" o "requiere una persona"
         if (metaRows > 0) { h += 13 + metaRows * 19; }          // caja de metadata
         if (!string.IsNullOrWhiteSpace(n.ConfigNote)) { h += 37; } // descripcion (2 lineas)
-        if (n.TeamNotes is { Count: > 0 }) { h += 66; }            // bloque de notas (resumen)
+        // Bloque de notas: PREVIEW de 2 lineas (no la nota completa). Se reserva alto suficiente para que esas
+        // 2 lineas + el encabezado "Notas" + el autor se VEAN (antes reservaba 66px y el texto quedaba
+        // cortado). El hilo completo esta en el popover del nodo.
+        if (n.TeamNotes is { Count: > 0 }) { h += 92; }
         return Math.Max(h, 106);
     }
 

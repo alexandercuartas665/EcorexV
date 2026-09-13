@@ -64,4 +64,12 @@ public class AiAgent : TenantEntity
 
     /// <summary>Emojis para reaccionar al azar, separados por coma. Configurable por UI.</summary>
     public string? ReactionEmojis { get; set; }
+
+    /// <summary>
+    /// Configuracion de CIERRE del agente (jsonb): que hacer cuando se cierra la atencion (por crear
+    /// una actividad/lead, o por el marcador [[cierre]]). Guarda si debe OLVIDAR al cliente (reset de
+    /// memoria no destructivo) y la lista de ALERTAS a disparar (WhatsApp/correo a un usuario). Null o
+    /// vacio = sin acciones de cierre (compatibilidad hacia atras). Ver AgentCierreConfig.
+    /// </summary>
+    public string? CierreJson { get; set; }
 }

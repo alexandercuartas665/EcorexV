@@ -1730,6 +1730,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-hbadge.done { color: var(--t-green); background: var(--t-green-bg, color-mix(in srgb, var(--t-green) 14%, var(--surface))); }
 .tk-flow-hbadge.auto { color: var(--t-blue); background: var(--t-blue-bg, color-mix(in srgb, var(--t-blue) 14%, var(--surface))); }
 .tk-flow-hbadge.manual { color: var(--t-violet); background: var(--t-violet-bg, color-mix(in srgb, var(--t-violet) 14%, var(--surface))); }
+.tk-flow-hbadge.gw { color: var(--t-violet); background: var(--t-violet-bg, color-mix(in srgb, var(--t-violet) 14%, var(--surface))); }
 /* Descripcion del paso (secundaria, 2 lineas). */
 .tk-flow-desc { font-size: 11px; line-height: 1.35; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 /* NIVEL 3 -- resumen de notas: caja sutil con borde-izq del acento; abre el hilo (popover) al clic. */
@@ -1737,9 +1738,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-notes:hover { background: var(--surface-3); }
 .tk-flow-notes-head { display: flex; align-items: center; gap: 5px; }
 .tk-flow-notes-head svg { width: 11px; height: 11px; flex: none; color: var(--node-accent, var(--ink-2)); }
-.tk-flow-notes-title { font-size: 10px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em; }
+.tk-flow-notes-title { font-size: 11px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em; }
 .tk-flow-notes-count { margin-left: auto; font-size: 9px; font-weight: 800; color: #fff; background: var(--node-accent, var(--brand)); border-radius: 999px; padding: 1px 6px; line-height: 1.3; }
-.tk-flow-notes-text { font-size: 11px; line-height: 1.35; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tk-flow-notes-text { font-size: 12.5px; line-height: 1.4; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
 .tk-flow-notes-by { font-size: 9px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-flow-meta { display: flex; flex-direction: column; gap: 4px; background: var(--surface-2); border-radius: 9px; padding: 7px 9px; }
 .tk-flow-metarow { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-3); min-width: 0; }

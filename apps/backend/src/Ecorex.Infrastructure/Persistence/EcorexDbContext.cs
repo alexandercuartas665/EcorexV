@@ -42,6 +42,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<PlatformBranding> PlatformBrandings => Set<PlatformBranding>();
     public DbSet<EmailConfig> EmailConfigs => Set<EmailConfig>();
     public DbSet<TenantEmailConfig> TenantEmailConfigs => Set<TenantEmailConfig>();
+    public DbSet<TenantTelegramConfig> TenantTelegramConfigs => Set<TenantTelegramConfig>();
     public DbSet<StorageConfig> StorageConfigs => Set<StorageConfig>();
     public DbSet<GoogleAuthConfig> GoogleAuthConfigs => Set<GoogleAuthConfig>();
     public DbSet<TenantApiConfig> TenantApiConfigs => Set<TenantApiConfig>();
@@ -575,6 +576,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => x.TenantId).IsUnique();
         });
 
+        // Bot de Telegram del tenant (Ola 3 del Cierre): un registro por tenant; token cifrado.
+        modelBuilder.Entity<TenantTelegramConfig>(b =>
+        {
+            b.Property(x => x.BotUsername).HasMaxLength(100);
+            b.HasIndex(x => x.TenantId).IsUnique();
+        });
+
         // Voz IA (Retell/Telnyx, ADR-0056): config por tenant (unica), llamadas, y mapa de agentes.
         modelBuilder.Entity<RetellVoiceLine>(b =>
         {
@@ -1012,6 +1020,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.AllowedBoardIdsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.CierreJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 

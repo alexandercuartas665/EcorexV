@@ -25,4 +25,11 @@ public class Conversation : TenantEntity
 
     /// <summary>Cuando se archivo la conversacion (se oculta de la bandeja activa). Null = activa.</summary>
     public DateTimeOffset? ArchivedAt { get; set; }
+
+    /// <summary>
+    /// Punto de REINICIO del contexto del agente (cierre "olvidar cliente", no destructivo): el agente solo
+    /// considera los mensajes POSTERIORES a esta marca al construir su contexto, asi saluda desde cero en la
+    /// proxima interaccion. El historial NO se borra (sigue visible para humanos). Null = sin reinicio.
+    /// </summary>
+    public DateTimeOffset? AgentContextResetAt { get; set; }
 }

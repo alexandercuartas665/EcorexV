@@ -2,6 +2,70 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-12 - v0.16.53: motor de CIERRE del agente (Ola 1) + editar nombre de linea WhatsApp
+
+### Editar nombre de linea WhatsApp (rename sin reconectar)
+- La lista de lineas no dejaba corregir el nombre (solo Probar envio/Actualizar/Desconectar/Eliminar). Se
+  agrego boton "Editar" + modal: renombra SOLO la etiqueta (InstanceName), NO toca numero/proveedor/sesion,
+  asi que no requiere reconectar. Servicio nuevo IWhatsAppLineService.RenameAsync (audita
+  whatsapp-line.rename, tenant-scoped, trim + tope 120). Sin migraciones.
+
+### Motor de "Cierre" del agente (Ola 1, ADR-0099)
+- Portado/evolucionado de "DESTINOS DE NOTIFICACION (PEDIDO)" de CUBOT.travels a un concepto de CIERRE, con
+  GATILLO DE PROGRAMA determinista (NO herramienta/MCP -> cero tokens del modelo), tal como pidio el usuario.
+- Disparo DOBLE, server-side: (1) el cierre que el agente YA hace (SessionCompleted tras crear_actividad/
+  crear_lead), y (2) marcador de respaldo [[cierre: resumen?]] para cierres tacitos (parseado y removido
+  junto a [[enviar:]] en AiInferenceService).
+- Al cerrar (solo atencion real): (a) si "Olvidar", reset NO destructivo de la memoria (Conversation
+  .AgentContextResetAt; el contexto ignora mensajes previos -> saluda desde cero, sin borrar el historial);
+  (b) alertas por WhatsApp-plantilla (HSM/YCloud, variables por nombre {{cliente}}/{{telefono}}/{{resumen}}/
+  {{agente}}) y/o Correo (IEmailSender), al usuario ASIGNADO de la linea o a otro usuario elegido. Best-effort.
+- Config por agente en AiAgent.CierreJson (jsonb/nvarchar(max)); UI = seccion "Cierre" en Agentes.razor
+  (switch Olvidar + editor de alertas con dropdowns de usuario/linea/plantilla + "Guardar cierre").
+- Nuevo IAgentCierreService (GetConfig/SaveConfig/HandleClose) + AgentCierreConfig (parse/serialize seguro).
+  AgentConversationService filtra el contexto por AgentContextResetAt.
+- Migraciones DUALES aditivas AddAgentCierre (PG EcorexDbContext + SQL Server SqlServerEcorexDbContext,
+  --context explicito): ai_agents.cierre_json + conversations.agent_context_reset_at. has-pending-model-
+  changes = "No changes" en ambos. OJO EF: la 1a corrida de SQL Server con --no-build salio VACIA (snapshot
+  stale, como advierte esta bitacora); se removio y regenero CON build -> quedo correcta.
+### Cierre Ola 2: destino GRUPO de WhatsApp (Evolution)
+- Nuevo canal CierreCanal.WhatsAppGrupo: envia TEXTO plano del cierre a un grupo "...@g.us" desde una linea
+  Evolution. Hallazgo: en ECOREX el connector YA soporta grupos (SendTestAsync pasa el jid completo por
+  remoteJid al campo "number"; comentario "Evolution v2 enruta correctamente") -> NO existe el bug de
+  digit-strip que tenia CUBOT.travels. AgentCierreAlerta gana GrupoJid; el dispatch tiene rama propia (no
+  depende de un usuario destino). UI: canal "WhatsApp (grupo)" con dropdown de lineas Evolution + input del
+  jid. Sin migracion (GrupoJid va en el JSON). +1 test (round-trip del grupo).
+- Falta (ola siguiente): Telegram (cuentas por tenant + envio). El dispatch ya es enchufable por canal.
+
+### Cierre Ola 3: canal TELEGRAM
+- Nuevo canal CierreCanal.Telegram: mensaje a un chat/grupo de Telegram (chat_id) via el bot del tenant.
+- Bot por tenant: entidad TenantTelegramConfig (token de BotFather CIFRADO, ISecretProtector; un registro por
+  tenant, indice unico) + ITelegramConfigService (get/save; token vacio = conservar el existente) + panel de
+  configuracion en la propia seccion "Cierre" (nivel tenant, compartido por las alertas de Telegram).
+- Envio: ITelegramClient/TelegramBotClient (Bot API sendMessage, HttpClient por DI; el token viaja en la URL
+  del Bot API, NUNCA se loggea). AgentCierreService: rama Telegram (carga config del tenant, descifra token,
+  envia el texto del cierre al chat_id). AgentCierreAlerta gana ChatId.
+- Migracion DUAL AditIVA AddTenantTelegramConfig (tabla tenant_telegram_configs; PG text/SQL Server
+  nvarchar(max)). has-pending-model-changes = "No changes" en ambos. 5 fakes de IApplicationDbContext en
+  tests recibieron el DbSet nuevo. +1 test (round-trip Telegram). Con esto el Cierre queda con 4 canales:
+  Correo, WhatsApp-plantilla, WhatsApp-grupo (Evolution) y Telegram.
+
+### Fix del diagrama de flujo dentro de la tarea (TaskDetailModal)
+- Notas cortadas en la tarjeta: el alto reservaba 66px y no alcanzaba ni para el preview -> el texto quedaba
+  cortado. Ahora la tarjeta con notas reserva 78px (FlowNodeH), suficiente para el encabezado "Notas" + 2
+  lineas de preview + autor. Es un PREVIEW de 2 lineas (no la nota completa, por pedido del usuario); el hilo
+  completo sigue en el popover del nodo. Clamp CSS = 2 lineas.
+- Compuerta (ExclusiveGateway): antes era un DIAMANTE (cuadrado rotado 45) sin cuerpo de tarjeta. Ahora se
+  renderiza como TARJETA rectangular normal (mismo cuerpo que una tarea) con icono de RAMIFICACION + badge
+  "Decision", asi muestra asignado/tiempo/notas/menu como cualquier tarjeta. FlowNodeCardStyle deja de
+  saltarse las compuertas (solo eventos siguen como aro). CSS del diamante viejo (.tk-flow-gw) queda sin uso.
+- Nota: el diagrama no tiene auto-layout; tarjetas mas altas pueden encimar a la de abajo. El usuario puede
+  arrastrar nodos (offset de sesion). Si molesta, se puede subir el espaciado vertical (FlowYScale) aparte.
+- Tests: AgentCierreConfigTests cubre parse/serialize/noop/compat + round-trip de grupo y Telegram.
+  Application.Tests 877/877 verdes. Build de la solucion verde. NO toca crear_tarea/TasksToolset ni la
+  ejecucion de flujos.
+- Siguiente: validacion visual del usuario en local; deploy a su senal (regla: pedir OK antes de cada prod).
+
 ## 2026-09-12 - v0.16.52: notas de nodo en el editor de flujos - mejor disposicion + arrastrables y persistentes
 
 - Sintoma (usuario): las notas post-it de los nodos "nacen muy cerca de los graficos", no se pueden mover y

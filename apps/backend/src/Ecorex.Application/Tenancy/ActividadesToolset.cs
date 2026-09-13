@@ -139,6 +139,10 @@ public sealed class ActividadesToolset : IActividadesToolset
 
     private async Task<AgentToolResult> CrearActividadAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
+        // Capa 1 (ADR-0101): si crear_actividad ya cerro OK en ESTE turno, devuelve el mismo ticket sin duplicar.
+        var priorTurn = AgentTaskIdempotency.TryGetTurnResult("crear_actividad");
+        if (priorTurn is not null) { return new AgentToolResult(priorTurn, SessionCompleted: true); }
+
         var concepto = Str(args, "concepto");
         var sub = await ResolveConceptoAsync(concepto, ct);
         if (sub is null) { return await ConceptoNoExisteAsync(concepto, ct); }
@@ -218,6 +222,26 @@ public sealed class ActividadesToolset : IActividadesToolset
             RequesterPhone: clienteTelefono,
             Description: string.IsNullOrWhiteSpace(descripcion) ? null : descripcion!.Trim());
 
+        // Capa 2 (ADR-0101): dedup por CONTENIDO entre turnos (mismo contacto + concepto + titulo+descripcion
+        // en la ventana). Si ya existe, devuelve ese ticket sin duplicar. Contenido distinto = solicitud nueva.
+        var dup = await AgentTaskIdempotency.FindRecentDuplicateAsync(
+            _db, TimeProvider.System, req.Title, req.Description, clienteTelefono, clienteNombre,
+            boardId: null, subcategoriaId: sub.Id, ct);
+        if (dup is { } ex)
+        {
+            var dupJson = JsonSerializer.Serialize(new
+            {
+                ok = true,
+                ticket = ex.Number,
+                tarea_id = ex.Id,
+                concepto = sub.Nombre,
+                idempotente = true,
+                mensaje = $"Ya existe la actividad con ticket {ex.Number} (no se duplico)."
+            }, JsonOut);
+            AgentTaskIdempotency.RememberTurnResult("crear_actividad", dupJson);
+            return new AgentToolResult(dupJson, SessionCompleted: true);
+        }
+
         var created = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!created.IsOk || created.Value is null) { return Err(created.Error ?? "No se pudo crear la actividad."); }
         var taskId = created.Value.Item.Id;
@@ -267,7 +291,7 @@ public sealed class ActividadesToolset : IActividadesToolset
             tablero = await _db.TaskBoards.AsNoTracking().Where(b => b.Id == boardId).Select(b => b.Name).FirstOrDefaultAsync(ct);
         }
 
-        return new AgentToolResult(JsonSerializer.Serialize(new
+        var okJson = JsonSerializer.Serialize(new
         {
             ok = true,
             ticket,
@@ -278,7 +302,10 @@ public sealed class ActividadesToolset : IActividadesToolset
             mensaje = $"Actividad creada con ticket {ticket} ({sub.Nombre})"
                 + (tablero is not null ? $" en el tablero '{tablero}'" : "")
                 + (adjuntados > 0 ? $" con {adjuntados} archivo(s) adjunto(s)." : ".")
-        }, JsonOut), SessionCompleted: true);
+        }, JsonOut);
+        // Capa 1: recuerda el cierre para que una 2a llamada de crear_actividad en este turno reuse el ticket.
+        AgentTaskIdempotency.RememberTurnResult("crear_actividad", okJson);
+        return new AgentToolResult(okJson, SessionCompleted: true);
     }
 
     // ===== Helpers =====

@@ -29,6 +29,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<Asesor> Asesores => Set<Asesor>();
         public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
         public DbSet<Message> Messages => Set<Message>();
+        public DbSet<TaskItem> TaskItems => Set<TaskItem>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -36,6 +37,14 @@ public class TasksToolsetBoardWhitelistTests
             b.Entity<Asesor>().Ignore(x => x.TenantUser);
             b.Entity<TaskItemAttachment>().Ignore(x => x.TaskItem);
             b.Entity<Message>().Ignore(x => x.Conversation);
+            // Idempotencia (ADR-0101): el helper consulta TaskItems. Solo escalares (sin navegaciones).
+            b.Entity<TaskItem>(e =>
+            {
+                e.Ignore(x => x.ActivityType); e.Ignore(x => x.Subcategoria); e.Ignore(x => x.Entidad);
+                e.Ignore(x => x.AssigneeTenantUser); e.Ignore(x => x.Board); e.Ignore(x => x.Column);
+                e.Ignore(x => x.Project); e.Ignore(x => x.Milestone); e.Ignore(x => x.WorkflowInstance);
+                e.Ignore(x => x.Parent); e.Ignore(x => x.SourceTask);
+            });
         }
     }
 
@@ -188,7 +197,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<ProjectMilestone> ProjectMilestones => throw new NotSupportedException();
         public DbSet<ProjectBudgetItem> ProjectBudgetItems => throw new NotSupportedException();
         public DbSet<ProjectDofa> ProjectDofas => throw new NotSupportedException();
-        public DbSet<TaskItem> TaskItems => throw new NotSupportedException();
+        public DbSet<TaskItem> TaskItems => inner.TaskItems;
         public DbSet<TaskItemTag> TaskItemTags => throw new NotSupportedException();
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();
         public DbSet<TaskBoardColumnTag> TaskBoardColumnTags => throw new NotSupportedException();
@@ -495,5 +504,84 @@ public class TasksToolsetBoardWhitelistTests
         Assert.Null(tasks.LastRequest.RequesterPhone);
         Assert.Null(tasks.LastRequest.RequesterEmail);
         Assert.Null(tasks.LastRequest.RequesterDocument);
+    }
+
+    // ---- Idempotencia del cierre (ADR-0101) ----
+
+    private static string CreateArgs(string tablero, string titulo, string? telefono = null, string? descripcion = null)
+        => JsonSerializer.Serialize(new { tablero, titulo, cliente_telefono = telefono, descripcion });
+
+    [Fact]
+    public async Task CrearTarea_dos_veces_mismo_turno_no_duplica()
+    {
+        // Capa 1: dos llamadas identicas en el MISMO turno -> una sola tarea, mismo ticket.
+        var (ts, tasks, _) = NewToolset();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            var args = CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233");
+            var r1 = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea", args, Guid.NewGuid(), true)).Json).RootElement;
+            var r2 = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea", args, Guid.NewGuid(), true)).Json).RootElement;
+            Assert.Equal(1, tasks.CreateCalls);
+            Assert.Equal(r1.GetProperty("ticket").GetString(), r2.GetProperty("ticket").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_turno_posterior_mismo_contenido_devuelve_existente()
+    {
+        // Capa 2: turno posterior, mismo contacto+tablero+contenido dentro de ventana -> ticket existente, no crea.
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
+            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false, CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            var r = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233"), Guid.NewGuid(), true)).Json).RootElement;
+            Assert.Equal(0, tasks.CreateCalls);
+            Assert.Equal("T-777", r.GetProperty("ticket").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_misma_conversacion_contenido_distinto_crea_nueva()
+    {
+        // REGLA DE ORO: mismo contacto, MISMO chat, contenido DISTINTO = solicitud nueva -> CREA.
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
+            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false, CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Ahora necesito otra cosa distinta", telefono: "573001112233"), Guid.NewGuid(), true);
+            Assert.Equal(1, tasks.CreateCalls);
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_fuera_de_ventana_crea_nueva()
+    {
+        // Capa 2: mismo contenido pero la tarea previa esta FUERA de la ventana -> se crea otra.
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
+            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.WindowMinutes + 5))
+        });
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        {
+            await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233"), Guid.NewGuid(), true);
+            Assert.Equal(1, tasks.CreateCalls);
+        }
     }
 }

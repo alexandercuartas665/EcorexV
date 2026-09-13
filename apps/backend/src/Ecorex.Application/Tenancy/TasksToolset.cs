@@ -106,6 +106,10 @@ public sealed class TasksToolset : ITasksToolset
 
     private async Task<AgentToolResult> CreateTaskAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
+        // Capa 1 (ADR-0101): si crear_tarea ya cerro OK en ESTE turno, devuelve el mismo ticket sin duplicar.
+        var priorTurn = AgentTaskIdempotency.TryGetTurnResult("crear_tarea");
+        if (priorTurn is not null) { return new AgentToolResult(priorTurn, SessionCompleted: true); }
+
         var tableroNombre = Str(args, "tablero");
         var titulo = Str(args, "titulo");
         if (string.IsNullOrWhiteSpace(titulo)) { return Err("Falta el titulo de la tarea (titulo)."); }
@@ -197,6 +201,26 @@ public sealed class TasksToolset : ITasksToolset
             RequesterPhone: clienteTelefono,
             RequesterDocument: clienteIdentificacion);
 
+        // Capa 2 (ADR-0101): dedup por CONTENIDO entre turnos (mismo contacto + tablero + titulo+descripcion
+        // normalizados, dentro de la ventana). Si ya existe, devuelve ese ticket en vez de duplicar. Una
+        // solicitud NUEVA (contenido distinto) NO matchea y se crea normal.
+        var dup = await AgentTaskIdempotency.FindRecentDuplicateAsync(
+            _db, TimeProvider.System, req.Title, req.Description, clienteTelefono, clienteNombre,
+            boardId: board.Id, subcategoriaId: null, ct);
+        if (dup is { } ex)
+        {
+            var dupJson = JsonSerializer.Serialize(new
+            {
+                ok = true,
+                ticket = ex.Number,
+                tarea_id = ex.Id,
+                idempotente = true,
+                mensaje = $"Ya existe la solicitud con ticket {ex.Number} (no se duplico)."
+            }, JsonOut);
+            AgentTaskIdempotency.RememberTurnResult("crear_tarea", dupJson);
+            return new AgentToolResult(dupJson, SessionCompleted: true);
+        }
+
         var res = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!res.IsOk || res.Value is null)
         {
@@ -210,7 +234,7 @@ public sealed class TasksToolset : ITasksToolset
         var adjuntados = await AttachConversationMediaAsync(taskId, ct);
         adjuntados += await AttachPendingAsync(taskId, ct);
 
-        return new AgentToolResult(JsonSerializer.Serialize(new
+        var okJson = JsonSerializer.Serialize(new
         {
             ok = true,
             ticket,
@@ -221,7 +245,10 @@ public sealed class TasksToolset : ITasksToolset
             mensaje = $"Tarea creada con ticket {ticket} en el tablero '{board.Name}'"
                 + (asignado is not null ? $", asignada a {asignado.Nombre}" : "")
                 + (adjuntados > 0 ? $" con {adjuntados} archivo(s) adjunto(s)." : ".")
-        }, JsonOut), SessionCompleted: true);
+        }, JsonOut);
+        // Capa 1: recuerda el cierre para que una 2a llamada de crear_tarea en este turno reuse el ticket.
+        AgentTaskIdempotency.RememberTurnResult("crear_tarea", okJson);
+        return new AgentToolResult(okJson, SessionCompleted: true);
     }
 
     /// <summary>Adjunta a la tarea los archivos entrantes de la conversacion en curso (reusa la URL ya

@@ -28,6 +28,19 @@ public class ActividadesToolsetTests
     private sealed class InnerDb(DbContextOptions<InnerDb> options) : DbContext(options)
     {
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
+        public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+
+        protected override void OnModelCreating(ModelBuilder b)
+        {
+            // Idempotencia (ADR-0101): el helper consulta TaskItems. Solo escalares (sin navegaciones).
+            b.Entity<TaskItem>(e =>
+            {
+                e.Ignore(x => x.ActivityType); e.Ignore(x => x.Subcategoria); e.Ignore(x => x.Entidad);
+                e.Ignore(x => x.AssigneeTenantUser); e.Ignore(x => x.Board); e.Ignore(x => x.Column);
+                e.Ignore(x => x.Project); e.Ignore(x => x.Milestone); e.Ignore(x => x.WorkflowInstance);
+                e.Ignore(x => x.Parent); e.Ignore(x => x.SourceTask);
+            });
+        }
     }
 
     private sealed class FakeTenant : ITenantContext
@@ -277,7 +290,7 @@ public class ActividadesToolsetTests
         public DbSet<ProjectMilestone> ProjectMilestones => throw new NotSupportedException();
         public DbSet<ProjectBudgetItem> ProjectBudgetItems => throw new NotSupportedException();
         public DbSet<ProjectDofa> ProjectDofas => throw new NotSupportedException();
-        public DbSet<TaskItem> TaskItems => throw new NotSupportedException();
+        public DbSet<TaskItem> TaskItems => inner.TaskItems;
         public DbSet<TaskItemTag> TaskItemTags => throw new NotSupportedException();
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();
         public DbSet<TaskBoardColumnTag> TaskBoardColumnTags => throw new NotSupportedException();
@@ -415,6 +428,13 @@ public class ActividadesToolsetTests
 
     private static (ActividadesToolset Ts, FakeTasks Tasks, FakeForms Forms) NewToolset(FormDefinitionDetailDto? def, bool withConcept = true)
     {
+        var (ts, tasks, forms, _) = NewToolsetWithDb(def, withConcept);
+        return (ts, tasks, forms);
+    }
+
+    /// <summary>Como NewToolset pero expone el InnerDb para sembrar TaskItems (tests de idempotencia).</summary>
+    private static (ActividadesToolset Ts, FakeTasks Tasks, FakeForms Forms, InnerDb Inner) NewToolsetWithDb(FormDefinitionDetailDto? def, bool withConcept = true)
+    {
         var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         if (withConcept)
         {
@@ -430,7 +450,7 @@ public class ActividadesToolsetTests
         var tasks = new FakeTasks();
         var forms = new FakeForms();
         var defs = new FakeFormDefs { Def = def };
-        return (new ActividadesToolset(db, tasks, forms, defs, new FakeTenant()), tasks, forms);
+        return (new ActividadesToolset(db, tasks, forms, defs, new FakeTenant()), tasks, forms, inner);
     }
 
     private static async Task<JsonElement> RunAsync(ActividadesToolset ts, string tool, object args)
@@ -531,6 +551,73 @@ public class ActividadesToolsetTests
         }
 
         Assert.Null(tasks.LastRequest!.Description);
+    }
+
+    [Fact]
+    public async Task CrearActividad_dos_veces_mismo_turno_no_duplica()
+    {
+        // Capa 1 (ADR-0101): dos llamadas identicas en el MISMO turno -> una sola actividad, mismo ticket.
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _) = NewToolset(def);
+
+        JsonElement r1, r2;
+        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        {
+            var args = new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez" } };
+            r1 = await RunAsync(ts, "crear_actividad", args);
+            r2 = await RunAsync(ts, "crear_actividad", args);
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
+        Assert.Equal(r1.GetProperty("ticket").GetString(), r2.GetProperty("ticket").GetString());
+    }
+
+    [Fact]
+    public async Task CrearActividad_turno_posterior_mismo_contenido_devuelve_existente()
+    {
+        // Capa 2 (ADR-0101): en un turno posterior, mismo contacto+concepto+contenido dentro de ventana ->
+        // devuelve el ticket existente, NO crea otra.
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
+            SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+
+        JsonElement r;
+        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        {
+            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez" } });
+        }
+
+        Assert.Equal(0, tasks.CreateCalls);
+        Assert.Equal("T-900", r.GetProperty("ticket").GetString());
+    }
+
+    [Fact]
+    public async Task CrearActividad_misma_conversacion_contenido_distinto_crea_nueva()
+    {
+        // REGLA DE ORO (ADR-0101): misma persona, MISMO chat, pero contenido DISTINTO = solicitud nueva -> CREA.
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
+            SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+
+        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        {
+            // Titulo distinto = otra solicitud.
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Otra solicitud distinta", datos = new { nombre = "Juan Perez" } });
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
     }
 
     [Fact]

@@ -12,8 +12,28 @@ public static class AiToolRunContext
     /// Lo usa la herramienta de pruebas del agente para simular "el cliente envio un archivo".</summary>
     public sealed record PendingAttachment(string Url, string FileName, string? MimeType);
 
-    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments, IReadOnlyList<Guid>? AllowedBoardIds, Guid? AgentId);
+    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments, IReadOnlyList<Guid>? AllowedBoardIds, Guid? AgentId)
+    {
+        /// <summary>Resultados de cierre ya producidos en ESTE turno, por herramienta (crear_tarea /
+        /// crear_actividad). Guardia intra-turno de idempotencia (ADR-0101): una segunda llamada a la misma
+        /// herramienta en el mismo turno devuelve este resultado en vez de crear otra tarea. Se descarta con
+        /// el Scope al terminar el turno.</summary>
+        public Dictionary<string, string> TurnResults { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
     private static readonly AsyncLocal<Scope?> _current = new();
+
+    /// <summary>Hay un turno de agente en curso (contexto activo).</summary>
+    public static bool IsActive => _current.Value is not null;
+
+    /// <summary>Resultado de cierre ya emitido por esta herramienta en el turno actual, o null. Ver TurnResults.</summary>
+    public static string? TryGetTurnResult(string toolKey)
+        => _current.Value is { } s && s.TurnResults.TryGetValue(toolKey, out var v) ? v : null;
+
+    /// <summary>Recuerda el resultado de cierre de una herramienta para el resto del turno (idempotencia intra-turno).</summary>
+    public static void SetTurnResult(string toolKey, string resultJson)
+    {
+        if (_current.Value is { } s) { s.TurnResults[toolKey] = resultJson; }
+    }
 
     public static Guid? ConversationId => _current.Value?.ConversationId;
     public static string? ImageBase64 => _current.Value?.ImageBase64;

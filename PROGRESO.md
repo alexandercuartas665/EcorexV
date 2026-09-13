@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-13 - v0.16.58: idempotencia del cierre del agente (no mas tareas duplicadas, ADR-0101)
+
+- Problema: crear_tarea / crear_actividad se llamaban varias veces al cerrar (mismo turno por el bucle de
+  tool-calling, o en turnos siguientes al "ya quedo?") -> tareas DUPLICADAS. Prompt no confiable; se resuelve
+  en codigo. REGLA DE ORO: dedup por CONTENIDO, NO por conversacion (una solicitud NUEVA en el mismo chat SI
+  crea tarea nueva).
+- Dos capas en un helper compartido AgentTaskIdempotency (usado por ambos toolsets; NO se toca
+  ITaskItemService.CreateAsync ni el wizard):
+  - Capa 1 (intra-turno): la 1a creacion OK se recuerda en AiToolRunContext (dict por-turno, key=herramienta);
+    una 2a llamada de esa herramienta en el mismo turno devuelve el mismo ticket sin insertar.
+  - Capa 2 (contenido entre turnos): antes de crear busca una tarea reciente con mismo contacto
+    (telefono, o nombre) + mismo tablero (crear_tarea) o concepto/SubcategoriaId (crear_actividad) + mismo
+    titulo+descripcion NORMALIZADOS (trim+colapsar espacios+minusculas) + no archivada + created_at dentro de
+    ventana (45 min). Si existe -> ese ticket; si no -> crea. Sin contacto no deduplica.
+- Criterio elegido: contacto+contenido+ventana, SIN migracion (no se agrega conversation_id a TaskItem).
+- Tests: +7 (TasksToolsetBoardWhitelistTests +4, ActividadesToolsetTests +3): intra-turno, turno-posterior
+  mismo contenido -> existente, CONTENIDO DISTINTO -> crea nueva (regla de oro), fuera de ventana -> crea.
+  Los InnerDb de esos tests ahora modelan TaskItem (solo escalares) para el query del helper.
+  Application.Tests 897/897 verdes. Build de SuperAdmin verde. NO toca crear_tarea existente salvo la guardia.
+- Siguiente: deploy a senal del usuario.
+
 ## 2026-09-13 - v0.16.57: crear_actividad pone la DESCRIPCION de la actividad (patron de crear_tarea)
 
 - Gap unico: la herramienta crear_actividad (ActividadesToolset, ADR-0098) creaba la actividad, llenaba el

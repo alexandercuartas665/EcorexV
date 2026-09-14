@@ -29,6 +29,7 @@ public class ActividadesToolsetTests
     {
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+        public DbSet<Conversation> Conversations => Set<Conversation>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -260,7 +261,7 @@ public class ActividadesToolsetTests
         public DbSet<ContactSearchRun> ContactSearchRuns => throw new NotSupportedException();
         public DbSet<EmailTemplate> EmailTemplates => throw new NotSupportedException();
         public DbSet<FollowUpTask> FollowUpTasks => throw new NotSupportedException();
-        public DbSet<Conversation> Conversations => throw new NotSupportedException();
+        public DbSet<Conversation> Conversations => inner.Conversations;
         public DbSet<Message> Messages => throw new NotSupportedException();
         public DbSet<TenantBlockedNumber> TenantBlockedNumbers => throw new NotSupportedException();
         public DbSet<MessageTemplate> MessageTemplates => throw new NotSupportedException();
@@ -573,24 +574,26 @@ public class ActividadesToolsetTests
     }
 
     [Fact]
-    public async Task CrearActividad_turno_posterior_mismo_contenido_devuelve_existente()
+    public async Task CrearActividad_misma_conversacion_en_ventana_devuelve_existente()
     {
-        // Capa 2 (ADR-0101): en un turno posterior, mismo contacto+concepto+contenido dentro de ventana ->
-        // devuelve el ticket existente, NO crea otra.
+        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Un segundo cierre de la MISMA conversacion dentro
+        // de la ventana devuelve el ticket existente, AUNQUE cambien telefono/resumen.
+        var conv = Guid.NewGuid();
         var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
             SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
-            CreatedAt = DateTimeOffset.UtcNow
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
 
         JsonElement r;
-        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
         {
-            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez" } });
+            // Titulo/resumen DISTINTOS: aun asi es la misma conversacion en la ventana -> NO duplica.
+            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Otro resumen distinto", datos = new { nombre = "Juan Perez" } });
         }
 
         Assert.Equal(0, tasks.CreateCalls);
@@ -598,26 +601,50 @@ public class ActividadesToolsetTests
     }
 
     [Fact]
-    public async Task CrearActividad_misma_conversacion_contenido_distinto_crea_nueva()
+    public async Task CrearActividad_misma_conversacion_fuera_de_ventana_crea_nueva()
     {
-        // REGLA DE ORO (ADR-0101): misma persona, MISMO chat, pero contenido DISTINTO = solicitud nueva -> CREA.
+        // REGLA DE ORO (ADR-0101 rev.2): una solicitud NUEVA en el mismo chat, pasada la ventana corta,
+        // crea una tarea NUEVA (la tarea previa quedo fuera de la ventana).
+        var conv = Guid.NewGuid();
         var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
             SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
-            CreatedAt = DateTimeOffset.UtcNow
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.ConversationWindowMinutes + 5))
         });
         inner.SaveChanges();
 
-        using (AiToolRunContext.Begin(null, null, null, null, null, agentId: AgentId))
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
         {
-            // Titulo distinto = otra solicitud.
-            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Otra solicitud distinta", datos = new { nombre = "Juan Perez" } });
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez" } });
         }
 
         Assert.Equal(1, tasks.CreateCalls);
+    }
+
+    [Fact]
+    public async Task CrearActividad_telefono_real_de_conversacion_gana_sobre_el_del_formulario()
+    {
+        // ADR-0101 rev.2: el telefono REAL de la conversacion gana; el del formulario (que el modelo alucina)
+        // solo seria respaldo sin conversacion. Ademas se estampa el ConversationId en la tarea.
+        var conv = Guid.NewGuid();
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true),
+                      Q("telefono", "Telefono", FormControlType.Text, required: false));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.Conversations.Add(new Conversation { Id = conv, TenantId = Tenant, ContactPhone = "573001112233" });
+        inner.SaveChanges();
+
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
+        {
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez", telefono = "999-INVENTADO" } });
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
+        Assert.Equal("573001112233", tasks.LastRequest!.RequesterPhone);
+        Assert.Equal(conv, tasks.LastRequest!.ConversationId);
     }
 
     [Fact]

@@ -30,6 +30,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
         public DbSet<Message> Messages => Set<Message>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+        public DbSet<Conversation> Conversations => Set<Conversation>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -167,7 +168,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<ContactSearchRun> ContactSearchRuns => throw new NotSupportedException();
         public DbSet<EmailTemplate> EmailTemplates => throw new NotSupportedException();
         public DbSet<FollowUpTask> FollowUpTasks => throw new NotSupportedException();
-        public DbSet<Conversation> Conversations => throw new NotSupportedException();
+        public DbSet<Conversation> Conversations => inner.Conversations;
         public DbSet<Message> Messages => inner.Messages;
         public DbSet<TenantBlockedNumber> TenantBlockedNumbers => throw new NotSupportedException();
         public DbSet<MessageTemplate> MessageTemplates => throw new NotSupportedException();
@@ -527,61 +528,67 @@ public class TasksToolsetBoardWhitelistTests
     }
 
     [Fact]
-    public async Task CrearTarea_turno_posterior_mismo_contenido_devuelve_existente()
+    public async Task CrearTarea_misma_conversacion_en_ventana_devuelve_existente()
     {
-        // Capa 2: turno posterior, mismo contacto+tablero+contenido dentro de ventana -> ticket existente, no crea.
+        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Un segundo cierre de la MISMA conversacion dentro
+        // de la ventana devuelve el ticket existente, AUNQUE cambien telefono/resumen.
+        var conv = Guid.NewGuid();
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false, CreatedAt = DateTimeOffset.UtcNow
+            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
-        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
         {
             var r = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea",
-                CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233"), Guid.NewGuid(), true)).Json).RootElement;
+                CreateArgs("Tablero A", "Otra cosa distinta", telefono: "otro-numero"), Guid.NewGuid(), true)).Json).RootElement;
             Assert.Equal(0, tasks.CreateCalls);
             Assert.Equal("T-777", r.GetProperty("ticket").GetString());
         }
     }
 
     [Fact]
-    public async Task CrearTarea_misma_conversacion_contenido_distinto_crea_nueva()
+    public async Task CrearTarea_misma_conversacion_fuera_de_ventana_crea_nueva()
     {
-        // REGLA DE ORO: mismo contacto, MISMO chat, contenido DISTINTO = solicitud nueva -> CREA.
-        var (ts, tasks, inner) = NewToolset();
-        inner.TaskItems.Add(new TaskItem
-        {
-            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false, CreatedAt = DateTimeOffset.UtcNow
-        });
-        inner.SaveChanges();
-        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
-        {
-            await ts.ExecuteAsync("crear_tarea",
-                CreateArgs("Tablero A", "Ahora necesito otra cosa distinta", telefono: "573001112233"), Guid.NewGuid(), true);
-            Assert.Equal(1, tasks.CreateCalls);
-        }
-    }
-
-    [Fact]
-    public async Task CrearTarea_fuera_de_ventana_crea_nueva()
-    {
-        // Capa 2: mismo contenido pero la tarea previa esta FUERA de la ventana -> se crea otra.
+        // REGLA DE ORO (ADR-0101 rev.2): una solicitud NUEVA en el mismo chat, pasada la ventana corta,
+        // crea una tarea NUEVA (la tarea previa quedo fuera de la ventana).
+        var conv = Guid.NewGuid();
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
             BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
-            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.WindowMinutes + 5))
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.ConversationWindowMinutes + 5))
         });
         inner.SaveChanges();
-        using (AiToolRunContext.Begin(null, null, null, null, allowedBoardIds: null))
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
         {
             await ts.ExecuteAsync("crear_tarea",
                 CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233"), Guid.NewGuid(), true);
             Assert.Equal(1, tasks.CreateCalls);
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_telefono_real_de_conversacion_gana_sobre_el_del_modelo()
+    {
+        // ADR-0101 rev.2: el telefono REAL (ContactPhone de la conversacion) gana sobre el que pasa el modelo
+        // en cliente_telefono (que suele alucinar). Ademas se estampa el ConversationId en la tarea.
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.Conversations.Add(new Conversation { Id = conv, TenantId = Tenant, ContactPhone = "573001112233" });
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Necesito ayuda", telefono: "999-INVENTADO"), Guid.NewGuid(), true);
+            Assert.Equal(1, tasks.CreateCalls);
+            Assert.Equal("573001112233", tasks.LastRequest!.RequesterPhone);
+            Assert.Equal(conv, tasks.LastRequest!.ConversationId);
         }
     }
 }

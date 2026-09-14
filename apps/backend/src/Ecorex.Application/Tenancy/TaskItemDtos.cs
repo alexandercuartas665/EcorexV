@@ -80,7 +80,10 @@ public sealed record CreateTaskItemRequest(
     // Subtareas: tarea padre (la subtarea hereda tablero/columna/tenant del padre).
     Guid? ParentId = null,
     // Tarea ORIGEN que genero esta por una regla/flujo (distinto de ParentId; suele nacer en otro tablero).
-    Guid? SourceTaskId = null);
+    Guid? SourceTaskId = null,
+    // ADR-0101 rev.2: conversacion (WhatsApp/chat) que origino la tarea, cuando la crea un agente al cerrar.
+    // Llave estable de idempotencia del cierre. Null en el alta por wizard u otros modulos.
+    Guid? ConversationId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateTaskItemRequest(

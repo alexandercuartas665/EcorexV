@@ -1320,6 +1320,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => new { x.TenantId, x.ProjectId });
             b.HasIndex(x => new { x.TenantId, x.AssigneeTenantUserId, x.Status });
             b.HasIndex(x => new { x.TenantId, x.BoardId, x.ColumnId, x.BoardSortOrder });
+            // ADR-0101 rev.2: enlace a la conversacion que origino la tarea (llave de idempotencia del cierre).
+            // Indice para la busqueda de dedup por conversacion + ventana corta. Columna escalar (sin FK).
+            b.HasIndex(x => new { x.TenantId, x.ConversationId });
         });
 
         modelBuilder.Entity<TaskItemChecklistItem>(b =>

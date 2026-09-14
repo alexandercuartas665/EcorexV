@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.70: crear_contacto usa el telefono REAL de la conversacion + dedup por telefono (ADR-0101)
+
+- Mejora de la herramienta EXISTENTE crear_contacto (DirectorioToolset, usada por SARA/MAURO/EPRING); no se
+  toca el schema/firma ni el alta por wizard. Heredaba dos huecos ya resueltos en crear_tarea:
+  1) guardaba el telefono ALUCINADO por el modelo; 2) solo deduplicaba por identificacion, asi que un cliente
+     que volvia por el MISMO numero (sin NIT/cedula) creaba un tercero duplicado.
+- Cambios (sin migracion):
+  - Telefono REAL: si hay AiToolRunContext.ConversationId, el telefono sale del Conversations.ContactPhone de
+    esa conversacion; el arg 'telefono' del modelo solo es respaldo cuando NO hay conversacion. Se guarda
+    normalizado a SOLO digitos.
+  - Dedup por telefono cuando NO viene identificacion: compara por los ULTIMOS 10 digitos (absorbe el prefijo
+    de pais); pre-filtro SQL por sufijo + verificacion en memoria; excluye Inactivos. Orden: (a) identificacion
+    -> (b) telefono ultimos-10 -> (c) crear. La dedup por identificacion ahora tambien excluye Inactivos.
+- Tests: DirectorioToolsetContactTests (5, verdes). Nota agregada al ADR-0101.
+- Siguiente: NO desplegado (a la senal del usuario). Pendiente aparte: desplegar v0.16.69 (fix FK delete-line).
+
 ## 2026-09-14 - v0.16.69: FIX eliminar linea de WhatsApp reventaba el circuito por FK (plantillas)
 
 - Sintoma: al eliminar una linea (ej. "Linea demo SKY") con plantillas HSM asociadas, PostgreSQL rechazaba

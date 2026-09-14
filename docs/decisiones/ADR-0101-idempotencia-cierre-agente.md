@@ -80,3 +80,23 @@ crea tarea nueva; solo se colapsan re-cierres/confirmaciones inmediatas (segundo
 Tests (reescritos): misma conversacion en ventana -> UNA tarea (aunque cambie telefono/resumen); misma
 conversacion FUERA de ventana -> tarea nueva; telefono real de la conversacion gana sobre el del modelo;
 + intra-turno. En ambos toolsets. Application.Tests 909/909 verdes.
+
+## Nota v0.16.70 - mismo criterio de telefono/dedup para crear_contacto (Directorio)
+
+`crear_contacto` (DirectorioToolset, usado por SARA/MAURO/EPRING) heredaba dos huecos ya resueltos en
+crear_tarea: (1) guardaba el telefono que ALUCINABA el modelo, y (2) solo deduplicaba por identificacion,
+asi que un cliente que volvia por el MISMO numero (sin NIT/cedula) creaba un tercero duplicado.
+
+Cambios (sin migracion, no toca el schema/firma de la herramienta ni el alta por wizard):
+- Telefono REAL: si hay `AiToolRunContext.ConversationId`, el telefono sale del `Conversations.ContactPhone`
+  de esa conversacion; el arg `telefono` del modelo solo es respaldo cuando NO hay conversacion (mismo
+  criterio que crear_tarea). Se guarda normalizado a SOLO digitos.
+- Dedup por telefono cuando NO viene identificacion: se compara por los ULTIMOS 10 digitos (asi
+  "573001234567" == "3001234567", absorbiendo el prefijo de pais); pre-filtro SQL por sufijo + verificacion
+  en memoria. Excluye terceros Inactivos. Orden de dedup: (a) identificacion por IdValor -> (b) telefono
+  ultimos-10 -> (c) crear. La dedup por identificacion no cambia (ahora tambien excluye Inactivos).
+
+Tests: DirectorioToolsetContactTests (5) - usa el telefono real de la conversacion sobre el del modelo;
+segunda llamada en la misma conversacion no duplica; dedup por ultimos-10 absorbe el prefijo; un Inactivo
+no bloquea (se crea uno nuevo); con identificacion sigue deduplicando por identificacion. Application.Tests
+verdes.

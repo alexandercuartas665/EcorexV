@@ -84,18 +84,49 @@ public sealed class DirectorioToolset : IDirectorioToolset
         var sector = Str(args, "sector");
         var cargo = Str(args, "cargo");
 
-        // Idempotencia: si ya hay un tercero con esa identificacion, no duplicar (el filtro global lo acota al tenant).
+        // Telefono REAL de la conversacion (ADR-0101 rev.2, mismo criterio que crear_tarea): gana el
+        // ContactPhone de la conversacion en curso; el arg 'telefono' del modelo solo es respaldo cuando NO
+        // hay conversacion (el modelo suele ALUCINAR el numero). Solo aplica con AiToolRunContext (agente).
+        if (AiToolRunContext.ConversationId is Guid convPhoneId)
+        {
+            var convPhone = await _db.Conversations.AsNoTracking()
+                .Where(c => c.Id == convPhoneId).Select(c => c.ContactPhone).FirstOrDefaultAsync(ct);
+            if (!string.IsNullOrWhiteSpace(convPhone)) { telefono = convPhone; }
+        }
+        var telefonoDigitos = Digits(telefono);   // solo digitos: es lo que se guarda como telefono del contacto
+        var telefono10 = Last10(telefono);         // ultimos 10 digitos: llave de deduplicacion por telefono
+
+        // Idempotencia (a) por identificacion: si ya hay un tercero con ese documento, no duplicar (el filtro
+        // global lo acota al tenant). Se excluyen los inactivos (baja/soft-delete).
         if (!string.IsNullOrWhiteSpace(identificacion))
         {
             var idv = identificacion!.Trim();
             var existente = await _db.Terceros.AsNoTracking()
-                .Where(t => t.IdValor == idv)
+                .Where(t => t.IdValor == idv && t.Estado != TerceroEstado.Inactivo)
                 .Select(t => new { t.Id, t.Nombre })
                 .FirstOrDefaultAsync(ct);
             if (existente is not null)
             {
                 return Ok(new { ok = true, contacto_id = existente.Id, nombre = existente.Nombre, ya_existia = true,
                     mensaje = $"El contacto '{existente.Nombre}' ya estaba registrado; no se duplico." });
+            }
+        }
+        // Idempotencia (b) por TELEFONO cuando NO viene identificacion: un cliente que vuelve por el MISMO
+        // numero no debe crear un contacto duplicado. Se compara SOLO por digitos y por los ULTIMOS 10 (asi
+        // "573001234567" == "3001234567", absorbiendo el prefijo de pais). Excluye inactivos.
+        else if (telefono10 is not null)
+        {
+            // Pre-filtro en SQL por el sufijo de digitos (barato) y verificacion final por ultimos-10 en memoria.
+            var candidatos = await _db.Terceros.AsNoTracking()
+                .Where(t => t.Estado != TerceroEstado.Inactivo && t.Telefono != null
+                    && EF.Functions.Like(t.Telefono, "%" + telefono10))
+                .Select(t => new { t.Id, t.Nombre, t.Telefono })
+                .ToListAsync(ct);
+            var porTelefono = candidatos.FirstOrDefault(c => Last10(c.Telefono) == telefono10);
+            if (porTelefono is not null)
+            {
+                return Ok(new { ok = true, contacto_id = porTelefono.Id, nombre = porTelefono.Nombre, ya_existia = true,
+                    mensaje = $"El contacto '{porTelefono.Nombre}' ya estaba registrado con ese telefono; no se duplico." });
             }
         }
 
@@ -110,7 +141,7 @@ public sealed class DirectorioToolset : IDirectorioToolset
             Sector: tipo == TerceroTipo.Empresa && !string.IsNullOrWhiteSpace(sector) ? sector!.Trim() : null,
             Cargo: tipo == TerceroTipo.Persona && !string.IsNullOrWhiteSpace(cargo) ? cargo!.Trim() : null,
             Email: string.IsNullOrWhiteSpace(email) ? null : email!.Trim(),
-            Telefono: string.IsNullOrWhiteSpace(telefono) ? null : telefono!.Trim());
+            Telefono: telefonoDigitos);
 
         var res = await _terceros.CreateAsync(req, ct);
         if (!res.IsOk || res.Value is null)
@@ -136,6 +167,21 @@ public sealed class DirectorioToolset : IDirectorioToolset
         "telefono" => TerceroIdTipo.Telefono,
         _ => tipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion
     };
+
+    /// <summary>Deja SOLO los digitos de un telefono (quita +, espacios, guiones, parentesis). Null si no queda ninguno.</summary>
+    private static string? Digits(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var d = new string(s.Where(char.IsDigit).ToArray());
+        return d.Length == 0 ? null : d;
+    }
+
+    /// <summary>Ultimos 10 digitos de un telefono (para deduplicar absorbiendo el prefijo de pais). Null si no hay digitos.</summary>
+    private static string? Last10(string? s)
+    {
+        var d = Digits(s);
+        return d is null ? null : (d.Length > 10 ? d[^10..] : d);
+    }
 
     private static AgentToolResult Ok(object payload) => new(JsonSerializer.Serialize(payload, JsonOut), SessionCompleted: false);
     private static AgentToolResult Err(string message) => new(JsonSerializer.Serialize(new { ok = false, error = message }, JsonOut), SessionCompleted: false);

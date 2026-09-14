@@ -3,6 +3,7 @@
 @using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IDirectorioModularFichaService Fichas
 @inject IJSRuntime JS
 
@@ -274,6 +275,10 @@
     // ficha (seccion) -> campo -> valor
     private readonly Dictionary<string, Dictionary<string, string>> _valores = new(StringComparer.Ordinal);
 
+    // Usuario actual (para AllowCreate de los campos tipo lista del Contenedor).
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private Guid _actorId;
+
     private bool IsOpen => CategoriaKey is not null || TerceroId is not null;
 
     protected override async Task OnParametersSetAsync()
@@ -287,6 +292,11 @@
         _loadedFor = loadKey;
         _error = null;
         _saving = false;
+        if (_actorId == Guid.Empty && AuthState is not null)
+        {
+            var st = await AuthState;
+            _actorId = Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid) ? uid : Guid.Empty;
+        }
         _ficha = null;
         _valores.Clear();
         _estado = "Activo";
@@ -332,6 +342,32 @@
     {
         if (!_valores.TryGetValue(ficha, out var d)) { d = _valores[ficha] = new(StringComparer.Ordinal); }
         d[campo] = valor ?? "";
+    }
+
+    // ---- Campos tipo lista del Contenedor/Directorio (Lookup/DirectoryLookup) ----
+
+    /// <summary>Todos los valores de la ficha, con clave cualificada "{seccion}/{campo}", para la
+    /// cascada de los lookups (que mira el formulario completo). Mismo formato que el motor Clasico.</summary>
+    private Dictionary<string, string?> FlattenValores()
+    {
+        var todos = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (ficha, campos) in _valores)
+        {
+            foreach (var (key, val) in campos) { todos[$"{ficha}/{key}"] = val; }
+        }
+        return todos;
+    }
+
+    /// <summary>Al elegir una fila del lookup, vuelca las columnas de autollenado en sus campos destino
+    /// (clave "{seccion}/{campo}").</summary>
+    private void AplicarAutollenado(IReadOnlyDictionary<string, string?> valores)
+    {
+        foreach (var (target, val) in valores)
+        {
+            var i = target.IndexOf('/');
+            if (i <= 0 || i >= target.Length - 1) { continue; }
+            SetVal(target[..i], target[(i + 1)..], val);
+        }
     }
 
     // ---- Cascada geografica (Pais -> Departamento -> Ciudad), resuelta a nivel de seccion ----
@@ -606,7 +642,44 @@
                 break;
             }
             case TerceroFieldType.Lookup:
+            {
+                // Lista alimentada por una tabla del Contenedor de datos. La config (tabla/columna/
+                // cascada/autollenado) va en Options como JSON. Guarda el Id de la fila.
+                var lkCfg = Ecorex.Application.DataLookups.DataLookupConfig.TryParse(f.Options);
+                if (lkCfg is not null)
+                {
+                    builder.OpenComponent<Ecorex.SuperAdmin.Components.Shared.Lookups.DataLookupField>(0);
+                    builder.AddAttribute(1, "Config", lkCfg);
+                    builder.AddAttribute(2, "Value", (string?)val);
+                    builder.AddAttribute(3, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => SetVal(ficha, f.FieldKey, v)));
+                    builder.AddAttribute(4, "FormValues", (IReadOnlyDictionary<string, string?>)FlattenValores());
+                    builder.AddAttribute(5, "OnAutofill", EventCallback.Factory.Create<IReadOnlyDictionary<string, string?>>(this, AplicarAutollenado));
+                    builder.AddAttribute(6, "ActorUserId", _actorId);
+                    builder.AddAttribute(7, "Placeholder", $"Buscar {f.Label.ToLowerInvariant()}...");
+                    builder.CloseComponent();
+                }
+                else
+                {
+                    builder.OpenElement(0, "div");
+                    builder.AddAttribute(1, "class", "fm-hint");
+                    builder.AddContent(2, "Este campo aun no tiene configurada su tabla de origen.");
+                    builder.CloseElement();
+                }
+                break;
+            }
             case TerceroFieldType.DirectoryLookup:
+            {
+                // Lista alimentada por el Directorio de terceros (filtra por perfil). Guarda el Id del tercero.
+                var dirCfg = Ecorex.Application.Forms.Lookups.DirectoryLookupConfig.TryParse(f.Options)
+                             ?? new Ecorex.Application.Forms.Lookups.DirectoryLookupConfig();
+                builder.OpenComponent<Ecorex.SuperAdmin.Components.Shared.Lookups.DirectoryLookupField>(0);
+                builder.AddAttribute(1, "Config", dirCfg);
+                builder.AddAttribute(2, "Value", (string?)val);
+                builder.AddAttribute(3, "ValueChanged", EventCallback.Factory.Create<string?>(this, v => SetVal(ficha, f.FieldKey, v)));
+                builder.AddAttribute(4, "Placeholder", $"Buscar {f.Label.ToLowerInvariant()}...");
+                builder.CloseComponent();
+                break;
+            }
             case TerceroFieldType.Calculated:
             case TerceroFieldType.Table:
                 // v1: placeholder (estos controles ricos llegan en un slice posterior).

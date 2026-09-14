@@ -5,10 +5,13 @@
    Parameter-driven (Show/OnClosed) para no depender de @ref. Acento negro, coherente con el listado. *@
 @using System.Text.Json
 @using Ecorex.Application.Directorio
+@using Ecorex.Application.DataLookups
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Domain.Enums
 @inject IDirectorioCategoriaService Cats
 @inject IDirectorioModularFichaService Fichas
 @inject IDirectorioModularConfigService Config
+@inject IDataLookupService LookupSvc
 
 @if (Show)
 {
@@ -295,7 +298,7 @@
                             <input class="cfg-input" @bind="_fLabel" @bind:event="oninput" placeholder="Ej. Zona de despacho" /></div>
                         <div class="cfg-row2">
                             <div class="cfg-fld"><label>Tipo</label>
-                                <select class="cfg-input" @bind="_fTipo">
+                                <select class="cfg-input" @bind="_fTipo" @bind:after="OnTipoCampoChangedAsync">
                                     @foreach (var t in Tipos){<option value="@t.Key">@t.Value</option>}
                                 </select></div>
                             <div class="cfg-fld"><label>Ancho</label>
@@ -338,6 +341,92 @@
                                 }
                                 <button class="cfg-btn-soft cfg-mt3" @onclick="() => _fCols.Add(new CampoTablaCol())"><i class="fa fa-plus"></i> Agregar columna</button>
                             </div>
+                        }
+                        @if (_fTipo == TerceroFieldType.Lookup)
+                        {
+                            @* Lista alimentada por el Contenedor de datos: Modelo -> Tabla -> Columna. Todo por ID. *@
+                            <div class="cfg-row2">
+                                <div class="cfg-fld"><label>Modelo de datos <span class="cfg-req">*</span></label>
+                                    <select class="cfg-input" value="@(_lkModelId?.ToString() ?? "")" @onchange="OnLookupModelChangedAsync">
+                                        <option value="">-- Elige un modelo --</option>
+                                        @foreach (var m in _lkModels){<option value="@m.Id" selected="@(_lkModelId == m.Id)">@m.Name</option>}
+                                    </select></div>
+                                <div class="cfg-fld"><label>Tabla <span class="cfg-req">*</span></label>
+                                    <select class="cfg-input" value="@(_lkTableId?.ToString() ?? "")" @onchange="OnLookupTableChangedAsync" disabled="@(_lkModelId is null)">
+                                        <option value="">-- Elige una tabla --</option>
+                                        @foreach (var t in _lkTables){<option value="@t.Id" selected="@(_lkTableId == t.Id)">@t.Name</option>}
+                                    </select></div>
+                            </div>
+                            <div class="cfg-row2">
+                                <div class="cfg-fld"><label>Columna que se muestra</label>
+                                    <select class="cfg-input" value="@(_lkDisplayCol?.ToString() ?? "")" @onchange="e => _lkDisplayCol = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null" disabled="@(_lkTableId is null)">
+                                        <option value="">-- Columna --</option>
+                                        @foreach (var c in _lkColumns){<option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>}
+                                    </select></div>
+                                <div class="cfg-fld"><label>Presentacion</label>
+                                    <select class="cfg-input" value="@_lkDisplayMode" @onchange="e => _lkDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                        <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                        <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                    </select></div>
+                            </div>
+                            <label class="cfg-check"><input type="checkbox" @bind="_lkAllowCreate" /> Permitir crear filas nuevas desde el campo</label>
+                            @if (_lkTableId is not null)
+                            {
+                                @* Autollenado: al elegir una fila, columnas -> otros campos de la ficha. *@
+                                <div class="cfg-fld cfg-mt3"><label>Autollenado <span class="cfg-meta">(columna -> campo)</span></label>
+                                    @foreach (var a in _lkAutofill)
+                                    {
+                                        var aa = a;
+                                        <div class="cfg-col-row">
+                                            <select class="cfg-input" value="@aa.ColumnId" @onchange="e => aa.ColumnId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : Guid.Empty">
+                                                @foreach (var c in _lkColumns){<option value="@c.Id" selected="@(aa.ColumnId == c.Id)">@c.Name</option>}
+                                            </select>
+                                            <select class="cfg-input" value="@aa.TargetKey" @onchange="e => aa.TargetKey = e.Value?.ToString() ?? string.Empty">
+                                                <option value="">-- Campo destino --</option>
+                                                @foreach (var (key, label) in OtrosCamposDeLaFicha()){<option value="@key" selected="@(aa.TargetKey == key)">@label</option>}
+                                            </select>
+                                            <button class="cfg-ico cfg-ico-danger" title="Quitar" @onclick="() => _lkAutofill.Remove(aa)"><i class="fa fa-trash-can"></i></button>
+                                        </div>
+                                    }
+                                    <button class="cfg-btn-soft cfg-mt3" @onclick="AddAutofill"><i class="fa fa-plus"></i> Agregar autollenado</button>
+                                </div>
+                                @* Cascada: la lista se filtra por el valor de otro campo. *@
+                                <div class="cfg-fld cfg-mt3"><label>Cascada <span class="cfg-meta">(filtrar columna por otro campo)</span></label>
+                                    @foreach (var f in _lkFilters)
+                                    {
+                                        var ff = f;
+                                        <div class="cfg-col-row">
+                                            <select class="cfg-input" value="@ff.ColumnId" @onchange="e => ff.ColumnId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : Guid.Empty">
+                                                @foreach (var c in _lkColumns){<option value="@c.Id" selected="@(ff.ColumnId == c.Id)">@c.Name</option>}
+                                            </select>
+                                            <select class="cfg-input" value="@ff.FromKey" @onchange="e => ff.FromKey = e.Value?.ToString() ?? string.Empty">
+                                                <option value="">-- Segun campo --</option>
+                                                @foreach (var (key, label) in OtrosCamposDeLaFicha()){<option value="@key" selected="@(ff.FromKey == key)">@label</option>}
+                                            </select>
+                                            <button class="cfg-ico cfg-ico-danger" title="Quitar" @onclick="() => _lkFilters.Remove(ff)"><i class="fa fa-trash-can"></i></button>
+                                        </div>
+                                    }
+                                    <button class="cfg-btn-soft cfg-mt3" @onclick="AddFilter"><i class="fa fa-plus"></i> Agregar cascada</button>
+                                </div>
+                            }
+                        }
+                        @if (_fTipo == TerceroFieldType.DirectoryLookup)
+                        {
+                            <div class="cfg-row2">
+                                <div class="cfg-fld"><label>Perfil del directorio</label>
+                                    <select class="cfg-input" @bind="_dirPerfil">
+                                        <option value="">Todos los terceros</option>
+                                        <option value="Cliente">Solo clientes</option>
+                                        <option value="Proveedor">Solo proveedores</option>
+                                        <option value="Empleado">Solo empleados</option>
+                                    </select></div>
+                                <div class="cfg-fld"><label>Presentacion</label>
+                                    <select class="cfg-input" value="@_dirDisplayMode" @onchange="e => _dirDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                        <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                        <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                    </select></div>
+                            </div>
+                            <div class="cfg-meta">Lista los terceros del Directorio del perfil elegido. Guarda la referencia al tercero (la etiqueta se actualiza sola).</div>
                         }
                         <div class="cfg-fld"><label>Descripcion <span class="cfg-meta">(opcional)</span></label>
                             <input class="cfg-input" @bind="_fDesc" @bind:event="oninput" /></div>
@@ -399,6 +488,24 @@
     private string _fNotas = string.Empty;
     private readonly List<CampoTablaCol> _fCols = new();   // columnas cuando el tipo es Tabla
 
+    // ---- Campo tipo lista del Contenedor (Lookup): config a JSON en Options ----
+    private List<LookupModelDto> _lkModels = new();
+    private List<LookupTableDto> _lkTables = new();
+    private List<LookupColumnDto> _lkColumns = new();
+    private Guid? _lkModelId;
+    private Guid? _lkTableId;
+    private Guid? _lkDisplayCol;
+    private DataLookupDisplayMode _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+    private bool _lkAllowCreate;
+    private readonly List<AutofillRow> _lkAutofill = new();
+    private readonly List<FilterRow> _lkFilters = new();
+    private sealed class AutofillRow { public Guid ColumnId { get; set; } public string TargetKey { get; set; } = ""; }
+    private sealed class FilterRow { public Guid ColumnId { get; set; } public string FromKey { get; set; } = ""; public string Value { get; set; } = ""; public bool Require { get; set; } }
+
+    // ---- Campo tipo lista del Directorio (DirectoryLookup) ----
+    private string _dirPerfil = string.Empty;
+    private DataLookupDisplayMode _dirDisplayMode = DataLookupDisplayMode.Typeahead;
+
     // Columna editable de un campo tipo Tabla (se serializa a Options como {columns:[...]}).
     private sealed class CampoTablaCol
     {
@@ -433,7 +540,9 @@
         new(TerceroFieldType.Email, "Correo electronico"),
         new(TerceroFieldType.Phone, "Telefono"), new(TerceroFieldType.Table, "Tabla (filas dinamicas)"),
         new(TerceroFieldType.Pais, "Pais"), new(TerceroFieldType.Departamento, "Departamento (Colombia)"),
-        new(TerceroFieldType.Ciudad, "Ciudad / Municipio (Colombia)")
+        new(TerceroFieldType.Ciudad, "Ciudad / Municipio (Colombia)"),
+        new(TerceroFieldType.Lookup, "Lista del Contenedor de datos"),
+        new(TerceroFieldType.DirectoryLookup, "Lista del Directorio (terceros)")
     };
 
     protected override async Task OnParametersSetAsync()
@@ -506,6 +615,109 @@
         _fDesc = string.Empty;
         _fNotas = string.Empty;
         _fCols.Clear();
+        ResetLookupCfg();
+        _dirPerfil = string.Empty;
+        _dirDisplayMode = DataLookupDisplayMode.Typeahead;
+    }
+
+    // ---- Editor de lookup (Contenedor de datos), calcado del motor Clasico ----
+
+    private void ResetLookupCfg()
+    {
+        _lkModelId = null; _lkTableId = null; _lkDisplayCol = null;
+        _lkDisplayMode = DataLookupDisplayMode.Typeahead; _lkAllowCreate = false;
+        _lkTables = new(); _lkColumns = new();
+        _lkAutofill.Clear(); _lkFilters.Clear();
+    }
+
+    /// <summary>Al elegir "Lista del Contenedor" carga el catalogo de modelos (si no esta).</summary>
+    private async Task OnTipoCampoChangedAsync()
+    {
+        if (_fTipo == TerceroFieldType.Lookup && _lkModels.Count == 0)
+        {
+            _lkModels = (await LookupSvc.ListModelsAsync()).ToList();
+        }
+    }
+
+    private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
+    {
+        _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkTableId = null; _lkDisplayCol = null;
+        _lkColumns.Clear(); _lkAutofill.Clear(); _lkFilters.Clear();
+        _lkTables = _lkModelId is Guid mid ? (await LookupSvc.ListTablesAsync(mid)).ToList() : new();
+    }
+
+    private async Task OnLookupTableChangedAsync(ChangeEventArgs e)
+    {
+        _lkTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkDisplayCol = null; _lkAutofill.Clear(); _lkFilters.Clear();
+        _lkColumns = _lkTableId is Guid tid ? (await LookupSvc.ListColumnsAsync(tid)).ToList() : new();
+    }
+
+    private void AddAutofill()
+        => _lkAutofill.Add(new AutofillRow { ColumnId = _lkColumns.Count > 0 ? _lkColumns[0].Id : Guid.Empty });
+
+    private void AddFilter()
+        => _lkFilters.Add(new FilterRow { ColumnId = _lkColumns.Count > 0 ? _lkColumns[0].Id : Guid.Empty });
+
+    /// <summary>Otros campos de TODA la ficha (menos el que se edita) como destino de autollenado u
+    /// origen de cascada. Clave "{seccion}/{campo}" (unica solo dentro de la ficha).</summary>
+    private List<(string Key, string Label)> OtrosCamposDeLaFicha()
+        => _estructura.Secciones
+            .SelectMany(s => s.Campos.Select(c => (Sec: s, Campo: c)))
+            .Where(x => x.Campo.Id != _fEditId
+                && x.Campo.Type != TerceroFieldType.Separator
+                && x.Campo.Type != TerceroFieldType.Calculated)
+            .Select(x => ($"{x.Sec.FichaKey}/{x.Campo.FieldKey}", $"{x.Sec.Title}: {x.Campo.Label}"))
+            .ToList();
+
+    private async Task LoadLookupCfgAsync(string? options)
+    {
+        ResetLookupCfg();
+        var cfg = DataLookupConfig.TryParse(options);
+        if (cfg is null) { return; }
+        if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
+        _lkTableId = cfg.TableId;
+        _lkDisplayCol = cfg.DisplayColumnId;
+        _lkDisplayMode = cfg.DisplayMode;
+        _lkAllowCreate = cfg.AllowCreate;
+        _lkModelId = cfg.ModelId;
+        if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
+        _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
+        foreach (var a in cfg.Autofill ?? [])
+        {
+            _lkAutofill.Add(new AutofillRow { ColumnId = a.ColumnId, TargetKey = a.TargetFieldKey });
+        }
+        foreach (var f in cfg.Filters ?? [])
+        {
+            _lkFilters.Add(new FilterRow { ColumnId = f.ColumnId, FromKey = f.FromFieldKey ?? "", Value = f.Value ?? "", Require = f.RequireSource });
+        }
+    }
+
+    /// <summary>Serializa la config del lookup. Null si aun no hay tabla elegida.</summary>
+    private string? BuildLookupOptions()
+    {
+        if (_lkTableId is not Guid tid) { return null; }
+        var tabla = _lkTables.FirstOrDefault(t => t.Id == tid);
+        var cfg = new DataLookupConfig(
+            tid,
+            ModelId: _lkModelId,
+            DisplayColumnId: _lkDisplayCol,
+            Filters: _lkFilters
+                .Where(f => f.ColumnId != Guid.Empty && (!string.IsNullOrWhiteSpace(f.FromKey) || !string.IsNullOrWhiteSpace(f.Value)))
+                .Select(f => new DataLookupFilterConfig(f.ColumnId,
+                    string.IsNullOrWhiteSpace(f.Value) ? null : f.Value.Trim(),
+                    string.IsNullOrWhiteSpace(f.FromKey) ? null : f.FromKey, f.Require))
+                .ToList(),
+            Autofill: _lkAutofill
+                .Where(a => a.ColumnId != Guid.Empty && !string.IsNullOrWhiteSpace(a.TargetKey))
+                .Select(a => new DataLookupAutofillConfig(a.ColumnId, a.TargetKey))
+                .ToList(),
+            TableName: tabla?.Name,
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name,
+            DisplayMode: _lkDisplayMode,
+            AllowCreate: _lkAllowCreate);
+        return cfg.ToJson();
     }
 
     // Rellena el modelo de trabajo desde la categoria activa + su composicion de secciones.
@@ -655,18 +867,30 @@
     }
 
     // ---- Campos ----
-    private void EditarCampo(ModularCampoConfigDto f)
+    private async Task EditarCampo(ModularCampoConfigDto f)
     {
         _fEditId = f.Id;
         _fLabel = f.Label;
         _fTipo = f.Type;
         _fAncho = f.Ancho;
-        _fOpciones = f.Type == TerceroFieldType.Table ? string.Empty : (f.Options ?? string.Empty);
+        // Para Tabla/Lookup/DirectoryLookup las "opciones" son JSON de config, no texto libre editable.
+        _fOpciones = f.Type is TerceroFieldType.Table or TerceroFieldType.Lookup or TerceroFieldType.DirectoryLookup
+            ? string.Empty : (f.Options ?? string.Empty);
         _fReq = !string.IsNullOrWhiteSpace(f.RequeridoEn);
         _fDesc = f.Descripcion ?? string.Empty;
         _fNotas = f.NotasDesarrollador ?? string.Empty;
         _fCols.Clear();
+        ResetLookupCfg();
+        _dirPerfil = string.Empty;
+        _dirDisplayMode = DataLookupDisplayMode.Typeahead;
         if (f.Type == TerceroFieldType.Table) { ParseColsFromOptions(f.Options); }
+        else if (f.Type == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
+        else if (f.Type == TerceroFieldType.DirectoryLookup)
+        {
+            var dc = DirectoryLookupConfig.TryParse(f.Options);
+            _dirPerfil = dc?.Perfil ?? string.Empty;
+            _dirDisplayMode = dc?.DisplayMode ?? DataLookupDisplayMode.Typeahead;
+        }
         _msg = null;
     }
 
@@ -678,8 +902,20 @@
         var seccionKey = _seccionActiva;
         if (seccionKey is null) { return; }
 
-        // Para Tabla, las "opciones" que guarda el campo son la definicion de columnas (JSON).
-        var opts = _fTipo == TerceroFieldType.Table ? BuildColsJson() : _fOpciones;
+        // Segun el tipo, "opciones" es texto libre (Select) o JSON de configuracion (Tabla/Lookup/Directorio).
+        var opts = _fTipo switch
+        {
+            TerceroFieldType.Table => BuildColsJson(),
+            TerceroFieldType.Lookup => BuildLookupOptions(),
+            TerceroFieldType.DirectoryLookup => new DirectoryLookupConfig(
+                string.IsNullOrWhiteSpace(_dirPerfil) ? null : _dirPerfil, _dirDisplayMode).ToJson(),
+            _ => _fOpciones
+        };
+        if (_fTipo == TerceroFieldType.Lookup && opts is null)
+        {
+            _msg = "Elige el modelo y la tabla de origen del Contenedor.";
+            return;
+        }
 
         string? err;
         if (_fEditId is Guid editId)

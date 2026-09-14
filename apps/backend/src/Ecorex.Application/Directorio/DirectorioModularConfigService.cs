@@ -203,7 +203,9 @@ public sealed class DirectorioModularConfigService : IDirectorioModularConfigSer
     /// tal cual); los demas tipos no llevan Options.</summary>
     private static string? NormalizeOptions(TerceroFieldType tipo, string? opciones)
     {
-        if (tipo == TerceroFieldType.Table)
+        // Tabla y campos alimentados por Contenedor/Directorio guardan su configuracion como JSON en
+        // Options (mismo sitio que las opciones de un Select): se conserva tal cual.
+        if (tipo is TerceroFieldType.Table or TerceroFieldType.Lookup or TerceroFieldType.DirectoryLookup)
         {
             return string.IsNullOrWhiteSpace(opciones) ? null : opciones.Trim();
         }

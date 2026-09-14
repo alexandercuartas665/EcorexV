@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.DataLookups;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -17,12 +18,14 @@ public sealed class TerceroService : ITerceroService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IDirectoryVariantService _variant;
+    private readonly IDataLookupService _lookup;
 
-    public TerceroService(IApplicationDbContext db, ITenantContext tenant, IDirectoryVariantService variant)
+    public TerceroService(IApplicationDbContext db, ITenantContext tenant, IDirectoryVariantService variant, IDataLookupService lookup)
     {
         _variant = variant;
         _db = db;
         _tenant = tenant;
+        _lookup = lookup;
     }
 
     public async Task<IReadOnlyList<TerceroListItemDto>> ListAsync(
@@ -108,13 +111,18 @@ public sealed class TerceroService : ITerceroService
             })
             .ToListAsync(cancellationToken);
 
-        // Claves marcadas "ofrecer como filtro" (ADR-0029). Se consultan una vez, no por fila.
-        var filterKeys = await _db.TerceroFieldDefinitions
+        // Claves marcadas "ofrecer como filtro" (ADR-0029). Se traen definiciones (tipo + config) una vez.
+        // Excluye campos de secciones del motor Modular (clave "mod_"): no aplican al listado Clasico (Capa 8).
+        var filterDefs = await _db.TerceroFieldDefinitions
             .AsNoTracking()
-            // Excluye campos de secciones del motor Modular (clave "mod_"): no aplican al listado Clasico (Capa 8).
             .Where(f => f.ShowInFilter && !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
-            .Select(f => f.FieldKey)
+            .Select(f => new FilterFieldDef(f.FieldKey, f.FieldType, f.Options))
             .ToListAsync(cancellationToken);
+        var filterKeys = filterDefs.Select(f => f.FieldKey).ToList();
+
+        // Campos filtrables tipo Lookup: la ficha guarda el Id de fila; para el filtro se resuelve a su
+        // ETIQUETA (columna a mostrar) por lote, para no ofrecer Guids en el desplegable ni filtrar por Id.
+        var lookupLabels = await BuildLookupFilterLabelsAsync(filterDefs, rows.Select(r => r.FichasJson), cancellationToken);
 
         // Nombre del asesor asignado (catalogo 000074), en una consulta, no por fila.
         var asesorIds = rows.Where(r => r.VendedorAsesorId is not null)
@@ -138,7 +146,7 @@ public sealed class TerceroService : ITerceroService
             t.Contactos,
             t.Tipo == TerceroTipo.Empresa,
             t.Tipo == TerceroTipo.Persona,
-            ExtractFilterables(t.FichasJson, filterKeys),
+            ExtractFilterables(t.FichasJson, filterKeys, lookupLabels),
             t.VendedorAsesorId,
             t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null,
             t.ImagenUrl,
@@ -151,7 +159,8 @@ public sealed class TerceroService : ITerceroService
     /// marcada, para no cargar el listado con un diccionario vacio por fila.
     /// </summary>
     private static IReadOnlyDictionary<string, string>? ExtractFilterables(
-        string? fichasJson, IReadOnlyCollection<string> filterKeys)
+        string? fichasJson, IReadOnlyCollection<string> filterKeys,
+        IReadOnlyDictionary<string, Dictionary<string, string>> lookupLabels)
     {
         if (filterKeys.Count == 0 || string.IsNullOrWhiteSpace(fichasJson)) { return null; }
 
@@ -165,7 +174,12 @@ public sealed class TerceroService : ITerceroService
             {
                 foreach (var (key, value) in campos)
                 {
-                    if (filterKeys.Contains(key) && !string.IsNullOrWhiteSpace(value)) { result[key] = value; }
+                    if (!filterKeys.Contains(key) || string.IsNullOrWhiteSpace(value)) { continue; }
+                    // Campo Lookup: se guarda la ETIQUETA de la fila (no el Id) para el filtro; si no se
+                    // pudo resolver (fila borrada, etc.) cae al valor crudo.
+                    result[key] = lookupLabels.TryGetValue(key, out var m) && m.TryGetValue(value, out var lbl)
+                        ? lbl
+                        : value;
                 }
             }
             return result.Count > 0 ? result : null;
@@ -175,6 +189,60 @@ public sealed class TerceroService : ITerceroService
             // Un tercero con el JSON corrupto no debe tumbar el listado entero.
             return null;
         }
+    }
+
+    /// <summary>Definicion minima de un campo filtrable (clave + tipo + config JSON).</summary>
+    private sealed record FilterFieldDef(string FieldKey, TerceroFieldType FieldType, string? Options);
+
+    /// <summary>
+    /// Para los campos filtrables tipo Lookup, resuelve por LOTE el Id de fila guardado -> etiqueta (columna
+    /// a mostrar), leyendo todos los Ids presentes en las fichas. Devuelve fieldKey -> (idString -> etiqueta).
+    /// Best-effort: un campo sin config o una fila borrada simplemente no aporta etiqueta (cae al Id crudo).
+    /// </summary>
+    private async Task<Dictionary<string, Dictionary<string, string>>> BuildLookupFilterLabelsAsync(
+        IReadOnlyList<FilterFieldDef> filterDefs, IEnumerable<string?> fichasJsons, CancellationToken ct)
+    {
+        var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+
+        // Config por campo Lookup (solo los que tengan JSON valido con tabla).
+        var cfgByKey = new Dictionary<string, DataLookupConfig>(StringComparer.Ordinal);
+        foreach (var d in filterDefs.Where(f => f.FieldType == TerceroFieldType.Lookup))
+        {
+            var cfg = DataLookupConfig.TryParse(d.Options);
+            if (cfg is not null) { cfgByKey[d.FieldKey] = cfg; }
+        }
+        if (cfgByKey.Count == 0) { return result; }
+
+        // Ids guardados por campo, en todas las fichas.
+        var idsByKey = new Dictionary<string, HashSet<Guid>>(StringComparer.Ordinal);
+        foreach (var json in fichasJsons)
+        {
+            if (string.IsNullOrWhiteSpace(json)) { continue; }
+            Dictionary<string, Dictionary<string, string>>? fichas;
+            try { fichas = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json); }
+            catch (JsonException) { continue; }
+            if (fichas is null) { continue; }
+            foreach (var (_, campos) in fichas)
+            {
+                foreach (var (key, value) in campos)
+                {
+                    if (!cfgByKey.ContainsKey(key) || !Guid.TryParse(value, out var id)) { continue; }
+                    if (!idsByKey.TryGetValue(key, out var set)) { set = idsByKey[key] = new HashSet<Guid>(); }
+                    set.Add(id);
+                }
+            }
+        }
+
+        // Resolucion por lote contra el Contenedor (tenant-safe por el filtro global del lookup).
+        foreach (var (key, cfg) in cfgByKey)
+        {
+            if (!idsByKey.TryGetValue(key, out var ids) || ids.Count == 0) { continue; }
+            var filas = await _lookup.ResolveAsync(cfg.TableId, ids.ToList(), cfg.DisplayColumnId, cancellationToken: ct);
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var f in filas) { map[f.RowId.ToString()] = f.Label; }
+            if (map.Count > 0) { result[key] = map; }
+        }
+        return result;
     }
 
     public async Task<TerceroDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)

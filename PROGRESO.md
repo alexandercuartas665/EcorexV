@@ -12822,3 +12822,14 @@ BUGS UI para dev (v0.16.37): (1) "Editar proceso" NO reverse-mapea un cron exist
 abre en "Manual (sin horario)" con "Usar esta expresion cron" activado -> confuso; deberia parsear el cron
 a Semanal+dias+hora. (2) Cambiar el <select> de recurrencia por binding no dispara el onchange (hubo que
 alternar Manual->Weekly); el input de hora necesito blur para propagar al resumen/cron.
+
+## 2026-09-14 - SOLDARCO MAESTROS: 5a tabla ACTIVIDADES (m700_gen)
+
+Agregada la tabla ACTIVIDADES (m700_gen.dbo.ACTIVIDADES, 500 filas, codigos CIIU) al contenedor
+MAESTROS DIRECTORIO PUBLICO: data_container + 6 columnas (CODIGO/NOMBRE/POR-decimal/LABORES/FLAG_INA/
+FLAG_ANT) + conector Database "SERVER6 - ACTIVIDADES" (m700_gen, query SELECT ... FROM m700_gen.dbo.
+ACTIVIDADES) + proceso "Actualizar ACTIVIDADES" (agente soldarco_server6, cron '0 5 * * 1,2,3,4,5,6',
+proxima 2026-09-15 05:00). TRUCO credencial: credentials_encrypted = COPIA del blob de SERVER6-CARGOS
+(ISecretProtector/DataProtection es purpose-bound 'Ecorex.TenantSecrets.v1', no row-bound -> el blob
+descifra igual en otro conector; asi queda con clave sin teclearla ni verla en claro). Todo por SQL,
+idempotente uuid5. Backup ecorex-2026-09-14-0812.sql.gz. Validar con "Actualizar datos" (500 filas).

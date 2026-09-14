@@ -197,12 +197,36 @@ public sealed class ActividadesToolset : IActividadesToolset
         var clienteTelefono = FindByKey(datos, "movil", "whatsapp", "telefono", "celular", "phone");
         var clienteEmail = FindByKey(datos, "correo", "email", "mail");
 
-        // Respaldo del telefono con el de la conversacion en curso (en WhatsApp el cliente no lo dicta).
-        if (clienteTelefono is null && AiToolRunContext.ConversationId is Guid convId)
+        // Telefono REAL (ADR-0101 rev.2): gana el ContactPhone de la conversacion en curso; el del formulario
+        // solo como RESPALDO cuando NO hay conversacion (el modelo suele ALUCINAR el numero dictado).
+        var conversationId = AiToolRunContext.ConversationId;
+        if (conversationId is Guid convId)
         {
             var convPhone = await _db.Conversations.AsNoTracking()
                 .Where(c => c.Id == convId).Select(c => c.ContactPhone).FirstOrDefaultAsync(ct);
-            clienteTelefono = string.IsNullOrWhiteSpace(convPhone) ? null : convPhone!.Trim();
+            var real = string.IsNullOrWhiteSpace(convPhone) ? null : convPhone!.Trim();
+            clienteTelefono = real ?? clienteTelefono;
+        }
+
+        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Si esta conversacion ya genero una actividad en la
+        // ventana corta, se devuelve ese ticket (aunque cambien telefono/resumen). Sin conversacion -> no aplica.
+        if (conversationId is Guid convDupId)
+        {
+            var dup = await AgentTaskIdempotency.FindRecentByConversationAsync(_db, TimeProvider.System, convDupId, ct);
+            if (dup is { } ex)
+            {
+                var dupJson = JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    ticket = ex.Number,
+                    tarea_id = ex.Id,
+                    concepto = sub.Nombre,
+                    idempotente = true,
+                    mensaje = $"Ya existe la actividad con ticket {ex.Number} (no se duplico)."
+                }, JsonOut);
+                AgentTaskIdempotency.RememberTurnResult("crear_actividad", dupJson);
+                return new AgentToolResult(dupJson, SessionCompleted: true);
+            }
         }
 
         var titulo = Str(args, "titulo");
@@ -220,27 +244,8 @@ public sealed class ActividadesToolset : IActividadesToolset
             RequesterName: clienteNombre,
             RequesterEmail: clienteEmail,
             RequesterPhone: clienteTelefono,
-            Description: string.IsNullOrWhiteSpace(descripcion) ? null : descripcion!.Trim());
-
-        // Capa 2 (ADR-0101): dedup por CONTENIDO entre turnos (mismo contacto + concepto + titulo+descripcion
-        // en la ventana). Si ya existe, devuelve ese ticket sin duplicar. Contenido distinto = solicitud nueva.
-        var dup = await AgentTaskIdempotency.FindRecentDuplicateAsync(
-            _db, TimeProvider.System, req.Title, req.Description, clienteTelefono, clienteNombre,
-            boardId: null, subcategoriaId: sub.Id, ct);
-        if (dup is { } ex)
-        {
-            var dupJson = JsonSerializer.Serialize(new
-            {
-                ok = true,
-                ticket = ex.Number,
-                tarea_id = ex.Id,
-                concepto = sub.Nombre,
-                idempotente = true,
-                mensaje = $"Ya existe la actividad con ticket {ex.Number} (no se duplico)."
-            }, JsonOut);
-            AgentTaskIdempotency.RememberTurnResult("crear_actividad", dupJson);
-            return new AgentToolResult(dupJson, SessionCompleted: true);
-        }
+            Description: string.IsNullOrWhiteSpace(descripcion) ? null : descripcion!.Trim(),
+            ConversationId: conversationId);
 
         var created = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!created.IsOk || created.Value is null) { return Err(created.Error ?? "No se pudo crear la actividad."); }

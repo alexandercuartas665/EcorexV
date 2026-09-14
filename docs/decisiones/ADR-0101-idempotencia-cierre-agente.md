@@ -53,3 +53,30 @@ descarto por innecesario (el contacto ya identifica al cliente) y para no tocar 
 - Tests: `TasksToolsetBoardWhitelistTests` (+4) y `ActividadesToolsetTests` (+3): intra-turno,
   turno-posterior mismo contenido, contenido distinto crea nueva, fuera de ventana.
 - Relacionado: ADR-0094 (whitelist por agente), ADR-0098 (crear_actividad).
+
+## Revision 2 (2026-09-14, v0.16.65): re-llavear por CONVERSACION
+
+La Capa 2 por contacto+contenido NO evito duplicados en pruebas: el agente puso TELEFONOS distintos
+(573187148049 vs 573001234567) y REGENERO el resumen (hashes distintos), asi que ni el telefono ni el
+contenido son llaves fiables. La unica estable es la CONVERSACION.
+
+Cambios:
+- `TaskItem.ConversationId` (Guid?, nullable) + migracion DUAL (PG `AddColumn conversation_id` + indice
+  `(tenant_id, conversation_id)`; SQL Server equivalente). `CreateTaskItemRequest.ConversationId` y el
+  servicio la estampan. Solo la puebla el camino del agente; el alta por wizard la deja null.
+- crear_tarea / crear_actividad estampan `ConversationId = AiToolRunContext.ConversationId` al crear.
+- Capa 2 re-llaveada: `AgentTaskIdempotency.FindRecentByConversationAsync(conversationId)` busca una tarea
+  NO archivada de ESA conversacion dentro de una VENTANA CORTA (`ConversationWindowMinutes = 5`); si existe,
+  devuelve ese ticket. Se QUITO la dependencia de requester_phone y del hash de contenido (y `Normalize`,
+  `WindowMinutes` de 45). Sin ConversationId -> no aplica Capa 2 (se crea normal). La Capa 1 (intra-turno)
+  queda igual.
+- Telefono correcto: el `RequesterPhone` sale del `Conversations.ContactPhone` REAL (por
+  `AiToolRunContext.ConversationId`); `cliente_telefono` del modelo solo se usa como respaldo cuando NO hay
+  conversacion (antes el numero alucinado ganaba).
+
+Regla de oro (preservada por la ventana CORTA): una solicitud NUEVA en el mismo chat, pasada la ventana,
+crea tarea nueva; solo se colapsan re-cierres/confirmaciones inmediatas (segundos/minutos).
+
+Tests (reescritos): misma conversacion en ventana -> UNA tarea (aunque cambie telefono/resumen); misma
+conversacion FUERA de ventana -> tarea nueva; telefono real de la conversacion gana sobre el del modelo;
++ intra-turno. En ambos toolsets. Application.Tests 909/909 verdes.

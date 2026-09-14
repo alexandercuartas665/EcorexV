@@ -12003,6 +12003,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("column_id");
 
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("conversation_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -12155,6 +12159,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("WorkflowInstanceId")
                         .HasDatabaseName("ix_task_items_workflow_instance_id");
+
+                    b.HasIndex("TenantId", "ConversationId")
+                        .HasDatabaseName("ix_task_items_tenant_id_conversation_id");
 
                     b.HasIndex("TenantId", "EntidadId")
                         .HasDatabaseName("ix_task_items_tenant_id_entidad_id");

@@ -253,7 +253,10 @@ public sealed class TaskItemService : ITaskItemService
             MilestoneId = request.MilestoneId,
             Color = Normalize(request.Color),
             ParentId = request.ParentId,
-            SourceTaskId = request.SourceTaskId
+            SourceTaskId = request.SourceTaskId,
+            // ADR-0101 rev.2: conversacion de origen (idempotencia del cierre del agente). Solo la puebla el
+            // camino del agente; el alta por wizard u otros modulos la deja en null.
+            ConversationId = request.ConversationId
         };
         _db.TaskItems.Add(task);
 

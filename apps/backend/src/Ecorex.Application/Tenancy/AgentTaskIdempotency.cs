@@ -1,29 +1,27 @@
-using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Tenancy;
 
 /// <summary>
-/// Idempotencia del CIERRE de los agentes (ADR-0101): evita tareas DUPLICADAS cuando el modelo llama a
+/// Idempotencia del CIERRE de los agentes (ADR-0101 rev.2): evita tareas DUPLICADAS cuando el modelo llama a
 /// crear_tarea / crear_actividad varias veces (mismo turno por el bucle de tool-calling, o en turnos
 /// siguientes al "ya quedo?"). Dos capas:
 ///  - Capa 1 (intra-turno): la primera creacion OK de una herramienta se recuerda en AiToolRunContext; una
 ///    segunda llamada de ESA herramienta en el mismo turno devuelve el mismo ticket sin volver a insertar.
-///  - Capa 2 (por CONTENIDO entre turnos): antes de crear, se busca una tarea reciente del MISMO contacto,
-///    mismo tablero/concepto y mismo titulo+descripcion NORMALIZADOS dentro de una ventana; si existe, se
-///    devuelve ese ticket.
+///  - Capa 2 (por CONVERSACION, entre turnos): antes de crear, si hay una conversacion en curso y ya existe
+///    una tarea NO archivada creada para ESA conversacion dentro de una ventana corta, se devuelve ese ticket.
 ///
-/// REGLA DE ORO: NO se deduplica por conversacion. Una solicitud NUEVA (titulo/descripcion distintos) en el
-/// MISMO chat crea una tarea nueva. Solo aplica al camino de los agentes (lo llaman los toolsets).
+/// REGLA DE ORO: NO se deduplica por contenido ni por telefono (probaron NO ser fiables: el modelo alucina
+/// el telefono y regenera el resumen). La llave estable es la CONVERSACION + una ventana CORTA, que solo
+/// colapsa re-cierres/confirmaciones inmediatas; una solicitud NUEVA en el mismo chat, pasada la ventana,
+/// crea una tarea nueva. Solo aplica al camino de los agentes (lo llaman los toolsets con AiToolRunContext).
 /// </summary>
 public static class AgentTaskIdempotency
 {
-    /// <summary>Ventana reciente para considerar dos altas iguales como la misma solicitud (minutos).</summary>
-    public const int WindowMinutes = 45;
-
-    /// <summary>Cuantos candidatos recientes se traen para comparar contenido en memoria (normalizacion).</summary>
-    private const int CandidateLimit = 20;
+    /// <summary>Ventana CORTA (minutos) para colapsar re-cierres de la MISMA conversacion como la misma
+    /// solicitud. Corta a proposito: pasado este tiempo, un nuevo cierre de la conversacion crea tarea nueva.</summary>
+    public const int ConversationWindowMinutes = 5;
 
     // ---- Capa 1: guardia intra-turno ----
 
@@ -33,55 +31,23 @@ public static class AgentTaskIdempotency
     /// <summary>Recuerda el resultado de cierre para que una segunda llamada de la misma herramienta en el turno lo reuse.</summary>
     public static void RememberTurnResult(string toolKey, string resultJson) => AiToolRunContext.SetTurnResult(toolKey, resultJson);
 
-    // ---- Capa 2: dedup por contenido entre turnos ----
+    // ---- Capa 2: dedup por CONVERSACION entre turnos ----
 
     /// <summary>
-    /// Busca una tarea reciente que sea claramente la MISMA solicitud: mismo contacto (telefono, o nombre si
-    /// no hay telefono) + mismo tablero (o concepto) + mismo titulo+descripcion normalizados + no archivada +
-    /// dentro de la ventana. Devuelve (Id, Number) o null. Si no hay contacto, NO deduplica (evita falsos
-    /// positivos entre clientes distintos).
+    /// Busca la tarea mas reciente (no archivada) creada para <paramref name="conversationId"/> dentro de la
+    /// ventana corta. Devuelve (Id, Number) o null. El filtro global del DbContext ya acota por tenant, y una
+    /// conversacion pertenece a un solo tenant, asi que la conversacion es llave suficiente.
     /// </summary>
-    public static async Task<(Guid Id, string Number)?> FindRecentDuplicateAsync(
-        IApplicationDbContext db, TimeProvider clock,
-        string title, string? description,
-        string? requesterPhone, string? requesterName,
-        Guid? boardId, Guid? subcategoriaId,
+    public static async Task<(Guid Id, string Number)?> FindRecentByConversationAsync(
+        IApplicationDbContext db, TimeProvider clock, Guid conversationId,
         CancellationToken cancellationToken = default)
     {
-        var phone = Clean(requesterPhone);
-        var name = Clean(requesterName);
-        if (phone is null && name is null) { return null; }
-
-        var cutoff = clock.GetUtcNow().AddMinutes(-WindowMinutes);
-        var normTitle = Normalize(title);
-        var normDesc = Normalize(description);
-
-        // El filtro global del DbContext ya acota por tenant.
-        var q = db.TaskItems.AsNoTracking().Where(t => !t.IsArchived && t.CreatedAt >= cutoff);
-        if (boardId is Guid b) { q = q.Where(t => t.BoardId == b); }
-        if (subcategoriaId is Guid s) { q = q.Where(t => t.SubcategoriaId == s); }
-        if (phone is not null) { q = q.Where(t => t.RequesterPhone == phone); }
-        else { q = q.Where(t => t.RequesterName == name); }
-
-        var candidates = await q
+        var cutoff = clock.GetUtcNow().AddMinutes(-ConversationWindowMinutes);
+        var hit = await db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == conversationId && !t.IsArchived && t.CreatedAt >= cutoff)
             .OrderByDescending(t => t.CreatedAt)
-            .Take(CandidateLimit)
-            .Select(t => new { t.Id, t.Number, t.Title, t.Description })
-            .ToListAsync(cancellationToken);
-
-        foreach (var c in candidates)
-        {
-            if (Normalize(c.Title) == normTitle && Normalize(c.Description) == normDesc)
-            {
-                return (c.Id, c.Number);
-            }
-        }
-        return null;
+            .Select(t => new { t.Id, t.Number })
+            .FirstOrDefaultAsync(cancellationToken);
+        return hit is null ? null : (hit.Id, hit.Number);
     }
-
-    /// <summary>Normaliza para comparar: trim + colapsar espacios + minusculas (cultura invariante).</summary>
-    public static string Normalize(string? s)
-        => string.IsNullOrWhiteSpace(s) ? string.Empty : Regex.Replace(s.Trim(), @"\s+", " ").ToLowerInvariant();
-
-    private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 }

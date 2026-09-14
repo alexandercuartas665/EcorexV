@@ -86,6 +86,14 @@ public class TaskItem : TenantEntity, IVersioned
     // Identificacion/NIT del solicitante (opcional). La puebla, p.ej., el agente al cerrar con crear_tarea.
     public string? RequesterDocument { get; set; }
 
+    /// <summary>
+    /// Conversacion (WhatsApp/chat) que ORIGINO esta tarea, cuando la creo un agente al cerrar. Enlace por
+    /// Id (no es FK con cascada): es la llave estable de idempotencia del cierre (ADR-0101 rev.2) para NO
+    /// duplicar re-cierres/confirmaciones de la MISMA conversacion en una ventana corta. Null = la tarea no
+    /// nacio de una conversacion (alta por wizard u otros modulos).
+    /// </summary>
+    public Guid? ConversationId { get; set; }
+
     /// <summary>Correos en copia, serializados como arreglo JSON (jsonb / nvarchar(max) segun motor).</summary>
     public string? CcEmails { get; set; }
 

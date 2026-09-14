@@ -172,16 +172,37 @@ public sealed class TasksToolset : ITasksToolset
         var clienteEmail = Clean(Str(args, "cliente_email"));
         var clienteIdentificacion = Clean(Str(args, "cliente_identificacion"));
 
-        // Respaldo del telefono: en WhatsApp el cliente casi nunca DICTA su numero (es el de la conversacion
-        // desde la que escribe). Si el agente no paso cliente_telefono, se toma el ContactPhone de la
-        // conversacion en curso para que la tarea SIEMPRE quede con el telefono del cliente.
-        if (clienteTelefono is null && AiToolRunContext.ConversationId is Guid convPhoneId)
+        // Telefono REAL (ADR-0101 rev.2): gana el ContactPhone de la conversacion en curso; cliente_telefono
+        // solo se usa como RESPALDO cuando NO hay conversacion (el modelo suele ALUCINAR el numero dictado).
+        var conversationId = AiToolRunContext.ConversationId;
+        if (conversationId is Guid convPhoneId)
         {
             var convPhone = await _db.Conversations.AsNoTracking()
                 .Where(c => c.Id == convPhoneId)
                 .Select(c => c.ContactPhone)
                 .FirstOrDefaultAsync(ct);
-            clienteTelefono = Clean(convPhone);
+            clienteTelefono = Clean(convPhone) ?? clienteTelefono;
+        }
+
+        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Si esta conversacion ya genero una tarea en la
+        // ventana corta, se devuelve ese ticket (aunque cambien telefono/resumen). Se comprueba ANTES de
+        // repartir asesor para no avanzar el round-robin en un re-cierre. Sin conversacion -> no aplica.
+        if (conversationId is Guid convDupId)
+        {
+            var dup = await AgentTaskIdempotency.FindRecentByConversationAsync(_db, TimeProvider.System, convDupId, ct);
+            if (dup is { } ex)
+            {
+                var dupJson = JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    ticket = ex.Number,
+                    tarea_id = ex.Id,
+                    idempotente = true,
+                    mensaje = $"Ya existe la solicitud con ticket {ex.Number} (no se duplico)."
+                }, JsonOut);
+                AgentTaskIdempotency.RememberTurnResult("crear_tarea", dupJson);
+                return new AgentToolResult(dupJson, SessionCompleted: true);
+            }
         }
 
         // Reparto round-robin: el sistema asigna la tarea al SIGUIENTE asesor MARCADO como asignable
@@ -199,27 +220,8 @@ public sealed class TasksToolset : ITasksToolset
             RequesterName: clienteNombre,
             RequesterEmail: clienteEmail,
             RequesterPhone: clienteTelefono,
-            RequesterDocument: clienteIdentificacion);
-
-        // Capa 2 (ADR-0101): dedup por CONTENIDO entre turnos (mismo contacto + tablero + titulo+descripcion
-        // normalizados, dentro de la ventana). Si ya existe, devuelve ese ticket en vez de duplicar. Una
-        // solicitud NUEVA (contenido distinto) NO matchea y se crea normal.
-        var dup = await AgentTaskIdempotency.FindRecentDuplicateAsync(
-            _db, TimeProvider.System, req.Title, req.Description, clienteTelefono, clienteNombre,
-            boardId: board.Id, subcategoriaId: null, ct);
-        if (dup is { } ex)
-        {
-            var dupJson = JsonSerializer.Serialize(new
-            {
-                ok = true,
-                ticket = ex.Number,
-                tarea_id = ex.Id,
-                idempotente = true,
-                mensaje = $"Ya existe la solicitud con ticket {ex.Number} (no se duplico)."
-            }, JsonOut);
-            AgentTaskIdempotency.RememberTurnResult("crear_tarea", dupJson);
-            return new AgentToolResult(dupJson, SessionCompleted: true);
-        }
+            RequesterDocument: clienteIdentificacion,
+            ConversationId: conversationId);
 
         var res = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!res.IsOk || res.Value is null)

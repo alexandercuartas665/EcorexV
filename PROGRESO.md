@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.65: idempotencia del cierre re-llaveada por CONVERSACION (ADR-0101 rev.2)
+
+- La dedup por contacto+contenido (v0.16.58) NO evitaba duplicados: el agente ponia TELEFONOS distintos y
+  REGENERABA el resumen (hashes distintos). Se re-llavea por CONVERSACION, la unica llave estable.
+- TaskItem.ConversationId (Guid?, nullable) + migracion DUAL (PG + SqlServer): columna conversation_id +
+  indice (tenant_id, conversation_id). CreateTaskItemRequest.ConversationId; el servicio la estampa.
+- crear_tarea/crear_actividad estampan ConversationId = AiToolRunContext.ConversationId al crear.
+- Capa 2 = FindRecentByConversationAsync (ventana corta ConversationWindowMinutes=5): si la conversacion ya
+  genero una tarea no archivada en la ventana, devuelve ese ticket (aunque cambien telefono/resumen). Se
+  quito la llave por telefono/contenido. Capa 1 (intra-turno) intacta. Sin conversacion -> se crea normal.
+- Telefono REAL: RequesterPhone sale del Conversations.ContactPhone de la conversacion en curso;
+  cliente_telefono del modelo solo como respaldo sin conversacion (antes el numero alucinado ganaba).
+- Regla de oro (ventana corta): solicitud nueva en el mismo chat, pasada la ventana -> tarea nueva.
+- Tests reescritos en ambos toolsets (en-ventana dedup / fuera-de-ventana crea / telefono real gana +
+  intra-turno). Application.Tests 909/909 verdes. Build de la solucion verde. NO desplegado.
+- Beneficia a SARA (AGROMETALICAS), MAURO (SKY) y EPRING. Requiere ef database update al desplegar (dual).
+
 ## 2026-09-14 - v0.16.64: Directorio Modular - tipo de campo "Lista de Asesores" (ADR-0088)
 
 - Pedido: "Comercial responsable" debe alimentar su desplegable con los asesores/comerciales del

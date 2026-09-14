@@ -11,10 +11,11 @@ namespace Ecorex.Application.Tenancy;
 /// via filtro global. Unica por (Name, Language) por tenant (validado con mensaje claro + indice
 /// unico como defensa en profundidad). Auditoria en las acciones sensibles.
 ///
-/// DEUDA (ADR-0029): NO hay integracion real con la WhatsApp Cloud API de Meta. Submit es un stub
-/// que solo cambia el estado a Submitted; SyncStatus devuelve NotImplemented. Cuando exista el
-/// gateway del proveedor, Submit compilaria el cuerpo (tokens {{x}} -> {{1}}..{{n}}) y llamaria a
-/// Meta; hoy no se invoca ningun endpoint HTTP externo.
+/// Integracion con YCloud (ADR-0029): para lineas YCloud, Submit CREA la plantilla de verdad via API
+/// (compila el cuerpo tokens {{x}} -> {{1}}..{{n}} + ejemplos, ver WhatsAppTemplateComponents) y guarda
+/// ProviderTemplateId + estado. Para otros proveedores (Cloud/Evolution/Emulator) o lineas sin
+/// credenciales, Submit conserva la transicion LOCAL (stub). SyncStatus sigue en stub: la reconciliacion
+/// de aprobacion se hace re-importando (ImportFromYCloudAsync).
 /// </summary>
 public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
 {
@@ -165,9 +166,6 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
     public async Task<WhatsAppTemplateResult<WhatsAppTemplateDto>> SubmitAsync(
         Guid id, CancellationToken cancellationToken = default)
     {
-        // STUB (ADR-0029): NO se llama a Meta/WhatsApp Cloud API. Solo se transiciona el estado y
-        // se registra la auditoria. Cuando exista el gateway del proveedor, aqui iria la
-        // compilacion del cuerpo y la llamada HTTP real.
         var template = await _db.WhatsAppTemplates.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (template is null)
         {
@@ -183,13 +181,63 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             return WhatsAppTemplateResult<WhatsAppTemplateDto>.Invalid("El cuerpo es obligatorio.");
         }
 
+        // Linea por la que se somete (define WABA + credenciales). Con YCloud se CREA de verdad la
+        // plantilla via API (ADR-0029 saldado); con otros proveedores se conserva la transicion local (stub).
+        var line = await _db.WhatsAppLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == template.WhatsAppLineId, cancellationToken);
+        var viaYCloud = line is { Provider: WhatsAppProvider.YCloud }
+            && !string.IsNullOrWhiteSpace(line.YCloudApiKeyEncrypted)
+            && !string.IsNullOrWhiteSpace(line.YCloudWabaId);
+
+        if (viaYCloud)
+        {
+            string apiKey;
+            try { apiKey = _secretProtector.Unprotect(line!.YCloudApiKeyEncrypted!); }
+            catch { return WhatsAppTemplateResult<WhatsAppTemplateDto>.Invalid("No se pudo leer la API key de la linea."); }
+
+            var components = WhatsAppTemplateComponents.Build(template);
+            var category = WhatsAppTemplateComponents.MetaCategory(template.Category);
+            var created = await _ycloud.CreateTemplateAsync(
+                apiKey, line.YCloudWabaId!, template.Name, template.Language, category, components, null, cancellationToken);
+            if (!created.IsSuccess)
+            {
+                // No cambiamos el estado: queda en Draft para corregir y reintentar.
+                return WhatsAppTemplateResult<WhatsAppTemplateDto>.Invalid(
+                    $"YCloud no acepto la plantilla: {created.Error ?? "error desconocido"}");
+            }
+
+            template.ProviderTemplateId = string.IsNullOrWhiteSpace(created.Id) ? template.ProviderTemplateId : created.Id;
+            template.WabaId = line.YCloudWabaId;
+            template.Provider = WhatsAppProvider.YCloud;
+            template.Status = MapProviderStatus(created.Status);
+            template.SubmittedAt = _timeProvider.GetUtcNow();
+            template.RejectionReason = null;
+            _audit.Write(_tenantContext.UserId ?? Guid.Empty, "wa-template.submit", nameof(WhatsAppTemplate), template.Id,
+                previousValue: null,
+                newValue: new { template.Name, Status = template.Status.ToString(), Provider = "YCloud", template.ProviderTemplateId },
+                tenantId: template.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+            return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
+        }
+
+        // Sin YCloud (Cloud/Evolution/Emulator o linea sin credenciales): transicion local (stub historico).
         template.Status = WhatsAppTemplateStatus.Submitted;
         template.SubmittedAt = _timeProvider.GetUtcNow();
         template.RejectionReason = null;
         _audit.Write(_tenantContext.UserId ?? Guid.Empty, "wa-template.submit", nameof(WhatsAppTemplate), template.Id,
-            previousValue: null, newValue: new { template.Name, Status = template.Status.ToString() }, tenantId: template.TenantId);
+            previousValue: null, newValue: new { template.Name, Status = template.Status.ToString(), Provider = "local" }, tenantId: template.TenantId);
         await _db.SaveChangesAsync(cancellationToken);
         return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
+    }
+
+    /// <summary>Mapea el estado que devuelve YCloud/Meta al enum interno. PENDING/otros -> Submitted.</summary>
+    private static WhatsAppTemplateStatus MapProviderStatus(string? providerStatus)
+    {
+        var s = (providerStatus ?? "").Trim().ToUpperInvariant();
+        if (s.Contains("APPROVED")) { return WhatsAppTemplateStatus.Approved; }
+        if (s.Contains("REJECTED")) { return WhatsAppTemplateStatus.Rejected; }
+        if (s.Contains("PAUSED")) { return WhatsAppTemplateStatus.Paused; }
+        if (s.Contains("DISABLED")) { return WhatsAppTemplateStatus.Disabled; }
+        return WhatsAppTemplateStatus.Submitted; // PENDING / IN_APPEAL / vacio
     }
 
     public Task<WhatsAppTemplateResult<bool>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default)

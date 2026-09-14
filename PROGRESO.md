@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-13 - v0.16.59: crear plantillas de WhatsApp desde el sistema via YCloud (ADR-0102)
+
+- El modulo de Plantillas ya IMPORTABA de YCloud, pero "Someter" era stub (solo estado local). El cliente
+  YCloudApiClient.CreateTemplateAsync (POST /whatsapp/templates) ya existia y estaba en la interfaz pero
+  nadie lo llamaba. Ahora WhatsAppTemplateService.SubmitAsync CREA la plantilla de verdad en YCloud.
+- Linea YCloud (con API key + WABA): compila + crea via API, guarda ProviderTemplateId y mapea estado
+  (APPROVED/REJECTED/PAUSED/DISABLED/otros->Submitted); en error no cambia el estado (queda Draft). Otras
+  lineas (Cloud/Evolution/Emulator o sin credenciales): conserva la transicion local (stub).
+- Compilador nuevo WhatsAppTemplateComponents: tokens amigables del BODY {{cliente}} -> posicionales {{1}}..
+  {{n}} (orden de VariablesJson; solo las usadas ocupan posicion) + example.body_text; HEADER texto y FOOTER
+  como texto plano; categoria en MAYUSCULAS. Reconciliacion de aprobacion: re-importando (ImportFromYCloud).
+- UI: se actualizo la nota del boton "Someter" (antes decia "envio no implementado").
+- Sin migraciones; misma firma de SubmitAsync (el boton ya la llamaba). Tests +6
+  (WhatsAppTemplateComponentsTests). Application.Tests 903/903 verdes. Build de SuperAdmin verde.
+- Limitaciones (fase posterior): variables en HEADER/FOOTER, botones, y SyncStatusAsync real.
+- Siguiente: validacion del usuario (linea YCloud real) + deploy a su senal.
+
 ## 2026-09-13 - v0.16.58: idempotencia del cierre del agente (no mas tareas duplicadas, ADR-0101)
 
 - Problema: crear_tarea / crear_actividad se llamaban varias veces al cerrar (mismo turno por el bucle de

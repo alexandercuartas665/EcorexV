@@ -5,6 +5,7 @@
 @using System.Text.Json
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IDirectorioModularFichaService Fichas
+@inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
 @inject IJSRuntime JS
 
 @if (IsOpen)
@@ -330,8 +331,17 @@
                 }
                 _valores[sec.FichaKey] = dict;
             }
+
+            // Si la ficha tiene algun campo tipo Asesor, carga el catalogo de asesores una vez (para el desplegable).
+            if (_ficha.Secciones.Any(s => s.Campos.Any(c => c.Type == TerceroFieldType.Asesor)))
+            {
+                _asesores = (await AsesorSvc.ListOptionsAsync()).ToList();
+            }
         }
     }
+
+    // Catalogo de asesores/comerciales del tenant (000074), para los campos tipo Asesor.
+    private List<Ecorex.Application.Asesores.AsesorOptionDto> _asesores = new();
 
     private async Task Close() => await OnClosed.InvokeAsync();
 
@@ -641,6 +651,23 @@
                 }
                 break;
             }
+            case TerceroFieldType.Asesor:
+                // Lista de asesores/comerciales del tenant (catalogo 000074), en vivo. Guarda el nombre.
+                builder.OpenElement(0, "select");
+                builder.AddAttribute(1, "class", "fm-select");
+                builder.AddAttribute(20, "id", FieldDomId(ficha, f.FieldKey));
+                builder.AddAttribute(3, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.OpenElement(4, "option"); builder.AddAttribute(5, "value", ""); builder.AddContent(6, "-- seleccionar --"); builder.CloseElement();
+                foreach (var a in _asesores)
+                {
+                    builder.OpenElement(7, "option");
+                    builder.AddAttribute(8, "value", a.Nombre);
+                    if (a.Nombre == val) { builder.AddAttribute(9, "selected", true); }
+                    builder.AddContent(10, a.Nombre);
+                    builder.CloseElement();
+                }
+                builder.CloseElement();
+                break;
             case TerceroFieldType.Lookup:
             {
                 // Lista alimentada por una tabla del Contenedor de datos. La config (tabla/columna/

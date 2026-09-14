@@ -73,5 +73,10 @@ public enum TerceroFieldType
 
     /// <summary>Ciudad/municipio (catalogo DANE). Si la seccion tiene un campo Departamento, se muestra como
     /// select de los municipios de ese departamento; si no, como autocompletar sobre todos los municipios.</summary>
-    Ciudad
+    Ciudad,
+
+    /// <summary>Lista de asesores/comerciales del tenant (catalogo 000074, IAsesorService). Alimenta un
+    /// desplegable en vivo desde el modulo /asesores; se guarda el NOMBRE del asesor (texto plano). Es un
+    /// tipo seleccionable en la config, no una fuente quemada.</summary>
+    Asesor
 }

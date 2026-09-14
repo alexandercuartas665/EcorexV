@@ -83,7 +83,7 @@ public static class DirectorioModularDefaults
         new("comercial", "antiguedad_relacion",   "Antiguedad en la relacion", TerceroFieldType.Select, 2, O("Menos de 1 ano","Entre 1 y 3 anos","Entre 3 y 5 anos","Mas de 5 anos")),
         new("comercial", "zona_comercial",        "Zona comercial",            TerceroFieldType.Select, 1, O("Norte","Sur","Centro","Oriente","Occidente"), ShowInFilter: true),
         new("comercial", "nivel_organizacion",    "Nivel de organizacion",     TerceroFieldType.Select, 1, O("Microempresa","Pequena","Mediana","Grande","Corporativa")),
-        new("comercial", "comercial_responsable", "Comercial responsable",     TerceroFieldType.Select, 1, ShowInFilter: true),
+        new("comercial", "comercial_responsable", "Comercial responsable",     TerceroFieldType.Asesor, 1, ShowInFilter: true),
         new("comercial", "fecha_ultimo_contacto", "Fecha ultimo contacto",     TerceroFieldType.Date, 1),
         new("comercial", "lista_precios",         "Lista de precios",          TerceroFieldType.Select, 1, O("General","Mayorista","Distribuidor","Preferencial")),
 

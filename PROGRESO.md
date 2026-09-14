@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.64: Directorio Modular - tipo de campo "Lista de Asesores" (ADR-0088)
+
+- Pedido: "Comercial responsable" debe alimentar su desplegable con los asesores/comerciales del
+  modulo /asesores (catalogo 000074), y poder elegir esa fuente en la configuracion de campos
+  (no quemado). Asesores NO es un Contenedor, por eso el lookup existente no lo cubria.
+- Hecho:
+  - Nuevo TerceroFieldType.Asesor (al final del enum; field_type es texto). Guarda el NOMBRE del
+    asesor (texto plano, se muestra/filtra directo).
+  - DirectorioModularFichaModal: caso Asesor = select en vivo desde IAsesorService.ListOptionsAsync
+    (inject AsesorSvc); el catalogo se carga una vez al abrir la ficha SOLO si hay un campo Asesor.
+  - DirectorioModularConfigModal: "Lista de Asesores (comerciales)" agregado al desplegable "Tipo"
+    (seleccionable como cualquier otro tipo; sin config extra, la fuente es el catalogo del tenant).
+  - Seed: comercial_responsable pasa de Select a Asesor (tenants nuevos). En tenants existentes se
+    cambia por la UI (Configurar directorio -> el campo -> Tipo -> Lista de Asesores).
+- Build verde. No validado en vivo por inestabilidad del navegador en la sesion (circuito Blazor no
+  recibia clics); a smoke-testear en prod tras desplegar.
+- Nota: guarda el nombre del asesor en fichas_json; NO toca Tercero.VendedorAsesorId (la columna
+  RESPONSABLE del listado sigue igual). Si luego se quiere que este campo alimente esa columna, es
+  un ajuste aparte.
+
 ## 2026-09-14 - v0.16.63: Directorio Modular - campos Lookup (Contenedor) y DirectoryLookup (terceros) (ADR-0088)
 
 - Se integraron al motor MODULAR los campos ligados a CONTENEDORES de datos (Lookup) y al Directorio de

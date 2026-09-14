@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.69: FIX eliminar linea de WhatsApp reventaba el circuito por FK (plantillas)
+
+- Sintoma: al eliminar una linea (ej. "Linea demo SKY") con plantillas HSM asociadas, PostgreSQL rechazaba
+  el DELETE con FK 23503 (fk_whats_app_templates_whats_app_lines_whats_app_line_id); la DbUpdateException
+  quedaba SIN capturar y terminaba el circuito Blazor ("unhandled exception on the current circuit").
+- Causa: WhatsAppTemplate.WhatsAppLineId es FK Restrict (NO ACTION) y DeleteLineAsync borraba la linea sin
+  limpiar dependientes; ademas ConfirmDeleteLineAsync (Lineas.razor) tenia try/finally SIN catch.
+- Fix (sin migracion):
+  - WhatsAppConnectorService.DeleteLineAsync limpia dependientes en la MISMA transaccion: BORRA las plantillas
+    HSM de la linea (pertenecen a su WABA, no sirven sin ella) y DESCONECTA (WhatsAppLineId=null) los
+    WorkflowNodeAgent que la usaban (nullable; no borra el flujo). AiAgentLineBinding ya cascadea.
+  - Lineas.razor: ConfirmDeleteLineAsync captura la excepcion y la muestra en el modal (no mata el circuito);
+    campo _deleteError.
+- Build de la solucion verde; Application.Tests 913/913 (sin regresion). Verificacion: eliminar la linea demo.
+
 ## 2026-09-14 - v0.16.68: herramienta de agente para ESCRIBIR en un Contenedor de datos (cargar_productos, ADR-0103)
 
 - Faltaba la herramienta para que un agente cargue lo extraido en un contenedor. El agente "Clasificador de

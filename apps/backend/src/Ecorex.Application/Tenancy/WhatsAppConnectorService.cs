@@ -311,8 +311,27 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             }
         }
 
+        // Dependientes que impiden el borrado por FK (Restrict): se limpian en la MISMA transaccion que el
+        // borrado de la linea (un solo SaveChanges), para que la operacion sea atomica y no reviente el
+        // circuito con una DbUpdateException 23503 (violacion de FK), como pasaba al eliminar una linea con
+        // plantillas HSM asociadas.
+        //  - Plantillas HSM (WhatsAppTemplate.WhatsAppLineId es NO nullable): pertenecen a la WABA de la
+        //    linea; sin la linea no se pueden someter ni enviar, asi que se BORRAN con ella.
+        var templates = await _db.WhatsAppTemplates
+            .Where(t => t.WhatsAppLineId == lineId)
+            .ToListAsync(cancellationToken);
+        if (templates.Count > 0) { _db.WhatsAppTemplates.RemoveRange(templates); }
+
+        //  - Nodos-agente de flujo que usan esta linea (WhatsAppLineId es nullable): se DESCONECTAN
+        //    (WhatsAppLineId = null), NO se borra el nodo/flujo (solo pierde su linea de WhatsApp).
+        var nodeAgents = await _db.WorkflowNodeAgents
+            .Where(n => n.WhatsAppLineId == lineId)
+            .ToListAsync(cancellationToken);
+        foreach (var na in nodeAgents) { na.WhatsAppLineId = null; }
+
         _audit.Write(actorUserId, "whatsapp-line.delete", nameof(WhatsAppLine), line.Id,
-            previousValue: new { line.InstanceName, line.Status }, newValue: null, tenantId: line.TenantId);
+            previousValue: new { line.InstanceName, line.Status, plantillas = templates.Count, nodos_flujo = nodeAgents.Count },
+            newValue: null, tenantId: line.TenantId);
 
         _db.WhatsAppLines.Remove(line);
         await _db.SaveChangesAsync(cancellationToken);

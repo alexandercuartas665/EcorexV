@@ -406,6 +406,10 @@ else
             </div>
             <div class="modal-body">
                 <p>Vas a eliminar la linea <strong>@_deleteLineName</strong>. Se cerrara su sesion en WhatsApp y se quitara de la lista. Esta accion no se puede deshacer.</p>
+                @if (_deleteError is not null)
+                {
+                    <div class="tk-field-error">@_deleteError</div>
+                }
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="() => _deleteLineId = null">Cancelar</button>
@@ -493,6 +497,7 @@ else
 
     private Guid? _deleteLineId;
     private string? _deleteLineName;
+    private string? _deleteError;
 
     private Guid? _renameLineId;
     private string? _renameName;
@@ -738,12 +743,14 @@ else
     {
         _deleteLineId = line.Id;
         _deleteLineName = line.InstanceName;
+        _deleteError = null;
     }
 
     private async Task ConfirmDeleteLineAsync()
     {
         if (_deleteLineId is not Guid id) { return; }
         _busy = true;
+        _deleteError = null;
         try
         {
             var actor = await ActorAsync();
@@ -751,6 +758,11 @@ else
             _deleteLineId = null;
             _deleteLineName = null;
             await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            // No dejar que una excepcion (ej. FK) termine el circuito Blazor: se muestra el error en el modal.
+            _deleteError = $"No se pudo eliminar la linea: {ex.Message}";
         }
         finally { _busy = false; }
     }

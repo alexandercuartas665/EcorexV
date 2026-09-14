@@ -139,7 +139,12 @@ public static class DirectorioModularDefaults
         // ---- proveedor ----
         new("proveedor", "tipo_proveedor",      "Tipo de proveedor",              TerceroFieldType.Select, 1, O("Bienes","Servicios","Mixto")),
         new("proveedor", "plazo_entrega",       "Plazo de entrega (dias)",        TerceroFieldType.Number, 1),
-        new("proveedor", "banco",               "Banco",                          TerceroFieldType.Select, 1),
+        new("proveedor", "banco",               "Banco",                          TerceroFieldType.Select, 1, O(
+            "Bancolombia", "Banco de Bogota", "Davivienda", "BBVA Colombia", "Banco de Occidente",
+            "Banco Popular", "Banco Caja Social", "Banco AV Villas", "Banco Agrario de Colombia",
+            "Scotiabank Colpatria", "Itau", "Banco Falabella", "Banco Pichincha", "Banco GNB Sudameris",
+            "Banco Serfinanza", "Banco Finandina", "Bancoomeva", "Banco W", "Bancamia",
+            "Banco Mundo Mujer", "Coltefinanciera", "Confiar", "Lulo Bank", "Nu", "Nequi", "Daviplata")),
         new("proveedor", "cuenta_bancaria",     "Cuenta bancaria",                T, 2),
         new("proveedor", "certificado_calidad", "Cuenta con certificacion de calidad", TerceroFieldType.Checkbox, 1),
 

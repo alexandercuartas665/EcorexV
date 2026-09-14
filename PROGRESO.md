@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.65: Directorio Modular - lista de bancos de Colombia en el campo "banco" (ADR-0088)
+
+- Pedido: el campo "banco" (seccion Proveedores) debe traer los bancos mas conocidos de Colombia.
+- Hecho:
+  - Seed (DirectorioModularDefaults): campo banco (mod_proveedor, Select) pasa a traer 26 bancos
+    (Bancolombia, Banco de Bogota, Davivienda, BBVA, ... incluidos digitales Nequi/Daviplata/Lulo/Nu).
+  - Migracion de datos SeedBancoOptions (PG + SQL Server): siembra esas opciones en tenants YA
+    sembrados donde el campo banco esta sin opciones (idempotente; no pisa listas personalizadas).
+    Aplicada a la BD local (SOLDARCO: 26 opciones).
+- No es un contenedor (banco no es catalogo del sistema): va como opciones de Select, editables por
+  el tenant en la UI si quiere ajustarlas. Build verde.
+
 ## 2026-09-14 - v0.16.64: Directorio Modular - tipo de campo "Lista de Asesores" (ADR-0088)
 
 - Pedido: "Comercial responsable" debe alimentar su desplegable con los asesores/comerciales del

@@ -1527,7 +1527,8 @@ app.MapPost("/webhooks/ycloud", async (
         }
 
         var payload = new Ecorex.Application.Tenancy.IngestMessageRequest(
-            m.Phone, m.Name, m.ExternalId, m.Body, messageType, m.SentAt, line.Id, mediaType, mediaUrl, mediaMime);
+            m.Phone, m.Name, m.ExternalId, m.Body, messageType, m.SentAt, line.Id, mediaType, mediaUrl, mediaMime,
+            MediaFileName: mediaType == Ecorex.Domain.Enums.MessageMediaType.None ? null : m.MediaFileName);
         var res = await ingest.IngestTrustedAsync(line.TenantId, payload, cancellationToken: ct);
         if (res != Ecorex.Application.Tenancy.ChatIngestResult.Duplicate) { ingested++; }
         log.LogInformation("Webhook YCloud INGERIDO. tenant={Tenant} linea={Line} resultado={Result}", line.TenantId, line.Id, res);

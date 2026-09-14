@@ -67,6 +67,45 @@ public class YCloudWebhookParserMediaTests
     }
 
     [Fact]
+    public void Documento_entrante_con_filename_captura_el_nombre_original()
+    {
+        // Los documentos de WhatsApp traen el NOMBRE ORIGINAL en 'filename'; el parser lo expone en
+        // MediaFileName para que el agente pueda registrarlo (ej. columna 'archivo').
+        const string json = """
+        {
+          "type": "whatsapp.inbound_message.received",
+          "whatsappInboundMessage": {
+            "id": "wamid.DOC2",
+            "to": "573001112233",
+            "from": "573009998877",
+            "type": "document",
+            "document": { "link": "https://media.ycloud.com/x.xlsx", "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "filename": "Productos y precios.xlsx" }
+          }
+        }
+        """;
+        var m = ParseOne(json);
+        Assert.Equal("document", m.MediaKind);
+        Assert.Equal("Productos y precios.xlsx", m.MediaFileName);
+    }
+
+    [Fact]
+    public void Imagen_entrante_sin_filename_deja_MediaFileName_null()
+    {
+        const string json = """
+        {
+          "type": "whatsapp.inbound_message.received",
+          "whatsappInboundMessage": {
+            "id": "wamid.IMG2", "to": "573001112233", "from": "573009998877", "type": "image",
+            "image": { "link": "https://media.ycloud.com/abc.jpg", "mime_type": "image/jpeg" }
+          }
+        }
+        """;
+        var m = ParseOne(json);
+        Assert.Equal("image", m.MediaKind);
+        Assert.Null(m.MediaFileName);
+    }
+
+    [Fact]
     public void Texto_entrante_no_trae_media()
     {
         const string json = """

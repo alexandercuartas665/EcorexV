@@ -31,6 +31,14 @@ public class Message : TenantEntity
 
     public string? MediaMimeType { get; set; }
 
+    /// <summary>
+    /// Nombre ORIGINAL del archivo adjunto tal como lo envio el cliente (p.ej. "Productos.xlsx"), cuando el
+    /// canal lo entrega (documentos de WhatsApp traen 'filename'). El archivo se ALMACENA con un nombre
+    /// generado (yc-/wa-{guid}); este campo conserva el nombre humano para mostrarlo y para que el agente
+    /// pueda registrarlo (ej. columna 'archivo' del contenedor). Null si el canal no lo entrega (ej. imagenes).
+    /// </summary>
+    public string? MediaFileName { get; set; }
+
     /// <summary>Emoji de reaccion sobre este mensaje (uno por mensaje, como en WhatsApp). Null = sin reaccion.</summary>
     public string? Reaction { get; set; }
 }

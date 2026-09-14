@@ -37,7 +37,9 @@ public sealed record IngestMessageRequest(
     MessageMediaType MediaType = MessageMediaType.None,
     string? MediaUrl = null,
     string? MediaMimeType = null,
-    string? RemoteJid = null);
+    string? RemoteJid = null,
+    // Nombre ORIGINAL del archivo entrante (ej. "Productos.xlsx"), cuando el canal lo entrega (documentos).
+    string? MediaFileName = null);
 
 public sealed record SendMessageRequest(string Body);
 

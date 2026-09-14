@@ -109,7 +109,7 @@ public sealed class AgentConversationService : IAgentConversationService
 
         var turns = messages.Select(m => new AiChatTurn(
             m.Direction == MessageDirection.Inbound ? "user" : "model",
-            string.IsNullOrWhiteSpace(m.Body) ? (m.MediaType == MessageMediaType.None ? "(mensaje vacio)" : "(adjunto)") : m.Body))
+            TurnText(m)))
             .ToList();
 
         // Actor del sistema (el agente actua de forma autonoma); la auditoria queda sin usuario humano.
@@ -272,6 +272,21 @@ public sealed class AgentConversationService : IAgentConversationService
         if (string.IsNullOrWhiteSpace(fileUrl)) { return false; }
         var ext = System.IO.Path.GetExtension(fileUrl).ToLowerInvariant();
         return ext is ".svg" or ".gif" or ".webp" or ".bmp" or ".tiff" or ".tif";
+    }
+
+    /// <summary>
+    /// Texto del turno que ve el modelo. Para un ADJUNTO entrante con nombre ORIGINAL conocido (documentos:
+    /// MediaFileName), lo anexa como "[archivo adjunto: &lt;nombre&gt;]" para que el agente pueda registrarlo
+    /// (p.ej. la columna 'archivo' del contenedor). Sin nombre original (ej. imagenes), NO inventa uno: deja
+    /// el texto tal cual (el modelo ya ve "(adjunto)" o el caption) y el agente usa el que mencione el cliente.
+    /// </summary>
+    private static string TurnText(Message m)
+    {
+        var baseText = string.IsNullOrWhiteSpace(m.Body)
+            ? (m.MediaType == MessageMediaType.None ? "(mensaje vacio)" : "(adjunto)")
+            : m.Body;
+        if (m.MediaType == MessageMediaType.None || string.IsNullOrWhiteSpace(m.MediaFileName)) { return baseText; }
+        return $"{baseText} [archivo adjunto: {m.MediaFileName!.Trim()}]";
     }
 
     private async Task LogAsync(Guid tenantId, Guid conversationId, Guid agentId, AiAgentRunLogKind kind, string title, string? content, string? response, CancellationToken ct)

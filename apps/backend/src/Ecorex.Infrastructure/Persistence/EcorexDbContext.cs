@@ -961,6 +961,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.ExternalId).HasMaxLength(200);
             b.Property(x => x.MediaUrl).HasMaxLength(500);
             b.Property(x => x.MediaMimeType).HasMaxLength(120);
+            // Nombre original del archivo entrante (documentos WhatsApp traen 'filename'); solo para mostrar/registrar.
+            b.Property(x => x.MediaFileName).HasMaxLength(260);
             b.Property(x => x.SentByName).HasMaxLength(200);
             b.Property(x => x.Reaction).HasMaxLength(40);
             b.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);

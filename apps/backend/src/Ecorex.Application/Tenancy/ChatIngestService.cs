@@ -101,6 +101,7 @@ public sealed class ChatIngestService : IChatIngestService
             MediaType = payload.MediaType,
             MediaUrl = payload.MediaUrl,
             MediaMimeType = payload.MediaMimeType,
+            MediaFileName = string.IsNullOrWhiteSpace(payload.MediaFileName) ? null : payload.MediaFileName!.Trim(),
             SentAt = sentAt
         };
         _db.Messages.Add(message);

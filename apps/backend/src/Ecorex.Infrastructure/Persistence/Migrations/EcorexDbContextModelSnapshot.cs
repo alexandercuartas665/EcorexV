@@ -7546,6 +7546,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_id");
 
+                    b.Property<string>("MediaFileName")
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)")
+                        .HasColumnName("media_file_name");
+
                     b.Property<string>("MediaMimeType")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")

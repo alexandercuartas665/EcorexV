@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.67: nombre ORIGINAL del archivo entrante al contexto del agente (columna 'archivo')
+
+- El agente veia el adjunto por vision pero NO recibia su NOMBRE; ademas la media se almacena como
+  yc-/wa-{guid}.ext (no el original), asi que la columna 'archivo' del contenedor no se podia llenar de
+  forma confiable (caso "Clasificador de productos y precios", SKY).
+- Message.MediaFileName (nullable) + migracion DUAL (PG + SqlServer): conserva el nombre humano del archivo.
+- YCloudWebhookParser extrae document.filename; el webhook lo pasa a IngestMessageRequest.MediaFileName y
+  ChatIngestService lo persiste. AgentConversationService anexa "[archivo adjunto: <nombre>]" al turno
+  cuando hay nombre original (imagenes sin nombre: no inventa uno; fallback, no bloquea). La herramienta de
+  carga NO cambia (mapea por nombre de columna).
+- Reconciliacion de ramas: esta feature (antes v0.16.66 local) se re-baso sobre el tronco que ya traia los
+  bancos (v0.16.66) y la idempotencia por conversacion (v0.16.65); queda como v0.16.67 con la migracion
+  regenerada al final de la cadena. Tests YCloudWebhookParserMediaTests +2. Solucion + Application.Tests verdes.
+
 ## 2026-09-14 - v0.16.66: Directorio Modular - lista de bancos de Colombia en el campo "banco" (ADR-0088)
 
 - Pedido: el campo "banco" (seccion Proveedores) debe traer los bancos mas conocidos de Colombia.

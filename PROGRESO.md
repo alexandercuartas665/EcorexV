@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.62: FIX crear plantilla YCloud - BODY sin example por casing de VariablesJson
+
+- Bug real hallado al someter aviso_tarea en AGROMETALICAS: YCloud rechazaba con "component of type BODY is
+  missing expected field(s) (example)". Causa: la app guarda VariablesJson en PascalCase
+  ([{"Token":..,"Example":..}], System.Text.Json por defecto) pero WhatsAppTemplateComponents.ParseVariables
+  leia las claves en minuscula (token/example) con TryGetProperty case-sensitive -> no encontraba variables ->
+  el BODY salia sin example y con {{numero}} sin compilar. Los tests no lo pillaron (JSON a mano en minuscula).
+- Fix: ParseVariables ahora lee las claves sin distinguir mayus/minus (tolera PascalCase y minuscula). Tests +2
+  (Build con VariablesJson PascalCase genera example; ParseVariables tolera ambos casings). 908/908 verdes.
+- Solo codigo (sin migraciones). El header de imagen ya funcionaba (el rechazo era solo del BODY).
+
 ## 2026-09-14 - v0.16.61: subir la imagen del header de la plantilla desde el editor (sin pegar URL)
 
 - El editor de Plantillas WhatsApp permite SUBIR la imagen del encabezado (InputFile .jpg/.jpeg/.png, max 5MB):

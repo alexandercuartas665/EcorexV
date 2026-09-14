@@ -119,6 +119,35 @@ public class WhatsAppTemplateComponentsTests
     }
 
     [Fact]
+    public void Build_VariablesJsonPascalCase_GeneraExampleEnBody()
+    {
+        // La app guarda VariablesJson en PascalCase (System.Text.Json por defecto). El BODY DEBE llevar
+        // example o YCloud rechaza con "component of type BODY is missing expected field(s) (example)".
+        var t = new WhatsAppTemplate
+        {
+            Name = "aviso_tarea", Language = "es", Category = WhatsAppTemplateCategory.Utility,
+            BodyText = "Se registro la tarea {{numero}} - {{titulo}}. Abrela: {{enlace}}",
+            VariablesJson = """[{"Token":"numero","Example":"T00042"},{"Token":"titulo","Example":"Cotizacion"},{"Token":"enlace","Example":"https://x/y"}]"""
+        };
+        var json = JsonSerializer.Serialize(WhatsAppTemplateComponents.Build(t));
+        Assert.Contains("\"type\":\"BODY\"", json);
+        Assert.Contains("body_text", json);
+        Assert.Contains("{{1}}", json);
+        Assert.Contains("{{3}}", json);
+        Assert.Contains("T00042", json);
+        Assert.Contains("https://x/y", json);
+    }
+
+    [Fact]
+    public void ParseVariables_ToleraPascalCaseYMinuscula()
+    {
+        var pascal = WhatsAppTemplateComponents.ParseVariables("""[{"Token":"a","Example":"1"}]""");
+        var lower = WhatsAppTemplateComponents.ParseVariables("""[{"token":"a","example":"1"}]""");
+        Assert.Equal(("a", "1"), (pascal[0].Token, pascal[0].Example));
+        Assert.Equal(("a", "1"), (lower[0].Token, lower[0].Example));
+    }
+
+    [Fact]
     public void MetaCategory_EnMayusculas()
         => Assert.Equal("UTILITY", WhatsAppTemplateComponents.MetaCategory(WhatsAppTemplateCategory.Utility));
 }

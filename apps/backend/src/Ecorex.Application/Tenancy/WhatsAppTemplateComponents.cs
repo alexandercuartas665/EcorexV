@@ -85,7 +85,9 @@ public static class WhatsAppTemplateComponents
         return new CompiledBody(text.Trim(), examples);
     }
 
-    /// <summary>Lee VariablesJson (<c>[{ "token": "cliente", "example": "Juan" }]</c>) en orden.</summary>
+    /// <summary>Lee VariablesJson en orden. Tolera cualquier casing de las claves: la app lo guarda en
+    /// PascalCase (<c>[{ "Token": "cliente", "Example": "Juan" }]</c>, System.Text.Json por defecto) y otras
+    /// fuentes en minuscula (<c>[{ "token": ..., "example": ... }]</c>); ambos deben resolverse igual.</summary>
     public static IReadOnlyList<(string Token, string? Example)> ParseVariables(string? variablesJson)
     {
         var result = new List<(string, string?)>();
@@ -97,13 +99,26 @@ public static class WhatsAppTemplateComponents
             foreach (var el in doc.RootElement.EnumerateArray())
             {
                 if (el.ValueKind != JsonValueKind.Object) { continue; }
-                var token = el.TryGetProperty("token", out var t) ? t.GetString() : null;
+                var token = ReadStringInsensitive(el, "token");
                 if (string.IsNullOrWhiteSpace(token)) { continue; }
-                var example = el.TryGetProperty("example", out var e) ? e.GetString() : null;
+                var example = ReadStringInsensitive(el, "example");
                 result.Add((token!, example));
             }
         }
         catch (JsonException) { /* variables mal formadas: sin ejemplos */ }
         return result;
+    }
+
+    /// <summary>Lee una propiedad string de un objeto JSON sin distinguir mayusculas/minusculas.</summary>
+    private static string? ReadStringInsensitive(JsonElement obj, string name)
+    {
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : null;
+            }
+        }
+        return null;
     }
 }

@@ -281,6 +281,11 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.DirectorioToolset>();
         services.AddScoped<Tenancy.IDirectorioToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
+        // Toolset de Contenedor de datos (ADR-0103): el agente ESCRIBE filas en un contenedor del tenant
+        // (ej. Clasificador de productos -> cargar_productos en el contenedor "Productos").
+        services.AddScoped<Tenancy.ContenedorDatosToolset>();
+        services.AddScoped<Tenancy.IContenedorDatosToolset>(sp => sp.GetRequiredService<Tenancy.ContenedorDatosToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.ContenedorDatosToolset>());
         // Toolset de Inventario: el agente CONSULTA (solo lectura) items, precios y existencias.
         services.AddScoped<Tenancy.InventarioToolset>();
         services.AddScoped<Tenancy.IInventarioToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());

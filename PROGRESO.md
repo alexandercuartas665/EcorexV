@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.68: herramienta de agente para ESCRIBIR en un Contenedor de datos (cargar_productos, ADR-0103)
+
+- Faltaba la herramienta para que un agente cargue lo extraido en un contenedor. El agente "Clasificador de
+  productos y precios" (SKY) ya llamaba cargar_productos pero recibia "Herramienta no disponible".
+- Nuevo ContenedorDatosToolset (IAgentToolset), registrado en DependencyInjection. Herramientas:
+  - cargar_productos { productos:[{campo:valor}] } -> inserta en el contenedor "Productos" del tenant.
+  - agregar_filas_a_contenedor { contenedor, filas } -> version parametrica (cargar_productos la envuelve).
+  - listar_contenedores -> contenedores del tenant + columnas.
+- Escritura EAV: resuelve contenedor por NOMBRE (tenant-scoped, sin ids hardcodeados); 1 fila + 1 celda por
+  clave que sea COLUMNA (case-insensitive); campos no-columna se ignoran; todo como texto; solo inserta.
+  Devuelve { ok, cargados, celdas, contenedor }. La herramienta queda habilitada por defecto para los agentes.
+- Sin migraciones (no hay schema nuevo). Tests ContenedorDatosToolsetTests +4. Application.Tests 913/913
+  verdes. Build de la solucion verde. Deploy autorizado por el usuario.
+
 ## 2026-09-14 - v0.16.67: nombre ORIGINAL del archivo entrante al contexto del agente (columna 'archivo')
 
 - El agente veia el adjunto por vision pero NO recibia su NOMBRE; ademas la media se almacena como

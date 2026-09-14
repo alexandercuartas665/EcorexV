@@ -27,7 +27,10 @@ public interface IYCloudApiClient
     /// cerrada). <paramref name="bodyParams"/> son los valores de las variables {{1}}, {{2}}... del cuerpo, en
     /// orden (para 'preguntar_whatsapp' suele ser un solo valor = la pregunta). <paramref name="language"/> es
     /// el codigo de idioma de la plantilla aprobada (ej. "es").</summary>
-    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default);
+    /// <param name="headerMediaType">Si la plantilla tiene header de media, su tipo en minusculas ("image"/"document"/"video");
+    /// null para header de texto o sin header.</param>
+    /// <param name="headerMediaUrl">URL publica de la media del header (se envia como header.link). Requiere headerMediaType.</param>
+    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0096: envia una REACCION (emoji) al mensaje entrante identificado por <paramref name="messageId"/>
     /// (el wamid del mensaje del cliente). Un <paramref name="emoji"/> vacio QUITA la reaccion. Paridad con Evolution.</summary>

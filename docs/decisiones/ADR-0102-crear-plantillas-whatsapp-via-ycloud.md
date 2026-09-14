@@ -42,6 +42,22 @@ verdad via `IYCloudApiClient.CreateTemplateAsync`.
 - Limitaciones conocidas (fase posterior): variables en HEADER/FOOTER, botones, y `SyncStatusAsync` real
   (hoy se reconcilia por import).
 
+## Actualizacion 2026-09-13 (v0.16.60): header de imagen + enlace a la tarea
+
+Se levanto la limitacion "variables/media en el header" en su parte de MEDIA:
+
+- **Header de imagen (y documento/video)** de punta a punta: nueva columna `WhatsAppTemplate.HeaderMediaUrl`
+  (migracion dual). El compilador arma `{type:HEADER, format:IMAGE, example:{header_url:[url]}}` al crear
+  (formato confirmado contra la doc de YCloud: `example.header_url` = arreglo de URLs publicas; imagen
+  .jpg/.jpeg/.png, <=5MB). El envio agrega el componente `{type:header, parameters:[{type:image, image:{link}}]}`.
+  La misma URL fija sirve de ejemplo al crear y de media al enviar (caso "banner de marca").
+- **Enlace a la tarea en el canal de PLANTILLA**: `NodeNotifyService` expone el deep-link como variable
+  `{{enlace}}`/`{{url}}`/`{{link}}`, de modo que una plantilla HSM lo incluya como parametro de cuerpo (antes el
+  link solo se anexaba en correo/Telegram/grupo).
+
+Sigue pendiente (fase posterior): variables en HEADER de TEXTO, botones (incl. boton URL dinamico), y
+`SyncStatusAsync` real.
+
 ## Referencias
 
 - Codigo: `Ecorex.Application/Tenancy/WhatsAppTemplateComponents.cs` (compilador),

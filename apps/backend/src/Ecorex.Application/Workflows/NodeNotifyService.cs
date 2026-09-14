@@ -43,11 +43,21 @@ public sealed class NodeNotifyService : INodeNotifyService
                 task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tid, cancellationToken);
             }
 
-            var tokens = task is not null
+            var baseTokens = task is not null
                 ? await _tokens.BuildAsync(task, cancellationToken)
                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             var link = task is not null ? _link.BuildTaskLink(task.Id) : null;
+
+            // El enlace a la tarea se expone TAMBIEN como variable de plantilla (por nombre): una plantilla HSM
+            // con {{enlace}}/{{url}}/{{link}} recibe el deep-link (el canal de texto lo agrega aparte con IncluirEnlace).
+            var tokens = new Dictionary<string, string>(baseTokens, StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(link))
+            {
+                tokens["enlace"] = link!;
+                tokens["url"] = link!;
+                tokens["link"] = link!;
+            }
 
             foreach (var rule in config.Reglas!)
             {

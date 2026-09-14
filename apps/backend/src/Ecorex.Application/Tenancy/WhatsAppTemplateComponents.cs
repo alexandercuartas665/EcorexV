@@ -20,6 +20,15 @@ public static class WhatsAppTemplateComponents
     /// <summary>Categoria de Meta en mayusculas.</summary>
     public static string MetaCategory(WhatsAppTemplateCategory category) => category.ToString().ToUpperInvariant();
 
+    /// <summary>Formato Meta del header de media (IMAGE/DOCUMENT/VIDEO) o null si el header no es de media.</summary>
+    public static string? MediaHeaderFormat(WhatsAppTemplateHeaderType? headerType) => headerType switch
+    {
+        WhatsAppTemplateHeaderType.Image => "IMAGE",
+        WhatsAppTemplateHeaderType.Document => "DOCUMENT",
+        WhatsAppTemplateHeaderType.Video => "VIDEO",
+        _ => null
+    };
+
     /// <summary>Arreglo de componentes (HEADER? + BODY + FOOTER?) listo para enviar como 'components'.</summary>
     public static IReadOnlyList<object> Build(WhatsAppTemplate t)
     {
@@ -29,6 +38,17 @@ public static class WhatsAppTemplateComponents
         if (t.HeaderType == WhatsAppTemplateHeaderType.Text && !string.IsNullOrWhiteSpace(t.HeaderText))
         {
             comps.Add(new { type = "HEADER", format = "TEXT", text = t.HeaderText!.Trim() });
+        }
+        // HEADER de media (imagen/documento/video): el formato Meta pide un ejemplo en example.header_url
+        // (arreglo de URLs publicas). Usamos la misma URL fija que luego se manda al enviar.
+        else if (MediaHeaderFormat(t.HeaderType) is { } mediaFormat && !string.IsNullOrWhiteSpace(t.HeaderMediaUrl))
+        {
+            comps.Add(new
+            {
+                type = "HEADER",
+                format = mediaFormat,
+                example = new { header_url = new[] { t.HeaderMediaUrl!.Trim() } }
+            });
         }
 
         // BODY: compila tokens amigables -> posicionales + ejemplos.

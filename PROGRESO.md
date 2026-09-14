@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-13 - v0.16.60: plantillas de WhatsApp con imagen en el header + enlace a la tarea en la notificacion (ADR-0102)
+
+- HEADER de IMAGEN (tambien documento/video) en plantillas HSM, de punta a punta:
+  - Entidad WhatsAppTemplate.HeaderMediaUrl (columna nueva) + migracion dual (PG text / SqlServer nvarchar(max)).
+  - Compilador (crear): header {type:HEADER, format:IMAGE|DOCUMENT|VIDEO, example:{header_url:[url]}} (formato YCloud/Meta).
+  - Envio: SendTemplateAsync agrega el componente header {type:header, parameters:[{type:image, image:{link}}]}.
+    Se propago la firma en IYCloudApiClient/WhatsAppConnectorService/NotificationChannelSender (params opcionales).
+  - UI Plantillas: selector de encabezado (Sin/Texto/Imagen) + campo URL con validacion basica (https, .jpg/.jpeg/.png, 5MB).
+- Enlace a la tarea en la notificacion por PLANTILLA: NodeNotifyService expone el deep-link como variable {{enlace}}/{{url}}/{{link}}
+  en el mapa de tokens, para que una plantilla HSM pueda incluir el link (el canal de texto ya lo agregaba aparte con IncluirEnlace).
+- Sin cambios de contrato para los llamadores existentes (params opcionales antes de ct; el agente ya usaba args nombrados).
+  Tests +3 (WhatsAppTemplateComponentsTests). Application.Tests 906/906 verdes. Build de la solucion verde.
+- Requiere `dotnet ef database update` al desplegar (columna header_media_url). Uso: crear plantilla de aviso de tarea en AGROMETALICAS.
+
 ## 2026-09-13 - v0.16.59: crear plantillas de WhatsApp desde el sistema via YCloud (ADR-0102)
 
 - El modulo de Plantillas ya IMPORTABA de YCloud, pero "Someter" era stub (solo estado local). El cliente

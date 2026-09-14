@@ -407,10 +407,22 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         template.Name = name;
         template.Language = language;
         template.Category = request.Category;
-        template.HeaderType = string.IsNullOrWhiteSpace(request.HeaderText)
-            ? request.HeaderType
-            : (request.HeaderType ?? WhatsAppTemplateHeaderType.Text);
-        template.HeaderText = string.IsNullOrWhiteSpace(request.HeaderText) ? null : request.HeaderText.Trim();
+        // El header puede ser de texto (HeaderText) o de media (HeaderType Image/Document/Video + HeaderMediaUrl).
+        var mediaFormat = WhatsAppTemplateComponents.MediaHeaderFormat(request.HeaderType);
+        if (mediaFormat is not null && !string.IsNullOrWhiteSpace(request.HeaderMediaUrl))
+        {
+            template.HeaderType = request.HeaderType;
+            template.HeaderText = null;
+            template.HeaderMediaUrl = request.HeaderMediaUrl.Trim();
+        }
+        else
+        {
+            template.HeaderType = string.IsNullOrWhiteSpace(request.HeaderText)
+                ? request.HeaderType
+                : (request.HeaderType ?? WhatsAppTemplateHeaderType.Text);
+            template.HeaderText = string.IsNullOrWhiteSpace(request.HeaderText) ? null : request.HeaderText.Trim();
+            template.HeaderMediaUrl = null;
+        }
         template.BodyText = request.BodyText.Trim();
         template.FooterText = string.IsNullOrWhiteSpace(request.FooterText) ? null : request.FooterText.Trim();
         template.VariablesJson = JsonSerializer.Serialize(request.Variables ?? Array.Empty<WhatsAppTemplateVariable>());
@@ -435,7 +447,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         try { vars = JsonSerializer.Deserialize<List<WhatsAppTemplateVariable>>(t.VariablesJson) ?? new(); }
         catch { vars = new List<WhatsAppTemplateVariable>(); }
         return new WhatsAppTemplateDto(
-            t.Id, t.Name, t.Language, t.Category, t.HeaderType, t.HeaderText, t.BodyText, t.FooterText,
+            t.Id, t.Name, t.Language, t.Category, t.HeaderType, t.HeaderText, t.HeaderMediaUrl, t.BodyText, t.FooterText,
             vars, t.Provider, t.WhatsAppLineId,
             lineNames.TryGetValue(t.WhatsAppLineId, out var lineName) ? lineName : null,
             t.WabaId, t.Status, t.ProviderTemplateId, t.RejectionReason,

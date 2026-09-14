@@ -15,6 +15,7 @@ public sealed record WhatsAppTemplateDto(
     WhatsAppTemplateCategory Category,
     WhatsAppTemplateHeaderType? HeaderType,
     string? HeaderText,
+    string? HeaderMediaUrl,
     string BodyText,
     string? FooterText,
     IReadOnlyList<WhatsAppTemplateVariable> Variables,
@@ -38,6 +39,7 @@ public sealed record SaveWhatsAppTemplateRequest(
     Guid WhatsAppLineId,
     WhatsAppTemplateHeaderType? HeaderType = null,
     string? HeaderText = null,
+    string? HeaderMediaUrl = null,
     string? FooterText = null,
     IReadOnlyList<WhatsAppTemplateVariable>? Variables = null);
 

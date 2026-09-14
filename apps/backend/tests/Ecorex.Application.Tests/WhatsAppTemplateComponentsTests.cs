@@ -77,6 +77,48 @@ public class WhatsAppTemplateComponentsTests
     }
 
     [Fact]
+    public void Build_HeaderImagen_UsaFormatImageYHeaderUrl()
+    {
+        var t = new WhatsAppTemplate
+        {
+            Name = "aviso_img", Language = "es", Category = WhatsAppTemplateCategory.Utility,
+            HeaderType = WhatsAppTemplateHeaderType.Image,
+            HeaderMediaUrl = "https://cdn.example.com/banner.jpg",
+            BodyText = "Tienes la tarea {{numero}}.",
+            VariablesJson = """[{"token":"numero","example":"T00042"}]"""
+        };
+        var json = JsonSerializer.Serialize(WhatsAppTemplateComponents.Build(t));
+        Assert.Contains("\"type\":\"HEADER\"", json);
+        Assert.Contains("\"format\":\"IMAGE\"", json);
+        Assert.Contains("header_url", json);
+        Assert.Contains("https://cdn.example.com/banner.jpg", json);
+        Assert.Contains("{{1}}", json);
+    }
+
+    [Fact]
+    public void Build_HeaderImagenSinUrl_NoAgregaHeader()
+    {
+        var t = new WhatsAppTemplate
+        {
+            Name = "aviso_img2", Language = "es", Category = WhatsAppTemplateCategory.Utility,
+            HeaderType = WhatsAppTemplateHeaderType.Image, HeaderMediaUrl = null,
+            BodyText = "Cuerpo."
+        };
+        var json = JsonSerializer.Serialize(WhatsAppTemplateComponents.Build(t));
+        Assert.DoesNotContain("HEADER", json);
+    }
+
+    [Fact]
+    public void MediaHeaderFormat_MapeaTipos()
+    {
+        Assert.Equal("IMAGE", WhatsAppTemplateComponents.MediaHeaderFormat(WhatsAppTemplateHeaderType.Image));
+        Assert.Equal("DOCUMENT", WhatsAppTemplateComponents.MediaHeaderFormat(WhatsAppTemplateHeaderType.Document));
+        Assert.Equal("VIDEO", WhatsAppTemplateComponents.MediaHeaderFormat(WhatsAppTemplateHeaderType.Video));
+        Assert.Null(WhatsAppTemplateComponents.MediaHeaderFormat(WhatsAppTemplateHeaderType.Text));
+        Assert.Null(WhatsAppTemplateComponents.MediaHeaderFormat(null));
+    }
+
+    [Fact]
     public void MetaCategory_EnMayusculas()
         => Assert.Equal("UTILITY", WhatsAppTemplateComponents.MetaCategory(WhatsAppTemplateCategory.Utility));
 }

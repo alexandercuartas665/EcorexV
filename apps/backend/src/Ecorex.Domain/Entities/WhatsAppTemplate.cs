@@ -26,9 +26,16 @@ public class WhatsAppTemplate : TenantEntity
     /// <summary>Categoria de Meta: Marketing, Utility o Authentication.</summary>
     public WhatsAppTemplateCategory Category { get; set; } = WhatsAppTemplateCategory.Utility;
 
-    /// <summary>Tipo de header (en este corte solo texto). Null/None = sin header.</summary>
+    /// <summary>Tipo de header: Text, Image, Document, Video. Null/None = sin header.</summary>
     public WhatsAppTemplateHeaderType? HeaderType { get; set; }
     public string? HeaderText { get; set; }
+
+    /// <summary>
+    /// URL PUBLICA de la imagen/documento/video del header cuando HeaderType es Image/Document/Video.
+    /// En Meta/YCloud se usa como ejemplo al CREAR (example.header_url) y como media al ENVIAR (header.link).
+    /// Debe ser https y, para imagen, terminar en .jpg/.jpeg/.png (limite 5MB). Null para header de texto.
+    /// </summary>
+    public string? HeaderMediaUrl { get; set; }
 
     /// <summary>Cuerpo editable con tokens amigables {{empresa}}, {{asesor}}, {{cliente}}, etc.</summary>
     public string BodyText { get; set; } = null!;

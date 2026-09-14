@@ -156,9 +156,29 @@ else
                     }
                 </div>
                 <div class="field">
-                    <label class="form-label">Encabezado (texto, opcional)</label>
-                    <input class="form-control" @bind="_fHeaderText" maxlength="60" />
+                    <label class="form-label">Encabezado (opcional)</label>
+                    <select class="form-select" @bind="_fHeaderKind">
+                        <option value="none">Sin encabezado</option>
+                        <option value="text">Texto</option>
+                        <option value="image">Imagen</option>
+                    </select>
                 </div>
+                @if (_fHeaderKind == "text")
+                {
+                    <div class="field">
+                        <label class="form-label">Texto del encabezado</label>
+                        <input class="form-control" @bind="_fHeaderText" maxlength="60" />
+                    </div>
+                }
+                else if (_fHeaderKind == "image")
+                {
+                    <div class="field">
+                        <label class="form-label">URL de la imagen del encabezado</label>
+                        <input class="form-control" @bind="_fHeaderMediaUrl" maxlength="1024"
+                               placeholder="https://.../banner.jpg" />
+                        <small class="muted-cell">URL publica https, formato .jpg/.jpeg/.png, maximo 5MB. Se usa como ejemplo al crear y como imagen en cada envio.</small>
+                    </div>
+                }
                 <div class="field">
                     <label class="form-label">Cuerpo *</label>
                     <textarea class="form-control" rows="4" maxlength="1024" @bind="_fBodyText"
@@ -274,7 +294,9 @@ else
     private string _fLanguage = "es";
     private WhatsAppTemplateCategory _fCategory = WhatsAppTemplateCategory.Utility;
     private string _fLine = "";
+    private string _fHeaderKind = "none";   // "none" | "text" | "image"
     private string? _fHeaderText;
+    private string? _fHeaderMediaUrl;
     private string _fBodyText = "";
     private string? _fFooterText;
     private string? _editorError;
@@ -307,7 +329,9 @@ else
         _fLanguage = "es";
         _fCategory = WhatsAppTemplateCategory.Utility;
         _fLine = _lines.Count > 0 ? _lines[0].Id.ToString() : "";
+        _fHeaderKind = "none";
         _fHeaderText = null;
+        _fHeaderMediaUrl = null;
         _fBodyText = "";
         _fFooterText = null;
     }
@@ -325,6 +349,13 @@ else
             _fCategory = detail.Category;
             _fLine = detail.WhatsAppLineId.ToString();
             _fHeaderText = detail.HeaderText;
+            _fHeaderMediaUrl = detail.HeaderMediaUrl;
+            _fHeaderKind = detail.HeaderType switch
+            {
+                WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Video => "image",
+                WhatsAppTemplateHeaderType.Text => "text",
+                _ => string.IsNullOrWhiteSpace(detail.HeaderText) ? "none" : "text"
+            };
             _fBodyText = detail.BodyText;
             _fFooterText = detail.FooterText;
         }
@@ -345,13 +376,27 @@ else
             _busy = false;
             return;
         }
+        if (_fHeaderKind == "image" && string.IsNullOrWhiteSpace(_fHeaderMediaUrl))
+        {
+            _editorError = "Indica la URL de la imagen del encabezado (https, .jpg/.jpeg/.png).";
+            _busy = false;
+            return;
+        }
+        var headerType = _fHeaderKind switch
+        {
+            "image" => (WhatsAppTemplateHeaderType?)WhatsAppTemplateHeaderType.Image,
+            "text" => WhatsAppTemplateHeaderType.Text,
+            _ => null
+        };
         var request = new SaveWhatsAppTemplateRequest(
             _fName,
             _fLanguage,
             _fCategory,
             _fBodyText,
             lineId,
-            HeaderText: _fHeaderText,
+            HeaderType: headerType,
+            HeaderText: _fHeaderKind == "text" ? _fHeaderText : null,
+            HeaderMediaUrl: _fHeaderKind == "image" ? _fHeaderMediaUrl : null,
             FooterText: _fFooterText,
             Variables: WhatsAppTemplateCalculations.ExtractTokens(_fBodyText)
                 .Select(tok => new WhatsAppTemplateVariable(

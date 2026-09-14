@@ -100,11 +100,22 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return SendMessageAsync(apiKey, payload, cancellationToken);
     }
 
-    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, CancellationToken cancellationToken = default)
+    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default)
     {
-        // Payload de plantilla (WhatsApp/YCloud v2): un componente BODY con los parametros de texto en orden.
-        // Si no hay variables, se omiten los components (plantilla de texto fijo).
+        // Payload de plantilla (WhatsApp/YCloud v2): componentes con los parametros en orden.
+        // Header de media (imagen/documento/video): { type:"header", parameters:[{ type:"image", image:{ link } }] }.
+        // Body: { type:"body", parameters:[{ type:"text", text }] }. Si no hay variables ni header, se omiten.
         var components = new List<object>();
+        if (!string.IsNullOrWhiteSpace(headerMediaType) && !string.IsNullOrWhiteSpace(headerMediaUrl))
+        {
+            var kind = headerMediaType!.Trim().ToLowerInvariant();   // "image" | "document" | "video"
+            var mediaObj = new Dictionary<string, object?> { ["link"] = headerMediaUrl!.Trim() };
+            components.Add(new Dictionary<string, object?>
+            {
+                ["type"] = "header",
+                ["parameters"] = new[] { new Dictionary<string, object?> { ["type"] = kind, [kind] = mediaObj } }
+            });
+        }
         if (bodyParams.Count > 0)
         {
             components.Add(new

@@ -47,7 +47,8 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             var tpl = await q.FirstOrDefaultAsync(cancellationToken);
             if (tpl is null) { return false; } // solo enviamos plantillas que existen
             var lang = string.IsNullOrWhiteSpace(language) ? tpl.Language : language!;
-            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, cancellationToken);
+            var (mediaType, mediaUrl) = HeaderMedia(tpl);
+            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, cancellationToken);
             return res.Ok;
         }
         catch { return false; }
@@ -79,6 +80,19 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             return res.Ok;
         }
         catch { return false; }
+    }
+
+    // Resuelve el header de media de la plantilla ("image"/"document"/"video" + URL) para el envio; (null,null) si es texto o sin header.
+    private static (string? Type, string? Url) HeaderMedia(Domain.Entities.WhatsAppTemplate tpl)
+    {
+        if (string.IsNullOrWhiteSpace(tpl.HeaderMediaUrl)) { return (null, null); }
+        return tpl.HeaderType switch
+        {
+            Domain.Enums.WhatsAppTemplateHeaderType.Image => ("image", tpl.HeaderMediaUrl),
+            Domain.Enums.WhatsAppTemplateHeaderType.Document => ("document", tpl.HeaderMediaUrl),
+            Domain.Enums.WhatsAppTemplateHeaderType.Video => ("video", tpl.HeaderMediaUrl),
+            _ => (null, null)
+        };
     }
 
     // Mapea los parametros posicionales de la plantilla resolviendo cada variable {{token}} por su nombre.

@@ -14571,6 +14571,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(60)")
                         .HasColumnName("footer_text");
 
+                    b.Property<string>("HeaderMediaUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("header_media_url");
+
                     b.Property<string>("HeaderText")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")

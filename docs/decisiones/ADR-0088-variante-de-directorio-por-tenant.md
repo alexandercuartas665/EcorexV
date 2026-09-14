@@ -83,3 +83,20 @@ Especializado") y el modal muestra "ESPECIALIZADO"; al volver a Ligero, regresa.
   consultas con `CircuitFormGate` (el catalogo comparte el DbContext scoped del circuito).
 - Migracion de datos `ConvertModularGeoFieldTypes` (PG + SQL Server) convierte esos campos de sistema de
   `Select` a los tipos geo en tenants ya sembrados (idempotente, `ficha_key LIKE 'mod%'`).
+
+## Actualizacion 2026-09-14 (v0.16.63): campos Lookup y DirectoryLookup en el motor modular
+
+El motor MODULAR ahora soporta los mismos campos de LISTA ligada que el Clasico:
+
+- **Lookup (Contenedor de datos)** y **DirectoryLookup (terceros)**: `NormalizeOptions`
+  (DirectorioModularConfigService) conserva su JSON de config; el editor de config
+  (DirectorioModularConfigModal) replica del Clasico el flujo Modelo -> Tabla -> Columna a mostrar +
+  presentacion (buscador/lista) + permitir crear + autollenado (columna->campo) + cascada (filtrar por otro
+  campo). La ficha (DirectorioModularFichaModal) renderiza `DataLookupField`/`DirectoryLookupField` y guarda
+  el ID de fila en `fichas_json` (clave `{seccion}/{campo}`).
+- `TerceroService` resuelve la ETIQUETA de los lookups para el listado (un lookup guarda el Id, no el texto).
+- Objetivo original: SEGMENTO/SUBSEGMENTO desde el contenedor "MAESTROS DIRECTORIO PUBLICO" (subsegmento en
+  cascada desde segmento), cableado por la UI de "Configurar directorio" en prod (sin GUIDs hardcodeados).
+- Reutiliza lo existente: `DataLookupConfig`, `DataLookupField`, `DirectoryLookupConfig`,
+  `DirectoryLookupField`, `IDataLookupService` (ListModels/Tables/Columns/ResolveAsync). Validado en vivo
+  contra contenedores reales (SOLDARCO local).

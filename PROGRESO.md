@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.63: Directorio Modular - campos Lookup (Contenedor) y DirectoryLookup (terceros) (ADR-0088)
+
+- Se integraron al motor MODULAR los campos ligados a CONTENEDORES de datos (Lookup) y al Directorio de
+  terceros (DirectoryLookup), calcados del motor Clasico. Objetivo: SEGMENTO/SUBSEGMENTO desde el contenedor
+  "MAESTROS DIRECTORIO PUBLICO" (subsegmento en cascada desde segmento).
+- DirectorioModularConfigService.NormalizeOptions conserva el JSON de config para Lookup/DirectoryLookup.
+- DirectorioModularConfigModal: editor de config replicado (Modelo->Tabla->Columna + presentacion + permitir
+  crear + autollenado + cascada) y ambos tipos en el desplegable "Tipo".
+- DirectorioModularFichaModal: Lookup->DataLookupField, DirectoryLookup->DirectoryLookupField (autollenado,
+  ActorUserId desde AuthState).
+- TerceroService: resolucion de ETIQUETA de lookups en el listado (BuildLookupFilterLabelsAsync).
+- Validado en vivo (SOLDARCO local, 5240): tipo -> editor cascada con datos reales (IDataLookupService) ->
+  guardar (JSON DataLookupConfig) -> ficha buscador -> selecciona y guarda el Id de fila en fichas_json.
+  Build verde. Multi-tenant intacto.
+- Al desplegar a PROD: correr migraciones pendientes (AddTerceroFieldNotasDesarrollador,
+  ConvertModularGeoFieldTypes, dual PG+SqlServer). SEGMENTO/SUBSEGMENTO se cablean por UI en prod (sin GUIDs
+  hardcodeados) apuntando a "MAESTROS DIRECTORIO PUBLICO".
+
 ## 2026-09-14 - v0.16.62: FIX crear plantilla YCloud - BODY sin example por casing de VariablesJson
 
 - Bug real hallado al someter aviso_tarea en AGROMETALICAS: YCloud rechazaba con "component of type BODY is

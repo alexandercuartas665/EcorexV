@@ -2,8 +2,12 @@
 @attribute [Authorize(Policy = "PlantillasWhatsApp.Editar")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Tenancy
+@using Ecorex.SuperAdmin.Services
 @inject IWhatsAppTemplateService TemplateSvc
 @inject IWhatsAppLineService LineSvc
+@inject IWebHostEnvironment Env
+@inject IConfiguration Config
+@inject NavigationManager Nav
 
 <PageTitle>Plantillas WhatsApp - ECOREX.tareas</PageTitle>
 
@@ -173,10 +177,23 @@ else
                 else if (_fHeaderKind == "image")
                 {
                     <div class="field">
-                        <label class="form-label">URL de la imagen del encabezado</label>
+                        <label class="form-label">Imagen del encabezado</label>
+                        <InputFile OnChange="OnHeaderImageSelected" accept=".jpg,.jpeg,.png" class="form-control" disabled="@_uploadingHeader" />
+                        <small class="muted-cell">Sube una imagen (.jpg/.jpeg/.png, max 5MB) y el sistema la publica en una URL, o pega una URL publica https abajo.</small>
+                        @if (_uploadingHeader)
+                        {
+                            <small class="muted-cell">Subiendo imagen...</small>
+                        }
+                    </div>
+                    <div class="field">
+                        <label class="form-label">URL de la imagen (publica)</label>
                         <input class="form-control" @bind="_fHeaderMediaUrl" maxlength="1024"
                                placeholder="https://.../banner.jpg" />
-                        <small class="muted-cell">URL publica https, formato .jpg/.jpeg/.png, maximo 5MB. Se usa como ejemplo al crear y como imagen en cada envio.</small>
+                        @if (!string.IsNullOrWhiteSpace(_fHeaderMediaUrl))
+                        {
+                            <img src="@_fHeaderMediaUrl" alt="Vista previa del encabezado" style="max-height:120px;margin-top:.5rem;border-radius:8px;" />
+                        }
+                        <small class="muted-cell">Se usa como ejemplo al crear la plantilla y como imagen en cada envio. YCloud debe poder descargarla (URL publica).</small>
                     </div>
                 }
                 <div class="field">
@@ -297,6 +314,7 @@ else
     private string _fHeaderKind = "none";   // "none" | "text" | "image"
     private string? _fHeaderText;
     private string? _fHeaderMediaUrl;
+    private bool _uploadingHeader;
     private string _fBodyText = "";
     private string? _fFooterText;
     private string? _editorError;
@@ -364,6 +382,50 @@ else
             _editingId = null;
         }
         _showEditor = true;
+    }
+
+    private async Task OnHeaderImageSelected(InputFileChangeEventArgs e)
+    {
+        _editorError = null;
+        var file = e.File;
+        const long max = 5L * 1024 * 1024;   // WhatsApp: imagen de header <= 5MB
+        if (file.Size <= 0 || file.Size > max) { _editorError = "La imagen debe pesar menos de 5 MB."; return; }
+        // WhatsApp solo admite jpg/jpeg/png en el header de media.
+        var ext = ImageUploadGuard.ResolveExtension(file.Name);
+        if (ext is not (".jpg" or ".jpeg" or ".png"))
+        {
+            _editorError = "El encabezado debe ser una imagen .jpg, .jpeg o .png.";
+            return;
+        }
+        _uploadingHeader = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            if (!ImageUploadGuard.MatchesSignature(bytes, ext))
+            {
+                _editorError = "El contenido del archivo no es una imagen valida.";
+                return;
+            }
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "templates");
+            System.IO.Directory.CreateDirectory(dir);
+            var name = ImageUploadGuard.BuildStoredFileName("wa-tpl", ext);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), bytes);
+            _fHeaderMediaUrl = AbsoluteUrl($"/uploads/templates/{name}");
+        }
+        catch { _editorError = "No se pudo subir la imagen."; }
+        finally { _uploadingHeader = false; }
+    }
+
+    // URL absoluta para que YCloud pueda descargar la media desde internet: usa Ecorex:PublicBaseUrl
+    // (host publico de prod) si esta configurada; si no, la base de la peticion actual.
+    private string AbsoluteUrl(string relative)
+    {
+        var baseUrl = Config["Ecorex:PublicBaseUrl"];
+        if (string.IsNullOrWhiteSpace(baseUrl)) { baseUrl = Environment.GetEnvironmentVariable("ECOREX_PUBLIC_BASE_URL"); }
+        if (string.IsNullOrWhiteSpace(baseUrl)) { baseUrl = Nav.BaseUri; }
+        return baseUrl!.TrimEnd('/') + relative;
     }
 
     private async Task SaveAsync()

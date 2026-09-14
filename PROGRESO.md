@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.61: subir la imagen del header de la plantilla desde el editor (sin pegar URL)
+
+- El editor de Plantillas WhatsApp permite SUBIR la imagen del encabezado (InputFile .jpg/.jpeg/.png, max 5MB):
+  se valida por whitelist + firma de bytes (ImageUploadGuard, mismo patron que el logo de Marca), se guarda en
+  wwwroot/uploads/templates y se rellena HeaderMediaUrl con la URL ABSOLUTA (Ecorex:PublicBaseUrl -> host publico,
+  o la base de la peticion) para que YCloud pueda descargarla al crear y en cada envio. Tambien se puede pegar la URL.
+- Se agrego vista previa de la imagen en el editor. Persistencia: prod monta el volumen ecorex-uploads en
+  /app/wwwroot/uploads, asi que la imagen sobrevive a los redeploys (requisito para HSM con header de media).
+- Solo UI (sin migraciones ni cambios de backend). Build de SuperAdmin verde.
+
 ## 2026-09-13 - v0.16.60: plantillas de WhatsApp con imagen en el header + enlace a la tarea en la notificacion (ADR-0102)
 
 - HEADER de IMAGEN (tambien documento/video) en plantillas HSM, de punta a punta:

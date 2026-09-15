@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.76: Directorio Modular OLA 6 - refactor (tope 2000 lineas) (O6-1)
+
+- Sexta y ultima ola del backlog "Capa 8 Directorio". Refactor de deuda tecnica, SIN cambio de
+  comportamiento y SIN migracion.
+- O6-1: TerceroModal.razor superaba el tope (2112 lineas). Se separo en code-behind: el markup queda en
+  TerceroModal.razor (847 lineas) y todo el antiguo bloque @code pasa a TerceroModal.razor.cs (1293 lineas,
+  partial class), verbatim. Los @inject siguen en el .razor (misma clase parcial). Es el corte de MENOR
+  riesgo (mismo codigo reubicado; si compila, el comportamiento no cambia). Primer code-behind del proyecto.
+- Verificado: ningun archivo del modulo Directorio supera 2000 lineas. ConfigModal (1140) y SharedBase
+  (1092) siguen por debajo (solo vigilancia); DirectorioModularFichaModal crecio a 1029 con las Olas 1-5
+  (bajo el tope). Descomponer en subcomponentes queda como mejora futura opcional (el tope ya se cumple).
+- Build verde (solucion completa); 931 tests verdes.
+- CIERRE DEL BACKLOG: Olas 1-6 completas en local (v0.16.71 -> v0.16.76), commiteadas en
+  feat/directorio-modular, SIN mergear y SIN desplegar. Siguiente: validacion del usuario + merge a
+  fase-0/clon-backbone + main + deploy a su senal.
+
 ## 2026-09-15 - v0.16.75: Directorio Modular OLA 5 - permisos por rol/area en runtime (O5-1)
 
 - Quinta ola del backlog "Capa 8 Directorio". SIN migracion de BD (reusa la matriz de Roles existente).

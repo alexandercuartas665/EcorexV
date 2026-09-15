@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.71: FIX el campo Cliente (lookup Tercero) mostraba el GUID en una OT recien derivada
+
+- Sintoma: al crear una tarea con un cliente NUEVO y derivar en ese mismo momento su Orden de Trabajo
+  (FT-C-008, ADR-0078), el campo "Cliente" de la OT mostraba el id crudo del tercero
+  (ej. "01a0a1a3-da2f-78b8-a4f8-75e2a00c6c61") en vez del nombre. Nit y Cel salian bien (son snapshots de
+  texto del autollenado).
+- Causa: el campo Cliente es un LOOKUP de Tercero (guarda el id, resuelve el nombre en pantalla). La
+  resolucion id->nombre (ResolveLookupDisplaysAsync en DynamicFormRenderer) corre UNA sola vez en la carga
+  inicial; si en ese instante el id aun no tiene etiqueta (registro derivado cuyo valor llego despues del
+  load, o el tercero recien creado), RenderLookup caia a mostrar el id crudo ("... ?? value").
+- Fix (solo UI, sin migracion): resolucion de etiqueta BAJO DEMANDA. Si RenderLookup encuentra un valor que
+  es un Guid sin etiqueta resuelta, dispara EnsureLookupDisplayAsync (una sola vez por valor, con el mismo
+  gate + ambient que el resto de llamadas a la fuente): resuelve el nombre y refresca la vista. Mientras
+  tanto NO se muestra el Guid crudo (queda en blanco). Cubre el caso transitorio (se auto-corrige al nombre)
+  y el persistente (nunca un Guid). Aplica a todos los lookups del renderer integrado (Tercero/Item/
+  Contenedor), no solo Cliente.
+- Build de SuperAdmin verde. Siguiente: NO desplegado (a la senal del usuario).
+
 ## 2026-09-14 - v0.16.70: crear_contacto usa el telefono REAL de la conversacion + dedup por telefono (ADR-0101)
 
 - Mejora de la herramienta EXISTENTE crear_contacto (DirectorioToolset, usada por SARA/MAURO/EPRING); no se

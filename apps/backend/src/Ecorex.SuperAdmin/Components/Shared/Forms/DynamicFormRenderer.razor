@@ -1402,6 +1402,7 @@ else
 
     // Estado de UI del lookup por campo (fieldCode).
     private readonly Dictionary<string, string?> _lookupDisplay = new(StringComparer.Ordinal); // etiqueta del id elegido
+    private readonly HashSet<string> _lookupResolveTried = new(StringComparer.Ordinal);         // (fieldCode|value) ya reintentados
     private readonly Dictionary<string, string?> _lookupQuery = new(StringComparer.Ordinal);   // texto tecleado
     private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _lookupResults = new(StringComparer.Ordinal);
     private readonly HashSet<string> _lookupOpen = new(StringComparer.Ordinal);
@@ -1409,7 +1410,17 @@ else
 
     private RenderFragment RenderLookup(FormQuestionDto q, string? value) => __builder =>
     {
-        var display = _lookupDisplay.GetValueOrDefault(q.FieldCode) ?? value;
+        var label = _lookupDisplay.GetValueOrDefault(q.FieldCode);
+        if (label is null && !string.IsNullOrEmpty(value) && Guid.TryParse(value, out _))
+        {
+            // El valor es un id de lookup (ej. Tercero) cuya etiqueta aun no se resolvio. Pasa en un registro
+            // DERIVADO (ADR-0078, p.ej. Orden de Trabajo) cuyo cliente se creo en el MISMO momento: la
+            // resolucion de la carga inicial no lo alcanzo. Se dispara la resolucion bajo demanda (una sola vez
+            // por valor) y, mientras tanto, NO se muestra el Guid crudo (se veria "01a0a1a3-..." en el campo).
+            _ = EnsureLookupDisplayAsync(q, value);
+            label = "";
+        }
+        var display = label ?? value;
         var results = _lookupResults.GetValueOrDefault(q.FieldCode);
 
         if (q.Presentation == FormFieldPresentation.Dropdown)
@@ -1605,6 +1616,28 @@ else
             }
             catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
         }
+    }
+
+    /// <summary>Resuelve la etiqueta de UN id de lookup bajo demanda (una sola vez por valor), fuera de la
+    /// carga inicial: cubre los registros DERIVADOS cuyo id llego despues del load (el cliente recien creado
+    /// de una Orden de Trabajo). Corre con el gate + ambient como el resto de llamadas a la fuente; al
+    /// resolver, refresca la vista. Si la fuente no lo encuentra, deja el campo en blanco (nunca el Guid).</summary>
+    private async Task EnsureLookupDisplayAsync(FormQuestionDto q, string value)
+    {
+        if (!_lookupResolveTried.Add(q.FieldCode + "|" + value)) { return; } // ya se reintento este valor
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
+            if (item is not null)
+            {
+                _lookupDisplay[q.FieldCode] = item.Display;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception) { /* la resolucion de etiqueta nunca rompe el render */ }
+        finally { _dbGate.Release(); }
     }
 
     // ---- Tabla (GridDetail) funcional + totales (ola F2, doc 01 D5 / doc 02 s4) ----

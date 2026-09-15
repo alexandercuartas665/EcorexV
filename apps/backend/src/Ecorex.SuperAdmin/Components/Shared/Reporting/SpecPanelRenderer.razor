@@ -805,6 +805,7 @@
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Line(slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList());
+                    CaptureSlices(rw, w.Dim, MeasureLabel(w, scale), slices);
                     break;
                 }
                 case "bar":
@@ -824,6 +825,7 @@
                             slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList(),
                             rotate: 24, label: true, rawValues: isInteger, gridBottom: 70, gridLeft: 44);
                     }
+                    CaptureSlices(rw, w.Dim, MeasureLabel(w, scale), slices);
 
                     break;
                 }
@@ -833,6 +835,7 @@
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Donut(slices.Select(s => (s.Key, s.Value)).ToList(), integerValues: isInteger);
+                    CaptureSlices(rw, w.Dim, MeasureLabel(w, scale), slices);
                     break;
                 }
                 case "pareto":
@@ -843,6 +846,13 @@
                     var barName = MeasureLabel(w, scale);
                     rw.Option = EChartBuilders.Pareto(cats.Select(c => Trunc(c, 22)).ToList(), bars, cum,
                         barName: barName, cumName: "Acumulado %", leftAxisName: scale == 1_000_000d ? "M" : "");
+                    rw.ExportHeaders.Add(string.IsNullOrWhiteSpace(w.Dim) ? "Categoria" : w.Dim!);
+                    rw.ExportHeaders.Add(barName);
+                    rw.ExportHeaders.Add("Acumulado %");
+                    for (var pi = 0; pi < cats.Count; pi++)
+                    {
+                        rw.ExportRows.Add(new List<object?> { cats[pi], pi < bars.Count ? bars[pi] : null, pi < cum.Count ? cum[pi] : null });
+                    }
                     break;
                 }
                 case "matrix":
@@ -900,7 +910,54 @@
             rw.Message = ex.Message;
         }
 
+        // Captura para export de tabla y matriz (los graficos ya se capturaron en su case).
+        if (rw.Kind == WKind.Table && rw.ExportRows.Count == 0)
+        {
+            foreach (var h in rw.TableHeaders) { rw.ExportHeaders.Add(h); }
+            foreach (var row in rw.TableRows) { rw.ExportRows.Add(row.Cast<object?>().ToList()); }
+        }
+        else if (rw.Kind == WKind.Matrix && rw.Matrix is not null)
+        {
+            rw.ExportHeaders.Add(string.IsNullOrWhiteSpace(rw.RowDimLabel) ? "" : rw.RowDimLabel);
+            foreach (var col in rw.Matrix.ColKeys) { rw.ExportHeaders.Add(col); }
+            foreach (var rowKey in rw.Matrix.RowKeys)
+            {
+                var cells = new List<object?> { rowKey };
+                foreach (var col in rw.Matrix.ColKeys) { cells.Add(rw.Matrix.Cell(rowKey, col)); }
+                rw.ExportRows.Add(cells);
+            }
+        }
+
         return rw;
+    }
+
+    /// <summary>Guarda la serie de un grafico (dimension + medida) como filas exportables.</summary>
+    private static void CaptureSlices(RenderWidget rw, string? dimLabel, string measureLabel, List<PanelSlice> slices)
+    {
+        rw.ExportHeaders.Add(string.IsNullOrWhiteSpace(dimLabel) ? "Categoria" : dimLabel!);
+        rw.ExportHeaders.Add(measureLabel);
+        foreach (var s in slices) { rw.ExportRows.Add(new List<object?> { s.Key, s.Value }); }
+    }
+
+    /// <summary>
+    /// Arma el .xlsx del reporte con los datos YA calculados (respetando los filtros del tablero): una hoja
+    /// "Indicadores" con los KPIs y una hoja por cada tabla/serie/matriz. Devuelve null si no hay nada que
+    /// exportar (el panel aun no cargo o quedo vacio). Lo invoca la galeria desde el boton "Generar Excel".
+    /// </summary>
+    public byte[]? BuildExcelBytes()
+    {
+        var kpis = _kpis.Select(k => (k.Label, k.Value)).ToList();
+        var sheets = new List<ReportExcelSheet>();
+        var i = 1;
+        foreach (var w in _widgets)
+        {
+            if (w.ExportHeaders.Count == 0 && w.ExportRows.Count == 0) { continue; }
+            var name = string.IsNullOrWhiteSpace(w.Title) ? $"Datos {i}" : w.Title;
+            sheets.Add(new ReportExcelSheet(name, w.ExportHeaders, w.ExportRows.Cast<IReadOnlyList<object?>>().ToList()));
+            i++;
+        }
+        if (kpis.Count == 0 && sheets.Count == 0) { return null; }
+        return ReportExcelExport.Build(kpis, sheets);
     }
 
     private static string MeasureLabel(PanelWidget w, double scale)
@@ -991,5 +1048,10 @@
         public List<bool> TableNumeric { get; } = new();
         public List<List<string>> TableRows { get; } = new();
         public string? Message { get; set; }
+
+        // Representacion tabular del widget para EXPORTAR a Excel (grafico -> su serie, tabla -> sus filas,
+        // matriz -> su grilla). Se llena al construir el widget, respetando los filtros aplicados.
+        public List<string> ExportHeaders { get; } = new();
+        public List<List<object?>> ExportRows { get; } = new();
     }
 }

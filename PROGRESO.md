@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.79: Reportes - acciones en menu, doble confirmacion de archivado, Generar Excel
+
+- Viewer de un reporte (ReportGallery, panel por spec): los botones sueltos Editar/Duplicar/Archivar pasan a
+  un MENU (kebab) en la cabecera, que ademas incluye "Generar Excel". Los toggles Tablero/Imprimible siguen
+  igual (Tablero = vista interactiva del dashboard; Imprimible = version PDF).
+- Archivar: ahora DOBLE confirmacion en dos dialogos ("Archivar?" -> "Continuar" -> "Confirmar de nuevo" ->
+  "Si, archivar definitivamente"). No borra: sigue siendo soft-archive recuperable.
+- Generar Excel (nuevo): exporta el reporte a .xlsx con los datos YA calculados por el renderer (respetando
+  los filtros del tablero): hoja "Indicadores" con los KPIs + una hoja por cada TABLA, SERIE de grafico
+  (line/bar/donut/pareto) y MATRIZ. SpecPanelRenderer captura la representacion tabular de cada widget y
+  arma el libro con ReportExcelExport (nuevo, ClosedXML, capa Application). Descarga via ecorexDcCanvas.
+  downloadBase64 (mismo patron que el export de registros). Requiere estar en la vista Tablero.
+- Sin migracion, sin esquema. Tenant-safe (reusa el pipeline existente del panel). ASCII.
+- Tests: ReportExcelExportTests (hojas/celdas, nombres unicos/validos, vacio). Build de SuperAdmin verde.
+- Siguiente: NO desplegado (a la senal del usuario). Validacion visual en dev por el usuario.
+
 ## 2026-09-15 - v0.16.78: Parte B - adjuntos entrantes (PDF/Excel/imagen) llegan al modelo (ADR-0104)
 
 - Problema: en el flujo REAL (WhatsApp) y en el emulador, NINGUN adjunto llegaba al modelo (ni imagenes). El

@@ -12,6 +12,7 @@
 @using Microsoft.AspNetCore.Components.Forms
 @inject IReportDefinitionService Defs
 @inject IReportActivationService Activation
+@inject IJSRuntime JS
 @inject ICurrentPermissions Perms
 @inject IExternalReportBindingService ExternalReports
 @inject NavigationManager Nav
@@ -126,15 +127,33 @@
     <div class="modal-overlay" style="z-index:60;" @onclick="CancelArchive">
         <div class="modal-dialog" style="max-width:420px;width:92vw;" @onclick:stopPropagation="true">
             <div class="modal-body" style="padding:22px 24px;">
-                <h3 style="margin:0 0 8px;font-size:16px;">Archivar reporte</h3>
-                <p style="margin:0 0 4px;font-size:13.5px;color:#374151;">
-                    Se archivara <strong>@_confirmArchive.Name</strong>. No se borra: queda en la pestana
-                    <strong>Archivados</strong> y podras reactivarlo cuando quieras.
-                </p>
+                @if (!_archiveSecond)
+                {
+                    <h3 style="margin:0 0 8px;font-size:16px;">Archivar reporte</h3>
+                    <p style="margin:0 0 4px;font-size:13.5px;color:#374151;">
+                        Se archivara <strong>@_confirmArchive.Name</strong>. No se borra: queda en la pestana
+                        <strong>Archivados</strong> y podras reactivarlo cuando quieras.
+                    </p>
+                }
+                else
+                {
+                    <h3 style="margin:0 0 8px;font-size:16px;">Confirmar de nuevo</h3>
+                    <p style="margin:0 0 4px;font-size:13.5px;color:#374151;">
+                        Segunda confirmacion: se archivara <strong>@_confirmArchive.Name</strong> ahora.
+                        &iquest;Seguro que quieres continuar?
+                    </p>
+                }
             </div>
             <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid #eef0f3;">
                 <button class="btn btn-outline-secondary" style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;" @onclick="CancelArchive">Cancelar</button>
-                <button style="border:1px solid #b91c1c;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;" @onclick="ConfirmArchiveAsync" disabled="@_busy">Si, archivar</button>
+                @if (!_archiveSecond)
+                {
+                    <button style="border:1px solid #b91c1c;background:#fff;color:#b91c1c;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;" @onclick="() => _archiveSecond = true">Continuar</button>
+                }
+                else
+                {
+                    <button style="border:1px solid #b91c1c;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;" @onclick="ConfirmArchiveAsync" disabled="@_busy">Si, archivar definitivamente</button>
+                }
             </div>
         </div>
     </div>
@@ -158,9 +177,19 @@
                     }
                     @if (_isSpecPanel && _canCreate)
                     {
-                        <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="EditOpenPanel">Editar</button>
-                        <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="DuplicateOpenPanel">Duplicar</button>
-                        <button style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="() => AskArchive(_open)">Archivar</button>
+                        @* Acciones del reporte agrupadas en un menu (Editar / Duplicar / Generar Excel / Archivar). *@
+                        <div style="position:relative;">
+                            <button title="Acciones del reporte" style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:4px 11px;font-size:17px;font-weight:700;line-height:1;cursor:pointer;" @onclick="ToggleMenu">&#8942;</button>
+                            @if (_menuOpen)
+                            {
+                                <div style="position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:190px;z-index:5;overflow:hidden;">
+                                    <button style="@MenuItemStyle" @onclick="EditFromMenu">Editar</button>
+                                    <button style="@MenuItemStyle" @onclick="DuplicateFromMenu">Duplicar</button>
+                                    <button style="@MenuItemStyle" @onclick="GenerateExcelFromMenu" disabled="@_excelBusy">@(_excelBusy ? "Generando..." : "Generar Excel")</button>
+                                    <button style="@MenuItemDangerStyle" @onclick="ArchiveFromMenu">Archivar</button>
+                                </div>
+                            }
+                        </div>
                     }
                     <button class="modal-close" @onclick="Close">&times;</button>
                 </div>
@@ -178,7 +207,7 @@
                         @if (_isSpecPanel)
                         {
                             @* Panel GENERICO por spec (ADR-0066): UN solo renderizador interpreta el PanelSpec. *@
-                            <SpecPanelRenderer ReportId="_open.Id" />
+                            <SpecPanelRenderer ReportId="_open.Id" @ref="_specRenderer" />
                         }
                         else
                         {
@@ -401,8 +430,15 @@
     private IReadOnlyList<ReportDefinitionSummary> _archived = Array.Empty<ReportDefinitionSummary>();
     private string _tab = "activos";                        // "activos" | "archivados"
     private ReportDefinitionSummary? _confirmArchive;       // reporte pendiente de confirmar archivado (doble confirmacion)
+    private bool _archiveSecond;                            // segundo paso de la doble confirmacion de archivado
+    private bool _menuOpen;                                 // menu de acciones del reporte (kebab) en el viewer
+    private bool _excelBusy;                                // generando el Excel del reporte
+    private SpecPanelRenderer? _specRenderer;              // referencia al panel abierto, para exportar sus datos
     private bool _canCreate;
     private bool _busy;
+
+    private const string MenuItemStyle = "display:block;width:100%;text-align:left;border:none;background:#fff;color:#374151;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;";
+    private const string MenuItemDangerStyle = "display:block;width:100%;text-align:left;border:none;background:#fff;color:#b91c1c;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;border-top:1px solid #f3f4f6;";
 
     private ReportDefinitionSummary? _open;
     private string _view = "tablero";
@@ -445,10 +481,46 @@
     // La accion en la tarjeta/viewer abre este dialogo (doble confirmacion: click + confirmar aqui).
     private void AskArchive(ReportDefinitionSummary? card)
     {
-        if (card is not null) { _confirmArchive = card; }
+        if (card is not null) { _confirmArchive = card; _archiveSecond = false; }
     }
 
-    private void CancelArchive() => _confirmArchive = null;
+    private void CancelArchive() { _confirmArchive = null; _archiveSecond = false; }
+
+    // ---- Menu de acciones del reporte (kebab) en el viewer ----
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+    private async Task EditFromMenu() { _menuOpen = false; await EditOpenPanel(); }
+    private async Task DuplicateFromMenu() { _menuOpen = false; await DuplicateOpenPanel(); }
+    private void ArchiveFromMenu() { _menuOpen = false; AskArchive(_open); }
+    private async Task GenerateExcelFromMenu() { _menuOpen = false; await GenerateExcelAsync(); }
+
+    // ---- Generar Excel del reporte (KPIs + tablas + series, con los filtros actuales del tablero) ----
+    private async Task GenerateExcelAsync()
+    {
+        if (_open is null) { return; }
+        if (_specRenderer is null || _view != "tablero")
+        {
+            _error = "Abre la vista Tablero para generar el Excel del reporte.";
+            return;
+        }
+        _excelBusy = true;
+        _error = null;
+        try
+        {
+            var bytes = _specRenderer.BuildExcelBytes();
+            if (bytes is null || bytes.Length == 0)
+            {
+                _error = "El reporte no tiene datos para exportar con los filtros actuales.";
+                return;
+            }
+            var safe = new string((_open.Name ?? "reporte").Where(ch => !Path.GetInvalidFileNameChars().Contains(ch)).ToArray()).Trim();
+            if (string.IsNullOrWhiteSpace(safe)) { safe = "reporte"; }
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", $"{safe}.xlsx",
+                Convert.ToBase64String(bytes),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _excelBusy = false; }
+    }
 
     private async Task ConfirmArchiveAsync()
     {
@@ -671,6 +743,8 @@
     {
         _open = null;
         _run = null;
+        _menuOpen = false;
+        _specRenderer = null;
     }
 
     // Resolver SourceKey -> componente de panel. Agregar un panel nuevo es una entrada aqui, no tocar

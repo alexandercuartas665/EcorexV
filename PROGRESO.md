@@ -13111,3 +13111,13 @@ proxima 2026-09-15 05:00). TRUCO credencial: credentials_encrypted = COPIA del b
 (ISecretProtector/DataProtection es purpose-bound 'Ecorex.TenantSecrets.v1', no row-bound -> el blob
 descifra igual en otro conector; asi queda con clave sin teclearla ni verla en claro). Todo por SQL,
 idempotente uuid5. Backup ecorex-2026-09-14-0812.sql.gz. Validar con "Actualizar datos" (500 filas).
+
+## 2026-09-15 - Reportes: op derivada "dow" (dia de la semana) en PanelSpec (v0.16.77)
+
+Agregada la operacion derivada `dow` (alias `weekday`) al motor de paneles por spec: convierte un campo
+de fecha en el nombre del dia de la semana en espanol (ASCII: Lunes..Domingo). Sirve para analisis tipo
+"que dias caen mas contactos/tareas". Cambios: PanelDataEngine.Derive (+ arreglo DowEs), KnownDerivedOps
+del validador, docs de PanelSpec.PanelDerived.Op. Test PanelDataEngineTests.Derive_DateBuckets extendido
+(sabado/lunes). Build Application verde, test verde. Uso en spec: Derived [{ Name:"Dia", From:"Creada",
+Op:"dow" }] y un widget bar Dim="Dia". Pendiente: deploy (a senal del usuario) y armar el reporte del
+tablero "agente comercial ia" para EPRING como dato.

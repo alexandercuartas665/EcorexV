@@ -159,6 +159,9 @@ public class PanelDataEngineTests
         Assert.Equal("2026-03", PanelDataEngine.Derive(d, "yyyymm"));
         Assert.Equal("03", PanelDataEngine.Derive(d, "month"));
         Assert.Equal("2026-03-07", PanelDataEngine.Derive(d, "date"));
+        // 2026-03-07 es sabado; 2026-03-02 es lunes (dia de la semana en espanol, ASCII).
+        Assert.Equal("Sabado", PanelDataEngine.Derive(d, "dow"));
+        Assert.Equal("Lunes", PanelDataEngine.Derive(new DateTimeOffset(2026, 3, 2, 0, 0, 0, TimeSpan.Zero), "weekday"));
         Assert.Null(PanelDataEngine.Derive("no es fecha", "year"));
     }
 

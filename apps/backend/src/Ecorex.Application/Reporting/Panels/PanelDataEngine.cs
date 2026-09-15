@@ -87,7 +87,12 @@ public static class PanelDataEngine
         return DateTimeOffset.TryParse(v.ToString(), Inv, DateTimeStyles.AssumeUniversal, out var r) ? r : null;
     }
 
-    /// <summary>Deriva un bucket de fecha. Devuelve null si el valor no es una fecha.</summary>
+    // Nombres de dia de la semana en espanol (ASCII), indexados por DayOfWeek (Domingo = 0).
+    private static readonly string[] DowEs =
+        { "Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado" };
+
+    /// <summary>Deriva un bucket de fecha. Devuelve null si el valor no es una fecha.
+    /// Ops: year | yyyymm | month | date | dow (nombre del dia de la semana en espanol).</summary>
     public static string? Derive(object? dateValue, string op)
     {
         var d = AsDate(dateValue);
@@ -103,6 +108,7 @@ public static class PanelDataEngine
             "yyyymm" => v.ToString("yyyy-MM", Inv),
             "month" => v.ToString("MM", Inv),
             "date" => v.ToString("yyyy-MM-dd", Inv),
+            "dow" or "weekday" => DowEs[(int)v.DayOfWeek],
             _ => null
         };
     }

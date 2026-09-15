@@ -24,7 +24,7 @@ public sealed class PanelSpec
     /// <summary>Join en memoria de la fuente principal con un lookup (codigo -> nombre).</summary>
     public PanelJoin? Join { get; set; }
 
-    /// <summary>Campos derivados en memoria (buckets de fecha: year / yyyymm / month / date).</summary>
+    /// <summary>Campos derivados en memoria (buckets de fecha: year / yyyymm / month / date / dow).</summary>
     public List<PanelDerived> Derived { get; set; } = new();
 
     /// <summary>Filtros FIJOS del spec (ADR-0068): se aplican SIEMPRE, no son controles de UI. Acotan el
@@ -162,7 +162,7 @@ public sealed class PanelDerived
     /// <summary>Campo de fecha de origen (DisplayName de la fuente principal).</summary>
     public string From { get; set; } = "";
 
-    /// <summary>Operacion: year | yyyymm | month | date.</summary>
+    /// <summary>Operacion: year | yyyymm | month | date | dow (dia de la semana en espanol).</summary>
     public string Op { get; set; } = "";
 }
 

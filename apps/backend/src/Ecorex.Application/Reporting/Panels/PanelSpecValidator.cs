@@ -22,7 +22,7 @@ public static class PanelSpecValidator
         new(new[] { "money", "moneym", "percent", "int" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownDerivedOps =
-        new(new[] { "year", "yyyymm", "month", "date" }, StringComparer.OrdinalIgnoreCase);
+        new(new[] { "year", "yyyymm", "month", "date", "dow", "weekday" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownControls =
         new(new[] { "dropdown", "daterange", "text" }, StringComparer.OrdinalIgnoreCase);
@@ -192,7 +192,7 @@ public static class PanelSpecValidator
 
             if (!KnownDerivedOps.Contains(d.Op ?? ""))
             {
-                errors.Add($"El derivado '{d.Name}' tiene una operacion desconocida: '{d.Op}' (year|yyyymm|month|date).");
+                errors.Add($"El derivado '{d.Name}' tiene una operacion desconocida: '{d.Op}' (year|yyyymm|month|date|dow).");
             }
 
             available.Add(d.Name);

@@ -2,6 +2,35 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.74: Directorio Modular OLA 4 - relaciones y vinculacion (O4-1..O4-4)
+
+- Cuarta ola del backlog "Capa 8 Directorio". PRIMERA ola con MIGRACION DE BD (dual PG + SQL Server).
+- O4-2 Cargo por vinculo (relacion M:N): NUEVA entidad TerceroVinculo (PersonaId, OrganizacionId, Cargo,
+  Principal) + migracion AddTerceroVinculo en AMBOS proveedores (tercero_vinculos, dos FK a terceros con
+  Restrict para no crear rutas de cascada multiples en SQL Server; unico por tenant+persona+org). Se
+  auto-aplica al iniciar (Program.cs MigrateAsync). Convive con el enlace primario legado Tercero.EmpresaId.
+  Nuevo ITerceroVinculoService (ListDe/Agregar/Quitar/Buscar) que UNE los vinculos M:N con el legado.
+- O4-1 Panel de relaciones bidireccional: NUEVO componente DmRelacionesPanel.razor (en Components/Shared/
+  Directorio para mantener el modal ligero). En una Organizacion lista sus personas; en una Persona sus
+  organizaciones (vinculos + legado, sin duplicar). Agrega/quita vinculos buscando terceros existentes
+  (autocompletar), edita el cargo por vinculo. Se embebe en el modal SOLO en edicion. Escribe en vivo,
+  serializado con CircuitFormGate.
+- O4-3 Conversion Persona -> Organizacion: DirectorioModularFichaService.ConvertirAOrganizacionAsync crea
+  una Organizacion nueva (con consecutivo/fecha/usuario, heredando ciudad/correo de la persona, en las
+  mismas categorias) y deja a la persona vinculada como su contacto/representante. Boton en el panel.
+- O4-4 "+ Categoria" rapido desde la busqueda: reusa DirectorioCategoriaService.AsignarTerceroAsync. En el
+  listado, al BUSCAR se muestran terceros de cualquier categoria y las filas que no pertenecen a la
+  categoria activa traen un boton "+ <categoria>" para adjuntarlos sin recrearlos.
+- Archivos: TerceroVinculo.cs (nuevo), migraciones AddTerceroVinculo x2, IDirectorioModularDbContext +
+  EcorexDbContext (DbSet + config), ITerceroVinculoService/TerceroVinculoService (nuevos), DependencyInjection,
+  IDirectorioModularFichaService/DirectorioModularFichaService (ConvertirAOrganizacionAsync),
+  DmRelacionesPanel.razor (nuevo), DirectorioModularFichaModal.razor (embebe el panel), DirectorioModular.razor
+  (+Categoria). Build verde (solucion completa); 925 tests verdes.
+- Siguiente: validacion del usuario en dev (arranca el server -> migracion crea tercero_vinculos; en una
+  ficha en edicion, agregar/quitar organizaciones/personas con cargo; convertir una persona en organizacion;
+  buscar y adjuntar a otra categoria). Luego merge Ola 1-4 a tronco + main y deploy a su senal. Pendiente
+  Ola 5 (permisos) y Ola 6 (refactor). NO desplegado.
+
 ## 2026-09-14 - v0.16.73: Directorio Modular OLA 3 - Fiscal / RUT (homologacion) (O3-1..O3-4)
 
 - Tercera ola del backlog "Capa 8 Directorio". Motor Modular. SIN migracion de BD.

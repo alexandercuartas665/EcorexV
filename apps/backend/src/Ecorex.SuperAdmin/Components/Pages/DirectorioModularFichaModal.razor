@@ -4,6 +4,7 @@
 @using Ecorex.Domain.Enums
 @using System.Text.Json
 @using Microsoft.AspNetCore.Components.Authorization
+@using Ecorex.SuperAdmin.Components.Shared.Directorio
 @inject IDirectorioModularFichaService Fichas
 @inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
@@ -224,6 +225,13 @@
                                 }
                             </div>
                         </div>
+                    }
+
+                    @* O4-1: panel de relaciones bidireccional (solo en edicion, cuando el tercero ya existe) *@
+                    @if (_isEdit && _editId is Guid _relId && _natFijo is TerceroTipo _relTipo)
+                    {
+                        <DmRelacionesPanel TerceroId="_relId" EsEmpresa="_relTipo == TerceroTipo.Empresa"
+                                           OnAbrirTercero="OnAbrirTercero" />
                     }
                 }
             </div>

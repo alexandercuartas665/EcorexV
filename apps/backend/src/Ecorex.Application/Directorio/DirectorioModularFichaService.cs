@@ -252,6 +252,53 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         return new ModularEditDto(t.Id, catKey, estado, t.Tipo, valores);
     }
 
+    public async Task<(Guid? OrgId, string? Error)> ConvertirAOrganizacionAsync(Guid personaId, string nombreOrganizacion, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return (null, "No hay tenant activo."); }
+        var nombre = (nombreOrganizacion ?? string.Empty).Trim();
+        if (nombre.Length == 0) { return (null, "Escribe el nombre de la organizacion."); }
+
+        var persona = await _app.Terceros.Include(x => x.Categorias).FirstOrDefaultAsync(x => x.Id == personaId, cancellationToken);
+        if (persona is null) { return (null, "La persona no existe."); }
+        if (persona.Tipo != TerceroTipo.Persona) { return (null, "Solo una persona puede convertirse en organizacion."); }
+        if (persona.DirectoryEngine != DirectoryEngine.Modular) { return (null, "Solo aplica al motor Modular."); }
+
+        // Ficha publica de la nueva organizacion con los datos utiles de la persona.
+        var pub = new Dictionary<string, string>(StringComparer.Ordinal) { ["nombre_empresa"] = nombre };
+        if (!string.IsNullOrWhiteSpace(persona.Ciudad)) { pub["ciudad"] = persona.Ciudad!; }
+        if (!string.IsNullOrWhiteSpace(persona.Email)) { pub["correo"] = persona.Email!; }
+        var valores = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal)
+        {
+            [DirectorioModularDefaults.SeccionKey("publica")] = pub
+        };
+
+        var org = new Tercero { TenantId = tenantId, Estado = TerceroEstado.Activo, DirectoryEngine = DirectoryEngine.Modular };
+        ApplyValores(org, valores, lockTipo: TerceroTipo.Empresa);
+        await _sequences.EnsureSequenceAsync(SequenceCode, cancellationToken);
+        var codigo = await _sequences.NextAsync(SequenceCode, SequencePrefix, SequencePadding, cancellationToken);
+        StampSistema(valores, codigo, await ResolveFechaLocalAsync(cancellationToken), await ResolveUsuarioAsync(cancellationToken));
+        org.FichasJson = JsonSerializer.Serialize(valores);
+        // La organizacion aparece en las mismas categorias que la persona.
+        foreach (var ck in persona.Categorias.Select(c => c.CategoriaKey).Distinct())
+        {
+            org.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = ck });
+        }
+        _app.Terceros.Add(org);
+
+        // Vincula la persona como contacto/representante de la nueva organizacion (regla 3.2).
+        _db.TerceroVinculos.Add(new TerceroVinculo
+        {
+            TenantId = tenantId,
+            PersonaId = persona.Id,
+            Organizacion = org,
+            Cargo = string.IsNullOrWhiteSpace(persona.Cargo) ? "Representante" : persona.Cargo,
+            Principal = persona.EmpresaId is null
+        });
+
+        await _app.SaveChangesAsync(cancellationToken);
+        return (org.Id, null);
+    }
+
     public async Task<IReadOnlyList<ModularDuplicadoDto>> BuscarDuplicadosAsync(
         string? ide, string? correo, string? telefono, Guid? excludeId, CancellationToken cancellationToken = default)
     {

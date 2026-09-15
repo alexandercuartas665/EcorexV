@@ -320,6 +320,10 @@
                                     }
                                 </td>
                                 <td class="dm-acc">
+                                    @if (PuedeAdjuntar(tid))
+                                    {
+                                        <button class="dm-acc-add" title="Agregar a la categoria @_activo!.Title" @onclick="() => AdjuntarAsync(tid)"><i class="fa fa-plus"></i> @_activo!.Title</button>
+                                    }
                                     <button class="dm-acc-btn" title="Editar" @onclick="() => OpenEditar(t)"><i class="fa fa-pen"></i></button>
                                     <button class="dm-acc-btn dm-acc-del" title="Eliminar" @onclick="() => PedirEliminar(t)"><i class="fa fa-trash"></i></button>
                                 </td>
@@ -471,6 +475,8 @@
     .dm-acc-btn { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 7px; width: 30px; height: 30px; cursor: pointer; margin-left: 5px; }
     .dm-acc-btn:hover { background: #f9fafb; }
     .dm-acc-del:hover { color: #dc2626; border-color: #fecaca; }
+    .dm-acc-add { border: 1px solid #c7d2fe; background: #eef2ff; color: #4f46e5; border-radius: 7px; height: 30px; padding: 0 10px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 5px; }
+    .dm-acc-add:hover { background: #e0e7ff; }
 
     .dm-exp-row td { background: #fafafe; }
     .dm-exp-cell { color: #6b7280; font-size: 12px; padding: 10px 16px !important; }
@@ -683,6 +689,25 @@
         _editKey = null;
     }
 
+    // O4-4: se puede adjuntar el tercero a la categoria activa? (categoria no base + aun no es miembro).
+    private bool PuedeAdjuntar(Guid tid)
+        => _activo is not null && !_activo.Protegido
+            && !(_memberships.TryGetValue(tid, out var ks) && ks.Contains(_activo.CategoriaKey));
+
+    // O4-4: adjunta un tercero existente a la categoria activa (sin recrearlo) y recarga.
+    private async Task AdjuntarAsync(Guid tid)
+    {
+        if (_activo is null || _activo.Protegido) { return; }
+        _busy = true;
+        try
+        {
+            await Cats.AsignarTerceroAsync(tid, _activo.CategoriaKey);
+            _memberships = await Cats.MembershipsAsync();
+            _catCounts = await Cats.CountByCategoriaAsync();
+        }
+        finally { _busy = false; }
+    }
+
     // O2-1: desde la alerta de duplicidad, abre la ficha del tercero existente (cambia el modal a EDICION).
     private void OnAbrirDuplicado(Guid id)
     {
@@ -742,7 +767,10 @@
         IEnumerable<TerceroListItemDto> q = _rows;
 
         // Filtro por categoria: la base (Publico/protegida) no filtra; las demas, por pertenencia.
-        if (_activo is not null && !_activo.Protegido)
+        // O4-4: al BUSCAR se muestran los terceros de cualquier categoria (para poder adjuntarlos a la
+        // activa con "+ Categoria"); sin busqueda, se filtra por pertenencia como siempre.
+        var buscando = !string.IsNullOrWhiteSpace(_search);
+        if (_activo is not null && !_activo.Protegido && !buscando)
         {
             var key = _activo.CategoriaKey;
             q = q.Where(t => _memberships.TryGetValue(t.Id, out var ks) && ks.Contains(key));

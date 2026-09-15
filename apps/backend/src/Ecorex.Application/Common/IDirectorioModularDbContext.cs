@@ -16,6 +16,7 @@ public interface IDirectorioModularDbContext
     DbSet<DirectorioCategoria> DirectorioCategorias { get; }
     DbSet<DirectorioCategoriaSeccion> DirectorioCategoriaSecciones { get; }
     DbSet<TerceroCategoria> TerceroCategorias { get; }
+    DbSet<TerceroVinculo> TerceroVinculos { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

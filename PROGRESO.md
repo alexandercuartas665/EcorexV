@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.73: Directorio Modular OLA 3 - Fiscal / RUT (homologacion) (O3-1..O3-4)
+
+- Tercera ola del backlog "Capa 8 Directorio". Motor Modular. SIN migracion de BD.
+- NUEVO helper PURO HomologacionRut (Ecorex.Application.Directorio): mapea las casillas del RUT (seccion
+  tributaria) a los campos del Directorio publico y deduce la naturaleza desde la casilla 24 (tipo de
+  contribuyente), con respaldo por razon social / nombres. Lo usan el servicio (al guardar) y el modal (en
+  vivo). 7 tests unitarios nuevos.
+- O3-1 (regla 2.2): la categoria Fiscal ya compone SOLO la seccion tributaria (oculta la publica). Ahora el
+  alta desde Fiscal deduce Organizacion/Persona desde el RUT (NaturalezaPill y el servicio via
+  HomologacionRut), asi una persona natural del RUT ya no falla por "falta nombre".
+- O3-2: NIT -> IDE sin digito de verificacion (HomologacionRut.NitAIde: "900123456-7" -> "900123456").
+- O3-3: homologacion FUERTE (modo Fiscal). Al guardar, si la categoria tiene HomologaSeccion (Fiscal ->
+  mod_publica), el RUT SOBRESCRIBE los campos publicos (nombre/ide/correo/ciudad/telefono) antes de fijar
+  las columnas base. En el modal, un banner en vivo NOTIFICA que campos publicos se homologan.
+- O3-4: homologacion SUAVE (categorias no fiscales que compongan RUT + publica a la vez): al cambiar un
+  campo del RUT se completan solo los publicos VACIOS; si hay conflicto (publico != RUT) aparece el boton
+  "Usar los del RUT" que sobrescribe. (Ninguna categoria por defecto compone ambas; queda listo para
+  categorias personalizadas.)
+- Archivos: HomologacionRut.cs (nuevo) + HomologacionRutTests.cs (nuevo), DirectorioModularFichaService.cs
+  (Create/Update aplican homologacion; GetFichaAsync expone HomologaSeccion), DirectorioModularFichaDtos.cs
+  (ModularFichaDto.HomologaSeccion), DirectorioModularFichaModal.razor (banner O3-3, suave O3-4, NaturalezaPill
+  desde RUT). Build verde (Application + SuperAdmin); 925 tests verdes.
+- Siguiente: validacion del usuario en dev (crear desde Fiscal con RUT juridica y natural -> el publico queda
+  con nombre/IDE sin DV/correo/ciudad; ver el banner de homologacion). Luego merge Ola 1+2+3 a tronco + main y
+  deploy a su senal. Pendiente Ola 4 (relaciones, requiere migracion). NO desplegado.
+
 ## 2026-09-14 - v0.16.72: Directorio Modular OLA 2 - calidad de datos y busqueda (O2-1, O2-2, O2-3)
 
 - Segunda ola del backlog "Capa 8 Directorio". Todo en el motor Modular. SIN migracion de BD.

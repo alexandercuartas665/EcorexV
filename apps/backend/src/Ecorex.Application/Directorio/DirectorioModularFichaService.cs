@@ -53,7 +53,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             .OrderBy(s => s.Orden)
             .Select(s => s.FichaKey)
             .ToListAsync(cancellationToken);
-        if (comp.Count == 0) { return new ModularFichaDto(cat.CategoriaKey, cat.Title, Array.Empty<ModularSeccionDto>()); }
+        if (comp.Count == 0) { return new ModularFichaDto(cat.CategoriaKey, cat.Title, Array.Empty<ModularSeccionDto>(), cat.HomologaSeccion); }
 
         var secciones = await _app.TerceroFichaDefinitions.AsNoTracking()
             .Where(f => comp.Contains(f.FichaKey))
@@ -74,7 +74,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             result.Add(new ModularSeccionDto(sec.FichaKey, sec.Title, sec.Icono, sec.Color, sec.Description, sec.AplicaA, flds));
         }
 
-        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result);
+        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result, cat.HomologaSeccion);
     }
 
     /// <summary>Catalogo de areas del motor (v1 fijo, como el prototipo). En una ola posterior saldra de
@@ -136,12 +136,18 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     {
         if (_tenant.TenantId is not Guid tenantId) { return (null, "No hay tenant activo."); }
         var key = (request.CategoriaKey ?? string.Empty).Trim();
-        if (!await _db.DirectorioCategorias.AnyAsync(c => c.CategoriaKey == key, cancellationToken))
-        {
-            return (null, "La categoria no existe.");
-        }
+        var cat = await _db.DirectorioCategorias.AsNoTracking().FirstOrDefaultAsync(c => c.CategoriaKey == key, cancellationToken);
+        if (cat is null) { return (null, "La categoria no existe."); }
 
         var valores = request.Valores ?? new();
+
+        // Homologacion Fiscal (regla 2.2, O3-1/O3-3): si la categoria homologa a otra seccion (Fiscal ->
+        // publica), el RUT SOBRESCRIBE esos campos publicos ANTES de deducir naturaleza/nombre. Asi el alta
+        // desde Fiscal (que solo captura el RUT) deja el directorio publico poblado y con IDE = NIT sin DV.
+        if (!string.IsNullOrWhiteSpace(cat.HomologaSeccion))
+        {
+            HomologacionRut.Aplicar(valores, cat.HomologaSeccion!);
+        }
 
         // Deteccion automatica de naturaleza (regla 2.1). Si se llenaron AMBOS bloques (nombre de empresa
         // + contacto) se crean DOS terceros vinculados: la Organizacion (principal) y la Persona (contacto
@@ -302,6 +308,18 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         if (t.DirectoryEngine != DirectoryEngine.Modular) { return "Este tercero no pertenece al motor Modular."; }
 
         var valores = request.Valores ?? new();
+
+        // Homologacion Fiscal (regla 2.2): si la categoria desde la que se edita homologa a otra seccion,
+        // el RUT vuelve a sobrescribir los campos publicos al guardar.
+        var catKeyReq = (request.CategoriaKey ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(catKeyReq))
+        {
+            var homologa = await _db.DirectorioCategorias.AsNoTracking()
+                .Where(c => c.CategoriaKey == catKeyReq).Select(c => c.HomologaSeccion)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(homologa)) { HomologacionRut.Aplicar(valores, homologa!); }
+        }
+
         // Datos de sistema (codigo/fecha/usuario) inmutables (regla 2.1): se copian del registro y NO
         // se confia en lo que envie el cliente (los controles son de solo lectura, pero se blinda aqui).
         CarryOverSistema(valores, t.FichasJson);

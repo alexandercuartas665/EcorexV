@@ -3,8 +3,9 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Application.Directorio;
 
 /// <summary>La ficha que arma una categoria del motor Modular: sus secciones (en orden) con sus campos.
-/// Es lo que pinta el modal de crear/editar tercero (Capa 8, 2do motor de contactos).</summary>
-public sealed record ModularFichaDto(string CategoriaKey, string CategoriaTitle, IReadOnlyList<ModularSeccionDto> Secciones);
+/// Es lo que pinta el modal de crear/editar tercero (Capa 8, 2do motor de contactos). HomologaSeccion =
+/// FichaKey que esta categoria homologa (Fiscal -> "mod_publica"); null = sin homologacion (regla 2.2).</summary>
+public sealed record ModularFichaDto(string CategoriaKey, string CategoriaTitle, IReadOnlyList<ModularSeccionDto> Secciones, string? HomologaSeccion = null);
 
 /// <summary>Una seccion de la ficha (grupo de campos), con su naturaleza y sus campos ordenados.</summary>
 public sealed record ModularSeccionDto(

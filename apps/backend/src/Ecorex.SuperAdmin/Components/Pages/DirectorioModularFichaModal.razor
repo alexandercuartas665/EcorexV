@@ -82,6 +82,39 @@
                         </div>
                     }
 
+                    @* O3-3: homologacion Fiscal (el RUT sobrescribe el directorio publico) - notificacion en vivo *@
+                    @if (EsHomologante)
+                    {
+                        var homo = HomologacionRut.Mapear(_valores);
+                        <div class="fm-homo">
+                            <div class="fm-homo-head"><i class="fa fa-wand-magic-sparkles"></i> El directorio publico se homologa desde el RUT:</div>
+                            @if (homo.Etiquetas.Count == 0)
+                            {
+                                <div class="fm-homo-empty">Diligencia el RUT (tipo de contribuyente, razon social o nombres): aqui veras que campos publicos se homologan.</div>
+                            }
+                            else
+                            {
+                                <ul class="fm-homo-list">@foreach (var e in homo.Etiquetas) { <li>@e</li> }</ul>
+                            }
+                        </div>
+                    }
+                    else if (HomologacionSuaveDisponible)
+                    {
+                        var homo = HomologacionRut.Mapear(_valores);
+                        if (homo.Publico.Count > 0)
+                        {
+                            <div class="fm-homo fm-homo-soft">
+                                <div class="fm-homo-head"><i class="fa fa-wand-magic-sparkles"></i> Hay datos de RUT: los campos publicos vacios se completan solos.</div>
+                                @if (HayConflictoRut(homo))
+                                {
+                                    <div class="fm-homo-conf">Algunos campos publicos difieren del RUT.
+                                        <button type="button" class="fm-homo-btn" @onclick="() => UsarLosDelRut(homo)">Usar los del RUT</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
                     @* Tabs de seccion (llevan a cada seccion del scroll) con contador de obligatorios faltantes *@
                     <div class="fm-sectabs">
                         @foreach (var s in _ficha.Secciones.Where(MostrarSeccion))
@@ -241,6 +274,17 @@
     .fm-dup-why { color: #b45309; }
     .fm-dup-open { margin-left: auto; background: #fff; border: 1px solid #f59e0b; color: #b45309; border-radius: 7px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
     .fm-dup-open:hover { background: #fef3c7; }
+
+    .fm-homo { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+    .fm-homo.fm-homo-soft { background: #eff6ff; border-color: #bfdbfe; }
+    .fm-homo-head { font-size: 12.5px; font-weight: 700; color: #92400e; display: flex; align-items: center; gap: 8px; }
+    .fm-homo-soft .fm-homo-head { color: #1d4ed8; }
+    .fm-homo-list { list-style: none; margin: 6px 0 0; padding: 0 0 0 26px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #7c2d12; }
+    .fm-homo-list li::before { content: "\2192"; margin-right: 6px; color: #b45309; }
+    .fm-homo-empty { font-size: 12px; color: #b45309; margin-top: 4px; padding-left: 26px; }
+    .fm-homo-conf { font-size: 12px; color: #1d4ed8; margin-top: 6px; padding-left: 26px; display: flex; align-items: center; gap: 10px; }
+    .fm-homo-btn { background: #fff; border: 1px solid #3b82f6; color: #1d4ed8; border-radius: 7px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .fm-homo-btn:hover { background: #dbeafe; }
 
     .fm-sectabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
     .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
@@ -404,6 +448,9 @@
     private async Task OnValorChanged(string ficha, string campo, string? valor)
     {
         SetVal(ficha, campo, valor);
+        // O3-4: al cambiar un campo del RUT, completa los publicos vacios (homologacion suave).
+        if (CamposRut.Contains(campo, StringComparer.Ordinal)) { RellenarPublicoVacio(); }
+        // O2-1: al cambiar un campo de identidad, revisa duplicados en vivo.
         if (CamposIdentidad.Contains(campo, StringComparer.Ordinal)) { await CheckDuplicadosAsync(); }
     }
 
@@ -619,6 +666,14 @@
         {
             return nat == TerceroTipo.Empresa ? ("Es una Organizacion.", "org") : ("Es una Persona.", "per");
         }
+        // Homologacion Fiscal (O3-1): la naturaleza se deduce del RUT (casilla 24 / razon social / nombres).
+        if (EsHomologante)
+        {
+            var t = HomologacionRut.Mapear(_valores).Tipo;
+            if (t == TerceroTipo.Empresa) { return ("Se creara una Organizacion (desde el RUT).", "org"); }
+            if (t == TerceroTipo.Persona) { return ("Se creara una Persona (desde el RUT).", "per"); }
+            return ("Sin definir. Diligencia el RUT: tipo de contribuyente, razon social o nombres y apellidos.", "none");
+        }
         var emp = Find("nombre_empresa") ?? Find("razon_social") ?? Find("nombre_comercial");
         var per = Find("contacto");
         if (!string.IsNullOrWhiteSpace(emp) && !string.IsNullOrWhiteSpace(per)) { return ("Se crearan una Organizacion y una Persona vinculada.", "org"); }
@@ -657,6 +712,59 @@
         var cn = CampoNaturaleza(f);
         if (cn.Length == 0) { return true; }
         return cn == (nat == TerceroTipo.Empresa ? "org" : "per");
+    }
+
+    // ---- O3: homologacion RUT -> Directorio publico (regla 2.2) ----
+    private bool EsHomologante => !string.IsNullOrWhiteSpace(_ficha?.HomologaSeccion);
+    private bool TieneRut => _ficha?.Secciones.Any(s => s.Campos.Any(c => c.FieldKey is "razon_social" or "nit")) == true;
+    private bool TienePublica => _ficha?.Secciones.Any(s => s.Campos.Any(c => c.FieldKey is "nombre_empresa" or "contacto")) == true;
+    // O3-4: homologacion suave = categoria NO fiscal que compone RUT + publica a la vez.
+    private bool HomologacionSuaveDisponible => !EsHomologante && TieneRut && TienePublica;
+
+    // Campos del RUT cuyo cambio dispara la homologacion suave (rellenar publicos vacios).
+    private static readonly string[] CamposRut =
+    {
+        "tipo_contribuyente", "razon_social", "nombre_comercial", "sigla",
+        "primer_nombre", "otros_nombres", "primer_apellido", "segundo_apellido",
+        "nit", "numero_identificacion", "correo_rut", "ciudad_rut", "pais_rut",
+        "telefono_1", "telefono_2"
+    };
+
+    private bool HayConflictoRut(HomologacionRut.Resultado homo)
+    {
+        foreach (var kv in homo.Publico)
+        {
+            var actual = Find(kv.Key);
+            if (!string.IsNullOrWhiteSpace(actual) && !string.Equals(actual.Trim(), kv.Value.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Escribe un valor publico en la seccion de la ficha que contiene ese campo.
+    private void SetPublico(string campo, string valor)
+    {
+        var sec = _ficha?.Secciones.FirstOrDefault(s => s.Campos.Any(c => c.FieldKey == campo));
+        if (sec is not null) { SetVal(sec.FichaKey, campo, valor); }
+    }
+
+    // O3-4: completa SOLO los campos publicos vacios desde el RUT (no pisa lo ya escrito).
+    private void RellenarPublicoVacio()
+    {
+        if (!HomologacionSuaveDisponible) { return; }
+        var homo = HomologacionRut.Mapear(_valores);
+        foreach (var kv in homo.Publico)
+        {
+            if (string.IsNullOrWhiteSpace(Find(kv.Key))) { SetPublico(kv.Key, kv.Value); }
+        }
+    }
+
+    // O3-4: el usuario acepta usar los del RUT (sobrescribe los publicos en conflicto).
+    private void UsarLosDelRut(HomologacionRut.Resultado homo)
+    {
+        foreach (var kv in homo.Publico) { SetPublico(kv.Key, kv.Value); }
     }
 
     private RenderFragment RenderControl(string ficha, ModularCampoDto f) => builder =>

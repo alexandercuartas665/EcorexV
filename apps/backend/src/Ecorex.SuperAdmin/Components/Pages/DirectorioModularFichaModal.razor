@@ -62,7 +62,7 @@
 
                     @* Tabs de seccion (llevan a cada seccion del scroll) con contador de obligatorios faltantes *@
                     <div class="fm-sectabs">
-                        @foreach (var s in _ficha.Secciones)
+                        @foreach (var s in _ficha.Secciones.Where(MostrarSeccion))
                         {
                             <a class="fm-sectab" href="#sec-@s.FichaKey">
                                 <span class="fm-dot" style="background:@(SeccionColor(s))"></span> @s.Title
@@ -74,7 +74,7 @@
                         }
                     </div>
 
-                    @foreach (var sec in _ficha.Secciones)
+                    @foreach (var sec in _ficha.Secciones.Where(MostrarSeccion))
                     {
                         <div class="fm-sec" id="sec-@sec.FichaKey">
                             <div class="fm-sec-head">
@@ -88,7 +88,7 @@
                                 </div>
                             </div>
                             <div class="fm-grid">
-                                @foreach (var f in sec.Campos)
+                                @foreach (var f in sec.Campos.Where(MostrarCampo))
                                 {
                                     @if (f.Type == TerceroFieldType.Separator)
                                     {
@@ -271,6 +271,9 @@
     private bool _isEdit;
     private bool _notModular;   // el tercero a editar no es del motor Modular
     private Guid? _editId;
+    // Naturaleza FIJA en edicion (O1-2): la ficha se adapta a ese tipo y no permite convertirlo.
+    // Null = alta (la naturaleza se deduce de lo que se llena).
+    private TerceroTipo? _natFijo;
     private string _estado = "Activo";
     private ModularFichaDto? _ficha;
     // ficha (seccion) -> campo -> valor
@@ -302,6 +305,7 @@
         _valores.Clear();
         _estado = "Activo";
         _notModular = false;
+        _natFijo = null;
 
         var catKey = CategoriaKey;
         Dictionary<string, Dictionary<string, string>>? cargados = null;
@@ -315,6 +319,7 @@
             catKey = ed.CategoriaKey ?? CategoriaKey;
             cargados = ed.Valores;
             _estado = ed.Estado;
+            _natFijo = ed.Tipo;   // naturaleza inmutable en edicion (O1-2)
         }
 
         if (catKey is null) { return; }
@@ -432,6 +437,7 @@
         var n = 0;
         foreach (var f in sec.Campos)
         {
+            if (!MostrarCampo(f)) { continue; }
             if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
             var aplica = nat switch
             {
@@ -511,10 +517,11 @@
     {
         if (_ficha is null) { return null; }
         var nat = NatClass;
-        foreach (var sec in _ficha.Secciones)
+        foreach (var sec in _ficha.Secciones.Where(MostrarSeccion))
         {
             foreach (var f in sec.Campos)
             {
+                if (!MostrarCampo(f)) { continue; }
                 if (string.IsNullOrWhiteSpace(f.RequeridoEn)) { continue; }
                 var aplica = nat switch
                 {
@@ -533,11 +540,49 @@
 
     private (string, string) NaturalezaPill()
     {
+        // Edicion: la naturaleza es fija (O1-2), no se deduce ni se puede convertir.
+        if (_natFijo is TerceroTipo nat)
+        {
+            return nat == TerceroTipo.Empresa ? ("Es una Organizacion.", "org") : ("Es una Persona.", "per");
+        }
         var emp = Find("nombre_empresa") ?? Find("razon_social") ?? Find("nombre_comercial");
         var per = Find("contacto");
+        if (!string.IsNullOrWhiteSpace(emp) && !string.IsNullOrWhiteSpace(per)) { return ("Se crearan una Organizacion y una Persona vinculada.", "org"); }
         if (!string.IsNullOrWhiteSpace(emp)) { return ("Se creara una Organizacion.", "org"); }
         if (!string.IsNullOrWhiteSpace(per)) { return ("Se creara una Persona.", "per"); }
         return ("Sin definir. Escribe el nombre de la empresa, el del contacto o ambos: de eso depende que se crea.", "none");
+    }
+
+    // ---- Visibilidad por naturaleza (O1-2): en EDICION la ficha muestra solo lo de su tipo. ----
+
+    /// <summary>Naturaleza a la que aplica un campo, inferida de RequeridoEn o del sufijo del key.
+    /// "org"/"per"/"" (ambos). Sin marca explicita, un campo aplica a las dos naturalezas.</summary>
+    private static string CampoNaturaleza(ModularCampoDto f)
+    {
+        var req = f.RequeridoEn ?? "";
+        var esEmp = req.Contains("empresa", StringComparison.OrdinalIgnoreCase) || f.FieldKey.EndsWith("_empresa", StringComparison.Ordinal);
+        var esPer = req.Contains("contacto", StringComparison.OrdinalIgnoreCase) || f.FieldKey.EndsWith("_contacto", StringComparison.Ordinal);
+        if (esEmp && !esPer) { return "org"; }
+        if (esPer && !esEmp) { return "per"; }
+        return "";
+    }
+
+    /// <summary>Muestra la seccion? En edicion oculta las que no aplican a la naturaleza fija.</summary>
+    private bool MostrarSeccion(ModularSeccionDto sec)
+    {
+        if (_natFijo is not TerceroTipo nat) { return true; }
+        if (string.IsNullOrWhiteSpace(sec.AplicaA)) { return true; }
+        var token = nat == TerceroTipo.Empresa ? "empresa" : "contacto";
+        return sec.AplicaA!.Contains(token, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Muestra el campo? En edicion oculta los exclusivos de la otra naturaleza.</summary>
+    private bool MostrarCampo(ModularCampoDto f)
+    {
+        if (_natFijo is not TerceroTipo nat) { return true; }
+        var cn = CampoNaturaleza(f);
+        if (cn.Length == 0) { return true; }
+        return cn == (nat == TerceroTipo.Empresa ? "org" : "per");
     }
 
     private RenderFragment RenderControl(string ficha, ModularCampoDto f) => builder =>

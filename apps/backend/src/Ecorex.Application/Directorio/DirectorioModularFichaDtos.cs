@@ -20,10 +20,10 @@ public sealed record CreateModularTerceroRequest(
     string CategoriaKey,
     Dictionary<string, Dictionary<string, string>> Valores);
 
-/// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado
-/// y los valores guardados (seccion -> campo -> valor).</summary>
+/// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado,
+/// su naturaleza (INMUTABLE en edicion, O1-2) y los valores guardados (seccion -> campo -> valor).</summary>
 public sealed record ModularEditDto(
-    Guid Id, string? CategoriaKey, string Estado,
+    Guid Id, string? CategoriaKey, string Estado, TerceroTipo Tipo,
     Dictionary<string, Dictionary<string, string>> Valores);
 
 // ---------------------------------------------------------------------------

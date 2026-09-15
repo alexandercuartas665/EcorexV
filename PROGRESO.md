@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.71: Directorio Modular OLA 1 - integridad del alta (O1-1, O1-2, O1-3)
+
+- Primera ola del backlog "Capa 8 Directorio" (nota del vault "Backlog de ajustes pendientes por olas").
+  Todo el cambio vive en el motor Modular (DirectorioModularFichaService + su modal). SIN migracion de BD.
+- O1-1 Datos automaticos de sistema (regla 2.1): al crear un tercero Modular se estampa el consecutivo por
+  tenant TER-000001 (via ISequenceService, CAS atomico ADR-0013, code "TER" prefijo "TER-" padding 6), la
+  fecha de creacion en la zona horaria del tenant (Tenant.TimeZoneId + ScheduledJobRecurrence.ResolveTimeZone)
+  y el usuario creador (PlatformUser.DisplayName ?? Email). Se guardan en la seccion publica de FichasJson
+  (campos codigo/fecha_creacion/usuario_creador, ya existentes como solo-lectura). Tambien se estampan en la
+  importacion por Excel. El consecutivo se emite DESPUES de validar el nombre (no se queman numeros).
+- O1-2 Inmutabilidad de la naturaleza: en edicion ApplyValores recibe lockTipo = tipo actual (no puede
+  cambiar Empresa<->Persona), y los datos de sistema se copian del registro (no se confia en el cliente).
+  En el modal, la ficha en edicion muestra el banner fijo ("Es una Organizacion/Persona"), oculta las
+  secciones cuyo AplicaA no incluye la naturaleza y los campos exclusivos de la otra (por RequeridoEn o
+  sufijo _empresa/_contacto); no ofrece convertir.
+- O1-3 Creacion simultanea Organizacion + Persona: si en el alta se llenan AMBOS bloques (nombre de empresa
+  + contacto), se crean DOS terceros vinculados en una sola transaccion: la Organizacion (principal, ficha
+  completa sin los campos de persona) y la Persona (ficha minima de contacto: contacto/telefono_contacto/
+  cargo) con EmpresaId apuntando a la organizacion. El listado Modular ya la muestra como contacto (chip de
+  vinculo + anidada al expandir). Cada tercero recibe su propio consecutivo.
+- Archivos: DirectorioModularFichaService.cs (Create/Update/Import + helpers StampSistema/CarryOverSistema/
+  ResolveFechaLocal/ResolveUsuario/Nuevo/CloneValores/Quitar-Solo CamposPersona), DirectorioModularFichaDtos.cs
+  (ModularEditDto lleva Tipo), DirectorioModularFichaModal.razor (_natFijo + MostrarSeccion/MostrarCampo +
+  NaturalezaPill fija). Build verde (Application + SuperAdmin); 918 tests unitarios verdes.
+- Siguiente: validacion del usuario en dev (crear con solo empresa / solo contacto / ambos; reabrir y ver
+  codigo+fecha+usuario; editar sin poder cambiar naturaleza). Luego merge a tronco + main y deploy a su senal.
+  Pendiente Ola 2. NO desplegado.
+
 ## 2026-09-14 - v0.16.70: crear_contacto usa el telefono REAL de la conversacion + dedup por telefono (ADR-0101)
 
 - Mejora de la herramienta EXISTENTE crear_contacto (DirectorioToolset, usada por SARA/MAURO/EPRING); no se

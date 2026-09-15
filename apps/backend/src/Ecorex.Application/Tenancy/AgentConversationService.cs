@@ -112,10 +112,44 @@ public sealed class AgentConversationService : IAgentConversationService
             TurnText(m)))
             .ToList();
 
+        // Adjunto del ULTIMO turno del cliente -> AL MODELO (Parte B, ADR-0104). Hasta hoy el binario se
+        // guardaba pero el modelo solo veia "(adjunto)". Ahora, segun el tipo:
+        //  - Imagen  -> se pasa como imagen (el modelo la VE; ya funcionaba en Gemini/Claude por vision).
+        //  - PDF/otro binario -> se pasa como documento (Gemini lo LEE por su ruta nativa generateContent).
+        //  - Excel/CSV -> se EXTRAE a texto tabular y se anexa al ultimo turno (Gemini no acepta xlsx nativo).
+        // Solo el ultimo turno entrante (igual que hoy con imagen); sin adjunto todo sigue igual.
+        string? imageBase64 = null, imageMime = null, docBase64 = null, docMime = null, docFileName = null;
+        var lastIn = messages[^1];   // garantizado entrante (si fuera saliente ya habriamos retornado)
+        if (lastIn.MediaType == MessageMediaType.Image && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
+        {
+            imageBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
+            imageMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "image/jpeg" : lastIn.MediaMimeType;
+        }
+        else if (lastIn.MediaType == MessageMediaType.Document && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
+        {
+            if (SpreadsheetText.IsSpreadsheet(lastIn.MediaMimeType, lastIn.MediaFileName))
+            {
+                var b64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
+                var extracted = SpreadsheetText.FromBase64(b64, lastIn.MediaFileName);
+                if (!string.IsNullOrWhiteSpace(extracted))
+                {
+                    var nombre = string.IsNullOrWhiteSpace(lastIn.MediaFileName) ? "adjunto" : lastIn.MediaFileName!.Trim();
+                    turns[^1] = turns[^1] with { Text = turns[^1].Text + $"\n\n[Contenido del archivo {nombre}]:\n{extracted}" };
+                }
+            }
+            else
+            {
+                docBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
+                docMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "application/pdf" : lastIn.MediaMimeType;
+                docFileName = string.IsNullOrWhiteSpace(lastIn.MediaFileName) ? null : lastIn.MediaFileName!.Trim();
+            }
+        }
+
         // Actor del sistema (el agente actua de forma autonoma); la auditoria queda sin usuario humano.
         var actor = Guid.Empty;
 
-        var result = await _inference.RespondAsync(agent.Id, conversationId, turns, binding.AutoConfirm, actor, cancellationToken);
+        var result = await _inference.RespondAsync(agent.Id, conversationId, turns, binding.AutoConfirm, actor,
+            imageBase64, imageMime, docBase64, docMime, docFileName, cancellationToken);
 
         // Bitacora: mensaje recibido + prompts/herramientas + respuesta.
         await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Inbound,

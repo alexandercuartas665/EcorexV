@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.78: Parte B - adjuntos entrantes (PDF/Excel/imagen) llegan al modelo (ADR-0104)
+
+- Problema: en el flujo REAL (WhatsApp) y en el emulador, NINGUN adjunto llegaba al modelo (ni imagenes). El
+  binario se guardaba pero el modelo solo veia "(adjunto)". El "Clasificador de productos" (SKY) no podia
+  extraer un catalogo PDF/Excel.
+- Solucion (5 huecos cerrados; sin migracion, sin esquema, sin dependencias nuevas):
+  - AgentConversationService lee el binario del ultimo Message entrante (via IAgentAssetReader) y lo enruta:
+    imagen -> el modelo la VE; PDF/otro -> documento; Excel/CSV -> se EXTRAE a texto tabular (ClosedXML,
+    nuevo SpreadsheetText) y se inyecta al turno.
+  - RespondAsync/RunCoreAsync/RunToolLoopAsync propagan imagen+documento al ultimo turno de usuario.
+  - AiInferenceDtos: AiInlineDocument + AiToolMessage.Documents.
+  - AiProviderClient: nuevo GeminiNativeWithTools (generateContent con inlineData{application/pdf} +
+    functionDeclarations, functionCall/functionResponse); se usa cuando Gemini recibe un documento (el
+    endpoint OpenAI-compat no acepta PDF). Sin documento, Gemini sigue por OpenAI-compat.
+  - Emulador /api/test/agent: TestAgentRequest gana FileBase64/FileMime/FileName y guarda un Message inbound
+    Document, para validar PDF/Excel end-to-end por la MISMA ruta real.
+- Decision del usuario: ruta PDF = NATIVA generateContent (recomendada), correcta para catalogos multipagina.
+- Tests: AiProviderClientVisionTests (Gemini+doc -> :generateContent con inlineData/tools; sin doc ->
+  OpenAI-compat) + SpreadsheetTextTests (xlsx/csv/invalido/IsSpreadsheet). Build de la solucion verde. ADR-0104.
+- Siguiente: NO desplegado (a la senal del usuario). Verificacion E2E por emulador o WhatsApp real en SKY.
+
 ## 2026-09-15 - v0.16.76: Directorio Modular OLA 6 - refactor (tope 2000 lineas) (O6-1)
 
 - Sexta y ultima ola del backlog "Capa 8 Directorio". Refactor de deuda tecnica, SIN cambio de

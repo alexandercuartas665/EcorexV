@@ -21,15 +21,65 @@ public class AiProviderClientVisionTests
     private sealed class CapturingHandler(string response) : HttpMessageHandler
     {
         public string? LastBody { get; private set; }
+        public string? LastUrl { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            LastUrl = request.RequestUri?.ToString();
             LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    // Respuesta NATIVA de Gemini (generateContent) con una llamada a herramienta cargar_productos.
+    private const string GeminiNativeToolCallBody =
+        "{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"cargar_productos\",\"args\":{\"productos\":[]}}}]}}]," +
+        "\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2}}";
+
+    [Fact]
+    public async Task Gemini_con_documento_usa_la_ruta_nativa_generateContent_con_inlineData_y_tools()
+    {
+        var handler = new CapturingHandler(GeminiNativeToolCallBody);
+        var client = new AiProviderClient(new HttpClient(handler));
+
+        var msg = new AiToolMessage("user", "extrae los productos del PDF",
+            Documents: new[] { new AiInlineDocument("UERGBASE64", "application/pdf", "lista.pdf") });
+        var tool = new AiToolSpec("cargar_productos", "carga filas al contenedor",
+            "{\"type\":\"object\",\"properties\":{\"productos\":{\"type\":\"array\"}}}");
+
+        var res = await client.CompleteWithToolsAsync(
+            AiProvider.Gemini, "key", null, "gemini-2.5-pro", "sys", new[] { msg }, new[] { tool });
+
+        Assert.True(res.Ok);
+        Assert.NotNull(handler.LastUrl);
+        Assert.Contains(":generateContent", handler.LastUrl);          // ruta NATIVA, no OpenAI-compat
+        Assert.DoesNotContain("/openai/", handler.LastUrl);
+        Assert.NotNull(handler.LastBody);
+        Assert.Contains("inlineData", handler.LastBody);               // el PDF viaja como inlineData nativo
+        Assert.Contains("application/pdf", handler.LastBody);
+        Assert.Contains("UERGBASE64", handler.LastBody);
+        Assert.Contains("functionDeclarations", handler.LastBody);     // las tools van en formato nativo
+        // Y el functionCall de la respuesta se parsea como AiToolCall:
+        Assert.Single(res.ToolCalls);
+        Assert.Equal("cargar_productos", res.ToolCalls[0].Name);
+    }
+
+    [Fact]
+    public async Task Gemini_SIN_documento_sigue_por_OpenAI_compat()
+    {
+        var handler = new CapturingHandler(GeminiOkBody);
+        var client = new AiProviderClient(new HttpClient(handler));
+
+        var res = await client.CompleteWithToolsAsync(
+            AiProvider.Gemini, "key", null, "gemini-2.5-pro", "sys",
+            new[] { new AiToolMessage("user", "hola sin adjunto") }, Array.Empty<AiToolSpec>());
+
+        Assert.True(res.Ok);
+        Assert.NotNull(handler.LastUrl);
+        Assert.Contains("/openai/chat/completions", handler.LastUrl);  // sin documento: OpenAI-compat
     }
 
     private const string GeminiOkBody =

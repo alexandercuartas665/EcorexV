@@ -1553,9 +1553,9 @@ app.MapPost("/api/test/agent", async (
     {
         return Results.BadRequest(new { error = "No hay un tenant activo en la sesion." });
     }
-    if (body is null || (string.IsNullOrWhiteSpace(body.Text) && string.IsNullOrWhiteSpace(body.ImageBase64)))
+    if (body is null || (string.IsNullOrWhiteSpace(body.Text) && string.IsNullOrWhiteSpace(body.ImageBase64) && string.IsNullOrWhiteSpace(body.FileBase64)))
     {
-        return Results.BadRequest(new { error = "Envia un texto o una imagen." });
+        return Results.BadRequest(new { error = "Envia un texto, una imagen o un archivo." });
     }
 
     var now = DateTimeOffset.UtcNow;
@@ -1664,6 +1664,46 @@ app.MapPost("/api/test/agent", async (
         catch { /* imagen invalida: seguimos solo con el texto */ }
     }
 
+    // Si llego un DOCUMENTO (PDF/Excel), lo guardamos en uploads/chat y lo ingerimos como mensaje ENTRANTE
+    // de tipo Document, para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo.
+    if (!string.IsNullOrWhiteSpace(body.FileBase64))
+    {
+        try
+        {
+            var bytes = Convert.FromBase64String(body.FileBase64!);
+            var mime = string.IsNullOrWhiteSpace(body.FileMime) ? "application/octet-stream" : body.FileMime!;
+            var origName = string.IsNullOrWhiteSpace(body.FileName) ? "archivo" : body.FileName!.Trim();
+            var ext = System.IO.Path.GetExtension(origName);
+            if (string.IsNullOrWhiteSpace(ext))
+            {
+                ext = mime.Contains("pdf") ? ".pdf"
+                    : (mime.Contains("sheet") || mime.Contains("excel")) ? ".xlsx"
+                    : mime.Contains("csv") ? ".csv" : ".bin";
+            }
+            var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+            System.IO.Directory.CreateDirectory(dir);
+            var fname = $"emu-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
+            db.Messages.Add(new Ecorex.Domain.Entities.Message
+            {
+                TenantId = tenantId,
+                ConversationId = conv.Id,
+                Direction = Ecorex.Domain.Enums.MessageDirection.Inbound,
+                ExternalId = "emu-doc-" + Guid.NewGuid().ToString("N"),
+                Body = "",
+                MessageType = "document",
+                MediaType = Ecorex.Domain.Enums.MessageMediaType.Document,
+                MediaUrl = $"/uploads/chat/{fname}",
+                MediaMimeType = mime,
+                MediaFileName = origName,   // nombre ORIGINAL: el agente lo usa p.ej. en la columna 'archivo'
+                SentAt = now.AddSeconds(2)
+            });
+            conv.LastMessageAt = now.AddSeconds(2);
+            await db.SaveChangesAsync(ct);
+        }
+        catch { /* documento invalido: seguimos solo con el texto */ }
+    }
+
     // 5. Atender de forma sincrona (fija el tenant en el scope, igual que el despachador en background).
     using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId))
     using (var scope = scopes.CreateScope())
@@ -1703,6 +1743,8 @@ app.Run();
 
 namespace Ecorex.SuperAdmin
 {
-    /// <summary>Cuerpo del emulador de canal: texto del cliente + opciones de prueba + imagen opcional (base64).</summary>
-    public sealed record TestAgentRequest(string? Text = null, Guid? AgentId = null, string? ContactPhone = null, string? ContactName = null, string? ImageBase64 = null, string? ImageMime = null);
+    /// <summary>Cuerpo del emulador de canal: texto del cliente + opciones de prueba + imagen opcional (base64)
+    /// + documento opcional (PDF/Excel, base64 + mime + nombre original) para validar la ingesta multimodal.</summary>
+    public sealed record TestAgentRequest(string? Text = null, Guid? AgentId = null, string? ContactPhone = null, string? ContactName = null, string? ImageBase64 = null, string? ImageMime = null,
+        string? FileBase64 = null, string? FileMime = null, string? FileName = null);
 }

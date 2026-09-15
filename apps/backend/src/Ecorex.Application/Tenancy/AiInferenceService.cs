@@ -73,14 +73,18 @@ public sealed class AiInferenceService : IAiInferenceService
 
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
     public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, string? audioBase64 = null, string? audioMime = null, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, audioBase64, audioMime, cancellationToken);
+        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, audioBase64, audioMime, docBase64: null, docMime: null, docFileName: null, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
-    // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea.
-    public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, pendingAttachments: null, audioBase64: null, audioMime: null, cancellationToken);
+    // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea. Si el ultimo turno del
+    // cliente trajo un adjunto (imagen o PDF), el despachador lo pasa aqui para que llegue AL MODELO.
+    public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
+        string? imageBase64 = null, string? imageMime = null,
+        string? docBase64 = null, string? docMime = null, string? docFileName = null,
+        CancellationToken cancellationToken = default)
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: imageBase64, imageMime: imageMime, pendingAttachments: null, audioBase64: null, audioMime: null, docBase64: docBase64, docMime: docMime, docFileName: docFileName, cancellationToken);
 
-    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, string? audioBase64, string? audioMime, CancellationToken cancellationToken)
+    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, string? audioBase64, string? audioMime, string? docBase64, string? docMime, string? docFileName, CancellationToken cancellationToken)
     {
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
         if (agent is null) { return new AiChatResult(false, null, "El agente no existe."); }
@@ -147,7 +151,7 @@ public sealed class AiInferenceService : IAiInferenceService
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds, agent.Id);
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, audioBase64, audioMime, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, audioBase64, audioMime, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -241,7 +245,7 @@ public sealed class AiInferenceService : IAiInferenceService
     /// </summary>
     private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
-        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, string? audioBase64, string? audioMime, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
+        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, string? audioBase64, string? audioMime, string? docBase64, string? docMime, string? docFileName, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
     {
         // Agregamos las herramientas de TODOS los toolsets registrados, omitiendo las que el agente
         // tiene deshabilitadas. Mapeamos cada nombre de herramienta a su toolset para el despacho.
@@ -267,6 +271,7 @@ public sealed class AiInferenceService : IAiInferenceService
             var role = string.Equals(t.Role, "model", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user";
             IReadOnlyList<AiInlineImage>? images = null;
             IReadOnlyList<AiInlineAudio>? audios = null;
+            IReadOnlyList<AiInlineDocument>? documents = null;
             if (i == turns.Count - 1 && role == "user")
             {
                 if (!string.IsNullOrWhiteSpace(imageBase64))
@@ -277,8 +282,14 @@ public sealed class AiInferenceService : IAiInferenceService
                 {
                     audios = new[] { new AiInlineAudio(audioBase64!, string.IsNullOrWhiteSpace(audioMime) ? "audio/ogg" : audioMime!) };
                 }
+                // Documento entrante (p.ej. PDF de lista de precios): se adjunta al ultimo turno de usuario.
+                // Solo Gemini lo aprovecha (ruta nativa generateContent); otros proveedores lo ignoran.
+                if (!string.IsNullOrWhiteSpace(docBase64))
+                {
+                    documents = new[] { new AiInlineDocument(docBase64!, string.IsNullOrWhiteSpace(docMime) ? "application/pdf" : docMime!, docFileName) };
+                }
             }
-            messages.Add(new AiToolMessage(role, t.Text, Images: images, Audios: audios));
+            messages.Add(new AiToolMessage(role, t.Text, Images: images, Audios: audios, Documents: documents));
         }
 
         var totalIn = 0;

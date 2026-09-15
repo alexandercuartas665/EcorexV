@@ -241,6 +241,11 @@ public sealed class AiProviderClient : IAiProviderClient
             return provider switch
             {
                 AiProvider.Claude => await ClaudeWithTools(apiKey, baseUrl, model, systemPrompt, messages, tools, cancellationToken),
+                // Gemini con un DOCUMENTO adjunto (p.ej. PDF): el endpoint OpenAI-compat NO acepta PDF, asi que
+                // se usa la ruta NATIVA generateContent (inlineData + functionDeclarations), que SI corre tools.
+                // Sin documento, Gemini sigue por OpenAI-compat (imagen/audio ya funcionan por ese camino).
+                AiProvider.Gemini when messages.Any(m => m.Documents is { Count: > 0 })
+                    => await GeminiNativeWithTools(apiKey, baseUrl, model, systemPrompt, messages, tools, cancellationToken),
                 _ => await OpenAiCompatibleWithTools(provider, apiKey, baseUrl, model, systemPrompt, messages, tools, cancellationToken)
             };
         }
@@ -362,6 +367,123 @@ public sealed class AiProviderClient : IAiProviderClient
             outTok = u.TryGetProperty("completion_tokens", out var c) ? c.GetInt32() : 0;
         }
         return new AiCompletion(true, text, null, inTok, outTok, calls);
+    }
+
+    // Gemini por su endpoint NATIVO (generateContent) con function calling. Se usa cuando el turno trae un
+    // DOCUMENTO (p.ej. PDF): el endpoint OpenAI-compat de Gemini NO acepta PDF por inlineData, y el nativo si,
+    // ademas de soportar tools. Imagen/audio tambien viajan como inlineData nativo por esta ruta.
+    private async Task<AiCompletion> GeminiNativeWithTools(string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiToolMessage> messages, IReadOnlyList<AiToolSpec> tools, CancellationToken ct)
+    {
+        var url = $"{Base(baseUrl, "https://generativelanguage.googleapis.com")}/v1beta/models/{model}:generateContent?key={apiKey}";
+
+        var contents = new List<object>();
+        for (var mi = 0; mi < messages.Count; mi++)
+        {
+            var m = messages[mi];
+            if (string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
+            {
+                // Resultado(s) de herramienta -> functionResponse (Gemini los empareja por NOMBRE, no por id).
+                // Se FUSIONAN los resultados consecutivos en UN solo turno "user" (Gemini prefiere roles
+                // alternados; varias herramientas en una ronda van como varias partes functionResponse).
+                var frParts = new List<object>();
+                while (mi < messages.Count && string.Equals(messages[mi].Role, "tool", StringComparison.OrdinalIgnoreCase))
+                {
+                    frParts.Add(new { functionResponse = new { name = messages[mi].ToolName ?? "", response = ToResponseObject(messages[mi].Text) } });
+                    mi++;
+                }
+                mi--;   // el for vuelve a incrementar
+                contents.Add(new { role = "user", parts = frParts.ToArray() });
+            }
+            else if (m.ToolCalls is { Count: > 0 })
+            {
+                var parts = new List<object>();
+                if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { text = m.Text }); }
+                foreach (var tc in m.ToolCalls)
+                {
+                    parts.Add(new { functionCall = new { name = tc.Name, args = ParseSchema(tc.ArgumentsJson) } });
+                }
+                contents.Add(new { role = "model", parts = parts.ToArray() });
+            }
+            else
+            {
+                var role = m.Role is "model" or "assistant" ? "model" : "user";
+                var parts = new List<object>();
+                if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { text = m.Text }); }
+                if (m.Images is { Count: > 0 })
+                {
+                    foreach (var im in m.Images) { parts.Add(new { inlineData = new { mimeType = im.Mime, data = im.Base64 } }); }
+                }
+                if (m.Documents is { Count: > 0 })
+                {
+                    foreach (var d in m.Documents) { parts.Add(new { inlineData = new { mimeType = string.IsNullOrWhiteSpace(d.Mime) ? "application/pdf" : d.Mime, data = d.Base64 } }); }
+                }
+                if (m.Audios is { Count: > 0 })
+                {
+                    foreach (var au in m.Audios) { parts.Add(new { inlineData = new { mimeType = au.Mime, data = au.Base64 } }); }
+                }
+                if (parts.Count == 0) { parts.Add(new { text = "" }); }
+                contents.Add(new { role, parts = parts.ToArray() });
+            }
+        }
+
+        object? sysInstr = string.IsNullOrWhiteSpace(systemPrompt) ? null : new { parts = new[] { new { text = systemPrompt } } };
+        var toolDecls = tools.Select(t => new { name = t.Name, description = t.Description ?? "", parameters = ParseSchema(t.ParametersJsonSchema) }).ToArray();
+        object? toolsArr = tools.Count > 0 ? new[] { new { functionDeclarations = toolDecls } } : null;
+        object body = new { systemInstruction = sysInstr, contents = contents.ToArray(), tools = toolsArr };
+
+        using var resp = await SendWithRetryAsync(() => new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) }, ct);
+        var raw = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode) { return FailTools((int)resp.StatusCode, raw); }
+
+        using var doc = JsonDocument.Parse(raw);
+        string? text = null;
+        var calls = new List<AiToolCall>();
+        if (doc.RootElement.TryGetProperty("candidates", out var cands) && cands.ValueKind == JsonValueKind.Array && cands.GetArrayLength() > 0)
+        {
+            var cand = cands[0];
+            if (cand.TryGetProperty("content", out var content) && content.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
+            {
+                var idx = 0;
+                foreach (var part in parts.EnumerateArray())
+                {
+                    if (part.TryGetProperty("text", out var te) && te.ValueKind == JsonValueKind.String)
+                    {
+                        text = (text ?? "") + te.GetString();
+                    }
+                    else if (part.TryGetProperty("functionCall", out var fc))
+                    {
+                        var name = fc.TryGetProperty("name", out var ne) ? ne.GetString() ?? "" : "";
+                        var argsJson = fc.TryGetProperty("args", out var ae) ? ae.GetRawText() : "{}";
+                        if (!string.IsNullOrWhiteSpace(name)) { calls.Add(new AiToolCall($"call_{idx++}", name, argsJson)); }
+                    }
+                }
+            }
+        }
+
+        var (inTok, outTok) = (0, 0);
+        if (doc.RootElement.TryGetProperty("usageMetadata", out var um))
+        {
+            inTok = um.TryGetProperty("promptTokenCount", out var p) ? p.GetInt32() : 0;
+            outTok = um.TryGetProperty("candidatesTokenCount", out var c) ? c.GetInt32() : 0;
+        }
+        return new AiCompletion(true, text, null, inTok, outTok, calls);
+    }
+
+    // El functionResponse de Gemini exige un OBJETO. Si el resultado de la herramienta ya es un objeto JSON,
+    // se usa tal cual; si es un array/escalar o no es JSON, se envuelve en { result: <texto> }.
+    private static object ToResponseObject(string? json)
+    {
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object) { return doc.RootElement.Clone(); }
+            }
+            catch { /* no era JSON: se envuelve como texto */ }
+        }
+        return new { result = json ?? "" };
     }
 
     // Claude (messages) con tool_use / tool_result.

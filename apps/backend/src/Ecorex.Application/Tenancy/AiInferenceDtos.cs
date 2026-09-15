@@ -43,7 +43,7 @@ public sealed record AiToolCall(string Id, string Name, string ArgumentsJson);
 /// </summary>
 public sealed record AiToolMessage(string Role, string? Text, IReadOnlyList<AiToolCall>? ToolCalls = null,
     string? ToolCallId = null, string? ToolName = null, IReadOnlyList<AiInlineImage>? Images = null,
-    IReadOnlyList<AiInlineAudio>? Audios = null);
+    IReadOnlyList<AiInlineAudio>? Audios = null, IReadOnlyList<AiInlineDocument>? Documents = null);
 
 /// <summary>Imagen inline (base64 + mime) adjunta a un mensaje de USUARIO para que el modelo la VEA
 /// (vision en el bucle de herramientas). Hoy la aprovechan Gemini y Claude; otros proveedores la ignoran.</summary>
@@ -52,6 +52,11 @@ public sealed record AiInlineImage(string Base64, string Mime);
 /// <summary>Audio inline (base64 + mime) adjunto a un mensaje de USUARIO para que el modelo lo OIGA
 /// (nota de voz). Hoy solo lo procesa Gemini; otros proveedores lo ignoran (Claude no acepta audio).</summary>
 public sealed record AiInlineAudio(string Base64, string Mime);
+
+/// <summary>Documento inline (base64 + mime + nombre) adjunto a un mensaje de USUARIO para que el modelo lo
+/// LEA (p.ej. un PDF de lista de precios). Hoy solo lo procesa Gemini por su ruta NATIVA (generateContent
+/// con inlineData); otros proveedores lo ignoran. Los Excel se convierten a texto ANTES de llegar aqui.</summary>
+public sealed record AiInlineDocument(string Base64, string Mime, string? FileName = null);
 
 /// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.</summary>
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,
@@ -121,5 +126,10 @@ public interface IAiInferenceService
     /// reserva/cancela de verdad (true) o solo registra solicitudes para que un asesor las confirme (false).
     /// El resultado incluye DebugPrompts (prompts + herramientas) para persistir la bitacora de atencion.
     /// </summary>
-    Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <param name="imageBase64">Imagen ENTRANTE (base64) del ultimo turno del cliente, para que el modelo la VEA.</param>
+    /// <param name="docBase64">Documento ENTRANTE (base64, p.ej. PDF) del ultimo turno del cliente, para que el modelo lo LEA (ruta nativa Gemini).</param>
+    Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
+        string? imageBase64 = null, string? imageMime = null,
+        string? docBase64 = null, string? docMime = null, string? docFileName = null,
+        CancellationToken cancellationToken = default);
 }

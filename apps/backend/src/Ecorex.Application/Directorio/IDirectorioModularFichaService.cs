@@ -23,6 +23,12 @@ public interface IDirectorioModularFichaService
     /// existe o no es del motor Modular.</summary>
     Task<ModularEditDto?> GetTerceroParaEditarAsync(Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>Busca terceros Modular del tenant que choquen por identificacion, correo o telefono
+    /// (alertas de duplicidad en tiempo real, O2-1). En CUALQUIER categoria; excluye el tercero en edicion.
+    /// Devuelve las coincidencias (id + nombre + motivo + categoria) para enlazar a la ficha existente.</summary>
+    Task<IReadOnlyList<ModularDuplicadoDto>> BuscarDuplicadosAsync(
+        string? ide, string? correo, string? telefono, Guid? excludeId, CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza un tercero Modular existente: re-deduce nombre/naturaleza/campos base de los
     /// valores, guarda FichasJson y el estado. Devuelve un mensaje de error o null si OK.</summary>
     Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default);

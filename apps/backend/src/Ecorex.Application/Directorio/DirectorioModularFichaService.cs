@@ -246,6 +246,55 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         return new ModularEditDto(t.Id, catKey, estado, t.Tipo, valores);
     }
 
+    public async Task<IReadOnlyList<ModularDuplicadoDto>> BuscarDuplicadosAsync(
+        string? ide, string? correo, string? telefono, Guid? excludeId, CancellationToken cancellationToken = default)
+    {
+        var doc = string.IsNullOrWhiteSpace(ide) ? null : ide.Trim().ToLowerInvariant();
+        var mail = string.IsNullOrWhiteSpace(correo) ? null : correo.Trim().ToLowerInvariant();
+        var telDig = SoloDigitos(telefono);
+        var tel10 = telDig.Length >= 10 ? telDig[^10..] : telDig;
+        var buscaTel = tel10.Length >= 7;   // no alertar por fragmentos cortos de telefono
+        if (doc is null && mail is null && !buscaTel) { return Array.Empty<ModularDuplicadoDto>(); }
+
+        // Proyeccion ligera de los terceros Modular del tenant (filtro global). El telefono se compara por
+        // los ultimos 10 digitos en memoria (el almacenado puede traer separadores/prefijo de pais).
+        var rows = await _app.Terceros.AsNoTracking()
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular && (excludeId == null || t.Id != excludeId))
+            .Select(t => new { t.Id, t.Nombre, t.IdValor, t.Email, t.Telefono })
+            .ToListAsync(cancellationToken);
+
+        var hits = new List<(Guid Id, string Nombre, string Motivo)>();
+        foreach (var r in rows)
+        {
+            string? motivo = null;
+            if (doc is not null && !string.IsNullOrWhiteSpace(r.IdValor) && r.IdValor!.Trim().ToLowerInvariant() == doc) { motivo = "identificacion"; }
+            else if (mail is not null && !string.IsNullOrWhiteSpace(r.Email) && r.Email!.Trim().ToLowerInvariant() == mail) { motivo = "correo"; }
+            else if (buscaTel)
+            {
+                var d = SoloDigitos(r.Telefono);
+                var d10 = d.Length >= 10 ? d[^10..] : d;
+                if (d10.Length >= 7 && d10 == tel10) { motivo = "telefono"; }
+            }
+            if (motivo is not null) { hits.Add((r.Id, r.Nombre, motivo)); }
+            if (hits.Count >= 10) { break; }
+        }
+        if (hits.Count == 0) { return Array.Empty<ModularDuplicadoDto>(); }
+
+        // Categoria (primera pertenencia) de cada coincidencia, para el enlace directo a la ficha existente.
+        var ids = hits.Select(h => h.Id).ToList();
+        var cats = await _db.TerceroCategorias.AsNoTracking()
+            .Where(tc => ids.Contains(tc.TerceroId))
+            .Select(tc => new { tc.TerceroId, tc.CategoriaKey })
+            .ToListAsync(cancellationToken);
+        var catByTercero = cats.GroupBy(c => c.TerceroId).ToDictionary(g => g.Key, g => g.First().CategoriaKey);
+
+        return hits.Select(h => new ModularDuplicadoDto(
+            h.Id, h.Nombre, h.Motivo, catByTercero.TryGetValue(h.Id, out var ck) ? ck : null)).ToList();
+    }
+
+    private static string SoloDigitos(string? s)
+        => string.IsNullOrEmpty(s) ? string.Empty : new string(s.Where(char.IsDigit).ToArray());
+
     public async Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default)
     {
         var t = await _app.Terceros.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);

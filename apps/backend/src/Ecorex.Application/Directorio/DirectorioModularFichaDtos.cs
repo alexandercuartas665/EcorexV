@@ -15,6 +15,10 @@ public sealed record ModularCampoDto(
     string FieldKey, string Label, TerceroFieldType Type, int Column,
     string? Options, string? RequeridoEn, bool ReadOnly, string? Descripcion);
 
+/// <summary>Coincidencia de duplicidad detectada en tiempo real (O2-1): el tercero ya existente que
+/// choca por identificacion, correo o telefono, con el motivo y su categoria (para el enlace directo).</summary>
+public sealed record ModularDuplicadoDto(Guid Id, string Nombre, string Motivo, string? CategoriaKey);
+
 /// <summary>Alta de un tercero desde el motor Modular: los valores por seccion (ficha -> campo -> valor).</summary>
 public sealed record CreateModularTerceroRequest(
     string CategoriaKey,

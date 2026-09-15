@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IDirectorioModularFichaService Fichas
 @inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 @inject IJSRuntime JS
 
 @if (IsOpen)
@@ -59,6 +60,27 @@
                         <i class="fa @(NatClass == "none" ? "fa-circle-question" : "fa-circle-check")"></i>
                         <span>@NatText</span>
                     </div>
+
+                    @* O2-1: alerta de duplicidad en vivo (por identificacion / correo / telefono) *@
+                    @if (_duplicados.Count > 0)
+                    {
+                        <div class="fm-dup">
+                            <div class="fm-dup-head"><i class="fa fa-triangle-exclamation"></i> Posible duplicado ya registrado:</div>
+                            <ul class="fm-dup-list">
+                                @foreach (var d in _duplicados)
+                                {
+                                    <li>
+                                        <span class="fm-dup-name">@d.Nombre</span>
+                                        <span class="fm-dup-why">coincide por @MotivoTexto(d.Motivo)</span>
+                                        @if (OnAbrirTercero.HasDelegate)
+                                        {
+                                            <button type="button" class="fm-dup-open" @onclick="() => OnAbrirTercero.InvokeAsync(d.Id)">Abrir ficha</button>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
 
                     @* Tabs de seccion (llevan a cada seccion del scroll) con contador de obligatorios faltantes *@
                     <div class="fm-sectabs">
@@ -211,6 +233,15 @@
     .fm-banner.org { background: #eff6ff; color: #1d4ed8; }
     .fm-banner.per { background: #f0fdf4; color: #15803d; }
 
+    .fm-dup { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+    .fm-dup-head { font-size: 12.5px; font-weight: 700; color: #92400e; display: flex; align-items: center; gap: 8px; }
+    .fm-dup-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .fm-dup-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #7c2d12; flex-wrap: wrap; }
+    .fm-dup-name { font-weight: 700; }
+    .fm-dup-why { color: #b45309; }
+    .fm-dup-open { margin-left: auto; background: #fff; border: 1px solid #f59e0b; color: #b45309; border-radius: 7px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .fm-dup-open:hover { background: #fef3c7; }
+
     .fm-sectabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
     .fm-sectab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 12px; font-weight: 600; color: #4f46e5; background: #f5f3ff; border-radius: 999px; padding: 4px 11px; }
     .fm-sectab .fm-dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; display: inline-block; }
@@ -264,6 +295,8 @@
     // Devuelve el id del tercero guardado (creado o editado) para que el padre lo pueda seleccionar.
     // Un handler sin parametros (p.ej. GestorContactos.OnModularSavedAsync) tambien enlaza sin problema.
     [Parameter] public EventCallback<Guid?> OnSaved { get; set; }
+    // O2-1: al hacer clic en un duplicado detectado, abre esa ficha existente (el padre lo maneja).
+    [Parameter] public EventCallback<Guid> OnAbrirTercero { get; set; }
 
     private bool _saving;
     private string? _error;
@@ -274,6 +307,10 @@
     // Naturaleza FIJA en edicion (O1-2): la ficha se adapta a ese tipo y no permite convertirlo.
     // Null = alta (la naturaleza se deduce de lo que se llena).
     private TerceroTipo? _natFijo;
+
+    // O2-1: coincidencias de duplicidad detectadas en vivo (por identificacion/correo/telefono).
+    private IReadOnlyList<ModularDuplicadoDto> _duplicados = Array.Empty<ModularDuplicadoDto>();
+    private bool _dupChecking;
     private string _estado = "Activo";
     private ModularFichaDto? _ficha;
     // ficha (seccion) -> campo -> valor
@@ -306,6 +343,7 @@
         _estado = "Activo";
         _notModular = false;
         _natFijo = null;
+        _duplicados = Array.Empty<ModularDuplicadoDto>();
 
         var catKey = CategoriaKey;
         Dictionary<string, Dictionary<string, string>>? cargados = null;
@@ -358,6 +396,42 @@
         if (!_valores.TryGetValue(ficha, out var d)) { d = _valores[ficha] = new(StringComparer.Ordinal); }
         d[campo] = valor ?? "";
     }
+
+    // ---- O2-1: alerta de duplicidad en vivo (identificacion / correo / telefono) ----
+    private static readonly string[] CamposIdentidad = { "ide", "nit", "numero_identificacion", "correo", "telefono_empresa", "telefono_contacto" };
+
+    /// <summary>Setea el valor y, si es un campo de identidad, revisa duplicados en tiempo real.</summary>
+    private async Task OnValorChanged(string ficha, string campo, string? valor)
+    {
+        SetVal(ficha, campo, valor);
+        if (CamposIdentidad.Contains(campo, StringComparer.Ordinal)) { await CheckDuplicadosAsync(); }
+    }
+
+    private async Task CheckDuplicadosAsync()
+    {
+        if (_dupChecking) { return; }   // serializa: 2 operaciones en el DbContext del circuito revientan
+        _dupChecking = true;
+        try
+        {
+            var ide = Find("ide") ?? Find("nit") ?? Find("numero_identificacion");
+            var correo = Find("correo");
+            var tel = Find("telefono_empresa") ?? Find("telefono_contacto");
+            await FormGate.Gate.WaitAsync();
+            try { _duplicados = await Fichas.BuscarDuplicadosAsync(ide, correo, tel, _editId); }
+            finally { FormGate.Gate.Release(); }
+        }
+        catch { _duplicados = Array.Empty<ModularDuplicadoDto>(); }
+        finally { _dupChecking = false; }
+        StateHasChanged();
+    }
+
+    private static string MotivoTexto(string motivo) => motivo switch
+    {
+        "identificacion" => "identificacion",
+        "correo" => "correo",
+        "telefono" => "telefono",
+        _ => motivo
+    };
 
     // ---- Campos tipo lista del Contenedor/Directorio (Lookup/DirectoryLookup) ----
 
@@ -768,7 +842,7 @@
                 builder.AddAttribute(2, "type", InputType(f.Type));
                 builder.AddAttribute(3, "value", val);
                 builder.AddAttribute(4, "disabled", f.ReadOnly);
-                builder.AddAttribute(5, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetVal(ficha, f.FieldKey, e.Value?.ToString())));
+                builder.AddAttribute(5, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => OnValorChanged(ficha, f.FieldKey, e.Value?.ToString())));
                 builder.CloseElement();
                 break;
         }

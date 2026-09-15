@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-14 - v0.16.72: Directorio Modular OLA 2 - calidad de datos y busqueda (O2-1, O2-2, O2-3)
+
+- Segunda ola del backlog "Capa 8 Directorio". Todo en el motor Modular. SIN migracion de BD.
+- O2-1 Alertas de duplicidad en tiempo real (regla 2.3): nuevo IDirectorioModularFichaService.
+  BuscarDuplicadosAsync(ide, correo, telefono, excludeId) busca terceros Modular del tenant que choquen por
+  identificacion (exacta), correo (exacto) o telefono (ultimos 10 digitos, en memoria) en CUALQUIER
+  categoria; excluye el que se edita; devuelve id+nombre+motivo+categoria. En el modal, al cambiar un campo
+  de identidad (ide/nit/numero_identificacion/correo/telefono_*) se llama en vivo (serializado con
+  CircuitFormGate) y se muestra una alerta con enlace "Abrir ficha" que abre el tercero existente (callback
+  OnAbrirTercero, que DirectorioModular resuelve pasando el modal a edicion). Es opcional (GestorContactos
+  sigue igual, sin el boton).
+- O2-2 Buscador multi-criterio + acentos (regla 4.1): en TerceroService.ListAsync, para el motor Modular se
+  agregan razon_social, nombre_comercial, sigla y codigo (consecutivo O1-1) como claves extra de Filtrables
+  (no requieren ShowInFilter ni migracion). En DirectorioModular el buscador ahora normaliza acentos
+  (Norm: minusculas + sin diacriticos) tanto en el termino como en cada campo, asi "bogota" encuentra
+  "Bogotá". Placeholder actualizado.
+- O2-3 Resultados agrupados por tercero multi-categoria (regla 4.1): VERIFICADO que YA se cumple - ListAsync
+  devuelve una fila por tercero y ChipsDe(tid) pinta TODAS sus categorias (deduplicadas). Un tercero
+  Cliente+Proveedor sale en una sola fila con 2 chips. Sin cambios de codigo.
+- Archivos: DirectorioModularFichaService.cs (BuscarDuplicadosAsync + SoloDigitos), IDirectorioModular
+  FichaService.cs + DirectorioModularFichaDtos.cs (ModularDuplicadoDto), TerceroService.cs (filterKeys extra
+  Modular), DirectorioModularFichaModal.razor (alerta + OnValorChanged/CheckDuplicados + OnAbrirTercero),
+  DirectorioModular.razor (Norm/Contiene + OnAbrirDuplicado + placeholder). Build verde; tests verdes.
+- Siguiente: validacion del usuario en dev (teclear un NIT/correo/telefono repetido -> alerta con enlace;
+  buscar con y sin acentos, por sigla/razon social/codigo). Luego merge Ola 1+2 a tronco + main y deploy a
+  su senal. Pendiente Ola 3. NO desplegado.
+
 ## 2026-09-14 - v0.16.71: Directorio Modular OLA 1 - integridad del alta (O1-1, O1-2, O1-3)
 
 - Primera ola del backlog "Capa 8 Directorio" (nota del vault "Backlog de ajustes pendientes por olas").

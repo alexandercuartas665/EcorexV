@@ -33,7 +33,7 @@
     </div>
 
     <DirectorioModularFichaModal CategoriaKey="@(_editId is not null ? _editKey : _nuevoKey)" TerceroId="@_editId"
-                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" />
+                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" OnAbrirTercero="OnAbrirDuplicado" />
     <DirectorioModularConfigModal Show="_configOpen" OnClosed="OnConfigClosedAsync" />
 
     @* --- Mini-modal: nueva categoria --- *@
@@ -219,7 +219,7 @@
         @* --- Buscador --- *@
         <div class="dm-search">
             <i class="fa fa-search"></i>
-            <input placeholder="Buscar por nombre, contacto, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
+            <input placeholder="Buscar por nombre, razon social, sigla, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
             @if (!string.IsNullOrWhiteSpace(_search))
             {
                 <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>
@@ -683,6 +683,14 @@
         _editKey = null;
     }
 
+    // O2-1: desde la alerta de duplicidad, abre la ficha del tercero existente (cambia el modal a EDICION).
+    private void OnAbrirDuplicado(Guid id)
+    {
+        _nuevoKey = null;
+        _editKey = (_memberships.TryGetValue(id, out var ks) && ks.Count > 0) ? ks[0] : (_activo?.CategoriaKey ?? "publico");
+        _editId = id;
+    }
+
     // Tras crear o editar un tercero: cierra el modal y recarga listado, contadores y membresias.
     private async Task OnFichaSavedAsync()
     {
@@ -749,11 +757,11 @@
             _ => q
         };
 
-        // Busqueda libre (case/acentos-insensible simple por minusculas).
+        // Busqueda libre insensible a mayusculas Y a acentos (O2-2): normaliza el termino y cada campo.
         var term = (_search ?? string.Empty).Trim();
         if (term.Length > 0)
         {
-            var needle = term.ToLowerInvariant();
+            var needle = Norm(term);
             q = q.Where(t => Coincide(t, needle));
         }
 
@@ -784,8 +792,25 @@
         return false;
     }
 
+    // needle ya viene normalizado (minusculas + sin acentos); se normaliza el campo para comparar.
     private static bool Contiene(string? hay, string needle)
-        => !string.IsNullOrEmpty(hay) && hay.ToLowerInvariant().Contains(needle);
+        => !string.IsNullOrEmpty(hay) && Norm(hay).Contains(needle);
+
+    // Normaliza para busqueda: minusculas + sin diacriticos (bogota == Bogota == Bogotá).
+    private static string Norm(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) { return string.Empty; }
+        var formD = s.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(formD.Length);
+        foreach (var ch in formD)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
 
     // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
     private int CatCount(DirectorioCategoriaDto c)

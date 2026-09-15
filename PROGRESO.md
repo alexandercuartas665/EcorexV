@@ -2,6 +2,158 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.76: Directorio Modular OLA 6 - refactor (tope 2000 lineas) (O6-1)
+
+- Sexta y ultima ola del backlog "Capa 8 Directorio". Refactor de deuda tecnica, SIN cambio de
+  comportamiento y SIN migracion.
+- O6-1: TerceroModal.razor superaba el tope (2112 lineas). Se separo en code-behind: el markup queda en
+  TerceroModal.razor (847 lineas) y todo el antiguo bloque @code pasa a TerceroModal.razor.cs (1293 lineas,
+  partial class), verbatim. Los @inject siguen en el .razor (misma clase parcial). Es el corte de MENOR
+  riesgo (mismo codigo reubicado; si compila, el comportamiento no cambia). Primer code-behind del proyecto.
+- Verificado: ningun archivo del modulo Directorio supera 2000 lineas. ConfigModal (1140) y SharedBase
+  (1092) siguen por debajo (solo vigilancia); DirectorioModularFichaModal crecio a 1029 con las Olas 1-5
+  (bajo el tope). Descomponer en subcomponentes queda como mejora futura opcional (el tope ya se cumple).
+- Build verde (solucion completa); 931 tests verdes.
+- CIERRE DEL BACKLOG: Olas 1-6 completas en local (v0.16.71 -> v0.16.76), commiteadas en
+  feat/directorio-modular, SIN mergear y SIN desplegar. Siguiente: validacion del usuario + merge a
+  fase-0/clon-backbone + main + deploy a su senal.
+
+## 2026-09-15 - v0.16.75: Directorio Modular OLA 5 - permisos por rol/area en runtime (O5-1)
+
+- Quinta ola del backlog "Capa 8 Directorio". SIN migracion de BD (reusa la matriz de Roles existente).
+- Decision del usuario: el "area del usuario" se MAPEA DESDE EL ROL de permisos. Implementado reusando el
+  patron DirectorioSubPermisos: las 4 areas (Admin/Comercial/Contabilidad/Logistica) se exponen como filas
+  propias en la matriz de Roles (claves "directorio-modular:area:{key}"), resueltas por EffectivePermissions.
+  Owner/Admin y usuarios SIN rol ven todo (Unrestricted, back-compat); un rol que NO marca ninguna area
+  tampoco restringe (opt-in), para no bloquear a nadie hasta que el admin configure.
+- NUEVO DirectorioModularAreaPermisos (catalogo de las 4 filas) + inyeccion en RolService.WithSubPermisos.
+- NUEVO IDirectorioModularAccessService: resuelve ModularAreaAccess { VeTodo, Areas } desde el rol; logica
+  pura testeable en Resolve(EffectivePermissions) + PuedeArea(areasCsv). 6 tests nuevos.
+- Enforcement:
+  - Categorias (pestanas): DirectorioModular.razor filtra _cats por area (base Publico protegida siempre).
+  - Secciones (ficha): GetFichaAsync oculta secciones cuya area no autoriza y devuelve SeccionesOcultas; el
+    modal muestra el aviso "hay N seccion(es) oculta(s) por permisos" sin revelar contenido.
+  - Acciones globales: "Configurar directorio" y "Migrar del Clasico" solo si VeTodo (admin).
+  - Buscador: opera dentro de las pestanas visibles; "+ categoria" solo ofrece categorias visibles. La
+    seccion Publica es visible a todas las areas por diseno (datos minimos), asi que los registros salen a
+    nivel publico para todos (spec regla 2.2).
+- Archivos: DirectorioModularAreaPermisos.cs + IDirectorioModularAccessService.cs (nuevos) +
+  DirectorioModularAccessTests.cs (nuevo), RolService.cs (inyeccion), DirectorioModularFichaDtos.cs
+  (SeccionesOcultas), DirectorioModularFichaService.cs (filtra secciones), DirectorioModular.razor (filtra
+  categorias + gate acciones), DirectorioModularFichaModal.razor (aviso). Build verde; 931 tests verdes.
+- Siguiente: validacion en dev/prod (asignar a un rol solo el area Comercial y ver que ese usuario no ve las
+  pestanas/secciones de Contabilidad/Logistica ni el boton Configurar). Luego merge Ola 1-5 + deploy a su
+  senal. Pendiente Ola 6 (refactor TerceroModal.razor). NO desplegado.
+
+## 2026-09-15 - v0.16.74: Directorio Modular OLA 4 - relaciones y vinculacion (O4-1..O4-4)
+
+- Cuarta ola del backlog "Capa 8 Directorio". PRIMERA ola con MIGRACION DE BD (dual PG + SQL Server).
+- O4-2 Cargo por vinculo (relacion M:N): NUEVA entidad TerceroVinculo (PersonaId, OrganizacionId, Cargo,
+  Principal) + migracion AddTerceroVinculo en AMBOS proveedores (tercero_vinculos, dos FK a terceros con
+  Restrict para no crear rutas de cascada multiples en SQL Server; unico por tenant+persona+org). Se
+  auto-aplica al iniciar (Program.cs MigrateAsync). Convive con el enlace primario legado Tercero.EmpresaId.
+  Nuevo ITerceroVinculoService (ListDe/Agregar/Quitar/Buscar) que UNE los vinculos M:N con el legado.
+- O4-1 Panel de relaciones bidireccional: NUEVO componente DmRelacionesPanel.razor (en Components/Shared/
+  Directorio para mantener el modal ligero). En una Organizacion lista sus personas; en una Persona sus
+  organizaciones (vinculos + legado, sin duplicar). Agrega/quita vinculos buscando terceros existentes
+  (autocompletar), edita el cargo por vinculo. Se embebe en el modal SOLO en edicion. Escribe en vivo,
+  serializado con CircuitFormGate.
+- O4-3 Conversion Persona -> Organizacion: DirectorioModularFichaService.ConvertirAOrganizacionAsync crea
+  una Organizacion nueva (con consecutivo/fecha/usuario, heredando ciudad/correo de la persona, en las
+  mismas categorias) y deja a la persona vinculada como su contacto/representante. Boton en el panel.
+- O4-4 "+ Categoria" rapido desde la busqueda: reusa DirectorioCategoriaService.AsignarTerceroAsync. En el
+  listado, al BUSCAR se muestran terceros de cualquier categoria y las filas que no pertenecen a la
+  categoria activa traen un boton "+ <categoria>" para adjuntarlos sin recrearlos.
+- Archivos: TerceroVinculo.cs (nuevo), migraciones AddTerceroVinculo x2, IDirectorioModularDbContext +
+  EcorexDbContext (DbSet + config), ITerceroVinculoService/TerceroVinculoService (nuevos), DependencyInjection,
+  IDirectorioModularFichaService/DirectorioModularFichaService (ConvertirAOrganizacionAsync),
+  DmRelacionesPanel.razor (nuevo), DirectorioModularFichaModal.razor (embebe el panel), DirectorioModular.razor
+  (+Categoria). Build verde (solucion completa); 925 tests verdes.
+- Siguiente: validacion del usuario en dev (arranca el server -> migracion crea tercero_vinculos; en una
+  ficha en edicion, agregar/quitar organizaciones/personas con cargo; convertir una persona en organizacion;
+  buscar y adjuntar a otra categoria). Luego merge Ola 1-4 a tronco + main y deploy a su senal. Pendiente
+  Ola 5 (permisos) y Ola 6 (refactor). NO desplegado.
+
+## 2026-09-14 - v0.16.73: Directorio Modular OLA 3 - Fiscal / RUT (homologacion) (O3-1..O3-4)
+
+- Tercera ola del backlog "Capa 8 Directorio". Motor Modular. SIN migracion de BD.
+- NUEVO helper PURO HomologacionRut (Ecorex.Application.Directorio): mapea las casillas del RUT (seccion
+  tributaria) a los campos del Directorio publico y deduce la naturaleza desde la casilla 24 (tipo de
+  contribuyente), con respaldo por razon social / nombres. Lo usan el servicio (al guardar) y el modal (en
+  vivo). 7 tests unitarios nuevos.
+- O3-1 (regla 2.2): la categoria Fiscal ya compone SOLO la seccion tributaria (oculta la publica). Ahora el
+  alta desde Fiscal deduce Organizacion/Persona desde el RUT (NaturalezaPill y el servicio via
+  HomologacionRut), asi una persona natural del RUT ya no falla por "falta nombre".
+- O3-2: NIT -> IDE sin digito de verificacion (HomologacionRut.NitAIde: "900123456-7" -> "900123456").
+- O3-3: homologacion FUERTE (modo Fiscal). Al guardar, si la categoria tiene HomologaSeccion (Fiscal ->
+  mod_publica), el RUT SOBRESCRIBE los campos publicos (nombre/ide/correo/ciudad/telefono) antes de fijar
+  las columnas base. En el modal, un banner en vivo NOTIFICA que campos publicos se homologan.
+- O3-4: homologacion SUAVE (categorias no fiscales que compongan RUT + publica a la vez): al cambiar un
+  campo del RUT se completan solo los publicos VACIOS; si hay conflicto (publico != RUT) aparece el boton
+  "Usar los del RUT" que sobrescribe. (Ninguna categoria por defecto compone ambas; queda listo para
+  categorias personalizadas.)
+- Archivos: HomologacionRut.cs (nuevo) + HomologacionRutTests.cs (nuevo), DirectorioModularFichaService.cs
+  (Create/Update aplican homologacion; GetFichaAsync expone HomologaSeccion), DirectorioModularFichaDtos.cs
+  (ModularFichaDto.HomologaSeccion), DirectorioModularFichaModal.razor (banner O3-3, suave O3-4, NaturalezaPill
+  desde RUT). Build verde (Application + SuperAdmin); 925 tests verdes.
+- Siguiente: validacion del usuario en dev (crear desde Fiscal con RUT juridica y natural -> el publico queda
+  con nombre/IDE sin DV/correo/ciudad; ver el banner de homologacion). Luego merge Ola 1+2+3 a tronco + main y
+  deploy a su senal. Pendiente Ola 4 (relaciones, requiere migracion). NO desplegado.
+
+## 2026-09-14 - v0.16.72: Directorio Modular OLA 2 - calidad de datos y busqueda (O2-1, O2-2, O2-3)
+
+- Segunda ola del backlog "Capa 8 Directorio". Todo en el motor Modular. SIN migracion de BD.
+- O2-1 Alertas de duplicidad en tiempo real (regla 2.3): nuevo IDirectorioModularFichaService.
+  BuscarDuplicadosAsync(ide, correo, telefono, excludeId) busca terceros Modular del tenant que choquen por
+  identificacion (exacta), correo (exacto) o telefono (ultimos 10 digitos, en memoria) en CUALQUIER
+  categoria; excluye el que se edita; devuelve id+nombre+motivo+categoria. En el modal, al cambiar un campo
+  de identidad (ide/nit/numero_identificacion/correo/telefono_*) se llama en vivo (serializado con
+  CircuitFormGate) y se muestra una alerta con enlace "Abrir ficha" que abre el tercero existente (callback
+  OnAbrirTercero, que DirectorioModular resuelve pasando el modal a edicion). Es opcional (GestorContactos
+  sigue igual, sin el boton).
+- O2-2 Buscador multi-criterio + acentos (regla 4.1): en TerceroService.ListAsync, para el motor Modular se
+  agregan razon_social, nombre_comercial, sigla y codigo (consecutivo O1-1) como claves extra de Filtrables
+  (no requieren ShowInFilter ni migracion). En DirectorioModular el buscador ahora normaliza acentos
+  (Norm: minusculas + sin diacriticos) tanto en el termino como en cada campo, asi "bogota" encuentra
+  "Bogotá". Placeholder actualizado.
+- O2-3 Resultados agrupados por tercero multi-categoria (regla 4.1): VERIFICADO que YA se cumple - ListAsync
+  devuelve una fila por tercero y ChipsDe(tid) pinta TODAS sus categorias (deduplicadas). Un tercero
+  Cliente+Proveedor sale en una sola fila con 2 chips. Sin cambios de codigo.
+- Archivos: DirectorioModularFichaService.cs (BuscarDuplicadosAsync + SoloDigitos), IDirectorioModular
+  FichaService.cs + DirectorioModularFichaDtos.cs (ModularDuplicadoDto), TerceroService.cs (filterKeys extra
+  Modular), DirectorioModularFichaModal.razor (alerta + OnValorChanged/CheckDuplicados + OnAbrirTercero),
+  DirectorioModular.razor (Norm/Contiene + OnAbrirDuplicado + placeholder). Build verde; tests verdes.
+- Siguiente: validacion del usuario en dev (teclear un NIT/correo/telefono repetido -> alerta con enlace;
+  buscar con y sin acentos, por sigla/razon social/codigo). Luego merge Ola 1+2 a tronco + main y deploy a
+  su senal. Pendiente Ola 3. NO desplegado.
+
+## 2026-09-14 - v0.16.71: Directorio Modular OLA 1 - integridad del alta (O1-1, O1-2, O1-3)
+
+- Primera ola del backlog "Capa 8 Directorio" (nota del vault "Backlog de ajustes pendientes por olas").
+  Todo el cambio vive en el motor Modular (DirectorioModularFichaService + su modal). SIN migracion de BD.
+- O1-1 Datos automaticos de sistema (regla 2.1): al crear un tercero Modular se estampa el consecutivo por
+  tenant TER-000001 (via ISequenceService, CAS atomico ADR-0013, code "TER" prefijo "TER-" padding 6), la
+  fecha de creacion en la zona horaria del tenant (Tenant.TimeZoneId + ScheduledJobRecurrence.ResolveTimeZone)
+  y el usuario creador (PlatformUser.DisplayName ?? Email). Se guardan en la seccion publica de FichasJson
+  (campos codigo/fecha_creacion/usuario_creador, ya existentes como solo-lectura). Tambien se estampan en la
+  importacion por Excel. El consecutivo se emite DESPUES de validar el nombre (no se queman numeros).
+- O1-2 Inmutabilidad de la naturaleza: en edicion ApplyValores recibe lockTipo = tipo actual (no puede
+  cambiar Empresa<->Persona), y los datos de sistema se copian del registro (no se confia en el cliente).
+  En el modal, la ficha en edicion muestra el banner fijo ("Es una Organizacion/Persona"), oculta las
+  secciones cuyo AplicaA no incluye la naturaleza y los campos exclusivos de la otra (por RequeridoEn o
+  sufijo _empresa/_contacto); no ofrece convertir.
+- O1-3 Creacion simultanea Organizacion + Persona: si en el alta se llenan AMBOS bloques (nombre de empresa
+  + contacto), se crean DOS terceros vinculados en una sola transaccion: la Organizacion (principal, ficha
+  completa sin los campos de persona) y la Persona (ficha minima de contacto: contacto/telefono_contacto/
+  cargo) con EmpresaId apuntando a la organizacion. El listado Modular ya la muestra como contacto (chip de
+  vinculo + anidada al expandir). Cada tercero recibe su propio consecutivo.
+- Archivos: DirectorioModularFichaService.cs (Create/Update/Import + helpers StampSistema/CarryOverSistema/
+  ResolveFechaLocal/ResolveUsuario/Nuevo/CloneValores/Quitar-Solo CamposPersona), DirectorioModularFichaDtos.cs
+  (ModularEditDto lleva Tipo), DirectorioModularFichaModal.razor (_natFijo + MostrarSeccion/MostrarCampo +
+  NaturalezaPill fija). Build verde (Application + SuperAdmin); 918 tests unitarios verdes.
+- Siguiente: validacion del usuario en dev (crear con solo empresa / solo contacto / ambos; reabrir y ver
+  codigo+fecha+usuario; editar sin poder cambiar naturaleza). Luego merge a tronco + main y deploy a su senal.
+  Pendiente Ola 2. NO desplegado.
 ## 2026-09-15 - v0.16.71: FIX el campo Cliente (lookup Tercero) mostraba el GUID en una OT recien derivada
 
 - Sintoma: al crear una tarea con un cliente NUEVO y derivar en ese mismo momento su Orden de Trabajo

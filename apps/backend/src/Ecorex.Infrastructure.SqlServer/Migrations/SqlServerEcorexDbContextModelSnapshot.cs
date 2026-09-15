@@ -14258,6 +14258,72 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("tercero_notas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroVinculo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Cargo")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("cargo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("OrganizacionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("organizacion_id");
+
+                    b.Property<Guid>("PersonaId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("persona_id");
+
+                    b.Property<bool>("Principal")
+                        .HasColumnType("bit")
+                        .HasColumnName("principal");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tercero_vinculos");
+
+                    b.HasIndex("OrganizacionId")
+                        .HasDatabaseName("ix_tercero_vinculos_organizacion_id");
+
+                    b.HasIndex("PersonaId")
+                        .HasDatabaseName("ix_tercero_vinculos_persona_id");
+
+                    b.HasIndex("TenantId", "OrganizacionId")
+                        .HasDatabaseName("ix_tercero_vinculos_tenant_id_organizacion_id");
+
+                    b.HasIndex("TenantId", "PersonaId")
+                        .HasDatabaseName("ix_tercero_vinculos_tenant_id_persona_id");
+
+                    b.HasIndex("TenantId", "PersonaId", "OrganizacionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tercero_vinculos_tenant_id_persona_id_organizacion_id");
+
+                    b.ToTable("tercero_vinculos", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.VoiceCall", b =>
                 {
                     b.Property<Guid>("Id")
@@ -17705,6 +17771,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("FormResponse");
 
                     b.Navigation("Tercero");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroVinculo", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Tercero", "Organizacion")
+                        .WithMany()
+                        .HasForeignKey("OrganizacionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tercero_vinculos_terceros_organizacion_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.Tercero", "Persona")
+                        .WithMany()
+                        .HasForeignKey("PersonaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tercero_vinculos_terceros_persona_id");
+
+                    b.Navigation("Organizacion");
+
+                    b.Navigation("Persona");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WhatsAppTemplate", b =>

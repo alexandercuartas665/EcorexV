@@ -287,6 +287,9 @@ public sealed class RolService : IRolService
         }
         var extended = new List<ModuloInfo>(catalog);
         extended.AddRange(Directorio.DirectorioSubPermisos.Entradas);
+        // Areas del Directorio Modular (Capa 8, O5-1): una fila por area para mapear el area del usuario
+        // desde su rol. Se agregan bajo el mismo gate (modulo directorio presente).
+        extended.AddRange(Directorio.DirectorioModularAreaPermisos.Entradas);
         return extended;
     }
 

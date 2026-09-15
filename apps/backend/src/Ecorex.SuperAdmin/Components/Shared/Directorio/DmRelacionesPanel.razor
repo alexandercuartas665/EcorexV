@@ -1,0 +1,262 @@
+@* Panel de relaciones bidireccional del Directorio Modular (Capa 8, regla 3.1, Ola 4). En una
+   Organizacion lista sus personas; en una Persona lista sus organizaciones. Permite agregar/quitar
+   vinculos (con cargo por vinculo) buscando terceros existentes, y convertir Persona -> Organizacion
+   (O4-3). Escribe en vivo (no depende del Guardar del modal). Serializa con CircuitFormGate. *@
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@inject ITerceroVinculoService Vinculos
+@inject IDirectorioModularFichaService Fichas
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+<div class="dm-rel">
+    <div class="dm-rel-head">
+        <i class="fa @(EsEmpresa ? "fa-users" : "fa-building")"></i>
+        <span>@(EsEmpresa ? "Contactos de la organizacion" : "Organizaciones de la persona")</span>
+    </div>
+
+    @if (_error is not null) { <div class="dm-rel-err">@_error</div> }
+
+    @if (_vinculos.Count == 0)
+    {
+        <div class="dm-rel-empty">Sin vinculos. Agrega uno buscando un @(EsEmpresa ? "contacto" : "organizacion") existente.</div>
+    }
+    else
+    {
+        <div class="dm-rel-list">
+            @foreach (var v in _vinculos)
+            {
+                var vv = v;
+                <div class="dm-rel-row">
+                    <span class="dm-rel-av">@Initials(vv.OtroNombre)</span>
+                    <div class="dm-rel-body">
+                        <div class="dm-rel-name">
+                            @vv.OtroNombre
+                            <span class="dm-rel-badge @(vv.OtroEsEmpresa ? "org" : "per")">@(vv.OtroEsEmpresa ? "Organizacion" : "Persona")</span>
+                            @if (vv.EsLegado) { <span class="dm-rel-tag" title="Enlace principal">principal</span> }
+                        </div>
+                    </div>
+                    <input class="dm-rel-cargo" placeholder="Cargo" value="@vv.Cargo"
+                           @onchange="e => GuardarCargoAsync(vv, e.Value?.ToString())" />
+                    <button type="button" class="dm-rel-del" title="Quitar vinculo" @onclick="() => QuitarAsync(vv)"><i class="fa fa-link-slash"></i></button>
+                </div>
+            }
+        </div>
+    }
+
+    @* Agregar vinculo (busqueda progresiva del tipo opuesto) *@
+    <div class="dm-rel-add" @onfocusout="OnBlur">
+        <div class="dm-rel-search" style="position:relative">
+            <input class="fm-input" autocomplete="off"
+                   placeholder="@(EsEmpresa ? "Buscar persona a vincular..." : "Buscar organizacion a vincular...")"
+                   value="@_query" @oninput="OnInput" @onfocus="OnFocus" />
+            @if (_open && _matches.Count > 0)
+            {
+                <div class="dm-rel-menu">
+                    @foreach (var m in _matches)
+                    {
+                        var mm = m;
+                        <button type="button" class="dm-rel-opt" @onmousedown:preventDefault="true" @onmousedown="() => Elegir(mm)">
+                            <span class="dm-rel-opt-name">@mm.Nombre</span>
+                            @if (!string.IsNullOrWhiteSpace(mm.Identificacion)) { <span class="dm-rel-opt-id">@mm.Identificacion</span> }
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+        @if (_selId is not null)
+        {
+            <span class="dm-rel-sel">@_selNombre</span>
+            <input class="dm-rel-cargo" placeholder="Cargo" @bind="_cargoNuevo" />
+            <button type="button" class="dm-rel-add-btn" disabled="@_busy" @onclick="AgregarAsync">Vincular</button>
+        }
+    </div>
+
+    @* O4-3: convertir Persona -> Organizacion *@
+    @if (!EsEmpresa)
+    {
+        <div class="dm-rel-conv">
+            <i class="fa fa-right-left"></i>
+            <input class="fm-input" placeholder="Nombre de la nueva organizacion" @bind="_convNombre" />
+            <button type="button" class="dm-rel-conv-btn" disabled="@_busy || string.IsNullOrWhiteSpace(_convNombre)" @onclick="ConvertirAsync">Convertir a organizacion</button>
+        </div>
+    }
+</div>
+
+<style>
+    .dm-rel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin: 18px 0 4px; background: #fafbfc; }
+    .dm-rel-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #111827; margin-bottom: 10px; }
+    .dm-rel-head i { color: #4f46e5; }
+    .dm-rel-err { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 6px 10px; font-size: 12px; margin-bottom: 8px; }
+    .dm-rel-empty { color: #9ca3af; font-size: 12.5px; padding: 4px 0 10px; }
+    .dm-rel-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .dm-rel-row { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #eef0f3; border-radius: 8px; padding: 6px 10px; }
+    .dm-rel-av { width: 28px; height: 28px; border-radius: 50%; background: #eef2ff; color: #4f46e5; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .dm-rel-body { flex: 1; min-width: 0; }
+    .dm-rel-name { font-size: 13px; font-weight: 600; color: #111827; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .dm-rel-badge { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
+    .dm-rel-badge.org { background: #eff6ff; color: #1d4ed8; }
+    .dm-rel-badge.per { background: #f0fdf4; color: #15803d; }
+    .dm-rel-tag { font-size: 10px; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 1px 8px; }
+    .dm-rel-cargo { border: 1px solid #d1d5db; border-radius: 7px; padding: 5px 8px; font-size: 12px; width: 150px; }
+    .dm-rel-del { border: none; background: none; color: #dc2626; cursor: pointer; font-size: 13px; padding: 4px; }
+    .dm-rel-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px dashed #e5e7eb; padding-top: 10px; }
+    .dm-rel-search { flex: 1; min-width: 220px; }
+    .dm-rel-menu { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 10px 30px rgba(16,24,40,.12); z-index: 20; max-height: 240px; overflow: auto; margin-top: 2px; }
+    .dm-rel-opt { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; border: none; background: none; padding: 7px 11px; cursor: pointer; font-size: 12.5px; }
+    .dm-rel-opt:hover { background: #f5f3ff; }
+    .dm-rel-opt-id { color: #9ca3af; font-size: 11.5px; font-family: monospace; }
+    .dm-rel-sel { font-size: 12.5px; font-weight: 700; color: #4f46e5; }
+    .dm-rel-add-btn { background: #111827; color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+    .dm-rel-add-btn:disabled { opacity: .6; cursor: default; }
+    .dm-rel-conv { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px dashed #e5e7eb; margin-top: 10px; padding-top: 10px; }
+    .dm-rel-conv i { color: #8b5cf6; }
+    .dm-rel-conv .fm-input { flex: 1; min-width: 200px; }
+    .dm-rel-conv-btn { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+    .dm-rel-conv-btn:disabled { opacity: .6; cursor: default; }
+</style>
+
+@code {
+    [Parameter] public Guid TerceroId { get; set; }
+    [Parameter] public bool EsEmpresa { get; set; }
+    // Notifica al padre que las relaciones cambiaron (para refrescar el listado/contadores).
+    [Parameter] public EventCallback OnCambio { get; set; }
+    // Abre otra ficha (una organizacion recien creada por la conversion).
+    [Parameter] public EventCallback<Guid> OnAbrirTercero { get; set; }
+
+    private IReadOnlyList<TerceroVinculoDto> _vinculos = Array.Empty<TerceroVinculoDto>();
+    private string? _error;
+    private bool _busy;
+    private Guid _loadedFor;
+
+    // Estado del buscador para agregar.
+    private string _query = "";
+    private bool _open;
+    private IReadOnlyList<TerceroBuscarDto> _matches = Array.Empty<TerceroBuscarDto>();
+    private Guid? _selId;
+    private string? _selNombre;
+    private string? _cargoNuevo;
+    private string? _convNombre;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TerceroId == Guid.Empty || TerceroId == _loadedFor) { return; }
+        _loadedFor = TerceroId;
+        await RecargarAsync();
+    }
+
+    private async Task RecargarAsync()
+    {
+        await FormGate.Gate.WaitAsync();
+        try { _vinculos = await Vinculos.ListDeAsync(TerceroId); }
+        catch { _vinculos = Array.Empty<TerceroVinculoDto>(); }
+        finally { FormGate.Gate.Release(); }
+    }
+
+    // Orden persona/organizacion segun de que lado esta la ficha actual.
+    private (Guid persona, Guid org) Par(Guid otro) => EsEmpresa ? (otro, TerceroId) : (TerceroId, otro);
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        _selId = null; _selNombre = null;
+        if (_query.Trim().Length < 2) { _matches = Array.Empty<TerceroBuscarDto>(); _open = false; return; }
+        await BuscarAsync();
+    }
+
+    private async Task OnFocus(FocusEventArgs _)
+    {
+        if (_query.Trim().Length >= 2) { await BuscarAsync(); }
+    }
+
+    private async Task BuscarAsync()
+    {
+        var tipo = EsEmpresa ? TerceroTipo.Persona : TerceroTipo.Empresa;
+        await FormGate.Gate.WaitAsync();
+        try { _matches = await Vinculos.BuscarAsync(_query.Trim(), tipo, TerceroId); }
+        catch { _matches = Array.Empty<TerceroBuscarDto>(); }
+        finally { FormGate.Gate.Release(); }
+        _open = _matches.Count > 0;
+    }
+
+    private void OnBlur(FocusEventArgs _) => _open = false;
+
+    private void Elegir(TerceroBuscarDto m)
+    {
+        _open = false;
+        _selId = m.Id;
+        _selNombre = m.Nombre;
+        _query = m.Nombre;
+    }
+
+    private async Task AgregarAsync()
+    {
+        if (_selId is not Guid otro) { return; }
+        _busy = true; _error = null;
+        try
+        {
+            var (p, o) = Par(otro);
+            await FormGate.Gate.WaitAsync();
+            string? err;
+            try { err = await Vinculos.AgregarAsync(p, o, _cargoNuevo); }
+            finally { FormGate.Gate.Release(); }
+            if (err is not null) { _error = err; return; }
+            _query = ""; _selId = null; _selNombre = null; _cargoNuevo = null; _matches = Array.Empty<TerceroBuscarDto>();
+            await RecargarAsync();
+            await OnCambio.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task GuardarCargoAsync(TerceroVinculoDto v, string? cargo)
+    {
+        var (p, o) = Par(v.OtroId);
+        await FormGate.Gate.WaitAsync();
+        try { await Vinculos.AgregarAsync(p, o, cargo); }
+        catch { }
+        finally { FormGate.Gate.Release(); }
+        await RecargarAsync();
+    }
+
+    private async Task QuitarAsync(TerceroVinculoDto v)
+    {
+        _error = null;
+        var (p, o) = Par(v.OtroId);
+        await FormGate.Gate.WaitAsync();
+        string? err;
+        try { err = await Vinculos.QuitarAsync(p, o); }
+        catch (Exception ex) { err = ex.Message; }
+        finally { FormGate.Gate.Release(); }
+        if (err is not null) { _error = err; return; }
+        await RecargarAsync();
+        await OnCambio.InvokeAsync();
+    }
+
+    private async Task ConvertirAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_convNombre)) { return; }
+        _busy = true; _error = null;
+        try
+        {
+            await FormGate.Gate.WaitAsync();
+            (Guid? OrgId, string? Error) res;
+            try { res = await Fichas.ConvertirAOrganizacionAsync(TerceroId, _convNombre!); }
+            finally { FormGate.Gate.Release(); }
+            if (res.Error is not null) { _error = res.Error; return; }
+            _convNombre = null;
+            await RecargarAsync();
+            await OnCambio.InvokeAsync();
+            if (res.OrgId is Guid oid) { await OnAbrirTercero.InvokeAsync(oid); }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "?"; }
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1 ? parts[0][..1].ToUpperInvariant()
+            : (parts[0][..1] + parts[^1][..1]).ToUpperInvariant();
+    }
+}

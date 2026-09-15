@@ -10,6 +10,7 @@
 @inject IDirectorioCategoriaService Cats
 @inject ITerceroService Terceros
 @inject IDirectorioModularFichaService Fichas
+@inject IDirectorioModularAccessService Acceso
 @inject IDirectoryVariantService DirVariant
 @inject Ecorex.Application.Asesores.IAsesorService Asesores
 @inject IJSRuntime JS
@@ -28,12 +29,15 @@
 
     <div class="dm-toolbar">
         <button class="dm-btn" @onclick="OpenImport"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
-        <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
+        @if (_acceso.VeTodo)
+        {
+            <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
+        }
         <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
 
     <DirectorioModularFichaModal CategoriaKey="@(_editId is not null ? _editKey : _nuevoKey)" TerceroId="@_editId"
-                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" />
+                                 OnClosed="OnFichaClosed" OnSaved="OnFichaSavedAsync" OnAbrirTercero="OnAbrirDuplicado" />
     <DirectorioModularConfigModal Show="_configOpen" OnClosed="OnConfigClosedAsync" />
 
     @* --- Mini-modal: nueva categoria --- *@
@@ -162,8 +166,8 @@
     }
     else
     {
-        @* --- Aviso de migracion pendiente desde el motor Clasico --- *@
-        @if (_clasicoCount > 0)
+        @* --- Aviso de migracion pendiente desde el motor Clasico (accion global: solo admin, O5-1) --- *@
+        @if (_clasicoCount > 0 && _acceso.VeTodo)
         {
             <div class="dm-migra">
                 <div class="dm-migra-txt">
@@ -219,7 +223,7 @@
         @* --- Buscador --- *@
         <div class="dm-search">
             <i class="fa fa-search"></i>
-            <input placeholder="Buscar por nombre, contacto, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
+            <input placeholder="Buscar por nombre, razon social, sigla, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
             @if (!string.IsNullOrWhiteSpace(_search))
             {
                 <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>
@@ -320,6 +324,10 @@
                                     }
                                 </td>
                                 <td class="dm-acc">
+                                    @if (PuedeAdjuntar(tid))
+                                    {
+                                        <button class="dm-acc-add" title="Agregar a la categoria @_activo!.Title" @onclick="() => AdjuntarAsync(tid)"><i class="fa fa-plus"></i> @_activo!.Title</button>
+                                    }
                                     <button class="dm-acc-btn" title="Editar" @onclick="() => OpenEditar(t)"><i class="fa fa-pen"></i></button>
                                     <button class="dm-acc-btn dm-acc-del" title="Eliminar" @onclick="() => PedirEliminar(t)"><i class="fa fa-trash"></i></button>
                                 </td>
@@ -471,6 +479,8 @@
     .dm-acc-btn { border: 1px solid #e5e7eb; background: #fff; color: #6b7280; border-radius: 7px; width: 30px; height: 30px; cursor: pointer; margin-left: 5px; }
     .dm-acc-btn:hover { background: #f9fafb; }
     .dm-acc-del:hover { color: #dc2626; border-color: #fecaca; }
+    .dm-acc-add { border: 1px solid #c7d2fe; background: #eef2ff; color: #4f46e5; border-radius: 7px; height: 30px; padding: 0 10px; font-size: 12px; font-weight: 700; cursor: pointer; margin-left: 5px; }
+    .dm-acc-add:hover { background: #e0e7ff; }
 
     .dm-exp-row td { background: #fafafe; }
     .dm-exp-cell { color: #6b7280; font-size: 12px; padding: 10px 16px !important; }
@@ -523,6 +533,8 @@
     private readonly HashSet<Guid> _expanded = new();
     private readonly Dictionary<Guid, IReadOnlyList<TerceroContactoDto>> _childs = new();
     private DirectorioCategoriaDto? _activo;
+    // O5-1: acceso por area del usuario (VeTodo hasta cargar, para no ocultar de mas durante el prerender).
+    private ModularAreaAccess _acceso = new(true, new HashSet<string>(StringComparer.Ordinal));
     private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
     private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
 
@@ -538,6 +550,10 @@
 
         // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
         _cats = await Cats.ListAsync();
+        // O5-1: enforcement por rol/area. Oculta las categorias (pestanas) que el rol del usuario no
+        // autoriza. La base protegida (Publico) siempre se ve. Owner/Admin y roles no configurados ven todo.
+        _acceso = await Acceso.GetAsync();
+        _cats = _cats.Where(c => c.Protegido || _acceso.PuedeArea(c.Areas)).ToList();
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
         _activo = _cats.FirstOrDefault();
@@ -683,6 +699,33 @@
         _editKey = null;
     }
 
+    // O4-4: se puede adjuntar el tercero a la categoria activa? (categoria no base + aun no es miembro).
+    private bool PuedeAdjuntar(Guid tid)
+        => _activo is not null && !_activo.Protegido
+            && !(_memberships.TryGetValue(tid, out var ks) && ks.Contains(_activo.CategoriaKey));
+
+    // O4-4: adjunta un tercero existente a la categoria activa (sin recrearlo) y recarga.
+    private async Task AdjuntarAsync(Guid tid)
+    {
+        if (_activo is null || _activo.Protegido) { return; }
+        _busy = true;
+        try
+        {
+            await Cats.AsignarTerceroAsync(tid, _activo.CategoriaKey);
+            _memberships = await Cats.MembershipsAsync();
+            _catCounts = await Cats.CountByCategoriaAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // O2-1: desde la alerta de duplicidad, abre la ficha del tercero existente (cambia el modal a EDICION).
+    private void OnAbrirDuplicado(Guid id)
+    {
+        _nuevoKey = null;
+        _editKey = (_memberships.TryGetValue(id, out var ks) && ks.Count > 0) ? ks[0] : (_activo?.CategoriaKey ?? "publico");
+        _editId = id;
+    }
+
     // Tras crear o editar un tercero: cierra el modal y recarga listado, contadores y membresias.
     private async Task OnFichaSavedAsync()
     {
@@ -697,6 +740,7 @@
     {
         _configOpen = false;
         _cats = await Cats.ListAsync();
+        _cats = _cats.Where(c => c.Protegido || _acceso.PuedeArea(c.Areas)).ToList();   // O5-1: mantiene el alcance por area
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
         if (_activo is not null)
@@ -734,7 +778,10 @@
         IEnumerable<TerceroListItemDto> q = _rows;
 
         // Filtro por categoria: la base (Publico/protegida) no filtra; las demas, por pertenencia.
-        if (_activo is not null && !_activo.Protegido)
+        // O4-4: al BUSCAR se muestran los terceros de cualquier categoria (para poder adjuntarlos a la
+        // activa con "+ Categoria"); sin busqueda, se filtra por pertenencia como siempre.
+        var buscando = !string.IsNullOrWhiteSpace(_search);
+        if (_activo is not null && !_activo.Protegido && !buscando)
         {
             var key = _activo.CategoriaKey;
             q = q.Where(t => _memberships.TryGetValue(t.Id, out var ks) && ks.Contains(key));
@@ -749,11 +796,11 @@
             _ => q
         };
 
-        // Busqueda libre (case/acentos-insensible simple por minusculas).
+        // Busqueda libre insensible a mayusculas Y a acentos (O2-2): normaliza el termino y cada campo.
         var term = (_search ?? string.Empty).Trim();
         if (term.Length > 0)
         {
-            var needle = term.ToLowerInvariant();
+            var needle = Norm(term);
             q = q.Where(t => Coincide(t, needle));
         }
 
@@ -784,8 +831,25 @@
         return false;
     }
 
+    // needle ya viene normalizado (minusculas + sin acentos); se normaliza el campo para comparar.
     private static bool Contiene(string? hay, string needle)
-        => !string.IsNullOrEmpty(hay) && hay.ToLowerInvariant().Contains(needle);
+        => !string.IsNullOrEmpty(hay) && Norm(hay).Contains(needle);
+
+    // Normaliza para busqueda: minusculas + sin diacriticos (bogota == Bogota == Bogotá).
+    private static string Norm(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) { return string.Empty; }
+        var formD = s.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(formD.Length);
+        foreach (var ch in formD)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
 
     // Conteo por pestana: la categoria base (Publico) es el total del catalogo; las demas, por membership.
     private int CatCount(DirectorioCategoriaDto c)

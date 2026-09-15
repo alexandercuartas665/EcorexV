@@ -259,6 +259,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<DirectorioCategoria> DirectorioCategorias => Set<DirectorioCategoria>();
     public DbSet<DirectorioCategoriaSeccion> DirectorioCategoriaSecciones => Set<DirectorioCategoriaSeccion>();
     public DbSet<TerceroCategoria> TerceroCategorias => Set<TerceroCategoria>();
+    public DbSet<TerceroVinculo> TerceroVinculos => Set<TerceroVinculo>();
     // ---- Gestor de Clientes (000740) ----
     public DbSet<BolsaColumna> BolsaColumnas => Set<BolsaColumna>();
     public DbSet<Oportunidad> Oportunidades => Set<Oportunidad>();
@@ -2241,6 +2242,21 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.CategoriaKey });
             b.HasIndex(x => new { x.TenantId, x.TerceroId, x.CategoriaKey }).IsUnique();
+        });
+
+        // Vinculo Persona <-> Organizacion con cargo por vinculo (Capa 8, regla 3.1, O4-2). Dos FK a
+        // Tercero: AMBAS Restrict (NO ACTION) para no crear rutas multiples de cascada en SQL Server; el
+        // servicio limpia los vinculos al borrar un tercero. Unico por (persona, organizacion) del tenant.
+        modelBuilder.Entity<TerceroVinculo>(b =>
+        {
+            b.Property(x => x.Cargo).HasMaxLength(150);
+            b.HasOne(x => x.Persona).WithMany()
+                .HasForeignKey(x => x.PersonaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Organizacion).WithMany()
+                .HasForeignKey(x => x.OrganizacionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.PersonaId });
+            b.HasIndex(x => new { x.TenantId, x.OrganizacionId });
+            b.HasIndex(x => new { x.TenantId, x.PersonaId, x.OrganizacionId }).IsUnique();
         });
 
         // Formularios ofrecidos en el modal de tercero (config por tenant desde "Configurar campos").

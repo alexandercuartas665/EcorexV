@@ -1,5 +1,8 @@
+using System.Globalization;
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Scheduling;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -16,12 +19,28 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     private readonly IApplicationDbContext _app;
     private readonly IDirectorioModularDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly ISequenceService _sequences;
+    private readonly TimeProvider _clock;
+    private readonly IDirectorioModularAccessService _acceso;
 
-    public DirectorioModularFichaService(IApplicationDbContext app, IDirectorioModularDbContext db, ITenantContext tenant)
+    // Consecutivo por tenant del Directorio (regla 2.1, "Datos Automaticos de Sistema"): TER-000001,
+    // TER-000002, ... Emitido por ISequenceService (CAS atomico, ADR-0013), sin choque cross-tenant.
+    public const string SequenceCode = "TER";
+    public const string SequencePrefix = "TER-";
+    public const int SequencePadding = 6;
+
+    // Campos de sistema de la seccion publica, estampados al crear e inmutables en edicion (regla 2.1).
+    private static readonly string[] SistemaCampos = { "codigo", "fecha_creacion", "usuario_creador" };
+
+    public DirectorioModularFichaService(IApplicationDbContext app, IDirectorioModularDbContext db,
+        ITenantContext tenant, ISequenceService sequences, TimeProvider clock, IDirectorioModularAccessService acceso)
     {
         _app = app;
         _db = db;
         _tenant = tenant;
+        _sequences = sequences;
+        _clock = clock;
+        _acceso = acceso;
     }
 
     public async Task<ModularFichaDto?> GetFichaAsync(string categoriaKey, CancellationToken cancellationToken = default)
@@ -36,7 +55,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             .OrderBy(s => s.Orden)
             .Select(s => s.FichaKey)
             .ToListAsync(cancellationToken);
-        if (comp.Count == 0) { return new ModularFichaDto(cat.CategoriaKey, cat.Title, Array.Empty<ModularSeccionDto>()); }
+        if (comp.Count == 0) { return new ModularFichaDto(cat.CategoriaKey, cat.Title, Array.Empty<ModularSeccionDto>(), cat.HomologaSeccion); }
 
         var secciones = await _app.TerceroFichaDefinitions.AsNoTracking()
             .Where(f => comp.Contains(f.FichaKey))
@@ -46,18 +65,24 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             .OrderBy(f => f.SortOrder)
             .ToListAsync(cancellationToken);
 
+        // O5-1: oculta las secciones cuyas areas no estan autorizadas para el usuario (con aviso, sin
+        // revelar su contenido). Owner/Admin y roles no configurados ven todo (VeTodo).
+        var acceso = await _acceso.GetAsync(cancellationToken);
+
         var result = new List<ModularSeccionDto>(comp.Count);
+        var ocultas = 0;
         foreach (var fk in comp) // respeta el orden de composicion
         {
             var sec = secciones.FirstOrDefault(s => s.FichaKey == fk);
             if (sec is null) { continue; }
+            if (!acceso.PuedeArea(sec.Areas)) { ocultas++; continue; }
             var flds = campos.Where(c => c.FichaKey == fk)
                 .Select(c => new ModularCampoDto(c.FieldKey, c.Label, c.FieldType, c.Column, c.Options, c.RequeridoEn, c.ReadOnly, c.Description))
                 .ToList();
             result.Add(new ModularSeccionDto(sec.FichaKey, sec.Title, sec.Icono, sec.Color, sec.Description, sec.AplicaA, flds));
         }
 
-        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result);
+        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result, cat.HomologaSeccion, ocultas);
     }
 
     /// <summary>Catalogo de areas del motor (v1 fijo, como el prototipo). En una ola posterior saldra de
@@ -119,29 +144,80 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     {
         if (_tenant.TenantId is not Guid tenantId) { return (null, "No hay tenant activo."); }
         var key = (request.CategoriaKey ?? string.Empty).Trim();
-        if (!await _db.DirectorioCategorias.AnyAsync(c => c.CategoriaKey == key, cancellationToken))
-        {
-            return (null, "La categoria no existe.");
-        }
+        var cat = await _db.DirectorioCategorias.AsNoTracking().FirstOrDefaultAsync(c => c.CategoriaKey == key, cancellationToken);
+        if (cat is null) { return (null, "La categoria no existe."); }
 
         var valores = request.Valores ?? new();
 
-        var tercero = new Tercero
+        // Homologacion Fiscal (regla 2.2, O3-1/O3-3): si la categoria homologa a otra seccion (Fiscal ->
+        // publica), el RUT SOBRESCRIBE esos campos publicos ANTES de deducir naturaleza/nombre. Asi el alta
+        // desde Fiscal (que solo captura el RUT) deja el directorio publico poblado y con IDE = NIT sin DV.
+        if (!string.IsNullOrWhiteSpace(cat.HomologaSeccion))
+        {
+            HomologacionRut.Aplicar(valores, cat.HomologaSeccion!);
+        }
+
+        // Deteccion automatica de naturaleza (regla 2.1). Si se llenaron AMBOS bloques (nombre de empresa
+        // + contacto) se crean DOS terceros vinculados: la Organizacion (principal) y la Persona (contacto
+        // con EmpresaId apuntando a la organizacion) -> O1-3. Se valida el nombre ANTES de consumir
+        // consecutivos (para no quemar numeros por un alta sin nombre).
+        var nombreEmpresa = FindValue(valores, "nombre_empresa")
+            ?? FindValue(valores, "razon_social") ?? FindValue(valores, "nombre_comercial");
+        var contacto = FindValue(valores, "contacto");
+        if (string.IsNullOrWhiteSpace(nombreEmpresa) && string.IsNullOrWhiteSpace(contacto))
+        {
+            return (null, "Falta al menos un nombre (empresa o contacto).");
+        }
+
+        // Datos de sistema comunes (regla 2.1): fecha (zona del tenant) + usuario iguales para la
+        // operacion; el consecutivo TER-xxxxxx se emite por cada tercero creado.
+        await _sequences.EnsureSequenceAsync(SequenceCode, cancellationToken);
+        var fechaLocal = await ResolveFechaLocalAsync(cancellationToken);
+        var usuario = await ResolveUsuarioAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(nombreEmpresa) && !string.IsNullOrWhiteSpace(contacto))
+        {
+            // Organizacion: ficha completa SIN los campos exclusivos de la persona (contacto/cargo/telefono).
+            var valoresOrg = CloneValores(valores);
+            QuitarCamposPersona(valoresOrg);
+            var org = await NuevoTerceroAsync(tenantId, key, valoresOrg, TerceroTipo.Empresa, empresa: null, fechaLocal, usuario, cancellationToken);
+
+            // Persona vinculada: ficha minima de contacto, EmpresaId = organizacion (se enlaza por navegacion).
+            var valoresPer = SoloCamposPersona(valores);
+            await NuevoTerceroAsync(tenantId, key, valoresPer, TerceroTipo.Persona, empresa: org, fechaLocal, usuario, cancellationToken);
+
+            await _app.SaveChangesAsync(cancellationToken);   // organizacion + persona en una sola transaccion
+            return (org.Id, null);
+        }
+
+        // Un solo tercero (naturaleza deducida por el bloque que se lleno).
+        var tipo = !string.IsNullOrWhiteSpace(nombreEmpresa) ? TerceroTipo.Empresa : TerceroTipo.Persona;
+        var solo = await NuevoTerceroAsync(tenantId, key, valores, tipo, empresa: null, fechaLocal, usuario, cancellationToken);
+        await _app.SaveChangesAsync(cancellationToken);
+        return (solo.Id, null);
+    }
+
+    /// <summary>Crea un Tercero Modular en memoria (sin guardar): fija naturaleza/nombre, estampa datos de
+    /// sistema (consecutivo + fecha + usuario), lo enlaza a una organizacion (contacto) y a su categoria,
+    /// y lo agrega al contexto. El caller hace el SaveChanges (para agrupar org + persona en una transaccion).</summary>
+    private async Task<Tercero> NuevoTerceroAsync(Guid tenantId, string categoriaKey,
+        Dictionary<string, Dictionary<string, string>> valores, TerceroTipo tipo, Tercero? empresa,
+        DateTimeOffset fechaLocal, string usuario, CancellationToken cancellationToken)
+    {
+        var t = new Tercero
         {
             TenantId = tenantId,
             Estado = TerceroEstado.Activo,
             DirectoryEngine = DirectoryEngine.Modular
         };
-        var err = ApplyValores(tercero, valores);
-        if (err is not null) { return (null, err); }
-
-        // Multi-membership: nace en la categoria desde la que se creo. Se enlaza por la navegacion para
-        // que EF fije la FK al guardar (sin depender del momento en que se genera el Id).
-        tercero.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = key });
-        _app.Terceros.Add(tercero);
-
-        await _app.SaveChangesAsync(cancellationToken);
-        return (tercero.Id, null);
+        if (empresa is not null) { t.Empresa = empresa; }   // vinculo Persona -> Organizacion (O1-3)
+        ApplyValores(t, valores, lockTipo: tipo);
+        var codigo = await _sequences.NextAsync(SequenceCode, SequencePrefix, SequencePadding, cancellationToken);
+        StampSistema(valores, codigo, fechaLocal, usuario);
+        t.FichasJson = JsonSerializer.Serialize(valores);
+        t.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = categoriaKey });
+        _app.Terceros.Add(t);
+        return t;
     }
 
     public async Task<ModularEditDto?> GetTerceroParaEditarAsync(Guid id, CancellationToken cancellationToken = default)
@@ -181,8 +257,104 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
         var catKey = t.Categorias.FirstOrDefault()?.CategoriaKey;
         var estado = t.Estado == TerceroEstado.Inactivo ? "Inactivo" : "Activo";
-        return new ModularEditDto(t.Id, catKey, estado, valores);
+        return new ModularEditDto(t.Id, catKey, estado, t.Tipo, valores);
     }
+
+    public async Task<(Guid? OrgId, string? Error)> ConvertirAOrganizacionAsync(Guid personaId, string nombreOrganizacion, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return (null, "No hay tenant activo."); }
+        var nombre = (nombreOrganizacion ?? string.Empty).Trim();
+        if (nombre.Length == 0) { return (null, "Escribe el nombre de la organizacion."); }
+
+        var persona = await _app.Terceros.Include(x => x.Categorias).FirstOrDefaultAsync(x => x.Id == personaId, cancellationToken);
+        if (persona is null) { return (null, "La persona no existe."); }
+        if (persona.Tipo != TerceroTipo.Persona) { return (null, "Solo una persona puede convertirse en organizacion."); }
+        if (persona.DirectoryEngine != DirectoryEngine.Modular) { return (null, "Solo aplica al motor Modular."); }
+
+        // Ficha publica de la nueva organizacion con los datos utiles de la persona.
+        var pub = new Dictionary<string, string>(StringComparer.Ordinal) { ["nombre_empresa"] = nombre };
+        if (!string.IsNullOrWhiteSpace(persona.Ciudad)) { pub["ciudad"] = persona.Ciudad!; }
+        if (!string.IsNullOrWhiteSpace(persona.Email)) { pub["correo"] = persona.Email!; }
+        var valores = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal)
+        {
+            [DirectorioModularDefaults.SeccionKey("publica")] = pub
+        };
+
+        var org = new Tercero { TenantId = tenantId, Estado = TerceroEstado.Activo, DirectoryEngine = DirectoryEngine.Modular };
+        ApplyValores(org, valores, lockTipo: TerceroTipo.Empresa);
+        await _sequences.EnsureSequenceAsync(SequenceCode, cancellationToken);
+        var codigo = await _sequences.NextAsync(SequenceCode, SequencePrefix, SequencePadding, cancellationToken);
+        StampSistema(valores, codigo, await ResolveFechaLocalAsync(cancellationToken), await ResolveUsuarioAsync(cancellationToken));
+        org.FichasJson = JsonSerializer.Serialize(valores);
+        // La organizacion aparece en las mismas categorias que la persona.
+        foreach (var ck in persona.Categorias.Select(c => c.CategoriaKey).Distinct())
+        {
+            org.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = ck });
+        }
+        _app.Terceros.Add(org);
+
+        // Vincula la persona como contacto/representante de la nueva organizacion (regla 3.2).
+        _db.TerceroVinculos.Add(new TerceroVinculo
+        {
+            TenantId = tenantId,
+            PersonaId = persona.Id,
+            Organizacion = org,
+            Cargo = string.IsNullOrWhiteSpace(persona.Cargo) ? "Representante" : persona.Cargo,
+            Principal = persona.EmpresaId is null
+        });
+
+        await _app.SaveChangesAsync(cancellationToken);
+        return (org.Id, null);
+    }
+
+    public async Task<IReadOnlyList<ModularDuplicadoDto>> BuscarDuplicadosAsync(
+        string? ide, string? correo, string? telefono, Guid? excludeId, CancellationToken cancellationToken = default)
+    {
+        var doc = string.IsNullOrWhiteSpace(ide) ? null : ide.Trim().ToLowerInvariant();
+        var mail = string.IsNullOrWhiteSpace(correo) ? null : correo.Trim().ToLowerInvariant();
+        var telDig = SoloDigitos(telefono);
+        var tel10 = telDig.Length >= 10 ? telDig[^10..] : telDig;
+        var buscaTel = tel10.Length >= 7;   // no alertar por fragmentos cortos de telefono
+        if (doc is null && mail is null && !buscaTel) { return Array.Empty<ModularDuplicadoDto>(); }
+
+        // Proyeccion ligera de los terceros Modular del tenant (filtro global). El telefono se compara por
+        // los ultimos 10 digitos en memoria (el almacenado puede traer separadores/prefijo de pais).
+        var rows = await _app.Terceros.AsNoTracking()
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular && (excludeId == null || t.Id != excludeId))
+            .Select(t => new { t.Id, t.Nombre, t.IdValor, t.Email, t.Telefono })
+            .ToListAsync(cancellationToken);
+
+        var hits = new List<(Guid Id, string Nombre, string Motivo)>();
+        foreach (var r in rows)
+        {
+            string? motivo = null;
+            if (doc is not null && !string.IsNullOrWhiteSpace(r.IdValor) && r.IdValor!.Trim().ToLowerInvariant() == doc) { motivo = "identificacion"; }
+            else if (mail is not null && !string.IsNullOrWhiteSpace(r.Email) && r.Email!.Trim().ToLowerInvariant() == mail) { motivo = "correo"; }
+            else if (buscaTel)
+            {
+                var d = SoloDigitos(r.Telefono);
+                var d10 = d.Length >= 10 ? d[^10..] : d;
+                if (d10.Length >= 7 && d10 == tel10) { motivo = "telefono"; }
+            }
+            if (motivo is not null) { hits.Add((r.Id, r.Nombre, motivo)); }
+            if (hits.Count >= 10) { break; }
+        }
+        if (hits.Count == 0) { return Array.Empty<ModularDuplicadoDto>(); }
+
+        // Categoria (primera pertenencia) de cada coincidencia, para el enlace directo a la ficha existente.
+        var ids = hits.Select(h => h.Id).ToList();
+        var cats = await _db.TerceroCategorias.AsNoTracking()
+            .Where(tc => ids.Contains(tc.TerceroId))
+            .Select(tc => new { tc.TerceroId, tc.CategoriaKey })
+            .ToListAsync(cancellationToken);
+        var catByTercero = cats.GroupBy(c => c.TerceroId).ToDictionary(g => g.Key, g => g.First().CategoriaKey);
+
+        return hits.Select(h => new ModularDuplicadoDto(
+            h.Id, h.Nombre, h.Motivo, catByTercero.TryGetValue(h.Id, out var ck) ? ck : null)).ToList();
+    }
+
+    private static string SoloDigitos(string? s)
+        => string.IsNullOrEmpty(s) ? string.Empty : new string(s.Where(char.IsDigit).ToArray());
 
     public async Task<string?> UpdateTerceroAsync(Guid id, CreateModularTerceroRequest request, string estado, CancellationToken cancellationToken = default)
     {
@@ -190,7 +362,25 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         if (t is null) { return "El tercero no existe."; }
         if (t.DirectoryEngine != DirectoryEngine.Modular) { return "Este tercero no pertenece al motor Modular."; }
 
-        var err = ApplyValores(t, request.Valores ?? new());
+        var valores = request.Valores ?? new();
+
+        // Homologacion Fiscal (regla 2.2): si la categoria desde la que se edita homologa a otra seccion,
+        // el RUT vuelve a sobrescribir los campos publicos al guardar.
+        var catKeyReq = (request.CategoriaKey ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(catKeyReq))
+        {
+            var homologa = await _db.DirectorioCategorias.AsNoTracking()
+                .Where(c => c.CategoriaKey == catKeyReq).Select(c => c.HomologaSeccion)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(homologa)) { HomologacionRut.Aplicar(valores, homologa!); }
+        }
+
+        // Datos de sistema (codigo/fecha/usuario) inmutables (regla 2.1): se copian del registro y NO
+        // se confia en lo que envie el cliente (los controles son de solo lectura, pero se blinda aqui).
+        CarryOverSistema(valores, t.FichasJson);
+
+        // Inmutabilidad de la naturaleza (O1-2): en edicion no se puede cambiar Empresa <-> Persona.
+        var err = ApplyValores(t, valores, lockTipo: t.Tipo);
         if (err is not null) { return err; }
         t.Estado = string.Equals(estado, "Inactivo", StringComparison.OrdinalIgnoreCase)
             ? TerceroEstado.Inactivo : TerceroEstado.Activo;
@@ -242,6 +432,12 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         }
         var pubKey = DirectorioModularDefaults.SeccionKey("publica");
 
+        // Datos de sistema (regla 2.1) tambien para los importados: fecha/usuario iguales para el lote;
+        // el consecutivo se emite por fila (CAS atomico, sin choque cross-tenant).
+        await _sequences.EnsureSequenceAsync(SequenceCode, cancellationToken);
+        var fechaLocal = await ResolveFechaLocalAsync(cancellationToken);
+        var usuario = await ResolveUsuarioAsync(cancellationToken);
+
         int done = 0, failed = 0;
         foreach (var row in rows.Where(r => r.IsValid))
         {
@@ -278,6 +474,9 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
                 {
                     pub[esEmpresa ? "telefono_empresa" : "telefono_contacto"] = row.Telefono!;
                 }
+                pub["codigo"] = await _sequences.NextAsync(SequenceCode, SequencePrefix, SequencePadding, cancellationToken);
+                pub["fecha_creacion"] = fechaLocal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                pub["usuario_creador"] = usuario;
                 t.FichasJson = JsonSerializer.Serialize(new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal) { [pubKey] = pub });
 
                 t.Categorias.Add(new TerceroCategoria { TenantId = tenantId, CategoriaKey = key });
@@ -333,9 +532,11 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         return migrados;
     }
 
-    /// <summary>Aplica los valores de la ficha a un Tercero (nuevo o existente): deduce la naturaleza y el
-    /// nombre, copia los campos base y serializa FichasJson. Devuelve un mensaje de error o null si OK.</summary>
-    private static string? ApplyValores(Tercero t, Dictionary<string, Dictionary<string, string>> valores)
+    /// <summary>Aplica los valores de la ficha a un Tercero (nuevo o existente): fija la naturaleza y el
+    /// nombre, copia los campos base y serializa FichasJson. Devuelve un mensaje de error o null si OK.
+    /// <paramref name="lockTipo"/> null = alta (la naturaleza se DEDUCE de lo que se lleno); con valor =
+    /// edicion (la naturaleza es INMUTABLE, O1-2, y el nombre sale del campo de esa naturaleza).</summary>
+    private static string? ApplyValores(Tercero t, Dictionary<string, Dictionary<string, string>> valores, TerceroTipo? lockTipo)
     {
         // Naturaleza deducida (v1): nombre de empresa -> Organizacion; contacto -> Persona.
         // Fiscal (sin seccion publica): cae a razon social / nombre comercial del RUT.
@@ -344,7 +545,16 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         var contacto = FindValue(valores, "contacto");
 
         TerceroTipo tipo;
-        if (!string.IsNullOrWhiteSpace(nombreEmpresa)) { t.Nombre = nombreEmpresa.Trim(); tipo = TerceroTipo.Empresa; }
+        if (lockTipo is TerceroTipo fijo)
+        {
+            // Edicion: la naturaleza no cambia. El nombre sale del campo propio de esa naturaleza,
+            // con respaldo en el otro por si la seccion compuesta no trae el campo esperado.
+            tipo = fijo;
+            var nombre = fijo == TerceroTipo.Empresa ? (nombreEmpresa ?? contacto) : (contacto ?? nombreEmpresa);
+            if (string.IsNullOrWhiteSpace(nombre)) { return "Falta el nombre del registro."; }
+            t.Nombre = nombre.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(nombreEmpresa)) { t.Nombre = nombreEmpresa.Trim(); tipo = TerceroTipo.Empresa; }
         else if (!string.IsNullOrWhiteSpace(contacto)) { t.Nombre = contacto.Trim(); tipo = TerceroTipo.Persona; }
         else { return "Falta al menos un nombre (empresa o contacto)."; }
 
@@ -356,6 +566,99 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         t.Cargo = FindValue(valores, "cargo");
         t.FichasJson = JsonSerializer.Serialize(valores);
         return null;
+    }
+
+    /// <summary>Estampa los datos de sistema (codigo/fecha/usuario) en la seccion publica de la ficha.</summary>
+    private static void StampSistema(Dictionary<string, Dictionary<string, string>> valores, string codigo, DateTimeOffset fecha, string usuario)
+    {
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+        if (!valores.TryGetValue(pubKey, out var pub))
+        {
+            pub = valores[pubKey] = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+        pub["codigo"] = codigo;
+        pub["fecha_creacion"] = fecha.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        pub["usuario_creador"] = usuario;
+    }
+
+    /// <summary>Copia los datos de sistema del JSON almacenado a <paramref name="destino"/> (para blindar la
+    /// inmutabilidad en edicion). Si un campo nunca se estampo, lo quita del destino (el cliente no lo inventa).</summary>
+    private static void CarryOverSistema(Dictionary<string, Dictionary<string, string>> destino, string? storedJson)
+    {
+        var stored = ParseFichas(storedJson);
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+        stored.TryGetValue(pubKey, out var pubStored);
+        if (!destino.TryGetValue(pubKey, out var dest))
+        {
+            dest = destino[pubKey] = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+        foreach (var campo in SistemaCampos)
+        {
+            if (pubStored is not null && pubStored.TryGetValue(campo, out var v)) { dest[campo] = v; }
+            else { dest.Remove(campo); }
+        }
+    }
+
+    /// <summary>Fecha "ahora" en la zona horaria del tenant (regla 2.1: zona del tenant + UTC).</summary>
+    private async Task<DateTimeOffset> ResolveFechaLocalAsync(CancellationToken cancellationToken)
+    {
+        var nowUtc = _clock.GetUtcNow();
+        string? tzId = null;
+        if (_tenant.TenantId is Guid tenantId)
+        {
+            tzId = await _app.Tenants.AsNoTracking()
+                .Where(t => t.Id == tenantId).Select(t => t.TimeZoneId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        return TimeZoneInfo.ConvertTime(nowUtc, ScheduledJobRecurrence.ResolveTimeZone(tzId));
+    }
+
+    /// <summary>Nombre visible del usuario actual (DisplayName o Email) para el campo usuario_creador.</summary>
+    private async Task<string> ResolveUsuarioAsync(CancellationToken cancellationToken)
+    {
+        if (_tenant.UserId is not Guid uid) { return string.Empty; }
+        var name = await _app.PlatformUsers.AsNoTracking()
+            .Where(u => u.Id == uid).Select(u => u.DisplayName ?? u.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+        return name ?? string.Empty;
+    }
+
+    private static Dictionary<string, Dictionary<string, string>> ParseFichas(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return new(); }
+        try { return JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    // ---- Creacion simultanea Organizacion + Persona (O1-3): reparto de los valores de la ficha ----
+
+    /// <summary>Campos exclusivos de la persona en la seccion publica (el resto es de la organizacion).</summary>
+    private static readonly string[] CamposPersona = { "contacto", "telefono_contacto", "cargo" };
+
+    private static Dictionary<string, Dictionary<string, string>> CloneValores(Dictionary<string, Dictionary<string, string>> src)
+        => src.ToDictionary(k => k.Key, v => new Dictionary<string, string>(v.Value, StringComparer.Ordinal), StringComparer.Ordinal);
+
+    /// <summary>Quita de la ficha de la ORGANIZACION los campos exclusivos de la persona.</summary>
+    private static void QuitarCamposPersona(Dictionary<string, Dictionary<string, string>> valores)
+    {
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+        if (valores.TryGetValue(pubKey, out var pub))
+        {
+            foreach (var campo in CamposPersona) { pub.Remove(campo); }
+        }
+    }
+
+    /// <summary>Arma la ficha MINIMA de la PERSONA de contacto (solo sus campos, en la seccion publica).</summary>
+    private static Dictionary<string, Dictionary<string, string>> SoloCamposPersona(Dictionary<string, Dictionary<string, string>> valores)
+    {
+        var pubKey = DirectorioModularDefaults.SeccionKey("publica");
+        var pub = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var campo in CamposPersona)
+        {
+            var v = FindValue(valores, campo);
+            if (!string.IsNullOrWhiteSpace(v)) { pub[campo] = v!; }
+        }
+        return new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal) { [pubKey] = pub };
     }
 
     /// <summary>Busca el valor de un campo por su clave en cualquier seccion de la ficha.</summary>

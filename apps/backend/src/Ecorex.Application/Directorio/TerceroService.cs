@@ -120,6 +120,14 @@ public sealed class TerceroService : ITerceroService
             .ToListAsync(cancellationToken);
         var filterKeys = filterDefs.Select(f => f.FieldKey).ToList();
 
+        // Modular (Capa 8, O2-2): la razon social, el nombre comercial, la sigla y el codigo consecutivo NO
+        // estan marcados como filtro, pero deben entrar al buscador. Se agregan como claves extra para
+        // extraerlas de FichasJson (el buscador del listado Modular corre en memoria sobre Filtrables).
+        if (filter.Engine == DirectoryEngine.Modular)
+        {
+            filterKeys.AddRange(new[] { "razon_social", "nombre_comercial", "sigla", "codigo" });
+        }
+
         // Campos filtrables tipo Lookup: la ficha guarda el Id de fila; para el filtro se resuelve a su
         // ETIQUETA (columna a mostrar) por lote, para no ofrecer Guids en el desplegable ni filtrar por Id.
         var lookupLabels = await BuildLookupFilterLabelsAsync(filterDefs, rows.Select(r => r.FichasJson), cancellationToken);

@@ -3,8 +3,9 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Application.Directorio;
 
 /// <summary>La ficha que arma una categoria del motor Modular: sus secciones (en orden) con sus campos.
-/// Es lo que pinta el modal de crear/editar tercero (Capa 8, 2do motor de contactos).</summary>
-public sealed record ModularFichaDto(string CategoriaKey, string CategoriaTitle, IReadOnlyList<ModularSeccionDto> Secciones);
+/// Es lo que pinta el modal de crear/editar tercero (Capa 8, 2do motor de contactos). HomologaSeccion =
+/// FichaKey que esta categoria homologa (Fiscal -> "mod_publica"); null = sin homologacion (regla 2.2).</summary>
+public sealed record ModularFichaDto(string CategoriaKey, string CategoriaTitle, IReadOnlyList<ModularSeccionDto> Secciones, string? HomologaSeccion = null, int SeccionesOcultas = 0);
 
 /// <summary>Una seccion de la ficha (grupo de campos), con su naturaleza y sus campos ordenados.</summary>
 public sealed record ModularSeccionDto(
@@ -15,15 +16,19 @@ public sealed record ModularCampoDto(
     string FieldKey, string Label, TerceroFieldType Type, int Column,
     string? Options, string? RequeridoEn, bool ReadOnly, string? Descripcion);
 
+/// <summary>Coincidencia de duplicidad detectada en tiempo real (O2-1): el tercero ya existente que
+/// choca por identificacion, correo o telefono, con el motivo y su categoria (para el enlace directo).</summary>
+public sealed record ModularDuplicadoDto(Guid Id, string Nombre, string Motivo, string? CategoriaKey);
+
 /// <summary>Alta de un tercero desde el motor Modular: los valores por seccion (ficha -> campo -> valor).</summary>
 public sealed record CreateModularTerceroRequest(
     string CategoriaKey,
     Dictionary<string, Dictionary<string, string>> Valores);
 
-/// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado
-/// y los valores guardados (seccion -> campo -> valor).</summary>
+/// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado,
+/// su naturaleza (INMUTABLE en edicion, O1-2) y los valores guardados (seccion -> campo -> valor).</summary>
 public sealed record ModularEditDto(
-    Guid Id, string? CategoriaKey, string Estado,
+    Guid Id, string? CategoriaKey, string Estado, TerceroTipo Tipo,
     Dictionary<string, Dictionary<string, string>> Valores);
 
 // ---------------------------------------------------------------------------

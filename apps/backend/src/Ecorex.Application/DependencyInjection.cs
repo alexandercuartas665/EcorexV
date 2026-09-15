@@ -221,6 +221,7 @@ public static class DependencyInjection
         services.AddScoped<Directorio.IDirectorioCategoriaService, Directorio.DirectorioCategoriaService>();
         services.AddScoped<Directorio.IDirectorioModularFichaService, Directorio.DirectorioModularFichaService>();
         services.AddScoped<Directorio.ITerceroVinculoService, Directorio.TerceroVinculoService>();
+        services.AddScoped<Directorio.IDirectorioModularAccessService, Directorio.DirectorioModularAccessService>();
         services.AddScoped<Directorio.IDirectorioModularConfigService, Directorio.DirectorioModularConfigService>();
         // Catalogo GLOBAL de ciudades / municipios (Colombia): alimenta el selector de ciudad del
         // Directorio y del modal de Tercero (reemplaza el input libre). No tenant-scoped.

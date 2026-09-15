@@ -21,6 +21,7 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     private readonly ITenantContext _tenant;
     private readonly ISequenceService _sequences;
     private readonly TimeProvider _clock;
+    private readonly IDirectorioModularAccessService _acceso;
 
     // Consecutivo por tenant del Directorio (regla 2.1, "Datos Automaticos de Sistema"): TER-000001,
     // TER-000002, ... Emitido por ISequenceService (CAS atomico, ADR-0013), sin choque cross-tenant.
@@ -32,13 +33,14 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
     private static readonly string[] SistemaCampos = { "codigo", "fecha_creacion", "usuario_creador" };
 
     public DirectorioModularFichaService(IApplicationDbContext app, IDirectorioModularDbContext db,
-        ITenantContext tenant, ISequenceService sequences, TimeProvider clock)
+        ITenantContext tenant, ISequenceService sequences, TimeProvider clock, IDirectorioModularAccessService acceso)
     {
         _app = app;
         _db = db;
         _tenant = tenant;
         _sequences = sequences;
         _clock = clock;
+        _acceso = acceso;
     }
 
     public async Task<ModularFichaDto?> GetFichaAsync(string categoriaKey, CancellationToken cancellationToken = default)
@@ -63,18 +65,24 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             .OrderBy(f => f.SortOrder)
             .ToListAsync(cancellationToken);
 
+        // O5-1: oculta las secciones cuyas areas no estan autorizadas para el usuario (con aviso, sin
+        // revelar su contenido). Owner/Admin y roles no configurados ven todo (VeTodo).
+        var acceso = await _acceso.GetAsync(cancellationToken);
+
         var result = new List<ModularSeccionDto>(comp.Count);
+        var ocultas = 0;
         foreach (var fk in comp) // respeta el orden de composicion
         {
             var sec = secciones.FirstOrDefault(s => s.FichaKey == fk);
             if (sec is null) { continue; }
+            if (!acceso.PuedeArea(sec.Areas)) { ocultas++; continue; }
             var flds = campos.Where(c => c.FichaKey == fk)
                 .Select(c => new ModularCampoDto(c.FieldKey, c.Label, c.FieldType, c.Column, c.Options, c.RequeridoEn, c.ReadOnly, c.Description))
                 .ToList();
             result.Add(new ModularSeccionDto(sec.FichaKey, sec.Title, sec.Icono, sec.Color, sec.Description, sec.AplicaA, flds));
         }
 
-        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result, cat.HomologaSeccion);
+        return new ModularFichaDto(cat.CategoriaKey, cat.Title, result, cat.HomologaSeccion, ocultas);
     }
 
     /// <summary>Catalogo de areas del motor (v1 fijo, como el prototipo). En una ola posterior saldra de

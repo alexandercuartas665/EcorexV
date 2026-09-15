@@ -10,6 +10,7 @@
 @inject IDirectorioCategoriaService Cats
 @inject ITerceroService Terceros
 @inject IDirectorioModularFichaService Fichas
+@inject IDirectorioModularAccessService Acceso
 @inject IDirectoryVariantService DirVariant
 @inject Ecorex.Application.Asesores.IAsesorService Asesores
 @inject IJSRuntime JS
@@ -28,7 +29,10 @@
 
     <div class="dm-toolbar">
         <button class="dm-btn" @onclick="OpenImport"><i class="fa fa-right-left"></i> Importar / Exportar Excel</button>
-        <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
+        @if (_acceso.VeTodo)
+        {
+            <button class="dm-btn" @onclick="() => _configOpen = true"><i class="fa fa-gear"></i> Configurar directorio</button>
+        }
         <button class="dm-btn-primary" @onclick="() => _nuevoKey = _activo?.CategoriaKey" disabled="@(_activo is null)"><i class="fa fa-plus"></i> Nuevo en @(_activo?.Title ?? "categoria")</button>
     </div>
 
@@ -162,8 +166,8 @@
     }
     else
     {
-        @* --- Aviso de migracion pendiente desde el motor Clasico --- *@
-        @if (_clasicoCount > 0)
+        @* --- Aviso de migracion pendiente desde el motor Clasico (accion global: solo admin, O5-1) --- *@
+        @if (_clasicoCount > 0 && _acceso.VeTodo)
         {
             <div class="dm-migra">
                 <div class="dm-migra-txt">
@@ -529,6 +533,8 @@
     private readonly HashSet<Guid> _expanded = new();
     private readonly Dictionary<Guid, IReadOnlyList<TerceroContactoDto>> _childs = new();
     private DirectorioCategoriaDto? _activo;
+    // O5-1: acceso por area del usuario (VeTodo hasta cargar, para no ocultar de mas durante el prerender).
+    private ModularAreaAccess _acceso = new(true, new HashSet<string>(StringComparer.Ordinal));
     private IReadOnlyList<TerceroListItemDto> _rows = Array.Empty<TerceroListItemDto>();
     private int _total, _orgs, _personas, _porAsignar, _nuevos, _secciones, _campos;
 
@@ -544,6 +550,10 @@
 
         // ListAsync siembra las categorias/secciones/campos por defecto si el tenant no las tiene (seed opcion A).
         _cats = await Cats.ListAsync();
+        // O5-1: enforcement por rol/area. Oculta las categorias (pestanas) que el rol del usuario no
+        // autoriza. La base protegida (Publico) siempre se ve. Owner/Admin y roles no configurados ven todo.
+        _acceso = await Acceso.GetAsync();
+        _cats = _cats.Where(c => c.Protegido || _acceso.PuedeArea(c.Areas)).ToList();
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
         _activo = _cats.FirstOrDefault();
@@ -730,6 +740,7 @@
     {
         _configOpen = false;
         _cats = await Cats.ListAsync();
+        _cats = _cats.Where(c => c.Protegido || _acceso.PuedeArea(c.Areas)).ToList();   // O5-1: mantiene el alcance por area
         _catCounts = await Cats.CountByCategoriaAsync();
         _memberships = await Cats.MembershipsAsync();
         if (_activo is not null)

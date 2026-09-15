@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-15 - v0.16.75: Directorio Modular OLA 5 - permisos por rol/area en runtime (O5-1)
+
+- Quinta ola del backlog "Capa 8 Directorio". SIN migracion de BD (reusa la matriz de Roles existente).
+- Decision del usuario: el "area del usuario" se MAPEA DESDE EL ROL de permisos. Implementado reusando el
+  patron DirectorioSubPermisos: las 4 areas (Admin/Comercial/Contabilidad/Logistica) se exponen como filas
+  propias en la matriz de Roles (claves "directorio-modular:area:{key}"), resueltas por EffectivePermissions.
+  Owner/Admin y usuarios SIN rol ven todo (Unrestricted, back-compat); un rol que NO marca ninguna area
+  tampoco restringe (opt-in), para no bloquear a nadie hasta que el admin configure.
+- NUEVO DirectorioModularAreaPermisos (catalogo de las 4 filas) + inyeccion en RolService.WithSubPermisos.
+- NUEVO IDirectorioModularAccessService: resuelve ModularAreaAccess { VeTodo, Areas } desde el rol; logica
+  pura testeable en Resolve(EffectivePermissions) + PuedeArea(areasCsv). 6 tests nuevos.
+- Enforcement:
+  - Categorias (pestanas): DirectorioModular.razor filtra _cats por area (base Publico protegida siempre).
+  - Secciones (ficha): GetFichaAsync oculta secciones cuya area no autoriza y devuelve SeccionesOcultas; el
+    modal muestra el aviso "hay N seccion(es) oculta(s) por permisos" sin revelar contenido.
+  - Acciones globales: "Configurar directorio" y "Migrar del Clasico" solo si VeTodo (admin).
+  - Buscador: opera dentro de las pestanas visibles; "+ categoria" solo ofrece categorias visibles. La
+    seccion Publica es visible a todas las areas por diseno (datos minimos), asi que los registros salen a
+    nivel publico para todos (spec regla 2.2).
+- Archivos: DirectorioModularAreaPermisos.cs + IDirectorioModularAccessService.cs (nuevos) +
+  DirectorioModularAccessTests.cs (nuevo), RolService.cs (inyeccion), DirectorioModularFichaDtos.cs
+  (SeccionesOcultas), DirectorioModularFichaService.cs (filtra secciones), DirectorioModular.razor (filtra
+  categorias + gate acciones), DirectorioModularFichaModal.razor (aviso). Build verde; 931 tests verdes.
+- Siguiente: validacion en dev/prod (asignar a un rol solo el area Comercial y ver que ese usuario no ve las
+  pestanas/secciones de Contabilidad/Logistica ni el boton Configurar). Luego merge Ola 1-5 + deploy a su
+  senal. Pendiente Ola 6 (refactor TerceroModal.razor). NO desplegado.
+
 ## 2026-09-15 - v0.16.74: Directorio Modular OLA 4 - relaciones y vinculacion (O4-1..O4-4)
 
 - Cuarta ola del backlog "Capa 8 Directorio". PRIMERA ola con MIGRACION DE BD (dual PG + SQL Server).

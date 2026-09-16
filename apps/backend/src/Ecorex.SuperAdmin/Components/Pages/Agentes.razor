@@ -15,6 +15,7 @@
 @inject IAiAgentLineService AgentLinesSvc
 @inject IWhatsAppConnectorService Connector
 @inject IAgentCierreService CierreSvc
+@inject IAgentReactivacionService ReactSvc
 @inject IWhatsAppTemplateService TemplatesSvc
 @inject ITenantUserService TenantUsersSvc
 @inject ITelegramConfigService TelegramSvc
@@ -462,6 +463,89 @@ else
                                     @if (!string.IsNullOrEmpty(_cierreError))
                                     {
                                         <span class="small" style="color:var(--danger);">@_cierreError</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Reactivacion / seguimiento (revivir contactos dormidos) - acordeon ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleReactivacionAsync">
+                            <span class="ag-accordion-chev @(_reactOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Reactivacion / Seguimiento</span>
+                            <span class="ag-accordion-count">@_reactPasos.Count</span>
+                            <span class="ag-accordion-spacer"></span>
+                            <span class="small @(_reactHabilitada ? "" : "text-muted")" style="@(_reactHabilitada ? "color:var(--success);" : "")">@(_reactHabilitada ? "Activa" : "Inactiva")</span>
+                        </div>
+                        @if (_reactOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+                                    Revive contactos DORMIDOS (dejaron de responder sin cerrar). Cada paso se dispara tras N horas de inactividad desde el ULTIMO mensaje del cliente. Corre en el servidor: <strong>no consume tokens</strong>. Si el cliente responde, la secuencia se reinicia.
+                                </div>
+                                <div class="card" style="padding:8px 10px;margin-bottom:12px;background:var(--surface-2);">
+                                    <div class="text-muted" style="font-size:11.5px;">
+                                        <strong>Regla de Meta (24h):</strong> dentro de 24h del ultimo mensaje del cliente se envia el <strong>texto libre</strong>; pasadas las 24h se usa la <strong>plantilla aprobada</strong>. Si el paso NO tiene plantilla y ya pasaron 24h, ese paso se OMITE (nunca se envia texto libre fuera de 24h).
+                                    </div>
+                                </div>
+
+                                <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                                    <label class="ag-switch">
+                                        <input type="checkbox" checked="@_reactHabilitada" @onchange="@(e => _reactHabilitada = (bool)e.Value!)" disabled="@_busy" />
+                                        <span class="ag-slider"></span>
+                                    </label>
+                                    <div>
+                                        <div style="font-weight:500;">Activar la secuencia de reactivacion</div>
+                                        <div class="text-muted" style="font-size:11.5px;">Solo actua sobre conversaciones de este agente sin cierre, sin opt-out y con un asesor humano que no las haya tomado.</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-label">Pasos de seguimiento</div>
+                                @if (_reactPasos.Count == 0)
+                                {
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin pasos. Agrega uno: p.ej. a las 4h un texto, a las 48h una plantilla.</div>
+                                }
+                                @foreach (var p in _reactPasos)
+                                {
+                                    <div class="card" style="padding:10px;margin-bottom:8px;">
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                            <label class="small" style="display:flex;align-items:center;gap:5px;">
+                                                Tras
+                                                <input class="form-control" style="width:80px;" type="number" min="0" @bind="p.OffsetHoras" disabled="@_busy" />
+                                                horas de inactividad
+                                            </label>
+                                            <label class="small" style="display:flex;align-items:center;gap:5px;"><input type="checkbox" checked="@p.Habilitado" @onchange="@(e => p.Habilitado = (bool)e.Value!)" disabled="@_busy" /> Habilitado</label>
+                                            <span class="ag-accordion-spacer"></span>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveReactPaso(p)" disabled="@_busy" title="Quitar paso">x</button>
+                                        </div>
+                                        <div style="margin-top:8px;">
+                                            <textarea class="form-control" rows="2" placeholder="Mensaje de texto (se usa DENTRO de las 24h)" @bind="p.MensajeTexto" disabled="@_busy"></textarea>
+                                        </div>
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                            <select class="form-control" style="min-width:220px;" @bind="p.Plantilla" disabled="@_busy">
+                                                <option value="">-- plantilla aprobada (FUERA de 24h) --</option>
+                                                @foreach (var t in _reactTemplates)
+                                                {
+                                                    <option value="@t.Name">@t.Name (@t.Language)</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM aprobada (YCloud). Variables por nombre: {{cliente}}, {{telefono}}, {{agente}}.</div>
+                                    </div>
+                                }
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddReactPaso" disabled="@_busy">+ Agregar paso</button>
+
+                                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                                    <button class="btn btn-primary" @onclick="SaveReactivacionAsync" disabled="@_busy">Guardar reactivacion</button>
+                                    @if (_reactSaved)
+                                    {
+                                        <span class="small" style="color:var(--success);">Guardado.</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(_reactError))
+                                    {
+                                        <span class="small" style="color:var(--danger);">@_reactError</span>
                                     }
                                 </div>
                             </div>
@@ -1472,6 +1556,8 @@ else
         _reactionsOpen = false;
         await LoadCierreAsync(id);
         _cierreOpen = false;
+        await LoadReactivacionAsync(id);
+        _reactOpen = false;
         _resources = detail.Resources.ToList();
         _prompts = detail.Prompts.ToList();
         await ReloadCacheAsync(id);
@@ -2138,6 +2224,87 @@ else
             var ok = await CierreSvc.SaveConfigAsync(id, new AgentCierreConfig(_cierreOlvidar, alertas), actor);
             _cierreSaved = ok;
             if (!ok) { _cierreError = "No se pudo guardar."; }
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Reactivacion / seguimiento (revivir contactos dormidos) =====
+    private bool _reactOpen;
+    private bool _reactDataLoaded;
+    private bool _reactHabilitada;
+    private bool _reactSaved;
+    private string? _reactError;
+    private List<ReactPasoRow> _reactPasos = new();
+    private List<WhatsAppTemplateDto> _reactTemplates = new();
+
+    // Fila editable de un paso de reactivacion.
+    private sealed class ReactPasoRow
+    {
+        public int OffsetHoras { get; set; } = 24;
+        public string? MensajeTexto { get; set; }
+        public string? Plantilla { get; set; }
+        public string? Idioma { get; set; }
+        public bool Habilitado { get; set; } = true;
+    }
+
+    private async Task LoadReactivacionAsync(Guid agentId)
+    {
+        var cfg = await ReactSvc.GetConfigAsync(agentId);
+        _reactHabilitada = cfg.Habilitada;
+        _reactPasos = (cfg.Pasos ?? Array.Empty<AgentReactivacionPaso>())
+            .Select(p => new ReactPasoRow
+            {
+                OffsetHoras = p.OffsetHoras,
+                MensajeTexto = p.MensajeTexto,
+                Plantilla = p.Plantilla,
+                Idioma = p.Idioma,
+                Habilitado = p.Habilitado
+            }).ToList();
+        _reactSaved = false;
+        _reactError = null;
+        _reactDataLoaded = false;
+    }
+
+    private async Task ToggleReactivacionAsync()
+    {
+        _reactOpen = !_reactOpen;
+        if (_reactOpen && !_reactDataLoaded)
+        {
+            // Solo plantillas APROBADAS: Meta exige plantilla aprobada para el envio fuera de la ventana de 24h.
+            _reactTemplates = (await TemplatesSvc.ListAsync())
+                .Where(t => t.Status == WhatsAppTemplateStatus.Approved).ToList();
+            _reactDataLoaded = true;
+        }
+    }
+
+    private void AddReactPaso() { _reactPasos.Add(new ReactPasoRow()); _reactSaved = false; }
+    private void RemoveReactPaso(ReactPasoRow r) { _reactPasos.Remove(r); _reactSaved = false; }
+
+    private async Task SaveReactivacionAsync()
+    {
+        if (_editId is not Guid id) { return; }
+        _reactError = null;
+        _busy = true;
+        try
+        {
+            var pasos = _reactPasos.Select(r => new AgentReactivacionPaso(
+                r.OffsetHoras < 0 ? 0 : r.OffsetHoras,
+                string.IsNullOrWhiteSpace(r.MensajeTexto) ? null : r.MensajeTexto!.Trim(),
+                string.IsNullOrWhiteSpace(r.Plantilla) ? null : r.Plantilla,
+                string.IsNullOrWhiteSpace(r.Idioma) ? null : r.Idioma,
+                r.Habilitado)).ToList();
+
+            // Cada paso HABILITADO debe poder enviar algo (texto para <=24h y/o plantilla para >24h).
+            foreach (var p in pasos.Where(p => p.Habilitado))
+            {
+                if (string.IsNullOrWhiteSpace(p.MensajeTexto) && string.IsNullOrWhiteSpace(p.Plantilla))
+                { _reactError = "Cada paso habilitado necesita un mensaje de texto y/o una plantilla."; return; }
+            }
+
+            var actor = await ActorAsync();
+            var ok = await ReactSvc.SaveConfigAsync(id, new AgentReactivacionConfig(_reactHabilitada, pasos), actor);
+            _reactSaved = ok;
+            if (!ok) { _reactError = "No se pudo guardar."; }
         }
         finally { _busy = false; }
     }

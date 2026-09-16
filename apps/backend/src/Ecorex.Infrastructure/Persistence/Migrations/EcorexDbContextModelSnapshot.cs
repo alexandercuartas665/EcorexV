@@ -833,6 +833,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("reactions_enabled");
 
+                    b.Property<string>("ReactivacionJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("reactivacion_json");
+
                     b.Property<string>("Role")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -2622,6 +2626,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("LeadId")
                         .HasColumnType("uuid")
                         .HasColumnName("lead_id");
+
+                    b.Property<DateTimeOffset?>("ReactivacionUltimoEnvioAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reactivacion_ultimo_envio_at");
+
+                    b.Property<int>("ReactivacionUltimoPaso")
+                        .HasColumnType("integer")
+                        .HasColumnName("reactivacion_ultimo_paso");
 
                     b.Property<string>("RemoteJid")
                         .HasMaxLength(120)

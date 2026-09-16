@@ -224,6 +224,9 @@ if (!disableWorkers)
     // Auto-run de las busquedas de contactos programadas (Bolsa 000740): corre las que vencieron via el
     // mismo IContactSearchRunner que "Correr ahora". Config ContactSearchScheduler:Enabled/TickSeconds.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactSearchScheduleWorker>();
+    // Secuencia de reactivacion del agente: revive contactos dormidos (texto <=24h / plantilla >24h, regla
+    // de Meta). Mismo motivo para vivir aqui que los workers de arriba (prod solo levanta ecorex-app).
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.AgentReactivationWorker>();
 }
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();

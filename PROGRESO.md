@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-16 - v0.16.80: Secuencia de Reactivacion del agente (revivir contactos dormidos, ADR-0105)
+
+- Nueva feature POR AGENTE: revive conversaciones que dejaron de responder sin cerrar. N pasos por agente:
+  tras X horas de inactividad (desde el ultimo mensaje del cliente) emite un mensaje. Respeta la ventana de
+  24h de Meta: <=24h texto libre; >24h plantilla aprobada (HSM); si no hay plantilla >24h, el paso se OMITE.
+- Datos (migracion DUAL PG+SqlServer, sin tabla nueva -> menos churn):
+  - AiAgent.ReactivacionJson (jsonb, config: habilitada + pasos), patron de CierreJson/AgentReactivacionConfig.
+  - Conversation.ReactivacionUltimoPaso (int) + ReactivacionUltimoEnvioAt: estado por conversacion (no repetir).
+  - AiAgentRunLogKind.Reactivacion (bitacora).
+- Motor: AgentReactivationWorker en Ecorex.SuperAdmin/RealTime (NO Ecorex.Workers: prod solo levanta
+  ecorex-app), registrado bajo ECOREX_DISABLE_WORKERS. Barrido cross-tenant + AmbientTenantContext por tenant
+  -> IAgentReactivacionService.RunTenantAsync. Envio reusa IWhatsAppConnectorService (texto) e
+  INotificationChannelSender (plantilla). Excluye opt-out (lista negra), lead cerrado o con asesor humano, y
+  conversaciones que un paso de flujo espera. Reinicia si el cliente responde. Un envio por conversacion/corrida.
+- UI: acordeon "Reactivacion / Seguimiento" en Agentes.razor (toggle + pasos + selector de plantilla APROBADA
+  + aviso de la regla de 24h).
+- Tests: AgentReactivacionServiceTests (7, verdes). Build de la solucion verde. ADR-0105.
+- Siguiente: NO desplegado (a la senal del usuario). La migracion se auto-aplica al arrancar el contenedor.
+
 ## 2026-09-15 - v0.16.79: Reportes - acciones en menu, doble confirmacion de archivado, Generar Excel
 
 - Viewer de un reporte (ReportGallery, panel por spec): los botones sueltos Editar/Duplicar/Archivar pasan a

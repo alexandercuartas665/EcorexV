@@ -32,4 +32,15 @@ public class Conversation : TenantEntity
     /// proxima interaccion. El historial NO se borra (sigue visible para humanos). Null = sin reinicio.
     /// </summary>
     public DateTimeOffset? AgentContextResetAt { get; set; }
+
+    /// <summary>
+    /// Reactivacion (secuencia de seguimiento del agente): cuantos PASOS de la secuencia ya se enviaron a
+    /// esta conversacion (0 = ninguno). Se reinicia a 0 cuando el cliente vuelve a responder (revivio). El
+    /// paso se cuenta sobre la lista de pasos HABILITADOS ordenados por horas de inactividad.
+    /// </summary>
+    public int ReactivacionUltimoPaso { get; set; }
+
+    /// <summary>Cuando se envio el ultimo paso de reactivacion. Null = aun no se envio ninguno. Sirve para
+    /// detectar que el cliente respondio DESPUES del ultimo seguimiento (reinicio de la secuencia).</summary>
+    public DateTimeOffset? ReactivacionUltimoEnvioAt { get; set; }
 }

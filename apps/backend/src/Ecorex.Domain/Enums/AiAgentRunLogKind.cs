@@ -14,5 +14,7 @@ public enum AiAgentRunLogKind
     /// <summary>Nota informativa del proceso (cache vaciada, sesion cerrada, etc.).</summary>
     Info,
     /// <summary>Error durante la atencion.</summary>
-    Error
+    Error,
+    /// <summary>Paso de la secuencia de REACTIVACION enviado (o omitido) a un contacto dormido.</summary>
+    Reactivacion
 }

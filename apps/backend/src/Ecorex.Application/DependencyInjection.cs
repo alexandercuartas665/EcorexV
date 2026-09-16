@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IWhatsAppLineService, Tenancy.WhatsAppLineService>();
         services.AddScoped<Tenancy.IWhatsAppConnectorService, Tenancy.WhatsAppConnectorService>();
         services.AddScoped<Tenancy.IAgentCierreService, Tenancy.AgentCierreService>();
+        services.AddScoped<Tenancy.IAgentReactivacionService, Tenancy.AgentReactivacionService>();
         services.AddScoped<Tenancy.ITelegramConfigService, Tenancy.TelegramConfigService>();
         services.AddScoped<Notifications.INotificationChannelSender, Notifications.NotificationChannelSender>();
         services.AddScoped<Workflows.INotifyTokenResolver, Workflows.NotifyTokenResolver>();

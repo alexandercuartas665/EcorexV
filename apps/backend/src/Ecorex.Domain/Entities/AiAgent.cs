@@ -72,4 +72,13 @@ public class AiAgent : TenantEntity
     /// vacio = sin acciones de cierre (compatibilidad hacia atras). Ver AgentCierreConfig.
     /// </summary>
     public string? CierreJson { get; set; }
+
+    /// <summary>
+    /// Configuracion de REACTIVACION / seguimiento del agente (jsonb): revive contactos dormidos (dejaron de
+    /// responder sin cerrar). Guarda si esta habilitada y una lista de PASOS: tras X horas de inactividad
+    /// (desde el ultimo mensaje del cliente) se envia un mensaje; dentro de la ventana de 24h de Meta se usa
+    /// texto libre, fuera de ella una plantilla aprobada (HSM). Null o vacio = sin reactivacion. Ver
+    /// AgentReactivacionConfig.
+    /// </summary>
+    public string? ReactivacionJson { get; set; }
 }

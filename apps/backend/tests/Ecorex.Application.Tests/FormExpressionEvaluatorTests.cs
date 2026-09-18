@@ -267,4 +267,27 @@ public class FormExpressionEvaluatorTests
         Assert.Equal(0m, FormExpressionEvaluator.Evaluate(
             "SI({exento_iva}=1; 0; {subt_desc}*{#iva_pct}/100)", exento, header));
     }
+
+    // ---- Coaccion de booleanos: un toggle guarda "true"/"false"; debe distinguir en un condicional ----
+    [Fact]
+    public void Toggle_booleano_coacciona_a_1_o_0()
+    {
+        // Caso real del cotizador AGRO: el toggle de cabecera guarda "true"/"false".
+        Assert.Equal(0m, FormExpressionEvaluator.Evaluate("SI({#m}, 0, 5)", V(), V(("m", "true"))));
+        Assert.Equal(5m, FormExpressionEvaluator.Evaluate("SI({#m}, 0, 5)", V(), V(("m", "false"))));
+        Assert.Equal(10m, FormExpressionEvaluator.Evaluate("{#m}*10", V(), V(("m", "true"))));
+
+        // Robustez con otros toggles (si/sí/yes/on -> 1; no/off -> 0).
+        Assert.Equal(1m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "si"))));
+        Assert.Equal(1m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "SÍ"))));
+        Assert.Equal(1m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "yes"))));
+        Assert.Equal(1m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "on"))));
+        Assert.Equal(0m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "no"))));
+        Assert.Equal(0m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "off"))));
+
+        // Retro-compatible: "1"/"0" siguen parseando como numero; otro texto no numerico sigue en 0.
+        Assert.Equal(1m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "1"))));
+        Assert.Equal(0m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "0"))));
+        Assert.Equal(0m, FormExpressionEvaluator.Evaluate("{a}", V(("a", "otro"))));
+    }
 }

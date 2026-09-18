@@ -350,7 +350,16 @@ public static class FormExpressionEvaluator
             if (string.IsNullOrWhiteSpace(raw)) { return 0m; }
             // Acepta miles/decimales flexibles: quita separadores de miles comunes.
             var cleaned = raw.Replace(" ", "").Replace(",", "");
-            return decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out var num) ? num : 0m;
+            if (decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out var num)) { return num; }
+            // No numerico: coacciona booleanos a 1/0 para que un toggle (guarda "true"/"false") sirva en un
+            // condicional (ej. SI({#toggle}, ...)). Va DESPUES del parseo para no alterar "1"/"0". Retro-compatible:
+            // cualquier otro string no numerico sigue devolviendo 0 (comportamiento previo).
+            return raw.Trim().ToLowerInvariant() switch
+            {
+                "true" or "si" or "sí" or "yes" or "on" => 1m,
+                "false" or "no" or "off" => 0m,
+                _ => 0m
+            };
         }
 
         private decimal ParseNumber()

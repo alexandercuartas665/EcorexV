@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.81: evaluador de formulas coacciona booleanos (toggle) a 1/0
+
+- FormExpressionEvaluator.ToNumber: cuando el parseo numerico falla, coacciona strings booleanos a 1/0 para
+  que un toggle de cabecera (guarda "true"/"false") sirva en un condicional (ej. SI({#mpc_cliente}, 0, ...)).
+  Mapa: true/si/sí/yes/on -> 1; false/no/off -> 0; cualquier otro no numerico sigue en 0 (retro-compatible).
+- La coaccion va DESPUES del parseo numerico, asi "1"/"0" y numeros no cambian. Mismo evaluador en cliente y
+  servidor. Sin migracion. Lo pidio la sesion de diseno (cotizador AGRO, mpc_cliente).
+- Tests: FormExpressionEvaluatorTests.Toggle_booleano_coacciona_a_1_o_0 (80/80 verdes).
+- Siguiente: la sesion de diseno deja por config precio_unitario/costo_lamina con SI({#mpc_cliente},...). NO
+  desplegado (a la senal del usuario).
+
 ## 2026-09-16 - v0.16.80: Secuencia de Reactivacion del agente (revivir contactos dormidos, ADR-0105)
 
 - Nueva feature POR AGENTE: revive conversaciones que dejaron de responder sin cerrar. N pasos por agente:

@@ -528,17 +528,17 @@ public class TasksToolsetBoardWhitelistTests
     }
 
     [Fact]
-    public async Task CrearTarea_misma_conversacion_en_ventana_devuelve_existente()
+    public async Task CrearTarea_mismo_tablero_devuelve_existente_sin_ventana()
     {
-        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Un segundo cierre de la MISMA conversacion dentro
-        // de la ventana devuelve el ticket existente, AUNQUE cambien telefono/resumen.
+        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana. Un re-cierre de la MISMA
+        // conversacion en el MISMO tablero devuelve el ticket existente AUNQUE pasen HORAS (6h aqui).
         var conv = Guid.NewGuid();
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
             BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
         });
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
@@ -551,18 +551,38 @@ public class TasksToolsetBoardWhitelistTests
     }
 
     [Fact]
-    public async Task CrearTarea_misma_conversacion_fuera_de_ventana_crea_nueva()
+    public async Task CrearTarea_otro_tablero_crea_nueva()
     {
-        // REGLA DE ORO (ADR-0101 rev.2): una solicitud NUEVA en el mismo chat, pasada la ventana corta,
-        // crea una tarea NUEVA (la tarea previa quedo fuera de la ventana).
+        // Multi-tema: la tarea previa de la MISMA conversacion esta en OTRO tablero (Tablero B); un cierre que
+        // enruta a Tablero A crea una tarea NUEVA ahi (board_id distinto -> no deduplica).
         var conv = Guid.NewGuid();
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
-            ConversationId = conv,
-            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.ConversationWindowMinutes + 5))
+            BoardId = BoardB, RequesterPhone = "573001112233", IsArchived = false,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Necesito ayuda", telefono: "573001112233"), Guid.NewGuid(), true);
+            Assert.Equal(1, tasks.CreateCalls);
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_previa_archivada_crea_nueva()
+    {
+        // El lead previo ya se resolvio/archivo: un nuevo cierre en la misma conversacion+tablero crea nueva.
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
+            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = true,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))

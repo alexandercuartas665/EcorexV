@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.83: idempotencia de cierre por CONVERSACION + TABLERO, sin ventana (ADR-0101 rev.3)
+
+- Problema: la ventana de 5 min de rev.2 dejaba pasar duplicados cuando el cliente seguia el chat y el agente
+  re-cerraba pasados >5 min en la MISMA conversacion (casos reales: Ana Lopez 13 min, Juan Camilo 24 min,
+  alexander 6h; misma conversacion, mismo tablero, mismo titulo).
+- Cambio (AgentTaskIdempotency, Capa 2): se QUITA la ventana. Nueva llave (conversation_id + board_id) NO
+  archivado: antes de crear, si ya existe una tarea no archivada de esa conversacion EN EL MISMO TABLERO, se
+  devuelve ese ticket. FindRecentByConversationAsync -> FindByConversationAndBoardAsync (sin TimeProvider ni
+  ConversationWindowMinutes). crear_tarea pasa board.Id; crear_actividad pasa sub.TaskBoardId (el que hereda
+  la actividad). Capa 1 (intra-turno) igual.
+- Multi-tema intacto: si enruta a OTRO tablero -> tarea nueva; lead archivado -> tarea nueva.
+- Sin migracion (conversation_id y board_id ya existian). Multi-tenant intacto. Tests reescritos en
+  ActividadesToolsetTests y TasksToolsetBoardWhitelistTests (mismo tablero a 6h devuelve existente; otro
+  tablero crea nueva; archivada crea nueva). Application.Tests 953/953 verdes. ADR-0101 rev.3.
+- Siguiente: NO desplegado (a la senal del usuario).
+
 ## 2026-09-18 - v0.16.82: parametros de plantilla WhatsApp en las reglas de alerta del flujo (ADR-0100)
 
 - Problema: en la alerta/notify de un nodo, al elegir una plantilla HSM no habia forma de poner sus

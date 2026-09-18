@@ -208,11 +208,12 @@ public sealed class ActividadesToolset : IActividadesToolset
             clienteTelefono = real ?? clienteTelefono;
         }
 
-        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Si esta conversacion ya genero una actividad en la
-        // ventana corta, se devuelve ese ticket (aunque cambien telefono/resumen). Sin conversacion -> no aplica.
+        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO (el del concepto, sub.TaskBoardId), SIN
+        // ventana de tiempo. Si esta conversacion ya tiene una actividad NO archivada en ese tablero, se
+        // devuelve ese ticket (aunque cambien telefono/resumen o pasen horas). Otro tablero -> actividad nueva.
         if (conversationId is Guid convDupId)
         {
-            var dup = await AgentTaskIdempotency.FindRecentByConversationAsync(_db, TimeProvider.System, convDupId, ct);
+            var dup = await AgentTaskIdempotency.FindByConversationAndBoardAsync(_db, convDupId, sub.TaskBoardId, ct);
             if (dup is { } ex)
             {
                 var dupJson = JsonSerializer.Serialize(new

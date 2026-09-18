@@ -22,6 +22,8 @@ public class ActividadesToolsetTests
     private static readonly Guid SubId = Guid.NewGuid();
     private static readonly Guid DefId = Guid.NewGuid();
     private static readonly Guid AgentId = Guid.NewGuid();
+    private static readonly Guid BoardId = Guid.NewGuid();       // tablero del concepto (idempotencia rev.3)
+    private static readonly Guid OtherBoardId = Guid.NewGuid();  // otro tablero (multi-tema)
 
     // ---- Fakes ----
 
@@ -30,6 +32,7 @@ public class ActividadesToolsetTests
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
         public DbSet<Conversation> Conversations => Set<Conversation>();
+        public DbSet<TaskBoard> TaskBoards => Set<TaskBoard>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -276,7 +279,7 @@ public class ActividadesToolsetTests
         public DbSet<AiAgentRunLog> AiAgentRunLogs => throw new NotSupportedException();
         public DbSet<AiUsageLog> AiUsageLogs => throw new NotSupportedException();
         public DbSet<AutomationRule> AutomationRules => throw new NotSupportedException();
-        public DbSet<TaskBoard> TaskBoards => throw new NotSupportedException();
+        public DbSet<TaskBoard> TaskBoards => inner.TaskBoards;
         public DbSet<TaskBoardColumn> TaskBoardColumns => throw new NotSupportedException();
         public DbSet<TaskCard> TaskCards => throw new NotSupportedException();
         public DbSet<TaskCardAssignment> TaskCardAssignments => throw new NotSupportedException();
@@ -443,6 +446,7 @@ public class ActividadesToolsetTests
             {
                 Id = SubId, TenantId = Tenant, CategoriaId = Guid.NewGuid(),
                 Codigo = "LEAD-01", Nombre = "f1.CAPTACION DE LEAD test",
+                TaskBoardId = BoardId,
                 FormDefinitionId = def is null ? null : DefId
             });
             inner.SaveChanges();
@@ -574,25 +578,25 @@ public class ActividadesToolsetTests
     }
 
     [Fact]
-    public async Task CrearActividad_misma_conversacion_en_ventana_devuelve_existente()
+    public async Task CrearActividad_mismo_tablero_devuelve_existente_sin_ventana()
     {
-        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Un segundo cierre de la MISMA conversacion dentro
-        // de la ventana devuelve el ticket existente, AUNQUE cambien telefono/resumen.
+        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana. Un re-cierre de la MISMA
+        // conversacion en el MISMO tablero devuelve el ticket existente AUNQUE pasen HORAS (6h aqui).
         var conv = Guid.NewGuid();
         var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
-            SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            SubcategoriaId = SubId, BoardId = BoardId, RequesterName = "Juan Perez", IsArchived = false,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
         });
         inner.SaveChanges();
 
         JsonElement r;
         using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
         {
-            // Titulo/resumen DISTINTOS: aun asi es la misma conversacion en la ventana -> NO duplica.
+            // Titulo/resumen DISTINTOS: aun asi es la misma conversacion+tablero -> NO duplica.
             r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Otro resumen distinto", datos = new { nombre = "Juan Perez" } });
         }
 
@@ -601,19 +605,41 @@ public class ActividadesToolsetTests
     }
 
     [Fact]
-    public async Task CrearActividad_misma_conversacion_fuera_de_ventana_crea_nueva()
+    public async Task CrearActividad_otro_tablero_crea_nueva()
     {
-        // REGLA DE ORO (ADR-0101 rev.2): una solicitud NUEVA en el mismo chat, pasada la ventana corta,
-        // crea una tarea NUEVA (la tarea previa quedo fuera de la ventana).
+        // Multi-tema: la tarea previa de la MISMA conversacion esta en OTRO tablero, asi que el concepto (que
+        // apunta a BoardId) SI crea una actividad nueva en su tablero.
         var conv = Guid.NewGuid();
         var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
             TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
-            SubcategoriaId = SubId, RequesterName = "Juan Perez", IsArchived = false,
-            ConversationId = conv,
-            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-(AgentTaskIdempotency.ConversationWindowMinutes + 5))
+            SubcategoriaId = SubId, BoardId = OtherBoardId, RequesterName = "Juan Perez", IsArchived = false,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+        });
+        inner.SaveChanges();
+
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
+        {
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos = new { nombre = "Juan Perez" } });
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
+    }
+
+    [Fact]
+    public async Task CrearActividad_previa_archivada_crea_nueva()
+    {
+        // El lead previo ya se resolvio/archivo: un nuevo cierre en la misma conversacion+tablero crea nueva.
+        var conv = Guid.NewGuid();
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.TaskItems.Add(new TaskItem
+        {
+            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
+            SubcategoriaId = SubId, BoardId = BoardId, RequesterName = "Juan Perez", IsArchived = true,
+            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
 

@@ -100,3 +100,28 @@ Tests: DirectorioToolsetContactTests (5) - usa el telefono real de la conversaci
 segunda llamada en la misma conversacion no duplica; dedup por ultimos-10 absorbe el prefijo; un Inactivo
 no bloquea (se crea uno nuevo); con identificacion sigue deduplicando por identificacion. Application.Tests
 verdes.
+
+## Rev.3 (v0.16.83) - dedup por CONVERSACION + TABLERO, SIN ventana de tiempo
+
+La ventana corta de rev.2 (ConversationWindowMinutes = 5) era MUY corta: si el cliente seguia el chat y el
+agente volvia a "cerrar" pasados >5 min en la MISMA conversacion, se creaba una tarea DUPLICADA. Casos
+reales (misma conversation_id, mismo tablero, mismo titulo): Ana Lopez T00028/T00030 (13 min), Juan Camilo
+T00026/T00029 (24 min), alexander cuartas T00024/T00032 (6h).
+
+Cambio (Capa 2):
+- Se QUITA la ventana de tiempo. Nueva llave: (conversation_id + board_id) con estado NO archivado. Antes de
+  crear, si YA existe una tarea no archivada de ESA conversacion EN EL MISMO TABLERO, se devuelve ese ticket
+  (idempotente=true), sin importar cuanto tiempo pase. `FindRecentByConversationAsync(db, clock, conv)` ->
+  `FindByConversationAndBoardAsync(db, conv, boardId)` (se elimino ConversationWindowMinutes y el TimeProvider).
+- crear_tarea (TasksToolset) pasa el board resuelto (board.Id); crear_actividad (ActividadesToolset) pasa el
+  board del concepto (sub.TaskBoardId), que es el que hereda la actividad (TaskItemService fija BoardId =
+  subcategoria.TaskBoardId cuando el request trae BoardId null). Null-safe (board null empareja board null).
+- Capa 1 (intra-turno) sin cambios.
+
+Por que (conversacion + tablero): una conversacion = un lead abierto POR TABLERO. Un re-cierre/confirmacion/
+continuacion del MISMO lead devuelve el mismo ticket. Multi-tema se conserva: si el agente enruta a OTRO
+tablero (comercial vs soporte), board_id difiere -> tarea nueva. Si el lead ya se archivo -> tarea nueva.
+
+Multi-tenant intacto (filtro global). Sin migracion (no hay cambio de esquema; conversation_id y board_id ya
+existian). Tests: crear_tarea y crear_actividad -> mismo tablero (aun a 6h) devuelve existente; otro tablero
+crea nueva; previa archivada crea nueva. Application.Tests 953/953 verdes.

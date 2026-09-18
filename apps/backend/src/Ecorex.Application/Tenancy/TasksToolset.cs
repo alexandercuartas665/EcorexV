@@ -184,12 +184,13 @@ public sealed class TasksToolset : ITasksToolset
             clienteTelefono = Clean(convPhone) ?? clienteTelefono;
         }
 
-        // Capa 2 (ADR-0101 rev.2): dedup por CONVERSACION. Si esta conversacion ya genero una tarea en la
-        // ventana corta, se devuelve ese ticket (aunque cambien telefono/resumen). Se comprueba ANTES de
-        // repartir asesor para no avanzar el round-robin en un re-cierre. Sin conversacion -> no aplica.
+        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana de tiempo. Si esta
+        // conversacion ya tiene una tarea NO archivada en ESTE tablero, se devuelve ese ticket (aunque cambien
+        // telefono/resumen o pasen horas). Se comprueba ANTES de repartir asesor para no avanzar el round-robin
+        // en un re-cierre. Otro tablero -> tarea nueva. Sin conversacion -> no aplica.
         if (conversationId is Guid convDupId)
         {
-            var dup = await AgentTaskIdempotency.FindRecentByConversationAsync(_db, TimeProvider.System, convDupId, ct);
+            var dup = await AgentTaskIdempotency.FindByConversationAndBoardAsync(_db, convDupId, board.Id, ct);
             if (dup is { } ex)
             {
                 var dupJson = JsonSerializer.Serialize(new

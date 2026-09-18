@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.85: prellenado de formularios - token de NIT + tokens de sistema en default_value
+
+- A) Token de NIT: BuildTaskTokens (TaskDetailModal) y BuildWizTokens (TaskWizard) exponen {tareas.nit},
+  {tareas.documento} y {tareas.identificacion} = RequesterDocument (antes {tareas.nit} quedaba vacio). Aditivo.
+- B) Tokens de SISTEMA en el default_value de un campo (DynamicFormRenderer.ResolveTokens, logica extraida a
+  FormSystemTokens): {hoy} y {hoy+N} -> fecha yyyy-MM-dd (para inputs date); {ahora} -> HH:mm (para inputs
+  time); {numero} -> RecordNumber del registro (numero de OT), vacio si aun no tiene numero. Son de UN
+  segmento, no colisionan con {tareas.campo} (dos segmentos). Zona local = tenant (America/Bogota, UTC-5).
+- Sin migracion. Tests: FormSystemTokensTests (hoy/hoy+N/ahora/numero/mezcla). Build de la solucion verde.
+- La sesion de diseno deja por config: hora_exp={ahora}, fecha_entrega={hoy+3}, no_documento={numero} (quita el
+  mapeo num_cotizacion->no_documento del convert), nit_cc={tareas.nit}. Siguiente: NO desplegado.
+
 ## 2026-09-18 - v0.16.84: reinicio de memoria del agente NO destructivo por contacto (Opcion B)
 
 - Problema: no habia forma de hacer que el agente "olvide" a un contacto SIN borrar los mensajes del chat.

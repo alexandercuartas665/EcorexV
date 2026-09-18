@@ -3285,6 +3285,9 @@ else
     private static readonly System.Text.RegularExpressions.Regex TokenRegex =
         new(@"\{\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\}", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // Zona del tenant (America/Bogota = UTC-5) mientras el Tenant no guarde la suya. "Local" = esta zona.
+    private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
+
     /// <summary>Resuelve tokens {tareas.campo} del literal DefaultValue contra <see cref="TaskTokens"/>.
     /// Un token sin contexto (form fuera de tarea) o desconocido se reemplaza por vacio, para que NO
     /// genere conflicto ni deje el texto crudo. Sin tokens, devuelve el literal tal cual. Vacio -> null.</summary>
@@ -3303,6 +3306,9 @@ else
             }
             return string.Empty;
         });
+        // Tokens de SISTEMA (no dependen de la tarea): {hoy}/{hoy+N} (fecha yyyy-MM-dd, para inputs date),
+        // {ahora} (HH:mm, para inputs time) y {numero} (RecordNumber del registro, ej. numero de OT).
+        resolved = FormSystemTokens.Resolve(resolved, _response?.RecordNumber, DateTimeOffset.UtcNow.ToOffset(TenantOffset));
         return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
     }
 

@@ -22,8 +22,8 @@
     <div style="display:flex;gap:8px;align-self:flex-start;flex-wrap:wrap;">
         <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@(_loading || _busy)">Actualizar</button>
         <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _convs.Count == 0)"
-                title="Borra TODA la bitacora de la empresa y el cache de datos capturados por los agentes (deja al agente en cero). No toca mensajes del chat ni leads.">
-            @(_busy ? "Borrando..." : "Limpiar historial")
+                title="Borra los LOGS de la bitacora y el CACHE de datos capturados de toda la empresa. NO borra los mensajes del chat (la memoria conversacional del agente) ni los leads. Para que un agente olvide a un contacto, usa 'Reiniciar memoria' en la fila del contacto.">
+            @(_busy ? "Borrando..." : "Limpiar bitacora y cache")
         </button>
     </div>
 </div>
@@ -72,7 +72,11 @@ else
         <div class="card" style="padding:22px;">
             @if (_selectedId is not null)
             {
-                <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+                <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ResetContextAsync" disabled="@_busy"
+                            title="Reinicia la memoria del agente para este contacto SIN borrar los mensajes: arranca de cero en el siguiente mensaje, pero el historial del chat se conserva para leerlo. No toca el lead.">
+                        @(_busy ? "Reiniciando..." : "Reiniciar memoria (conservar mensajes)")
+                    </button>
                     <button class="btn btn-sm btn-outline-danger" @onclick="ResetConversationAsync" disabled="@_busy"
                             title="Borra logs + cache + mensajes del chat de esta conversacion. El agente arranca de cero en el siguiente mensaje. No toca el lead.">
                         @(_busy ? "Reiniciando..." : "Reiniciar conversacion")
@@ -124,14 +128,29 @@ else
 
     private async Task ClearAllAsync()
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Vaciar TODA la bitacora del agente y el cache de datos capturados? Es irreversible. No borra mensajes del chat ni leads.")) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Limpiar la bitacora y el cache de datos capturados de TODA la empresa? Es irreversible. NO borra los mensajes del chat (la memoria conversacional) ni los leads; para que un agente olvide a un contacto usa 'Reiniciar memoria' en su fila.")) { return; }
         _busy = true; _flash = null;
         try
         {
             var (logs, cache) = await AgentLinesSvc.ClearAllLogsAsync();
             _selectedId = null; _log = new();
             await ReloadAsync();
-            _flash = $"Bitacora vaciada: {logs} evento(s) y {cache} dato(s) de cache eliminados. El agente arranca de cero.";
+            _flash = $"Bitacora y cache limpiados: {logs} evento(s) y {cache} dato(s) de cache eliminados. No se tocaron los mensajes del chat.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ResetContextAsync()
+    {
+        if (_selectedId is not Guid id) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Reiniciar la memoria del agente para este contacto? El agente arrancara de cero en el siguiente mensaje, PERO se conservan los mensajes del chat para que puedas leerlos. No toca el lead.")) { return; }
+        _busy = true; _flash = null;
+        try
+        {
+            var ok = await AgentLinesSvc.ResetConversationAgentContextAsync(id);
+            _flash = ok
+                ? "Memoria del agente reiniciada. El historial del chat se conserva."
+                : "No se pudo reiniciar (la conversacion no existe).";
         }
         finally { _busy = false; }
     }

@@ -14,6 +14,8 @@
 @inject IMessageTemplateService TemplatesSvc
 @inject IWebHostEnvironment Env
 @inject NavigationManager Nav
+@inject IAiAgentLineService AgentLinesSvc
+@inject IJSRuntime JS
 
 <PageTitle>Conversaciones - ECOREX.tareas</PageTitle>
 
@@ -137,6 +139,10 @@ else
                             Llevar a Pipeline
                         </button>
                     }
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ResetAgentContextAsync"
+                            title="Reinicia la memoria del agente para este contacto SIN borrar los mensajes: arranca de cero en el siguiente mensaje, pero el historial del chat se conserva. No toca el lead.">
+                        Reiniciar memoria
+                    </button>
                     @if (_lines.Count > 1)
                     {
                         <select class="cv-line-select" @bind="_lineId" title="Linea para responder">
@@ -778,6 +784,17 @@ else
         _active = null; _activeLead = null;
         _archived = (await ChatSvc.ListArchivedConversationsAsync())
             .OrderByDescending(c => c.LastMessageAt ?? DateTimeOffset.MinValue).ToList();
+    }
+
+    // Reinicio NO DESTRUCTIVO de la memoria del agente para este contacto (conserva los mensajes del chat).
+    private async Task ResetAgentContextAsync()
+    {
+        if (_active is null) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Reiniciar la memoria del agente para este contacto? El agente arrancara de cero en el siguiente mensaje, PERO se conservan los mensajes del chat para que puedas leerlos. No toca el lead.")) { return; }
+        var ok = await AgentLinesSvc.ResetConversationAgentContextAsync(_active.Id);
+        await JS.InvokeVoidAsync("alert", ok
+            ? "Memoria del agente reiniciada. El historial del chat se conserva."
+            : "No se pudo reiniciar la memoria.");
     }
 
     private async Task ArchiveAsync(ConversationDto c, bool archived)

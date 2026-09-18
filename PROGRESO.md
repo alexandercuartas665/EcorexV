@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.84: reinicio de memoria del agente NO destructivo por contacto (Opcion B)
+
+- Problema: no habia forma de hacer que el agente "olvide" a un contacto SIN borrar los mensajes del chat.
+  "Limpiar historial" (global) solo borra logs+cache (no toca Messages -> el agente sigue recordando) y su
+  texto era enganoso; "Reiniciar conversacion" borra tambien los mensajes (destructivo).
+- Solucion (reusa AgentContextResetAt, que el runtime ya honra: AgentConversationService solo ve mensajes con
+  SentAt > la marca): nuevo ResetConversationAgentContextAsync en AiAgentLineService que marca
+  conv.AgentContextResetAt = ahora y audita (agent.conversation.context-reset). NO borra mensajes/logs/cache
+  ni toca el lead. Multi-tenant por el filtro global. Sin migracion (la columna ya existe en ambos motores).
+- UI: boton "Reiniciar memoria (conservar mensajes)" por conversacion en BitacoraAgente y en Conversaciones
+  (junto a Llevar a Pipeline). Se corrigio el boton global enganoso: "Limpiar historial" -> "Limpiar bitacora
+  y cache" + tooltip/confirm/flash que aclaran que NO borra los mensajes del chat.
+- Tests: AiAgentLineServiceTests (marca reset + conserva mensajes + audita; inexistente -> false). Build de la
+  solucion verde. Siguiente: NO desplegado (a la senal del usuario).
+
 ## 2026-09-18 - v0.16.83: idempotencia de cierre por CONVERSACION + TABLERO, sin ventana (ADR-0101 rev.3)
 
 - Problema: la ventana de 5 min de rev.2 dejaba pasar duplicados cuando el cliente seguia el chat y el agente

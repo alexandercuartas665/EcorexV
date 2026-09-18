@@ -43,6 +43,11 @@ public interface IAiAgentLineService
     /// (sessionId = conversationId) y los mensajes del chat; resetea LastMessageAt para que el agente arme
     /// un contexto vacio en el siguiente mensaje. No toca el lead. Devuelve (logs, cache, mensajes).</summary>
     Task<(int Logs, int Cache, int Messages)> ResetConversationMemoryAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Reinicio NO DESTRUCTIVO de la memoria del agente para UN contacto: marca AgentContextResetAt en
+    /// la conversacion, asi el agente arranca de cero en el siguiente mensaje, PERO conserva los mensajes del
+    /// chat (legibles), los logs, el cache y el lead. Devuelve false si la conversacion no existe / otro tenant.</summary>
+    Task<bool> ResetConversationAgentContextAsync(Guid conversationId, CancellationToken cancellationToken = default);
 }
 
 public sealed class AiAgentLineService : IAiAgentLineService
@@ -167,5 +172,22 @@ public sealed class AiAgentLineService : IAiAgentLineService
         _audit.Write(_tenant.UserId ?? Guid.Empty, "agent.log.reset-conversation", nameof(Conversation), conversationId, null, new { logs, cache, messages }, tenantId);
         await _db.SaveChangesAsync(cancellationToken);
         return (logs, cache, messages);
+    }
+
+    public async Task<bool> ResetConversationAgentContextAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return false; }
+        // El query filter global por tenant garantiza que solo se resuelve una conversacion del tenant activo;
+        // si es cross-tenant, FirstOrDefault devuelve null (regla inviolable #1: no filtrar a mano por tenant).
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (conv is null) { return false; }
+        // Reinicio NO DESTRUCTIVO: el runtime (AgentConversationService) solo considera mensajes con
+        // SentAt > AgentContextResetAt, asi que el agente arranca de cero, PERO NO se borran mensajes/logs/cache
+        // ni se toca el lead. El historial del chat sigue legible para el humano.
+        conv.AgentContextResetAt = DateTimeOffset.UtcNow;
+        _audit.Write(_tenant.UserId ?? Guid.Empty, "agent.conversation.context-reset",
+            nameof(Conversation), conversationId, null, new { resetAt = conv.AgentContextResetAt }, tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }

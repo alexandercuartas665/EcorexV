@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.86: herramientas de LECTURA del contenedor (consultar precios, ADR-0103)
+
+- ContenedorDatosToolset era solo escritura. Se agregaron dos tools de lectura (quedan disponibles sin tocar
+  whitelist para los agentes que ya tienen el toolset, ej. "Clasificador de productos" de SKY):
+  - consultar_productos { texto?, limite? }: atajo sobre el contenedor fijo "Productos".
+  - consultar_contenedor { contenedor, texto?, limite? }: generico por nombre.
+- Implementacion (tenant-scoped, AsNoTracking, filtrado en memoria): resuelve contenedor por nombre (si no,
+  error con disponibles); trae columnas escalares + filas + celdas; filtra por texto (substring
+  case-insensitive) en nombre/referencia/marca/categoria si existen (si no, en todo); ordena por fecha de
+  actualizacion (UpdatedAt ?? CreatedAt) desc; limite default 20, tope 50. Devuelve por fila columna->valor +
+  fecha_actualizacion (zona tenant, yyyy-MM-dd). Precio tal cual (texto EAV).
+- Sin migracion. Tests: ContenedorDatosToolsetTests (4 nuevos). Build de la solucion verde. Nota en ADR-0103.
+- Siguiente: la sesion de config actualiza el system_prompt del agente para enrutar consultas de precio a
+  consultar_productos y obligar el formato precio+descripcion+proveedor+fecha. NO desplegado.
+
 ## 2026-09-18 - v0.16.85: prellenado de formularios - token de NIT + tokens de sistema en default_value
 
 - A) Token de NIT: BuildTaskTokens (TaskDetailModal) y BuildWizTokens (TaskWizard) exponen {tareas.nit},

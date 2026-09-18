@@ -338,6 +338,82 @@ public class ContenedorDatosToolsetTests
         Assert.Contains("Productos", r.GetProperty("error").GetString());
     }
 
+    // Siembra una fila con celdas (el InnerDb de test no tiene interceptor: CreatedAt/UpdatedAt se ponen a mano).
+    private static void SeedRow(InnerDb inner, Guid containerId, DateTimeOffset? updatedAt, params (string Col, string Val)[] cells)
+    {
+        var row = new DataContainerRow { TenantId = Tenant, ContainerId = containerId, CreatedAt = DateTimeOffset.UtcNow.AddDays(-30) };
+        if (updatedAt is DateTimeOffset u) { row.UpdatedAt = u; }
+        inner.DataContainerRows.Add(row);
+        var colByName = inner.DataContainerColumns.Where(c => c.ContainerId == containerId)
+            .ToDictionary(c => c.Name, c => c.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var (col, val) in cells)
+        {
+            if (colByName.TryGetValue(col, out var colId))
+            {
+                inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = row.Id, ColumnId = colId, Value = val });
+            }
+        }
+        inner.SaveChanges();
+    }
+
+    [Fact]
+    public async Task ConsultarProductos_encuentra_por_texto_y_trae_campos_y_fecha()
+    {
+        var (ts, inner) = NewToolset();
+        var cid = SeedProductos(inner, "nombre", "marca", "precio", "proveedor");
+        SeedRow(inner, cid, new DateTimeOffset(2026, 9, 18, 10, 0, 0, TimeSpan.Zero),
+            ("nombre", "Tornillo 1/4"), ("marca", "Acme"), ("precio", "1500"), ("proveedor", "Ferreteria X"));
+        SeedRow(inner, cid, null, ("nombre", "Tuerca 1/4"), ("marca", "Acme"), ("precio", "900"), ("proveedor", "Ferreteria Y"));
+
+        var r = await RunAsync(ts, "consultar_productos", new { texto = "tornillo" });   // case-insensitive
+
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal(1, r.GetProperty("total").GetInt32());
+        var res = r.GetProperty("resultados").EnumerateArray().Single();
+        Assert.Equal("Tornillo 1/4", res.GetProperty("nombre").GetString());
+        Assert.Equal("1500", res.GetProperty("precio").GetString());
+        Assert.Equal("Ferreteria X", res.GetProperty("proveedor").GetString());
+        Assert.Equal("2026-09-18", res.GetProperty("fecha_actualizacion").GetString());   // UpdatedAt, zona tenant
+    }
+
+    [Fact]
+    public async Task ConsultarProductos_articulo_inexistente_total_cero()
+    {
+        var (ts, inner) = NewToolset();
+        var cid = SeedProductos(inner, "nombre", "precio");
+        SeedRow(inner, cid, null, ("nombre", "Tornillo"), ("precio", "1"));
+        var r = await RunAsync(ts, "consultar_productos", new { texto = "zzz-inexistente" });
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal(0, r.GetProperty("total").GetInt32());
+        Assert.Empty(r.GetProperty("resultados").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task ConsultarProductos_sin_texto_lista_todas_y_respeta_limite()
+    {
+        var (ts, inner) = NewToolset();
+        var cid = SeedProductos(inner, "nombre", "precio");
+        for (var i = 0; i < 5; i++) { SeedRow(inner, cid, null, ("nombre", $"Item {i}"), ("precio", i.ToString())); }
+        var r = await RunAsync(ts, "consultar_productos", new { limite = 3 });
+        Assert.Equal(5, r.GetProperty("total").GetInt32());                  // total = coincidencias
+        Assert.Equal(3, r.GetProperty("resultados").GetArrayLength());       // aplica el limite
+    }
+
+    [Fact]
+    public async Task ConsultarContenedor_generico_por_nombre_y_inexistente_error()
+    {
+        var (ts, inner) = NewToolset();
+        var cid = SeedProductos(inner, "nombre");
+        SeedRow(inner, cid, null, ("nombre", "Cosa"));
+        var ok = await RunAsync(ts, "consultar_contenedor", new { contenedor = "Productos", texto = "cosa" });
+        Assert.True(ok.GetProperty("ok").GetBoolean());
+        Assert.Equal(1, ok.GetProperty("total").GetInt32());
+
+        var bad = await RunAsync(ts, "consultar_contenedor", new { contenedor = "NoExiste" });
+        Assert.False(bad.GetProperty("ok").GetBoolean());
+        Assert.Contains("Productos", bad.GetProperty("error").GetString());   // lista los disponibles
+    }
+
     [Fact]
     public async Task ListarContenedores_devuelve_contenedor_y_columnas()
     {

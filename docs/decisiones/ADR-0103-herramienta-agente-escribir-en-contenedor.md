@@ -50,3 +50,22 @@ Reglas de escritura:
 - Tests: `ContenedorDatosToolsetTests` (inserta filas/celdas, ignora campos no-columna, contenedor inexistente,
   listar_contenedores).
 - Relacionado: contenedor de datos (modelo EAV), ADR de nombre de archivo al contexto (v0.16.67).
+
+## Nota v0.16.86 - herramientas de LECTURA del contenedor (consultar_productos / consultar_contenedor)
+
+ContenedorDatosToolset era solo ESCRITURA. Se agregaron dos herramientas de lectura al MISMO toolset (queda
+disponible sin tocar whitelist para los agentes que ya lo tienen):
+- consultar_productos { texto?, limite? }: atajo sobre el contenedor fijo "Productos" (como cargar_productos).
+- consultar_contenedor { contenedor, texto?, limite? }: generico por nombre, reusable por otros agentes.
+
+Implementacion (tenant-scoped por el filtro global, AsNoTracking, contenedor pequeno -> filtrado en memoria):
+resuelve el contenedor por nombre (si no existe, error con la lista de disponibles); trae columnas escalares
+(excluye Submodel/RelationMany) + filas + celdas; arma cada fila como columna->valor; filtra por 'texto'
+(substring case-insensitive) contra las columnas nombre/referencia/marca/categoria si existen (si no, contra
+todos los valores); ordena por fecha de actualizacion (UpdatedAt ?? CreatedAt) desc; aplica limite (default
+20, tope 50). Devuelve { ok, contenedor, total, resultados:[ { <col>:<valor>..., fecha_actualizacion } ] }
+con la fecha en zona del tenant (yyyy-MM-dd). El precio se devuelve tal cual (texto EAV); el modelo lo formatea.
+
+Caso: el agente "Clasificador de productos y precios" (SKY) responde consultas de precio (precio + descripcion
++ proveedor + fecha). Sin migracion. Tests: ContenedorDatosToolsetTests (encuentra por texto + fecha;
+inexistente -> total 0; sin texto lista todas y respeta limite; generico por nombre + inexistente -> error).

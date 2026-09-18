@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-18 - v0.16.82: parametros de plantilla WhatsApp en las reglas de alerta del flujo (ADR-0100)
+
+- Problema: en la alerta/notify de un nodo, al elegir una plantilla HSM no habia forma de poner sus
+  parametros; se llenaban por NOMBRE (la variable "cliente" tomaba el token "cliente") y punto.
+- Ahora: al elegir la plantilla, la UI enumera SUS variables y por cada una hay un campo para escribir una
+  expresion con tokens ({tarea.numero}, {tarea.titulo}, {tarea.cliente}, {sistema.fecha}, {form.<campo>},
+  texto fijo o mezcla). El binding se resuelve al enviar (NotifyTokenResolver.Render) y se inyecta bajo el
+  nombre de la variable, asi el llenado por nombre toma ese valor. Variables sin binding = por nombre (compat).
+- Cambios: NodeNotifyRule.Variables (mapa, dentro de NotifyJson, sin migracion); FlowEditor (UI + NotifyRuleRow
+  + open/save); NodeNotifyService (resuelve e inyecta bindings en el caso WhatsApp); NotifyTokenResolver gana
+  {sistema.fecha}/{sistema.hora}/{sistema.fechahora} (zona tenant UTC-5) y {tarea.id} (+ TimeProvider inyectado).
+- Tests: NotifyTokenResolverTests (expresion mixta). Build de la solucion verde. Nota en ADR-0100.
+- Nota: los tokens de formulario son {form.<campo>} (campo de cualquier form de la ruta, primer valor no
+  vacio), no {form.<CODIGO_FORM>.<campo>} (el regex de tokens es de 2 segmentos). Siguiente: NO desplegado.
+
 ## 2026-09-18 - v0.16.81: evaluador de formulas coacciona booleanos (toggle) a 1/0
 
 - FormExpressionEvaluator.ToNumber: cuando el parseo numerico falla, coacciona strings booleanos a 1/0 para

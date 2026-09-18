@@ -38,7 +38,11 @@ public sealed record NodeNotifyRule(
     // plantilla NO se usa (el HSM es rigido; los tokens llenan sus variables por nombre).
     string? Mensaje = null,
     // Adjunta el enlace (deep-link) a la tarea al final del mensaje. No aplica a WhatsApp plantilla.
-    bool IncluirEnlace = false);
+    bool IncluirEnlace = false,
+    // WhatsApp plantilla: binding de CADA variable de la plantilla a una expresion con tokens
+    // (variableDeLaPlantilla -> "texto con {tarea.x} / {form.x} / {sistema.fecha}"). Si una variable no tiene
+    // binding, se conserva el llenado automatico por nombre (compatibilidad hacia atras). Null = sin bindings.
+    IReadOnlyDictionary<string, string>? Variables = null);
 
 /// <summary>Reglas de notificacion de un nodo. Se serializa a <see cref="Domain.Entities.WorkflowNode.NotifyJson"/>.</summary>
 public sealed record NodeNotifyConfig(IReadOnlyList<NodeNotifyRule>? Reglas = null)

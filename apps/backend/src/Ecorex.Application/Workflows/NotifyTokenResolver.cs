@@ -9,13 +9,18 @@ namespace Ecorex.Application.Workflows;
 public sealed class NotifyTokenResolver : INotifyTokenResolver
 {
     private readonly IApplicationDbContext _db;
+    private readonly TimeProvider _clock;
+
+    // Zona del tenant (America/Bogota = UTC-5, sin horario de verano) mientras el Tenant no guarde la suya.
+    private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
     // {ns.clave}: dos segmentos alfanumericos, insensible a espacios. Ej: {tarea.contacto}, {form.total}.
     private static readonly Regex TokenRegex = new(@"\{\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\}", RegexOptions.Compiled);
 
-    public NotifyTokenResolver(IApplicationDbContext db)
+    public NotifyTokenResolver(IApplicationDbContext db, TimeProvider clock)
     {
         _db = db;
+        _clock = clock;
     }
 
     public async Task<IReadOnlyDictionary<string, string>> BuildAsync(Domain.Entities.TaskItem task, CancellationToken cancellationToken = default)
@@ -29,8 +34,21 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
             map["tarea." + key] = v;   // con prefijo (para texto libre {tarea.x})
         }
 
+        // Sistema: fecha/hora actuales (zona del tenant). Se exponen como {sistema.fecha} y, si no colisiona,
+        // tambien bare (para una variable HSM llamada p.ej. "fecha").
+        var now = _clock.GetUtcNow().ToOffset(TenantOffset);
+        void PutSys(string key, string value)
+        {
+            map["sistema." + key] = value;
+            if (!map.ContainsKey(key)) { map[key] = value; }
+        }
+        PutSys("fecha", now.ToString("yyyy-MM-dd"));
+        PutSys("hora", now.ToString("HH:mm"));
+        PutSys("fechahora", now.ToString("yyyy-MM-dd HH:mm"));
+
         // Datos de la tarea (mismos alias que el prellenado de formularios).
         var nombre = task.RequesterName ?? string.Empty;
+        Put("id", task.Id.ToString());
         Put("numero", task.Number);
         Put("titulo", task.Title);
         Put("cliente", nombre);

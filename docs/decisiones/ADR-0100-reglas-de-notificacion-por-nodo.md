@@ -64,3 +64,23 @@ base configurada, el mensaje sale sin enlace.
   deep-link `Actividades.razor` (?task=).
 - Tests: `NodeNotifyConfigTests`, `NotifyTokenResolverTests`.
 - Relacionado: ADR-0099 (Cierre del agente), ADR-0056 (asignado del paso), ADR-0051 (diagrama de flujo).
+
+## Nota v0.16.82 - binding de variables de plantilla WhatsApp + tokens de sistema
+
+Hasta ahora una regla WhatsApp solo elegia la PLANTILLA; sus variables se llenaban por NOMBRE (la variable
+"cliente" tomaba el token "cliente"), sin forma de atar una variable a otro dato. Se agrego:
+
+- `NodeNotifyRule.Variables` (jsonb dentro de NotifyJson): mapa variableDeLaPlantilla -> expresion con tokens
+  ("{tarea.numero}", "{form.total}", "{sistema.fecha}", texto fijo o mezcla). Null/vacio = llenado por nombre
+  (compatibilidad hacia atras).
+- UI (FlowEditor, modal de notificaciones): al elegir la plantilla se enumeran SUS variables (de
+  WhatsAppTemplateDto.Variables) y por cada una un campo para escribir la expresion, con ayuda de tokens.
+- Envio (NodeNotifyService, caso WhatsApp): cada binding se resuelve con NotifyTokenResolver.Render y se
+  inyecta en el mapa de tokens bajo el nombre de la variable (normalizado como BuildTemplateParams: sin
+  acentos, minusculas), asi el llenado posicional por nombre toma el valor atado. Sin cambiar la firma del
+  sender. Las variables sin binding siguen por nombre.
+- Tokens nuevos en NotifyTokenResolver: `{sistema.fecha}`/`{sistema.hora}`/`{sistema.fechahora}` (zona del
+  tenant, UTC-5) y `{tarea.id}`. Siguen disponibles `{tarea.*}` y los de formularios de la ruta `{form.<campo>}`.
+
+Sin migracion (todo va en NotifyJson). Tests: NotifyTokenResolverTests (Render de expresion mixta) +
+FormExpressionEvaluatorTests (no relacionado). Build de la solucion verde.

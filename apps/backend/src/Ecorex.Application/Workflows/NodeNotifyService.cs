@@ -109,8 +109,22 @@ public sealed class NodeNotifyService : INodeNotifyService
                 break;
 
             case NotifyChannel.WhatsApp when !string.IsNullOrWhiteSpace(user.Phone) && !string.IsNullOrWhiteSpace(rule.Plantilla) && rule.LineaId is Guid lineId:
-                // La plantilla HSM es rigida: sus variables se llenan por NOMBRE con el mapa de tokens.
-                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, rule.Plantilla!, rule.Idioma, tokens, actor, ct);
+                // La plantilla HSM llena sus variables por NOMBRE con el mapa de tokens. Si la regla ATA
+                // variables a expresiones (rule.Variables), se resuelven aqui (tokens {tarea.x}/{form.x}/
+                // {sistema.fecha}) y se inyectan bajo el nombre de la variable, para que el llenado por nombre
+                // tome ese valor. Las variables sin binding conservan el llenado automatico (compat. atras).
+                var waTokens = tokens;
+                if (rule.Variables is { Count: > 0 })
+                {
+                    var copy = new Dictionary<string, string>(tokens, StringComparer.OrdinalIgnoreCase);
+                    foreach (var (varToken, expr) in rule.Variables)
+                    {
+                        if (string.IsNullOrWhiteSpace(varToken) || string.IsNullOrWhiteSpace(expr)) { continue; }
+                        copy[StripAccents(varToken.Trim().ToLowerInvariant())] = _tokens.Render(expr, tokens);
+                    }
+                    waTokens = copy;
+                }
+                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, ct);
                 break;
         }
     }
@@ -119,6 +133,22 @@ public sealed class NodeNotifyService : INodeNotifyService
     {
         if (string.IsNullOrWhiteSpace(link)) { return body; }
         return string.IsNullOrWhiteSpace(body) ? link! : body + "\n\n" + link;
+    }
+
+    // Normaliza el nombre de una variable de plantilla igual que BuildTemplateParams (quita acentos) para que
+    // el binding inyectado empareje con el llenado por nombre.
+    private static string StripAccents(string text)
+    {
+        var d = text.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new StringBuilder();
+        foreach (var c in d)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
     }
 
     private static string BuildEmailHtml(string body)

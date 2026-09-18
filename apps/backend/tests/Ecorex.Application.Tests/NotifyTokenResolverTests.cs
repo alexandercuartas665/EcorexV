@@ -8,8 +8,8 @@ namespace Ecorex.Application.Tests;
 /// </summary>
 public class NotifyTokenResolverTests
 {
-    // Render no toca la BD; se puede construir con un contexto nulo.
-    private static readonly INotifyTokenResolver Resolver = new NotifyTokenResolver(db: null!);
+    // Render no toca la BD ni el reloj; se puede construir con un contexto nulo.
+    private static readonly INotifyTokenResolver Resolver = new NotifyTokenResolver(db: null!, clock: TimeProvider.System);
 
     [Fact]
     public void Render_SustituyeTokensConocidos()
@@ -37,5 +37,19 @@ public class NotifyTokenResolverTests
     public void Render_PlantillaVacia_DevuelveVacio(string? tpl)
     {
         Assert.Equal("", Resolver.Render(tpl, new Dictionary<string, string>()));
+    }
+
+    // Expresion tipica del binding de una variable de plantilla (mezcla texto + tokens de tarea/sistema/form).
+    [Fact]
+    public void Render_ExpresionDeBindingMixta()
+    {
+        var tokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["tarea.numero"] = "T00042",
+            ["sistema.fecha"] = "2026-09-18",
+            ["form.total"] = "1500"
+        };
+        Assert.Equal("Pedido T00042 del 2026-09-18 por 1500",
+            Resolver.Render("Pedido {tarea.numero} del {sistema.fecha} por {form.total}", tokens));
     }
 }

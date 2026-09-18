@@ -651,6 +651,23 @@ else
                                 </select>
                             </div>
                             <div class="fe-acc-note" style="margin:4px 0 0">Plantilla HSM: sus variables se llenan por nombre con los tokens ({{cliente}}, {{numero}}, etc.). No usa el mensaje libre.</div>
+                            @if (TemplateVars(r.Plantilla) is { Count: > 0 } vars)
+                            {
+                                <div style="margin-top:8px;padding:8px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface-2);">
+                                    <div class="fe-acc-note" style="margin:0 0 6px"><strong>Parametros de la plantilla</strong> - ata cada variable a un token o texto. Vacio = se llena por nombre si coincide.</div>
+                                    @foreach (var v in vars)
+                                    {
+                                        <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;">
+                                            <span style="min-width:110px;font-size:12px;font-weight:600;">@("{{" + v.Token + "}}")</span>
+                                            <input class="fe-input sm" style="min-width:240px;flex:1"
+                                                   placeholder="@(string.IsNullOrWhiteSpace(v.Example) ? "ej. {tarea.numero}" : "ej. {tarea.numero}  (" + v.Example + ")")"
+                                                   value="@r.Variables.GetValueOrDefault(v.Token)"
+                                                   @onchange="e => SetNotifyVar(r, v.Token, e.Value?.ToString())" />
+                                        </div>
+                                    }
+                                    <div class="fe-acc-note" style="margin:6px 0 0">Tokens: {tarea.numero}, {tarea.titulo}, {tarea.cliente}, {tarea.telefono}, {tarea.email}, {sistema.fecha}, {sistema.hora}, {form.&lt;campo&gt;}. Tambien texto fijo o mezcla ("Pedido {tarea.numero} del {sistema.fecha}").</div>
+                                </div>
+                            }
                         }
                         else if (r.Canal == NotifyChannel.WhatsAppGrupo)
                         {
@@ -1771,6 +1788,8 @@ else
         public string? ChatId { get; set; }
         public string? Mensaje { get; set; }
         public bool IncluirEnlace { get; set; }
+        // WhatsApp plantilla: binding variableDeLaPlantilla -> expresion con tokens (texto libre).
+        public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private static string NotifyUserLabel(TenantUserDto u)
@@ -1794,7 +1813,10 @@ else
             GrupoJid = r.GrupoJid,
             ChatId = r.ChatId,
             Mensaje = r.Mensaje,
-            IncluirEnlace = r.IncluirEnlace
+            IncluirEnlace = r.IncluirEnlace,
+            Variables = r.Variables is { Count: > 0 }
+                ? new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         }).ToList();
         if (!_notifyDataLoaded)
         {
@@ -1808,6 +1830,19 @@ else
 
     private void AddNotifyRule() => _notifyRules.Add(new NotifyRuleRow());
     private void RemoveNotifyRule(NotifyRuleRow r) => _notifyRules.Remove(r);
+
+    // Variables declaradas por la plantilla elegida (vacio si no hay plantilla o no se cargo).
+    private IReadOnlyList<WhatsAppTemplateVariable> TemplateVars(string? name)
+        => string.IsNullOrWhiteSpace(name)
+            ? Array.Empty<WhatsAppTemplateVariable>()
+            : _notifyTemplates.FirstOrDefault(t => t.Name == name)?.Variables ?? Array.Empty<WhatsAppTemplateVariable>();
+
+    // Ata (o limpia) una variable de plantilla a una expresion con tokens.
+    private void SetNotifyVar(NotifyRuleRow r, string token, string? val)
+    {
+        if (string.IsNullOrWhiteSpace(val)) { r.Variables.Remove(token); }
+        else { r.Variables[token] = val.Trim(); }
+    }
 
     private async Task SaveNotifyAsync()
     {
@@ -1838,7 +1873,10 @@ else
             string.IsNullOrWhiteSpace(r.GrupoJid) ? null : r.GrupoJid!.Trim(),
             string.IsNullOrWhiteSpace(r.ChatId) ? null : r.ChatId!.Trim(),
             string.IsNullOrWhiteSpace(r.Mensaje) ? null : r.Mensaje,
-            r.IncluirEnlace)).ToList());
+            r.IncluirEnlace,
+            r.Canal == NotifyChannel.WhatsApp && r.Variables.Count(v => !string.IsNullOrWhiteSpace(v.Value)) > 0
+                ? r.Variables.Where(v => !string.IsNullOrWhiteSpace(v.Value)).ToDictionary(v => v.Key, v => v.Value.Trim())
+                : null)).ToList());
 
         await GuardAsync(async () =>
         {

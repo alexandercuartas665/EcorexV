@@ -5421,6 +5421,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_transactional");
 
+                    b.Property<string>("KpisJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("kpis_json");
+
                     b.Property<string>("ListColumnsJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("list_columns_json");

@@ -116,4 +116,12 @@ public class FormDefinition : TenantEntity, IVersioned
     /// tarjetas globales, ocultar chips tecnicos). Null = tema clasico por defecto (comportamiento actual).
     /// </summary>
     public string? ThemeJson { get; set; }
+
+    /// <summary>
+    /// KPIs configurables de la bandeja del formulario-modulo (Ola 6/A1). JSON: arreglo de
+    /// { "label": "...", "metric": "count|confirmed|voided|month|sum|avg|min|max", "field": "codigo"? }.
+    /// Null/vacio = los 4 KPIs por defecto (registros / confirmados / anulados / este mes). Las metricas
+    /// sum/avg/min/max operan sobre un campo numerico del formulario.
+    /// </summary>
+    public string? KpisJson { get; set; }
 }

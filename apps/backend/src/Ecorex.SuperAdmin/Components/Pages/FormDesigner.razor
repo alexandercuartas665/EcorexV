@@ -569,6 +569,13 @@ else
                         <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">Elige y ORDENA los filtros; ese es el orden en que se muestran.</p>
                         @ModuleFieldPicker((_moduleFilters, false))
                     </div>
+                    <div class="field">
+                        @* KPIs configurables de la bandeja (Ola 6/A1). Vacio = los 4 por defecto. *@
+                        <label class="form-label">Indicadores (KPIs) de la bandeja</label>
+                        <KpisEditor Json="@_moduleKpisJson"
+                                    JsonChanged="@(v => { _moduleKpisJson = v; return Task.CompletedTask; })"
+                                    Questions="_def.Questions" />
+                    </div>
                     @if (_def.IsModule)
                     {
                         <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
@@ -680,6 +687,8 @@ else
     // Listas ORDENADAS (no HashSet): el orden en que quedan aqui es el orden en la bandeja / los filtros.
     private readonly List<string> _moduleColumns = new();
     private readonly List<string> _moduleFilters = new();
+    // KPIs configurables de la bandeja (Ola 6/A1): kpis_json.
+    private string? _moduleKpisJson;
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -1609,6 +1618,7 @@ else
         _moduleColumns.Clear(); _moduleFilters.Clear();
         foreach (var c in ParseCodeList(_def.ListColumnsJson)) { _moduleColumns.Add(c); }
         foreach (var f in ParseCodeList(_def.FilterFieldsJson)) { _moduleFilters.Add(f); }
+        _moduleKpisJson = _def.KpisJson;
         _showFormProps = true;
         // Vistas de menu para elegir DONDE colgar el modulo (ola F4).
         _menuViews = await MenuSvc.ListViewsAsync();
@@ -1683,7 +1693,7 @@ else
             Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
             var mod = await FormsSvc.SetModuleAsync(_def!.Id,
                 new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon,
-                    _moduleColumns.ToList(), _moduleFilters.ToList(), _moduleLabel));
+                    _moduleColumns.ToList(), _moduleFilters.ToList(), _moduleLabel, _moduleKpisJson));
             if (!mod.IsOk) { _modalError = mod.Error; return; }
             _def = mod.Value;
 

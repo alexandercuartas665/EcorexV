@@ -66,15 +66,30 @@ else
             </div>
         }
 
-        @* KPIs (doc 01 D6): cantidad, confirmados, anulados y % de crecimiento vs mes anterior. *@
+        @* KPIs (doc 01 D6). Configurables por el usuario en el disenador (Ola 6/A1): si hay kpis_json, se
+           pintan esos; si no, los 4 por defecto (registros / confirmados / anulados / este mes). *@
         <div class="fm-kpis">
-            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count</span><span class="fm-kpi-l">Registros</span></div>
-            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Confirmed)</span><span class="fm-kpi-l">Confirmados</span></div>
-            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Voided)</span><span class="fm-kpi-l">Anulados</span></div>
-            <div class="fm-kpi">
-                <span class="fm-kpi-n">@ThisMonthCount <span class="fm-kpi-growth @(GrowthPct >= 0 ? "up" : "down")">@(GrowthPct >= 0 ? "+" : "")@GrowthPct%</span></span>
-                <span class="fm-kpi-l">Este mes</span>
-            </div>
+            @if (_kpis.Count > 0)
+            {
+                @foreach (var k in _kpis)
+                {
+                    var d = KpiDisplay(k);
+                    <div class="fm-kpi">
+                        <span class="fm-kpi-n">@d.Value@if (d.Growth is { } g) {<span class="fm-kpi-growth @(g >= 0 ? "up" : "down")">@(g >= 0 ? "+" : "")@g%</span>}</span>
+                        <span class="fm-kpi-l">@k.Label</span>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count</span><span class="fm-kpi-l">Registros</span></div>
+                <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Confirmed)</span><span class="fm-kpi-l">Confirmados</span></div>
+                <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Voided)</span><span class="fm-kpi-l">Anulados</span></div>
+                <div class="fm-kpi">
+                    <span class="fm-kpi-n">@ThisMonthCount <span class="fm-kpi-growth @(GrowthPct >= 0 ? "up" : "down")">@(GrowthPct >= 0 ? "+" : "")@GrowthPct%</span></span>
+                    <span class="fm-kpi-l">Este mes</span>
+                </div>
+            }
         </div>
 
         @* Pestanas: los anulados viven en su propia pestana, aparte de los registros activos. *@
@@ -375,6 +390,8 @@ else
     // Columnas y filtros configurados (ola F4): (fieldCode, etiqueta).
     private List<(string Code, string Label)> _columns = new();
     private List<(string Code, string Label)> _filterFields = new();
+    // KPIs configurables de la bandeja (Ola 6/A1). Vacio = KPIs por defecto.
+    private List<KpiConfigJson.Kpi> _kpis = new();
     // Columnas tipo tabla (GridDetail) -> sus sub-columnas, para pintar la sub-fila expandible.
     private Dictionary<string, IReadOnlyList<FormGridColumn>> _gridCols = new(StringComparer.Ordinal);
     // Celdas-grid expandidas: clave "recordId|fieldCode".
@@ -420,6 +437,7 @@ else
                     .Where(q => q.ControlType == FormControlType.GridDetail)
                     .ToDictionary(q => q.FieldCode, q => FormGridCalculator.ParseColumns(q.OptionsJson), StringComparer.Ordinal);
                 _filterFields = ParseCodes(_def.FilterFieldsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
+                _kpis = KpiConfigJson.Read(_def.KpisJson);   // KPIs configurables (Ola 6/A1)
                 _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
             }
             else
@@ -767,6 +785,36 @@ else
     private int GrowthPct => PrevMonthCount == 0
         ? (ThisMonthCount > 0 ? 100 : 0)
         : (int)Math.Round((ThisMonthCount - PrevMonthCount) * 100.0 / PrevMonthCount);
+
+    // Valor (y % de crecimiento opcional) de UN KPI configurable (Ola 6/A1). Las metricas de campo
+    // (sum/avg/min/max) operan sobre los NO anulados; count/confirmed/voided/month sobre todos.
+    private (string Value, int? Growth) KpiDisplay(KpiConfigJson.Kpi k)
+    {
+        switch (k.Metric)
+        {
+            case KpiConfigJson.Count: return (_records.Count.ToString(), null);
+            case KpiConfigJson.Confirmed: return (_records.Count(r => r.RecordStatus == FormRecordStatus.Confirmed).ToString(), null);
+            case KpiConfigJson.Voided: return (_records.Count(r => r.RecordStatus == FormRecordStatus.Voided).ToString(), null);
+            case KpiConfigJson.Month: return (ThisMonthCount.ToString(), GrowthPct);
+        }
+        // Metricas numericas por campo.
+        var nums = _records
+            .Where(r => r.RecordStatus != FormRecordStatus.Voided)
+            .Select(r => KpiConfigJson.ParseNumber(r.Fields.GetValueOrDefault(k.Field ?? "")))
+            .Where(n => n is not null)
+            .Select(n => n!.Value)
+            .ToList();
+        if (nums.Count == 0) { return ("0", null); }
+        var val = k.Metric switch
+        {
+            KpiConfigJson.Sum => nums.Sum(),
+            KpiConfigJson.Avg => nums.Average(),
+            KpiConfigJson.Min => nums.Min(),
+            KpiConfigJson.Max => nums.Max(),
+            _ => 0d
+        };
+        return (val.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture), null);
+    }
 
     private string CsvDataUri()
     {

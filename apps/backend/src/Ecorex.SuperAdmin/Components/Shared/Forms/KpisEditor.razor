@@ -1,0 +1,100 @@
+@using Ecorex.Application.Forms
+
+@*
+    Editor de KPIs de la bandeja del formulario-modulo (Ola 6/A1). Alimenta la bandeja (/m/{code}, FormModule):
+    si hay kpis_json, la bandeja pinta ESTOS KPIs; si se deja vacio, usa los 4 por defecto. Patron Json/JsonChanged
+    como StatusLadderEditor. Las metricas sum/avg/min/max piden un campo numerico del formulario.
+*@
+
+<div style="font-size:12px;color:var(--ink-3);margin-bottom:8px;">
+    Tarjetas de indicadores de la bandeja. Vacio = por defecto (Registros / Confirmados / Anulados / Este mes).
+</div>
+
+@if (_kpis.Count == 0)
+{
+    <div style="font-size:11.5px;color:var(--ink-3);margin-bottom:8px;">Sin KPIs personalizados: la bandeja muestra los 4 por defecto.</div>
+}
+@for (var i = 0; i < _kpis.Count; i++)
+{
+    var idx = i;
+    var k = _kpis[idx];
+    var needsField = KpiConfigJson.MetricNeedsField(k.Metric);
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px;border:1px solid var(--line-2);border-radius:8px;margin-bottom:6px;background:var(--surface-2);">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+            <button type="button" class="fb-mini-btn" title="Subir" disabled="@(idx == 0)" @onclick="() => MoveAsync(idx, -1)">&#9650;</button>
+            <button type="button" class="fb-mini-btn" title="Bajar" disabled="@(idx == _kpis.Count - 1)" @onclick="() => MoveAsync(idx, 1)">&#9660;</button>
+        </div>
+        <input class="fb-input" style="width:150px;" placeholder="Etiqueta" value="@k.Label"
+               @onchange="@(async e => { k.Label = e.Value?.ToString() ?? string.Empty; await EmitAsync(); })" />
+        <select class="fb-input" style="min-width:150px;" value="@k.Metric"
+                @onchange="@(async e => { k.Metric = e.Value?.ToString() ?? KpiConfigJson.Count; await EmitAsync(); })">
+            <option value="@KpiConfigJson.Count" selected="@(k.Metric == KpiConfigJson.Count)">Cantidad de registros</option>
+            <option value="@KpiConfigJson.Confirmed" selected="@(k.Metric == KpiConfigJson.Confirmed)">Confirmados</option>
+            <option value="@KpiConfigJson.Voided" selected="@(k.Metric == KpiConfigJson.Voided)">Anulados</option>
+            <option value="@KpiConfigJson.Month" selected="@(k.Metric == KpiConfigJson.Month)">Este mes (+ % crecimiento)</option>
+            <option value="@KpiConfigJson.Sum" selected="@(k.Metric == KpiConfigJson.Sum)">Suma de un campo</option>
+            <option value="@KpiConfigJson.Avg" selected="@(k.Metric == KpiConfigJson.Avg)">Promedio de un campo</option>
+            <option value="@KpiConfigJson.Min" selected="@(k.Metric == KpiConfigJson.Min)">Minimo de un campo</option>
+            <option value="@KpiConfigJson.Max" selected="@(k.Metric == KpiConfigJson.Max)">Maximo de un campo</option>
+        </select>
+        @if (needsField)
+        {
+            <select class="fb-input" style="min-width:160px;flex:1;" value="@k.Field"
+                    @onchange="@(async e => { k.Field = e.Value?.ToString(); await EmitAsync(); })">
+                <option value="" selected="@(string.IsNullOrEmpty(k.Field))">-- campo numerico --</option>
+                @foreach (var q in NumericFields)
+                {
+                    <option value="@q.FieldCode" selected="@(k.Field == q.FieldCode)">@q.Label (@q.FieldCode)</option>
+                }
+            </select>
+        }
+        <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar KPI" @onclick="() => RemoveAsync(idx)">&times;</button>
+    </div>
+}
+<button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddAsync">+ Agregar KPI</button>
+
+@code {
+    /// <summary>kpis_json de la definicion (o null = KPIs por defecto).</summary>
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public EventCallback<string?> JsonChanged { get; set; }
+
+    /// <summary>Preguntas de la definicion (para el dropdown de campo numerico en sum/avg/min/max).</summary>
+    [Parameter] public IReadOnlyList<FormQuestionDto> Questions { get; set; } = Array.Empty<FormQuestionDto>();
+
+    private IEnumerable<FormQuestionDto> NumericFields =>
+        Questions.Where(q => FormFieldValidator.IsCapture(q.ControlType)).OrderBy(q => q.SortOrder);
+
+    private sealed class KpiRow { public string Label = ""; public string Metric = KpiConfigJson.Count; public string? Field; }
+
+    private readonly List<KpiRow> _kpis = new();
+    private string? _loadedFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Json, _loadedFrom, StringComparison.Ordinal)) { return; }
+        _loadedFrom = Json;
+        _kpis.Clear();
+        foreach (var k in KpiConfigJson.Read(Json))
+        {
+            _kpis.Add(new KpiRow { Label = k.Label, Metric = k.Metric, Field = k.Field });
+        }
+    }
+
+    private async Task AddAsync() { _kpis.Add(new KpiRow { Label = "", Metric = KpiConfigJson.Count }); await EmitAsync(); }
+    private async Task RemoveAsync(int idx) { if (idx >= 0 && idx < _kpis.Count) { _kpis.RemoveAt(idx); await EmitAsync(); } }
+    private async Task MoveAsync(int idx, int dir)
+    {
+        var j = idx + dir;
+        if (idx < 0 || idx >= _kpis.Count || j < 0 || j >= _kpis.Count) { return; }
+        (_kpis[idx], _kpis[j]) = (_kpis[j], _kpis[idx]);
+        await EmitAsync();
+    }
+
+    private async Task EmitAsync()
+    {
+        var list = _kpis.Select(k => new KpiConfigJson.Kpi(k.Label, k.Metric, k.Field)).ToList();
+        var json = KpiConfigJson.Build(list);
+        _loadedFrom = json;
+        await JsonChanged.InvokeAsync(json);
+    }
+}

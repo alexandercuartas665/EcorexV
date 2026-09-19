@@ -691,7 +691,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
             definition.CardLayout, definition.CustomCss,
             definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
-            definition.HideSubmitBar, definition.StatusLadderJson, definition.ThemeJson);
+            definition.HideSubmitBar, definition.StatusLadderJson, definition.ThemeJson, definition.KpisJson);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -846,6 +846,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                 ? System.Text.Json.JsonSerializer.Serialize(request.ListColumns) : null;
             definition.FilterFieldsJson = request.FilterFields is { Count: > 0 }
                 ? System.Text.Json.JsonSerializer.Serialize(request.FilterFields) : null;
+            // KPIs configurables de la bandeja (Ola 6/A1). Vacio/null = KPIs por defecto.
+            definition.KpisJson = string.IsNullOrWhiteSpace(request.KpisJson) ? null : request.KpisJson.Trim();
             // Un modulo del menu tiene que poder capturar: si sigue en borrador, se activa al publicar
             // (si no, GetOrCreateDraftAsync rechaza el alta con "El formulario no esta activo").
             if (definition.Status != FormStatus.Active)

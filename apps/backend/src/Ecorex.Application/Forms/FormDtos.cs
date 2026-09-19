@@ -79,7 +79,9 @@ public sealed record FormDefinitionDetailDto(
     // Escalon de estados calculados del registro (P1#5, config-driven). Null = sin escalon.
     string? StatusLadderJson = null,
     // Apariencia / tema del formulario (Ola 5). Null = tema clasico (comportamiento actual).
-    string? ThemeJson = null);
+    string? ThemeJson = null,
+    // KPIs configurables de la bandeja del modulo (Ola 6/A1). Null = KPIs por defecto.
+    string? KpisJson = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding
@@ -116,7 +118,9 @@ public sealed record FormRecordListItemDto(
 public sealed record SetFormModuleRequest(
     bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon,
     IReadOnlyList<string>? ListColumns = null, IReadOnlyList<string>? FilterFields = null,
-    string? MenuLabel = null);
+    string? MenuLabel = null,
+    // KPIs configurables de la bandeja (Ola 6/A1). Null = KPIs por defecto.
+    string? KpisJson = null);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 

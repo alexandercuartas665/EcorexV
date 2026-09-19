@@ -1578,6 +1578,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.StatusLadderJson).HasColumnType(jsonColumnType);
             // Apariencia / tema (Ola 5): JSON dual (jsonb / nvarchar(max)). Null = clasico.
             b.Property(x => x.ThemeJson).HasColumnType(jsonColumnType);
+            // KPIs configurables de la bandeja (Ola 6/A1): JSON dual. Null = KPIs por defecto.
+            b.Property(x => x.KpisJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

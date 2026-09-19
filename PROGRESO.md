@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.92: FormBuilder OLA 6/A1 - KPIs configurables de la bandeja (con migracion)
+
+- Ola 6 (cierre "Formularios avanzados"), parte A1: los KPIs de la bandeja del formulario-modulo (/m/{code})
+  dejan de ser fijos en codigo; ahora se configuran en el disenador. Antes 4 tarjetas hardcode
+  (Registros/Confirmados/Anulados/Este mes); ahora el usuario define su lista.
+- Migracion DUAL AddFormKpis: form_definitions.kpis_json (jsonb / nvarchar(max)), aditiva, null = los 4 KPIs
+  por defecto. Aplicada a BD dev (PG).
+- Backend: FormDefinition.KpisJson + EF (jsonColumnType) + FormDefinitionDetailDto.KpisJson + campo KpisJson en
+  SetFormModuleRequest (se guarda con el resto del modulo en SetModuleAsync). Helper puro KpiConfigJson
+  (Read/Build/ParseNumber/DefaultLabel): metricas count/confirmed/voided/month + sum/avg/min/max sobre un campo
+  numerico. ParseNumber tolera el valor crudo del motor (invariante, decimales largos "145677.33146400") y
+  moneda/miles US y es-CO.
+- UI: KpisEditor.razor enganchado en la pestana Modulo de Propiedades del formulario (lista ordenable:
+  etiqueta + metrica + campo cuando aplica). FormModule pinta los KPIs configurados o, si no hay, los 4 por
+  defecto; sum/avg/min/max sobre los NO anulados.
+- Tests: KpiConfigJsonTests (18, incl. ParseNumber con decimales largos y moneda). Build verde. Verificado E2E
+  en dev (COT/SIMULADOR COTIZACIONES): configurar "Cotizaciones" (count) + "Total cotizado" (sum tot_total) ->
+  Guardar -> kpis_json en BD; la bandeja /m/COT pinta 2 y 751,524.27. Config de prueba limpiada. Siguiente:
+  A2 (lookup externo) y A3 (cierre por evento). NO desplegado; este cambio lleva migracion.
+
 ## 2026-09-19 - v0.16.91: FormBuilder OLA 5 - Apariencia / Tema (editor del skin, con migracion)
 
 - Proyecto "Editores del FormBuilder", OLA 5 (ultima): el look "prototipo" (hero + rotulo, acento de marca,

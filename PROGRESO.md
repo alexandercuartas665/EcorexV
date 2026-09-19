@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.88: FormBuilder OLA 2 - descripcion por opcion (Radio / Seleccion multiple)
+
+- Proyecto "Editores del FormBuilder", OLA 2: la descripcion de cada opcion (2a linea que sale como opt-card
+  cuando el campo esta en modo tarjetas, Format=="cards") ya no se pone por SQL; ahora se edita en el disenador.
+  NO se toca el motor: FormOption.Desc, FormFieldValidator.ParseOptions y el pintado .dfr-optcard-desc de
+  DynamicFormRenderer YA existian; se construye el EDITOR que produce la misma config.
+- FormDesigner.razor: el editor de opciones se separa por tipo de control. FormControlType.Select conserva el
+  chip-list de siempre. Radio / MultiCheck estrenan un editor "Opciones (etiqueta + descripcion)": por opcion,
+  input de Etiqueta (PatchOptionAsync) + input de Descripcion (nuevo PatchOptionDescAsync) + quitar, y
+  + Agregar opcion. Nota que la descripcion solo se ve como 2a linea si se activa "Mostrar opciones como
+  tarjetas" (Formato).
+- PatchOptionDescAsync: reescribe SOLO la clave desc de esa opcion (Desc=null si queda vacia), preservando
+  id/label/value; serializa con JsonSerializerDefaults.Web y persiste via PatchQuestionAsync.
+- Sin migracion. Build de SuperAdmin verde. Verificado en dev (AGROMETALICAS, form FT-C-005): el editor aparece
+  para las preguntas Radio, escribir una descripcion persiste y sobrevive al recargar la pregunta (round-trip
+  por ParseOptions preservando etiquetas); revertido para dejar la copia dev limpia. Siguiente olas: tema (5),
+  estado calculado (3), reglas al enviar (4). NO desplegado (a senal del usuario).
+
 ## 2026-09-19 - v0.16.87: FormBuilder OLA 1 - editor de pildoras de gestion (self-serve)
 
 - Proyecto "Editores del FormBuilder" (migrar config solo-SQL a editores del disenador; regla: toda feature de

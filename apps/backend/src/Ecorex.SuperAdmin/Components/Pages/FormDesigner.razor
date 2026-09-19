@@ -2322,7 +2322,7 @@ else
             <label>Tipo de respuesta</label>
             <input class="fb-input ro" readonly value="@node.Reg.Tipo" />
         </div>
-        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck })
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Select })
         {
             <div class="fb-field">
                 <label>Opciones de la lista</label>
@@ -2330,6 +2330,28 @@ else
                     (i, v) => PatchOptionAsync(node.Q!, i, v),
                     i => PatchOptionAsync(node.Q!, i, null),
                     () => PatchOptionAsync(node.Q!, -1, $"Opcion {OptionLabels(node.Q!).Count + 1}"))
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Radio or FormControlType.MultiCheck })
+        {
+            var opts = FormFieldValidator.ParseOptions(node.Q!.OptionsJson).ToList();
+            <div class="fb-field">
+                <label>Opciones (etiqueta + descripcion)</label>
+                @for (var i = 0; i < opts.Count; i++)
+                {
+                    var idx = i;
+                    <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px;">
+                        <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
+                            <input class="fb-input" placeholder="Etiqueta" value="@opts[idx].Label"
+                                   @onchange="@(e => PatchOptionAsync(node.Q!, idx, e.Value?.ToString() ?? string.Empty))" />
+                            <input class="fb-input" style="font-size:12px;" placeholder="Descripcion (2a linea, solo en modo tarjetas)" value="@opts[idx].Desc"
+                                   @onchange="@(e => PatchOptionDescAsync(node.Q!, idx, e.Value?.ToString()))" />
+                        </div>
+                        <button type="button" class="fb-mini-btn" title="Quitar opcion" @onclick="() => PatchOptionAsync(node.Q!, idx, null)">&times;</button>
+                    </div>
+                }
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='@(() => PatchOptionAsync(node.Q!, -1, $"Opcion {opts.Count + 1}"))'>+ Agregar opcion</button>
+                <div class="fb-hint">La descripcion es opcional; sale como 2a linea SOLO si activas "Mostrar opciones como tarjetas" (mas abajo, en Formato). Sin descripcion, la tarjeta queda de una linea.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.CascadeConfigurator })
@@ -3343,6 +3365,16 @@ else
         {
             options[index] = options[index] with { Label = value };
         }
+        var json = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await PatchQuestionAsync(q, r => r with { OptionsJson = json });
+    }
+
+    // Descripcion (2a linea en modo tarjetas, ADR opt-card) de UNA opcion; conserva id/label/value.
+    private async Task PatchOptionDescAsync(FormQuestionDto q, int index, string? desc)
+    {
+        var options = FormFieldValidator.ParseOptions(q.OptionsJson).ToList();
+        if (index < 0 || index >= options.Count) { return; }
+        options[index] = options[index] with { Desc = string.IsNullOrWhiteSpace(desc) ? null : desc.Trim() };
         var json = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         await PatchQuestionAsync(q, r => r with { OptionsJson = json });
     }

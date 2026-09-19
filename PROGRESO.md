@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.93: FormBuilder OLA 6/A2 - lookup de datos EXTERNOS (SQL) como origen de campo
+
+- Ola 6/A2: un campo de formulario ya puede autocompletarse desde un DATASET EXTERNO (SQL) del tenant
+  (conexiones ADR-0064/0084), no solo desde Opciones/Contenedor/Directorio/Inventario. SIN migracion:
+  FormSourceKind se persiste como string, se agrega el miembro ExternalDataset al final.
+- Adaptador nuevo ExternalDatasetLookupSource (Forms/Lookups) que implementa IFormLookupSource y delega en
+  ITenantDataConnectionService (ListAsync/ListDatasetsAsync/GetDatasetAsync/RunDatasetAsync) -> NO corre SQL
+  crudo: guard read-only, parametros tipados, tope de filas. Registrado en DI (una fuente = un
+  IFormLookupSource, sin tocar consumidores; la fachada despacha por Kind). Modelo de COPIA (decision del
+  usuario "mejor copiar"): el valor guardado ES el texto de la columna "Mostrar"; las demas columnas se copian
+  con el mapa de autollenado. Proyeccion pura ExternalDatasetProjection (Project/Filter) testeable.
+- Editor (FormDesigner RenderOrigenDatos): nueva opcion "Dataset externo (SQL)" + el picker de fuente se
+  ensancha para listar los datasets del tenant; DisplayField/autollenado se pueblan con las columnas del
+  dataset (fields_json, o inferidas corriendo 1 fila). ChangeSourceKindAsync conserva SourceRef para la nueva
+  fuente. En runtime (DynamicFormRenderer) el buscador ya despacha por Kind sin cambios; se oculta "Crear en el
+  modulo" para datasets externos (solo lectura).
+- Sin migracion. Tests: ExternalDatasetProjectionTests (5). Build verde; 971 Application verdes. Verificado E2E
+  en dev (AGROMETALICAS, dataset externo MULTISYS/ITEMS, conexion en vivo): el disenador lista el dataset,
+  DescribeFields corre la consulta externa y trae las columnas reales (NOMBRE/MARCA/PRECIO/REFERENCIA...),
+  DisplayField=NOMBRE se persiste (source_kind=ExternalDataset). El buscador en runtime reusa el mismo
+  RunDatasetAsync ya probado por DescribeFields (en Vista previa el lookup sale deshabilitado, por eso el
+  dropdown no se ejercito ahi). Campo de prueba revertido. Siguiente: A3 (cierre por evento). NO desplegado.
+
 ## 2026-09-19 - v0.16.92: FormBuilder OLA 6/A1 - KPIs configurables de la bandeja (con migracion)
 
 - Ola 6 (cierre "Formularios avanzados"), parte A1: los KPIs de la bandeja del formulario-modulo (/m/{code})

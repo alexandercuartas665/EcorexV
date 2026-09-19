@@ -134,6 +134,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.TerceroLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ItemLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.DataContainerLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ExternalDatasetLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupService, Forms.Lookups.FormLookupService>();
         // Motor de reglas (FASE 4 ola 3, ADR-0016): REGISTRO TIPADO de verbos en DI (el
         // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error

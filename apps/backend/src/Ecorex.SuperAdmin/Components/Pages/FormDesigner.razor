@@ -2990,6 +2990,7 @@ else
                     <option value="@nameof(FormSourceKind.DataContainer)">Contenedor de datos</option>
                     <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
                     <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
+                    <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)
@@ -2998,10 +2999,10 @@ else
                 var fields = LookupFieldsFor(q);
                 var sources = _lookupSources.GetValueOrDefault(q.SourceKind) ?? Array.Empty<FormLookupSourceOption>();
 
-                @if (q.SourceKind == FormSourceKind.DataContainer)
+                @if (q.SourceKind is FormSourceKind.DataContainer or FormSourceKind.ExternalDataset)
                 {
                     <div class="fb-field">
-                        <label>Fuente (contenedor)</label>
+                        <label>@(q.SourceKind == FormSourceKind.ExternalDataset ? "Fuente (dataset externo)" : "Fuente (contenedor)")</label>
                         <select class="fb-select" value="@(q.SourceRef ?? "")"
                                 @onchange="@(e => PatchQuestionAsync(q, r => r with { SourceRef = e.Value?.ToString(), DisplayField = null }))">
                             <option value="">Selecciona...</option>
@@ -3010,6 +3011,10 @@ else
                                 <option value="@s.Ref" selected="@(s.Ref == q.SourceRef)">@s.Label</option>
                             }
                         </select>
+                        @if (q.SourceKind == FormSourceKind.ExternalDataset)
+                        {
+                            <div class="fb-hint">Se guarda el texto de la columna "Mostrar". El resto de columnas se copian con "Autollenar campos". Solo lectura sobre la conexion externa.</div>
+                        }
                     </div>
                 }
 
@@ -3135,9 +3140,10 @@ else
         await PatchQuestionAsync(q, r => r with
         {
             SourceKind = kind,
-            // El valor guardado es siempre el id de la fila/entidad; SourceRef solo aplica al contenedor.
+            // El valor guardado es siempre el id de la fila/entidad; SourceRef solo aplica a fuentes con
+            // varias tablas (contenedor / dataset externo).
             ValueField = kind == FormSourceKind.Options ? null : "id",
-            SourceRef = kind == FormSourceKind.DataContainer ? r.SourceRef : null,
+            SourceRef = kind is FormSourceKind.DataContainer or FormSourceKind.ExternalDataset ? r.SourceRef : null,
         });
     }
 

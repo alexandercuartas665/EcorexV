@@ -1497,7 +1497,10 @@ else
                     {
                         <div class="dfr-lookup-empty">
                             <span>Sin resultados.</span>
-                            <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                            @if (q.SourceKind != FormSourceKind.ExternalDataset)
+                            {
+                                <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                            }
                         </div>
                     }
                     else
@@ -2377,7 +2380,10 @@ else
                     {
                         <div class="dfr-lookup-empty">
                             <span>Sin resultados.</span>
-                            <a class="dfr-lookup-create" href="@CreateLink(cfg.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                            @if (cfg.SourceKind != FormSourceKind.ExternalDataset)
+                            {
+                                <a class="dfr-lookup-create" href="@CreateLink(cfg.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                            }
                         </div>
                     }
                     else

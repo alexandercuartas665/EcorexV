@@ -18,5 +18,9 @@ public enum FormSourceKind
     Tercero,
 
     /// <summary>Inventario de items (ItemService + campos dinamicos ItemFieldService).</summary>
-    Item
+    Item,
+
+    /// <summary>Dataset externo (SQL) del tenant (Ola 6/A2, reusa ADR-0064/0084 via ExternalDatasetLookupSource).
+    /// SourceRef = id del ExternalDataSet; modelo de copia (el valor guardado es el texto mostrado).</summary>
+    ExternalDataset
 }

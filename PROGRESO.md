@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.90: FormBuilder OLA 4 - reglas AL ENVIAR (crear actividad)
+
+- Proyecto "Editores del FormBuilder", OLA 4: la regla al enviar un formulario (form_submit_rules) ya no se
+  cablea por SQL; ahora se edita en el disenador. NO se toca el motor: el disparo on-submit vive en
+  RulesEngine.ExecuteForFormSubmitAsync (llamado en FormResponseService.SaveAsync, incl. el visor publico /f/)
+  sobre el verbo GENERAR_TAREAS_DESDE_TABLA; ya existia y esta probado en prod (v0.15.120). Ola 4 construye el
+  WRITE-PATH de autoria (que faltaba: form_submit_rules no tenia ni un solo sitio de escritura) + el EDITOR.
+- Backend (Ecorex.Application.Rules): IRuleDocumentService gana ListFormSubmitLinksAsync /
+  CreateFormSubmitTaskRuleAsync / UpdateFormSubmitTaskRuleAsync / UnlinkFormSubmitAsync. Patron identico a
+  CreateFieldConditionRuleAsync: asegura el documento propio del formulario (FRMRULES-{code}, Active), crea una
+  Rule Active con el verbo + params_json y la liga en form_submit_rules. Unlink quita el vinculo y borra la
+  regla dedicada (si no tiene historial). Nuevo helper puro FormSubmitRuleParams (Build/Parse) con las claves
+  camelCase EXACTAS que lee el verbo (activityTypeId, assigneeUserId, titlePrefix, autoComplete, y tableField+
+  titleKey para "una por fila" o rows para "una sola tarea"). Sin migracion (todo son tablas ya existentes).
+- UI: nueva pestana "Al enviar" en Propiedades del formulario (FormDesigner) + SubmitRuleEditor.razor. Lista las
+  reglas al enviar y permite crear/editar/eliminar "al enviar, crear actividad <tipo> asignada a <usuario>";
+  origen una sola actividad (titulo fijo) o una por fila de una tabla (GridDetail) del formulario; prefijo de
+  titulo opcional. El asignado sale de la config (necesario en /f/ anonimo). El editor guarda por si mismo.
+- Tests: FormSubmitRuleParamsTests (7: build fija usa rows, build por-fila usa tableField+titleKey, omite
+  assignee/prefijo vacios, roundtrip, fixedTitle desde row objeto, json ilegible). Build verde. Verificado E2E
+  en dev (AGROMETALICAS): crear -> persiste rule Active + form_submit_rules con params correctos; lista con
+  nombres resueltos; editar -> reescribe params (quita assignee); eliminar -> quita vinculo + regla. El disparo
+  en runtime es el path pre-existente probado en prod. Datos de prueba limpiados. Siguiente ola: 5 (tema). NO
+  desplegado (a senal del usuario).
+
 ## 2026-09-19 - v0.16.89: FormBuilder OLA 3 - editor de estado calculado (status ladder)
 
 - Proyecto "Editores del FormBuilder", OLA 3: el escalon de estados calculados de un registro (ej. lead:

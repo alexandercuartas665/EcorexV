@@ -254,6 +254,30 @@ public sealed record CreateFieldConditionRequest(
     string Effect);
 
 /// <summary>
+/// Autoria inline de una regla AL ENVIAR el formulario (Ola 4 del FormBuilder): al confirmar el envio se
+/// crea una actividad (verbo GENERAR_TAREAS_DESDE_TABLA) y la regla queda ligada a la definicion en
+/// form_submit_rules. Origen de filas: <see cref="TableFieldCode"/> (una tarea por fila de un GridDetail)
+/// o, si va vacio, <see cref="FixedTitle"/> (una sola tarea). ActivityTypeId es obligatorio;
+/// AssigneeTenantUserId vacio = sin asignar (necesario en formularios publicos anonimos, sin actor).
+/// </summary>
+public sealed record CreateFormSubmitTaskRuleRequest(
+    Guid DefinitionId,
+    Guid ActivityTypeId,
+    Guid? AssigneeTenantUserId = null,
+    string? TableFieldCode = null,
+    string? TitleKey = null,
+    string? FixedTitle = null,
+    string? TitlePrefix = null,
+    bool AutoComplete = false);
+
+/// <summary>Regla AL ENVIAR ligada a una definicion (lista del constructor). Trae los parametros ya
+/// parseados del ParamsJson para repoblar el editor sin volver a leer el JSON en la UI.</summary>
+public sealed record FormSubmitRuleLinkDto(
+    Guid Id, Guid RuleId, string RuleName, int SortOrder, RuleStatus Status,
+    Guid? ActivityTypeId, Guid? AssigneeTenantUserId,
+    string? TableFieldCode, string? TitleKey, string? FixedTitle, string? TitlePrefix, bool AutoComplete);
+
+/// <summary>
 /// Regla en la LISTA PLANA del tenant (panel izquierdo del modulo, ADR-0023): trae el
 /// documento como categoria visible y el flag de archivado para filtrar.
 /// </summary>

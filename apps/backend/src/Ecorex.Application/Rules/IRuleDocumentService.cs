@@ -71,6 +71,23 @@ public interface IRuleDocumentService
     Task<RuleResult<RuleNodeLinkDto>> LinkToNodeAsync(Guid ruleId, Guid workflowNodeId, int sortOrder = 0, bool isAutonomous = true, CancellationToken cancellationToken = default);
     Task<RuleResult<bool>> UnlinkNodeAsync(Guid workflowNodeRuleId, CancellationToken cancellationToken = default);
 
+    // ---- Reglas AL ENVIAR el formulario (form_submit_rules, Ola 4 del FormBuilder) ----
+
+    /// <summary>Reglas al enviar ligadas a una definicion, con sus parametros ya parseados.</summary>
+    Task<IReadOnlyList<FormSubmitRuleLinkDto>> ListFormSubmitLinksAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Crea una regla "al enviar, crear actividad" (verbo GENERAR_TAREAS_DESDE_TABLA) en el
+    /// documento del formulario (se crea si no existe) y la liga en form_submit_rules. La regla nace Active.
+    /// El runtime (RulesEngine.ExecuteForFormSubmitAsync desde FormResponseService.SaveAsync, incl. /f/) ya la ejecuta.</summary>
+    Task<RuleResult<FormSubmitRuleLinkDto>> CreateFormSubmitTaskRuleAsync(CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Reescribe los parametros (y el nombre) de una regla al enviar existente, por su vinculo.</summary>
+    Task<RuleResult<FormSubmitRuleLinkDto>> UpdateFormSubmitTaskRuleAsync(Guid formSubmitRuleId, CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Quita el vinculo al enviar y borra la regla dedicada (si no tiene historial; si lo tiene,
+    /// queda huerfana pero ya sin vinculo, asi que no vuelve a dispararse).</summary>
+    Task<RuleResult<bool>> UnlinkFormSubmitAsync(Guid formSubmitRuleId, CancellationToken cancellationToken = default);
+
     // ---- Historial ----
 
     /// <summary>Ultimas ejecuciones del tenant, filtrables por documento y/o regla.</summary>

@@ -405,6 +405,7 @@ else
                     <button type="button" style='@PropTabCss("general")' @onclick='() => _propsTab = "general"'>General</button>
                     <button type="button" style='@PropTabCss("registro")' @onclick='() => _propsTab = "registro"'>Registro</button>
                     <button type="button" style='@PropTabCss("estado")' @onclick='() => _propsTab = "estado"'>Estado</button>
+                    <button type="button" style='@PropTabCss("alenviar")' @onclick='() => _propsTab = "alenviar"'>Al enviar</button>
                     <button type="button" style='@PropTabCss("modulo")' @onclick='() => _propsTab = "modulo"'>Modulo</button>
                     <button type="button" style='@PropTabCss("css")' @onclick='() => _propsTab = "css"'>CSS</button>
                 </div>
@@ -504,6 +505,13 @@ else
                 <StatusLadderEditor Json="@_statusLadderJson"
                                     JsonChanged="@(v => { _statusLadderJson = v; return Task.CompletedTask; })"
                                     Questions="_def.Questions" />
+                }
+                @if (_propsTab == "alenviar")
+                {
+                @* Reglas AL ENVIAR (Ola 4): crear una actividad al confirmar el envio (verbo
+                   GENERAR_TAREAS_DESDE_TABLA + form_submit_rules). El editor guarda por si mismo (crear/editar/
+                   eliminar), NO por el boton Guardar del modal; el motor ya lo ejecuta en FormResponseService. *@
+                <SubmitRuleEditor DefinitionId="_def.Id" Questions="_def.Questions" />
                 }
                 @if (_propsTab == "modulo")
                 {

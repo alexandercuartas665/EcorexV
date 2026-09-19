@@ -475,6 +475,158 @@ public sealed class RuleDocumentService : IRuleDocumentService
             docCode, $"Reglas de campo - {definition.Title}", order));
     }
 
+    // ---- Reglas AL ENVIAR el formulario (form_submit_rules, Ola 4 del FormBuilder) ----
+
+    public async Task<IReadOnlyList<FormSubmitRuleLinkDto>> ListFormSubmitLinksAsync(
+        Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.FormSubmitRules.AsNoTracking()
+            .Where(l => l.DefinitionId == definitionId)
+            .Join(_db.Rules.AsNoTracking(), l => l.RuleId, r => r.Id, (l, r) => new
+            {
+                l.Id, l.RuleId, l.SortOrder, r.Name, r.ParamsJson, r.Status
+            })
+            .OrderBy(x => x.SortOrder)
+            .ToListAsync(cancellationToken);
+        return rows
+            .Select(x => ToSubmitLinkDto(x.Id, x.RuleId, x.Name, x.SortOrder, x.Status, x.ParamsJson))
+            .ToList();
+    }
+
+    public async Task<RuleResult<FormSubmitRuleLinkDto>> CreateFormSubmitTaskRuleAsync(
+        CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == request.DefinitionId, cancellationToken);
+        if (definition is null)
+        {
+            return RuleResult<FormSubmitRuleLinkDto>.NotFound("Formulario no encontrado.");
+        }
+
+        var (paramsJson, ruleName, err) = await BuildSubmitTaskParamsAsync(request, cancellationToken);
+        if (err is not null) { return RuleResult<FormSubmitRuleLinkDto>.Invalid(err); }
+
+        var docId = await EnsureFormRuleDocumentAsync(definition.Code, definition.Title, cancellationToken);
+        if (docId is null) { return RuleResult<FormSubmitRuleLinkDto>.Invalid("No se pudo crear el documento de reglas."); }
+
+        var order = await _db.FormSubmitRules.CountAsync(l => l.DefinitionId == request.DefinitionId, cancellationToken);
+        var ruleRes = await CreateRuleAsync(docId.Value, new SaveRuleRequest(
+            ruleName, GenerarTareasDesdeTablaVerb.VerbName, ParamsJson: paramsJson!,
+            Status: RuleStatus.Active), cancellationToken);
+        if (!ruleRes.IsOk || ruleRes.Value is null) { return RuleResult<FormSubmitRuleLinkDto>.Invalid(ruleRes.Error ?? "No se pudo crear la regla."); }
+
+        var rule = await _db.Rules.AsNoTracking().FirstAsync(r => r.Id == ruleRes.Value.Id, cancellationToken);
+        var link = new FormSubmitRule
+        {
+            TenantId = rule.TenantId,
+            DefinitionId = request.DefinitionId,
+            RuleId = rule.Id,
+            SortOrder = order
+        };
+        _db.FormSubmitRules.Add(link);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return RuleResult<FormSubmitRuleLinkDto>.Ok(
+            ToSubmitLinkDto(link.Id, rule.Id, ruleName, order, RuleStatus.Active, paramsJson));
+    }
+
+    public async Task<RuleResult<FormSubmitRuleLinkDto>> UpdateFormSubmitTaskRuleAsync(
+        Guid formSubmitRuleId, CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken = default)
+    {
+        var link = await _db.FormSubmitRules.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == formSubmitRuleId, cancellationToken);
+        if (link is null) { return RuleResult<FormSubmitRuleLinkDto>.NotFound("Vinculo no encontrado."); }
+
+        var (paramsJson, ruleName, err) = await BuildSubmitTaskParamsAsync(
+            request with { DefinitionId = link.DefinitionId }, cancellationToken);
+        if (err is not null) { return RuleResult<FormSubmitRuleLinkDto>.Invalid(err); }
+
+        var existing = await GetRuleAsync(link.RuleId, cancellationToken);
+        if (existing is null) { return RuleResult<FormSubmitRuleLinkDto>.NotFound("Regla no encontrada."); }
+
+        var upd = await UpdateRuleAsync(link.RuleId, new SaveRuleRequest(
+            ruleName, GenerarTareasDesdeTablaVerb.VerbName, ParamsJson: paramsJson!,
+            SortOrder: existing.SortOrder, Status: RuleStatus.Active), cancellationToken);
+        if (!upd.IsOk || upd.Value is null) { return RuleResult<FormSubmitRuleLinkDto>.Invalid(upd.Error ?? "No se pudo actualizar la regla."); }
+
+        return RuleResult<FormSubmitRuleLinkDto>.Ok(
+            ToSubmitLinkDto(link.Id, link.RuleId, ruleName, link.SortOrder, RuleStatus.Active, paramsJson));
+    }
+
+    public async Task<RuleResult<bool>> UnlinkFormSubmitAsync(
+        Guid formSubmitRuleId, CancellationToken cancellationToken = default)
+    {
+        var link = await _db.FormSubmitRules.FirstOrDefaultAsync(l => l.Id == formSubmitRuleId, cancellationToken);
+        if (link is null) { return RuleResult<bool>.NotFound("Vinculo no encontrado."); }
+        var ruleId = link.RuleId;
+        _db.FormSubmitRules.Remove(link);
+        await _db.SaveChangesAsync(cancellationToken);
+        // La regla es dedicada a este envio: borrarla si no tiene historial (append-only, ADR-0016). Si lo
+        // tiene, DeleteRuleAsync devuelve Invalid y la regla queda huerfana pero YA sin vinculo (no dispara).
+        await DeleteRuleAsync(ruleId, cancellationToken);
+        return RuleResult<bool>.Ok(true);
+    }
+
+    /// <summary>Documento de reglas propio del formulario (FRMRULES-{Code}, Active). Compartido con las
+    /// reglas de campo; se crea la primera vez y se reutiliza. Devuelve null si no se pudo crear.</summary>
+    private async Task<Guid?> EnsureFormRuleDocumentAsync(string formCode, string formTitle, CancellationToken cancellationToken)
+    {
+        var docCode = $"FRMRULES-{formCode}";
+        var docId = await _db.RuleDocuments.AsNoTracking()
+            .Where(d => d.DocumentCode == docCode)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (docId is not null) { return docId; }
+        var created = await CreateDocumentAsync(new SaveRuleDocumentRequest(
+            docCode, $"Reglas de formulario - {formTitle}", "Formularios",
+            "Reglas creadas desde el constructor de formularios.", RuleStatus.Active), cancellationToken);
+        return created.IsOk && created.Value is not null ? created.Value.Id : null;
+    }
+
+    /// <summary>Valida y arma el ParamsJson (camelCase que lee GenerarTareasDesdeTablaVerb) + un nombre
+    /// legible para la regla al enviar. Error != null aborta.</summary>
+    private async Task<(string? ParamsJson, string RuleName, string? Error)> BuildSubmitTaskParamsAsync(
+        CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ActivityTypeId == Guid.Empty)
+        {
+            return (null, "", "Elige el tipo de actividad a crear.");
+        }
+        var at = await _db.ActivityTypes.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == request.ActivityTypeId, cancellationToken);
+        if (at is null)
+        {
+            return (null, "", "El tipo de actividad no existe en este tenant.");
+        }
+
+        var hasTable = !string.IsNullOrWhiteSpace(request.TableFieldCode);
+        var hasFixed = !string.IsNullOrWhiteSpace(request.FixedTitle);
+        if (!hasTable && !hasFixed)
+        {
+            return (null, "", "Define el origen: un titulo fijo o un campo tabla del formulario.");
+        }
+
+        var paramsJson = FormSubmitRuleParams.Build(
+            request.ActivityTypeId, request.AssigneeTenantUserId,
+            hasTable ? request.TableFieldCode : null,
+            hasTable ? request.TitleKey : null,
+            hasTable ? null : request.FixedTitle,
+            request.TitlePrefix, request.AutoComplete);
+
+        var origen = hasTable ? $"por fila de {request.TableFieldCode}" : $"\"{request.FixedTitle!.Trim()}\"";
+        var name = $"Al enviar: crear {at.Name} ({origen})";
+        return (paramsJson, name, null);
+    }
+
+    private static FormSubmitRuleLinkDto ToSubmitLinkDto(
+        Guid id, Guid ruleId, string name, int sortOrder, RuleStatus status, string? paramsJson)
+    {
+        var p = FormSubmitRuleParams.Parse(paramsJson);
+        return new FormSubmitRuleLinkDto(
+            id, ruleId, name, sortOrder, status,
+            p.ActivityTypeId, p.AssigneeTenantUserId, p.TableFieldCode, p.TitleKey, p.FixedTitle, p.TitlePrefix, p.AutoComplete);
+    }
+
     public async Task<RuleResult<RuleNodeLinkDto>> LinkToNodeAsync(
         Guid ruleId, Guid workflowNodeId, int sortOrder = 0, bool isAutonomous = true,
         CancellationToken cancellationToken = default)

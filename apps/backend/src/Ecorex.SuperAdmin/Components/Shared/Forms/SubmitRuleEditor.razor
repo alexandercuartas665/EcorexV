@@ -1,0 +1,263 @@
+@using Ecorex.Application.Forms
+@using Ecorex.Application.Rules
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IRuleDocumentService RulesSvc
+@inject IActivityTypeService ActivityTypesSvc
+@inject ITenantUserService UsersSvc
+
+@*
+    Editor de REGLAS AL ENVIAR el formulario - OLA 4 del FormBuilder. Alimenta el motor que YA existe:
+    RulesEngine.ExecuteForFormSubmitAsync (disparado en FormResponseService.SaveAsync, incl. el visor publico
+    /f/{token}) sobre el verbo GENERAR_TAREAS_DESDE_TABLA. Persiste una Rule Active en el documento del
+    formulario (FRMRULES-{code}) y su vinculo en form_submit_rules; NO se cablea nada por SQL. Este componente
+    guarda por si mismo (crear/editar/eliminar via IRuleDocumentService), independiente del boton del modal.
+*@
+
+<p style="font-size:12.5px;color:var(--ink-2);margin:0 0 12px;">
+    Al <strong>confirmar el envio</strong> se ejecutan estas reglas (tambien en el enlace publico /f/). Hoy la
+    accion disponible es <strong>crear una actividad</strong> (una sola, o una por fila de una tabla del formulario).
+</p>
+
+@if (_loading)
+{
+    <div style="font-size:12px;color:var(--ink-3);">Cargando...</div>
+}
+else
+{
+    @if (_links.Count == 0 && !_showForm)
+    {
+        <div style="border:1px dashed var(--line-2);border-radius:10px;padding:12px;text-align:center;background:var(--surface-2);font-size:12px;color:var(--ink-3);margin-bottom:10px;">
+            Sin reglas al enviar. Agrega una para crear una actividad automaticamente cuando alguien envie el formulario.
+        </div>
+    }
+    else
+    {
+        @foreach (var l in _links)
+        {
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;margin-bottom:6px;background:var(--surface-2);">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:12.5px;font-weight:600;color:var(--ink-1);">@l.RuleName</div>
+                    <div style="font-size:11px;color:var(--ink-3);">
+                        @ActivityName(l.ActivityTypeId) &middot; @(l.AssigneeTenantUserId is null ? "sin asignar" : UserName(l.AssigneeTenantUserId))
+                        @if (!string.IsNullOrWhiteSpace(l.TableFieldCode)) { <text> &middot; una por fila de @l.TableFieldCode</text> }
+                        @if (l.Status != RuleStatus.Active) { <text> &middot; (@l.Status)</text> }
+                    </div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => EditAsync(l)">Editar</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(l)">Eliminar</button>
+            </div>
+        }
+    }
+
+    @if (!_showForm)
+    {
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="StartNew" disabled="@(_activityTypes.Count == 0)">+ Agregar regla al enviar</button>
+        @if (_activityTypes.Count == 0)
+        {
+            <div style="font-size:11px;color:var(--ink-3);margin-top:4px;">No hay tipos de actividad en el tenant. Crea uno primero en Configuracion de Actividades.</div>
+        }
+    }
+    else
+    {
+        <div style="border:1px solid var(--line-2);border-radius:10px;padding:12px;margin-top:8px;background:var(--surface-1);">
+            <div style="font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:10px;">@(_editId is null ? "Nueva regla al enviar" : "Editar regla al enviar")</div>
+
+            <div class="fb-field">
+                <label>Tipo de actividad a crear</label>
+                <select class="fb-select" value="@(_actId?.ToString() ?? "")"
+                        @onchange="@(e => _actId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                    <option value="">-- elige el tipo --</option>
+                    @foreach (var a in _activityTypes)
+                    {
+                        <option value="@a.Id" selected="@(_actId == a.Id)">@a.Category / @a.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="fb-field">
+                <label>Asignar a</label>
+                <select class="fb-select" value="@(_assigneeId?.ToString() ?? "")"
+                        @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                    <option value="">Sin asignar</option>
+                    @foreach (var u in _users)
+                    {
+                        <option value="@u.Id" selected="@(_assigneeId == u.Id)">@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)</option>
+                    }
+                </select>
+                <div class="fb-hint">En un formulario publico anonimo no hay usuario, asi que el asignado sale de aqui (no de quien envia).</div>
+            </div>
+
+            <div class="fb-field">
+                <label>Cuantas actividades</label>
+                <select class="fb-select" value="@_origin" @onchange="@(e => _origin = e.Value?.ToString() ?? "fija")">
+                    <option value="fija" selected="@(_origin == "fija")">Una sola actividad</option>
+                    <option value="tabla" selected="@(_origin == "tabla")">Una por fila de una tabla del formulario</option>
+                </select>
+            </div>
+
+            @if (_origin == "fija")
+            {
+                <div class="fb-field">
+                    <label>Titulo de la actividad</label>
+                    <input class="fb-input" value="@_fixedTitle" placeholder="Contacto con el cliente"
+                           @onchange="@(e => _fixedTitle = e.Value?.ToString())" />
+                </div>
+            }
+            else
+            {
+                <div class="fb-field">
+                    <label>Tabla (una actividad por fila)</label>
+                    <select class="fb-select" value="@(_tableField ?? "")" @onchange="@(e => _tableField = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value!.ToString())">
+                        <option value="">-- elige la tabla --</option>
+                        @foreach (var g in GridFields)
+                        {
+                            <option value="@g.FieldCode" selected="@(_tableField == g.FieldCode)">@g.Label (@g.FieldCode)</option>
+                        }
+                    </select>
+                    @if (GridFields.Count == 0)
+                    {
+                        <div style="font-size:11px;color:var(--ink-3);margin-top:4px;">Este formulario no tiene campos de tipo Tabla. Agrega uno o usa "Una sola actividad".</div>
+                    }
+                </div>
+                <div class="fb-field">
+                    <label>Columna con el titulo (opcional)</label>
+                    <input class="fb-input" value="@_titleKey" placeholder="title (por defecto)"
+                           @onchange="@(e => _titleKey = e.Value?.ToString())" />
+                    <div class="fb-hint">Codigo de la columna de la fila que da el titulo de cada actividad. Vacio = "title".</div>
+                </div>
+            }
+
+            <div class="fb-field">
+                <label>Prefijo del titulo (opcional)</label>
+                <input class="fb-input" value="@_prefix" placeholder="Ej. [WEB] "
+                       @onchange="@(e => _prefix = e.Value?.ToString())" />
+            </div>
+
+            @if (_error is not null)
+            {
+                <div class="tk-field-error" style="margin:4px 0;">@_error</div>
+            }
+
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button type="button" class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editId is null ? "Crear regla" : "Guardar cambios")</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelForm" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>Definicion cuyas reglas al enviar se editan.</summary>
+    [Parameter] public Guid DefinitionId { get; set; }
+
+    /// <summary>Preguntas de la definicion (para listar los campos Tabla / GridDetail como origen de filas).</summary>
+    [Parameter] public IReadOnlyList<FormQuestionDto> Questions { get; set; } = Array.Empty<FormQuestionDto>();
+
+    private IEnumerable<FormQuestionDto> GridFieldsSeq =>
+        Questions.Where(q => q.ControlType == FormControlType.GridDetail);
+    private List<FormQuestionDto> GridFields => GridFieldsSeq.ToList();
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+
+    private List<FormSubmitRuleLinkDto> _links = new();
+    private IReadOnlyList<ActivityTypeDto> _activityTypes = Array.Empty<ActivityTypeDto>();
+    private IReadOnlyList<TenantUserDto> _users = Array.Empty<TenantUserDto>();
+
+    // Formulario de alta/edicion.
+    private bool _showForm;
+    private Guid? _editId;          // vinculo (FormSubmitRule.Id) que se edita; null = nuevo
+    private Guid? _actId;
+    private Guid? _assigneeId;
+    private string _origin = "fija"; // "fija" | "tabla"
+    private string? _fixedTitle;
+    private string? _tableField;
+    private string? _titleKey;
+    private string? _prefix;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _activityTypes = await ActivityTypesSvc.ListAsync();
+        _users = await UsersSvc.ListAsync();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _links = (await RulesSvc.ListFormSubmitLinksAsync(DefinitionId)).ToList();
+    }
+
+    private string ActivityName(Guid? id)
+        => id is null ? "actividad" : (_activityTypes.FirstOrDefault(a => a.Id == id)?.Name ?? "actividad");
+    private string UserName(Guid? id)
+    {
+        var u = _users.FirstOrDefault(x => x.Id == id);
+        return u is null ? "usuario" : (string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!);
+    }
+
+    private void StartNew()
+    {
+        _editId = null; _actId = null; _assigneeId = null; _origin = "fija";
+        _fixedTitle = null; _tableField = null; _titleKey = null; _prefix = null;
+        _error = null; _showForm = true;
+    }
+
+    private void EditAsync(FormSubmitRuleLinkDto l)
+    {
+        _editId = l.Id;
+        _actId = l.ActivityTypeId;
+        _assigneeId = l.AssigneeTenantUserId;
+        _origin = string.IsNullOrWhiteSpace(l.TableFieldCode) ? "fija" : "tabla";
+        _fixedTitle = l.FixedTitle;
+        _tableField = l.TableFieldCode;
+        _titleKey = l.TitleKey;
+        _prefix = l.TitlePrefix;
+        _error = null; _showForm = true;
+    }
+
+    private void CancelForm() { _showForm = false; _error = null; }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_actId is null || _actId == Guid.Empty) { _error = "Elige el tipo de actividad a crear."; return; }
+        if (_origin == "fija" && string.IsNullOrWhiteSpace(_fixedTitle)) { _error = "Escribe el titulo de la actividad."; return; }
+        if (_origin == "tabla" && string.IsNullOrWhiteSpace(_tableField)) { _error = "Elige la tabla que genera las actividades."; return; }
+
+        _busy = true;
+        try
+        {
+            var req = new CreateFormSubmitTaskRuleRequest(
+                DefinitionId, _actId!.Value, _assigneeId,
+                TableFieldCode: _origin == "tabla" ? _tableField : null,
+                TitleKey: _origin == "tabla" ? _titleKey : null,
+                FixedTitle: _origin == "fija" ? _fixedTitle : null,
+                TitlePrefix: _prefix,
+                AutoComplete: false);
+
+            var res = _editId is null
+                ? await RulesSvc.CreateFormSubmitTaskRuleAsync(req)
+                : await RulesSvc.UpdateFormSubmitTaskRuleAsync(_editId.Value, req);
+            if (!res.IsOk) { _error = res.Error; return; }
+            await ReloadAsync();
+            _showForm = false;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(FormSubmitRuleLinkDto l)
+    {
+        _busy = true;
+        try
+        {
+            var res = await RulesSvc.UnlinkFormSubmitAsync(l.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            if (_editId == l.Id) { _showForm = false; }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+}

@@ -819,6 +819,10 @@ else
     // ---- Ciclo de vida ----
 
     private IReadOnlyList<FormDefinitionListItemDto> _allDefs = [];
+
+    // Definiciones ACTIVAS del tenant (para el editor de pildoras de gestion: solo se vincula a formularios publicados).
+    private IReadOnlyList<FormDefinitionListItemDto> ActiveDefs =>
+        _allDefs.Where(d => d.Status == FormStatus.Active && !d.IsArchived).ToList();
     // Acceso por seccion (ADR-0082): unidades asignables (Dependencia|Cargo) del organigrama + conteo de
     // candidatos por unidad, para el selector estilo flujos. _addUnitId es el valor del <select> "Asignar".
     private IReadOnlyList<Ecorex.Application.Organization.AssignableOrgUnitDto> _assignableUnits = [];
@@ -2335,6 +2339,16 @@ else
                 <CascadeConfigEditor Json="@node.Q!.CascadeConfigJson"
                                      JsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { CascadeConfigJson = json }))" />
                 <div class="fb-hint">Config-driven: componelo por niveles/columnas/juegos (o pega JSON). El mismo motor sirve cualquier taxonomia y se replica en otro formulario o tenant.</div>
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
+        {
+            <div class="fb-field">
+                <label>Columna de gestiones (pildoras por fila)</label>
+                <GestionPillsEditor OptionsJson="@node.Q!.OptionsJson"
+                                    Definitions="ActiveDefs"
+                                    OptionsJsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { OptionsJson = json }))" />
+                <div class="fb-hint">ADR-0085: una columna de la tabla puede ser de tipo "Gestiones". Cada pildora abre un subformulario (por codigo) ligado a la fila, con su color. Se guarda dentro del options_json de la tabla sin tocar las demas columnas.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Canvas })

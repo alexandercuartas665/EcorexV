@@ -1,0 +1,140 @@
+@using Ecorex.Application.Forms
+
+@*
+    Editor de la columna de GESTIONES de una tabla (GridDetail) - OLA 1 del FormBuilder.
+    Alimenta el motor que YA existe (DynamicFormRenderer.RenderGestionCell / OpenGestionAsync, ADR-0085): escribe
+    SOLO la columna {"id":"gestion","type":"gestion","label":"Gestiones","pills":[{label,def,color}]} dentro del
+    options_json del GridDetail, PRESERVANDO las demas columnas. Cada pildora abre un subformulario (def por
+    codigo) ligado a la fila, con su color (--g-color). Mismo patron Json/JsonChanged que CascadeConfigEditor.
+*@
+
+@if (!_hasGestion)
+{
+    <div style="border:1px dashed var(--line-2);border-radius:10px;padding:12px;text-align:center;background:var(--surface-2);">
+        <div style="font-size:12px;color:var(--ink-3);margin-bottom:8px;">
+            Sin columna de gestiones. Agrega una para que cada fila muestre pildoras que abren subformularios ligados a esa fila.
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CreateGestionAsync">+ Crear columna de Gestiones</button>
+    </div>
+}
+else
+{
+    <div style="border:1px solid var(--line-2);border-radius:10px;padding:10px;background:var(--surface-2);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:11.5px;font-weight:600;color:var(--ink-2);">Titulo de la columna</span>
+            <input class="fb-input" style="flex:1;min-width:120px;" value="@_gestionLabel"
+                   @onchange="@(async e => { _gestionLabel = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? "Gestiones" : e.Value!.ToString()!.Trim(); await EmitAsync(); })" />
+            <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar la columna de gestiones" @onclick="RemoveGestionAsync">Quitar columna</button>
+        </div>
+
+        @if (_pills.Count == 0)
+        {
+            <div style="font-size:12px;color:var(--ink-3);margin:4px 0 8px;">Sin pildoras. Agrega una: etiqueta + color + el formulario que abre.</div>
+        }
+        @for (var i = 0; i < _pills.Count; i++)
+        {
+            var idx = i;
+            var p = _pills[idx];
+            var defOk = string.IsNullOrWhiteSpace(p.Def) || Definitions.Any(d => string.Equals(d.Code, p.Def, StringComparison.OrdinalIgnoreCase));
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px;border:1px solid var(--line-2);border-radius:8px;margin-bottom:6px;background:var(--surface-1);">
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <button type="button" class="fb-mini-btn" title="Subir" disabled="@(idx == 0)" @onclick="() => MoveAsync(idx, -1)">&#9650;</button>
+                    <button type="button" class="fb-mini-btn" title="Bajar" disabled="@(idx == _pills.Count - 1)" @onclick="() => MoveAsync(idx, 1)">&#9660;</button>
+                </div>
+                <input class="fb-input" style="width:150px;" placeholder="Etiqueta" value="@p.Label"
+                       @onchange="@(async e => { p.Label = e.Value?.ToString() ?? string.Empty; await EmitAsync(); })" />
+                <ColorPicker Value="@p.Color" ValueChanged="@(async c => { p.Color = c; await EmitAsync(); })" />
+                <select class="fb-input" style="min-width:190px;flex:1;" value="@p.Def"
+                        @onchange="@(async e => { p.Def = e.Value?.ToString() ?? string.Empty; await EmitAsync(); })">
+                    <option value="">-- formulario que abre --</option>
+                    @foreach (var d in Definitions)
+                    {
+                        <option value="@d.Code" selected="@(string.Equals(d.Code, p.Def, StringComparison.OrdinalIgnoreCase))">@d.Code - @d.Title</option>
+                    }
+                    @if (!defOk && !string.IsNullOrWhiteSpace(p.Def))
+                    {
+                        <option value="@p.Def" selected="true">@p.Def (no encontrado)</option>
+                    }
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar pildora" @onclick="() => RemoveAsync(idx)">&times;</button>
+                @if (!defOk)
+                {
+                    <div style="flex-basis:100%;font-size:11px;color:var(--danger);">El formulario '@p.Def' no existe o no esta Activo en este tenant.</div>
+                }
+            </div>
+        }
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddAsync" disabled="@(Definitions.Count == 0)">+ Agregar pildora</button>
+        @if (Definitions.Count == 0)
+        {
+            <div style="font-size:11px;color:var(--ink-3);margin-top:4px;">No hay formularios Activos en el tenant para vincular. Publica (Activa) un formulario primero.</div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>options_json COMPLETO del GridDetail (arreglo de columnas). Se preservan las columnas que no son de gestion.</summary>
+    [Parameter] public string? OptionsJson { get; set; }
+    [Parameter] public EventCallback<string> OptionsJsonChanged { get; set; }
+
+    /// <summary>Definiciones ACTIVAS del tenant (para el dropdown de "formulario que abre"; se guarda el Code en 'def').</summary>
+    [Parameter] public IReadOnlyList<FormDefinitionListItemDto> Definitions { get; set; } = Array.Empty<FormDefinitionListItemDto>();
+
+    private sealed class PillRow { public string Label = ""; public string Def = ""; public string? Color; }
+
+    private readonly List<PillRow> _pills = new();
+    private bool _hasGestion;
+    private string _gestionLabel = "Gestiones";
+    private string? _loadedFrom;   // ultimo options_json con el que sincronizamos (evita re-cargar tras nuestro propio emit)
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(OptionsJson, _loadedFrom, StringComparison.Ordinal)) { return; }
+        _loadedFrom = OptionsJson;
+        LoadFromJson();
+    }
+
+    private void LoadFromJson()
+    {
+        _pills.Clear();
+        _hasGestion = false;
+        _gestionLabel = "Gestiones";
+        var current = GestionColumnJson.Read(OptionsJson);
+        if (current is not { } g) { return; }
+        _hasGestion = true;
+        _gestionLabel = g.Label;
+        foreach (var p in g.Pills) { _pills.Add(new PillRow { Label = p.Label, Def = p.Def, Color = p.Color }); }
+    }
+
+    private async Task CreateGestionAsync() { _hasGestion = true; await EmitAsync(); }
+    private async Task AddAsync()
+    {
+        _pills.Add(new PillRow { Label = "Gestion", Def = Definitions.FirstOrDefault()?.Code ?? "", Color = "#0d9488" });
+        await EmitAsync();
+    }
+    private async Task RemoveAsync(int idx) { if (idx >= 0 && idx < _pills.Count) { _pills.RemoveAt(idx); await EmitAsync(); } }
+    private async Task MoveAsync(int idx, int dir)
+    {
+        var j = idx + dir;
+        if (idx < 0 || idx >= _pills.Count || j < 0 || j >= _pills.Count) { return; }
+        (_pills[idx], _pills[j]) = (_pills[j], _pills[idx]);
+        await EmitAsync();
+    }
+
+    // Emite el options_json COMPLETO: reescribe SOLO la columna gestion (creandola si falta) y conserva las demas.
+    private async Task EmitAsync()
+    {
+        var pills = _pills.Select(p => new GestionColumnJson.Pill(p.Label, p.Def, p.Color)).ToList();
+        var json = GestionColumnJson.Upsert(OptionsJson, _gestionLabel, pills);
+        _loadedFrom = json;   // nuestro propio emit: no recargar en el siguiente OnParametersSet
+        await OptionsJsonChanged.InvokeAsync(json);
+    }
+
+    private async Task RemoveGestionAsync()
+    {
+        _hasGestion = false;
+        _pills.Clear();
+        var json = GestionColumnJson.Remove(OptionsJson);
+        _loadedFrom = json;
+        await OptionsJsonChanged.InvokeAsync(json);
+    }
+}

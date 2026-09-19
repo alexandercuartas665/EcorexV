@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.87: FormBuilder OLA 1 - editor de pildoras de gestion (self-serve)
+
+- Proyecto "Editores del FormBuilder" (migrar config solo-SQL a editores del disenador; regla: toda feature de
+  formularios editable por el usuario). OLA 1: la columna de GESTIONES de un GridDetail (type="gestion" +
+  pills), que hoy solo se ponia por SQL, ahora se edita en el disenador. NO se toca el motor (ADR-0085:
+  DynamicFormRenderer.RenderGestionCell/OpenGestionAsync); se construye el EDITOR que produce la misma config.
+- Nuevo GestionPillsEditor.razor (Components/Shared/Forms), enganchado en el panel de propiedades de una
+  pregunta GridDetail en FormDesigner. Crea/quita la columna "Gestiones"; lista reordenable de pildoras, cada
+  una con etiqueta + color (reusa ColorPicker) + formulario que abre (dropdown de defs Active del tenant,
+  muestra code+titulo, guarda el code en 'def'). Avisa si una pildora apunta a un def que no existe/no Active.
+- Persistencia: reescribe SOLO la columna {"id":"gestion","type":"gestion","label":..,"pills":[{label,def,color}]}
+  del options_json PRESERVANDO las demas columnas (logica en GestionColumnJson, testeable). Patron Json/JsonChanged
+  como CascadeConfigEditor.
+- Sin migracion. Tests: GestionColumnJsonTests (preserva otras columnas, no duplica, omite pills sin def, read
+  roundtrip, remove, json invalido). Build de la solucion verde. Siguiente olas: opciones .desc, tema, estado
+  calculado, reglas al enviar. NO desplegado.
+
 ## 2026-09-18 - v0.16.86: herramientas de LECTURA del contenedor (consultar precios, ADR-0103)
 
 - ContenedorDatosToolset era solo escritura. Se agregaron dos tools de lectura (quedan disponibles sin tocar

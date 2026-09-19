@@ -77,7 +77,9 @@ public sealed record FormDefinitionDetailDto(
     // Oculta Enviar/Imprimir/autoguardado cuando el formulario se llena dentro del wizard de crear tarea.
     bool HideSubmitBar = false,
     // Escalon de estados calculados del registro (P1#5, config-driven). Null = sin escalon.
-    string? StatusLadderJson = null);
+    string? StatusLadderJson = null,
+    // Apariencia / tema del formulario (Ola 5). Null = tema clasico (comportamiento actual).
+    string? ThemeJson = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding
@@ -94,6 +96,9 @@ public sealed record SetFormSequenceNextRequest(long Next);
 
 /// <summary>CSS personalizado de todo el formulario (pestana Estilos del disenador). Null/vacio lo borra.</summary>
 public sealed record SetFormCssRequest(string? CustomCss);
+
+/// <summary>Apariencia / tema del formulario (Ola 5, pestana Apariencia). Null/vacio = tema clasico.</summary>
+public sealed record SetFormThemeRequest(string? ThemeJson);
 
 /// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado. <see cref="Fields"/>
 /// son los valores de campo (fieldCode -> valor) para las columnas configurables de la bandeja / BI.</summary>

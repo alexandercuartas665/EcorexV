@@ -407,6 +407,7 @@ else
                     <button type="button" style='@PropTabCss("estado")' @onclick='() => _propsTab = "estado"'>Estado</button>
                     <button type="button" style='@PropTabCss("alenviar")' @onclick='() => _propsTab = "alenviar"'>Al enviar</button>
                     <button type="button" style='@PropTabCss("modulo")' @onclick='() => _propsTab = "modulo"'>Modulo</button>
+                    <button type="button" style='@PropTabCss("apariencia")' @onclick='() => _propsTab = "apariencia"'>Apariencia</button>
                     <button type="button" style='@PropTabCss("css")' @onclick='() => _propsTab = "css"'>CSS</button>
                 </div>
 
@@ -574,6 +575,16 @@ else
                     }
                 }
                 }
+                @if (_propsTab == "apariencia")
+                {
+                @* Apariencia / tema (Ola 5): editor amable del skin (tema, color de marca, hero/rotulo, flags) que
+                   produce theme_json; el renderer lo traduce a estilos. Se persiste con el boton Guardar del modal. *@
+                <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 12px;">
+                    Da estilo al formulario <strong>sin escribir CSS</strong>. El tema Prototipo agrega un hero con el color de marca; la pestana CSS queda para casos avanzados.
+                </p>
+                <ThemeEditor Json="@_themeJson"
+                             JsonChanged="@(v => { _themeJson = v; return Task.CompletedTask; })" />
+                }
                 @if (_propsTab == "css")
                 {
                 @* CSS personalizado de todo el formulario (#8). Se aplica al llenar (URL publica, modulo
@@ -656,6 +667,8 @@ else
     private string _customCss = "";
     // Escalon de estados calculados (Ola 3): status_ladder_json de la definicion.
     private string? _statusLadderJson;
+    // Apariencia / tema (Ola 5): theme_json de la definicion.
+    private string? _themeJson;
     // Formulario como modulo (ola F4).
     private bool _isModule;
     private Guid? _moduleViewId;
@@ -1588,6 +1601,7 @@ else
         _hideSubmitBar = _def.HideSubmitBar;
         _customCss = _def.CustomCss ?? "";
         _statusLadderJson = _def.StatusLadderJson;
+        _themeJson = _def.ThemeJson;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleLabel = _def.Title;
@@ -1682,6 +1696,11 @@ else
             var ladder = await FormsSvc.SetStatusLadderAsync(_def!.Id, _statusLadderJson);
             if (!ladder.IsOk) { _modalError = ladder.Error; return; }
             _def = ladder.Value;
+
+            // Apariencia / tema (Ola 5): theme_json (null = tema clasico).
+            var theme = await FormsSvc.SetThemeAsync(_def!.Id, _themeJson);
+            if (!theme.IsOk) { _modalError = theme.Error; return; }
+            _def = theme.Value;
 
             _showFormProps = false;
         }

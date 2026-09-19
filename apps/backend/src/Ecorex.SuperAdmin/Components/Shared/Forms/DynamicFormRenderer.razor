@@ -40,7 +40,13 @@ else if (_definition is null)
 }
 else
 {
-    <div class="dfr-root @CardWidthClass()" id="@FormScopeId">
+    <div class="dfr-root @CardWidthClass() @ThemeClass()" id="@FormScopeId">
+        @* Apariencia / tema (Ola 5): variables de marca + ocultar chips, acotadas con @@scope. Va ANTES del
+           custom_css para que el CSS crudo del usuario siga ganando en casos avanzados. *@
+        @if (ThemeStyleBlock() is { } themeCss)
+        {
+            <style>@((MarkupString)themeCss)</style>
+        }
         @* CSS personalizado del formulario (#8): acotado con @@scope al contenedor de ESTE formulario
            para no filtrarse al resto de la pagina; si el navegador no soporta @@scope, simplemente no
            se aplica (nunca contamina globalmente). Se neutraliza cualquier cierre </style> de ruptura. *@
@@ -51,17 +57,22 @@ else
         @if (ShowHeader)
         {
             <div class="dfr-head">
+                @if (_theme.Hero && !string.IsNullOrWhiteSpace(_theme.Eyebrow))
+                {
+                    <div class="dfr-eyebrow">@_theme.Eyebrow</div>
+                }
                 <h3 class="dfr-title">@_definition.Title</h3>
                 @if (!string.IsNullOrWhiteSpace(_definition.Description))
                 {
                     <p class="dfr-sub">@_definition.Description</p>
                 }
                 <div class="dfr-meta">
-                    <span class="dfr-chip">@_definition.Code</span>
-                    <span class="dfr-chip">rev @_definition.Revision</span>
+                    @* Chips "tecnicos" (codigo/rev/ref): el tema Apariencia (Ola 5) puede ocultarlos via .dfr-chip-tech. *@
+                    <span class="dfr-chip dfr-chip-tech">@_definition.Code</span>
+                    <span class="dfr-chip dfr-chip-tech">rev @_definition.Revision</span>
                     @if (!string.IsNullOrWhiteSpace(_response?.Reference))
                     {
-                        <span class="dfr-chip">ref @_response!.Reference</span>
+                        <span class="dfr-chip dfr-chip-tech">ref @_response!.Reference</span>
                     }
                     @* Registro transaccional (ola F3): numero y estado tras confirmar. *@
                     @if (!string.IsNullOrWhiteSpace(_response?.RecordNumber))
@@ -370,6 +381,18 @@ else
         return $"@scope (#{FormScopeId}) {{\n{safe}\n}}";
     }
 
+    // Apariencia / tema (Ola 5): traducido de theme_json. El look "prototipo" es CSS estatico por la clase;
+    // aqui solo se emiten las variables dinamicas (--brand/--brand-soft) y ocultar chips, acotadas por @scope.
+    private FormThemeJson.ThemeSpec _theme = FormThemeJson.ThemeSpec.Default;
+
+    private string ThemeClass() => _theme.IsPrototipo ? "dfr-theme-prototipo" : "";
+
+    private string? ThemeStyleBlock()
+    {
+        var css = FormThemeJson.ToInnerCss(_theme);
+        return css is null ? null : $"@scope (#{FormScopeId}) {{\n{css}\n}}";
+    }
+
     private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
     // RulesEngine (FASE 4 ola 3, ADR-0016): campos con reglas vinculadas y estado de UI
@@ -478,6 +501,7 @@ else
                 catch { /* sin grafo: las secciones restringidas quedan en solo-lectura (fail-safe) */ }
             }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
+            _theme = FormThemeJson.Read(_definition?.ThemeJson);   // apariencia / tema (Ola 5)
             _response = null;
             _values.Clear();
             _errors.Clear();
@@ -3113,8 +3137,8 @@ else
 
     // Estilo "tarjetas" para Radio/MultiCheck (opt-in): se guarda en Format=="cards" (Format no aplica a
     // controles de opcion, asi que se reutiliza sin migracion). Solo cambia la presentacion.
-    private static bool IsOptionCards(FormQuestionDto q)
-        => string.Equals(q.Format, "cards", StringComparison.OrdinalIgnoreCase)
+    private bool IsOptionCards(FormQuestionDto q)
+        => (string.Equals(q.Format, "cards", StringComparison.OrdinalIgnoreCase) || _theme.Cards)
            && q.ControlType is FormControlType.Radio or FormControlType.MultiCheck;
 
     // Estado calculado (P1#5): valor actual del campo destino del escalon (StatusLadderJson.field). El

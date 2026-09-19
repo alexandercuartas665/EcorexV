@@ -691,7 +691,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
             definition.CardLayout, definition.CustomCss,
             definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
-            definition.HideSubmitBar, definition.StatusLadderJson);
+            definition.HideSubmitBar, definition.StatusLadderJson, definition.ThemeJson);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -797,6 +797,27 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             catch (System.Text.Json.JsonException) { return FormResult<FormDefinitionDetailDto>.Invalid("El escalon de estados no es JSON valido."); }
         }
         definition.StatusLadderJson = string.IsNullOrWhiteSpace(json) ? null : json;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    public async Task<FormResult<FormDefinitionDetailDto>> SetThemeAsync(
+        Guid definitionId, string? themeJson, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+        var json = themeJson?.Trim();
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try { using var _ = System.Text.Json.JsonDocument.Parse(json); }
+            catch (System.Text.Json.JsonException) { return FormResult<FormDefinitionDetailDto>.Invalid("El tema no es JSON valido."); }
+        }
+        definition.ThemeJson = string.IsNullOrWhiteSpace(json) ? null : json;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

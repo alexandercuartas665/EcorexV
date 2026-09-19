@@ -5458,6 +5458,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
 
+                    b.Property<string>("ThemeJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("theme_json");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)

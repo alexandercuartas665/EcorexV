@@ -17,6 +17,23 @@
 .dfr-title { font-size: 20px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0; }
 .dfr-sub { font-size: 13px; color: var(--ink-2, #5C5C66); margin: 0; }
 .dfr-meta { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
+/* Apariencia / tema (Ola 5). El "rotulo" (eyebrow) sale sobre el titulo cuando el hero esta activo.
+   El tema "prototipo" convierte el encabezado en un hero: fondo de marca suave, acento y titulo mayor.
+   El color de marca llega por --brand/--brand-soft que el theme_json fija scopeado al formulario. */
+.dfr-eyebrow {
+    font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--brand, #2563EB); margin-bottom: 2px;
+}
+.dfr-root.dfr-theme-prototipo .dfr-head {
+    background: var(--brand-soft, #EFF4FF);
+    border: 1px solid var(--brand, #2563EB);
+    border-radius: var(--rad, 20px);
+    padding: 18px 22px;
+    border-left: 5px solid var(--brand, #2563EB);
+}
+.dfr-root.dfr-theme-prototipo .dfr-title { font-size: 25px; color: var(--ink, #1B1B1E); }
+.dfr-root.dfr-theme-prototipo .dfr-sub { color: var(--ink-2, #5C5C66); }
 .dfr-chip {
     font-size: 11px; font-weight: 700; letter-spacing: .02em;
     font-family: 'JetBrains Mono', ui-monospace, monospace;

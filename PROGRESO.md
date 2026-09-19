@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.91: FormBuilder OLA 5 - Apariencia / Tema (editor del skin, con migracion)
+
+- Proyecto "Editores del FormBuilder", OLA 5 (ultima): el look "prototipo" (hero + rotulo, acento de marca,
+  tarjetas, ocultar chips) ya no se logra con custom_css crudo; ahora se elige en el disenador. UNICA ola que
+  toca el motor (permitido por el plan): DynamicFormRenderer traduce theme_json a estilos scopeados.
+- Migracion DUAL (AddFormTheme): nueva columna form_definitions.theme_json (jsonb / nvarchar(max)). Aditiva,
+  null = tema clasico (comportamiento actual). Aplicada a la BD dev (PG).
+- Backend: FormDefinition.ThemeJson + EF (jsonColumnType) + FormDefinitionDetailDto.ThemeJson +
+  IFormDefinitionService.SetThemeAsync (valida JSON) + SetFormThemeRequest. Helper puro FormThemeJson
+  (Read/Build/ToInnerCss): el color solo se acepta como hex (anti-inyeccion); ToInnerCss emite
+  --brand/--brand-soft (color-mix) + ocultar .dfr-chip-tech.
+- Renderer (DynamicFormRenderer): parsea theme al cargar; clase dfr-theme-prototipo en la raiz; bloque <style>
+  del tema DENTRO del @scope (antes del custom_css, que sigue ganando); rotulo (.dfr-eyebrow) sobre el titulo
+  cuando hero+eyebrow; chips codigo/rev/ref marcados .dfr-chip-tech (ocultables); IsOptionCards respeta el flag
+  global cards. CSS estatico nuevo: .dfr-eyebrow + hero prototipo (usa --brand/--brand-soft, se tine con el color).
+- UI: nueva pestana "Apariencia" en Propiedades del formulario + ThemeEditor.razor (Tema Clasico/Prototipo,
+  Color de marca con ColorPicker, hero + rotulo, ocultar chips, opciones como tarjetas global). Se persiste con
+  el boton Guardar del modal (SetThemeAsync).
+- Sin tocar ADR nuevo (columna aditiva). Tests: FormThemeJsonTests (7). Build verde; 966+ Application y
+  SuperAdmin.Tests verdes (salvo 2 fallas pre-existentes ajenas: AiStepOrchestratorTests). Verificado E2E en dev
+  (AGROMETALICAS FT-C-005): setear tema+color+hero+chips+cards -> Guardar -> theme_json en BD; Vista previa
+  muestra hero teal con rotulo, chips ocultos, 5 grupos Radio como tarjetas, --brand=#0d9488 scopeado. Tema de
+  prueba limpiado. FIN del proyecto Editores del FormBuilder (olas 1-5). NO desplegado (a senal del usuario);
+  ESTE deploy SI lleva migracion (theme_json), la primera del lote v0.16.84->91.
+
 ## 2026-09-19 - v0.16.90: FormBuilder OLA 4 - reglas AL ENVIAR (crear actividad)
 
 - Proyecto "Editores del FormBuilder", OLA 4: la regla al enviar un formulario (form_submit_rules) ya no se

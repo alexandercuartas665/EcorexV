@@ -108,4 +108,12 @@ public class FormDefinition : TenantEntity, IVersioned
     /// (visible en la bandeja/impresion) y se pinta como badge en el encabezado. Null = sin escalon.
     /// </summary>
     public string? StatusLadderJson { get; set; }
+
+    /// <summary>
+    /// Apariencia / tema del formulario (Ola 5 del FormBuilder), editable en el disenador SIN escribir CSS crudo.
+    /// JSON: { "tema": "prototipo"|"clasico", "color": "#4f46e5", "hero": true, "eyebrow": "Asesoria especializada",
+    /// "hideChips": true, "cards": true }. El renderer lo traduce a estilos scopeados (--brand/--brand-soft, hero,
+    /// tarjetas globales, ocultar chips tecnicos). Null = tema clasico por defecto (comportamiento actual).
+    /// </summary>
+    public string? ThemeJson { get; set; }
 }

@@ -1,0 +1,92 @@
+@*
+    Editor de APARIENCIA / TEMA del formulario - OLA 5 del FormBuilder. Alimenta el motor que YA existe
+    (DynamicFormRenderer, que ahora traduce theme_json a estilos scopeados): en vez de escribir custom_css crudo,
+    el usuario elige tema, color de marca, rotulo (hero) y un par de flags. Patron Json/JsonChanged como
+    StatusLadderEditor; el color de marca fluye por --brand/--brand-soft que el renderer ya consume.
+*@
+
+<div class="fb-field">
+    <label>Tema</label>
+    <select class="fb-select" value="@_tema"
+            @onchange="@(async e => { _tema = e.Value?.ToString() ?? "clasico"; await EmitAsync(); })">
+        <option value="clasico" selected="@(_tema == "clasico")">Clasico (limpio)</option>
+        <option value="prototipo" selected="@(_tema == "prototipo")">Prototipo (hero + acento de marca)</option>
+    </select>
+    <div class="fb-hint">"Prototipo" convierte el encabezado en un hero con el color de marca. La pestana CSS queda solo para casos avanzados.</div>
+</div>
+
+<div class="fb-field">
+    <label>Color de marca</label>
+    <div style="display:flex;align-items:center;gap:8px;">
+        <ColorPicker Value="@_color" ValueChanged="@(async c => { _color = c; await EmitAsync(); })" />
+        @if (!string.IsNullOrWhiteSpace(_color))
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearColorAsync">Quitar color</button>
+        }
+    </div>
+    <div class="fb-hint">Tine botones, tarjetas de opcion, badges y el hero. Vacio = color por defecto del sistema.</div>
+</div>
+
+<div class="fb-field">
+    <label class="pl-toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" checked="@_hero" @onchange="@(async e => { _hero = (bool)(e.Value ?? false); await EmitAsync(); })" />
+        Mostrar rotulo (hero) sobre el titulo
+    </label>
+    @if (_hero)
+    {
+        <input class="fb-input" style="margin-top:6px;" value="@_eyebrow" placeholder="Ej. Asesoria especializada"
+               @onchange="@(async e => { _eyebrow = e.Value?.ToString(); await EmitAsync(); })" />
+        <div class="fb-hint">Texto pequeno en mayusculas encima del titulo (solo con tema Prototipo se ve el hero completo).</div>
+    }
+</div>
+
+<div class="fb-field">
+    <label class="pl-toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" checked="@_hideChips" @onchange="@(async e => { _hideChips = (bool)(e.Value ?? false); await EmitAsync(); })" />
+        Ocultar chips tecnicos (codigo / rev / ref)
+    </label>
+</div>
+
+<div class="fb-field">
+    <label class="pl-toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" checked="@_cards" @onchange="@(async e => { _cards = (bool)(e.Value ?? false); await EmitAsync(); })" />
+        Opciones como tarjetas en todo el formulario
+    </label>
+    <div class="fb-hint">Aplica el estilo de tarjetas a todas las preguntas de Radio / Seleccion multiple, sin activarlo una por una.</div>
+</div>
+
+@code {
+    /// <summary>theme_json de la definicion (o null = tema clasico).</summary>
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public EventCallback<string?> JsonChanged { get; set; }
+
+    private string _tema = "clasico";
+    private string? _color;
+    private bool _hero;
+    private string? _eyebrow;
+    private bool _hideChips;
+    private bool _cards;
+    private string? _loadedFrom;
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Json, _loadedFrom, StringComparison.Ordinal)) { return; }
+        _loadedFrom = Json;
+        var t = FormThemeJson.Read(Json);
+        _tema = t.IsPrototipo ? "prototipo" : "clasico";
+        _color = t.Color;
+        _hero = t.Hero;
+        _eyebrow = t.Eyebrow;
+        _hideChips = t.HideChips;
+        _cards = t.Cards;
+    }
+
+    private async Task ClearColorAsync() { _color = null; await EmitAsync(); }
+
+    private async Task EmitAsync()
+    {
+        var json = FormThemeJson.Build(_tema, _color, _hero, _eyebrow, _hideChips, _cards);
+        _loadedFrom = json;   // nuestro propio emit: no recargar en el siguiente OnParametersSet
+        await JsonChanged.InvokeAsync(json);
+    }
+}

@@ -190,6 +190,7 @@ public class ActividadesToolsetTests
         public Task<FormResult<FormDefinitionDetailDto>> SetCustomCssAsync(Guid definitionId, SetFormCssRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> SetStatusLadderAsync(Guid definitionId, string? statusLadderJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> SetThemeAsync(Guid definitionId, string? themeJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<FormDefinitionDetailDto>> SetCloseRuleAsync(Guid definitionId, string? closeRuleJson, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> ActivateAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> DeactivateAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

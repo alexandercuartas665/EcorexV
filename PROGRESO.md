@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.94: FormBuilder OLA 6/A3 - cierre por evento (firma/campo cierra el registro)
+
+- Ola 6/A3 (cierra la Ola 6): un registro transaccional se puede CERRAR por evento: cuando el campo elegido
+  cumple una condicion (decision del usuario: "si se agrega una firma eso produce el cierre"), el guardado se
+  PROMUEVE a envio -> el registro se confirma y se cierra (queda Submitted/Confirmed, sin mas cambios), aunque
+  el cliente lo mandara como borrador.
+- Migracion DUAL AddFormCloseRule: form_definitions.close_rule_json (jsonb / nvarchar(max)), aditiva, null =
+  sin cierre automatico. Aplicada a BD dev (PG).
+- Backend: FormDefinition.CloseRuleJson + EF (jsonColumnType) + FormDefinitionDetailDto.CloseRuleJson +
+  IFormDefinitionService.SetCloseRuleAsync (valida JSON). Helper puro FormCloseRule.IsMet {field,op,value}
+  (reusa FormVisibilityEvaluator; sin json/invalido/sin campo = NO cierra). Hook en FormResponseService.SaveAsync:
+  si !submit y la regla se cumple, submit=true (reusa el camino de confirmacion ya probado; el registro se
+  bloquea a cambios por el guard de Status==Submitted).
+- UI: seccion "Cierre automatico por evento" en la pestana Registro (solo si es transaccional), reusando el
+  selector campo/op/valor de "Mostrar solo si"; al elegir el campo el operador natural es "tiene valor" (firma).
+  Se persiste con el boton Guardar del modal via SetCloseRuleAsync.
+- Tests: FormCloseRuleTests (3). Build verde; 974 Application verdes. Verificado E2E en dev (FT-C-005): activar
+  transaccional -> aparece la seccion -> elegir campo autoriza_datos -> Guardar -> close_rule_json en BD
+  ({op:notEmpty, field:autoriza_datos}). El auto-cierre en runtime reusa el camino de submit ya existente,
+  gobernado por FormCloseRule (unit-tested); el fill real no se ejercito (Vista previa deshabilita la captura).
+  Config de prueba revertida. FIN de la Ola 6 (A1 KPIs + A2 lookup externo + A3 cierre por evento). NO
+  desplegado (a senal del usuario); este cambio lleva migracion.
+
 ## 2026-09-19 - v0.16.93: FormBuilder OLA 6/A2 - lookup de datos EXTERNOS (SQL) como origen de campo
 
 - Ola 6/A2: un campo de formulario ya puede autocompletarse desde un DATASET EXTERNO (SQL) del tenant

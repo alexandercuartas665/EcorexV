@@ -81,7 +81,9 @@ public sealed record FormDefinitionDetailDto(
     // Apariencia / tema del formulario (Ola 5). Null = tema clasico (comportamiento actual).
     string? ThemeJson = null,
     // KPIs configurables de la bandeja del modulo (Ola 6/A1). Null = KPIs por defecto.
-    string? KpisJson = null);
+    string? KpisJson = null,
+    // Cierre por evento de un registro transaccional (Ola 6/A3). Null = sin cierre automatico.
+    string? CloseRuleJson = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding

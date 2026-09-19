@@ -491,6 +491,40 @@ else
                             Preview del proximo numero: <strong>@SeqPreview()</strong>
                         </p>
                     }
+                    @* Cierre por evento (Ola 6/A3): cuando el campo elegido cumple la condicion (p.ej. se agrega
+                       una firma), el registro se confirma y se cierra solo (queda finalizado, sin mas cambios). *@
+                    <div class="field" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px;">
+                        <label class="form-label">Cierre automatico por evento</label>
+                        <p style="font-size:12px;color:var(--ink-3);margin:0 0 6px;">
+                            Cuando el campo cumpla la condicion (ej. se agregue una <strong>firma</strong>), el registro se confirma y se cierra automaticamente.
+                        </p>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                            <select class="form-control" style="flex:1;min-width:160px;"
+                                    @onchange="@(e => SetCloseField(e.Value?.ToString(), CloseRuleParts.op, CloseRuleParts.value))">
+                                <option value="" selected="@(string.IsNullOrEmpty(CloseRuleParts.field))">(sin cierre automatico)</option>
+                                @foreach (var oq in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)).OrderBy(x => x.SortOrder))
+                                {
+                                    <option value="@oq.FieldCode" selected="@(CloseRuleParts.field == oq.FieldCode)">@oq.Label (@oq.FieldCode)</option>
+                                }
+                            </select>
+                            @if (!string.IsNullOrEmpty(CloseRuleParts.field))
+                            {
+                                <select class="form-control" style="max-width:180px;"
+                                        @onchange="@(e => _closeRuleJson = BuildVisibleWhen(CloseRuleParts.field, e.Value?.ToString(), CloseRuleParts.value))">
+                                    <option value="notEmpty" selected="@(CloseRuleParts.op == "notEmpty")">tiene valor</option>
+                                    <option value="equals" selected="@(CloseRuleParts.op == "equals")">es igual a</option>
+                                    <option value="notEquals" selected="@(CloseRuleParts.op == "notEquals")">es distinto de</option>
+                                    <option value="includes" selected="@(CloseRuleParts.op == "includes")">incluye</option>
+                                    <option value="empty" selected="@(CloseRuleParts.op == "empty")">esta vacio</option>
+                                </select>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(CloseRuleParts.field) && CloseRuleParts.op is not ("empty" or "notEmpty"))
+                        {
+                            <input class="form-control" style="margin-top:6px;" value="@CloseRuleParts.value" placeholder="valor (ej. el id de la opcion)"
+                                   @onchange="@(e => _closeRuleJson = BuildVisibleWhen(CloseRuleParts.field, CloseRuleParts.op, e.Value?.ToString()))" />
+                        }
+                    </div>
                 }
 
                 }
@@ -676,6 +710,19 @@ else
     private string? _statusLadderJson;
     // Apariencia / tema (Ola 5): theme_json de la definicion.
     private string? _themeJson;
+    // Cierre por evento (Ola 6/A3): close_rule_json de la definicion.
+    private string? _closeRuleJson;
+    // Partes {field,op,value} de la regla de cierre, para el editor (misma forma de la visibilidad condicional).
+    private (string? field, string op, string? value) CloseRuleParts => ParseVisibleWhen(_closeRuleJson);
+
+    // Elegir el campo de cierre por evento. Al escoger un campo, el operador natural es "tiene valor"
+    // (p.ej. una firma agregada); vacio = sin cierre automatico.
+    private void SetCloseField(string? field, string op, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(field)) { _closeRuleJson = null; return; }
+        var effectiveOp = string.IsNullOrWhiteSpace(op) || op == "equals" ? "notEmpty" : op;
+        _closeRuleJson = BuildVisibleWhen(field, effectiveOp, value);
+    }
     // Formulario como modulo (ola F4).
     private bool _isModule;
     private Guid? _moduleViewId;
@@ -1611,6 +1658,7 @@ else
         _customCss = _def.CustomCss ?? "";
         _statusLadderJson = _def.StatusLadderJson;
         _themeJson = _def.ThemeJson;
+        _closeRuleJson = _def.CloseRuleJson;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleLabel = _def.Title;
@@ -1711,6 +1759,11 @@ else
             var theme = await FormsSvc.SetThemeAsync(_def!.Id, _themeJson);
             if (!theme.IsOk) { _modalError = theme.Error; return; }
             _def = theme.Value;
+
+            // Cierre por evento (Ola 6/A3): close_rule_json (null = sin cierre automatico).
+            var close = await FormsSvc.SetCloseRuleAsync(_def!.Id, _closeRuleJson);
+            if (!close.IsOk) { _modalError = close.Error; return; }
+            _def = close.Value;
 
             _showFormProps = false;
         }

@@ -124,4 +124,11 @@ public class FormDefinition : TenantEntity, IVersioned
     /// sum/avg/min/max operan sobre un campo numerico del formulario.
     /// </summary>
     public string? KpisJson { get; set; }
+
+    /// <summary>
+    /// Cierre por evento de un registro transaccional (Ola 6/A3). JSON { "field","op","value" } (misma forma de
+    /// la visibilidad condicional): cuando la condicion se cumple al guardar (p.ej. se agrega una firma), el
+    /// guardado se PROMUEVE a envio y el registro se confirma/cierra. Null = sin cierre automatico.
+    /// </summary>
+    public string? CloseRuleJson { get; set; }
 }

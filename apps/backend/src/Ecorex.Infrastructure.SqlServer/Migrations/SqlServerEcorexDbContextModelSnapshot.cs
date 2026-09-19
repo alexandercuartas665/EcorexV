@@ -5355,6 +5355,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDefaultValue("Normal")
                         .HasColumnName("card_layout");
 
+                    b.Property<string>("CloseRuleJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("close_rule_json");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)

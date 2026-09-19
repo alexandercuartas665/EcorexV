@@ -1580,6 +1580,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.ThemeJson).HasColumnType(jsonColumnType);
             // KPIs configurables de la bandeja (Ola 6/A1): JSON dual. Null = KPIs por defecto.
             b.Property(x => x.KpisJson).HasColumnType(jsonColumnType);
+            // Cierre por evento (Ola 6/A3): JSON dual {field,op,value}. Null = sin cierre automatico.
+            b.Property(x => x.CloseRuleJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

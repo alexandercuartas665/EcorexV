@@ -207,6 +207,21 @@ public sealed class FormResponseService : IFormResponseService
             calcValues[question.FieldCode] = computed;
         }
 
+        // Cierre por evento (Ola 6/A3): si la definicion define una condicion de cierre (close_rule_json) y se
+        // cumple con los datos actuales (p.ej. se agrego una firma), el guardado se PROMUEVE a envio: confirma
+        // y CIERRA el registro (queda Submitted/Confirmed y ya no admite mas cambios), aunque el cliente lo
+        // mandara como borrador. Reusa la misma semantica de la visibilidad condicional.
+        if (!submit)
+        {
+            var closeRuleJson = await _db.FormDefinitions.AsNoTracking()
+                .Where(d => d.Id == response.DefinitionId).Select(d => d.CloseRuleJson)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (FormCloseRule.IsMet(closeRuleJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null))
+            {
+                submit = true;
+            }
+        }
+
         if (submit)
         {
             // VALIDACION SERVIDOR completa por tipo, con errores por fieldCode.

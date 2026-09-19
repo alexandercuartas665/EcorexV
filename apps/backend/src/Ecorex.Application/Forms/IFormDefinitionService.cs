@@ -42,6 +42,9 @@ public interface IFormDefinitionService
     /// <summary>Guarda la apariencia / tema del formulario (Ola 5) como JSON de config. Null/vacio = tema clasico.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetThemeAsync(Guid definitionId, string? themeJson, CancellationToken cancellationToken = default);
 
+    /// <summary>Guarda la regla de cierre por evento (Ola 6/A3) como JSON {field,op,value}. Null/vacio = sin cierre.</summary>
+    Task<FormResult<FormDefinitionDetailDto>> SetCloseRuleAsync(Guid definitionId, string? closeRuleJson, CancellationToken cancellationToken = default);
+
     /// <summary>Promueve/retira el formulario como modulo (ola F4): crea/borra el nodo de menu en el grupo elegido.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default);
 

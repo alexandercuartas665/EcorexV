@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-19 - v0.16.89: FormBuilder OLA 3 - editor de estado calculado (status ladder)
+
+- Proyecto "Editores del FormBuilder", OLA 3: el escalon de estados calculados de un registro (ej. lead:
+  Inicial -> Perfilado -> Cerrado) ya no se cablea por SQL; ahora se edita en el disenador. NO se toca el
+  motor: FormStatusLadder.Resolve y su consumo en FormResponseService.SaveAsync (incl. hijos de subform via
+  childCount, ADR-0085) YA existian; se construye el EDITOR que produce el mismo status_ladder_json. Backend
+  intacto: FormDefinitionDetailDto.StatusLadderJson e IFormDefinitionService.SetStatusLadderAsync ya estaban.
+- Nuevos objetos (Components/Shared/Forms): StatusLadderJson.cs (helper puro Read/Build, testeable) +
+  StatusLadderEditor.razor (patron Json/JsonChanged como GestionPillsEditor). Enganchado en una pestana nueva
+  "Estado" del modal Propiedades del formulario (FormDesigner), entre Registro y Modulo; se persiste en
+  SaveFormPropsAsync via SetStatusLadderAsync (null = sin escalon).
+- UX: campo destino (dropdown de campos de captura donde se escribe la etiqueta) + lista ordenable de estados
+  (menor a mayor; el primero sin condiciones = piso), cada estado con etiqueta + condiciones reusando la
+  semantica de "Mostrar solo si" (equals/notEquals/includes/empty/notEmpty) mas hasChildren / childCount(min)
+  sobre campos Subform. Avance-only (el badge nunca baja).
+- Sin migracion. Tests: StatusLadderJsonTests (7: build orden/omite-vacios/childCount default, read roundtrip,
+  null en json invalido/sin field). Build de SuperAdmin verde. Verificado E2E en dev (AGROMETALICAS FT-C-005):
+  READ (escalon sembrado se pinta con campo/estados/condiciones/valores) y WRITE (editar valor 5->4, agregar
+  estado, cambiar campo destino -> Guardar -> persiste en BD); datos de prueba limpiados. Gotcha corregido: el
+  parametro string Json requiere @@ (Json="@@_statusLadderJson"), si no Blazor pasa el literal. Siguientes olas:
+  reglas al enviar (4), tema (5). NO desplegado (a senal del usuario).
+
 ## 2026-09-19 - v0.16.88: FormBuilder OLA 2 - descripcion por opcion (Radio / Seleccion multiple)
 
 - Proyecto "Editores del FormBuilder", OLA 2: la descripcion de cada opcion (2a linea que sale como opt-card

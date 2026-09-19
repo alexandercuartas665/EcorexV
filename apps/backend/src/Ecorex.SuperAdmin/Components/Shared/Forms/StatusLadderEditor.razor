@@ -1,0 +1,187 @@
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+
+@*
+    Editor del ESCALON DE ESTADOS calculados de una definicion - OLA 3 del FormBuilder.
+    Alimenta el motor que YA existe (FormStatusLadder.Resolve, consumido en FormResponseService.SaveAsync al enviar):
+    escribe form_definitions.status_ladder_json = {"field":..,"states":[{"label",..,"when":[{field,op,value|min}]}]}.
+    Estados de MENOR a MAYOR; se alcanza el de mayor indice cuyas condiciones (AND) se cumplen; solo AVANZA.
+    Las condiciones reusan la semantica de "Mostrar solo si" (equals/notEquals/includes/empty/notEmpty) + hasChildren
+    / childCount(min) sobre campos Subform (ADR-0085). Patron Json/JsonChanged como GestionPillsEditor.
+*@
+
+<div class="fb-field">
+    <label>Campo destino del estado</label>
+    <select class="fb-select" value="@_field"
+            @onchange="@(async e => { _field = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value!.ToString(); await EmitAsync(); })">
+        <option value="" selected="@(string.IsNullOrEmpty(_field))">-- sin estado calculado --</option>
+        @foreach (var q in CaptureFields)
+        {
+            <option value="@q.FieldCode" selected="@(_field == q.FieldCode)">@q.Label (@q.FieldCode)</option>
+        }
+    </select>
+    @if (!string.IsNullOrEmpty(_field) && CaptureFields.All(q => q.FieldCode != _field))
+    {
+        <div style="font-size:11px;color:var(--danger);margin-top:4px;">El campo destino '@_field' no existe en este formulario. Crea la pregunta o elige otro campo.</div>
+    }
+    <div class="fb-hint">Al enviar, el estado se calcula desde los datos y se escribe en este campo (badge en el encabezado y columna en la bandeja). Recomendado: un campo de Texto o Lista, ej. <code>estado</code>.</div>
+</div>
+
+@if (string.IsNullOrEmpty(_field))
+{
+    <div style="border:1px dashed var(--line-2);border-radius:10px;padding:12px;text-align:center;background:var(--surface-2);font-size:12px;color:var(--ink-3);">
+        Elige el campo destino para configurar los estados.
+    </div>
+}
+else
+{
+    <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 8px;">
+        Estados de <strong>menor a mayor</strong>. El primero suele ir <strong>sin condiciones</strong> (piso). Se alcanza el estado mas alto cuyas condiciones se cumplen todas; el badge <strong>solo avanza</strong>, nunca baja.
+    </div>
+
+    @for (var s = 0; s < _states.Count; s++)
+    {
+        var si = s;
+        var st = _states[si];
+        <div style="border:1px solid var(--line-2);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--surface-2);">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+                <span style="font-size:11px;font-weight:700;color:var(--ink-3);min-width:18px;text-align:center;">@(si + 1)</span>
+                <input class="fb-input" style="flex:1;min-width:120px;" placeholder="Etiqueta del estado (ej. Perfilado)" value="@st.Label"
+                       @onchange="@(async e => { st.Label = e.Value?.ToString() ?? string.Empty; await EmitAsync(); })" />
+                <button type="button" class="fb-mini-btn" title="Subir" disabled="@(si == 0)" @onclick="() => MoveStateAsync(si, -1)">&#9650;</button>
+                <button type="button" class="fb-mini-btn" title="Bajar" disabled="@(si == _states.Count - 1)" @onclick="() => MoveStateAsync(si, 1)">&#9660;</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar estado" @onclick="() => RemoveStateAsync(si)">&times;</button>
+            </div>
+
+            @if (st.When.Count == 0)
+            {
+                <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 6px 24px;">Sin condiciones: este estado siempre se alcanza (piso). Agrega condiciones para que dependa de los datos.</div>
+            }
+            @for (var c = 0; c < st.When.Count; c++)
+            {
+                var ci = c;
+                var cond = st.When[ci];
+                var isChildOp = cond.Op is "hasChildren" or "childCount";
+                var needsValue = cond.Op is "equals" or "notEquals" or "includes";
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 6px 24px;">
+                    <select class="fb-select" style="min-width:150px;flex:1;"
+                            @onchange="@(async e => { cond.Field = e.Value?.ToString() ?? string.Empty; await EmitAsync(); })">
+                        <option value="" selected="@(string.IsNullOrEmpty(cond.Field))">-- campo --</option>
+                        @foreach (var q in CondFields)
+                        {
+                            <option value="@q.FieldCode" selected="@(cond.Field == q.FieldCode)">@q.Label (@q.FieldCode)@(q.ControlType == FormControlType.Subform ? " [subform]" : "")</option>
+                        }
+                    </select>
+                    <select class="fb-select" style="min-width:150px;"
+                            @onchange="@(async e => { cond.Op = e.Value?.ToString() ?? "equals"; await EmitAsync(); })">
+                        <option value="equals" selected="@(cond.Op == "equals")">es igual a</option>
+                        <option value="notEquals" selected="@(cond.Op == "notEquals")">es distinto de</option>
+                        <option value="includes" selected="@(cond.Op == "includes")">incluye</option>
+                        <option value="notEmpty" selected="@(cond.Op == "notEmpty")">tiene valor</option>
+                        <option value="empty" selected="@(cond.Op == "empty")">esta vacio</option>
+                        <option value="hasChildren" selected="@(cond.Op == "hasChildren")">tiene registros (subform)</option>
+                        <option value="childCount" selected="@(cond.Op == "childCount")">tiene N o mas (subform)</option>
+                    </select>
+                    @if (needsValue)
+                    {
+                        <input class="fb-input" style="width:150px;" placeholder="valor (id de opcion o texto)" value="@cond.Value"
+                               @onchange="@(async e => { cond.Value = e.Value?.ToString(); await EmitAsync(); })" />
+                    }
+                    else if (cond.Op == "childCount")
+                    {
+                        <input class="fb-input" type="number" min="1" step="1" style="width:80px;" placeholder="min" value="@cond.Min"
+                               @onchange="@(async e => { cond.Min = int.TryParse(e.Value?.ToString(), out var mv) && mv > 0 ? mv : 1; await EmitAsync(); })" />
+                    }
+                    <button type="button" class="fb-mini-btn" title="Quitar condicion" @onclick="() => RemoveCondAsync(si, ci)">&times;</button>
+                </div>
+            }
+            <button type="button" class="btn btn-sm btn-outline-secondary" style="margin-left:24px;" @onclick="() => AddCondAsync(si)">+ Agregar condicion</button>
+        </div>
+    }
+    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddStateAsync">+ Agregar estado</button>
+}
+
+@code {
+    /// <summary>status_ladder_json COMPLETO de la definicion (o null si no hay escalon).</summary>
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public EventCallback<string?> JsonChanged { get; set; }
+
+    /// <summary>Preguntas de la definicion (para poblar los dropdown de campo destino y de condiciones).</summary>
+    [Parameter] public IReadOnlyList<FormQuestionDto> Questions { get; set; } = Array.Empty<FormQuestionDto>();
+
+    // Campos donde se puede ESCRIBIR el estado (escalares de captura).
+    private IEnumerable<FormQuestionDto> CaptureFields =>
+        Questions.Where(q => FormFieldValidator.IsCapture(q.ControlType)).OrderBy(q => q.SortOrder);
+
+    // Campos usables en una CONDICION: escalares (para value ops) + Subform (para hasChildren/childCount).
+    private IEnumerable<FormQuestionDto> CondFields =>
+        Questions.Where(q => FormFieldValidator.IsCapture(q.ControlType) || q.ControlType == FormControlType.Subform)
+                 .OrderBy(q => q.SortOrder);
+
+    private sealed class CondRow { public string Field = ""; public string Op = "equals"; public string? Value; public int Min = 1; }
+    private sealed class StateRow { public string Label = ""; public List<CondRow> When = new(); }
+
+    private string? _field;
+    private readonly List<StateRow> _states = new();
+    private string? _loadedFrom;   // ultimo Json con el que sincronizamos (evita recargar tras nuestro propio emit)
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(Json, _loadedFrom, StringComparison.Ordinal)) { return; }
+        _loadedFrom = Json;
+        LoadFromJson();
+    }
+
+    private void LoadFromJson()
+    {
+        _field = null;
+        _states.Clear();
+        var ladder = StatusLadderJson.Read(Json);
+        if (ladder is null) { return; }
+        _field = ladder.Field;
+        foreach (var st in ladder.States)
+        {
+            var row = new StateRow { Label = st.Label };
+            foreach (var c in st.When)
+            {
+                row.When.Add(new CondRow { Field = c.Field, Op = c.Op, Value = c.Value, Min = c.Min is > 0 ? c.Min.Value : 1 });
+            }
+            _states.Add(row);
+        }
+    }
+
+    private async Task AddStateAsync() { _states.Add(new StateRow { Label = "Estado " + (_states.Count + 1) }); await EmitAsync(); }
+    private async Task RemoveStateAsync(int s) { if (s >= 0 && s < _states.Count) { _states.RemoveAt(s); await EmitAsync(); } }
+    private async Task MoveStateAsync(int s, int dir)
+    {
+        var j = s + dir;
+        if (s < 0 || s >= _states.Count || j < 0 || j >= _states.Count) { return; }
+        (_states[s], _states[j]) = (_states[j], _states[s]);
+        await EmitAsync();
+    }
+
+    private async Task AddCondAsync(int s)
+    {
+        if (s < 0 || s >= _states.Count) { return; }
+        _states[s].When.Add(new CondRow { Field = CondFields.FirstOrDefault()?.FieldCode ?? "", Op = "equals" });
+        await EmitAsync();
+    }
+    private async Task RemoveCondAsync(int s, int c)
+    {
+        if (s < 0 || s >= _states.Count) { return; }
+        var when = _states[s].When;
+        if (c >= 0 && c < when.Count) { when.RemoveAt(c); await EmitAsync(); }
+    }
+
+    // Emite el status_ladder_json completo (null si no hay campo destino o no hay estados con etiqueta).
+    private async Task EmitAsync()
+    {
+        var states = _states
+            .Select(s => new StatusLadderJson.State(s.Label, s.When
+                .Select(c => new StatusLadderJson.Cond(c.Field, c.Op, c.Value, c.Op == "childCount" ? c.Min : null)).ToList()))
+            .ToList();
+        var json = StatusLadderJson.Build(_field, states);
+        _loadedFrom = json;   // nuestro propio emit: no recargar en el siguiente OnParametersSet
+        await JsonChanged.InvokeAsync(json);
+    }
+}

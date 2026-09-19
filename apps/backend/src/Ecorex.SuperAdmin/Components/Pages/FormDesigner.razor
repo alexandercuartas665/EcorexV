@@ -404,6 +404,7 @@ else
                 <div role="tablist" style="display:flex;gap:2px;border-bottom:1px solid var(--line);margin:-4px -4px 16px;flex-wrap:wrap;">
                     <button type="button" style='@PropTabCss("general")' @onclick='() => _propsTab = "general"'>General</button>
                     <button type="button" style='@PropTabCss("registro")' @onclick='() => _propsTab = "registro"'>Registro</button>
+                    <button type="button" style='@PropTabCss("estado")' @onclick='() => _propsTab = "estado"'>Estado</button>
                     <button type="button" style='@PropTabCss("modulo")' @onclick='() => _propsTab = "modulo"'>Modulo</button>
                     <button type="button" style='@PropTabCss("css")' @onclick='() => _propsTab = "css"'>CSS</button>
                 </div>
@@ -490,6 +491,19 @@ else
                     }
                 }
 
+                }
+                @if (_propsTab == "estado")
+                {
+                @* Escalon de ESTADOS calculados (Ola 3): el estado del registro se calcula al enviar desde sus datos
+                   y se escribe en el campo destino (badge + columna). Editor sobre form_definitions.status_ladder_json;
+                   el motor (FormStatusLadder.Resolve) ya lo consume en FormResponseService.SaveAsync. *@
+                <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 12px;">
+                    Calcula un <strong>estado</strong> del registro segun sus datos (ej. lead: Inicial &rarr; Perfilado &rarr; Cerrado).
+                    Se evalua al enviar y se guarda en el campo destino.
+                </p>
+                <StatusLadderEditor Json="@_statusLadderJson"
+                                    JsonChanged="@(v => { _statusLadderJson = v; return Task.CompletedTask; })"
+                                    Questions="_def.Questions" />
                 }
                 @if (_propsTab == "modulo")
                 {
@@ -632,6 +646,8 @@ else
     private FormCardLayout _cardLayout = FormCardLayout.Normal;
     private bool _hideSubmitBar;
     private string _customCss = "";
+    // Escalon de estados calculados (Ola 3): status_ladder_json de la definicion.
+    private string? _statusLadderJson;
     // Formulario como modulo (ola F4).
     private bool _isModule;
     private Guid? _moduleViewId;
@@ -1563,6 +1579,7 @@ else
         _cardLayout = _def.CardLayout;
         _hideSubmitBar = _def.HideSubmitBar;
         _customCss = _def.CustomCss ?? "";
+        _statusLadderJson = _def.StatusLadderJson;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleLabel = _def.Title;
@@ -1652,6 +1669,11 @@ else
             var css = await FormsSvc.SetCustomCssAsync(_def!.Id, new SetFormCssRequest(_customCss));
             if (!css.IsOk) { _modalError = css.Error; return; }
             _def = css.Value;
+
+            // Escalon de estados calculados (Ola 3): status_ladder_json (null = sin escalon).
+            var ladder = await FormsSvc.SetStatusLadderAsync(_def!.Id, _statusLadderJson);
+            if (!ladder.IsOk) { _modalError = ladder.Error; return; }
+            _def = ladder.Value;
 
             _showFormProps = false;
         }

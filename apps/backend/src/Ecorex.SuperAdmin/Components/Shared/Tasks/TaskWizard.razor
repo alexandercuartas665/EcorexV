@@ -173,7 +173,7 @@
                                         </div>
                                         <div>
                                             <label style="@LblStyle">Fecha de entrega</label>
-                                            <input type="date" style="@InStyle" @bind="_dueDate" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                                            <input type="datetime-local" style="@InStyle" @bind="_dueDate" min="@DateTime.Now.ToString("yyyy-MM-ddTHH:mm")" />
                                             @if (_errors.TryGetValue("due", out var dueErr)) { <div style="@ErrStyle">@dueErr</div> }
                                         </div>
                                     </div>
@@ -1250,9 +1250,10 @@
     {
         var actor = await ActorAsync();
         var actorName = await ActorNameAsync();
+        // Plazos de flujo (Fase 2): la fecha de entrega lleva HORA (datetime-local).
         DateTimeOffset? due = _dueDate is null
             ? null
-            : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
+            : new DateTimeOffset(_dueDate.Value, DateTimeOffset.Now.Offset).ToUniversalTime();
         var tagIds = await ResolveTagIdsAsync();
 
         var request = new CreateTaskItemRequest(

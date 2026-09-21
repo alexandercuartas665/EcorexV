@@ -149,7 +149,7 @@
                     @if (_openMenu == "start")
                     {
                         <div class="tk-pill-pop" style="padding:12px;">
-                            <input type="date" class="form-control" @bind="_editStart" />
+                            <input type="datetime-local" class="form-control" @bind="_editStart" />
                             <div style="display:flex;gap:6px;margin-top:8px;">
                                 <button class="btn btn-sm btn-primary" @onclick="SaveStartAsync" disabled="@_busy">Guardar</button>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="@(async () => { _editStart = null; await SaveStartAsync(); })" disabled="@_busy">Quitar</button>
@@ -167,7 +167,7 @@
                     @if (_openMenu == "due")
                     {
                         <div class="tk-pill-pop" style="padding:12px;">
-                            <input type="date" class="form-control" @bind="_editDue" />
+                            <input type="datetime-local" class="form-control" @bind="_editDue" />
                             <div style="display:flex;gap:6px;margin-top:8px;">
                                 <button class="btn btn-sm btn-primary" @onclick="SaveDueAsync" disabled="@_busy">Guardar</button>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="@(async () => { _editDue = null; await SaveDueAsync(); })" disabled="@_busy">Quitar</button>
@@ -1742,8 +1742,9 @@
         if (_detail is not null)
         {
             _totalSeconds = _detail.TotalWorkSeconds;
-            _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
-            _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime.Date;
+            // Plazos de flujo (Fase 2): las fechas llevan HORA (datetime-local), no se truncan a .Date.
+            _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime;
+            _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime;
             // Paso(s) ACTUAL(es) del flujo: crea borrador+link idempotente si el nodo tiene formulario. Se carga
             // PRIMERO para que ese formulario ya EXISTA como respuesta y aparezca como tarjeta en _generos; ademas
             // aporta la metadata (NodeName, ruta/compuerta) para el boton "Diligenciar" de esa tarjeta.
@@ -2805,8 +2806,8 @@
                 return;
             }
             _detail = result.Value;
-            _editDue = _detail!.Item.DueDate?.ToLocalTime().DateTime.Date;
-            _editStart = _detail!.Item.StartDate?.ToLocalTime().DateTime.Date;
+            _editDue = _detail!.Item.DueDate?.ToLocalTime().DateTime;
+            _editStart = _detail!.Item.StartDate?.ToLocalTime().DateTime;
             await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
         }
         finally
@@ -2941,13 +2942,14 @@
             await ApplyUpdateAsync(BuildUpdate(clearDue: true));
             return;
         }
-        // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
-        var due = new DateTimeOffset(_editDue.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
+        // Plazos de flujo (Fase 2): la fecha de entrega lleva HORA (datetime-local). ToUniversalTime: Npgsql
+        // solo acepta DateTimeOffset UTC en timestamptz.
+        var due = new DateTimeOffset(_editDue.Value, DateTimeOffset.Now.Offset).ToUniversalTime();
         await ApplyUpdateAsync(BuildUpdate(dueDate: due));
     }
 
-    /// <summary>Guarda la fecha de INICIO (planificada) de la tarea. Con la fecha de entrega, define la
-    /// barra del Gantt (inicio -> entrega). Granularidad de dia (el Gantt es por dias); la hora no aplica.</summary>
+    /// <summary>Guarda la fecha+hora de INICIO (planificada) de la tarea. Con la fecha de entrega, define la
+    /// barra del Gantt (inicio -> entrega). Lleva hora (datetime-local, plazos de flujo Fase 2).</summary>
     private async Task SaveStartAsync()
     {
         _openMenu = null;
@@ -2956,7 +2958,7 @@
             await ApplyUpdateAsync(BuildUpdate(clearStart: true));
             return;
         }
-        var start = new DateTimeOffset(_editStart.Value.Date.AddHours(8), DateTimeOffset.Now.Offset).ToUniversalTime();
+        var start = new DateTimeOffset(_editStart.Value, DateTimeOffset.Now.Offset).ToUniversalTime();
         await ApplyUpdateAsync(BuildUpdate(startDate: start));
     }
 

@@ -1,0 +1,123 @@
+@page "/config-calendario"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@inject ITenantOperatingCalendarService CalSvc
+
+<PageTitle>Calendario operativo - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">CONFIGURACION - ENTIDAD</div>
+        <h1>Calendario operativo</h1>
+        <p class="module-sub">Marca los dias NO operativos (festivos o dias sin operacion). El calculo de plazos de flujo en modo "habil" los salta, ademas de sabados y domingos.</p>
+    </div>
+</div>
+
+<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
+    <div>
+        <label class="form-label">Fecha no operativa</label>
+        <input type="date" class="form-control" style="max-width:180px;" @bind="_newDate" />
+    </div>
+    <div style="flex:1;min-width:180px;">
+        <label class="form-label">Motivo (opcional)</label>
+        <input type="text" class="form-control" maxlength="200" placeholder="Ej. Dia de la Independencia" @bind="_newReason" />
+    </div>
+    <button class="btn btn-primary" @onclick="AddAsync" disabled="@_busy">+ Agregar dia</button>
+    <div style="margin-left:auto;">
+        <label class="form-label">Anio</label>
+        <select class="form-control" style="max-width:120px;" @bind="_year" @bind:after="ReloadAsync">
+            @foreach (var y in Years())
+            {
+                <option value="@y">@y</option>
+            }
+        </select>
+    </div>
+</div>
+
+@if (_msg is not null)
+{
+    <p style="margin:0 0 12px;color:@(_ok ? "var(--ok, #16a34a)" : "var(--danger, #dc2626)");font-weight:600;">@_msg</p>
+}
+
+@if (_loading)
+{
+    <p style="color:var(--ink-3);">Cargando...</p>
+}
+else if (_days.Count == 0)
+{
+    <p style="color:var(--ink-3);max-width:560px;">No hay dias no operativos en @_year. Agrega los festivos con el formulario de arriba.</p>
+}
+else
+{
+    <table class="table" style="max-width:640px;">
+        <thead>
+            <tr><th style="width:150px;">Fecha</th><th>Motivo</th><th style="width:80px;"></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var d in _days)
+            {
+                <tr>
+                    <td><strong>@d.Date.ToString("ddd dd MMM yyyy")</strong></td>
+                    <td>@(string.IsNullOrWhiteSpace(d.Reason) ? "-" : d.Reason)</td>
+                    <td><button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(d.Id)" disabled="@_busy">Quitar</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _msg;
+    private bool _ok;
+    private int _year = DateTime.Today.Year;
+    private DateTime? _newDate = DateTime.Today;
+    private string? _newReason;
+    private IReadOnlyList<TenantOperatingDayDto> _days = Array.Empty<TenantOperatingDayDto>();
+
+    private static IEnumerable<int> Years()
+    {
+        var y = DateTime.Today.Year;
+        for (var i = y - 2; i <= y + 3; i++) { yield return i; }
+    }
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _days = await CalSvc.ListAsync(_year);
+        _loading = false;
+    }
+
+    private async Task AddAsync()
+    {
+        _msg = null;
+        if (_newDate is null) { _msg = "Elige una fecha."; _ok = false; return; }
+        _busy = true;
+        try
+        {
+            var date = DateOnly.FromDateTime(_newDate.Value);
+            await CalSvc.AddAsync(date, _newReason);
+            _newReason = null;
+            _year = date.Year;
+            await ReloadAsync();
+            _msg = "Dia agregado."; _ok = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            await CalSvc.DeleteAsync(id);
+            await ReloadAsync();
+            _msg = "Dia quitado."; _ok = true;
+        }
+        finally { _busy = false; }
+    }
+}

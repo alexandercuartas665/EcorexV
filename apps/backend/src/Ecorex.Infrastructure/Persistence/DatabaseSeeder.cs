@@ -3057,6 +3057,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // La verdadera configuracion de la entidad (agencias/areas/sucursales) es el modulo nuevo.
         Item(gen.Id, "Mi cuenta", "mi-cuenta", "000615");
         Item(gen.Id, "Configuracion de la entidad", "configuracion-entidad", "000616");
+        // Calendario operativo del tenant (Fase 2 - plazos de flujo, ADR-0106): festivos / dias no operativos.
+        Item(gen.Id, "Calendario operativo", "config-calendario");
         // "Actividades" (indice de tableros) retirado de Sistema.General: es redundante con
         // "Mis Procesos > Administrar actividades". Los tableros se referencian desde Conceptos.
         Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
@@ -3580,6 +3582,11 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "gen", route: "configuracion-entidad",
             name: "Configuracion de la entidad", legacyCode: "000616", cancellationToken);
+
+        // Calendario operativo (Fase 2 - plazos de flujo, ADR-0106): backfill para tenants ya sembrados.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "gen", route: "config-calendario",
+            name: "Calendario operativo", legacyCode: null, cancellationToken);
     }
 
     /// <summary>

@@ -156,6 +156,9 @@ else
                                     case 6:
                                         @AgentBody
                                         break;
+                                    case 7:
+                                        @SlaBody
+                                        break;
                                     default:
                                         @ExitBody
                                         break;
@@ -730,6 +733,59 @@ else
     </div>
 }
 
+@* ===== Modal: Plazo (SLA) del paso (Fase 2 - plazos de flujo) ===== *@
+@if (_slaModalOpen && Selected is FlowCanvasNodeDto slaNode)
+{
+    <div class="fe-modal-overlay" @onclick="@(() => _slaModalOpen = false)">
+        <div class="fe-modal" style="width:min(520px,96vw)" @onclick:stopPropagation>
+            <div class="fe-modal-head">
+                <div>
+                    <div class="fe-modal-title">Plazo del paso</div>
+                    <div class="fe-modal-sub">@(slaNode.Name ?? "Paso") - tiempo estimado para completarlo</div>
+                </div>
+                <button class="fe-modal-x" @onclick="@(() => _slaModalOpen = false)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="fe-modal-body">
+                <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                    <div>
+                        <label class="fe-lbl">Dias</label>
+                        <input class="fe-input sm" type="number" min="0" max="365" style="width:80px" @bind="_slaDays" />
+                    </div>
+                    <div>
+                        <label class="fe-lbl">Modo de los dias</label>
+                        <select class="fe-input sm" style="width:150px" @bind="_slaMode">
+                            <option value="@StepSlaDayMode.Calendar">Calendario</option>
+                            <option value="@StepSlaDayMode.Business">Habil (laboral)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="fe-lbl">Horas</label>
+                        <input class="fe-input sm" type="number" min="0" max="23" style="width:80px" @bind="_slaHours" />
+                    </div>
+                    <div>
+                        <label class="fe-lbl">Minutos</label>
+                        <input class="fe-input sm" type="number" min="0" max="59" style="width:80px" @bind="_slaMinutes" />
+                    </div>
+                </div>
+                <div class="fe-acc-note" style="margin-top:10px;">
+                    "Habil" cuenta solo dias laborales (salta fines de semana y los dias no operativos de la entidad);
+                    las horas y minutos siempre son tiempo real. Deja todo en 0 para quitar el plazo.
+                </div>
+                @if (!string.IsNullOrEmpty(_slaError))
+                {
+                    <div class="fe-acc-note" style="color:var(--t-rose);margin-top:6px;">@_slaError</div>
+                }
+            </div>
+            <div class="fe-modal-foot">
+                <button class="fe-btn" @onclick="@(() => _slaModalOpen = false)">Cancelar</button>
+                <button class="fe-btn-save" @onclick="SaveSlaAsync">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // ---- Parametros ----
     [Parameter] public Guid DefinitionId { get; set; }
@@ -1118,7 +1174,12 @@ else
             "var(--t-violet-bg)", "var(--t-violet)"),
         new(5, "Reglas de salida",
             "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"3\" width=\"6\" height=\"6\" rx=\"1.4\"/><rect x=\"16\" y=\"15\" width=\"6\" height=\"6\" rx=\"1.4\"/><path d=\"M5 9v3a4 4 0 0 0 4 4h7\"/></svg>",
-            "var(--surface-3)", "var(--ink)")
+            "var(--surface-3)", "var(--ink)"),
+        // Plazo (SLA) del paso (Fase 2 - plazos de flujo). Index 7 (fuera del 0-5) para no renumerar; se
+        // renderiza junto a las alertas por su posicion en el arreglo.
+        new(7, "Plazo del paso",
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg>",
+            "var(--t-amber-bg)", "var(--t-amber)")
     ];
 
     // Acordeon 0: Configuracion basica (tipo + reinicio + permite asignacion).
@@ -1448,6 +1509,59 @@ else
         </button>
     };
 
+    // Acordeon 7: Plazo (SLA) del paso (Fase 2 - plazos de flujo).
+    private RenderFragment SlaBody => __builder =>
+    {
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
+            return;
+        }
+        var sla = StepSla.Read(node.SlaJson);
+        <div class="fe-acc-note" style="margin:0 0 8px">
+            Tiempo estimado para completar el paso. El reloj real arranca cuando el paso anterior TERMINA; los
+            dias pueden ser de calendario o habiles (saltan fines de semana y los dias no operativos de la entidad).
+        </div>
+        <button class="fe-btn" @onclick="OpenSlaModalAsync">
+            @(sla.IsEmpty ? "Configurar plazo" : $"Plazo: {SlaLabel(sla)}")
+        </button>
+        var withSla = _canvas!.Nodes.Count(n => !StepSla.Read(n.SlaJson).IsEmpty);
+        if (withSla > 0)
+        {
+            <div class="fe-acc-note" style="margin:8px 0 0">
+                Duracion estimada del flujo: <strong>@FlowTotalLabel()</strong> (en @withSla paso@(withSla == 1 ? "" : "s") con plazo).
+            </div>
+        }
+    };
+
+    // Etiqueta corta de un plazo (ej. "2d 4h 30m habil").
+    private static string SlaLabel(StepSla s)
+    {
+        var parts = new List<string>();
+        if (s.Days > 0) { parts.Add($"{s.Days}d"); }
+        if (s.Hours > 0) { parts.Add($"{s.Hours}h"); }
+        if (s.Minutes > 0) { parts.Add($"{s.Minutes}m"); }
+        var t = parts.Count == 0 ? "0" : string.Join(" ", parts);
+        return s.Days > 0 ? $"{t} {(s.DayMode == StepSlaDayMode.Business ? "habil" : "cal.")}" : t;
+    }
+
+    // Suma aproximada de los plazos de todo el flujo (componentes sumados; el estimado real lo calcula el motor).
+    private string FlowTotalLabel()
+    {
+        int d = 0, h = 0, m = 0;
+        foreach (var n in _canvas!.Nodes)
+        {
+            var s = StepSla.Read(n.SlaJson);
+            d += s.Days; h += s.Hours; m += s.Minutes;
+        }
+        h += m / 60; m %= 60; d += h / 24; h %= 24;
+        var parts = new List<string>();
+        if (d > 0) { parts.Add($"{d} dia{(d == 1 ? "" : "s")}"); }
+        if (h > 0) { parts.Add($"{h} h"); }
+        if (m > 0) { parts.Add($"{m} min"); }
+        return parts.Count == 0 ? "0" : string.Join(", ", parts);
+    }
+
     // Acordeon 5: Reglas de salida (ConditionExpression de las aristas salientes).
     private RenderFragment ExitBody => __builder =>
     {
@@ -1762,6 +1876,41 @@ else
         });
         // Repinta el lienzo (JS interop, fuera del gate de BD).
         if (_error is null) { await ApplyNodeAppearanceAsync(); }
+    }
+
+    // ===== Plazo (SLA) del paso (Fase 2 - plazos de flujo) =====
+    private bool _slaModalOpen;
+    private string? _slaError;
+    private int _slaDays;
+    private int _slaHours;
+    private int _slaMinutes;
+    private StepSlaDayMode _slaMode = StepSlaDayMode.Calendar;
+
+    private void OpenSlaModalAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node) { return; }
+        _slaError = null;
+        var s = StepSla.Read(node.SlaJson);
+        _slaDays = s.Days; _slaHours = s.Hours; _slaMinutes = s.Minutes; _slaMode = s.DayMode;
+        _slaModalOpen = true;
+    }
+
+    private async Task SaveSlaAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node) { return; }
+        _slaError = null;
+        var days = Math.Clamp(_slaDays, 0, 365);
+        var hours = Math.Clamp(_slaHours, 0, 23);
+        var minutes = Math.Clamp(_slaMinutes, 0, 59);
+        var json = StepSla.Build(days, hours, minutes, _slaMode); // null si todo en 0
+
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeSlaAsync(node.Id, json);
+            if (!result.IsOk) { _slaError = result.Error; return; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+            _slaModalOpen = false;
+        });
     }
 
     // ===== Reglas de notificacion del nodo (ADR-0100) =====

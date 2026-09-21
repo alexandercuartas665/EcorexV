@@ -54,7 +54,9 @@ public sealed record FlowCanvasNodeDto(
     // Origen del asignado (ADR-0056): modo + (solo FormField) codigo del campo de formulario.
     WorkflowAssigneeSource AssigneeSource = WorkflowAssigneeSource.Policy, string? AssigneeFormFieldCode = null,
     // Reglas de notificacion del nodo (ADR-0100), JSON. Null/vacio = sin avisos. Metadato, no viaja en el XML.
-    string? NotifyJson = null);
+    string? NotifyJson = null,
+    // Plazo (SLA) del paso (Fase 2 - plazos de flujo), JSON {days,hours,minutes,dayMode}. Null = sin plazo.
+    string? SlaJson = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

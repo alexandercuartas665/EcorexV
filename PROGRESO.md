@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.96: Plazos por paso de flujo - Fase 2 (editores) [ADR-0106]
+
+- Fase 2 = la UI para configurar los plazos de la Fase 1 (sin SQL). Sin migracion (las tablas ya existian).
+- PART 1 - Editor del plazo por nodo en el diseñador de flujos (FlowEditor): nuevo acordeon "Plazo del paso"
+  (junto a las alertas) con un modal dias + modo (Calendario/Habil) + horas + minutos, y un rotulo "Duracion
+  estimada del flujo" (suma). Backend: IWorkflowDesignService.SetNodeSlaAsync (clon de SetNodeNotifyAsync) +
+  FlowCanvasNodeDto.SlaJson (mapeado). Verificado E2E (FLW-001: sla_json {days:2,hours:4,dayMode:business}
+  persiste; boton "Plazo: 2d 4h habil").
+- PART 2 - Calendario operativo del tenant: nueva pagina /config-calendario (Sistema/General) para marcar
+  festivos / dias no operativos. Servicio ITenantOperatingCalendarService (List/Add idempotente por fecha/
+  Delete, tenant-scoped) + item de menu (seed + backfill idempotente EnsureMenuItemInSectionAsync). Verificado
+  E2E (AGROMETALICAS: alta y baja de un festivo, persiste en tenant_operating_days).
+- PART 3 - Hora en las fechas de la actividad: los inputs de fecha inicial y final pasaron de type=date a
+  datetime-local en TaskDetailModal (StartDate/DueDate) y TaskWizard (DueDate); se quito el truncado a .Date y
+  las horas fijas (8am / 23:59) - ahora se guarda la hora elegida. (Cambio de input compilado; PART 1/2
+  verificados con BD.)
+- Build de SuperAdmin verde; 982 Application verdes. Datos de prueba limpiados. NO desplegado.
+- Siguiente (futuro, no ahora): alertas/escalamiento por vencimiento (reusarian ADR-0100 + patron de worker);
+  que las HORAS respeten una jornada laboral (hoy solo los DIAS respetan el calendario).
+
 ## 2026-09-21 - v0.16.95: Plazos (SLA) por paso de flujo - Fase 1 (nucleo, con migracion) [ADR-0106]
 
 - Nuevo: cada paso de un flujo puede tener un PLAZO estimado (dias + horas + minutos), y de ahi el sistema

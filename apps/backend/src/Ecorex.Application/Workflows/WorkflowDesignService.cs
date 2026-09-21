@@ -835,6 +835,27 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<bool>> SetNodeSlaAsync(
+        Guid nodeId, string? slaJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Plazo (SLA) del paso (Fase 2): metadato del nodo, editable sobre publicada, no regenera el XML.
+        // Se normaliza vacio -> null (StepSla.Read/Build); un plazo con todo en cero no se guarda.
+        var trimmed = string.IsNullOrWhiteSpace(slaJson) ? null : slaJson.Trim();
+        if (trimmed is not null)
+        {
+            var parsed = StepSla.Read(trimmed);
+            trimmed = parsed.IsEmpty ? null : StepSla.Build(parsed.Days, parsed.Hours, parsed.Minutes, parsed.DayMode);
+        }
+        node.SlaJson = trimmed;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<bool>> SetNodeNotePositionAsync(
         Guid nodeId, int? offsetX, int? offsetY, CancellationToken cancellationToken = default)
     {
@@ -1764,7 +1785,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
-                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson);
+                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

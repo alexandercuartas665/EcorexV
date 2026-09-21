@@ -242,6 +242,8 @@ public static class DependencyInjection
         services.AddScoped<Scheduling.IScheduledJobChannelSender, Scheduling.WhatsAppChannelSender>();
         // Configuracion de la entidad (000615): agencias/areas/sucursales del tenant + campos dinamicos.
         services.AddScoped<Entidades.IEntidadService, Entidades.EntidadService>();
+        // Calendario operativo del tenant (Fase 2 - plazos de flujo, ADR-0106): dias no operativos/festivos.
+        services.AddScoped<Tenancy.ITenantOperatingCalendarService, Tenancy.TenantOperatingCalendarService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
         // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
         services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();

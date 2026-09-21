@@ -107,6 +107,11 @@ public interface IWorkflowDesignService
     /// </summary>
     Task<WorkflowResult<bool>> SetNodeNotifyAsync(Guid nodeId, string? notifyJson, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el PLAZO (SLA) del paso (Fase 2 - plazos de flujo): JSON {days,hours,minutes,dayMode}
+    /// (ver StepSla). Metadato del nodo, editable sobre publicada. slaJson null/vacio = sin plazo. NotFound si
+    /// el nodo no existe.</summary>
+    Task<WorkflowResult<bool>> SetNodeSlaAsync(Guid nodeId, string? slaJson, CancellationToken cancellationToken = default);
+
     /// <summary>Fija el tablero + columna destino del nodo (enlace flujo &lt;-&gt; tableros); la actividad salta
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);

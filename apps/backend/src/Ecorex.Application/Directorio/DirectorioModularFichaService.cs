@@ -647,8 +647,12 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
     // ---- Creacion simultanea Organizacion + Persona (O1-3): reparto de los valores de la ficha ----
 
-    /// <summary>Campos exclusivos de la persona en la seccion publica (el resto es de la organizacion).</summary>
+    /// <summary>Campos EXCLUSIVOS de la persona en la seccion publica (se quitan de la organizacion).</summary>
     private static readonly string[] CamposPersona = { "contacto", "telefono_contacto", "cargo" };
+
+    /// <summary>Campos publicos COMPARTIDOS que la persona de contacto tambien hereda de la ficha (correo,
+    /// ciudad, pais). NO se quitan de la organizacion: quedan en ambos registros.</summary>
+    private static readonly string[] CamposCompartidosPersona = { "correo", "ciudad", "pais" };
 
     private static Dictionary<string, Dictionary<string, string>> CloneValores(Dictionary<string, Dictionary<string, string>> src)
         => src.ToDictionary(k => k.Key, v => new Dictionary<string, string>(v.Value, StringComparer.Ordinal), StringComparer.Ordinal);
@@ -663,12 +667,13 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         }
     }
 
-    /// <summary>Arma la ficha MINIMA de la PERSONA de contacto (solo sus campos, en la seccion publica).</summary>
+    /// <summary>Arma la ficha de la PERSONA de contacto: sus campos propios (contacto/telefono/cargo) mas
+    /// los publicos compartidos que hereda de la ficha (correo/ciudad/pais). Todo en la seccion publica.</summary>
     private static Dictionary<string, Dictionary<string, string>> SoloCamposPersona(Dictionary<string, Dictionary<string, string>> valores)
     {
         var pubKey = DirectorioModularDefaults.SeccionKey("publica");
         var pub = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var campo in CamposPersona)
+        foreach (var campo in CamposPersona.Concat(CamposCompartidosPersona))
         {
             var v = FindValue(valores, campo);
             if (!string.IsNullOrWhiteSpace(v)) { pub[campo] = v!; }

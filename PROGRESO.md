@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.100: Directorio Modular - la persona de contacto (O1-3) hereda correo/ciudad/pais
+
+- Hallazgo en validacion en PROD (SOLDARCO): al crear Org + Persona a la vez (O1-3), la persona hija NO
+  heredaba correo, ciudad ni pais (SoloCamposPersona solo copiaba contacto/telefono/cargo).
+- Fix: SoloCamposPersona ahora tambien copia los campos publicos COMPARTIDOS (correo, ciudad, pais) a la
+  ficha de la persona, sin quitarlos de la organizacion (quedan en ambos). CamposCompartidosPersona nuevo.
+- Nota (NO es bug de codigo): que la persona muestre la "Seccion comercial" es CONFIGURACION - esa seccion
+  tiene "Aplica a = empresa,contacto". Se corrige en Configurar directorio dejando "Aplica a = Empresa" en
+  comercial/cliente/proveedor; la regla O1-2 (ya en prod) las oculta para personas. Sin deploy.
+- Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
+- NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
+
 ## 2026-09-21 - v0.16.99: Plantillas de WhatsApp por Evolution API - Fase 1 (texto)
 
 - El proceso de plantillas (crear en /plantillas-whatsapp + enviar desde flujo/agente) estaba capado a YCloud:

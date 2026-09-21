@@ -168,6 +168,7 @@ else
                         <option value="none">Sin encabezado</option>
                         <option value="text">Texto</option>
                         <option value="image">Imagen</option>
+                        <option value="document">Documento (archivo)</option>
                     </select>
                 </div>
                 @if (_fHeaderKind == "text")
@@ -197,6 +198,24 @@ else
                             <img src="@_fHeaderMediaUrl" alt="Vista previa del encabezado" style="max-height:120px;margin-top:.5rem;border-radius:8px;" />
                         }
                         <small class="muted-cell">Se usa como ejemplo al crear la plantilla y como imagen en cada envio. YCloud debe poder descargarla (URL publica).</small>
+                    </div>
+                }
+                else if (_fHeaderKind == "document")
+                {
+                    <div class="field">
+                        <label class="form-label">Archivo del encabezado</label>
+                        <InputFile OnChange="OnHeaderDocumentSelected" accept="@Ecorex.SuperAdmin.Services.DocumentUploadGuard.Accept" class="form-control" disabled="@_uploadingHeader" />
+                        <small class="muted-cell">Sube un archivo (@Ecorex.SuperAdmin.Services.DocumentUploadGuard.FormatosTexto, max 25MB). Se publica en una URL y se envia como documento adjunto. En Evolution el archivo se manda tal cual; el cuerpo va como texto/caption.</small>
+                        @if (_uploadingHeader)
+                        {
+                            <small class="muted-cell">Subiendo archivo...</small>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_fHeaderMediaUrl))
+                        {
+                            <div class="muted-cell" style="margin-top:.4rem;">
+                                Archivo: <a href="@_fHeaderMediaUrl" target="_blank" rel="noopener">@(_fHeaderFileName ?? "documento")</a>
+                            </div>
+                        }
                     </div>
                 }
                 <div class="field">
@@ -314,9 +333,10 @@ else
     private string _fLanguage = "es";
     private WhatsAppTemplateCategory _fCategory = WhatsAppTemplateCategory.Utility;
     private string _fLine = "";
-    private string _fHeaderKind = "none";   // "none" | "text" | "image"
+    private string _fHeaderKind = "none";   // "none" | "text" | "image" | "document"
     private string? _fHeaderText;
     private string? _fHeaderMediaUrl;
+    private string? _fHeaderFileName;   // solo para mostrar el nombre del documento subido
     private bool _uploadingHeader;
     private string _fBodyText = "";
     private string? _fFooterText;
@@ -353,6 +373,7 @@ else
         _fHeaderKind = "none";
         _fHeaderText = null;
         _fHeaderMediaUrl = null;
+        _fHeaderFileName = null;
         _fBodyText = "";
         _fFooterText = null;
     }
@@ -373,10 +394,14 @@ else
             _fHeaderMediaUrl = detail.HeaderMediaUrl;
             _fHeaderKind = detail.HeaderType switch
             {
-                WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Video => "image",
+                WhatsAppTemplateHeaderType.Document => "document",
+                WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video => "image",
                 WhatsAppTemplateHeaderType.Text => "text",
                 _ => string.IsNullOrWhiteSpace(detail.HeaderText) ? "none" : "text"
             };
+            _fHeaderFileName = string.IsNullOrWhiteSpace(detail.HeaderMediaUrl)
+                ? null
+                : Uri.UnescapeDataString(detail.HeaderMediaUrl.Split('/').LastOrDefault() ?? "");
             _fBodyText = detail.BodyText;
             _fFooterText = detail.FooterText;
         }
@@ -421,6 +446,56 @@ else
         finally { _uploadingHeader = false; }
     }
 
+    private async Task OnHeaderDocumentSelected(InputFileChangeEventArgs e)
+    {
+        _editorError = null;
+        var file = e.File;
+        if (file.Size <= 0 || file.Size > Ecorex.SuperAdmin.Services.DocumentUploadGuard.MaxBytes)
+        {
+            _editorError = "El archivo debe pesar menos de 25 MB.";
+            return;
+        }
+        var ext = Ecorex.SuperAdmin.Services.DocumentUploadGuard.ResolveExtension(file.Name);
+        if (ext is null)
+        {
+            _editorError = $"Formato no admitido. Usa: {Ecorex.SuperAdmin.Services.DocumentUploadGuard.FormatosTexto}.";
+            return;
+        }
+        _uploadingHeader = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(Ecorex.SuperAdmin.Services.DocumentUploadGuard.MaxBytes).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            if (!Ecorex.SuperAdmin.Services.DocumentUploadGuard.MatchesSignature(bytes, ext))
+            {
+                _editorError = "El contenido del archivo no corresponde a su extension.";
+                return;
+            }
+            // Nombre en WhatsApp: se conserva el nombre original (saneado) como HOJA dentro de un subdirectorio
+            // Guid del servidor. El Guid aisla la escritura (sin path traversal); la hoja da un nombre legible.
+            var leaf = SafeLeafName(file.Name, ext);
+            var sub = Guid.NewGuid().ToString("N");
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "templates", sub);
+            System.IO.Directory.CreateDirectory(dir);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, leaf), bytes);
+            _fHeaderFileName = leaf;
+            _fHeaderMediaUrl = AbsoluteUrl($"/uploads/templates/{sub}/{Uri.EscapeDataString(leaf)}");
+        }
+        catch { _editorError = "No se pudo subir el archivo."; }
+        finally { _uploadingHeader = false; }
+    }
+
+    // Nombre de archivo legible y seguro (solo la hoja, sin separadores) con la extension de la lista blanca.
+    private static string SafeLeafName(string clientName, string ext)
+    {
+        var baseName = System.IO.Path.GetFileNameWithoutExtension(System.IO.Path.GetFileName(clientName ?? "documento"));
+        var safe = new string((baseName ?? "documento").Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray()).Trim('-');
+        if (string.IsNullOrWhiteSpace(safe)) { safe = "documento"; }
+        if (safe.Length > 60) { safe = safe[..60]; }
+        return safe + ext;
+    }
+
     // URL absoluta para que YCloud pueda descargar la media desde internet: usa Ecorex:PublicBaseUrl
     // (host publico de prod) si esta configurada; si no, la base de la peticion actual.
     private string AbsoluteUrl(string relative)
@@ -447,9 +522,16 @@ else
             _busy = false;
             return;
         }
+        if (_fHeaderKind == "document" && string.IsNullOrWhiteSpace(_fHeaderMediaUrl))
+        {
+            _editorError = "Sube el archivo del encabezado (o pega su URL publica).";
+            _busy = false;
+            return;
+        }
         var headerType = _fHeaderKind switch
         {
             "image" => (WhatsAppTemplateHeaderType?)WhatsAppTemplateHeaderType.Image,
+            "document" => WhatsAppTemplateHeaderType.Document,
             "text" => WhatsAppTemplateHeaderType.Text,
             _ => null
         };
@@ -461,7 +543,7 @@ else
             lineId,
             HeaderType: headerType,
             HeaderText: _fHeaderKind == "text" ? _fHeaderText : null,
-            HeaderMediaUrl: _fHeaderKind == "image" ? _fHeaderMediaUrl : null,
+            HeaderMediaUrl: (_fHeaderKind == "image" || _fHeaderKind == "document") ? _fHeaderMediaUrl : null,
             FooterText: _fFooterText,
             Variables: WhatsAppTemplateCalculations.ExtractTokens(_fBodyText)
                 .Select(tok => new WhatsAppTemplateVariable(

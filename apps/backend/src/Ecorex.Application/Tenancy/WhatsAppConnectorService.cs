@@ -1,3 +1,4 @@
+using System.Net.Http;
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
@@ -16,6 +17,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     private readonly IYCloudApiClient _ycloud;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _timeProvider;
+    private readonly IHttpClientFactory _httpFactory;
 
     public WhatsAppConnectorService(
         IApplicationDbContext db,
@@ -25,7 +27,8 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         IWhatsAppCloudClient cloud,
         IYCloudApiClient ycloud,
         IAuditWriter audit,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IHttpClientFactory httpFactory)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -35,6 +38,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         _ycloud = ycloud;
         _audit = audit;
         _timeProvider = timeProvider;
+        _httpFactory = httpFactory;
     }
 
     public async Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default)
@@ -423,17 +427,37 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         else if (line.Provider == WhatsAppProvider.Evolution)
         {
             // Evolution NO usa HSM de Meta: se renderiza la plantilla a TEXTO libre (cuerpo con sus tokens ya
-            // resueltos en bodyParams, mas header de texto y footer) y se manda por el camino de texto de Evolution.
+            // resueltos en bodyParams, mas header de texto y footer). Si la plantilla trae un ARCHIVO de header
+            // (Documento/Imagen/Video), se manda como media con el cuerpo como caption; si no, como texto.
             var tpl = await _db.WhatsAppTemplates.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(t => t.TenantId == line.TenantId && t.Name == templateName && t.IsActive, cancellationToken);
             if (tpl is null) { return new LineSendResult(false, $"No existe la plantilla '{templateName}' activa en este tenant."); }
             var text = RenderTemplateText(tpl, bodyParams);
-            if (string.IsNullOrWhiteSpace(text)) { return new LineSendResult(false, "La plantilla no tiene cuerpo para enviar."); }
-            var server = await ResolveServerAsync(cancellationToken);
-            if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
-            var (baseUrl, apiKey) = server.Value;
-            var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text, cancellationToken);
-            (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
+
+            if (tpl.HeaderType is WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video
+                && !string.IsNullOrWhiteSpace(tpl.HeaderMediaUrl))
+            {
+                var media = await FetchMediaAsync(tpl.HeaderMediaUrl!, cancellationToken);
+                if (media is null) { return new LineSendResult(false, "No se pudo descargar el archivo del encabezado de la plantilla."); }
+                var mediaKind = tpl.HeaderType switch
+                {
+                    WhatsAppTemplateHeaderType.Document => MessageMediaType.Document,
+                    WhatsAppTemplateHeaderType.Video => MessageMediaType.Video,
+                    _ => MessageMediaType.Image
+                };
+                var mr = await SendMediaAsync(line.Id, digits, mediaKind, media.Value.Base64, media.Value.Mime,
+                    media.Value.FileName, string.IsNullOrWhiteSpace(text) ? null : text, actorUserId, remoteJid: null, cancellationToken);
+                (ok, error, messageId) = (mr.Ok, mr.Error, mr.MessageId);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(text)) { return new LineSendResult(false, "La plantilla no tiene cuerpo ni archivo para enviar."); }
+                var server = await ResolveServerAsync(cancellationToken);
+                if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
+                var (baseUrl, apiKey) = server.Value;
+                var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text, cancellationToken);
+                (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
+            }
         }
         else
         {
@@ -698,6 +722,41 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             sb.Append("\n\n").Append(tpl.FooterText!.Trim());
         }
         return sb.ToString().Trim();
+    }
+
+    // Descarga el archivo del encabezado (URL publica, ej. /uploads/templates/...) para mandarlo por Evolution
+    // en base64. Devuelve base64 + mime + nombre de archivo (del path de la URL). Null si no se pudo bajar.
+    private async Task<(string Base64, string Mime, string FileName)?> FetchMediaAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(20);
+            using var resp = await http.GetAsync(url, ct);
+            if (!resp.IsSuccessStatusCode) { return null; }
+            var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+            if (bytes.Length == 0) { return null; }
+            var fileName = FileNameFromUrl(url);
+            var mime = resp.Content.Headers.ContentType?.MediaType;
+            if (string.IsNullOrWhiteSpace(mime))
+            {
+                var ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+                mime = ext == ".pdf" ? "application/pdf" : "application/octet-stream";
+            }
+            return (Convert.ToBase64String(bytes), mime!, fileName);
+        }
+        catch { return null; }
+    }
+
+    private static string FileNameFromUrl(string url)
+    {
+        try
+        {
+            var path = Uri.TryCreate(url, UriKind.Absolute, out var abs) ? abs.AbsolutePath : url;
+            var name = System.IO.Path.GetFileName(path);
+            return string.IsNullOrWhiteSpace(name) ? "documento" : Uri.UnescapeDataString(name);
+        }
+        catch { return "documento"; }
     }
 
     // Nombres de los tokens de la plantilla EN ORDEN, desde VariablesJson ([{"token":"cliente","example":..}]).

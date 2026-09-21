@@ -14,6 +14,25 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-21 - v0.16.101: Plantillas de WhatsApp con ARCHIVO (documento) por Evolution + base PDF cotizacion
+
+- Sigue a la Fase 1 (texto). El usuario pidio "crear plantillas con archivos como en YCloud". El editor solo
+  permitia encabezado texto/imagen; ahora tambien DOCUMENTO (archivo).
+- PART A (archivo FIJO, self-serve): /plantillas-whatsapp gana encabezado "Documento (archivo)" con subida via
+  DocumentUploadGuard (PDF/Office/imagenes/zip, firma por bytes, 25MB), guardado en /uploads/templates/<guid>/
+  <nombre-saneado> (guid aisla la escritura; hoja legible). Al ENVIAR por Evolution, si la plantilla trae header
+  Documento/Imagen/Video se descarga el archivo de su URL y se manda como media (SendMediaAsync) con el cuerpo
+  como caption; si no, texto (Fase 1). WhatsAppConnectorService inyecta IHttpClientFactory (+ paquete
+  Microsoft.Extensions.Http en Application) y FetchMediaAsync baja el archivo a base64. Sin migracion (la entidad
+  ya tenia HeaderType.Document + HeaderMediaUrl; solo faltaba exponerlo en UI y envio).
+- BASE Fase 2 (PDF dinamico de la cotizacion, aun sin disparo): IQuotePdfRenderer.RenderHtmlToPdfAsync (Puppeteer
+  SetContent, sin loopback) + IQuoteDocumentRenderer.RenderResponsePdfAsync(responseId) -> bytes+nombre (reusa
+  IFormTemplateRenderService). Codigo INERTE por ahora (nada lo llama); es la base del "documento = PDF de la
+  cotizacion de la tarea".
+- Build verde; 49 tests de WhatsApp/plantillas OK. NO desplegado (el usuario prueba en local primero).
+- Siguiente: PART B - disparo del PDF de la cotizacion desde el flujo (pendiente decision: alertas de nodo ->
+  cliente vs herramienta del agente).
+
 ## 2026-09-21 - v0.16.99: Plantillas de WhatsApp por Evolution API - Fase 1 (texto)
 
 - El proceso de plantillas (crear en /plantillas-whatsapp + enviar desde flujo/agente) estaba capado a YCloud:

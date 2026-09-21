@@ -37,6 +37,25 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
         });
     }
 
+    public async Task<byte[]> RenderHtmlToPdfAsync(string html, CancellationToken cancellationToken = default)
+    {
+        await using var browser = await LaunchAsync();
+        await using var page = await browser.NewPageAsync();
+        // SetContent en vez de GoTo: el HTML ya viene renderizado (IFormTemplateRenderService), no hay que
+        // navegar a un endpoint. Networkidle0 espera a que carguen imagenes/fuentes embebidas por URL.
+        await page.SetContentAsync(html, new NavigationOptions
+        {
+            WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
+            Timeout = 30000
+        });
+        return await page.PdfDataAsync(new PdfOptions
+        {
+            Format = PaperFormat.A4,
+            PrintBackground = true,
+            MarginOptions = new MarginOptions { Top = "12mm", Bottom = "12mm", Left = "10mm", Right = "10mm" }
+        });
+    }
+
     public async Task<byte[]> RenderUrlToImageAsync(string url, CancellationToken cancellationToken = default)
     {
         await using var browser = await LaunchAsync();

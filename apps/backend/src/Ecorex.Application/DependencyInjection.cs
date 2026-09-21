@@ -126,6 +126,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
         services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();
         services.AddScoped<Forms.IFormTemplateRenderService, Forms.FormTemplateRenderService>();
+        services.AddScoped<Forms.IQuoteDocumentRenderer, Forms.QuoteDocumentRenderer>();
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
         services.AddScoped<Forms.IFormTextAssistService, Forms.FormTextAssistService>();
         // Formularios avanzados (ola F1, doc 01 D4): lookup/autocompletado desde tablas del

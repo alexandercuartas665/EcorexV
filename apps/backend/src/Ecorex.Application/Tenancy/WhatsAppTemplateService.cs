@@ -275,27 +275,20 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             : WhatsAppTemplateResult<bool>.Invalid(res.Error ?? "No se pudo enviar la prueba.");
     }
 
+    // VariablesJson usa PascalCase ("Token"/"Example"); PropertyNameCaseInsensitive lo lee sin importar la caja.
+    private static readonly JsonSerializerOptions VarJsonOpts = new() { PropertyNameCaseInsensitive = true };
+
     // Valores de EJEMPLO de las variables, en el orden de VariablesJson (cae al nombre del token si no hay ejemplo).
     private static List<string> ExampleValues(string? variablesJson)
     {
-        var list = new List<string>();
-        if (string.IsNullOrWhiteSpace(variablesJson)) { return list; }
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return new List<string>(); }
         try
         {
-            using var doc = JsonDocument.Parse(variablesJson);
-            if (doc.RootElement.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var el in doc.RootElement.EnumerateArray())
-                {
-                    if (el.ValueKind != JsonValueKind.Object) { continue; }
-                    var ex = el.TryGetProperty("example", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
-                    var tok = el.TryGetProperty("token", out var tk) && tk.ValueKind == JsonValueKind.String ? tk.GetString() : null;
-                    list.Add(!string.IsNullOrWhiteSpace(ex) ? ex! : (tok ?? string.Empty));
-                }
-            }
+            var vars = JsonSerializer.Deserialize<List<WhatsAppTemplateVariable>>(variablesJson, VarJsonOpts);
+            return vars?.Select(v => !string.IsNullOrWhiteSpace(v.Example) ? v.Example : (v.Token ?? string.Empty)).ToList()
+                ?? new List<string>();
         }
-        catch (JsonException) { /* variables mal formadas: sin valores */ }
-        return list;
+        catch (JsonException) { return new List<string>(); }
     }
 
     private static (string? Type, string? Url) TemplateHeaderMedia(WhatsAppTemplate t)

@@ -14,6 +14,17 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-21 - v0.16.104: FIX - las variables {{token}} no se sustituian (VariablesJson en PascalCase)
+
+- BUG (visto en la prueba real): el WhatsApp llegaba con los tokens LITERALES ("Hola {{cliente}}..."). Causa:
+  VariablesJson se guarda con nombres PascalCase ([{"Token":..,"Example":..}]) pero los lectores buscaban
+  "token"/"example" en minuscula con TryGetProperty (CASE-SENSITIVE) -> 0 tokens -> sin sustitucion.
+- Fix en los 3 lectores, ahora case-insensitive: WhatsAppConnectorService.ParseTemplateTokens y
+  WhatsAppTemplateService.ExampleValues deserializan con PropertyNameCaseInsensitive; NodeNotify/
+  NotificationChannelSender.BuildTemplateParams lee la propiedad "token" ignorando la caja. Afectaba tanto al
+  "Probar" (Evolution) como al envio de plantillas desde el flujo/agente.
+- Build verde. Sin migracion. NO desplegado.
+
 ## 2026-09-21 - v0.16.103: Plantillas Evolution editables + "Probar" pide los parametros y muestra el archivo
 
 - Feedback del usuario sobre plantillas Evolution.

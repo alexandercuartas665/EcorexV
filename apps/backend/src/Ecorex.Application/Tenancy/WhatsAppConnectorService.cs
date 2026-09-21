@@ -759,29 +759,20 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         catch { return "documento"; }
     }
 
-    // Nombres de los tokens de la plantilla EN ORDEN, desde VariablesJson ([{"token":"cliente","example":..}]).
+    // VariablesJson se guarda con nombres PascalCase ("Token"/"Example"); PropertyNameCaseInsensitive lo lee
+    // sin importar la capitalizacion (compat. con datos viejos en minuscula).
+    private static readonly System.Text.Json.JsonSerializerOptions VarJsonOpts = new() { PropertyNameCaseInsensitive = true };
+
+    // Nombres de los tokens de la plantilla EN ORDEN, desde VariablesJson ([{"Token":"cliente","Example":..}]).
     private static List<string> ParseTemplateTokens(string? variablesJson)
     {
-        var list = new List<string>();
-        if (string.IsNullOrWhiteSpace(variablesJson)) { return list; }
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return new List<string>(); }
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(variablesJson);
-            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                foreach (var el in doc.RootElement.EnumerateArray())
-                {
-                    if (el.ValueKind == System.Text.Json.JsonValueKind.Object
-                        && el.TryGetProperty("token", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        var name = t.GetString();
-                        if (!string.IsNullOrWhiteSpace(name)) { list.Add(name!.Trim()); }
-                    }
-                }
-            }
+            var vars = System.Text.Json.JsonSerializer.Deserialize<List<WhatsAppTemplateVariable>>(variablesJson, VarJsonOpts);
+            return vars?.Where(v => !string.IsNullOrWhiteSpace(v.Token)).Select(v => v.Token.Trim()).ToList() ?? new List<string>();
         }
-        catch (System.Text.Json.JsonException) { /* variables mal formadas: sin tokens */ }
-        return list;
+        catch (System.Text.Json.JsonException) { return new List<string>(); }
     }
 
     private static string? NormalizeBaseUrl(string? raw)

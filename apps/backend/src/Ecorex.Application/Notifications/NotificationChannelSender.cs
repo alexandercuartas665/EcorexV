@@ -106,7 +106,19 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             if (doc.RootElement.ValueKind != JsonValueKind.Array) { return result; }
             foreach (var el in doc.RootElement.EnumerateArray())
             {
-                var token = el.TryGetProperty("token", out var t) ? t.GetString() : null;
+                // VariablesJson se guarda en PascalCase ("Token"); se lee la propiedad sin importar la caja.
+                string? token = null;
+                if (el.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var p in el.EnumerateObject())
+                    {
+                        if (string.Equals(p.Name, "token", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.String)
+                        {
+                            token = p.Value.GetString();
+                            break;
+                        }
+                    }
+                }
                 var key = StripAccents((token ?? "").Trim().ToLowerInvariant());
                 result.Add(tokenMap.TryGetValue(key, out var val) ? val : "");
             }

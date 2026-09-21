@@ -231,3 +231,20 @@
 .fl-chip-toggle.on { background: var(--accent, #6b4bd8); border-color: var(--accent, #6b4bd8); color: #fff; }
 .fl-plabel { display: block; font-size: 12px; font-weight: 700; color: var(--ink-3, #64748b); margin: 8px 0 3px; }
 .fl-plabel:first-of-type { margin-top: 2px; }
+
+/* Zona para elegir el archivo .json del flujo (importar por archivo, no por caja de texto). */
+.fl-file-drop {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; box-sizing: border-box;
+    padding: 18px 16px; margin-top: 4px;
+    border: 1.5px dashed var(--line, #cbd5e1); border-radius: 12px;
+    background: var(--surface-2, #f8fafc); color: var(--ink-2, #475569);
+    font-size: 13.5px; font-weight: 600; cursor: pointer;
+    transition: border-color .12s ease, background .12s ease;
+}
+.fl-file-drop:hover { border-color: var(--accent, #6b4bd8); background: var(--card, #fff); }
+.fl-file-drop svg { color: var(--accent, #6b4bd8); flex: 0 0 auto; }
+.fl-file-drop span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* El input nativo de InputFile se oculta: el label completo es el area clicable.
+   ::deep porque InputFile es un componente hijo y su <input> no lleva el scope de este componente. */
+.fl-file-drop ::deep input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }

@@ -65,13 +65,9 @@ else
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 9.4l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8Z"/></svg>
                             Propiedades
                         </button>
-                        <button class="fe-btn" title="Importar BPMN (.bpmn / .xml)" @onclick="@(() => OpenIo(export: false))">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
-                            Importar
-                        </button>
-                        <button class="fe-btn" title="Exportar BPMN (XML)" @onclick="@(() => OpenIo(export: true))">
+                        <button class="fe-btn" title="Exportar el flujo como archivo .json (paquete completo)" @onclick="DownloadPackageAsync" disabled="@_busy">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 21h14"/></svg>
-                            Exportar
+                            @(_busy ? "Exportando..." : "Exportar")
                         </button>
                         @if (!_canvas.IsPublished)
                         {
@@ -241,64 +237,6 @@ else
             <div class="fe-modal-foot">
                 <button class="fe-btn-ghost" @onclick="@(() => _propsOpen = false)">Cancelar</button>
                 <button class="fe-btn-save" @onclick="SavePropsAsync" disabled="@_busy">Guardar</button>
-            </div>
-        </div>
-    </div>
-}
-
-@* ---- Modal: exportar / importar BPMN (XML del modeler) ---- *@
-@if (_ioOpen)
-{
-    <div class="fe-modal-overlay" @onclick="@(() => _ioOpen = false)">
-        <div class="fe-modal" style="width:min(620px,95vw)" @onclick:stopPropagation>
-            <div class="fe-modal-head">
-                <div>
-                    <div class="fe-modal-title">@(_ioExport ? "Exportar flujo" : "Importar flujo (BPMN 2.0)")</div>
-                    <div class="fe-modal-sub">
-                        @(_ioExport
-                            ? "Paquete COMPLETO (.json): grafo + formularios de nodo + cargos/agentes/reglas por nombre. O el XML BPMN (bpmn.io): solo topologia + diagrama."
-                            : "XML BPMN estandar (portabilidad bpmn.io): topologia + layout del diagrama")
-                    </div>
-                </div>
-                <button class="fe-modal-x" @onclick="@(() => _ioOpen = false)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <div class="fe-modal-body">
-                @if (_ioExport)
-                {
-                    @if (_ioError is not null) { <div class="fe-error" style="margin-bottom:8px;">@_ioError</div> }
-                    <label class="fe-label">XML BPMN del diagrama (solo topologia + layout)</label>
-                    <pre class="fe-json">@_exportXml</pre>
-                }
-                else
-                {
-                    <label class="fe-label">Pega el XML BPMN del flujo</label>
-                    <textarea class="fe-json-input" spellcheck="false" @bind="_importXml"
-                              placeholder='<?xml version="1.0"?><bpmn:definitions ...>'></textarea>
-                    @if (_ioError is not null)
-                    {
-                        <div class="fe-error">@_ioError</div>
-                    }
-                }
-            </div>
-            <div class="fe-modal-foot">
-                <button class="fe-btn-ghost" @onclick="@(() => _ioOpen = false)">Cerrar</button>
-                @if (_ioExport)
-                {
-                    <button class="fe-btn-ghost with-ic" @onclick="CopyXmlAsync">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-                        Copiar XML
-                    </button>
-                    <button class="fe-btn-save with-ic" @onclick="DownloadPackageAsync" disabled="@_busy">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-                        @(_busy ? "Generando..." : "Descargar paquete completo")
-                    </button>
-                }
-                else
-                {
-                    <button class="fe-btn-save" @onclick="ImportXmlAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_importXml))">Importar flujo</button>
-                }
             </div>
         </div>
     </div>
@@ -837,11 +775,6 @@ else
 
     // Modales.
     private bool _propsOpen;
-    private bool _ioOpen;
-    private bool _ioExport = true;
-    private string? _exportXml;
-    private string _importXml = "";
-    private string? _ioError;
     private bool _formPickerOpen;
     private string _formPickerQuery = "";
     // ADR-0092: config del agente del nodo en un modal (el panel solo muestra un resumen compacto).
@@ -2297,41 +2230,20 @@ else
         }
     }
 
-    private async Task OpenIo(bool export)
-    {
-        _ioExport = export;
-        _ioError = null;
-        _importXml = "";
-        if (export && _bpmnReady && _bpmn is not null)
-        {
-            _exportXml = await _bpmn.InvokeAsync<string?>("exportXml", CanvasId);
-        }
-        _ioOpen = true;
-    }
-
-    private async Task CopyXmlAsync()
-    {
-        if (_exportXml is not null)
-        {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _exportXml);
-            _notice = "XML copiado al portapapeles.";
-            _ioOpen = false;
-        }
-    }
-
     /// <summary>Exporta el PAQUETE COMPLETO del flujo (grafo + formularios de nodo + cargos/agentes/reglas
-    /// por nombre, ADR-0097 B1) y lo descarga como .json. Importable desde "Importar JSON" en Flujos.</summary>
+    /// por nombre, ADR-0097 B1) y lo descarga como .json. Importable desde "Importar JSON" en Flujos.
+    /// Es una descarga directa: no abre modal ni caja de texto.</summary>
     private async Task DownloadPackageAsync()
     {
         _busy = true;
-        _ioError = null;
+        _error = null;
         await _dbGate.WaitAsync();
         try
         {
             var res = await FlowPkgSvc.ExportAsync(DefinitionId);
             if (!res.IsOk || string.IsNullOrWhiteSpace(res.Value))
             {
-                _ioError = res.Error ?? "No se pudo exportar el paquete del flujo.";
+                _error = res.Error ?? "No se pudo exportar el paquete del flujo.";
                 return;
             }
             var name = "flujo";
@@ -2348,35 +2260,9 @@ else
             catch (System.Text.Json.JsonException) { /* nombre por defecto */ }
             await JS.InvokeVoidAsync("ecorexDownloadText", $"flujo-{name}.json", res.Value);
             _notice = "Paquete del flujo descargado.";
-            _ioOpen = false;
         }
-        catch (Exception ex) { _ioError = ex.Message; }
+        catch (Exception ex) { _error = ex.Message; }
         finally { _dbGate.Release(); _busy = false; }
-    }
-
-    /// <summary>Importar BPMN: crea una definicion nueva en Borrador via el motor (ImportBpmn).</summary>
-    private async Task ImportXmlAsync()
-    {
-        _busy = true;
-        _ioError = null;
-        await _dbGate.WaitAsync();
-        try
-        {
-            var result = await DesignSvc.ImportBpmnAsync(_importXml);
-            if (!result.IsOk || result.Value is null)
-            {
-                _ioError = result.Error ?? "No se pudo importar.";
-                return;
-            }
-            _ioOpen = false;
-            _notice = $"Flujo importado como {result.Value.ProcessCode} v{result.Value.Version} (Borrador).";
-            await OnDefinitionSwitched.InvokeAsync(result.Value.DefinitionId);
-        }
-        finally
-        {
-            _dbGate.Release();
-            _busy = false;
-        }
     }
 
     // ---- Saltar a otro flujo (visual; el vinculo real es deuda) ----

@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.97: Import/Export de flujos por ARCHIVO (no caja de texto)
+
+- Peticion del usuario: la importacion/exportacion de flujos usaba una caja de texto (pegar/copiar JSON) que no
+  le gustaba; ademas el boton "Importar" no debia vivir dentro del modal de diseño, solo afuera.
+- FlowEditor (modal de diseño): se QUITO el boton "Importar" (import solo desde la pagina de Flujos). El boton
+  "Exportar" ahora hace DESCARGA DIRECTA del paquete .json (flujo-<nombre>.json) sin abrir modal ni mostrar
+  texto para copiar; se elimino el modal IO completo (y OpenIo/CopyXmlAsync/ImportXmlAsync + campos _ioOpen/
+  _ioExport/_importXml/_exportXml/_ioError). Toolbar final: Propiedades · Exportar · Publicar · Guardar · Cerrar.
+- Flujos.razor ("Importar JSON"): la caja de texto se reemplazo por un selector de ARCHIVO (<InputFile>
+  accept=".json") con zona de arrastre .fl-file-drop; el input nativo se oculta via ::deep (componente hijo). El
+  boton Importar queda deshabilitado hasta elegir un archivo. El resto del flujo (reporte de mapeo por nombre,
+  "Abrir flujo") intacto.
+- Verificado E2E en dev (AGROMETALICAS): modal de import muestra el file picker (accept=.json, sin textarea,
+  Importar gated); editor sin "Importar"; "Exportar" dispara descarga flujo-*.json (1106 chars) + aviso
+  "Paquete del flujo descargado.", sin modal ni caja de texto. Build de SuperAdmin verde. Sin migracion. NO desplegado.
+- Nota: los flujos de AGROMETALICAS en la BD dev (copia local de prod) quedaron ARCHIVADOS (soft-delete via la
+  UI, 15:23) durante las pruebas de la sesion; por eso la lista salia vacia. Prod intacto. Restaurarlos requiere
+  aprobacion de escritura del usuario (pendiente su OK).
+
 ## 2026-09-21 - v0.16.96: Plazos por paso de flujo - Fase 2 (editores) [ADR-0106]
 
 - Fase 2 = la UI para configurar los plazos de la Fase 1 (sin SQL). Sin migracion (las tablas ya existian).

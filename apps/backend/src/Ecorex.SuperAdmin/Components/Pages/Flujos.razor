@@ -387,13 +387,16 @@
             @if (_importReport is null)
             {
                 <p class="fl-muted">
-                    Pega el JSON de un flujo exportado (paquete completo). Se crea un flujo NUEVO en BORRADOR con
-                    su grafo, formularios de nodo y config. Los <b>cargos, agentes y reglas se remapean por NOMBRE</b>
-                    segun la configuracion de este tenant; lo que no exista quedara sin asignar (se reporta).
+                    Elige el archivo <b>.json</b> de un flujo exportado (paquete completo) con el boton
+                    <b>Exportar</b> del disenador. Se crea un flujo NUEVO en BORRADOR con su grafo, formularios de
+                    nodo y config. Los <b>cargos, agentes y reglas se remapean por NOMBRE</b> segun la
+                    configuracion de este tenant; lo que no exista quedara sin asignar (se reporta).
                 </p>
-                <textarea class="fe-json-input" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;"
-                          @bind="_importJson" @bind:event="oninput"
-                          placeholder='{"formatVersion":1,"name":"...","nodes":[...],"edges":[...]}'></textarea>
+                <label class="fl-file-drop">
+                    <InputFile OnChange="OnImportFilePicked" accept=".json,application/json" />
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+                    <span>@(string.IsNullOrWhiteSpace(_importFileName) ? "Selecciona un archivo .json del flujo" : _importFileName)</span>
+                </label>
                 @if (_importError is not null) { <div class="fl-error" style="margin-top:8px;">@_importError</div> }
                 <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
                     <button class="fl-btn-ghost" @onclick="CloseImport" disabled="@_busy">Cancelar</button>
@@ -434,6 +437,7 @@
     private bool _showGallery;
     private bool _importOpen;
     private string _importJson = "";
+    private string? _importFileName;
     private string? _importError;
     private FlowImportReport? _importReport;
     private string? _error;
@@ -716,12 +720,32 @@
     private void OpenImport()
     {
         _importJson = "";
+        _importFileName = null;
         _importError = null;
         _importReport = null;
         _importOpen = true;
     }
 
     private void CloseImport() => _importOpen = false;
+
+    // Lee el .json elegido a memoria; el boton "Importar" lo procesa (no auto-importa por si se equivoco de archivo).
+    private async Task OnImportFilePicked(InputFileChangeEventArgs e)
+    {
+        _importError = null;
+        _importJson = "";
+        _importFileName = null;
+        var file = e.File;
+        if (file is null) { return; }
+        if (file.Size > 4 * 1024 * 1024) { _importError = "El archivo supera ~4 MB."; return; }
+        try
+        {
+            using var stream = file.OpenReadStream(6 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            _importJson = await reader.ReadToEndAsync();
+            _importFileName = file.Name;
+        }
+        catch (Exception ex) { _importError = "No se pudo leer el archivo: " + ex.Message; }
+    }
 
     private async Task DoImportAsync()
     {

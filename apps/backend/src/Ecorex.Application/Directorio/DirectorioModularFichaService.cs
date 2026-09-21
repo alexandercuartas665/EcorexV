@@ -317,10 +317,13 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         var buscaTel = tel10.Length >= 7;   // no alertar por fragmentos cortos de telefono
         if (doc is null && mail is null && !buscaTel) { return Array.Empty<ModularDuplicadoDto>(); }
 
-        // Proyeccion ligera de los terceros Modular del tenant (filtro global). El telefono se compara por
-        // los ultimos 10 digitos en memoria (el almacenado puede traer separadores/prefijo de pais).
+        // Proyeccion ligera de los terceros Modular ACTIVOS del tenant (filtro global). Se excluyen los
+        // inactivos/eliminados (soft-delete): no se debe alertar por un tercero que ya no esta visible. El
+        // telefono se compara por los ultimos 10 digitos en memoria (el almacenado puede traer separadores).
         var rows = await _app.Terceros.AsNoTracking()
-            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular && (excludeId == null || t.Id != excludeId))
+            .Where(t => t.DirectoryEngine == DirectoryEngine.Modular
+                && t.Estado != TerceroEstado.Inactivo
+                && (excludeId == null || t.Id != excludeId))
             .Select(t => new { t.Id, t.Nombre, t.IdValor, t.Email, t.Telefono })
             .ToListAsync(cancellationToken);
 
@@ -341,16 +344,28 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
         }
         if (hits.Count == 0) { return Array.Empty<ModularDuplicadoDto>(); }
 
-        // Categoria (primera pertenencia) de cada coincidencia, para el enlace directo a la ficha existente.
+        // Categoria (primera pertenencia) de cada coincidencia, con su TITULO legible, para mostrarla en la
+        // alerta ("... coincide por identificacion . Publico") y ubicar el duplicado.
         var ids = hits.Select(h => h.Id).ToList();
         var cats = await _db.TerceroCategorias.AsNoTracking()
             .Where(tc => ids.Contains(tc.TerceroId))
             .Select(tc => new { tc.TerceroId, tc.CategoriaKey })
             .ToListAsync(cancellationToken);
         var catByTercero = cats.GroupBy(c => c.TerceroId).ToDictionary(g => g.Key, g => g.First().CategoriaKey);
+        var claves = catByTercero.Values.Distinct().ToList();
+        var titulos = claves.Count == 0
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : await _db.DirectorioCategorias.AsNoTracking()
+                .Where(c => claves.Contains(c.CategoriaKey))
+                .ToDictionaryAsync(c => c.CategoriaKey, c => c.Title, cancellationToken);
 
-        return hits.Select(h => new ModularDuplicadoDto(
-            h.Id, h.Nombre, h.Motivo, catByTercero.TryGetValue(h.Id, out var ck) ? ck : null)).ToList();
+        return hits.Select(h =>
+        {
+            string? cat = catByTercero.TryGetValue(h.Id, out var ck)
+                ? (titulos.TryGetValue(ck, out var titulo) ? titulo : ck)
+                : null;
+            return new ModularDuplicadoDto(h.Id, h.Nombre, h.Motivo, cat);
+        }).ToList();
     }
 
     private static string SoloDigitos(string? s)

@@ -91,8 +91,10 @@ if ($LASTEXITCODE -ne 0) { Write-Error "El 'up -d' fallo. Revisa 'docker compose
 # --- 5) Verificacion: version + salud ---
 Say "Verificando (espera a que arranque)"
 Start-Sleep -Seconds 25
-$verInt = (& ssh @sshBase "curl -s -m8 http://127.0.0.1:5480/login | grep -oiE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1" 2>&1).Trim()
-$httpInt = (& ssh @sshBase "curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:5480/login" 2>&1).Trim()
+# "$(...)" coacciona a string ANTES de .Trim(): si el ssh/curl no devuelve nada (arranque lento), el
+# resultado es null y ".Trim()" sobre null tumbaba el script (exit 1) aunque el deploy hubiera quedado bien.
+$verInt = "$(& ssh @sshBase "curl -s -m8 http://127.0.0.1:5480/login | grep -oiE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1" 2>&1)".Trim()
+$httpInt = "$(& ssh @sshBase "curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:5480/login" 2>&1)".Trim()
 Write-Host "Interno (5480):  version=$verInt  login=$httpInt"
 
 # Publico (Caddy). Puede tardar unos segundos mas en refrescar.

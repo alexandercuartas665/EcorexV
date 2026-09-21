@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.77: Directorio Modular - ajustes a la alerta de duplicidad (O2-1)
+
+- Refinamientos de la alerta de duplicidad en vivo (raiz: en validacion, un usuario no ubicaba el duplicado
+  porque la busqueda es tenant-wide pero la parrilla esta filtrada por categoria; el match era correcto - un
+  tercero activo en otra categoria).
+- BuscarDuplicadosAsync ahora EXCLUYE inactivos/eliminados (soft-delete): no se alerta por un tercero que ya
+  no esta visible (consistente con la de-dup de la importacion).
+- La alerta muestra la CATEGORIA del duplicado ("Nombre . coincide por identificacion . Publico") para
+  ubicarlo de una; ModularDuplicadoDto.CategoriaKey pasa a Categoria (titulo legible, resuelto por join a
+  DirectorioCategorias).
+- Archivos: DirectorioModularFichaService.cs (filtro inactivos + titulo de categoria), DirectorioModular
+  FichaDtos.cs (Categoria), DirectorioModularFichaModal.razor (alerta con categoria). Build verde; 931 tests.
+- NO desplegado. Va junto con el merge de las Olas 1-6.
+
 ## 2026-09-15 - v0.16.76: Directorio Modular OLA 6 - refactor (tope 2000 lineas) (O6-1)
 
 - Sexta y ultima ola del backlog "Capa 8 Directorio". Refactor de deuda tecnica, SIN cambio de

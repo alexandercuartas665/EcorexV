@@ -20,6 +20,7 @@ public sealed class FlowPackageService : IFlowPackageService
 
     private readonly IApplicationDbContext _db;
     private readonly IWorkflowDesignService _design;
+    private readonly IWorkflowEngine _engine;
     private readonly IFormDefinitionService _forms;
     private readonly IWorkflowNodePolicyService _policies;
 
@@ -30,11 +31,12 @@ public sealed class FlowPackageService : IFlowPackageService
     };
 
     public FlowPackageService(
-        IApplicationDbContext db, IWorkflowDesignService design,
+        IApplicationDbContext db, IWorkflowDesignService design, IWorkflowEngine engine,
         IFormDefinitionService forms, IWorkflowNodePolicyService policies)
     {
         _db = db;
         _design = design;
+        _engine = engine;
         _forms = forms;
         _policies = policies;
     }
@@ -108,7 +110,9 @@ public sealed class FlowPackageService : IFlowPackageService
                 nodeById[e.SourceNodeId].BpmnElementId, nodeById[e.TargetNodeId].BpmnElementId, e.Name, e.ConditionExpression))
             .ToList();
 
-        var pkg = new FlowPackage(CurrentFormatVersion, def.Name, def.Description, def.Category, pkgNodes, pkgEdges);
+        // El XML del diagrama VERBATIM: es la unica fuente del layout fino (waypoints/curvas). Se incluye para
+        // que el import reproduzca el diseño EXACTO; si no hay XML guardado, el import cae al layout por coords.
+        var pkg = new FlowPackage(CurrentFormatVersion, def.Name, def.Description, def.Category, pkgNodes, pkgEdges, def.BpmnXml);
         return WorkflowResult<string>.Ok(JsonSerializer.Serialize(pkg, PkgJson));
     }
 
@@ -127,14 +131,38 @@ public sealed class FlowPackageService : IFlowPackageService
         // 1) ProcessCode UNICO en el tenant (no versiona uno existente: es un flujo nuevo).
         var processCode = await UniqueProcessCodeAsync(cancellationToken);
 
-        // 2) Grafo -> ImportJsonAsync (crea la definicion BORRADOR + nodos + edges).
-        var graphJson = BuildGraphJson(pkg, processCode);
-        var imported = await _design.ImportJsonAsync(graphJson, cancellationToken);
-        if (!imported.IsOk || imported.Value is null)
+        // 2) Grafo -> definicion BORRADOR + nodos + edges. Dos caminos:
+        //    (a) FIEL: si el paquete trae el XML del diagrama, se reimporta VERBATIM (conserva waypoints/curvas
+        //        y bounds exactos; el motor guarda el XML tal cual y solo lo parsea para poblar las tablas).
+        //    (b) LEGADO: paquetes viejos sin XML -> se reconstruye el grafo desde coords (flechas rectas).
+        FlowCanvasDto canvas;
+        if (!string.IsNullOrWhiteSpace(pkg.BpmnXml))
         {
-            return WorkflowResult<FlowImportReport>.Invalid(imported.Error ?? "No se pudo crear el grafo del flujo.");
+            var imp = await _engine.ImportBpmnAsync(
+                new ImportBpmnRequest(processCode, pkg.Name, pkg.BpmnXml!, pkg.Description), cancellationToken);
+            if (!imp.IsOk || imp.Value is null)
+            {
+                return WorkflowResult<FlowImportReport>.Invalid(imp.Error ?? "No se pudo crear el grafo del flujo.");
+            }
+            // El motor no setea Category al importar XML: se aplica aparte (el import JSON si la traia).
+            await _design.UpdateDefinitionPropsAsync(imp.Value.Id, pkg.Name, pkg.Category, pkg.Description, cancellationToken);
+            var loaded = await _design.GetCanvasAsync(imp.Value.Id, cancellationToken);
+            if (loaded is null)
+            {
+                return WorkflowResult<FlowImportReport>.Invalid("No se pudo cargar el flujo importado.");
+            }
+            canvas = loaded;
         }
-        var canvas = imported.Value;
+        else
+        {
+            var graphJson = BuildGraphJson(pkg, processCode);
+            var imported = await _design.ImportJsonAsync(graphJson, cancellationToken);
+            if (!imported.IsOk || imported.Value is null)
+            {
+                return WorkflowResult<FlowImportReport>.Invalid(imported.Error ?? "No se pudo crear el grafo del flujo.");
+            }
+            canvas = imported.Value;
+        }
         var nodeIdByBpmn = canvas.Nodes.ToDictionary(x => x.BpmnElementId, x => x.Id, StringComparer.Ordinal);
 
         // Catalogos del tenant destino para el mapeo por NOMBRE (filtro global -> solo este tenant).

@@ -34,6 +34,12 @@ public interface IFormTemplateRenderService
     /// <summary>HTML de la plantilla indicada (o la predeterminada del tenant) rellenada con el
     /// registro. Null si el registro no existe.</summary>
     Task<string?> RenderHtmlAsync(Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Nombre de archivo AMIGABLE para el documento impreso (sin extension): "NombreFormulario
+    /// CodigoActividad" (ej. "CONTACTO CLIENTE T00041"), ya saneado para usarse como nombre de archivo.
+    /// El codigo de actividad es la Reference del registro (el ancla a la tarea). Null si el registro no
+    /// existe: el endpoint cae al nombre por defecto.</summary>
+    Task<string?> GetDocumentNameAsync(Guid responseId, CancellationToken cancellationToken = default);
 }
 
 public sealed class FormTemplateRenderService : IFormTemplateRenderService
@@ -93,6 +99,29 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
             tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea);
     }
 
+    public async Task<string?> GetDocumentNameAsync(Guid responseId, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.IgnoreQueryFilters()
+            .Where(r => r.Id == responseId)
+            .Select(r => new { r.DefinitionId, r.TenantId, r.Reference, r.RecordNumber })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (response is null) { return null; }
+
+        var formName = await _db.FormDefinitions.IgnoreQueryFilters()
+            .Where(d => d.Id == response.DefinitionId && d.TenantId == response.TenantId)
+            .Select(d => d.Title)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // Codigo de la actividad: la Reference del registro (el ancla a la tarea, ej. "T00041" o "T00041-2").
+        // Si viene vacia se cae al numero de registro.
+        var codigo = string.IsNullOrWhiteSpace(response.Reference) ? response.RecordNumber : response.Reference;
+
+        var raw = string.Join(" ", new[] { formName, codigo }
+            .Where(s => !string.IsNullOrWhiteSpace(s)));
+        var safe = SanitizeFileName(raw);
+        return string.IsNullOrWhiteSpace(safe) ? null : safe;
+    }
+
     // Numero de la tarea desde la Reference: si termina en "-<entero>" se corta ahi; si no, se deja igual.
     // Misma logica que FormResponseService.StripOrdinal (se duplican 3 lineas por ser private alli).
     private static string StripTrailingOrdinal(string? reference)
@@ -100,6 +129,20 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         if (string.IsNullOrEmpty(reference)) { return string.Empty; }
         var dash = reference.LastIndexOf('-');
         return dash > 0 && int.TryParse(reference[(dash + 1)..], out _) ? reference[..dash] : reference;
+    }
+
+    // Deja un nombre de archivo legible: quita caracteres invalidos, colapsa espacios y acota el largo.
+    private static string SanitizeFileName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(raw.Length);
+        foreach (var ch in raw)
+        {
+            sb.Append(Array.IndexOf(invalid, ch) >= 0 ? ' ' : ch);
+        }
+        var collapsed = Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
+        return collapsed.Length > 120 ? collapsed[..120].Trim() : collapsed;
     }
 }
 

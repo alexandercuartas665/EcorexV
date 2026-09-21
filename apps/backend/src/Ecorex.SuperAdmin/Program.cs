@@ -1254,6 +1254,14 @@ app.MapGet("/formularios/plantilla/{responseId:guid}", async (
 {
     var html = await render.RenderHtmlAsync(responseId, templateId, ct);
     if (html is null) { return Results.NotFound(); }
+    // Nombre amigable como titulo del documento: al "Imprimir" (Guardar como PDF) el navegador propone el
+    // document.title como nombre de archivo, no el GUID de la URL. "NombreFormulario CodigoActividad".
+    var docName = await render.GetDocumentNameAsync(responseId, ct);
+    if (!string.IsNullOrWhiteSpace(docName))
+    {
+        var titleJson = System.Text.Json.JsonSerializer.Serialize(docName);
+        html += "\n<script>document.title=" + titleJson + ";</script>";
+    }
     // print como string (no bool): el boton "Imprimir" navega con print=1, que NO bindea a bool. Sin el
     // query (navegacion interna de /pdf e /img) tampoco debe fallar. "1"/"true" dispara el dialogo de
     // impresion del navegador al cargar.
@@ -1267,11 +1275,15 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
     [FromQuery] Guid? templateId,
     Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
     var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
-    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"documento-{responseId}.pdf");
+    if (bytes.Length == 0) { return Results.NotFound(); }
+    // Nombre amigable: "NombreFormulario CodigoActividad" (no el GUID del registro). Fallback al GUID.
+    var name = await render.GetDocumentNameAsync(responseId, ct);
+    return Results.File(bytes, "application/pdf", $"{(string.IsNullOrWhiteSpace(name) ? $"documento-{responseId}" : name)}.pdf");
 }).AllowAnonymous();
 
 app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
@@ -1279,11 +1291,14 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
     [FromQuery] Guid? templateId,
     Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
     var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToImageAsync(url, ct);
-    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "image/png", $"documento-{responseId}.png");
+    if (bytes.Length == 0) { return Results.NotFound(); }
+    var name = await render.GetDocumentNameAsync(responseId, ct);
+    return Results.File(bytes, "image/png", $"{(string.IsNullOrWhiteSpace(name) ? $"documento-{responseId}" : name)}.png");
 }).AllowAnonymous();
 
 // Descarga del comprobante de pago (PDF). Solo pagos aprobados; el usuario de agencia solo

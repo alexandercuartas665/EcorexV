@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.98: Fidelidad de import de flujos + editor de pildoras (modal/ocultar) + nombre de impresion
+
+- Tres temas de feedback del usuario en una sola tanda (sin migracion; build verde; 91 tests de las areas tocadas OK).
+- PART 1 - La importacion de un flujo RESPETA el diseño (flechas/curvas). Antes el paquete solo guardaba
+  coords + de/a de las aristas y el import reconstruia el grafo con flechas rectas por defecto (waypoints
+  perdidos). Ahora el paquete lleva el BpmnXml del diagrama VERBATIM (FlowPackage.BpmnXml) y el import lo reusa
+  por el motor (ImportBpmnRequest con ProcessCode nuevo), igual que EnsureDraft. Las mutaciones posteriores
+  (apariencia/forms/cargos) hacen MERGE (BpmnXmlMerger respeta las aristas ya trazadas), no re-enrutan. Paquetes
+  viejos sin BpmnXml caen al camino legado por coords. FlowPackageService inyecta IWorkflowEngine.
+- PART 2 - Editor de la columna de GESTIONES = modal enfocado + ocultar pildora. GestionPillsEditor pasa de un
+  bloque suelto del panel a una TARJETA resumen (titulo + chips de las pildoras) con boton "Configurar" que abre
+  un MODAL; se siente parte de la columna. Cada pildora tiene un toggle de ojo para OCULTARLA sin borrarla: se
+  conserva en options_json ("hidden":true) y el motor (FormGridCalculator) la salta al renderizar. Modelo:
+  GestionColumnJson.Pill gana Hidden; +GestionPillsEditor.razor.css.
+- PART 3 - La impresion de plantillas desde tareas usa un nombre AMIGABLE, no el GUID. Antes el PDF/imagen se
+  bajaba como "documento-{guid}"; ahora es "NombreFormulario CodigoActividad" (ej. "CONTACTO CLIENTE T00041"),
+  con el codigo de actividad = Reference del registro (ancla a la tarea). Nuevo
+  IFormTemplateRenderService.GetDocumentNameAsync (saneado como nombre de archivo). Los endpoints /pdf e /img lo
+  usan en el Content-Disposition, y el HTML de impresion setea document.title para que el "Guardar como PDF" del
+  navegador tambien proponga ese nombre. Fallback al GUID si no hay datos.
+- NO desplegado. Pendiente (a la senal del usuario): restaurar los flujos de AGROMETALICAS archivados en la BD dev.
+
 ## 2026-09-21 - v0.16.97: Import/Export de flujos por ARCHIVO (no caja de texto)
 
 - Peticion del usuario: la importacion/exportacion de flujos usaba una caja de texto (pegar/copiar JSON) que no

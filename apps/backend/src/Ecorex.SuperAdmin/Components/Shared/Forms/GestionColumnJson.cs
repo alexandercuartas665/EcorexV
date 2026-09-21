@@ -9,7 +9,7 @@ namespace Ecorex.SuperAdmin.Components.Shared.Forms;
 /// </summary>
 public static class GestionColumnJson
 {
-    public sealed record Pill(string Label, string Def, string? Color);
+    public sealed record Pill(string Label, string Def, string? Color, bool Hidden = false);
 
     /// <summary>Lee la columna de gestiones actual (label + pildoras) o null si no existe.</summary>
     public static (string Label, List<Pill> Pills)? Read(string? optionsJson)
@@ -25,7 +25,10 @@ public static class GestionColumnJson
                     if (pn is not JsonObject po) { continue; }
                     var def = Str(po, "def");
                     if (string.IsNullOrWhiteSpace(def)) { continue; }
-                    pills.Add(new Pill(Str(po, "label") ?? def!, def!.Trim(), Str(po, "color")));
+                    var hidden = po.TryGetPropertyValue("hidden", out var hv) && hv is not null
+                        && (hv.GetValueKind() == System.Text.Json.JsonValueKind.True
+                            || string.Equals(hv.ToString(), "true", StringComparison.OrdinalIgnoreCase));
+                    pills.Add(new Pill(Str(po, "label") ?? def!, def!.Trim(), Str(po, "color"), hidden));
                 }
             }
             return (string.IsNullOrWhiteSpace(Str(o, "label")) ? "Gestiones" : Str(o, "label")!, pills);
@@ -60,6 +63,7 @@ public static class GestionColumnJson
                 ["def"] = p.Def.Trim()
             };
             if (!string.IsNullOrWhiteSpace(p.Color)) { po["color"] = p.Color; }
+            if (p.Hidden) { po["hidden"] = true; }   // pildora oculta: se conserva en config pero no se renderiza
             pillsArr.Add(po);
         }
         gestion["pills"] = pillsArr;

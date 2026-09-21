@@ -148,6 +148,8 @@ public static class FormGridCalculator
                     foreach (var pe in pp.EnumerateArray())
                     {
                         if (pe.ValueKind != JsonValueKind.Object) { continue; }
+                        // Pildora oculta: se conserva en la config (editable en el diseñador) pero NO se renderiza.
+                        if (pe.TryGetProperty("hidden", out var ph) && ph.ValueKind == JsonValueKind.True) { continue; }
                         var pdef = pe.TryGetProperty("def", out var pd) ? pd.GetString() : null;
                         if (string.IsNullOrWhiteSpace(pdef)) { continue; }
                         var plabel = pe.TryGetProperty("label", out var ppl) ? ppl.GetString() ?? pdef : pdef;

@@ -12,7 +12,11 @@ public sealed record FlowPackage(
     string? Description,
     string? Category,
     IReadOnlyList<FlowPackageNode> Nodes,
-    IReadOnlyList<FlowPackageEdge> Edges);
+    IReadOnlyList<FlowPackageEdge> Edges,
+    // XML BPMN del diagrama VERBATIM (waypoints/curvas/bounds de bpmn.io). Se guarda para que el import
+    // reproduzca el layout EXACTO del origen, no una version re-enrutada con flechas rectas por defecto.
+    // Opcional: paquetes viejos (o sin diagrama guardado) no lo traen y el import cae al layout por coords.
+    string? BpmnXml = null);
 
 /// <summary>Un nodo del paquete. <see cref="Tipo"/> es el tipo compatible con el import del grafo
 /// ("startEvent" / "task" / "exclusiveGateway" / "endEvent").</summary>

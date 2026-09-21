@@ -102,4 +102,12 @@ public class WorkflowStepHistory : TenantEntity
     public string? ApprovalComment { get; set; }
 
     public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Vencimiento ESTIMADO del paso (Fase 1 - plazos de flujo): se estampa al activarse el paso como
+    /// inicio_real (CreatedAt) + el plazo del nodo (SlaJson), respetando calendario/habil y el calendario
+    /// operativo del tenant, en su zona horaria. Null = el nodo no tiene plazo. El inicio real es CreatedAt y
+    /// el fin real es CompletedAt.
+    /// </summary>
+    public DateTimeOffset? DueAt { get; set; }
 }

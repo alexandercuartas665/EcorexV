@@ -169,6 +169,66 @@ public abstract class WorkflowEngineTestsBase
         Assert.All(history, s => Assert.False(s.IsCurrent));
     }
 
+    // ---- Plazos de flujo (Fase 1): vencimiento por paso + fechas de la actividad ----
+
+    /// <summary>
+    /// Con plazo (SlaJson) en los nodos, al activarse un paso el motor estampa su vencimiento estimado
+    /// (DueAt) y refresca la fecha inicial (real) y la fecha final ESTIMADA (que rueda) de la actividad.
+    /// Task_A = 2 horas (calendario), Task_B = 1 dia habil.
+    /// </summary>
+    [Fact]
+    public async Task LinearFlow_WithStepSla_StampsStepDeadlineAndTaskDates()
+    {
+        var seed = await SeedTenantAsync("Workflow Plazos");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+
+        var definition = (await engine.ImportBpmnAsync(new ImportBpmnRequest("SLA-01", "Flujo con plazos", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(definition.Id)).IsOk);
+
+        var nodeA = await ctx.WorkflowNodes.SingleAsync(n => n.DefinitionId == definition.Id && n.BpmnElementId == "Task_A");
+        var nodeB = await ctx.WorkflowNodes.SingleAsync(n => n.DefinitionId == definition.Id && n.BpmnElementId == "Task_B");
+        nodeA.SlaJson = StepSla.Build(0, 2, 0, StepSlaDayMode.Calendar);
+        nodeA.StepNumber = 1;
+        nodeB.SlaJson = StepSla.Build(1, 0, 0, StepSlaDayMode.Business);
+        nodeB.StepNumber = 2;
+        var activityType = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        activityType.WorkflowDefinitionId = definition.Id;
+        await ctx.SaveChangesAsync();
+
+        var before = DateTimeOffset.UtcNow;
+        var service = BuildTaskService(ctx, seed, engine);
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea con plazos", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == taskId);
+
+        // Paso actual = Task_A, con vencimiento ~ ahora + 2 horas (tiempo real, independiente de la zona).
+        var stepA = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_A", stepA.BpmnElementId);
+        var stepAHist = await ctx.WorkflowStepHistories.AsNoTracking()
+            .SingleAsync(s => s.InstanceId == instance.Id && s.NodeId == nodeA.Id && s.IsCurrent);
+        Assert.NotNull(stepAHist.DueAt);
+        Assert.InRange(stepAHist.DueAt!.Value, before.AddMinutes(115), DateTimeOffset.UtcNow.AddMinutes(125));
+
+        // La actividad recibio inicio real y fecha final estimada (incluye el paso siguiente).
+        var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == taskId);
+        Assert.NotNull(task.StartDate);
+        Assert.InRange(task.StartDate!.Value, before, DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.NotNull(task.DueDate);
+        Assert.True(task.DueDate!.Value > stepAHist.DueAt!.Value, "la fecha final incluye el plazo del paso siguiente");
+
+        // Al completar Task_A, Task_B queda vigente con su vencimiento (1 dia habil, > 20h).
+        Assert.True((await engine.CompleteStepAsync(instance.Id, stepA.Id, seed.TenantUserId)).IsOk);
+        var stepB = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_B", stepB.BpmnElementId);
+        var stepBHist = await ctx.WorkflowStepHistories.AsNoTracking()
+            .SingleAsync(s => s.InstanceId == instance.Id && s.NodeId == nodeB.Id && s.IsCurrent);
+        Assert.NotNull(stepBHist.DueAt);
+        Assert.True(stepBHist.DueAt!.Value > DateTimeOffset.UtcNow.AddHours(20), "1 dia habil deja el vencimiento a mas de 20h");
+    }
+
     // ---- D11: ejecucion en PARALELO (multi-token) ----
 
     /// <summary>

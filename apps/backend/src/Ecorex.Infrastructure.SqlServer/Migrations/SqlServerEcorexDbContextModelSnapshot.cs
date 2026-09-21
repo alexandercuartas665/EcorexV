@@ -13220,6 +13220,52 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("tenant_modules", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TenantOperatingDay", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date")
+                        .HasColumnName("date");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tenant_operating_days");
+
+                    b.HasIndex("TenantId", "Date")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_operating_days_tenant_id_date");
+
+                    b.ToTable("tenant_operating_days", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantPayment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -15254,6 +15300,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("restart_node_id");
 
+                    b.Property<string>("SlaJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("sla_json");
+
                     b.Property<int?>("StepNumber")
                         .HasColumnType("int")
                         .HasColumnName("step_number");
@@ -15720,6 +15770,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<int>("CycleIndex")
                         .HasColumnType("int")
                         .HasColumnName("cycle_index");
+
+                    b.Property<DateTimeOffset?>("DueAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("due_at");
 
                     b.Property<Guid?>("ExecutedByAiAgentId")
                         .HasColumnType("uniqueidentifier")

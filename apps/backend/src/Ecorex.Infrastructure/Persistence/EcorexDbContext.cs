@@ -180,6 +180,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FlowTag> FlowTags => Set<FlowTag>();
     public DbSet<FormTag> FormTags => Set<FormTag>();
     public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => Set<WorkflowNodePolicy>();
+    public DbSet<TenantOperatingDay> TenantOperatingDays => Set<TenantOperatingDay>();
     public DbSet<ModuleDefinition> ModuleDefinitions => Set<ModuleDefinition>();
     public DbSet<TenantModule> TenantModules => Set<TenantModule>();
 
@@ -1484,8 +1485,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Note).HasMaxLength(1000);
             // Reglas de notificacion del nodo (ADR-0100): jsonb.
             b.Property(x => x.NotifyJson).HasColumnType(jsonColumnType);
+            // Plazo (SLA) del paso (Fase 1 - plazos de flujo): jsonb {days,hours,minutes,dayMode}.
+            b.Property(x => x.SlaJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
+        });
+
+        // Dias no operativos del tenant (Fase 1 - plazos de flujo): festivos/no operativos que el modo habil
+        // salta. Filtro por tenant global (ITenantScoped). Unico por (TenantId, Date).
+        modelBuilder.Entity<TenantOperatingDay>(b =>
+        {
+            b.Property(x => x.Reason).HasMaxLength(200);
+            b.HasIndex(x => new { x.TenantId, x.Date }).IsUnique();
         });
 
         modelBuilder.Entity<WorkflowEdge>(b =>

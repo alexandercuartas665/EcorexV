@@ -172,6 +172,7 @@ public class ScheduledUpsertRunTests
         public DbSet<OrgUnit> OrgUnits => NotUsed<OrgUnit>();
         public DbSet<OrgUnitMember> OrgUnitMembers => NotUsed<OrgUnitMember>();
         public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => NotUsed<WorkflowNodePolicy>();
+        public DbSet<TenantOperatingDay> TenantOperatingDays => NotUsed<TenantOperatingDay>();
         public DbSet<ModuleDefinition> ModuleDefinitions => NotUsed<ModuleDefinition>();
         public DbSet<TenantModule> TenantModules => NotUsed<TenantModule>();
         public DbSet<SaasPlan> SaasPlans => NotUsed<SaasPlan>();

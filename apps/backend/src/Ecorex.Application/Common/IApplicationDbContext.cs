@@ -116,6 +116,7 @@ public interface IApplicationDbContext
     DbSet<FlowTag> FlowTags { get; }
     DbSet<FormTag> FormTags { get; }
     DbSet<WorkflowNodePolicy> WorkflowNodePolicies { get; }
+    DbSet<TenantOperatingDay> TenantOperatingDays { get; }
     DbSet<ModuleDefinition> ModuleDefinitions { get; }
     DbSet<TenantModule> TenantModules { get; }
     DbSet<SaasPlan> SaasPlans { get; }

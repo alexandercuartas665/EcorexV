@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.95: Plazos (SLA) por paso de flujo - Fase 1 (nucleo, con migracion) [ADR-0106]
+
+- Nuevo: cada paso de un flujo puede tener un PLAZO estimado (dias + horas + minutos), y de ahi el sistema
+  calcula fechas de la actividad. Reglas del usuario: el reloj real arranca cuando el paso anterior TERMINA de
+  verdad (el flujo solo estima); la fecha final RUEDA si un paso se atrasa; los DIAS se cuentan como calendario
+  o habil (saltando fin de semana + dias no operativos del tenant). Solo horas/minutos son tiempo real.
+- Fase 1 = nucleo backend (sin editor todavia): modelo + calculo + estampado en el motor. ADR-0106.
+- Calculo PURO y testeable: StepSla (parse/build de sla_json) + StepDeadlineCalculator (AddPlazo/AddPlazos,
+  calendario vs habil). 8 tests, incluye el ejemplo del usuario (viernes 4pm + 2 dias habiles con lunes festivo
+  + 4h = miercoles 8pm).
+- Motor: WorkflowEngine.ActivateNodeAsync estampa, al quedar vigente un paso, WorkflowStepHistory.DueAt = inicio
+  real + plazo del nodo; y refresca TaskItem.StartDate (inicio real del 1er paso, no pisa manual) + DueDate
+  (final estimado que rueda = inicio real del paso actual + suma de plazos del actual y los siguientes por
+  StepNumber). Best-effort (try/catch, nunca tumba el flujo); si el flujo no usa plazos, no toca fechas. Zona
+  horaria real del tenant via ScheduledJobRecurrence.ResolveTimeZone (arregla la deuda del UTC-5 cableado).
+- Modelo + migracion DUAL AddWorkflowStepSla: WorkflowNode.SlaJson (jsonb/nvarchar), WorkflowStepHistory.DueAt
+  (datetimeoffset), y nueva tabla tenant_operating_days (dias no operativos del tenant, unica por tenant+fecha).
+  Aplicada a BD dev (PG). Se agrego el DbSet a IApplicationDbContext (+10 fakes de test actualizados).
+- Tests: 8 unit (calculador) + 1 de INTEGRACION DUAL (WorkflowEngineTests) que verifica E2E contra PG Y SQL
+  Server: el paso recibe DueAt (~+2h), la actividad recibe StartDate real + DueDate estimado, y al avanzar el
+  siguiente paso rueda (1 dia habil > 20h). 982 Application verdes. Build de SuperAdmin verde. NO desplegado.
+- Siguiente: Fase 2 (editor del plazo por nodo en el diseñador junto a las alertas + pantalla del calendario
+  operativo del tenant + hora en fecha inicial/final de la actividad). Futuro: alertas por vencimiento.
+
 ## 2026-09-19 - v0.16.94: FormBuilder OLA 6/A3 - cierre por evento (firma/campo cierra el registro)
 
 - Ola 6/A3 (cierra la Ola 6): un registro transaccional se puede CERRAR por evento: cuando el campo elegido

@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Organization;
+using Ecorex.Application.Scheduling;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -991,10 +992,67 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // vez por activacion (este metodo se llama una vez por transicion).
         if (step.Status == WorkflowStepStatus.Pending)
         {
+            // Plazos de flujo (Fase 1): al quedar vigente el paso, se estampa su vencimiento estimado (DueAt)
+            // y se refresca la fecha inicial/final (que rueda) de la actividad. Best-effort: nunca rompe el avance.
+            try { await StampStepDeadlinesAsync(instance, node, step, task, cancellationToken); }
+            catch (Exception) { /* el plazo es informativo; su fallo no debe tumbar el flujo */ }
+
             _arrivalNotifyBuffer.Add((node.Id, step, task?.Id));
         }
         return step;
     }
+
+    /// <summary>
+    /// Plazos de flujo (Fase 1): estampa el vencimiento estimado del paso (inicio real + plazo del nodo,
+    /// respetando calendario/habil + el calendario operativo del tenant, en su zona horaria) y refresca la
+    /// fecha inicial y la fecha FINAL ESTIMADA de la actividad (que RUEDA: ahora + suma de los plazos del paso
+    /// actual y los siguientes). Si el flujo no usa plazos, no toca ninguna fecha (respeta las manuales).
+    /// </summary>
+    private async Task StampStepDeadlinesAsync(
+        WorkflowInstance instance, WorkflowNode node, WorkflowStepHistory step, TaskItem? task,
+        CancellationToken cancellationToken)
+    {
+        var nodes = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.DefinitionId == instance.DefinitionId)
+            .Select(n => new { n.Id, n.StepNumber, n.SlaJson })
+            .ToListAsync(cancellationToken);
+        if (nodes.All(n => StepSla.Read(n.SlaJson).IsEmpty)) { return; } // el flujo no configuro plazos
+
+        var tzId = await _db.Tenants.AsNoTracking()
+            .Where(t => t.Id == instance.TenantId).Select(t => t.TimeZoneId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var tz = ScheduledJobRecurrence.ResolveTimeZone(tzId);
+        var nonWorking = (await _db.TenantOperatingDays.AsNoTracking()
+            .Select(d => d.Date).ToListAsync(cancellationToken)).ToHashSet();
+
+        var nowUtc = DateTimeOffset.UtcNow;
+        var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, tz).DateTime;
+
+        // Vencimiento del PASO actual (solo si el nodo tiene plazo).
+        var nodeSla = StepSla.Read(node.SlaJson);
+        if (!nodeSla.IsEmpty)
+        {
+            step.DueAt = ToTenantUtc(StepDeadlineCalculator.AddPlazo(nowLocal, nodeSla, nonWorking), tz);
+        }
+
+        if (task is null) { return; }
+
+        // Inicio real de la actividad = el primer paso que la pone en marcha (no pisa una fecha ya puesta).
+        task.StartDate ??= nowUtc;
+
+        // Fecha final que RUEDA: ahora + suma de los plazos del paso actual y los siguientes (por StepNumber).
+        var current = nodes.FirstOrDefault(n => n.Id == node.Id);
+        IEnumerable<StepSla> remaining = current?.StepNumber is int sn
+            ? nodes.Where(n => n.StepNumber.HasValue && n.StepNumber.Value >= sn)
+                   .OrderBy(n => n.StepNumber!.Value)
+                   .Select(n => StepSla.Read(n.SlaJson))
+            : new[] { nodeSla };
+        task.DueDate = ToTenantUtc(StepDeadlineCalculator.AddPlazos(nowLocal, remaining, nonWorking), tz);
+    }
+
+    /// <summary>Convierte una hora LOCAL del tenant a un DateTimeOffset UTC (Colombia sin DST; portable).</summary>
+    private static DateTimeOffset ToTenantUtc(DateTime local, TimeZoneInfo tz)
+        => new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), tz), TimeSpan.Zero);
 
     private WorkflowStepHistory AddStep(
         WorkflowInstance instance, WorkflowNode node, int cycleIndex, bool isCycleStart,

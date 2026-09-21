@@ -126,4 +126,12 @@ public class WorkflowNode : TenantEntity
     /// Metadato del nodo (no viaja en el XML BPMN), editable sobre una definicion publicada. Ver NodeNotifyConfig.
     /// </summary>
     public string? NotifyJson { get; set; }
+
+    /// <summary>
+    /// PLAZO (SLA) del paso (Fase 1 - plazos de flujo): dias + horas + minutos, con el modo de los dias
+    /// (calendario o habil). JSON { "days","hours","minutes","dayMode":"calendar|business" } (ver StepSla).
+    /// El reloj real de cada paso arranca cuando el paso anterior TERMINA de verdad; el plazo es un ESTIMADO
+    /// para calcular el vencimiento del paso y la fecha final (que rueda) de la actividad. Null = sin plazo.
+    /// </summary>
+    public string? SlaJson { get; set; }
 }

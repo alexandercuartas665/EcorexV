@@ -25,9 +25,11 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
     private readonly TimeProvider _timeProvider;
     private readonly IYCloudApiClient _ycloud;
     private readonly ISecretProtector _secretProtector;
+    private readonly IWhatsAppConnectorService _connector;
 
     public WhatsAppTemplateService(IApplicationDbContext db, ITenantContext tenantContext,
-        IAuditWriter audit, TimeProvider timeProvider, IYCloudApiClient ycloud, ISecretProtector secretProtector)
+        IAuditWriter audit, TimeProvider timeProvider, IYCloudApiClient ycloud, ISecretProtector secretProtector,
+        IWhatsAppConnectorService connector)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -35,6 +37,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         _timeProvider = timeProvider;
         _ycloud = ycloud;
         _secretProtector = secretProtector;
+        _connector = connector;
     }
 
     public IReadOnlyList<WhatsAppTemplateVariableDef> Catalog() => WhatsAppTemplateVariableCatalog.All;
@@ -242,6 +245,63 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             previousValue: null, newValue: new { template.Name, Status = template.Status.ToString(), Provider = "local" }, tenantId: template.TenantId);
         await _db.SaveChangesAsync(cancellationToken);
         return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
+    }
+
+    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return WhatsAppTemplateResult<bool>.Invalid("Indica el numero de WhatsApp de prueba.");
+        }
+        var t = await _db.WhatsAppTemplates.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (t is null) { return WhatsAppTemplateResult<bool>.NotFound("La plantilla no existe."); }
+        if (!t.IsActive) { return WhatsAppTemplateResult<bool>.Invalid("La plantilla esta archivada."); }
+
+        // Prueba: se envia la plantilla a un numero llenando sus variables con los EJEMPLOS de la definicion.
+        // En YCloud debe estar Aprobada; en Evolution se renderiza a texto/media al vuelo (ver conector).
+        var values = ExampleValues(t.VariablesJson);
+        var (headerType, headerUrl) = TemplateHeaderMedia(t);
+        var actor = _tenantContext.UserId ?? Guid.Empty;
+        var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, values, actor,
+            headerType, headerUrl, cancellationToken);
+        return res.Ok
+            ? WhatsAppTemplateResult<bool>.Ok(true)
+            : WhatsAppTemplateResult<bool>.Invalid(res.Error ?? "No se pudo enviar la prueba.");
+    }
+
+    // Valores de EJEMPLO de las variables, en el orden de VariablesJson (cae al nombre del token si no hay ejemplo).
+    private static List<string> ExampleValues(string? variablesJson)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return list; }
+        try
+        {
+            using var doc = JsonDocument.Parse(variablesJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in doc.RootElement.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) { continue; }
+                    var ex = el.TryGetProperty("example", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+                    var tok = el.TryGetProperty("token", out var tk) && tk.ValueKind == JsonValueKind.String ? tk.GetString() : null;
+                    list.Add(!string.IsNullOrWhiteSpace(ex) ? ex! : (tok ?? string.Empty));
+                }
+            }
+        }
+        catch (JsonException) { /* variables mal formadas: sin valores */ }
+        return list;
+    }
+
+    private static (string? Type, string? Url) TemplateHeaderMedia(WhatsAppTemplate t)
+    {
+        if (string.IsNullOrWhiteSpace(t.HeaderMediaUrl)) { return (null, null); }
+        return t.HeaderType switch
+        {
+            WhatsAppTemplateHeaderType.Image => ("image", t.HeaderMediaUrl),
+            WhatsAppTemplateHeaderType.Document => ("document", t.HeaderMediaUrl),
+            WhatsAppTemplateHeaderType.Video => ("video", t.HeaderMediaUrl),
+            _ => (null, null)
+        };
     }
 
     /// <summary>Mapea el estado que devuelve YCloud/Meta al enum interno. PENDING/otros -> Submitted.</summary>

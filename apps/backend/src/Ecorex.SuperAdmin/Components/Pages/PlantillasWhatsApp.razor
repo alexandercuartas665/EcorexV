@@ -104,6 +104,10 @@ else
                         {
                             <button class="btn btn-sm btn-outline-primary" @onclick="@(() => SubmitAsync(t))" disabled="@_busy">Someter</button>
                         }
+                        @if (t.IsActive)
+                        {
+                            <button class="btn btn-sm btn-outline-success" @onclick="@(() => OpenTest(t))" disabled="@_busy" title="Enviar la plantilla a un numero de prueba">Probar</button>
+                        }
                         <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(t.Id))" disabled="@(!CanEdit(t.Status))">Editar</button>
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(t))" disabled="@_busy">
                             @(t.IsActive ? "Archivar" : "Restaurar")
@@ -242,6 +246,40 @@ else
     </div>
 }
 
+@* ===== Modal: probar plantilla (envio de prueba a un numero) ===== *@
+@if (_showTest)
+{
+    <div class="modal-overlay" @onclick="@(() => _showTest = false)">
+        <div class="modal-dialog" style="max-width:460px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Probar plantilla</h3>
+                <button class="modal-close" @onclick="@(() => _showTest = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="muted-cell">Se envia <strong>@_testName</strong> al numero que indiques, llenando las variables con sus ejemplos. En YCloud debe estar Aprobada; en Evolution se manda al vuelo (texto o documento).</p>
+                <div class="field">
+                    <label class="form-label">Numero de WhatsApp (con indicativo)</label>
+                    <input class="form-control" @bind="_testPhone" placeholder="573001234567" />
+                </div>
+                @if (_testError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:6px;">@_testError</div>
+                }
+                @if (_testOk)
+                {
+                    <div class="muted-cell" style="margin-top:6px;color:var(--t-green,#059669);">Enviado. Revisa el WhatsApp del numero.</div>
+                }
+            </div>
+            <div class="modal-foot" style="display:flex;justify-content:flex-end;gap:10px;">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showTest = false)" disabled="@_testBusy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="DoTestAsync" disabled="@(_testBusy || string.IsNullOrWhiteSpace(_testPhone))">
+                    @(_testBusy ? "Enviando..." : "Enviar prueba")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Modal: importar plantillas desde YCloud ===== *@
 @if (_showImport)
 {
@@ -317,6 +355,15 @@ else
 
     private IReadOnlyList<WhatsAppTemplateDto> _templates = [];
     private IReadOnlyList<WhatsAppLineDto> _lines = [];
+
+    // Probar plantilla (envio de prueba)
+    private bool _showTest;
+    private bool _testBusy;
+    private bool _testOk;
+    private Guid _testId;
+    private string? _testName;
+    private string _testPhone = "";
+    private string? _testError;
 
     // Importar desde YCloud
     private bool _showImport;
@@ -609,6 +656,31 @@ else
         WhatsAppTemplateStatus.Paused => "wa-paused",
         _ => "wa-draft"
     };
+
+    private void OpenTest(WhatsAppTemplateDto t)
+    {
+        _testId = t.Id;
+        _testName = t.Name;
+        _testPhone = "";
+        _testError = null;
+        _testOk = false;
+        _showTest = true;
+    }
+
+    private async Task DoTestAsync()
+    {
+        _testBusy = true;
+        _testError = null;
+        _testOk = false;
+        try
+        {
+            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone);
+            if (res.IsOk) { _testOk = true; }
+            else { _testError = res.Error ?? "No se pudo enviar la prueba."; }
+        }
+        catch (Exception ex) { _testError = ex.Message; }
+        finally { _testBusy = false; }
+    }
 
     private void OpenImport()
     {

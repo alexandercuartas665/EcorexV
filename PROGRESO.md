@@ -14,6 +14,17 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-21 - v0.16.102: Boton "Probar" plantilla de WhatsApp (envio de prueba a un numero)
+
+- Peticion: poder probar una plantilla enviandola a un numero. En cada plantilla ACTIVA de /plantillas-whatsapp
+  hay un boton "Probar" -> modal con el numero -> envia la plantilla llenando las variables con sus EJEMPLOS.
+- Nuevo IWhatsAppTemplateService.TestSendAsync(id, phone): carga la plantilla, arma los valores desde
+  VariablesJson (example), resuelve el header de media (imagen/documento/video) y llama al conector
+  SendTemplateAsync por la linea de la plantilla. Sirve para YCloud (debe estar Aprobada) y Evolution (se
+  renderiza a texto/documento al vuelo, Fase 1/A). El servicio inyecta IWhatsAppConnectorService (sin ciclo).
+- Test de integracion WhatsAppTemplatesTests: nuevo doble UnusedWhatsAppConnector (los tests no ejercitan el
+  envio). Build sln verde; 42 tests WhatsApp/plantillas OK. Sin migracion. NO desplegado.
+
 ## 2026-09-21 - v0.16.101: Plantillas de WhatsApp con ARCHIVO (documento) por Evolution + base PDF cotizacion
 
 - Sigue a la Fase 1 (texto). El usuario pidio "crear plantillas con archivos como en YCloud". El editor solo

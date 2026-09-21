@@ -129,7 +129,7 @@ public abstract class WhatsAppTemplatesTestsBase
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.UserId);
         var service = new WhatsAppTemplateService(ctx, tenantContext, new AuditWriter(ctx), TimeProvider.System,
-            new UnusedYCloudClient(), new PassthroughProtector());
+            new UnusedYCloudClient(), new PassthroughProtector(), new UnusedWhatsAppConnector());
         return await action(service);
     }
 
@@ -139,6 +139,26 @@ public abstract class WhatsAppTemplatesTestsBase
     {
         public string Protect(string plaintext) => plaintext;
         public string Unprotect(string ciphertext) => ciphertext;
+    }
+
+    // Conector no usado: estos tests no ejercitan el envio/prueba de plantillas; el ctor solo necesita una instancia.
+    private sealed class UnusedWhatsAppConnector : IWhatsAppConnectorService
+    {
+        private static NotSupportedException Nope() => new("El conector no se usa en estos tests.");
+        public Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken ct = default) => throw Nope();
+        public Task<EvolutionServerSettingDto?> SetServerAsync(SetEvolutionServerRequest request, Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<LineConnectResult> ConnectLineAsync(Guid lineId, Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<WhatsAppLineDto?> RefreshAsync(Guid lineId, Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<bool> DisconnectAsync(Guid lineId, Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<bool> DeleteLineAsync(Guid lineId, Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actor, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actor, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actor, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actor, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actor, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
+        public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
+        public Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken ct = default) => throw Nope();
     }
 
     private sealed class UnusedYCloudClient : IYCloudApiClient

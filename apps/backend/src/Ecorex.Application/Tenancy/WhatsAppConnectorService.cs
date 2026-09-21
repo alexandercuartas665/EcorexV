@@ -420,9 +420,24 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             var r = await _ycloud.SendTemplateAsync(key, line.YCloudPhoneNumberId!, digits, templateName.Trim(), lang, bodyParams, headerMediaType, headerMediaUrl, cancellationToken);
             (ok, error, messageId) = (r.IsSuccess, r.Error, r.MessageId);
         }
+        else if (line.Provider == WhatsAppProvider.Evolution)
+        {
+            // Evolution NO usa HSM de Meta: se renderiza la plantilla a TEXTO libre (cuerpo con sus tokens ya
+            // resueltos en bodyParams, mas header de texto y footer) y se manda por el camino de texto de Evolution.
+            var tpl = await _db.WhatsAppTemplates.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.TenantId == line.TenantId && t.Name == templateName && t.IsActive, cancellationToken);
+            if (tpl is null) { return new LineSendResult(false, $"No existe la plantilla '{templateName}' activa en este tenant."); }
+            var text = RenderTemplateText(tpl, bodyParams);
+            if (string.IsNullOrWhiteSpace(text)) { return new LineSendResult(false, "La plantilla no tiene cuerpo para enviar."); }
+            var server = await ResolveServerAsync(cancellationToken);
+            if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
+            var (baseUrl, apiKey) = server.Value;
+            var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text, cancellationToken);
+            (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
+        }
         else
         {
-            return new LineSendResult(false, "El envio de plantilla solo esta soportado en lineas YCloud en este corte.");
+            return new LineSendResult(false, "El envio de plantilla por esta linea no esta soportado (usa YCloud o Evolution).");
         }
 
         _audit.Write(actorUserId, "whatsapp-line.template-send", nameof(WhatsAppLine), line.Id,
@@ -652,6 +667,63 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
 
     // Nombre de instancia unico en el servidor compartido: ecorex_<tenant>_<linea>.
     private static string EvoInstance(WhatsAppLine line) => $"ecorex_{line.TenantId:N}_{line.Id:N}";
+
+    // Renderiza una plantilla a TEXTO libre para Evolution (que no usa HSM de Meta): compone header de texto +
+    // cuerpo (con sus {{tokens}} sustituidos por los valores ya resueltos en bodyParams, en el orden de
+    // VariablesJson) + footer. bodyParams[i] corresponde al i-esimo token de VariablesJson.
+    private static string RenderTemplateText(WhatsAppTemplate tpl, IReadOnlyList<string> bodyParams)
+    {
+        var body = tpl.BodyText ?? string.Empty;
+        var tokens = ParseTemplateTokens(tpl.VariablesJson);
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            var val = i < bodyParams.Count ? (bodyParams[i] ?? string.Empty) : string.Empty;
+            // {{token}} o {{ token }} (con espacios), nombre case-insensitive; MatchEvaluator evita que un '$'
+            // en el valor se interprete como grupo de reemplazo.
+            var pattern = @"\{\{\s*" + System.Text.RegularExpressions.Regex.Escape(tokens[i]) + @"\s*\}\}";
+            body = System.Text.RegularExpressions.Regex.Replace(body, pattern, _ => val,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Por si la plantilla usa placeholders posicionales estilo Meta ({{1}}, {{2}}, ...).
+            body = body.Replace("{{" + (i + 1) + "}}", val);
+        }
+
+        var sb = new System.Text.StringBuilder();
+        if (tpl.HeaderType == WhatsAppTemplateHeaderType.Text && !string.IsNullOrWhiteSpace(tpl.HeaderText))
+        {
+            sb.Append(tpl.HeaderText!.Trim()).Append("\n\n");
+        }
+        sb.Append(body.Trim());
+        if (!string.IsNullOrWhiteSpace(tpl.FooterText))
+        {
+            sb.Append("\n\n").Append(tpl.FooterText!.Trim());
+        }
+        return sb.ToString().Trim();
+    }
+
+    // Nombres de los tokens de la plantilla EN ORDEN, desde VariablesJson ([{"token":"cliente","example":..}]).
+    private static List<string> ParseTemplateTokens(string? variablesJson)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return list; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(variablesJson);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var el in doc.RootElement.EnumerateArray())
+                {
+                    if (el.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && el.TryGetProperty("token", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var name = t.GetString();
+                        if (!string.IsNullOrWhiteSpace(name)) { list.Add(name!.Trim()); }
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* variables mal formadas: sin tokens */ }
+        return list;
+    }
 
     private static string? NormalizeBaseUrl(string? raw)
     {

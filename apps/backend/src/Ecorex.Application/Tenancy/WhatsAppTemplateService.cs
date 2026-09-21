@@ -219,7 +219,22 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
         }
 
-        // Sin YCloud (Cloud/Evolution/Emulator o linea sin credenciales): transicion local (stub historico).
+        // Evolution NO usa HSM de Meta: no hay revision que esperar -> la plantilla queda APROBADA de una,
+        // lista para que el flujo/agente la envie (se renderiza a texto libre al enviar). Sin Meta, sin cola.
+        if (line is { Provider: WhatsAppProvider.Evolution })
+        {
+            template.Status = WhatsAppTemplateStatus.Approved;
+            template.Provider = WhatsAppProvider.Evolution;
+            template.SubmittedAt = _timeProvider.GetUtcNow();
+            template.ReviewedAt = _timeProvider.GetUtcNow();
+            template.RejectionReason = null;
+            _audit.Write(_tenantContext.UserId ?? Guid.Empty, "wa-template.submit", nameof(WhatsAppTemplate), template.Id,
+                previousValue: null, newValue: new { template.Name, Status = template.Status.ToString(), Provider = "Evolution" }, tenantId: template.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+            return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
+        }
+
+        // Cloud/Emulator o linea sin credenciales: transicion local (stub historico).
         template.Status = WhatsAppTemplateStatus.Submitted;
         template.SubmittedAt = _timeProvider.GetUtcNow();
         template.RejectionReason = null;

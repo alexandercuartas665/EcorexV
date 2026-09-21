@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-21 - v0.16.99: Plantillas de WhatsApp por Evolution API - Fase 1 (texto)
+
+- El proceso de plantillas (crear en /plantillas-whatsapp + enviar desde flujo/agente) estaba capado a YCloud:
+  el choke point WhatsAppConnectorService.SendTemplateAsync devolvia "solo soportado en lineas YCloud". Ahora
+  las lineas Evolution tambien envian plantillas.
+- Evolution NO usa HSM de Meta: se RENDERIZA la plantilla a TEXTO libre y se manda por el camino de texto de
+  Evolution (SendTextAsync). RenderTemplateText compone header de texto + cuerpo (con los {{tokens}} sustituidos
+  por los valores ya resueltos en bodyParams, en el orden de VariablesJson; admite {{ token }} con espacios,
+  case-insensitive, y posicionales {{1}}) + footer. Es puramente ADITIVO (antes solo daba error).
+- Someter en una linea Evolution deja la plantilla APROBADA de una (sin Meta, sin cola): WhatsAppTemplateService
+  .SubmitAsync special-case Evolution -> Status=Approved + Provider=Evolution. Asi queda usable por el flujo.
+  (Cloud/Emulator siguen con el stub historico Submitted.)
+- Beneficia a todos los disparadores de flujo/agente que ya usan SendTemplateAsync: WorkflowAgentWhatsApp
+  (>24h), AgentReactivacion, AgentCierre, NodeNotify. El editor /plantillas-whatsapp ya era agnostico de
+  proveedor (self-serve): banner actualizado para explicar las lineas Evolution.
+- Build verde; 54 tests de las areas tocadas OK (el test de Submit usa linea Cloud -> sigue en Submitted, no se
+  rompe). Sin migracion. NO desplegado.
+- Fase 2 (pendiente, acordada): adjuntar el PDF de la cotizacion de la tarea como documento por Evolution
+  (SendMediaAsync) reusando IQuotePdfRenderer + la respuesta COT anclada a la tarea.
+
 ## 2026-09-21 - v0.16.98: Fidelidad de import de flujos + editor de pildoras (modal/ocultar) + nombre de impresion
 
 - Tres temas de feedback del usuario en una sola tanda (sin migracion; build verde; 91 tests de las areas tocadas OK).

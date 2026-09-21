@@ -111,7 +111,13 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         {
             return WhatsAppTemplateResult<WhatsAppTemplateDto>.NotFound("La plantilla no existe.");
         }
-        if (!WhatsAppTemplateCalculations.CanEdit(template.Status))
+        // Evolution NO usa HSM de Meta: no hay estado "aprobado por Meta" que congele la plantilla, asi que
+        // se puede editar SIEMPRE. El candado de "solo borrador/rechazada" aplica a YCloud/Cloud (HSM real).
+        var lineProvider = await _db.WhatsAppLines.AsNoTracking()
+            .Where(l => l.Id == template.WhatsAppLineId).Select(l => (WhatsAppProvider?)l.Provider)
+            .FirstOrDefaultAsync(cancellationToken);
+        var isEvolution = lineProvider == WhatsAppProvider.Evolution || template.Provider == WhatsAppProvider.Evolution;
+        if (!isEvolution && !WhatsAppTemplateCalculations.CanEdit(template.Status))
         {
             return WhatsAppTemplateResult<WhatsAppTemplateDto>.Invalid(
                 "Solo se pueden editar plantillas en borrador o rechazadas.");
@@ -247,7 +253,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
     }
 
-    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, CancellationToken cancellationToken = default)
+    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone))
         {
@@ -257,12 +263,12 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         if (t is null) { return WhatsAppTemplateResult<bool>.NotFound("La plantilla no existe."); }
         if (!t.IsActive) { return WhatsAppTemplateResult<bool>.Invalid("La plantilla esta archivada."); }
 
-        // Prueba: se envia la plantilla a un numero llenando sus variables con los EJEMPLOS de la definicion.
-        // En YCloud debe estar Aprobada; en Evolution se renderiza a texto/media al vuelo (ver conector).
-        var values = ExampleValues(t.VariablesJson);
+        // Prueba: se envia la plantilla a un numero con los valores QUE INDIQUE el usuario (o, si no vienen,
+        // los EJEMPLOS de la definicion). En YCloud debe estar Aprobada; en Evolution se renderiza al vuelo.
+        var sendValues = values is { Count: > 0 } ? values : ExampleValues(t.VariablesJson);
         var (headerType, headerUrl) = TemplateHeaderMedia(t);
         var actor = _tenantContext.UserId ?? Guid.Empty;
-        var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, values, actor,
+        var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, sendValues, actor,
             headerType, headerUrl, cancellationToken);
         return res.Ok
             ? WhatsAppTemplateResult<bool>.Ok(true)

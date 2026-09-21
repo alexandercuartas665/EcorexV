@@ -108,7 +108,7 @@ else
                         {
                             <button class="btn btn-sm btn-outline-success" @onclick="@(() => OpenTest(t))" disabled="@_busy" title="Enviar la plantilla a un numero de prueba">Probar</button>
                         }
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(t.Id))" disabled="@(!CanEdit(t.Status))">Editar</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(t.Id))" disabled="@(!(CanEdit(t.Status) || t.Provider == WhatsAppProvider.Evolution))">Editar</button>
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(t))" disabled="@_busy">
                             @(t.IsActive ? "Archivar" : "Restaurar")
                         </button>
@@ -256,11 +256,26 @@ else
                 <button class="modal-close" @onclick="@(() => _showTest = false)">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="muted-cell">Se envia <strong>@_testName</strong> al numero que indiques, llenando las variables con sus ejemplos. En YCloud debe estar Aprobada; en Evolution se manda al vuelo (texto o documento).</p>
+                <p class="muted-cell">Se envia <strong>@_testName</strong> al numero que indiques. Ajusta los valores de las variables si quieres. En YCloud debe estar Aprobada; en Evolution se manda al vuelo.</p>
                 <div class="field">
                     <label class="form-label">Numero de WhatsApp (con indicativo)</label>
                     <input class="form-control" @bind="_testPhone" placeholder="573001234567" />
                 </div>
+                @if (_testVars.Count > 0)
+                {
+                    <label class="form-label" style="margin-top:10px;">Valores de las variables</label>
+                    @foreach (var v in _testVars)
+                    {
+                        <div class="field" style="margin-bottom:6px;">
+                            <label class="form-label" style="font-size:12px;color:var(--ink-3,#64748b);">@("{{")@v.Token@("}}")</label>
+                            <input class="form-control" @bind="v.Value" />
+                        </div>
+                    }
+                }
+                @if (!string.IsNullOrWhiteSpace(_testHeaderFile))
+                {
+                    <div class="muted-cell" style="margin-top:8px;">Se adjunta el archivo configurado: <strong>@_testHeaderFile</strong></div>
+                }
                 @if (_testError is not null)
                 {
                     <div class="tk-field-error" style="margin-top:6px;">@_testError</div>
@@ -364,6 +379,10 @@ else
     private string? _testName;
     private string _testPhone = "";
     private string? _testError;
+    private string? _testHeaderFile;
+    private List<TestVar> _testVars = new();
+
+    private sealed class TestVar { public string Token = ""; public string Value = ""; }
 
     // Importar desde YCloud
     private bool _showImport;
@@ -664,6 +683,13 @@ else
         _testPhone = "";
         _testError = null;
         _testOk = false;
+        // Campos editables por variable (prellenados con el ejemplo) para que la prueba pida los parametros.
+        _testVars = t.Variables.Select(v => new TestVar { Token = v.Token, Value = v.Example }).ToList();
+        // Archivo configurado (si el encabezado es documento/imagen/video): se muestra y se adjunta tal cual.
+        _testHeaderFile = t.HeaderType is WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video
+            && !string.IsNullOrWhiteSpace(t.HeaderMediaUrl)
+            ? Uri.UnescapeDataString(t.HeaderMediaUrl!.Split('/').LastOrDefault() ?? "")
+            : null;
         _showTest = true;
     }
 
@@ -674,7 +700,8 @@ else
         _testOk = false;
         try
         {
-            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone);
+            var values = _testVars.Select(v => v.Value ?? string.Empty).ToList();
+            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone, values);
             if (res.IsOk) { _testOk = true; }
             else { _testError = res.Error ?? "No se pudo enviar la prueba."; }
         }

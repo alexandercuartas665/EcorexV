@@ -14,6 +14,17 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-21 - v0.16.103: Plantillas Evolution editables + "Probar" pide los parametros y muestra el archivo
+
+- Feedback del usuario sobre plantillas Evolution.
+- EDITABLES SIEMPRE: Evolution no usa HSM de Meta, asi que no hay estado que congele la plantilla. UpdateAsync
+  ya no bloquea por estado si la linea es Evolution (el candado "solo borrador/rechazada" queda para YCloud). El
+  boton Editar se habilita para plantillas Evolution en cualquier estado (t.Provider == Evolution).
+- "PROBAR" PIDE LOS VALORES: el modal ahora muestra un campo por variable (prellenado con el ejemplo, editable) y
+  se envia con esos valores; si la plantilla tiene archivo (encabezado documento/imagen) se muestra el nombre y
+  se adjunta el configurado. TestSendAsync gana un parametro values (opcional; cae a los ejemplos si no viene).
+- Build verde; 42 tests WhatsApp/plantillas OK. Sin migracion. NO desplegado.
+
 ## 2026-09-21 - v0.16.102: Boton "Probar" plantilla de WhatsApp (envio de prueba a un numero)
 
 - Peticion: poder probar una plantilla enviandola a un numero. En cada plantilla ACTIVA de /plantillas-whatsapp

@@ -12,13 +12,16 @@ public sealed class NodeNotifyService : INodeNotifyService
     private readonly INotifyTokenResolver _tokens;
     private readonly INotificationChannelSender _sender;
     private readonly INotifyLinkBuilder _link;
+    private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
 
-    public NodeNotifyService(IApplicationDbContext db, INotifyTokenResolver tokens, INotificationChannelSender sender, INotifyLinkBuilder link)
+    public NodeNotifyService(IApplicationDbContext db, INotifyTokenResolver tokens, INotificationChannelSender sender,
+        INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc)
     {
         _db = db;
         _tokens = tokens;
         _sender = sender;
         _link = link;
+        _quoteDoc = quoteDoc;
     }
 
     public async Task NotifyStepArrivalAsync(Guid nodeId, Guid stepId, Guid? taskId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -61,7 +64,7 @@ public sealed class NodeNotifyService : INodeNotifyService
 
             foreach (var rule in config.Reglas!)
             {
-                try { await DispatchRuleAsync(rule, step?.AssignedToTenantUserId, tokens, link, actorUserId, cancellationToken); }
+                try { await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, cancellationToken); }
                 catch { /* un envio fallido no frena las demas reglas */ }
             }
         }
@@ -71,7 +74,7 @@ public sealed class NodeNotifyService : INodeNotifyService
         }
     }
 
-    private async Task DispatchRuleAsync(NodeNotifyRule rule, Guid? stepAssigneeId,
+    private async Task DispatchRuleAsync(NodeNotifyRule rule, Domain.Entities.TaskItem? task, Guid? stepAssigneeId,
         IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, CancellationToken ct)
     {
         var body = _tokens.Render(rule.Mensaje, tokens);
@@ -90,25 +93,37 @@ public sealed class NodeNotifyService : INodeNotifyService
                 return;
         }
 
-        // Correo / WhatsApp plantilla: se dirigen a un usuario (asignado del paso o uno elegido).
-        var userId = rule.Destino == NodeNotifyRecipient.Usuario ? rule.UsuarioId : stepAssigneeId;
-        if (userId is not Guid uid) { return; }
-        var user = await _db.TenantUsers.AsNoTracking()
-            .Where(u => u.Id == uid)
-            .Select(u => new { u.Email, u.Phone })
-            .FirstOrDefaultAsync(ct);
-        if (user is null) { return; }
+        // Correo / WhatsApp plantilla: resolver destinatario (correo + telefono). Puede ser el CONTACTO de la
+        // tarea (el cliente) o un usuario del tenant (asignado del paso o uno elegido).
+        string? email, phone;
+        if (rule.Destino == NodeNotifyRecipient.ContactoTarea)
+        {
+            email = task?.RequesterEmail;
+            phone = task?.RequesterPhone;
+        }
+        else
+        {
+            var userId = rule.Destino == NodeNotifyRecipient.Usuario ? rule.UsuarioId : stepAssigneeId;
+            if (userId is not Guid uid) { return; }
+            var user = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == uid)
+                .Select(u => new { u.Email, u.Phone })
+                .FirstOrDefaultAsync(ct);
+            if (user is null) { return; }
+            email = user.Email;
+            phone = user.Phone;
+        }
 
         switch (rule.Canal)
         {
-            case NotifyChannel.Correo when !string.IsNullOrWhiteSpace(user.Email):
+            case NotifyChannel.Correo when !string.IsNullOrWhiteSpace(email):
                 var subject = string.IsNullOrWhiteSpace(rule.Asunto)
                     ? "Notificacion de tarea"
                     : _tokens.Render(rule.Asunto, tokens);
-                await _sender.SendEmailAsync(user.Email!, subject, BuildEmailHtml(bodyWithLink), ct);
+                await _sender.SendEmailAsync(email!, subject, BuildEmailHtml(bodyWithLink), ct);
                 break;
 
-            case NotifyChannel.WhatsApp when !string.IsNullOrWhiteSpace(user.Phone) && !string.IsNullOrWhiteSpace(rule.Plantilla) && rule.LineaId is Guid lineId:
+            case NotifyChannel.WhatsApp when !string.IsNullOrWhiteSpace(phone) && !string.IsNullOrWhiteSpace(rule.Plantilla) && rule.LineaId is Guid lineId:
                 // La plantilla HSM llena sus variables por NOMBRE con el mapa de tokens. Si la regla ATA
                 // variables a expresiones (rule.Variables), se resuelven aqui (tokens {tarea.x}/{form.x}/
                 // {sistema.fecha}) y se inyectan bajo el nombre de la variable, para que el llenado por nombre
@@ -124,9 +139,39 @@ public sealed class NodeNotifyService : INodeNotifyService
                     }
                     waTokens = copy;
                 }
-                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, ct);
+                await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, ct);
+
+                // Adjunto: PDF de la respuesta de un formulario anclada a la tarea (renderizada con la plantilla
+                // de impresion), enviado como documento al mismo destinatario. Best-effort.
+                if (rule.AdjuntarPdfFormDefId is Guid formDefId && task is not null)
+                {
+                    await SendFormPdfAsync(lineId, phone!, task, formDefId, actor, ct);
+                }
                 break;
         }
+    }
+
+    // Resuelve la respuesta del formulario <paramref name="formDefId"/> anclada a la tarea (Reference == numero o
+    // "numero-n"), la renderiza a PDF y la manda como documento. Silencioso si no hay respuesta o falla el render.
+    private async Task SendFormPdfAsync(Guid lineId, string phone, Domain.Entities.TaskItem task, Guid formDefId, Guid actor, CancellationToken ct)
+    {
+        try
+        {
+            var num = task.Number;
+            var responseId = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.IsActive && r.DefinitionId == formDefId
+                    && (r.Reference == num || (r.Reference != null && r.Reference.StartsWith(num + "-"))))
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(r => (Guid?)r.Id)
+                .FirstOrDefaultAsync(ct);
+            if (responseId is not Guid rid) { return; }
+
+            var doc = await _quoteDoc.RenderResponsePdfAsync(rid, null, ct);
+            if (doc is null) { return; }
+            var base64 = Convert.ToBase64String(doc.Bytes);
+            await _sender.SendWhatsAppDocumentAsync(lineId, phone, base64, doc.MimeType, doc.FileName, null, actor, ct);
+        }
+        catch { /* best-effort: el adjunto no debe romper la notificacion */ }
     }
 
     private static string AppendLink(string body, string? link)

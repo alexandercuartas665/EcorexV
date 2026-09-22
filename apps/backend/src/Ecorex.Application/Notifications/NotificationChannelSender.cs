@@ -66,6 +66,19 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         catch { return false; }
     }
 
+    public async Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName,
+        string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(base64)) { return false; }
+        try
+        {
+            var res = await _wa.SendMediaAsync(lineId, phone, Domain.Enums.MessageMediaType.Document, base64,
+                mimeType, fileName, caption, actorUserId, remoteJid: null, cancellationToken);
+            return res.Ok;
+        }
+        catch { return false; }
+    }
+
     public async Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(chatId)) { return false; }

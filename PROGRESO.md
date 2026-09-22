@@ -14,6 +14,22 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-22 - v0.16.106: Regla de notificacion de nodo - Evolution + destino cliente + adjuntar PDF de formulario (Part B)
+
+- La Part B pedida por el usuario, en la regla de notificacion del paso del flujo (configurable, nada hardcodeado):
+  1) LINEA EVOLUTION seleccionable: el dropdown de linea deja de filtrar solo YCloud; muestra YCloud y Evolution
+     (Evolution renderiza la plantilla a texto y adjunta el documento al vuelo).
+  2) DESTINO "Contacto de la tarea": NodeNotifyRecipient.ContactoTarea usa el telefono/correo del solicitante de
+     la tarea (el cliente), ademas de Asignado del paso / Otro usuario.
+  3) ADJUNTAR PDF DE FORMULARIO: la regla gana AdjuntarPdfFormDefId; se elige el formulario en el editor. Al
+     llegar el paso, NodeNotifyService busca la respuesta de ESE formulario anclada a la tarea (Reference ==
+     numero o numero-n), la renderiza a PDF (IQuoteDocumentRenderer, plantilla de impresion) y la manda como
+     DOCUMENTO por la linea elegida al mismo destinatario. Best-effort.
+- Piezas: NodeNotifyConfig (enum + AdjuntarPdfFormDefId); INotificationChannelSender.SendWhatsAppDocumentAsync
+  (Evolution SendMedia); NodeNotifyService inyecta IQuoteDocumentRenderer + SendFormPdfAsync; FlowEditor (destino,
+  linea YCloud/Evolution, selector de formulario, carga de _forms, mapeo load/save). FakeSender de test stubeado.
+- Build verde; 59 tests OK. Sin migracion. NO desplegado (probar en local en el flujo "Seguimiento de Oferta").
+
 ## 2026-09-21 - v0.16.105: "Probar" permite aportar el ARCHIVO del encabezado (plantillas YCloud sin media)
 
 - Hallazgo (probando en prod): las plantillas con encabezado de imagen/documento importadas de YCloud llegan

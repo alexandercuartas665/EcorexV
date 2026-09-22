@@ -11,7 +11,9 @@ public enum NodeNotifyRecipient
     /// <summary>El usuario asignado al PASO (el que debe actuar). Si el paso quedo por cargo sin dueno unico, no hay a quien avisar.</summary>
     StepAssignee = 0,
     /// <summary>Un usuario del tenant elegido explicitamente (UsuarioId).</summary>
-    Usuario = 1
+    Usuario = 1,
+    /// <summary>El CONTACTO de la tarea (el cliente): usa el telefono/correo del solicitante de la tarea.</summary>
+    ContactoTarea = 2
 }
 
 /// <summary>
@@ -42,7 +44,10 @@ public sealed record NodeNotifyRule(
     // WhatsApp plantilla: binding de CADA variable de la plantilla a una expresion con tokens
     // (variableDeLaPlantilla -> "texto con {tarea.x} / {form.x} / {sistema.fecha}"). Si una variable no tiene
     // binding, se conserva el llenado automatico por nombre (compatibilidad hacia atras). Null = sin bindings.
-    IReadOnlyDictionary<string, string>? Variables = null);
+    IReadOnlyDictionary<string, string>? Variables = null,
+    // WhatsApp: adjunta el PDF de la respuesta de ESTE formulario anclada a la tarea (renderizada con la
+    // plantilla de impresion del tenant), enviada como documento al mismo destinatario. Null = sin adjunto.
+    Guid? AdjuntarPdfFormDefId = null);
 
 /// <summary>Reglas de notificacion de un nodo. Se serializa a <see cref="Domain.Entities.WorkflowNode.NotifyJson"/>.</summary>
 public sealed record NodeNotifyConfig(IReadOnlyList<NodeNotifyRule>? Reglas = null)

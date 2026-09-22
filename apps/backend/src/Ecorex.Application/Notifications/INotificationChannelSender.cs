@@ -29,6 +29,12 @@ public interface INotificationChannelSender
     /// <summary>Texto plano a un grupo de Evolution (jid "...@g.us") desde una linea Evolution.</summary>
     Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>Adjunta un DOCUMENTO (base64) a un telefono desde la linea, con caption opcional. Lo usan las
+    /// reglas de nodo para mandar el PDF de un formulario junto a la plantilla. Evolution lo envia como archivo;
+    /// YCloud requiere la media por URL publica (no soportado aqui, devuelve false).</summary>
+    Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName,
+        string? caption, Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Texto a un chat/grupo de Telegram usando el bot del tenant activo (token cifrado). Devuelve
     /// false si el tenant no tiene bot habilitado o el chat es vacio.</summary>
     Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default);

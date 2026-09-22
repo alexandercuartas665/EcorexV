@@ -87,6 +87,7 @@ public class AgentReactivacionServiceTests
 
         public Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

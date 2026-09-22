@@ -554,9 +554,10 @@ else
                             </select>
                             @if (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
                             {
-                                <select class="fe-input sm" style="width:170px" @bind="r.Destino">
+                                <select class="fe-input sm" style="width:190px" @bind="r.Destino">
                                     <option value="@NodeNotifyRecipient.StepAssignee">Asignado del paso</option>
                                     <option value="@NodeNotifyRecipient.Usuario">Otro usuario...</option>
+                                    <option value="@NodeNotifyRecipient.ContactoTarea">Contacto de la tarea</option>
                                 </select>
                                 @if (r.Destino == NodeNotifyRecipient.Usuario)
                                 {
@@ -576,11 +577,11 @@ else
                         @if (r.Canal == NotifyChannel.WhatsApp)
                         {
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
-                                <select class="fe-input sm" style="min-width:170px" @bind="r.LineaId">
-                                    <option value="">-- linea (YCloud) --</option>
-                                    @foreach (var l in _notifyLines.Where(l => l.Provider == WhatsAppProvider.YCloud))
+                                <select class="fe-input sm" style="min-width:180px" @bind="r.LineaId">
+                                    <option value="">-- linea (YCloud/Evolution) --</option>
+                                    @foreach (var l in _notifyLines.Where(l => l.Provider is WhatsAppProvider.YCloud or WhatsAppProvider.Evolution))
                                     {
-                                        <option value="@l.Id">@l.InstanceName</option>
+                                        <option value="@l.Id">@l.InstanceName (@l.Provider)</option>
                                     }
                                 </select>
                                 <select class="fe-input sm" style="min-width:180px" @bind="r.Plantilla">
@@ -591,7 +592,17 @@ else
                                     }
                                 </select>
                             </div>
-                            <div class="fe-acc-note" style="margin:4px 0 0">Plantilla HSM: sus variables se llenan por nombre con los tokens ({{cliente}}, {{numero}}, etc.). No usa el mensaje libre.</div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                                <span style="font-size:12px;font-weight:600;">Adjuntar PDF del formulario</span>
+                                <select class="fe-input sm" style="min-width:240px" @bind="r.AdjuntarPdfFormDefId">
+                                    <option value="">-- ninguno --</option>
+                                    @foreach (var d in _forms)
+                                    {
+                                        <option value="@d.Id">@d.Code - @d.Title</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="fe-acc-note" style="margin:4px 0 0">Plantilla: en YCloud sus variables se llenan por nombre con los tokens; en Evolution se renderiza a texto libre. Si eliges un formulario, se adjunta el PDF de su respuesta anclada a la tarea (con la plantilla de impresion) como documento al mismo destinatario.</div>
                             @if (TemplateVars(r.Plantilla) is { Count: > 0 } vars)
                             {
                                 <div style="margin-top:8px;padding:8px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface-2);">
@@ -1872,6 +1883,8 @@ else
         public bool IncluirEnlace { get; set; }
         // WhatsApp plantilla: binding variableDeLaPlantilla -> expresion con tokens (texto libre).
         public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        // WhatsApp: id del formulario cuyo PDF (respuesta anclada a la tarea) se adjunta. Vacio = ninguno.
+        public string? AdjuntarPdfFormDefId { get; set; }
     }
 
     private static string NotifyUserLabel(TenantUserDto u)
@@ -1898,7 +1911,8 @@ else
             IncluirEnlace = r.IncluirEnlace,
             Variables = r.Variables is { Count: > 0 }
                 ? new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString()
         }).ToList();
         if (!_notifyDataLoaded)
         {
@@ -1906,6 +1920,11 @@ else
             _notifyLines = (await LinesSvc.ListAsync()).ToList();
             _notifyTemplates = (await TemplatesSvc.ListAsync()).ToList();
             _notifyDataLoaded = true;
+        }
+        // Formularios activos para el selector "Adjuntar PDF del formulario" (se carga aqui y en el form-picker).
+        if (_forms.Count == 0)
+        {
+            _forms = (await FormsSvc.ListAsync(includeArchived: false)).Where(f => f.Status == FormStatus.Active).ToList();
         }
         _notifyModalOpen = true;
     }
@@ -1936,7 +1955,7 @@ else
                 && r.Destino == NodeNotifyRecipient.Usuario && !Guid.TryParse(r.UsuarioId, out _))
             { _notifyError = "Elige el usuario destino en cada regla 'Otro usuario'."; return; }
             if (r.Canal == NotifyChannel.WhatsApp && (string.IsNullOrWhiteSpace(r.Plantilla) || !Guid.TryParse(r.LineaId, out _)))
-            { _notifyError = "En WhatsApp elige linea (YCloud) y plantilla."; return; }
+            { _notifyError = "En WhatsApp elige la linea (YCloud o Evolution) y la plantilla."; return; }
             if (r.Canal == NotifyChannel.WhatsAppGrupo && (string.IsNullOrWhiteSpace(r.GrupoJid) || !Guid.TryParse(r.LineaGrupoId, out _)))
             { _notifyError = "En WhatsApp grupo elige linea Evolution y el jid del grupo."; return; }
             if (r.Canal == NotifyChannel.Telegram && string.IsNullOrWhiteSpace(r.ChatId))
@@ -1958,7 +1977,8 @@ else
             r.IncluirEnlace,
             r.Canal == NotifyChannel.WhatsApp && r.Variables.Count(v => !string.IsNullOrWhiteSpace(v.Value)) > 0
                 ? r.Variables.Where(v => !string.IsNullOrWhiteSpace(v.Value)).ToDictionary(v => v.Key, v => v.Value.Trim())
-                : null)).ToList());
+                : null,
+            r.Canal == NotifyChannel.WhatsApp && Guid.TryParse(r.AdjuntarPdfFormDefId, out var pdfId) ? pdfId : (Guid?)null)).ToList());
 
         await GuardAsync(async () =>
         {

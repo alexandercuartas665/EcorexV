@@ -17,6 +17,7 @@
 @inject ITenantUserService TenantUsersSvc
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppTemplateService TemplatesSvc
+@inject IQuoteTemplateService QuoteTemplatesSvc
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -594,13 +595,24 @@ else
                             </div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
                                 <span style="font-size:12px;font-weight:600;">Adjuntar PDF del formulario</span>
-                                <select class="fe-input sm" style="min-width:240px" @bind="r.AdjuntarPdfFormDefId">
+                                <select class="fe-input sm" style="min-width:220px" @bind="r.AdjuntarPdfFormDefId">
                                     <option value="">-- ninguno --</option>
                                     @foreach (var d in _forms)
                                     {
                                         <option value="@d.Id">@d.Code - @d.Title</option>
                                     }
                                 </select>
+                                @if (!string.IsNullOrEmpty(r.AdjuntarPdfFormDefId))
+                                {
+                                    <span style="font-size:12px;color:var(--ink-3)">con la plantilla</span>
+                                    <select class="fe-input sm" style="min-width:200px" @bind="r.AdjuntarPdfTemplateId">
+                                        <option value="">-- predeterminada --</option>
+                                        @foreach (var q in _printTemplates)
+                                        {
+                                            <option value="@q.Id">@q.Name@(q.IsDefault ? " (predet.)" : "")</option>
+                                        }
+                                    </select>
+                                }
                             </div>
                             <div class="fe-acc-note" style="margin:4px 0 0">Plantilla: en YCloud sus variables se llenan por nombre con los tokens; en Evolution se renderiza a texto libre. Si eliges un formulario, se adjunta el PDF de su respuesta anclada a la tarea (con la plantilla de impresion) como documento al mismo destinatario.</div>
                             @if (TemplateVars(r.Plantilla) is { Count: > 0 } vars)
@@ -1865,6 +1877,7 @@ else
     private List<TenantUserDto> _notifyUsers = new();
     private List<WhatsAppLineDto> _notifyLines = new();
     private List<WhatsAppTemplateDto> _notifyTemplates = new();
+    private List<QuoteTemplateDto> _printTemplates = new();
 
     // Fila editable (strings para los ids: bind de <select> seguro con opcion vacia).
     private sealed class NotifyRuleRow
@@ -1885,6 +1898,8 @@ else
         public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         // WhatsApp: id del formulario cuyo PDF (respuesta anclada a la tarea) se adjunta. Vacio = ninguno.
         public string? AdjuntarPdfFormDefId { get; set; }
+        // WhatsApp: id de la plantilla de impresion con la que se renderiza el PDF. Vacio = predeterminada.
+        public string? AdjuntarPdfTemplateId { get; set; }
     }
 
     private static string NotifyUserLabel(TenantUserDto u)
@@ -1912,13 +1927,15 @@ else
             Variables = r.Variables is { Count: > 0 }
                 ? new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString()
+            AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString(),
+            AdjuntarPdfTemplateId = r.AdjuntarPdfTemplateId?.ToString()
         }).ToList();
         if (!_notifyDataLoaded)
         {
             _notifyUsers = (await TenantUsersSvc.ListAsync()).ToList();
             _notifyLines = (await LinesSvc.ListAsync()).ToList();
             _notifyTemplates = (await TemplatesSvc.ListAsync()).ToList();
+            _printTemplates = (await QuoteTemplatesSvc.ListAsync()).ToList();
             _notifyDataLoaded = true;
         }
         // Formularios activos para el selector "Adjuntar PDF del formulario" (se carga aqui y en el form-picker).
@@ -1978,7 +1995,8 @@ else
             r.Canal == NotifyChannel.WhatsApp && r.Variables.Count(v => !string.IsNullOrWhiteSpace(v.Value)) > 0
                 ? r.Variables.Where(v => !string.IsNullOrWhiteSpace(v.Value)).ToDictionary(v => v.Key, v => v.Value.Trim())
                 : null,
-            r.Canal == NotifyChannel.WhatsApp && Guid.TryParse(r.AdjuntarPdfFormDefId, out var pdfId) ? pdfId : (Guid?)null)).ToList());
+            r.Canal == NotifyChannel.WhatsApp && Guid.TryParse(r.AdjuntarPdfFormDefId, out var pdfId) ? pdfId : (Guid?)null,
+            r.Canal == NotifyChannel.WhatsApp && !string.IsNullOrEmpty(r.AdjuntarPdfFormDefId) && Guid.TryParse(r.AdjuntarPdfTemplateId, out var pdfTplId) ? pdfTplId : (Guid?)null)).ToList());
 
         await GuardAsync(async () =>
         {

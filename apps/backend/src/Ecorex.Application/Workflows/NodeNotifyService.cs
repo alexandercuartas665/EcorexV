@@ -145,7 +145,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                 // de impresion), enviado como documento al mismo destinatario. Best-effort.
                 if (rule.AdjuntarPdfFormDefId is Guid formDefId && task is not null)
                 {
-                    await SendFormPdfAsync(lineId, phone!, task, formDefId, actor, ct);
+                    await SendFormPdfAsync(lineId, phone!, task, formDefId, rule.AdjuntarPdfTemplateId, actor, ct);
                 }
                 break;
         }
@@ -153,7 +153,7 @@ public sealed class NodeNotifyService : INodeNotifyService
 
     // Resuelve la respuesta del formulario <paramref name="formDefId"/> anclada a la tarea (Reference == numero o
     // "numero-n"), la renderiza a PDF y la manda como documento. Silencioso si no hay respuesta o falla el render.
-    private async Task SendFormPdfAsync(Guid lineId, string phone, Domain.Entities.TaskItem task, Guid formDefId, Guid actor, CancellationToken ct)
+    private async Task SendFormPdfAsync(Guid lineId, string phone, Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, Guid actor, CancellationToken ct)
     {
         try
         {
@@ -166,7 +166,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                 .FirstOrDefaultAsync(ct);
             if (responseId is not Guid rid) { return; }
 
-            var doc = await _quoteDoc.RenderResponsePdfAsync(rid, null, ct);
+            var doc = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
             if (doc is null) { return; }
             var base64 = Convert.ToBase64String(doc.Bytes);
             await _sender.SendWhatsAppDocumentAsync(lineId, phone, base64, doc.MimeType, doc.FileName, null, actor, ct);

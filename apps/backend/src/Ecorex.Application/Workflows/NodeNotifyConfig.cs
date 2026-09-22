@@ -45,9 +45,12 @@ public sealed record NodeNotifyRule(
     // (variableDeLaPlantilla -> "texto con {tarea.x} / {form.x} / {sistema.fecha}"). Si una variable no tiene
     // binding, se conserva el llenado automatico por nombre (compatibilidad hacia atras). Null = sin bindings.
     IReadOnlyDictionary<string, string>? Variables = null,
-    // WhatsApp: adjunta el PDF de la respuesta de ESTE formulario anclada a la tarea (renderizada con la
-    // plantilla de impresion del tenant), enviada como documento al mismo destinatario. Null = sin adjunto.
-    Guid? AdjuntarPdfFormDefId = null);
+    // WhatsApp: adjunta el PDF de la respuesta de ESTE formulario anclada a la tarea, enviada como documento al
+    // mismo destinatario. Null = sin adjunto.
+    Guid? AdjuntarPdfFormDefId = null,
+    // Plantilla de impresion (QuoteTemplate) con la que se renderiza el PDF adjunto. Null = la predeterminada
+    // del tenant. Util cuando un formulario tiene VARIAS plantillas de impresion.
+    Guid? AdjuntarPdfTemplateId = null);
 
 /// <summary>Reglas de notificacion de un nodo. Se serializa a <see cref="Domain.Entities.WorkflowNode.NotifyJson"/>.</summary>
 public sealed record NodeNotifyConfig(IReadOnlyList<NodeNotifyRule>? Reglas = null)

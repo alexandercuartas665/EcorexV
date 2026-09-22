@@ -14,6 +14,14 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-22 - v0.16.107: Adjuntar PDF - elegir tambien la plantilla de impresion
+
+- Feedback: un formulario puede imprimir con VARIAS plantillas, la regla debe preguntar cual. La regla de nodo
+  gana AdjuntarPdfTemplateId (QuoteTemplate); en el editor, junto al selector de formulario aparece "con la
+  plantilla" (lista IQuoteTemplateService.ListAsync del tenant; vacio = predeterminada). NodeNotifyService.
+  SendFormPdfAsync pasa el templateId a RenderResponsePdfAsync. FlowEditor inyecta IQuoteTemplateService.
+- Build verde; 28 tests notify OK. Sin migracion. NO desplegado.
+
 ## 2026-09-22 - v0.16.106: Regla de notificacion de nodo - Evolution + destino cliente + adjuntar PDF de formulario (Part B)
 
 - La Part B pedida por el usuario, en la regla de notificacion del paso del flujo (configurable, nada hardcodeado):

@@ -17,6 +17,18 @@ RUN dotnet publish src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj \
 # --- runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
+# Zona horaria del contenedor. La base aspnet (Debian) NO trae tzdata, asi que sin esto
+# TimeZoneInfo.Local y FindSystemTimeZoneById("America/Bogota") caen a UTC: las fechas de la UI
+# (ToLocalTime), los PDFs/correos y hasta las programaciones se muestran/corren en UTC (+5h en
+# Colombia). Se instala tzdata y se fija America/Bogota como zona del sistema. Todos los tenants
+# actuales son Colombia (Tenant.TimeZoneId por defecto America/Bogota); si algun dia hay un tenant
+# de otra zona, el arreglo correcto es convertir por Tenant.TimeZoneId en la capa de presentacion.
+ENV TZ=America/Bogota
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && ln -sf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
 # Librerias del sistema que el Chromium headless (PuppeteerSharp) necesita para arrancar.
 # Sin ellas falla con "error while loading shared libraries: libgobject-2.0.so.0".
 # libgobject-2.0.so.0 viene de libglib2.0-0t64. Se instalan explicitas por si el paquete

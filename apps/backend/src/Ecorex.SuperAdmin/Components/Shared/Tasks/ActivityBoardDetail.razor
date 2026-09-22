@@ -258,6 +258,7 @@
                                  @ondrop:stopPropagation="true"
                                  @ondragend="@(() => { _dragTaskId = null; _dragOverColumnId = null; })">
                                 <div class="ab-card-top">
+                                    <span class="tk-number" title="Numero de la actividad">@c.Number</span>
                                     @if (c.IsSubtask)
                                     {
                                         <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627; @c.ParentNumber</span>

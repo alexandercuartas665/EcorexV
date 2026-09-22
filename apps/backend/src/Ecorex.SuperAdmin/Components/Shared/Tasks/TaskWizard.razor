@@ -747,6 +747,9 @@
             ["nit"] = _requesterDoc,
             ["documento"] = _requesterDoc,
             ["identificacion"] = _requesterDoc,
+            // Encargado (asignado) elegido en el wizard, NO quien diligencia (misma razon que en el detalle).
+            ["comercial"] = SumEncargado,
+            ["responsable"] = SumEncargado,
         };
 
     /// <summary>"Agregar": abre el modal para una cotizacion NUEVA (el renderer crea el borrador y lo

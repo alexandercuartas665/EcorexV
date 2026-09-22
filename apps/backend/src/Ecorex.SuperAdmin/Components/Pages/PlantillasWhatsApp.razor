@@ -200,6 +200,10 @@ else
                         @if (!string.IsNullOrWhiteSpace(_fHeaderMediaUrl))
                         {
                             <img src="@_fHeaderMediaUrl" alt="Vista previa del encabezado" style="max-height:120px;margin-top:.5rem;border-radius:8px;" />
+                            <div style="margin-top:.4rem;">
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                        @onclick="RemoveHeaderFile" disabled="@_uploadingHeader">Quitar archivo</button>
+                            </div>
                         }
                         <small class="muted-cell">Se usa como ejemplo al crear la plantilla y como imagen en cada envio. YCloud debe poder descargarla (URL publica).</small>
                     </div>
@@ -218,6 +222,8 @@ else
                         {
                             <div class="muted-cell" style="margin-top:.4rem;">
                                 Archivo: <a href="@_fHeaderMediaUrl" target="_blank" rel="noopener">@(_fHeaderFileName ?? "documento")</a>
+                                <button type="button" class="btn btn-sm btn-outline-danger" style="margin-left:.5rem;"
+                                        @onclick="RemoveHeaderFile" disabled="@_uploadingHeader">Quitar archivo</button>
                             </div>
                         }
                     </div>
@@ -573,6 +579,17 @@ else
         }
         catch { _editorError = "No se pudo subir el archivo."; }
         finally { _uploadingHeader = false; }
+    }
+
+    // Quita el archivo/imagen del encabezado y deja la plantilla SIN encabezado (asi se puede Guardar: en modo
+    // Documento/Imagen el guardado exige URL). El archivo ya publicado no se borra del disco (queda huerfano,
+    // inofensivo); lo que importa es que la plantilla deje de referenciarlo.
+    private void RemoveHeaderFile()
+    {
+        _editorError = null;
+        _fHeaderMediaUrl = null;
+        _fHeaderFileName = null;
+        _fHeaderKind = "none";
     }
 
     // Nombre de archivo legible y seguro (solo la hoja, sin separadores) con la extension de la lista blanca.

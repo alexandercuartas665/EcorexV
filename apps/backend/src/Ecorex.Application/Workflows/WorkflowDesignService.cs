@@ -239,6 +239,12 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.JumpToDefinitionId = sourceNode.JumpToDefinitionId;
             draftNode.AssigneeSource = sourceNode.AssigneeSource;
             draftNode.AssigneeFormFieldCode = sourceNode.AssigneeFormFieldCode;
+            // Reglas de notificacion (ADR-0100) y plazos/SLA del paso: son metadatos del nodo que TAMPOCO
+            // viajan en el XML BPMN. Sin esto, editar un flujo publicado creaba un borrador que PERDIA la
+            // notificacion configurada (y los plazos): el usuario la configuraba, publicaba, volvia a editar
+            // y "ya no estaba". Se copian igual que color/nota/tablero.
+            draftNode.NotifyJson = sourceNode.NotifyJson;
+            draftNode.SlaJson = sourceNode.SlaJson;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))
@@ -312,7 +318,22 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     TenantId = draft.TenantId,
                     NodeId = draftNode.Id,
                     AiAgentId = agent.AiAgentId,
-                    Autonomy = agent.Autonomy
+                    Autonomy = agent.Autonomy,
+                    // Config COMPLETA del agente del nodo: recursos (Colmena/voz/WhatsApp), instrucciones por paso
+                    // y politica de fallo. Antes solo se copiaban AiAgentId+Autonomy, asi que editar un flujo
+                    // publicado PERDIA el ExtraPrompt, la linea/plantilla de WhatsApp, el ColmenaClientId, etc.
+                    // (los FK apuntan a entidades del tenant, no al nodo, por eso se copian tal cual).
+                    ColmenaClientId = agent.ColmenaClientId,
+                    ColmenaSessionKey = agent.ColmenaSessionKey,
+                    VoiceAiAgentId = agent.VoiceAiAgentId,
+                    WhatsAppLineId = agent.WhatsAppLineId,
+                    WhatsAppTemplateName = agent.WhatsAppTemplateName,
+                    WhatsAppTemplateLang = agent.WhatsAppTemplateLang,
+                    ExtraPrompt = agent.ExtraPrompt,
+                    CanSendEmail = agent.CanSendEmail,
+                    OnFailure = agent.OnFailure,
+                    FailureRetries = agent.FailureRetries,
+                    FailureRoute = agent.FailureRoute
                 });
             }
         }

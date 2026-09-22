@@ -51,6 +51,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://0.0.0.0:8080
       ASPNETCORE_HTTP_PORTS: 8080
+      # Zona horaria del contenedor (la imagen ya instala tzdata y la fija en Bogota; esto lo hace
+      # explicito y permite cambiarla sin reconstruir). Afecta ToLocalTime de la UI, PDFs/correos y
+      # la resolucion de America/Bogota en programaciones. Todos los tenants actuales son Colombia.
+      TZ: America/Bogota
       # DAL dual: en produccion elegimos Postgres (el servicio interno de abajo).
       ECOREX_DB_PROVIDER: Postgres
       ECOREX_DB_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"

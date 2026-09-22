@@ -1523,6 +1523,10 @@
             ["nit"] = _detail.RequesterDocument,
             ["documento"] = _detail.RequesterDocument,
             ["identificacion"] = _detail.RequesterDocument,
+            // Encargado (asignado) de la actividad, NO quien diligencia: asi una reimpresion por otra
+            // persona conserva el comercial correcto (no depende de CurrentUser).
+            ["comercial"] = AssigneeEmail(_detail.Item.AssigneeTenantUserId),
+            ["responsable"] = AssigneeEmail(_detail.Item.AssigneeTenantUserId),
         };
     }
 

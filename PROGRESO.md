@@ -13654,3 +13654,64 @@ del validador, docs de PanelSpec.PanelDerived.Op. Test PanelDataEngineTests.Deri
 (sabado/lunes). Build Application verde, test verde. Uso en spec: Derived [{ Name:"Dia", From:"Creada",
 Op:"dow" }] y un widget bar Dim="Dia". Pendiente: deploy (a senal del usuario) y armar el reporte del
 tablero "agente comercial ia" para EPRING como dato.
+
+## 2026-09-22 - Flujos: al editar un flujo publicado se PERDIAN notify + SLA + config del agente del nodo (v0.16.108)
+
+BUG raiz de "configuro la notificacion, publico, vuelvo a editar y ya no esta". Al editar un flujo
+PUBLICADO se crea un borrador nuevo clonando la version publicada (WorkflowDesignService, camino
+"derivar borrador"). Ese clon copiaba color/nota/tablero/columna, forms, reglas y cargos por
+BpmnElementId, PERO se saltaba dos metadatos del nodo que tampoco viajan en el XML BPMN: NotifyJson
+(reglas de notificacion, ADR-0100) y SlaJson (plazos). Ademas el clon del agente del nodo
+(WorkflowNodeAgent) solo copiaba AiAgentId+Autonomy y perdia ExtraPrompt, linea/plantilla de WhatsApp,
+ColmenaClientId/SessionKey, VoiceAiAgentId, CanSendEmail y la politica de fallo (OnFailure/
+FailureRetries/FailureRoute) -> misma clase del bug ya anotado del publish de agentes.
+
+Fix: en la derivacion del borrador ahora se copian draftNode.NotifyJson y draftNode.SlaJson (junto a
+color/nota) y el WorkflowNodeAgent se clona con TODAS sus columnas (los FK apuntan a entidades del
+tenant, no al nodo, por eso se copian tal cual). Verificado en la BD local con FLW-1C165F: la v4
+publicada tenia la notify, la v5 (borrador reutilizado) habia nacido sin ella; el ExtraPrompt del
+agente se perdio de v1 a v2. Build Application + SuperAdmin verde. Servidor local reiniciado en v0.16.108.
+
+Nota de recuperacion: el fix corrige los borradores NUEVOS. Un borrador ya existente (creado antes del
+fix) NO se vuelve a clonar (se reutiliza), asi que hay que reconfigurar la notify una vez en ese
+borrador -o rellenarla desde la version publicada- para que a partir de ahi se conserve sola.
+
+Diagnostico adicional (T00062, contacto 360 Investments): la notificacion del nodo SI se dispara al
+llegar el paso (sincrono en la transicion, NO depende de ECOREX_DISABLE_WORKERS) pero Evolution
+respondio 400 porque el telefono del contacto es "3007057939 / 3005299054" (dos numeros) y el conector
+los fusiona en un unico numero invalido de 20 digitos. El barrido de agentes de nodo
+(WorkflowAgentStepWorker) esta apagado en local por ECOREX_DISABLE_WORKERS=true -> un nodo con agente
+se pinta "trabajando" pero no avanza. Pendiente: deploy a prod (a senal del usuario) y el log del agente.
+
+## 2026-09-22 (cont.) - UI: numero de actividad en tarjetas + zona horaria del contenedor (v0.16.109-111)
+
+- v0.16.109: boton "Quitar archivo" en el editor de plantillas de WhatsApp (PlantillasWhatsApp.razor).
+  En modo Documento/Imagen no habia forma de quitar el archivo del encabezado (solo cambiar el
+  desplegable a "Sin encabezado", poco obvio). El boton limpia HeaderMediaUrl y deja "Sin encabezado"
+  para poder Guardar. Self-serve (regla hand-off con UI).
+- v0.16.110: numero de la actividad (pill .tk-number, ej. T00065) en las tarjetas del tablero
+  "Administrar actividades" (ActivityBoardDetail.razor). El Kanban general (TaskKanban) y el movil ya
+  lo mostraban; TableroDetalle es tablero generico sin numero de actividad. Verificado en el navegador.
+- v0.16.111: zona horaria del contenedor de prod. La UI usa DateTimeOffset.ToLocalTime() (zona del
+  SERVIDOR) y el contenedor corre en UTC sin tzdata, asi que las fechas se mostraban +5h (16:37 UTC en
+  vez de 11:37 Bogota) y las programaciones tambien caian a UTC. Fix: Dockerfile.superadmin instala
+  tzdata y fija TZ=America/Bogota (+ symlink /etc/localtime); TZ tambien explicito en el compose de
+  prod. Global: arregla UI, PDFs/correos y la resolucion de America/Bogota. Todos los tenants actuales
+  son Colombia; multi-region seria el fix por Tenant.TimeZoneId en presentacion (rule #9), descartado
+  por costo (57 sitios). Solo afecta prod (el dev en Windows ya esta en hora local).
+
+Pendiente de deploy (a senal del usuario): v0.16.108 (fix clonacion flujos notify/SLA/agente),
+v0.16.109/110/111. Sin desplegar: bug del wizard (no guarda el telefono del contacto), log del agente,
+warning DbContext "second operation" en la ruta de notificacion.
+
+## 2026-09-22 (cont.) - Token {tareas.comercial} = encargado (asignado) de la actividad (v0.16.112)
+
+Peticion de la sesion de config/diseno (formularios AGROMETALICAS): el campo `comercial` de la
+plantilla de cotizacion (default_value = {tareas.comercial}) debe traer el ENCARGADO/asignado de la
+actividad, no quien diligencia (con CurrentUser una reimpresion por otra persona saldria mal). Se
+agregaron los tokens al prefill de la tarea, aditivo y con el mismo estilo que {cliente}/{nit}:
+- TaskDetailModal.BuildTaskTokens: ["comercial"]/["responsable"] = AssigneeEmail(item.AssigneeTenantUserId).
+- TaskWizard.BuildWizTokens: ["comercial"]/["responsable"] = SumEncargado (encargado elegido en el wizard).
+Build SuperAdmin verde. La config (plantilla + campo apuntando a {tareas.comercial}) ya esta en prod;
+falta desplegar este codigo. Tras deploy: reabrir la cotizacion (se llena comercial con el asignado)
+-> guardar -> imprimir; las nuevas salen automaticas.

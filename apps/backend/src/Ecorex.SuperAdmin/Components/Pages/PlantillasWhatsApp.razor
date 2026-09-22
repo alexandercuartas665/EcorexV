@@ -272,9 +272,26 @@ else
                         </div>
                     }
                 }
-                @if (!string.IsNullOrWhiteSpace(_testHeaderFile))
+                @if (TestNeedsMedia)
                 {
-                    <div class="muted-cell" style="margin-top:8px;">Se adjunta el archivo configurado: <strong>@_testHeaderFile</strong></div>
+                    <label class="form-label" style="margin-top:10px;">Archivo del encabezado (@_testHeaderType)</label>
+                    @if (string.IsNullOrWhiteSpace(_testMediaUrl))
+                    {
+                        <div class="muted-cell" style="margin-bottom:4px;color:#b45309;">
+                            Esta plantilla tiene encabezado de @(_testHeaderType == WhatsAppTemplateHeaderType.Image ? "imagen" : _testHeaderType == WhatsAppTemplateHeaderType.Document ? "documento" : "video") y no trae archivo (asi llegan de YCloud). Sube uno o pega su URL publica para poder enviarla.
+                        </div>
+                    }
+                    <InputFile OnChange="OnTestMediaSelected" disabled="@_uploadingTestMedia" class="form-control"
+                               accept="@(_testHeaderType == WhatsAppTemplateHeaderType.Image ? ".jpg,.jpeg,.png" : Ecorex.SuperAdmin.Services.DocumentUploadGuard.Accept)" />
+                    @if (_uploadingTestMedia)
+                    {
+                        <small class="muted-cell">Subiendo archivo...</small>
+                    }
+                    <input class="form-control" style="margin-top:6px;" @bind="_testMediaUrl" placeholder="https://.../archivo (URL publica)" />
+                    @if (!string.IsNullOrWhiteSpace(_testMediaFileName))
+                    {
+                        <div class="muted-cell" style="margin-top:2px;">Archivo: <strong>@_testMediaFileName</strong></div>
+                    }
                 }
                 @if (_testError is not null)
                 {
@@ -379,10 +396,16 @@ else
     private string? _testName;
     private string _testPhone = "";
     private string? _testError;
-    private string? _testHeaderFile;
+    private WhatsAppTemplateHeaderType? _testHeaderType;
+    private string? _testMediaUrl;
+    private string? _testMediaFileName;
+    private bool _uploadingTestMedia;
     private List<TestVar> _testVars = new();
 
     private sealed class TestVar { public string Token = ""; public string Value = ""; }
+
+    private bool TestNeedsMedia => _testHeaderType is WhatsAppTemplateHeaderType.Image
+        or WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Video;
 
     // Importar desde YCloud
     private bool _showImport;
@@ -685,12 +708,51 @@ else
         _testOk = false;
         // Campos editables por variable (prellenados con el ejemplo) para que la prueba pida los parametros.
         _testVars = t.Variables.Select(v => new TestVar { Token = v.Token, Value = v.Example }).ToList();
-        // Archivo configurado (si el encabezado es documento/imagen/video): se muestra y se adjunta tal cual.
-        _testHeaderFile = t.HeaderType is WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video
-            && !string.IsNullOrWhiteSpace(t.HeaderMediaUrl)
-            ? Uri.UnescapeDataString(t.HeaderMediaUrl!.Split('/').LastOrDefault() ?? "")
-            : null;
+        // Encabezado de media: se puede APORTAR el archivo para el envio (las importadas de YCloud llegan sin el).
+        _testHeaderType = t.HeaderType;
+        _testMediaUrl = t.HeaderMediaUrl;
+        _testMediaFileName = string.IsNullOrWhiteSpace(t.HeaderMediaUrl)
+            ? null
+            : Uri.UnescapeDataString(t.HeaderMediaUrl!.Split('/').LastOrDefault() ?? "");
         _showTest = true;
+    }
+
+    private async Task OnTestMediaSelected(InputFileChangeEventArgs e)
+    {
+        _testError = null;
+        var file = e.File;
+        if (file.Size <= 0 || file.Size > Ecorex.SuperAdmin.Services.DocumentUploadGuard.MaxBytes)
+        {
+            _testError = "El archivo debe pesar menos de 25 MB.";
+            return;
+        }
+        var ext = Ecorex.SuperAdmin.Services.DocumentUploadGuard.ResolveExtension(file.Name);
+        if (ext is null)
+        {
+            _testError = $"Formato no admitido. Usa: {Ecorex.SuperAdmin.Services.DocumentUploadGuard.FormatosTexto}.";
+            return;
+        }
+        _uploadingTestMedia = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(Ecorex.SuperAdmin.Services.DocumentUploadGuard.MaxBytes).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            if (!Ecorex.SuperAdmin.Services.DocumentUploadGuard.MatchesSignature(bytes, ext))
+            {
+                _testError = "El contenido del archivo no corresponde a su extension.";
+                return;
+            }
+            var leaf = SafeLeafName(file.Name, ext);
+            var sub = Guid.NewGuid().ToString("N");
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "templates", sub);
+            System.IO.Directory.CreateDirectory(dir);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, leaf), bytes);
+            _testMediaFileName = leaf;
+            _testMediaUrl = AbsoluteUrl($"/uploads/templates/{sub}/{Uri.EscapeDataString(leaf)}");
+        }
+        catch { _testError = "No se pudo subir el archivo."; }
+        finally { _uploadingTestMedia = false; }
     }
 
     private async Task DoTestAsync()
@@ -701,7 +763,7 @@ else
         try
         {
             var values = _testVars.Select(v => v.Value ?? string.Empty).ToList();
-            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone, values);
+            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone, values, _testMediaUrl);
             if (res.IsOk) { _testOk = true; }
             else { _testError = res.Error ?? "No se pudo enviar la prueba."; }
         }

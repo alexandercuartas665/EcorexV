@@ -14,6 +14,19 @@
 - Rama al dia con el tronco (merge de origin/fase-0/clon-backbone). Build verde; 982 tests verdes.
 - NO desplegado. Pendiente merge del fix al tronco + deploy a su senal.
 
+## 2026-09-21 - v0.16.105: "Probar" permite aportar el ARCHIVO del encabezado (plantillas YCloud sin media)
+
+- Hallazgo (probando en prod): las plantillas con encabezado de imagen/documento importadas de YCloud llegan
+  SIN HeaderMediaUrl (el import mapea el tipo pero no la media; y el DTO de YCloud ni la expone). Meta exige la
+  media del encabezado en CADA envio -> esas plantillas no se pueden enviar.
+- En Meta la media del header se aporta AL ENVIAR (no es parte de lo aprobado). Entonces el modal "Probar" ahora,
+  si la plantilla tiene encabezado de media y no trae archivo, deja SUBIR uno (o pegar una URL publica) para ese
+  envio. IWhatsAppTemplateService.TestSendAsync gana headerMediaUrl (override); ResolveTestHeader usa la aportada
+  o la guardada. Sube a /uploads/templates/<guid>/<nombre> (URL publica que Meta puede descargar).
+- Nota: sigue aplicando que en YCloud la plantilla debe estar APROBADA (una Sometida como seguimiento_oferta no
+  envia aunque le des la media; entrega_cotizacion (Aprobada, Documento) si, aportando el archivo).
+- Build verde; 42 tests OK. Sin migracion. NO desplegado (a la senal del usuario).
+
 ## 2026-09-21 - v0.16.104: FIX - las variables {{token}} no se sustituian (VariablesJson en PascalCase)
 
 - BUG (visto en la prueba real): el WhatsApp llegaba con los tokens LITERALES ("Hola {{cliente}}..."). Causa:

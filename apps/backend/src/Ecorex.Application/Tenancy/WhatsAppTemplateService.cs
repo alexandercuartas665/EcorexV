@@ -253,7 +253,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
     }
 
-    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, CancellationToken cancellationToken = default)
+    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone))
         {
@@ -266,7 +266,10 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         // Prueba: se envia la plantilla a un numero con los valores QUE INDIQUE el usuario (o, si no vienen,
         // los EJEMPLOS de la definicion). En YCloud debe estar Aprobada; en Evolution se renderiza al vuelo.
         var sendValues = values is { Count: > 0 } ? values : ExampleValues(t.VariablesJson);
-        var (headerType, headerUrl) = TemplateHeaderMedia(t);
+        // El ARCHIVO del encabezado (imagen/documento) se puede APORTAR aqui: las plantillas importadas de YCloud
+        // llegan SIN media (Meta no la expone al listar) y Meta la exige en cada envio. Si se pasa headerMediaUrl,
+        // se usa esa; si no, la guardada en la plantilla.
+        var (headerType, headerUrl) = ResolveTestHeader(t, headerMediaUrl);
         var actor = _tenantContext.UserId ?? Guid.Empty;
         var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, sendValues, actor,
             headerType, headerUrl, cancellationToken);
@@ -291,14 +294,17 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         catch (JsonException) { return new List<string>(); }
     }
 
-    private static (string? Type, string? Url) TemplateHeaderMedia(WhatsAppTemplate t)
+    // Resuelve el encabezado de media para la prueba: usa la URL aportada (overrideUrl) o la guardada. Si no hay
+    // ninguna, se envia sin header de media (Meta rechazaria una plantilla de header de media sin la media).
+    private static (string? Type, string? Url) ResolveTestHeader(WhatsAppTemplate t, string? overrideUrl)
     {
-        if (string.IsNullOrWhiteSpace(t.HeaderMediaUrl)) { return (null, null); }
+        var url = string.IsNullOrWhiteSpace(overrideUrl) ? t.HeaderMediaUrl : overrideUrl!.Trim();
+        if (string.IsNullOrWhiteSpace(url)) { return (null, null); }
         return t.HeaderType switch
         {
-            WhatsAppTemplateHeaderType.Image => ("image", t.HeaderMediaUrl),
-            WhatsAppTemplateHeaderType.Document => ("document", t.HeaderMediaUrl),
-            WhatsAppTemplateHeaderType.Video => ("video", t.HeaderMediaUrl),
+            WhatsAppTemplateHeaderType.Image => ("image", url),
+            WhatsAppTemplateHeaderType.Document => ("document", url),
+            WhatsAppTemplateHeaderType.Video => ("video", url),
             _ => (null, null)
         };
     }

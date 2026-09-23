@@ -11252,6 +11252,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool>("CardPrimaryContact")
+                        .HasColumnType("bit")
+                        .HasColumnName("card_primary_contact");
+
                     b.Property<string>("CloseReasonsJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("close_reasons_json");
@@ -14978,6 +14982,97 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_wompi_webhook_events_provider_event_id");
 
                     b.ToTable("wompi_webhook_events", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowDecisionToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ButtonLabel")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("button_label");
+
+                    b.Property<int>("Capture")
+                        .HasColumnType("int")
+                        .HasColumnName("capture");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("GatewayNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("gateway_node_id");
+
+                    b.Property<Guid>("InstanceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("instance_id");
+
+                    b.Property<bool>("ObservationRequired")
+                        .HasColumnType("bit")
+                        .HasColumnName("observation_required");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid>("StepId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("step_id");
+
+                    b.Property<Guid>("TargetNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("target_node_id");
+
+                    b.Property<Guid?>("TaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("token");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_decision_tokens");
+
+                    b.HasIndex("Token")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_decision_tokens_token");
+
+                    b.HasIndex("TenantId", "StepId")
+                        .HasDatabaseName("ix_workflow_decision_tokens_tenant_id_step_id");
+
+                    b.ToTable("workflow_decision_tokens", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowDefinition", b =>

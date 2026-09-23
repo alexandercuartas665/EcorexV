@@ -1,8 +1,24 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Ecorex.Application.Notifications;
+using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Workflows;
+
+/// <summary>
+/// Un ENLACE PUBLICO DE DECISION del cliente que ESTA regla de notificacion emite y envia. El enlace
+/// resuelve una salida concreta de la compuerta (<see cref="TargetNodeId"/>) y, al abrirlo, pide la
+/// captura configurada (firma / observacion / nada). Se inyecta en el mensaje bajo la variable
+/// <see cref="Variable"/> (para plantillas WhatsApp la variable de la HSM; para correo/texto, el token
+/// {Variable} del cuerpo). Asi el enlace se DEFINE y se ENVIA en la notificacion.
+/// </summary>
+public sealed record NotifyDecisionLink(
+    string Variable,
+    Guid TargetNodeId,
+    WorkflowDecisionCapture Capture = WorkflowDecisionCapture.None,
+    bool ObservationRequired = false,
+    string? ButtonLabel = null,
+    int? ExpiryHours = null);
 
 /// <summary>A quien se dirige una regla de notificacion de nodo. Para grupo/Telegram el destino va en la
 /// propia regla (jid/chatId), asi que este campo solo aplica a Correo y WhatsApp (plantilla).</summary>
@@ -50,7 +66,10 @@ public sealed record NodeNotifyRule(
     Guid? AdjuntarPdfFormDefId = null,
     // Plantilla de impresion (QuoteTemplate) con la que se renderiza el PDF adjunto. Null = la predeterminada
     // del tenant. Util cuando un formulario tiene VARIAS plantillas de impresion.
-    Guid? AdjuntarPdfTemplateId = null);
+    Guid? AdjuntarPdfTemplateId = null,
+    // Enlaces publicos de decision del cliente que ESTA regla emite (uno por salida de la compuerta). Cada
+    // uno llena la variable indicada con la URL /d/{token}. Null/vacio = la regla no envia enlaces.
+    IReadOnlyList<NotifyDecisionLink>? EnlacesDecision = null);
 
 /// <summary>Reglas de notificacion de un nodo. Se serializa a <see cref="Domain.Entities.WorkflowNode.NotifyJson"/>.</summary>
 public sealed record NodeNotifyConfig(IReadOnlyList<NodeNotifyRule>? Reglas = null)

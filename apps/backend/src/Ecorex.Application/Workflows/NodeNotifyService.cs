@@ -13,15 +13,17 @@ public sealed class NodeNotifyService : INodeNotifyService
     private readonly INotificationChannelSender _sender;
     private readonly INotifyLinkBuilder _link;
     private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
+    private readonly IWorkflowDecisionLinkService _decisionLinks;
 
     public NodeNotifyService(IApplicationDbContext db, INotifyTokenResolver tokens, INotificationChannelSender sender,
-        INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc)
+        INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc, IWorkflowDecisionLinkService decisionLinks)
     {
         _db = db;
         _tokens = tokens;
         _sender = sender;
         _link = link;
         _quoteDoc = quoteDoc;
+        _decisionLinks = decisionLinks;
     }
 
     public async Task NotifyStepArrivalAsync(Guid nodeId, Guid stepId, Guid? taskId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -64,7 +66,7 @@ public sealed class NodeNotifyService : INodeNotifyService
 
             foreach (var rule in config.Reglas!)
             {
-                try { await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, cancellationToken); }
+                try { await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken); }
                 catch { /* un envio fallido no frena las demas reglas */ }
             }
         }
@@ -75,8 +77,24 @@ public sealed class NodeNotifyService : INodeNotifyService
     }
 
     private async Task DispatchRuleAsync(NodeNotifyRule rule, Domain.Entities.TaskItem? task, Guid? stepAssigneeId,
-        IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, CancellationToken ct)
+        IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, Guid stepId, CancellationToken ct)
     {
+        // Enlaces publicos de decision del cliente que ESTA regla emite: se genera (o reusa) un token por
+        // salida y su URL /d/{token} se inyecta bajo la variable configurada, para que el llenado por
+        // nombre (plantilla WhatsApp) o el token {Variable} del cuerpo (correo/texto) tomen el enlace.
+        if (rule.EnlacesDecision is { Count: > 0 })
+        {
+            var copy = new Dictionary<string, string>(tokens, StringComparer.OrdinalIgnoreCase);
+            foreach (var d in rule.EnlacesDecision)
+            {
+                if (string.IsNullOrWhiteSpace(d.Variable)) { continue; }
+                var url = await _decisionLinks.EnsureLinkAsync(stepId, d.TargetNodeId, d.Capture,
+                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, ct);
+                if (!string.IsNullOrWhiteSpace(url)) { copy[d.Variable.Trim()] = url!; }
+            }
+            tokens = copy;
+        }
+
         var body = _tokens.Render(rule.Mensaje, tokens);
         var bodyWithLink = AppendLink(body, rule.IncluirEnlace ? link : null);
 

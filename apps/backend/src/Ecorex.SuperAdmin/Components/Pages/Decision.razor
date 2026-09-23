@@ -1,0 +1,230 @@
+@page "/d/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Workflows
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Microsoft.AspNetCore.Hosting
+@inject IWorkflowDecisionLinkService DecisionSvc
+@inject IWebHostEnvironment Env
+@inject IJSRuntime JS
+
+@* Pagina publica de DECISION del cliente (feature generica). SIN policy: el acceso lo gobierna el
+   token opaco (secreto, un-solo-uso, caducidad, y ademas exige que el paso de la compuerta siga
+   vigente). La validacion es el UNICO punto cross-tenant; aplicado el envio, todo corre con el tenant
+   del token fijado como ambient. Los errores de token muestran un mensaje neutro. *@
+
+<PageTitle>Decision - ECOREX</PageTitle>
+
+<div class="fp-shell">
+    <div class="fp-card">
+        @if (_loading)
+        {
+            <p><em>Validando enlace...</em></p>
+        }
+        else if (_done)
+        {
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <h2>Gracias, tu respuesta fue registrada.</h2>
+                <p>Ya puedes cerrar esta ventana.</p>
+            </div>
+        }
+        else if (_v is null || !_v.IsValid)
+        {
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon off">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>
+                </div>
+                <h2>Este enlace no esta disponible.</h2>
+                <p>El enlace no es valido, expiro o la decision ya fue registrada. Contacta a quien te lo compartio.</p>
+            </div>
+        }
+        else
+        {
+            <div class="dp-head">
+                @if (!string.IsNullOrWhiteSpace(_v.ActivityNumber))
+                {
+                    <span class="dp-num">@_v.ActivityNumber</span>
+                }
+                <h2 class="dp-title">@(_v.ButtonLabel ?? "Confirmar")</h2>
+                @if (!string.IsNullOrWhiteSpace(_v.ActivityTitle))
+                {
+                    <p class="dp-sub">@_v.ActivityTitle</p>
+                }
+            </div>
+
+            @if (_v.Capture == WorkflowDecisionCapture.Signature)
+            {
+                <div class="dp-field">
+                    <label class="dp-label">Firma aqui</label>
+                    <div class="dp-sign-wrap">
+                        <canvas @ref="_canvas" width="600" height="220" class="dp-sign"
+                                @onmousedown="StartSigning" @ontouchstart="StartSigning"></canvas>
+                        @if (!_signing)
+                        {
+                            <div class="dp-sign-hint">@SignHint</div>
+                        }
+                    </div>
+                    <button type="button" class="dp-clear" @onclick="ClearSignatureAsync">Borrar firma</button>
+                </div>
+            }
+            else if (_v.Capture == WorkflowDecisionCapture.Observation)
+            {
+                <div class="dp-field">
+                    <label class="dp-label">Observacion@(_v.ObservationRequired ? " *" : "")</label>
+                    <textarea class="dp-text" rows="4" @bind="_observation" maxlength="1000"
+                              placeholder="Escribe tu comentario..."></textarea>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <div class="dp-error">@_error</div>
+            }
+
+            <button class="dp-submit" @onclick="SubmitAsync" disabled="@_busy">
+                @(_busy ? "Enviando..." : (_v.ButtonLabel ?? "Enviar"))
+            </button>
+        }
+    </div>
+</div>
+
+<style>
+    .dp-head { text-align: center; margin-bottom: 18px; }
+    .dp-num { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; color: #2563eb; background: #eff4ff; padding: 2px 8px; border-radius: 6px; }
+    .dp-title { font-size: 20px; font-weight: 800; margin: 8px 0 2px; color: #111; }
+    .dp-sub { font-size: 13.5px; color: #6b7280; margin: 0; }
+    .dp-field { margin: 16px 0; }
+    .dp-label { display: block; font-size: 12.5px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+    .dp-sign-wrap { position: relative; }
+    .dp-sign { width: 100%; height: auto; border: 1.5px dashed #cbd5e1; border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; display: block; }
+    .dp-sign-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 18px; color: #b6bfca; font-size: 13.5px; font-style: italic; line-height: 1.4; pointer-events: none; }
+    .dp-clear { margin-top: 8px; background: none; border: none; color: #6b7280; font-size: 12.5px; cursor: pointer; text-decoration: underline; }
+    .dp-text { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 10px 12px; font-size: 14px; resize: vertical; }
+    .dp-error { color: #dc2626; font-size: 13px; margin: 4px 0 10px; }
+    .dp-submit { width: 100%; padding: 13px; border: none; border-radius: 12px; background: #2563eb; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .dp-submit:disabled { opacity: .6; cursor: default; }
+</style>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private DecisionTokenValidation? _v;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _done;
+    private string? _error;
+    private string? _observation;
+
+    private ElementReference _canvas;
+    private IJSObjectReference? _pad;
+    private bool _padReady;
+    private bool _signing;
+
+    // Texto guia (marca de agua) dentro del pad: explica QUE se firma. Se arma del contexto del enlace.
+    private string SignHint
+    {
+        get
+        {
+            var accion = string.IsNullOrWhiteSpace(_v?.ButtonLabel) ? "confirmar" : _v!.ButtonLabel!.Trim().ToLowerInvariant();
+            var ctx = string.IsNullOrWhiteSpace(_v?.ActivityTitle) ? _v?.ActivityNumber : _v!.ActivityTitle;
+            return string.IsNullOrWhiteSpace(ctx)
+                ? $"Dibuja tu firma para {accion}"
+                : $"Dibuja tu firma para {accion} — {ctx}";
+        }
+    }
+
+    private void StartSigning() => _signing = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _v = await DecisionSvc.ValidateAsync(Token);
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Inicializa el pad una sola vez cuando la captura es firma y el canvas ya esta en el DOM.
+        if (!_padReady && !_done && _v is { IsValid: true, Capture: WorkflowDecisionCapture.Signature })
+        {
+            try
+            {
+                _pad = await JS.InvokeAsync<IJSObjectReference>("import", "/js/signature-pad.js");
+                await _pad.InvokeVoidAsync("init", _canvas);
+                _padReady = true;
+            }
+            catch { /* si el pad no carga, el submit avisara que falta la firma */ }
+        }
+    }
+
+    private async Task ClearSignatureAsync()
+    {
+        if (_pad is not null) { try { await _pad.InvokeVoidAsync("clear", _canvas); } catch { } }
+        _signing = false; // vuelve a mostrar la guia
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_v is not { IsValid: true, TenantId: Guid tenantId }) { return; }
+        _busy = true;
+        _error = null;
+
+        DecisionSubmit submit;
+        try
+        {
+            if (_v.Capture == WorkflowDecisionCapture.Signature)
+            {
+                var empty = _pad is null || await _pad.InvokeAsync<bool>("isEmpty", _canvas);
+                if (empty) { _error = "Dibuja tu firma antes de enviar."; _busy = false; return; }
+                var dataUrl = await _pad!.InvokeAsync<string>("dataUrl", _canvas);
+                var (url, size) = SaveSignature(dataUrl);
+                if (url is null) { _error = "No se pudo procesar la firma."; _busy = false; return; }
+                submit = new DecisionSubmit(url, size, null);
+            }
+            else if (_v.Capture == WorkflowDecisionCapture.Observation)
+            {
+                if (_v.ObservationRequired && string.IsNullOrWhiteSpace(_observation))
+                { _error = "La observacion es obligatoria."; _busy = false; return; }
+                submit = new DecisionSubmit(Observation: _observation);
+            }
+            else
+            {
+                submit = new DecisionSubmit();
+            }
+
+            DecisionApplyResult result;
+            using (AmbientTenantContext.Begin(tenantId))
+            {
+                result = await DecisionSvc.ApplyAsync(Token, submit);
+            }
+            if (!result.Ok) { _error = result.Error ?? "No se pudo registrar la decision."; _busy = false; return; }
+            _done = true;
+        }
+        catch
+        {
+            _error = "No se pudo registrar la decision. Intenta de nuevo.";
+        }
+        finally { _busy = false; }
+    }
+
+    // Guarda el PNG de la firma bajo wwwroot/uploads/decisiones/{guid}.png y devuelve su URL relativa + tamano.
+    private (string? url, long size) SaveSignature(string dataUrl)
+    {
+        try
+        {
+            var comma = dataUrl.IndexOf(',');
+            var b64 = comma >= 0 ? dataUrl[(comma + 1)..] : dataUrl;
+            var bytes = Convert.FromBase64String(b64);
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "decisiones");
+            System.IO.Directory.CreateDirectory(dir);
+            var name = Guid.NewGuid().ToString("N") + ".png";
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, name), bytes);
+            return ($"/uploads/decisiones/{name}", bytes.LongLength);
+        }
+        catch { return (null, 0); }
+    }
+}

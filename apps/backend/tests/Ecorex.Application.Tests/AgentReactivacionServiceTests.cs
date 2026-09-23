@@ -199,6 +199,7 @@ public class AgentReactivacionServiceTests
         public DbSet<MarketplaceItem> MarketplaceItems => throw new NotSupportedException();
         public DbSet<WorkflowNode> WorkflowNodes => throw new NotSupportedException();
         public DbSet<WorkflowEdge> WorkflowEdges => throw new NotSupportedException();
+        public DbSet<WorkflowDecisionToken> WorkflowDecisionTokens => throw new NotSupportedException();
         public DbSet<WorkflowInstance> WorkflowInstances => throw new NotSupportedException();
         public DbSet<WorkflowStepHistory> WorkflowStepHistories => inner.WorkflowStepHistories;
         public DbSet<FormDefinition> FormDefinitions => throw new NotSupportedException();

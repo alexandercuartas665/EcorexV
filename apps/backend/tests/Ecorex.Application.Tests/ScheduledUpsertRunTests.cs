@@ -147,6 +147,7 @@ public class ScheduledUpsertRunTests
         public DbSet<MarketplaceItem> MarketplaceItems => NotUsed<MarketplaceItem>();
         public DbSet<WorkflowNode> WorkflowNodes => NotUsed<WorkflowNode>();
         public DbSet<WorkflowEdge> WorkflowEdges => NotUsed<WorkflowEdge>();
+        public DbSet<WorkflowDecisionToken> WorkflowDecisionTokens => NotUsed<WorkflowDecisionToken>();
         public DbSet<WorkflowInstance> WorkflowInstances => NotUsed<WorkflowInstance>();
         public DbSet<WorkflowStepHistory> WorkflowStepHistories => NotUsed<WorkflowStepHistory>();
         public DbSet<FormDefinition> FormDefinitions => NotUsed<FormDefinition>();

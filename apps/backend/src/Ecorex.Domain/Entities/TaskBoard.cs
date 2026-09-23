@@ -62,4 +62,8 @@ public class TaskBoard : TenantEntity
     /// (/movil/tablero). Solo los tableros con este flag aparecen en el selector del modulo movil.
     /// Por defecto FALSE: hay que habilitarlo explicitamente en la configuracion del tablero.</summary>
     public bool MobileScanEnabled { get; set; }
+
+    /// <summary>Si las tarjetas de este tablero muestran como TITULO el nombre del contacto/cliente de la
+    /// actividad (RequesterName) en vez del titulo de la actividad. Configurable por tablero. Default false.</summary>
+    public bool CardPrimaryContact { get; set; }
 }

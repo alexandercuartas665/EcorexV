@@ -73,6 +73,7 @@ public interface IApplicationDbContext
     DbSet<WorkflowDefinition> WorkflowDefinitions { get; }
     DbSet<WorkflowNode> WorkflowNodes { get; }
     DbSet<WorkflowEdge> WorkflowEdges { get; }
+    DbSet<WorkflowDecisionToken> WorkflowDecisionTokens { get; }
     DbSet<WorkflowInstance> WorkflowInstances { get; }
     DbSet<WorkflowStepHistory> WorkflowStepHistories { get; }
     DbSet<FormDefinition> FormDefinitions { get; }

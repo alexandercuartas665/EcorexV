@@ -141,6 +141,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
     public DbSet<WorkflowNode> WorkflowNodes => Set<WorkflowNode>();
     public DbSet<WorkflowEdge> WorkflowEdges => Set<WorkflowEdge>();
+    public DbSet<WorkflowDecisionToken> WorkflowDecisionTokens => Set<WorkflowDecisionToken>();
     public DbSet<WorkflowInstance> WorkflowInstances => Set<WorkflowInstance>();
     public DbSet<WorkflowStepHistory> WorkflowStepHistories => Set<WorkflowStepHistory>();
 
@@ -1516,6 +1517,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasOne(x => x.TargetNode).WithMany().HasForeignKey(x => x.TargetNodeId)
                 .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.ClientCascade);
             b.HasIndex(x => new { x.DefinitionId, x.SourceNodeId });
+        });
+
+        modelBuilder.Entity<WorkflowDecisionToken>(b =>
+        {
+            // El secreto del enlace publico de decision: unico y consultable en la validacion anonima
+            // (por Token exacto, con IgnoreQueryFilters). Sin FKs de navegacion (append-only-ish): las
+            // filas viven ligadas a la instancia/paso por id, sin cascada.
+            b.Property(x => x.Token).HasMaxLength(80).IsRequired();
+            b.HasIndex(x => x.Token).IsUnique();
+            b.Property(x => x.ButtonLabel).HasMaxLength(120);
+            b.HasIndex(x => new { x.TenantId, x.StepId });
         });
 
         modelBuilder.Entity<WorkflowInstance>(b =>

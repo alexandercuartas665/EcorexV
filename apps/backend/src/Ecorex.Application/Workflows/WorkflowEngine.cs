@@ -1331,6 +1331,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         foreach (var (nodeId, step, taskId) in pending)
         {
             // step.Id ya esta persistido (el commit ocurrio antes de BroadcastTaskAsync). Best-effort: no lanza.
+            // Los enlaces publicos de decision se emiten DENTRO de la notificacion (por regla), no aqui.
             await notify.NotifyStepArrivalAsync(nodeId, step.Id, taskId, Guid.Empty, cancellationToken);
         }
     }

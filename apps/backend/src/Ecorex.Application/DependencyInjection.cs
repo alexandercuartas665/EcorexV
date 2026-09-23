@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<Notifications.INotificationChannelSender, Notifications.NotificationChannelSender>();
         services.AddScoped<Workflows.INotifyTokenResolver, Workflows.NotifyTokenResolver>();
         services.AddScoped<Workflows.INodeNotifyService, Workflows.NodeNotifyService>();
+        services.AddScoped<Workflows.IWorkflowDecisionLinkService, Workflows.WorkflowDecisionLinkService>();
         services.AddScoped<Tenancy.IPipelineService, Tenancy.PipelineService>();
         services.AddScoped<Tenancy.ILeadService, Tenancy.LeadService>();
         services.AddScoped<Tenancy.IContactLoaderService, Tenancy.ContactLoaderService>();

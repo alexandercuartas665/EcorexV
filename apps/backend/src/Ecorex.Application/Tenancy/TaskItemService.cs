@@ -380,7 +380,7 @@ public sealed class TaskItemService : ITaskItemService
         }
         DeliverEmailsInBackground(pendingEmails);
 
-        return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(task.Id, cancellationToken))!);
+        return TaskCoreResult<TaskItemDetailDto>.Ok((await LoadDetailFreshAsync(task.Id, cancellationToken))!);
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -467,7 +467,7 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
+        return TaskCoreResult<TaskItemDetailDto>.Ok((await LoadDetailFreshAsync(taskId, cancellationToken))!);
     }
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -594,6 +594,19 @@ public sealed class TaskItemService : ITaskItemService
     /// ignora (la notificacion in-app ya quedo). En pruebas (_scopeFactory null) entrega inline con el
     /// sender inyectado (NoOpEmailSender, instantaneo), preservando el comportamiento determinista.
     /// </summary>
+    // Carga el detalle en un SCOPE NUEVO (DbContext propio) para no chocar con operaciones concurrentes del
+    // circuito Blazor sobre el _db compartido ("A second operation was started on this context"): al crear o
+    // asignar, el arranque del flujo y sus broadcasts SignalR pueden estar usando el mismo contexto mientras
+    // se recarga el detalle. La tarea ya esta commiteada, asi que una lectura fresca es segura. Sin
+    // scopeFactory (tests) cae al _db normal.
+    private async Task<TaskItemDetailDto?> LoadDetailFreshAsync(Guid taskId, CancellationToken cancellationToken)
+    {
+        if (_scopeFactory is null) { return await GetDetailAsync(taskId, cancellationToken); }
+        using var scope = _scopeFactory.CreateScope();
+        var svc = scope.ServiceProvider.GetRequiredService<ITaskItemService>();
+        return await svc.GetDetailAsync(taskId, cancellationToken);
+    }
+
     private void DeliverEmailsInBackground(IReadOnlyList<(string To, string Subject, string Html)> emails)
     {
         if (emails.Count == 0) { return; }
@@ -1418,7 +1431,7 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
+        return TaskCoreResult<TaskItemDetailDto>.Ok((await LoadDetailFreshAsync(taskId, cancellationToken))!);
     }
 
     // ---- Helpers ----

@@ -671,6 +671,49 @@ else
                                 Adjuntar enlace a la tarea
                             </label>
                         }
+
+                        @if (notifyNode.NodeType == WorkflowNodeType.ExclusiveGateway
+                             && (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
+                             && NotifyGatewayExits(notifyNode).Count > 0)
+                        {
+                            var exits = NotifyGatewayExits(notifyNode);
+                            <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--line,#e5e7eb);">
+                                <div class="fe-acc-note" style="margin:0 0 4px;font-weight:600;">Enlaces de decision del cliente (esta regla los envia)</div>
+                                @foreach (var d in r.Enlaces)
+                                {
+                                    <div style="border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:8px;margin-bottom:6px;">
+                                        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                                            <input class="fe-input sm mono" style="flex:1" placeholder="variable (ej. aprobar)" @bind="d.Variable" />
+                                            <span class="fe-row-x" @onclick="@(() => r.Enlaces.Remove(d))">x</span>
+                                        </div>
+                                        <select class="fe-input sm" style="width:100%;margin-bottom:6px;"
+                                                @onchange="@(e => d.TargetNodeId = e.Value?.ToString())">
+                                            <option value="">-- salida a la que resuelve --</option>
+                                            @foreach (var ex in exits)
+                                            {
+                                                <option value="@ex.TargetId" selected="@(d.TargetNodeId == ex.TargetId.ToString())">@ex.Label</option>
+                                            }
+                                        </select>
+                                        <select class="fe-input sm" style="width:100%;margin-bottom:6px;"
+                                                @onchange="@(e => d.Capture = Enum.Parse<WorkflowDecisionCapture>(e.Value!.ToString()!))">
+                                            <option value="@WorkflowDecisionCapture.None" selected="@(d.Capture == WorkflowDecisionCapture.None)">Confirmar (sin captura)</option>
+                                            <option value="@WorkflowDecisionCapture.Signature" selected="@(d.Capture == WorkflowDecisionCapture.Signature)">Pedir firma</option>
+                                            <option value="@WorkflowDecisionCapture.Observation" selected="@(d.Capture == WorkflowDecisionCapture.Observation)">Pedir observacion</option>
+                                        </select>
+                                        <input class="fe-input sm" style="width:100%;margin-bottom:6px;" placeholder="etiqueta del boton (opcional)" @bind="d.ButtonLabel" />
+                                        @if (d.Capture == WorkflowDecisionCapture.Observation)
+                                        {
+                                            <label class="fe-check" style="font-size:12px;">
+                                                <input type="checkbox" checked="@d.ObservationRequired" @onchange="@(e => d.ObservationRequired = (bool)e.Value!)" />
+                                                Observacion obligatoria
+                                            </label>
+                                        }
+                                    </div>
+                                }
+                                <button class="fe-btn sm" @onclick="@(() => r.Enlaces.Add(new DecisionLinkRow()))">+ Agregar enlace</button>
+                                <div class="fe-acc-note" style="margin-top:4px;">La <b>variable</b> debe coincidir con la de tu plantilla WhatsApp (o el token <code>{variable}</code> del cuerpo del correo); ahi se pega la URL del enlace.</div>
+                            </div>
+                        }
                     </div>
                 }
 
@@ -1900,7 +1943,27 @@ else
         public string? AdjuntarPdfFormDefId { get; set; }
         // WhatsApp: id de la plantilla de impresion con la que se renderiza el PDF. Vacio = predeterminada.
         public string? AdjuntarPdfTemplateId { get; set; }
+        // Enlaces publicos de decision del cliente que esta regla emite (solo compuertas).
+        public List<DecisionLinkRow> Enlaces { get; set; } = new();
     }
+
+    // Un enlace de decision dentro de una regla: llena una variable con la URL /d/{token} de una salida.
+    private sealed class DecisionLinkRow
+    {
+        public string Variable { get; set; } = "";
+        public string? TargetNodeId { get; set; }
+        public WorkflowDecisionCapture Capture { get; set; } = WorkflowDecisionCapture.None;
+        public bool ObservationRequired { get; set; }
+        public string? ButtonLabel { get; set; }
+        public int? ExpiryHours { get; set; }
+    }
+
+    // Salidas (edges) del nodo de la compuerta actualmente en el modal de notificacion, para el desplegable.
+    private IReadOnlyList<(Guid TargetId, string Label)> NotifyGatewayExits(FlowCanvasNodeDto node)
+        => _canvas is null ? Array.Empty<(Guid, string)>()
+            : _canvas.Edges.Where(e => e.SourceNodeId == node.Id)
+                .Select(e => (e.TargetNodeId, _canvas.Nodes.FirstOrDefault(n => n.Id == e.TargetNodeId) is FlowCanvasNodeDto t ? NodeLabel(t) : "?"))
+                .ToList();
 
     private static string NotifyUserLabel(TenantUserDto u)
         => string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : $"{u.DisplayName} ({u.Email})";
@@ -1928,7 +1991,16 @@ else
                 ? new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString(),
-            AdjuntarPdfTemplateId = r.AdjuntarPdfTemplateId?.ToString()
+            AdjuntarPdfTemplateId = r.AdjuntarPdfTemplateId?.ToString(),
+            Enlaces = (r.EnlacesDecision ?? Array.Empty<NotifyDecisionLink>()).Select(d => new DecisionLinkRow
+            {
+                Variable = d.Variable,
+                TargetNodeId = d.TargetNodeId.ToString(),
+                Capture = d.Capture,
+                ObservationRequired = d.ObservationRequired,
+                ButtonLabel = d.ButtonLabel,
+                ExpiryHours = d.ExpiryHours
+            }).ToList()
         }).ToList();
         if (!_notifyDataLoaded)
         {
@@ -1996,7 +2068,14 @@ else
                 ? r.Variables.Where(v => !string.IsNullOrWhiteSpace(v.Value)).ToDictionary(v => v.Key, v => v.Value.Trim())
                 : null,
             r.Canal == NotifyChannel.WhatsApp && Guid.TryParse(r.AdjuntarPdfFormDefId, out var pdfId) ? pdfId : (Guid?)null,
-            r.Canal == NotifyChannel.WhatsApp && !string.IsNullOrEmpty(r.AdjuntarPdfFormDefId) && Guid.TryParse(r.AdjuntarPdfTemplateId, out var pdfTplId) ? pdfTplId : (Guid?)null)).ToList());
+            r.Canal == NotifyChannel.WhatsApp && !string.IsNullOrEmpty(r.AdjuntarPdfFormDefId) && Guid.TryParse(r.AdjuntarPdfTemplateId, out var pdfTplId) ? pdfTplId : (Guid?)null,
+            // Enlaces de decision de la regla: solo los completos (variable + salida). Aplican a correo y WhatsApp.
+            (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
+                ? r.Enlaces.Where(x => !string.IsNullOrWhiteSpace(x.Variable) && Guid.TryParse(x.TargetNodeId, out _))
+                    .Select(x => new NotifyDecisionLink(x.Variable.Trim(), Guid.Parse(x.TargetNodeId!), x.Capture,
+                        x.ObservationRequired, string.IsNullOrWhiteSpace(x.ButtonLabel) ? null : x.ButtonLabel!.Trim(), x.ExpiryHours))
+                    .ToList() is { Count: > 0 } el ? el : null
+                : null)).ToList());
 
         await GuardAsync(async () =>
         {

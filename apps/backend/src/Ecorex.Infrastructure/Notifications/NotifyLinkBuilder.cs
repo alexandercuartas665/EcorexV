@@ -25,4 +25,7 @@ public sealed class NotifyLinkBuilder : INotifyLinkBuilder
 
     public string? BuildTaskLink(Guid taskId)
         => string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/actividades?task={taskId}";
+
+    public string? BuildDecisionLink(string token)
+        => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/d/{token}";
 }

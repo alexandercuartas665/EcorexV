@@ -258,12 +258,11 @@
                                  @ondrop:stopPropagation="true"
                                  @ondragend="@(() => { _dragTaskId = null; _dragOverColumnId = null; })">
                                 <div class="ab-card-top">
-                                    <span class="tk-number" title="Numero de la actividad">@c.Number</span>
                                     @if (c.IsSubtask)
                                     {
                                         <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627; @c.ParentNumber</span>
                                     }
-                                    <div class="ab-card-title">@c.Title</div>
+                                    <div class="ab-card-title">@((_detail.CardPrimaryContact && !string.IsNullOrWhiteSpace(c.RequesterName)) ? c.RequesterName : c.Title)</div>
                                     @if (c.Status is TaskItemStatus.Done or TaskItemStatus.Suspended or TaskItemStatus.Closed)
                                     {
                                         <span class="tk-status @TaskUi.StatusClass(c.Status)" style="flex:none;font-size:10px;padding:1px 7px;align-self:flex-start;">@TaskUi.StatusLabel(c.Status)</span>
@@ -329,6 +328,7 @@
                                     </div>
                                 </div>
                                 <div class="ab-card-foot">
+                                    <span class="tk-number" style="margin-right:auto;" title="Numero de la actividad">@c.Number</span>
                                     <span class="ab-card-due" style="color:@AbUi.CardDueColor(c.DueDate, column.IsDone)">
                                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                                         @(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "Sin fecha")

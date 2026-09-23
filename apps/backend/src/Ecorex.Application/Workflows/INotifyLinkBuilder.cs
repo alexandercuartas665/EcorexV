@@ -10,4 +10,7 @@ public interface INotifyLinkBuilder
 {
     /// <summary>Enlace absoluto que abre la actividad (p.ej. https://app.../actividades?task={id}); null si no hay URL base.</summary>
     string? BuildTaskLink(Guid taskId);
+
+    /// <summary>Enlace absoluto de decision del cliente (p.ej. https://app.../d/{token}); null si no hay URL base.</summary>
+    string? BuildDecisionLink(string token);
 }

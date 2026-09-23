@@ -185,7 +185,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                 board.Id, board.Code, board.Name, board.Description, board.Color,
                 board.Status, board.DueDate, board.IsArchived, board.SortOrder,
                 columns.Where(c => c.BoardId == board.Id).Select(c => c.Name).ToList(),
-                progress, boardTasks.Count, members, board.MobileScanEnabled));
+                progress, boardTasks.Count, members, board.MobileScanEnabled, board.CardPrimaryContact));
         }
 
         return new ActivityBoardIndexDto(summaries,
@@ -287,6 +287,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         board.DueDate = request.DueDate;
         board.IsArchived = request.IsArchived;
         board.MobileScanEnabled = request.MobileScanEnabled;
+        if (request.CardPrimaryContact is bool cardContact) { board.CardPrimaryContact = cardContact; }
         // Motivos de cierre: null = no tocar; lista (vacia o no) = reemplazar. Se limpian y deduplican.
         if (request.CloseReasons is not null)
         {
@@ -308,7 +309,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         return TaskCoreResult<ActivityBoardSummaryDto>.Ok(new ActivityBoardSummaryDto(
             board.Id, board.Code, board.Name, board.Description, board.Color,
             board.Status, board.DueDate, board.IsArchived, board.SortOrder,
-            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled));
+            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled, board.CardPrimaryContact));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteBoardAsync(Guid boardId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -545,7 +546,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.Id, board.Code, board.Name, board.Description, board.Status, board.DueDate,
             board.IsArchived, columnDtos,
             new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
-            board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson)));
+            board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson), board.CardPrimaryContact));
     }
 
     public async Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default)

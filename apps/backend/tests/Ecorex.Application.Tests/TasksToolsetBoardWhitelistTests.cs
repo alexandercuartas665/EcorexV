@@ -217,6 +217,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<MarketplaceItem> MarketplaceItems => throw new NotSupportedException();
         public DbSet<WorkflowNode> WorkflowNodes => throw new NotSupportedException();
         public DbSet<WorkflowEdge> WorkflowEdges => throw new NotSupportedException();
+        public DbSet<WorkflowDecisionToken> WorkflowDecisionTokens => throw new NotSupportedException();
         public DbSet<WorkflowInstance> WorkflowInstances => throw new NotSupportedException();
         public DbSet<WorkflowStepHistory> WorkflowStepHistories => throw new NotSupportedException();
         public DbSet<FormDefinition> FormDefinitions => throw new NotSupportedException();

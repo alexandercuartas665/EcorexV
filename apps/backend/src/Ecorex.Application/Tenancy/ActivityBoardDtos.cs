@@ -21,7 +21,9 @@ public sealed record ActivityBoardSummaryDto(
     IReadOnlyList<string> ColumnNames, int ProgressPct, int TaskCount,
     IReadOnlyList<ActivityBoardMemberDto> Members,
     // Habilitado para el modulo movil con lector de codigo de barras (/movil/tablero).
-    bool MobileScanEnabled = false);
+    bool MobileScanEnabled = false,
+    // Titulo de tarjeta = contacto/cliente (config por tablero).
+    bool CardPrimaryContact = false);
 
 public sealed record ActivityBoardIndexDto(
     IReadOnlyList<ActivityBoardSummaryDto> Boards, ActivityBoardKpisDto Kpis);
@@ -58,7 +60,9 @@ public sealed record UpdateActivityBoardRequest(
     // Motivos de cierre del tablero (null = no tocar; lista vacia = borrar).
     IReadOnlyList<string>? CloseReasons = null,
     // Habilitar el tablero para el modulo movil con lector de codigo de barras.
-    bool MobileScanEnabled = false);
+    bool MobileScanEnabled = false,
+    // Mostrar el nombre del contacto/cliente como titulo de las tarjetas (null = no tocar).
+    bool? CardPrimaryContact = null);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope
@@ -155,7 +159,9 @@ public sealed record ActivityBoardDetailDto(
     // Ola 2 ADR-0065: config de columnas de la vista Lista (JSON). Null = columnas por defecto.
     string? ListViewConfigJson = null,
     // Motivos de cierre configurados del tablero (para pedirlos al mover a una columna final). Vacio = no se pregunta.
-    IReadOnlyList<string>? CloseReasons = null);
+    IReadOnlyList<string>? CloseReasons = null,
+    // Si las tarjetas muestran el nombre del contacto/cliente como titulo (en vez del titulo de la actividad).
+    bool CardPrimaryContact = false);
 
 /// <summary>
 /// Creacion rapida desde la columna del tablero. ActivityTypeId null usa el primer tipo

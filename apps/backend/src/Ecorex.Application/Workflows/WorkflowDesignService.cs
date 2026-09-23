@@ -266,7 +266,11 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     NodeId = draftNode.Id,
                     DefinitionId = form.DefinitionId,
                     SortOrder = form.SortOrder,
-                    IsRequired = form.IsRequired
+                    IsRequired = form.IsRequired,
+                    // Sin esto, al editar un flujo publicado el "cargar al llegar" (AutoCreateOnArrival, que
+                    // por defecto es true) se reseteaba a true en TODOS los formularios de nodo: si el usuario
+                    // lo habia puesto en false, se perdia al derivar el borrador. Se copia como IsRequired.
+                    AutoCreateOnArrival = form.AutoCreateOnArrival
                 });
             }
         }
@@ -771,6 +775,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         }
         return WorkflowResult<bool>.Ok(true);
     }
+
 
     public async Task<WorkflowResult<bool>> SetNodeConfigAsync(
         Guid nodeId, bool allowsAssignment, Guid? restartNodeId, CancellationToken cancellationToken = default)

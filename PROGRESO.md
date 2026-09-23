@@ -13701,8 +13701,9 @@ se pinta "trabajando" pero no avanza. Pendiente: deploy a prod (a senal del usua
   por costo (57 sitios). Solo afecta prod (el dev en Windows ya esta en hora local).
 
 Pendiente de deploy (a senal del usuario): v0.16.108 (fix clonacion flujos notify/SLA/agente),
-v0.16.109/110/111. Sin desplegar: bug del wizard (no guarda el telefono del contacto), log del agente,
-warning DbContext "second operation" en la ruta de notificacion.
+v0.16.109/110/111. Pendiente: log del agente y warning DbContext "second operation" en la ruta de
+notificacion. (NOTA: lo del "telefono no se guarda en el wizard" NO era bug: el usuario no lo estaba
+capturando; descartado.)
 
 ## 2026-09-22 (cont.) - Token {tareas.comercial} = encargado (asignado) de la actividad (v0.16.112)
 
@@ -13715,3 +13716,55 @@ agregaron los tokens al prefill de la tarea, aditivo y con el mismo estilo que {
 Build SuperAdmin verde. La config (plantilla + campo apuntando a {tareas.comercial}) ya esta en prod;
 falta desplegar este codigo. Tras deploy: reabrir la cotizacion (se llena comercial con el asignado)
 -> guardar -> imprimir; las nuevas salen automaticas.
+
+## 2026-09-22 (cont.) - Enlace publico de decision del cliente por salida de compuerta (v0.16.113, ADR-0107)
+
+Feature generica: cualquier SALIDA de una compuerta exclusiva atendida puede marcarse como "enlace
+publico" con una captura (None/Signature/Observation). Al llegar el paso, el motor emite un token por
+salida (WorkflowDecisionToken, secreto un-solo-uso + caducidad); el cliente abre /d/{token} (anonimo),
+firma (pad canvas -> PNG, evidencia/adjunto) o deja observacion (ApprovalComment + bitacora), y con eso
+se resuelve la compuerta por esa ruta (ChooseGatewayRouteAsync). La notificacion del nodo expone cada
+enlace como {enlace.<clave>} para mapearlo a la plantilla WhatsApp/correo.
+
+Piezas: Domain (WorkflowDecisionToken + enum WorkflowDecisionCapture + WorkflowEdge.PublicDecisionJson);
+EdgePublicDecisionConfig (parse/serialize + slug); DbContext + migracion DUAL (workflow_decision_tokens
++ public_decision_json); IWorkflowDecisionLinkService (EnsureTokensForStep en la llegada, GetActiveLink
+Tokens para {enlace.}, Validate/Apply anonimos); hook en WorkflowEngine.FlushArrivalNotificationsAsync;
+{enlace.<clave>} en NodeNotifyService; SetEdgePublicDecisionAsync + copia en la clonacion publicar->
+editar; pagina /d/{token} + wwwroot/js/signature-pad.js; UI por salida en el acordeon "Reglas de salida"
+del editor de flujos. Config del usuario: un link por salida, firma solo como evidencia, observacion en
+ApprovalComment+bitacora, pagina minima, sin pedir identidad (contacto de la tarea), caducidad fija.
+
+Verificado en local (v0.16.113): build de la solucion COMPLETA verde (incl. 10 fakes de test ajustados
+con el DbSet nuevo), migracion PG aplicada (tabla+columna+indices), servidor arranca sin errores de DI,
+/d/{token invalido} muestra el mensaje neutro, y en el editor la compuerta muestra 2 checkboxes "Enlace
+publico" que al activarse revelan captura/token/etiqueta/caducidad y PERSISTEN en public_decision_json.
+Falta la prueba de flujo real (llegada->token->notificacion->firma->ruta), que hara el usuario. Sin
+desplegar aun (a senal del usuario).
+
+## 2026-09-22 (cont.) - Enlaces de decision: config MOVIDA a la notificacion + tarjetas (v0.16.114, ADR-0107 rev)
+
+Feedback del usuario: el enlace de decision solo se puede EMITIR por un canal (correo/WhatsApp), asi que
+configurarlo en "Reglas de salida" estaba mal. REWORK: la config se movio a la REGLA DE NOTIFICACION.
+Ahora una regla lleva una lista de "enlaces de decision" (NotifyDecisionLink en NodeNotifyRule, dentro de
+NotifyJson): variable + salida (nodo destino) + captura (firma/observacion/ninguna) + obligatoria +
+etiqueta + caducidad. Al dispararse la regla, WorkflowDecisionLinkService.EnsureLinkAsync crea/reusa el
+token por (paso,salida) y su URL /d/{token} se inyecta en la variable indicada (plantilla WhatsApp o
+token {var} del cuerpo). Se ELIMINO todo el camino por edge: WorkflowEdge.PublicDecisionJson,
+EdgePublicDecisionConfig, SetEdgePublicDecisionAsync, la copia en la clonacion, el hook del motor y el
+resolver {enlace.<clave>}. Se revirtio la migracion vieja (traia una columna en edges) y se rehizo:
+ahora la migracion dual crea SOLO workflow_decision_tokens (la config va en jsonb, sin schema). Intactos:
+entidad WorkflowDecisionToken, Validate/Apply, pagina /d/{token} + signature-pad.js. UI: seccion "Enlaces
+de decision del cliente" por regla en el modal de notificacion del editor (solo compuertas).
+
+Ademas, dos ajustes de tarjeta del tablero de actividades:
+- El numero de la actividad se movio ARRIBA -> ABAJO (pie de la tarjeta), a peticion del usuario.
+- Nuevo flag POR TABLERO "Titulo de tarjeta = contacto/cliente" (TaskBoard.CardPrimaryContact): cuando
+  esta activo, la tarjeta muestra el nombre del contacto (RequesterName) como titulo en vez del titulo de
+  la actividad. Migracion dual (columna card_primary_contact en task_boards). Toggle en los ajustes del
+  tablero (Tableros.razor); se lee/guarda por el DTO summary/detail.
+
+Verificado en local: solucion COMPLETA verde (incl. tests), 3 migraciones aplicadas (2 tokens rehecha +
+board), servidor arranca sin errores en v0.16.114. NOTA: la PC del usuario saco pantalla azul a mitad del
+trabajo; TODO el working tree quedo intacto en disco (los cambios se escriben conforme se hacen). Sin
+commit/deploy aun (a senal del usuario). Falta prueba de flujo real y validar las tarjetas en el tablero.

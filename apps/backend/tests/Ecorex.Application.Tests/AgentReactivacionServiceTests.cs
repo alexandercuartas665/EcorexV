@@ -65,7 +65,7 @@ public class AgentReactivacionServiceTests
         public Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> DeleteLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -79,7 +79,7 @@ public class AgentReactivacionServiceTests
         public List<(Guid LineId, string Phone, string Template)> TemplateSends { get; } = new();
         public bool NextOk = true;
 
-        public Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, CancellationToken cancellationToken = default)
+        public Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default)
         {
             TemplateSends.Add((lineId, phone, templateName));
             return Task.FromResult(NextOk);

@@ -157,39 +157,61 @@ public sealed class NodeNotifyService : INodeNotifyService
                     }
                     waTokens = copy;
                 }
-                await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, ct);
-
-                // Adjunto: PDF de la respuesta de un formulario anclada a la tarea (renderizada con la plantilla
-                // de impresion), enviado como documento al mismo destinatario. Best-effort.
+                // Cotizacion adjunta (si la regla la pide): se resuelve/renderiza ANTES para decidir el envio.
+                // En Evolution va COMBINADA (un solo mensaje = documento con el cuerpo de la plantilla como
+                // caption) para no mandar "texto" + "documento" por separado. En otros proveedores se manda la
+                // plantilla y luego el documento aparte (comportamiento anterior).
+                Forms.QuoteDocument? cotDoc = null;
                 if (rule.AdjuntarPdfFormDefId is Guid formDefId && task is not null)
                 {
-                    await SendFormPdfAsync(lineId, phone!, task, formDefId, rule.AdjuntarPdfTemplateId, actor, ct);
+                    cotDoc = await ResolveFormPdfAsync(task, formDefId, rule.AdjuntarPdfTemplateId, ct);
+                }
+                var provider = await _db.WhatsAppLines.AsNoTracking()
+                    .Where(l => l.Id == lineId).Select(l => (Domain.Enums.WhatsAppProvider?)l.Provider).FirstOrDefaultAsync(ct);
+
+                if (cotDoc is not null && provider == Domain.Enums.WhatsAppProvider.Evolution)
+                {
+                    var b64 = Convert.ToBase64String(cotDoc.Bytes);
+                    await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
+                        b64, cotDoc.MimeType, cotDoc.FileName, ct);
+                }
+                else
+                {
+                    await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, cancellationToken: ct);
+                    if (cotDoc is not null)
+                    {
+                        var b64 = Convert.ToBase64String(cotDoc.Bytes);
+                        await _sender.SendWhatsAppDocumentAsync(lineId, phone!, b64, cotDoc.MimeType, cotDoc.FileName, null, actor, ct);
+                    }
                 }
                 break;
         }
     }
 
     // Resuelve la respuesta del formulario <paramref name="formDefId"/> anclada a la tarea (Reference == numero o
-    // "numero-n"), la renderiza a PDF y la manda como documento. Silencioso si no hay respuesta o falla el render.
-    private async Task SendFormPdfAsync(Guid lineId, string phone, Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, Guid actor, CancellationToken ct)
+    // "numero-n") y la renderiza a PDF. Devuelve null si no hay respuesta o falla el render (best-effort).
+    private async Task<Forms.QuoteDocument?> ResolveFormPdfAsync(Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, CancellationToken ct)
     {
         try
         {
+            // Respuesta del COT anclada a la tarea. IsActive (ADR-0065) es la marca EXCLUSIVA y OPCIONAL de
+            // "formulario activo por defecto": si NINGUNA respuesta esta marcada, la tarea usa igual la
+            // original (misma logica que la UI). Antes se exigia IsActive==true estricto, asi que una
+            // cotizacion nunca marcada activa (el caso normal, una sola respuesta) NO se adjuntaba. Ahora se
+            // prefiere la marcada activa y, si no hay, la original/mas antigua anclada (aunque sea borrador).
             var num = task.Number;
             var responseId = await _db.FormResponses.AsNoTracking()
-                .Where(r => r.IsActive && r.DefinitionId == formDefId
-                    && (r.Reference == num || (r.Reference != null && r.Reference.StartsWith(num + "-"))))
-                .OrderByDescending(r => r.CreatedAt)
+                .Where(r => r.DefinitionId == formDefId && r.Reference != null
+                    && (r.Reference == num || r.Reference.StartsWith(num + "-")))
+                .OrderByDescending(r => r.IsActive)
+                .ThenBy(r => r.CreatedAt)
                 .Select(r => (Guid?)r.Id)
                 .FirstOrDefaultAsync(ct);
-            if (responseId is not Guid rid) { return; }
+            if (responseId is not Guid rid) { return null; }
 
-            var doc = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
-            if (doc is null) { return; }
-            var base64 = Convert.ToBase64String(doc.Bytes);
-            await _sender.SendWhatsAppDocumentAsync(lineId, phone, base64, doc.MimeType, doc.FileName, null, actor, ct);
+            return await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
         }
-        catch { /* best-effort: el adjunto no debe romper la notificacion */ }
+        catch { return null; } // best-effort: el adjunto no debe romper la notificacion
     }
 
     private static string AppendLink(string body, string? link)

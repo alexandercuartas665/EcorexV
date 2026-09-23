@@ -37,7 +37,9 @@ public sealed class NotificationChannelSender : INotificationChannelSender
     }
 
     public async Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
-        IReadOnlyDictionary<string, string> tokens, Guid actorUserId, CancellationToken cancellationToken = default)
+        IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
+        string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName)) { return false; }
         try
@@ -48,7 +50,7 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             if (tpl is null) { return false; } // solo enviamos plantillas que existen
             var lang = string.IsNullOrWhiteSpace(language) ? tpl.Language : language!;
             var (mediaType, mediaUrl) = HeaderMedia(tpl);
-            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, cancellationToken);
+            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, attachmentBase64, attachmentMime, attachmentFileName, cancellationToken);
             return res.Ok;
         }
         catch { return false; }

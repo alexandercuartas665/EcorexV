@@ -398,7 +398,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(ok, error, messageId);
     }
 
-    public async Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
         {
@@ -434,7 +434,17 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             if (tpl is null) { return new LineSendResult(false, $"No existe la plantilla '{templateName}' activa en este tenant."); }
             var text = RenderTemplateText(tpl, bodyParams);
 
-            if (tpl.HeaderType is WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video
+            // Adjunto OVERRIDE (ej. la cotizacion por tarea): UN SOLO mensaje = documento + el cuerpo de la
+            // plantilla como caption. Reemplaza al header fijo de la plantilla; asi el cliente recibe una sola
+            // notificacion (documento con texto) en vez de "texto" + "documento" por separado.
+            if (!string.IsNullOrWhiteSpace(attachmentBase64))
+            {
+                var mr = await SendMediaAsync(line.Id, digits, MessageMediaType.Document, attachmentBase64!,
+                    string.IsNullOrWhiteSpace(attachmentMime) ? "application/pdf" : attachmentMime,
+                    attachmentFileName, string.IsNullOrWhiteSpace(text) ? null : text, actorUserId, remoteJid: null, cancellationToken);
+                (ok, error, messageId) = (mr.Ok, mr.Error, mr.MessageId);
+            }
+            else if (tpl.HeaderType is WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Image or WhatsAppTemplateHeaderType.Video
                 && !string.IsNullOrWhiteSpace(tpl.HeaderMediaUrl))
             {
                 var media = await FetchMediaAsync(tpl.HeaderMediaUrl!, cancellationToken);

@@ -6,6 +6,7 @@ using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Domain.Rules;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -1326,14 +1327,28 @@ public sealed class WorkflowEngine : IWorkflowEngine
         if (_arrivalNotifyBuffer.Count == 0) { return; }
         var pending = _arrivalNotifyBuffer.ToList();
         _arrivalNotifyBuffer.Clear();
-        // Resolver perezoso (mismo patron que INodeAssigneeResolver): en tests sin proveedor, se omite.
-        if (_serviceProvider?.GetService(typeof(INodeNotifyService)) is not INodeNotifyService notify) { return; }
-        foreach (var (nodeId, step, taskId) in pending)
+        if (_serviceProvider is null) { return; }
+
+        // La notificacion de llegada corre en un SCOPE NUEVO (DbContext propio) para NO chocar con el _db
+        // compartido del circuito Blazor: al cerrar un paso, el broadcast SignalR hace que otros componentes
+        // re-consulten el mismo contexto mientras la notificacion tambien lo usa ("A second operation was
+        // started on this context"). Esa colision hacia que, p.ej., el render/lookup de la cotizacion fallara
+        // y el mensaje saliera SIN el archivo (intermitente). Corre POST-commit, asi que re-lee datos ya
+        // confirmados; el tenant fluye por el contexto async. Sin scope factory (tests) se cae al provider.
+        var scopeFactory = _serviceProvider.GetService(typeof(IServiceScopeFactory)) as IServiceScopeFactory;
+        IServiceScope? scope = scopeFactory?.CreateScope();
+        try
         {
-            // step.Id ya esta persistido (el commit ocurrio antes de BroadcastTaskAsync). Best-effort: no lanza.
-            // Los enlaces publicos de decision se emiten DENTRO de la notificacion (por regla), no aqui.
-            await notify.NotifyStepArrivalAsync(nodeId, step.Id, taskId, Guid.Empty, cancellationToken);
+            var provider = scope?.ServiceProvider ?? _serviceProvider;
+            if (provider.GetService(typeof(INodeNotifyService)) is not INodeNotifyService notify) { return; }
+            foreach (var (nodeId, step, taskId) in pending)
+            {
+                // step.Id ya esta persistido (el commit ocurrio antes de BroadcastTaskAsync). Best-effort: no lanza.
+                // Los enlaces publicos de decision se emiten DENTRO de la notificacion (por regla), no aqui.
+                await notify.NotifyStepArrivalAsync(nodeId, step.Id, taskId, Guid.Empty, cancellationToken);
+            }
         }
+        finally { scope?.Dispose(); }
     }
 
     /// <summary>Se une a la transaccion del llamador si ya hay una abierta (null = unida).</summary>

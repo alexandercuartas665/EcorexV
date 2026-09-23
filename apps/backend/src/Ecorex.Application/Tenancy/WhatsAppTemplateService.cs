@@ -272,7 +272,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         var (headerType, headerUrl) = ResolveTestHeader(t, headerMediaUrl);
         var actor = _tenantContext.UserId ?? Guid.Empty;
         var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, sendValues, actor,
-            headerType, headerUrl, cancellationToken);
+            headerType, headerUrl, cancellationToken: cancellationToken);
         return res.Ok
             ? WhatsAppTemplateResult<bool>.Ok(true)
             : WhatsAppTemplateResult<bool>.Invalid(res.Error ?? "No se pudo enviar la prueba.");

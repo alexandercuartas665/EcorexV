@@ -24,7 +24,11 @@ public interface INotificationChannelSender
     /// <summary>Plantilla HSM (YCloud) a un telefono. Los <paramref name="tokens"/> se mapean a las variables
     /// de la plantilla POR NOMBRE (segun su VariablesJson). Devuelve false si falta el telefono o la plantilla.</summary>
     Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
-        IReadOnlyDictionary<string, string> tokens, Guid actorUserId, CancellationToken cancellationToken = default);
+        IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
+        // Adjunto opcional (Evolution): documento que se manda EN EL MISMO mensaje que la plantilla (el cuerpo
+        // va como caption), en vez de una notificacion aparte. Ej. la cotizacion por tarea.
+        string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Texto plano a un grupo de Evolution (jid "...@g.us") desde una linea Evolution.</summary>
     Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default);

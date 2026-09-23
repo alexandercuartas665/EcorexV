@@ -134,7 +134,7 @@ public sealed class AgentCierreService : IAgentCierreService
             case CierreCanal.WhatsApp when !string.IsNullOrWhiteSpace(user.Phone) && !string.IsNullOrWhiteSpace(alerta.Plantilla):
                 var fromLine = alerta.LineaId ?? conv.WhatsAppLineId;
                 if (fromLine is not Guid lineId) { return; }
-                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, alerta.Plantilla!, alerta.Idioma, tokenMap, actor, ct);
+                await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, alerta.Plantilla!, alerta.Idioma, tokenMap, actor, cancellationToken: ct);
                 break;
         }
     }

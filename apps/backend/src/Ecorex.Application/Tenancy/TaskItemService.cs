@@ -270,6 +270,24 @@ public sealed class TaskItemService : ITaskItemService
             });
         }
 
+        // Lista de chequeo PRECONFIGURADA del concepto (subcategoria.Chequeo, items separados por ';'):
+        // se materializa como items de checklist de la tarea nueva. Antes no se copiaba y la tarea nacia
+        // sin la lista que el concepto tenia definida.
+        if (subcategoria?.Chequeo is { Length: > 0 } chequeoTemplate)
+        {
+            var checkOrder = 0;
+            foreach (var raw in chequeoTemplate.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                _db.TaskItemChecklistItems.Add(new TaskItemChecklistItem
+                {
+                    TenantId = tenantId,
+                    TaskItemId = task.Id,
+                    Text = raw.Length <= 500 ? raw : raw[..500],
+                    SortOrder = checkOrder++
+                });
+            }
+        }
+
         _db.TaskItemActivities.Add(BuildActivity(tenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, $"creo la tarea {number}"));
 
@@ -528,6 +546,29 @@ public sealed class TaskItemService : ITaskItemService
             return TaskCoreResult<TaskItemSummaryDto>.Invalid("El asignado no pertenece al tenant.");
         }
 
+        // Sincronizar con el PASO ACTUAL del flujo: si la tarea nace de un flujo, reasignar el encargado
+        // debe reasignar TAMBIEN el paso vigente (antes solo cambiaba el dueno de la tarea y el flujo seguia
+        // enrutando al anterior). Misma regla que al crear (D2): si el nodo tiene cargo, el nuevo encargado
+        // debe ser candidato de ese cargo; si no, se BLOQUEA. La validacion va ANTES de mutar nada.
+        var currentStep = await ResolveCurrentAssignableStepAsync(task.WorkflowInstanceId, cancellationToken);
+        if (currentStep is not null)
+        {
+            var nodeHasCargo = await _db.WorkflowNodePolicies
+                .AnyAsync(p => p.WorkflowNodeId == currentStep.NodeId, cancellationToken);
+            if (nodeHasCargo)
+            {
+                var candidates = await _nodeAssignees.ResolveCandidatesAsync(currentStep.NodeId, cancellationToken);
+                if (!candidates.Contains(tenantUserId))
+                {
+                    return TaskCoreResult<TaskItemSummaryDto>.Invalid(
+                        "El encargado debe ocupar el cargo que el flujo asigna al paso actual.");
+                }
+            }
+            currentStep.AssignedToTenantUserId = tenantUserId;
+            _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+                TaskActivityType.Action, $"reasigno el paso actual del flujo a {assignee.Email}"));
+        }
+
         task.AssigneeTenantUserId = tenantUserId;
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, $"asigno la tarea a {assignee.Email}"));
@@ -725,6 +766,17 @@ public sealed class TaskItemService : ITaskItemService
         task.AssigneeTenantUserId = null;
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, "quito la asignacion de la tarea"));
+
+        // Sincronizar con el flujo: quitar el encargado devuelve el PASO ACTUAL al grupo (sin asignar), para
+        // que lo pueda tomar cualquier candidato de su cargo (bandeja del grupo) en vez de quedar pegado a
+        // la persona removida.
+        var currentStep = await ResolveCurrentAssignableStepAsync(task.WorkflowInstanceId, cancellationToken);
+        if (currentStep is not null && currentStep.AssignedToTenantUserId is not null)
+        {
+            currentStep.AssignedToTenantUserId = null;
+            _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+                TaskActivityType.Action, "devolvio el paso actual del flujo al grupo (sin asignar)"));
+        }
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
@@ -734,6 +786,27 @@ public sealed class TaskItemService : ITaskItemService
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
         return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+    }
+
+    /// <summary>
+    /// Paso VIGENTE (current+Pending) del flujo de la tarea que corresponde reasignar al cambiar el encargado.
+    /// En un flujo con VARIOS pasos vigentes en paralelo (p.ej. un paso humano y uno de agente a la vez) se
+    /// PREFIERE el paso humano: es el que una persona atiende. Devuelve la entidad RASTREADA (para que el
+    /// cambio de asignado se persista con el SaveChanges del llamador), o null si la tarea no tiene flujo o no
+    /// hay paso vigente.
+    /// </summary>
+    private async Task<Domain.Entities.WorkflowStepHistory?> ResolveCurrentAssignableStepAsync(
+        Guid? workflowInstanceId, CancellationToken cancellationToken)
+    {
+        if (workflowInstanceId is not Guid instanceId) { return null; }
+        var steps = await _db.WorkflowStepHistories
+            .Where(s => s.InstanceId == instanceId && s.IsCurrent && s.Status == WorkflowStepStatus.Pending)
+            .OrderBy(s => s.CreatedAt)
+            .ToListAsync(cancellationToken);
+        if (steps.Count <= 1) { return steps.FirstOrDefault(); }
+        // Varios pasos en paralelo: preferir uno que NO sea de agente (el humano).
+        var agentNodeIds = await _db.WorkflowNodeAgents.Select(a => a.NodeId).ToListAsync(cancellationToken);
+        return steps.FirstOrDefault(s => !agentNodeIds.Contains(s.NodeId)) ?? steps[0];
     }
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> ArchiveAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)

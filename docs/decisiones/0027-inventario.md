@@ -93,3 +93,23 @@ demo (ITM000001..ITM000008). Idempotente por tabla vacia (guard por tenant en ca
   bodega).
 - Las policies por catalogo siguen el "paso 1": el paso 2 (derivar del Module Registry) queda
   pendiente, igual que el resto de modulos.
+
+## Actualizacion 2026-09-23 (v0.16.122): campos GENERALES ademas de por tipo
+
+Los campos configurables del item (`ItemFieldDefinition`, 000066) nacieron atados a un `ItemType`.
+Eso deja el configurador inservible para un tenant que aun no creo tipos (el desplegable de tipo
+sale vacio) y para items "Sin tipo". El Directorio, en cambio, funciona de una porque tiene una
+ficha "base" universal. Para dar paridad ("la misma herramienta que en el directorio") se agrega el
+ambito GENERAL:
+
+- `ItemFieldDefinition.ItemTypeId` pasa a `Guid?`: null = campo GENERAL (aplica a TODOS los items
+  del tenant); un Guid = campo POR TIPO (como antes). Migracion dual `AddItemFieldGeneralScope`
+  (AlterColumn a nullable; en SQL Server el indice unico `(tenant, tipo, clave)` se recrea con
+  filtro `item_type_id IS NOT NULL`, y en PG los null ya son distintos: la unicidad de las claves
+  GENERALES se garantiza a nivel de app en `EnsureUniqueKey`).
+- En el editor de un item se muestran los GENERALES + los del tipo (`ListForItemAsync`); un item
+  sin tipo ve solo los generales. Las formulas (ADR-0029): un campo general referencia solo
+  generales; uno por tipo referencia generales + los del mismo tipo (los unicos que coexisten).
+- El configurador (`/inventario-items` -> "Configurar campos") gana el ambito "General (todos los
+  items)" y "Mover a..." permite mover un campo entre General y los tipos. La clave es unica en el
+  ambito donde el campo convive (un general choca con todos; uno por tipo, con generales + su tipo).

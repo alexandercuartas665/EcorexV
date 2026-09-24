@@ -1408,6 +1408,56 @@
             {
                 <div class="tk-flow-menu-note" style="margin:6px 0 0;padding:6px 8px;background:var(--t-amber-bg);border-radius:6px;border-left:2px solid var(--t-amber);white-space:pre-wrap;">El agente no pudo completar el paso: @mnode.AgentFailureReason</div>
             }
+            @* Razonamiento EN VIVO (mientras el agente trabaja): lista que CRECE con cada fase que reporta,
+               para ver el paso a paso, no solo la ultima linea. Llega por SignalR (best-effort). *@
+            @if (_liveThinkingLog.TryGetValue(mnode.NodeId, out var liveLog) && liveLog.Count > 0)
+            {
+                <div class="tk-flow-menu-t" style="margin-top:8px;">ACTIVIDAD EN VIVO</div>
+                <ul style="margin:4px 0 0;padding-left:16px;font-size:12px;color:var(--muted-foreground);max-height:160px;overflow:auto;">
+                    @foreach (var ph in liveLog) { <li @key="ph">@ph</li> }
+                </ul>
+            }
+            @* Actividad del agente en ESTE paso: que penso/hizo, tokens y resultado por corrida (log legible). *@
+            @if (WorkflowAgentRunLog.Parse(mnode.AgentRunLog) is { Count: > 0 } runLog)
+            {
+                <button type="button" class="tk-flow-link" style="margin-top:6px;" @onclick="@(() => _showAgentLog = !_showAgentLog)">
+                    @(_showAgentLog ? "Ocultar actividad del agente" : "Ver actividad del agente")
+                </button>
+                @if (_showAgentLog)
+                {
+                    <div style="margin-top:6px;max-height:200px;overflow:auto;font-size:12px;display:flex;flex-direction:column;gap:8px;">
+                        @foreach (var run in runLog.OrderByDescending(r => r.At))
+                        {
+                            <div style="padding:6px 8px;background:var(--surface-2);border-radius:6px;">
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-weight:600;">
+                                    <span>Intento @run.Attempt &#183; @FlowShortDate(run.At)</span>
+                                    @if (run.Tokens > 0)
+                                    {
+                                        <span style="color:var(--muted-foreground);">@FlowTokens(run.Tokens) tok</span>
+                                    }
+                                    <span style="margin-left:auto;color:var(--t-violet);">@run.Outcome</span>
+                                </div>
+                                @if (run.Rounds.Count > 0)
+                                {
+                                    <ul style="margin:4px 0 0;padding-left:16px;color:var(--muted-foreground);">
+                                        @foreach (var ph in run.Rounds) { <li>@ph</li> }
+                                    </ul>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            @* Terminar manualmente (A): corta la espera del agente (llamada/WhatsApp) y devuelve el paso a una
+               persona, para retomar el control de un paso que quedo "trabajando" sin resolver. *@
+            @if (mcanAct && mnode.State != TaskFlowNodeState.Completed && string.IsNullOrWhiteSpace(mnode.AgentFailureReason))
+            {
+                <button type="button" class="tk-flow-link" style="margin-top:6px;color:var(--t-red);font-weight:600;" disabled="@_busy"
+                        @onclick="@(() => TerminateAgentStepAsync(mnode.StepId!.Value))">
+                    Terminar y devolver a una persona
+                </button>
+                <div class="tk-flow-menu-note" style="margin-top:4px;">Corta lo que este haciendo el agente y te deja el paso para atenderlo tu.</div>
+            }
         }
         @if (mcanAct && (mnode.Routes is { Count: > 0 } || mnode.ApprovalOptions.Count > 0))
         {
@@ -1536,6 +1586,9 @@
     private HubConnection? _agentHub;
     private readonly Dictionary<Guid, string> _liveThinking = new();
     private readonly Dictionary<Guid, long> _liveTokens = new();
+    // Razonamiento EN VIVO acumulado por nodo (lista que crece con cada fase que reporta el agente),
+    // para ver el paso a paso mientras trabaja, no solo la ultima linea.
+    private readonly Dictionary<Guid, List<string>> _liveThinkingLog = new();
 
     private TaskItemDetailDto? _detail;
     private long _totalSeconds;
@@ -1655,6 +1708,7 @@
     // Diagrama del flujo de la tarea (ADR-0051): grafo + estado por nodo, para pintar el proceso.
     private TaskFlowDiagramDto? _flowDiagram;
     private Guid? _flowMenuNodeId;   // nodo cuyo menu (anotar/cerrar/rutas) esta abierto
+    private bool _showAgentLog;      // en el menu del nodo agente: si se expande la actividad del agente
     private string _flowNote = "";   // anotacion del menu del nodo actual (cierre/ruta)
     private string _teamNote = "";   // nota colaborativa del equipo (ADR-0071), por nodo
 
@@ -2412,6 +2466,24 @@
         finally { _busy = false; }
     }
 
+    /// <summary>Termina manualmente un paso de AGENTE (A): corta la espera del agente y lo devuelve a una
+    /// persona. Luego el paso se ve como "requiere una persona" y se puede cerrar/retomar como cualquier otro.</summary>
+    private async Task TerminateAgentStepAsync(Guid stepId)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var result = await InboxSvc.CancelAgentStepAsync(stepId, me);
+            if (!result.IsOk) { _actionError = result.Error; }
+            _flowMenuNodeId = null;
+            _showAgentLog = false;
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally { _busy = false; }
+    }
+
     /// <summary>Reabre un paso ya cerrado (ADR-0070): lo reactiva y deshace lo que activo aguas abajo.
     /// El motor rechaza la reapertura si un paso posterior ya se cerro/rechazo o la instancia termino.</summary>
     private async Task ReopenFlowNodeAsync(Guid reopenStepId)
@@ -2735,6 +2807,16 @@
                 {
                     _liveThinking[nid] = phase;
                     _liveTokens[nid] = tokens;
+                    // Acumula la fase en el log en vivo (evita repetir la misma consecutiva; tope 20 lineas).
+                    if (!string.IsNullOrWhiteSpace(phase))
+                    {
+                        if (!_liveThinkingLog.TryGetValue(nid, out var log)) { log = new(); _liveThinkingLog[nid] = log; }
+                        if (log.Count == 0 || !string.Equals(log[^1], phase, StringComparison.Ordinal))
+                        {
+                            log.Add(phase);
+                            if (log.Count > 20) { log.RemoveAt(0); }
+                        }
+                    }
                     await InvokeAsync(StateHasChanged);
                 }
             });

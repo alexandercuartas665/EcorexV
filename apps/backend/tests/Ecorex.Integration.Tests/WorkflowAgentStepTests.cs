@@ -349,6 +349,12 @@ public abstract class WorkflowAgentStepTestsBase
     {
         public Task<WorkflowAgentStepOutcome> RunAsync(Guid stepId, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("El barrido de plataforma no debe atender pasos.");
+
+        public Task<bool> CancelAsync(Guid stepId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("El barrido de plataforma no debe cancelar pasos.");
+
+        public Task<bool> TimeoutAsync(Guid stepId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("El barrido de plataforma no debe cerrar pasos por timeout.");
     }
 
     // ---- Helpers ----

@@ -128,6 +128,12 @@ else
                         <button class="fe-acc @(open ? "open" : "")" @onclick="@(() => _openAcc = open ? -1 : acc.Index)">
                             <span class="fe-acc-ic" style="background:@acc.IconBg;color:@acc.IconFg">@((MarkupString)acc.Svg)</span>
                             <span class="fe-acc-name">@acc.Name</span>
+                            @* Indicador de "algo configurado" en esta seccion (como el contador de notificaciones): un
+                               punto verde cuando el nodo seleccionado tiene agente/notificacion configurados. *@
+                            @if (AccConfigured(acc.Index))
+                            {
+                                <span title="Configurado" style="width:8px;height:8px;border-radius:50%;background:var(--t-green);flex:none;margin-left:6px"></span>
+                            }
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .2s;transform:rotate(@(open ? 180 : 0)deg)"><path d="m6 9 6 6 6-6"/></svg>
                         </button>
                         @if (open)
@@ -364,14 +370,14 @@ else
 @* ---- Modal: configuracion del agente de IA del nodo (ADR-0090/0091/0092) ---- *@
 @if (_agentModalOpen && Selected is FlowCanvasNodeDto agentNode)
 {
-    <div class="fe-modal-overlay" @onclick="@(() => _agentModalOpen = false)">
+    <div class="fe-modal-overlay" @onclick="CancelAgentModal">
         <div class="fe-modal" style="width:min(720px,95vw)" @onclick:stopPropagation>
             <div class="fe-modal-head">
                 <div>
                     <div class="fe-modal-title">Agente de IA del paso</div>
                     <div class="fe-modal-sub">@(agentNode.Name ?? "Paso") - quien lo atiende y con que recursos consigue datos</div>
                 </div>
-                <button class="fe-modal-x" @onclick="@(() => _agentModalOpen = false)">
+                <button class="fe-modal-x" @onclick="CancelAgentModal">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
             </div>
@@ -518,7 +524,8 @@ else
                 }
             </div>
             <div class="fe-modal-foot">
-                <button class="fe-btn-save" @onclick="@(() => _agentModalOpen = false)">Listo</button>
+                <button class="fe-btn" @onclick="CancelAgentModal">Cancelar</button>
+                <button class="fe-btn-save" @onclick="@(() => SaveAgentModalAsync(agentNode))">Guardar</button>
             </div>
         </div>
     </div>
@@ -859,6 +866,10 @@ else
     private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
+    // Borrador/commit del modal del agente (como las notificaciones): mientras el modal esta abierto, _nodeAgent
+    // es el BORRADOR en memoria (los cambios NO se persisten); _agentSaved es la copia persistida para poder
+    // Cancelar. Solo "Guardar" escribe en BD. Asi un clic por error en el desplegable ya no queda configurado.
+    private FlowNodeAgentDto? _agentSaved;
 
     // Asignacion por nodo (acordeon "Asignar usuarios", ADR-0035).
     private IReadOnlyList<NodePolicyDto> _nodePolicies = [];
@@ -1624,7 +1635,7 @@ else
         if (_nodeAgent is null)
         {
             <div class="fe-acc-empty">Sin agente: lo atiende una persona.</div>
-            <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">+ Configurar agente de IA</button>
+            <button class="fe-btn-ghost fe-btn-block" @onclick="OpenAgentModal">+ Configurar agente de IA</button>
             return;
         }
         <div class="fe-agent-sum-name">@_nodeAgent.AgentName</div>
@@ -1645,39 +1656,81 @@ else
         {
             <div class="fe-acc-note" style="margin-top:7px">Con instrucciones para este paso.</div>
         }
-        <button class="fe-btn-ghost fe-btn-block" @onclick="@(() => _agentModalOpen = true)">Configurar agente</button>
+        <button class="fe-btn-ghost fe-btn-block" @onclick="OpenAgentModal">Configurar agente</button>
     };
 
-    /// <summary>Asigna/quita el agente del nodo (upsert por el indice unico). Al asignar por PRIMERA vez el
-    /// default seguro es Propone; si ya habia agente, conserva su autonomia.</summary>
-    private async Task OnNodeAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    /// <summary>Abre el modal del agente guardando un SNAPSHOT del estado persistido, para poder Cancelar sin
+    /// dejar nada configurado (borrador/commit, como las notificaciones).</summary>
+    private void OpenAgentModal()
     {
-        var val = e.Value?.ToString();
+        _agentSaved = _nodeAgent;
+        _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+        _agentModalOpen = true;
+    }
+
+    /// <summary>Cierra el modal DESCARTANDO los cambios: restaura el snapshot persistido.</summary>
+    private void CancelAgentModal()
+    {
+        _nodeAgent = _agentSaved;
+        _agentExtraPromptDraft = _agentSaved?.ExtraPrompt;
+        _agentModalOpen = false;
+    }
+
+    /// <summary>GUARDAR: persiste el borrador (_nodeAgent). Si el borrador quedo sin agente, borra el vinculo;
+    /// si tiene agente, hace upsert del agente+autonomia y de los recursos. Recarga el estado persistido.</summary>
+    private async Task SaveAgentModalAsync(FlowCanvasNodeDto node)
+    {
         await GuardAsync(async () =>
         {
-            if (string.IsNullOrWhiteSpace(val))
+            if (_nodeAgent is null)
             {
-                await DesignSvc.RemoveNodeAgentAsync(node.Id); // NotFound si no habia: inocuo, el objetivo es quitarlo.
-                _nodeAgent = null;
+                // Sin agente en el borrador: quitar el vinculo si existia (NotFound es inocuo).
+                await DesignSvc.RemoveNodeAgentAsync(node.Id);
             }
-            else if (Guid.TryParse(val, out var agentId))
+            else
             {
-                var autonomy = _nodeAgent?.Autonomy ?? WorkflowAgentAutonomy.Proposes;
-                var result = await DesignSvc.SetNodeAgentAsync(node.Id, agentId, autonomy);
-                if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
+                var set = await DesignSvc.SetNodeAgentAsync(node.Id, _nodeAgent.AiAgentId, _nodeAgent.Autonomy);
+                if (!set.IsOk) { _error = set.Error; return; }
+                var resInput = new FlowNodeAgentResourcesInput(
+                    _nodeAgent.ColmenaClientId, _nodeAgent.ColmenaSessionKey, _nodeAgent.VoiceAiAgentId,
+                    _nodeAgent.WhatsAppLineId, _nodeAgent.WhatsAppTemplateName, _nodeAgent.WhatsAppTemplateLang,
+                    _agentExtraPromptDraft, _nodeAgent.CanSendEmail,
+                    _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute);
+                var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
+                if (!res.IsOk) { _error = res.Error; return; }
             }
+            // Fuente de verdad: recargar lo persistido y cerrar.
+            _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            _agentModalOpen = false;
         });
     }
 
-    private async Task OnNodeAgentAutonomyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    /// <summary>Elige/quita el agente en el BORRADOR (en memoria; no persiste hasta Guardar). Al elegir por
+    /// primera vez el default seguro es Propone; si ya habia, conserva la autonomia.</summary>
+    private void OnNodeAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val))
+        {
+            _nodeAgent = null;
+            _agentExtraPromptDraft = null;
+            return;
+        }
+        if (!Guid.TryParse(val, out var agentId)) { return; }
+        var cat = _agentCatalog.FirstOrDefault(a => a.AiAgentId == agentId);
+        _nodeAgent = _nodeAgent is null
+            ? new FlowNodeAgentDto(
+                LinkId: Guid.Empty, AiAgentId: agentId, AgentName: cat?.Name ?? "Agente", AgentRole: cat?.Role,
+                IsActive: cat?.IsActive ?? true, Autonomy: WorkflowAgentAutonomy.Proposes)
+            : _nodeAgent with { AiAgentId = agentId, AgentName = cat?.Name ?? _nodeAgent.AgentName, AgentRole = cat?.Role, IsActive = cat?.IsActive ?? _nodeAgent.IsActive };
+        _agentExtraPromptDraft = _nodeAgent.ExtraPrompt;
+    }
+
+    private void OnNodeAgentAutonomyChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         if (_nodeAgent is null || !Enum.TryParse<WorkflowAgentAutonomy>(e.Value?.ToString(), out var autonomy)) { return; }
-        await GuardAsync(async () =>
-        {
-            var result = await DesignSvc.SetNodeAgentAsync(node.Id, _nodeAgent.AiAgentId, autonomy);
-            if (result.IsOk) { _nodeAgent = result.Value; } else { _error = result.Error; }
-        });
+        _nodeAgent = _nodeAgent with { Autonomy = autonomy };
     }
 
     // ADR-0091/0092/0093: recursos del agente del nodo. Cada cambio guarda el estado COMPLETO (los demas
@@ -1751,19 +1804,40 @@ else
     private Task OnNodeCanSendEmailChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
         => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CanSendEmail = e.Value is bool b && b });
 
-    private async Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, FlowNodeAgentResourcesInput input)
+    /// <summary>Aplica los recursos al BORRADOR en memoria (no persiste; se guarda todo al pulsar Guardar).</summary>
+    private Task SaveNodeResourcesAsync(FlowCanvasNodeDto node, FlowNodeAgentResourcesInput input)
     {
-        await GuardAsync(async () =>
+        if (_nodeAgent is not null)
         {
-            var result = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, input);
-            if (result.IsOk)
+            _nodeAgent = _nodeAgent with
             {
-                _nodeAgent = result.Value;
-                // Re-sincroniza el borrador con lo persistido (trim del server), sin perder el foco de edicion.
-                _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
-            }
-            else { _error = result.Error; }
-        });
+                ColmenaClientId = input.ColmenaClientId,
+                ColmenaSessionKey = input.ColmenaSessionKey,
+                VoiceAiAgentId = input.VoiceAiAgentId,
+                WhatsAppLineId = input.WhatsAppLineId,
+                WhatsAppTemplateName = input.WhatsAppTemplateName,
+                WhatsAppTemplateLang = input.WhatsAppTemplateLang,
+                ExtraPrompt = input.ExtraPrompt,
+                CanSendEmail = input.CanSendEmail,
+                OnFailure = input.OnFailure,
+                FailureRetries = input.FailureRetries,
+                FailureRoute = input.FailureRoute
+            };
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Si la seccion del acordeon del nodo SELECCIONADO tiene algo configurado (para el punto verde del
+    /// encabezado): 4 = notificaciones (reglas > 0), 6 = agente de IA (vinculo presente).</summary>
+    private bool AccConfigured(int index)
+    {
+        if (Selected is not FlowCanvasNodeDto n) { return false; }
+        return index switch
+        {
+            4 => (NodeNotifyConfig.Parse(n.NotifyJson).Reglas?.Count ?? 0) > 0,
+            6 => _nodeAgent is not null,
+            _ => false
+        };
     }
 
     private static string RuleTone(RuleStatus status) => status switch

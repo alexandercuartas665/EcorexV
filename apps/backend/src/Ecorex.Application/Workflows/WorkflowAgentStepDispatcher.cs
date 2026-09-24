@@ -36,6 +36,18 @@ public interface IWorkflowAgentStepDispatcher
     /// Devuelve cuantos pasos se intentaron. Un paso que falla no frena a los demas.
     /// </summary>
     Task<int> RunPendingForTenantAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Tenants con al menos un paso de agente EN ESPERA cuya fecha limite (AgentDeadlineAt) ya vencio.
+    /// Cross-tenant (IgnoreQueryFilters), solo ids. Es la "cola" del reaper de timeouts.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> FindTenantsWithExpiredAgentWaitsAsync(DateTimeOffset now, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cierra por TIEMPO AGOTADO los pasos de agente del tenant ACTIVO cuya espera vencio. Devuelve cuantos
+    /// se cerraron. Un paso que falla al cerrarse no frena a los demas.
+    /// </summary>
+    Task<int> ReapExpiredForTenantAsync(DateTimeOffset now, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc />
@@ -115,5 +127,52 @@ public sealed class WorkflowAgentStepDispatcher : IWorkflowAgentStepDispatcher
             }
         }
         return attended;
+    }
+
+    public async Task<IReadOnlyList<Guid>> FindTenantsWithExpiredAgentWaitsAsync(
+        DateTimeOffset now, CancellationToken cancellationToken = default)
+        => await _db.WorkflowStepHistories.IgnoreQueryFilters()
+            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending
+                && s.AgentFailureReason == null
+                && s.AgentDeadlineAt != null && s.AgentDeadlineAt < now)
+            // Solo pasos de agente: el join lleva TenantId a los dos lados (aislamiento por construccion).
+            .Join(_db.WorkflowNodeAgents.IgnoreQueryFilters(),
+                s => new { s.TenantId, NodeId = s.NodeId },
+                a => new { a.TenantId, NodeId = a.NodeId },
+                (s, a) => s.TenantId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+    public async Task<int> ReapExpiredForTenantAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is null)
+        {
+            return 0;
+        }
+
+        var stepIds = await _db.WorkflowStepHistories.AsNoTracking()
+            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending
+                && s.AgentFailureReason == null
+                && s.AgentDeadlineAt != null && s.AgentDeadlineAt < now)
+            .Join(_db.WorkflowNodeAgents.AsNoTracking(), s => s.NodeId, a => a.NodeId, (s, a) => s)
+            .OrderBy(s => s.AgentDeadlineAt)
+            .Take(MaxStepsPerTenantPerCycle)
+            .Select(s => s.Id)
+            .ToListAsync(cancellationToken);
+
+        var reaped = 0;
+        foreach (var stepId in stepIds)
+        {
+            if (cancellationToken.IsCancellationRequested) { break; }
+            try
+            {
+                if (await _runner.TimeoutAsync(stepId, cancellationToken)) { reaped++; }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fallo el cierre por timeout del paso {StepId} de agente.", stepId);
+            }
+        }
+        return reaped;
     }
 }

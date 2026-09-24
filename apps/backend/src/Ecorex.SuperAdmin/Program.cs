@@ -901,6 +901,29 @@ if (app.Environment.IsDevelopment())
             return Results.Redirect(isOperator ? "/" : "/inicio");
         }).AllowAnonymous();
 
+        // Atajo de DESARROLLO para PROBAR el motor de agentes en nodos SIN encender todos los workers
+        // (que contra una copia de prod podrian mandar mensajes reales): corre UNA pasada del dispatcher
+        // sobre los pasos de agente pendientes del tenant del dev-login. Solo Development.
+        app.MapGet("/dev/run-agent-steps", async (IServiceProvider sp) =>
+        {
+            var normalized = devLoginEmail.Trim().ToLowerInvariant();
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
+            if (user is null) { return Results.NotFound("dev user"); }
+            var membership = await db.TenantUsers.IgnoreQueryFilters()
+                .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+                .OrderBy(tu => tu.CreatedAt).FirstOrDefaultAsync();
+            if (membership is null) { return Results.BadRequest("dev user sin tenant"); }
+            int attended;
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(membership.TenantId))
+            {
+                var dispatcher = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Workflows.IWorkflowAgentStepDispatcher>();
+                attended = await dispatcher.RunPendingForTenantAsync();
+            }
+            return Results.Ok(new { attended });
+        }).AllowAnonymous();
+
         app.Logger.LogWarning("DEV AUTO-LOGIN habilitado para {Email} en /dev/login (SOLO Development).", devLoginEmail);
     }
 }

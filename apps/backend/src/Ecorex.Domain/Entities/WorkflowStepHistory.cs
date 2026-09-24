@@ -93,6 +93,25 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public Guid? PendingWhatsAppConversationId { get; set; }
 
+    /// <summary>
+    /// Bitacora LEGIBLE de lo que hizo el agente en este paso (JSON: una entrada por corrida, con
+    /// hora, intento, tokens, resultado y las fases de razonamiento). Sirve para que una persona vea
+    /// "que penso/hizo" el agente sin mirar logs tecnicos. Se ANEXA en cada corrida/reanudacion.
+    /// Null = el nodo no tiene agente o aun no ha corrido.
+    /// </summary>
+    public string? AgentRunLog { get; set; }
+
+    /// <summary>Tokens de IA que el agente consumio en ESTE paso (suma de todas sus corridas). Null = ninguno.</summary>
+    public int? AgentTokensUsed { get; set; }
+
+    /// <summary>
+    /// Fecha limite para que el agente resuelva el paso: si sigue vigente y en espera pasada esta hora,
+    /// el "reaper" lo cierra como fallido (aplica la politica OnFailure del nodo) para que no quede
+    /// colgado ni siga esperando indefinidamente. Se estampa cuando el paso queda EN ESPERA (llamada o
+    /// WhatsApp). Null = sin limite activo.
+    /// </summary>
+    public DateTimeOffset? AgentDeadlineAt { get; set; }
+
     /// <summary>CYCLESTART legacy: primer nodo de un ciclo abierto por reinicio.</summary>
     public bool IsCycleStart { get; set; }
 

@@ -18,6 +18,21 @@ public interface IWorkflowAgentStepRunner
     /// tokens, que es lo que permite reintentar el barrido sin miedo tras un reinicio.
     /// </summary>
     Task<WorkflowAgentStepOutcome> RunAsync(Guid stepId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// TERMINA manualmente el paso de agente (accion de una persona desde la tarjeta del flujo): corta
+    /// cualquier espera (llamada/WhatsApp), marca el motivo y DEVUELVE EL PASO A UNA PERSONA para que lo
+    /// atienda (no sigue la ruta de contingencia: el corte es para retomar el control). Deja constancia
+    /// en el log del agente. Devuelve false si el paso ya no es un paso de agente vigente.
+    /// </summary>
+    Task<bool> CancelAsync(Guid stepId, Guid actorTenantUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// CIERRA por TIEMPO AGOTADO un paso de agente que quedo en espera pasada su fecha limite
+    /// (AgentDeadlineAt). Aplica la politica OnFailure del nodo (ruta de contingencia o devolver a
+    /// persona). Lo llama el reaper del worker. Devuelve false si el paso ya no aplica.
+    /// </summary>
+    Task<bool> TimeoutAsync(Guid stepId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Como termino el intento del agente sobre un paso.</summary>

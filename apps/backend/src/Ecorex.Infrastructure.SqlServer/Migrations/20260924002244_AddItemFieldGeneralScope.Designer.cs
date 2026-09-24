@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924002244_AddItemFieldGeneralScope")]
+    partial class AddItemFieldGeneralScope
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -15822,10 +15825,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("agent_attempted_at");
 
-                    b.Property<DateTimeOffset?>("AgentDeadlineAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("agent_deadline_at");
-
                     b.Property<string>("AgentFailureReason")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)")
@@ -15840,14 +15839,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
                         .HasColumnName("agent_proposal_result");
-
-                    b.Property<string>("AgentRunLog")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("agent_run_log");
-
-                    b.Property<int?>("AgentTokensUsed")
-                        .HasColumnType("int")
-                        .HasColumnName("agent_tokens_used");
 
                     b.Property<string>("ApprovalComment")
                         .HasMaxLength(2000)

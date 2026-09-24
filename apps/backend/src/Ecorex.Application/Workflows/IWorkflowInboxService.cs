@@ -63,6 +63,16 @@ public interface IWorkflowInboxService
         Guid reopenStepId, Guid tenantUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// TERMINA manualmente un paso atendido por un AGENTE de IA (accion de una persona): corta cualquier
+    /// espera del agente (llamada/WhatsApp) y devuelve el paso a atencion humana con el motivo. Sirve para
+    /// que el usuario retome el control de un paso que quedo "trabajando" sin resolver. Autoriza a quien
+    /// puede accionar el paso (encargado u Owner/Admin). Devuelve false si el paso ya no es un paso de
+    /// agente vigente.
+    /// </summary>
+    Task<WorkflowResult<bool>> CancelAgentStepAsync(
+        Guid stepId, Guid tenantUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Agrega una NOTA colaborativa del equipo (ADR-0071) sobre un nodo del flujo de una tarea.
     /// Cualquier miembro con acceso a la tarea puede dejarla, en CUALQUIER nodo -- incluidos pasos
     /// futuros de los que no es encargado -- para avisar algo a quien atienda ese paso. El nodo debe

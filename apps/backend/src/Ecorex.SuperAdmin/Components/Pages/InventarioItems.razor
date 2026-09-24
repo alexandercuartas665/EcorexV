@@ -353,11 +353,11 @@ else
                     <textarea class="form-control" rows="2" @bind="_fSpecifications"></textarea>
                 </div>
 
-                @* ---- Campos configurables segun el tipo ---- *@
+                @* ---- Campos configurables (generales + del tipo) ---- *@
                 @if (_typeFields.Count > 0)
                 {
                     <div class="inv-dynfields">
-                        <div class="inv-section-title">Campos del tipo</div>
+                        <div class="inv-section-title">Campos del item</div>
                         <div class="row g-2">
                             @foreach (var f in _typeFields)
                             {
@@ -625,11 +625,12 @@ else
                 <button class="modal-close" @onclick="@(() => _showFieldsConfig = false)">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="inv-fld-help">Los campos se capturan en la ficha de cada item segun su tipo (producto, servicio, insumo...).</p>
+                <p class="inv-fld-help">Los campos GENERALES se capturan en todos los items; los de un tipo, solo cuando el item es de ese tipo (producto, servicio, insumo...).</p>
                 <div class="field">
-                    <label class="form-label">Tipo</label>
+                    <label class="form-label">Ambito</label>
                     <select class="form-control" @bind="_cfgType" @bind:after="OnCfgTypeChangedAsync">
-                        <option value="">(Elige un tipo)</option>
+                        <option value="">(Elige un ambito)</option>
+                        <option value="general">General (todos los items)</option>
                         @foreach (var t in _types)
                         {
                             <option value="@t.Id">@t.Name</option>
@@ -637,11 +638,11 @@ else
                     </select>
                 </div>
 
-                @if (!string.IsNullOrEmpty(_cfgType))
+                @if (CfgScopeSelected())
                 {
                     @if (_cfgFields.Count == 0)
                     {
-                        <p class="inv-fld-help">Sin campos para este tipo. Agrega el primero abajo.</p>
+                        <p class="inv-fld-help">Sin campos en este ambito. Agrega el primero abajo.</p>
                     }
                     else
                     {
@@ -657,9 +658,13 @@ else
                                         @* Mover a otro tipo: el servicio ya existia pero no habia por
                                            donde llamarlo, asi que un campo nacia atado a su tipo. *@
                                         <select class="form-control form-control-sm inv-move-sel" disabled="@_busy"
-                                                title="Mover el campo a otro tipo de item" value=""
+                                                title="Mover el campo a otro ambito" value=""
                                                 @onchange="e => MoveCfgFieldToTypeAsync(f, e.Value?.ToString())">
                                             <option value="">Mover a...</option>
+                                            @if (f.ItemTypeId is not null)
+                                            {
+                                                <option value="general">General (todos los items)</option>
+                                            }
                                             @foreach (var t in _types.Where(t => t.Id != f.ItemTypeId))
                                             {
                                                 <option value="@t.Id">@t.Name</option>
@@ -786,7 +791,7 @@ else
                                 }
                                 <div class="inv-fld-help">
                                     Operadores + - * / y parentesis. Funciones: ROUND, MIN, MAX, ABS, SUM.
-                                    Solo campos de este tipo de item.
+                                    Campos generales y (si es por tipo) del mismo tipo.
                                 </div>
                                 @if (NumericFieldsForFormula().Count > 0)
                                 {
@@ -864,8 +869,11 @@ else
     .inv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
     .inv-card { display: flex; flex-direction: column; border: 1px solid var(--line, var(--border)); border-radius: 12px; overflow: hidden; background: var(--surface, var(--card)); }
     .inv-card.inactive { opacity: .6; }
-    .inv-card-media { position: relative; height: 140px; background: var(--surface-2, var(--accent)); display: grid; place-items: center; }
-    .inv-card-media img { width: 100%; height: 100%; object-fit: cover; }
+    .inv-card-media { position: relative; height: 140px; background: var(--surface-2, var(--accent)); display: grid; place-items: center; overflow: hidden; }
+    /* La imagen se ADAPTA (contain) dentro del alto fijo y va absoluta para NO desbordar el cuerpo de
+       la tarjeta. Antes tenia height:100% en un grid con place-items:center: ese % no resolvia contra
+       los 140px, la imagen tomaba su alto natural por aspecto y se derramaba tapando titulo/precio. */
+    .inv-card-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 8px; box-sizing: border-box; }
     .inv-card-noimg { font-size: 26px; font-weight: 800; color: var(--t-violet, var(--primary)); }
     .inv-card-badge { position: absolute; top: 8px; left: 8px; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; }
     .inv-card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
@@ -1040,10 +1048,19 @@ else
     // del texto de imagen puede chocar con Guardar. Gate en handlers de nivel superior.
     private readonly SemaphoreSlim _dbGate = new(1, 1);
 
-    // Configurador de campos por tipo.
+    // Configurador de campos. _cfgType es el AMBITO elegido: "" = ninguno, "general" = campos de todos
+    // los items, o el Guid de un tipo. _cfgFields = los campos PROPIOS del ambito (los que se listan y
+    // editan); _cfgScopeFields = los que CONVIVEN en ese ambito (generales + del tipo), para que una
+    // formula de un campo por tipo pueda referenciar tambien los generales.
     private bool _showFieldsConfig;
     private string _cfgType = "";
     private IReadOnlyList<ItemFieldDto> _cfgFields = [];
+    private IReadOnlyList<ItemFieldDto> _cfgScopeFields = [];
+
+    // Ambito elegido en el configurador: null = General (todos los items) o si no hay ninguno elegido;
+    // usar junto con CfgScopeSelected() para distinguir "General" de "sin elegir".
+    private Guid? CfgScope() => Guid.TryParse(_cfgType, out var g) ? g : null;
+    private bool CfgScopeSelected() => _cfgType == "general" || Guid.TryParse(_cfgType, out _);
     private Guid? _cfgEditId;
     private string _cfgLabel = "";
     private TerceroFieldType _cfgFieldType = TerceroFieldType.Text;
@@ -1314,6 +1331,8 @@ else
             _fBrand = _fGroup = _fSubgroup = _fType = "";
             _fDescription = null;
             _fSpecifications = null;
+            // Item nuevo: aun sin tipo ya muestra los campos GENERALES (aplican a todos los items).
+            await LoadTypeFieldsAsync();
         }
         _showEditor = true;
     }
@@ -1322,14 +1341,9 @@ else
 
     private async Task LoadTypeFieldsAsync()
     {
-        if (Guid.TryParse(_fType, out var typeId))
-        {
-            await GuardAsync(async () => _typeFields = await FieldSvc.ListByTypeAsync(typeId));
-        }
-        else
-        {
-            _typeFields = [];
-        }
+        // Generales (aplican a todo item, incluso "Sin tipo") + los del tipo si el item tiene tipo.
+        var typeId = Guid.TryParse(_fType, out var t) ? t : (Guid?)null;
+        await GuardAsync(async () => _typeFields = await FieldSvc.ListForItemAsync(typeId));
         RecalcCalculated();   // el item se abre con sus calculados ya resueltos
     }
 
@@ -1478,6 +1492,7 @@ else
     {
         _cfgType = "";
         _cfgFields = [];
+        _cfgScopeFields = [];
         ResetCfgForm();
         _showFieldsConfig = true;
     }
@@ -1485,10 +1500,23 @@ else
     private Task OnCfgTypeChangedAsync() => GuardAsync(async () =>
     {
         ResetCfgForm();
-        _cfgFields = Guid.TryParse(_cfgType, out var typeId)
-            ? await FieldSvc.ListByTypeAsync(typeId)
-            : [];
+        await ReloadCfgListsAsync();
     });
+
+    // Recarga los campos del ambito elegido: los propios (para listar/editar) y los que conviven en el
+    // (generales + del tipo), estos ultimos para las llaves disponibles en las formulas.
+    private async Task ReloadCfgListsAsync()
+    {
+        if (!CfgScopeSelected())
+        {
+            _cfgFields = [];
+            _cfgScopeFields = [];
+            return;
+        }
+        var scope = CfgScope();
+        _cfgFields = await FieldSvc.ListByTypeAsync(scope);
+        _cfgScopeFields = await FieldSvc.ListForItemAsync(scope);
+    }
 
     // ---- Lookup: catalogo, cascada y (de)serializacion de la config ----
 
@@ -1617,9 +1645,9 @@ else
         _ => "pequena"
     };
 
-    /// <summary>Campos que una formula puede usar: numericos y calculados del MISMO tipo de item.</summary>
+    /// <summary>Campos que una formula puede usar: numericos y calculados del ambito visible (generales + tipo).</summary>
     private List<ItemFieldDto> NumericFieldsForFormula()
-        => _cfgFields
+        => _cfgScopeFields
             .Where(f => f.Id != _cfgEditId)
             .Where(f => f.FieldType is TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)
             .OrderBy(f => f.SortOrder)
@@ -1628,23 +1656,28 @@ else
     private async Task OnFormulaInputAsync(ChangeEventArgs e)
     {
         _cfgFormula = e.Value?.ToString() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(_cfgFormula) || !Guid.TryParse(_cfgType, out var typeId))
+        if (string.IsNullOrWhiteSpace(_cfgFormula) || !CfgScopeSelected())
         {
             _cfgFormulaError = null;
             return;
         }
-        _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, typeId, _cfgEditId, CfgEditingKey());
+        _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, CfgScope(), _cfgEditId, CfgEditingKey());
     }
 
     private string? CfgEditingKey() => _cfgFields.FirstOrDefault(f => f.Id == _cfgEditId)?.FieldKey;
 
     /// <summary>
-    /// Mueve el campo a otro tipo de item. El servicio se niega si el destino ya tiene esa clave o si
-    /// alguna formula del tipo origen la usa; el motivo se muestra tal cual.
+    /// Mueve el campo a otro ambito (General o un tipo). El servicio se niega si el destino ya tiene esa
+    /// clave o si alguna formula que lo ve la usa; el motivo se muestra tal cual.
     /// </summary>
     private Task MoveCfgFieldToTypeAsync(ItemFieldDto f, string? targetTypeId) => GuardAsync(async () =>
     {
-        if (!Guid.TryParse(targetTypeId, out var target)) { return; }
+        if (string.IsNullOrEmpty(targetTypeId)) { return; }
+        // "general" = mover al ambito General (tipo null); si no, debe ser el Guid de un tipo.
+        Guid? target;
+        if (targetTypeId == "general") { target = null; }
+        else if (Guid.TryParse(targetTypeId, out var g)) { target = g; }
+        else { return; }
         _cfgError = null;
         _busy = true;
         try
@@ -1653,8 +1686,8 @@ else
             if (_cfgError is null)
             {
                 if (_cfgEditId == f.Id) { ResetCfgForm(); }
-                if (Guid.TryParse(_cfgType, out var typeId)) { _cfgFields = await FieldSvc.ListByTypeAsync(typeId); }
-                await LoadTypeFieldsAsync();
+                await ReloadCfgListsAsync();
+                await ReloadEditorFieldsAsync();
             }
         }
         finally { _busy = false; }
@@ -1663,9 +1696,9 @@ else
     private async Task InsertFormulaKeyAsync(string key)
     {
         _cfgFormula = string.IsNullOrWhiteSpace(_cfgFormula) ? $"{{{key}}}" : $"{_cfgFormula} {{{key}}}";
-        if (Guid.TryParse(_cfgType, out var typeId))
+        if (CfgScopeSelected())
         {
-            _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, typeId, _cfgEditId, CfgEditingKey());
+            _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, CfgScope(), _cfgEditId, CfgEditingKey());
         }
     }
 
@@ -1689,15 +1722,16 @@ else
     private Task SaveCfgFieldAsync() => GuardAsync(async () =>
     {
         _cfgError = null;
-        if (!Guid.TryParse(_cfgType, out var typeId)) { _cfgError = "Elige un tipo."; return; }
+        if (!CfgScopeSelected()) { _cfgError = "Elige un ambito."; return; }
         if (string.IsNullOrWhiteSpace(_cfgLabel)) { _cfgError = "La etiqueta es obligatoria."; return; }
+        var scope = CfgScope();
         _busy = true;
         try
         {
             var formula = _cfgFieldType == TerceroFieldType.Calculated ? _cfgFormula.Trim() : null;
             if (_cfgFieldType == TerceroFieldType.Calculated)
             {
-                _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(formula, typeId, _cfgEditId, CfgEditingKey());
+                _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(formula, scope, _cfgEditId, CfgEditingKey());
                 if (_cfgFormulaError is not null) { return; }
             }
 
@@ -1718,18 +1752,18 @@ else
             }
             else
             {
-                var req = new CreateItemFieldRequest(typeId, _cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, null,
+                var req = new CreateItemFieldRequest(scope, _cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, null,
                     _cfgDescription, _cfgRequired, formula, _cfgShowInFilter);
                 var r = await FieldSvc.CreateFieldAsync(req);
                 if (r is null) { _cfgError = "No se pudo crear el campo."; return; }
             }
             ResetCfgForm();
-            _cfgFields = await FieldSvc.ListByTypeAsync(typeId);
+            await ReloadCfgListsAsync();
             // La barra de filtros vive de _allFieldDefs: si no se refresca, marcar "filtrable" no
             // aparece hasta recargar la pagina.
             _allFieldDefs = await FieldSvc.ListAllAsync();
-            // Si el item abierto es de este tipo, refresca sus campos en vivo.
-            if (_showEditor && _fType == _cfgType) { _typeFields = _cfgFields; }
+            // Refresca en vivo los campos del item abierto (un campo general afecta a cualquier item).
+            await ReloadEditorFieldsAsync();
         }
         finally { _busy = false; }
     });
@@ -1740,14 +1774,22 @@ else
         try
         {
             await FieldSvc.DeleteFieldAsync(fieldId);
-            if (Guid.TryParse(_cfgType, out var typeId))
-            {
-                _cfgFields = await FieldSvc.ListByTypeAsync(typeId);
-                if (_showEditor && _fType == _cfgType) { _typeFields = _cfgFields; }
-            }
+            await ReloadCfgListsAsync();
+            _allFieldDefs = await FieldSvc.ListAllAsync();
+            await ReloadEditorFieldsAsync();
         }
         finally { _busy = false; }
     });
+
+    // Refresca los campos del item ABIERTO (generales + del tipo) sin recargar la pagina, para ver al
+    // instante lo que se acaba de configurar. No hace nada si no hay editor abierto.
+    private async Task ReloadEditorFieldsAsync()
+    {
+        if (!_showEditor) { return; }
+        var typeId = Guid.TryParse(_fType, out var t) ? t : (Guid?)null;
+        _typeFields = await FieldSvc.ListForItemAsync(typeId);
+        RecalcCalculated();
+    }
 
     private void OnImageDragEnter(DragEventArgs _) => _dragOver = true;
 

@@ -1568,7 +1568,12 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 /* Angosto: la Bitacora baja a lo ancho debajo de las 2 columnas; mas angosto aun, una sola columna. */
 @media (max-width: 1280px) {
     .tk-detail-split { grid-template-columns: minmax(0, 1fr) 300px; }
-    .tk-detail-bitacora-col { grid-column: 1 / -1; position: static; max-height: none; }
+    /* Angosto: el modal scrollea como UN SOLO documento. Se anulan los sticky y las alturas
+       fijas (rail Resumen + columna izquierda + Bitacora) para que al scrollear el Resumen no
+       quede pegado arriba y NO se solape con la Bitacora que pasa por debajo. */
+    .tk-detail-left { max-height: none; overflow: visible; }
+    .tk-detail-rail { position: static; max-height: none; overflow: visible; }
+    .tk-detail-bitacora-col { grid-column: 1 / -1; position: static; height: auto; max-height: none; overflow: visible; }
 }
 @media (max-width: 1080px) { .tk-detail-split { grid-template-columns: 1fr; } }
 /* La 1a columna scrollea SOLA (asi se ve toda la data de la tarea) mientras Resumen y Bitacora quedan. */

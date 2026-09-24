@@ -29,19 +29,22 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
     private readonly INodeAssigneeResolver _resolver;
     private readonly IWorkflowEngine _engine;
     private readonly IWorkflowDesignService _design;
+    private readonly IWorkflowAgentStepRunner _agentRunner;
 
     public WorkflowInboxService(
         IApplicationDbContext db,
         ITenantContext tenantContext,
         INodeAssigneeResolver resolver,
         IWorkflowEngine engine,
-        IWorkflowDesignService design)
+        IWorkflowDesignService design,
+        IWorkflowAgentStepRunner agentRunner)
     {
         _db = db;
         _tenantContext = tenantContext;
         _resolver = resolver;
         _engine = engine;
         _design = design;
+        _agentRunner = agentRunner;
     }
 
     public async Task<TaskFlowDiagramDto?> GetTaskFlowDiagramAsync(
@@ -75,7 +78,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.CreatedAt,
                 s.CompletedAt,
                 s.AgentAttemptedAt,
-                s.AgentFailureReason
+                s.AgentFailureReason,
+                s.AgentRunLog
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -339,7 +343,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 AgentWhatsApp: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsW) && capsW.WhatsApp,
                 AgentEmail: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsE) && capsE.Email,
                 AgentFailureReason: isAuto && h is { IsCurrent: true, Status: WorkflowStepStatus.Pending, AgentAttemptedAt: not null }
-                    ? h.AgentFailureReason : null);
+                    ? h.AgentFailureReason : null,
+                AgentRunLog: isAuto ? h?.AgentRunLog : null);
         }).ToList();
 
         var edges = canvas.Edges
@@ -696,6 +701,38 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         return result.IsOk
             ? WorkflowResult<bool>.Ok(true)
             : WorkflowResult<bool>.Invalid(result.Error ?? "No se pudo reabrir el paso.");
+    }
+
+    public async Task<WorkflowResult<bool>> CancelAgentStepAsync(
+        Guid stepId, Guid tenantUserId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadCurrentStepAsync(stepId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return loaded.Error;
+        }
+        var (step, node) = loaded.Value;
+
+        // Debe ser un paso atendido por un agente.
+        var isAgent = await _db.WorkflowNodeAgents.AsNoTracking().AnyAsync(a => a.NodeId == step.NodeId, cancellationToken);
+        if (!isAgent)
+        {
+            return WorkflowResult<bool>.Invalid("Este paso no lo atiende un agente de IA.");
+        }
+
+        // Misma autorizacion que "Retomar y cerrar" (CompletePendingStepAsync): el asignado o, si el paso
+        // esta sin asignar, un candidato de su cargo. Asi el boton "Terminar" y este servicio coinciden.
+        var authorized = step.AssignedToTenantUserId == tenantUserId
+            || (step.AssignedToTenantUserId is null && await IsCandidateAsync(node, tenantUserId, cancellationToken));
+        if (!authorized)
+        {
+            return WorkflowResult<bool>.Invalid("Solo el encargado (o su cargo) puede terminar este paso.");
+        }
+
+        var ok = await _agentRunner.CancelAsync(stepId, tenantUserId, cancellationToken);
+        return ok
+            ? WorkflowResult<bool>.Ok(true)
+            : WorkflowResult<bool>.Invalid("El paso ya no esta atendido por un agente.");
     }
 
     public async Task<WorkflowResult<bool>> AddNodeNoteAsync(

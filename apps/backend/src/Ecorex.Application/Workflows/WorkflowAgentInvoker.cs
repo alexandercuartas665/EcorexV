@@ -108,6 +108,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]";
         }
 
+        // Progreso EN VIVO tambien en la ruta de UN solo tiro (nodos de decision/compuerta sin formulario):
+        // antes solo el bucle de herramientas reportaba, asi que estos nodos se veian "trabajando" sin decir
+        // nada. Ahora emiten al menos "leyendo/decidiendo" y, al terminar, la narracion o el motivo del modelo.
+        onProgress?.Invoke(context.Node.NodeType == WorkflowNodeType.ExclusiveGateway
+            ? "Leyendo el caso para elegir la ruta..."
+            : "Leyendo el caso para decidir...", 0);
+
         AiChatResult response;
         try
         {
@@ -131,6 +138,14 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         }
 
         var parsed = WorkflowAgentDecisionParser.Parse(response.Text!);
+        var totalTokens = (long)response.InputTokens + response.OutputTokens;
+        // Fase final legible: la narracion/decision del modelo (o el motivo si no pudo), con los tokens ya sumados.
+        var finalPhase = parsed.Ok
+            ? (Clip(parsed.Comment, 160)
+               ?? (string.IsNullOrWhiteSpace(parsed.Result) ? "Decision tomada." : $"Decidio: {parsed.Result}"))
+            : (Clip(parsed.Error, 160) ?? "No pudo decidir con los datos del caso.");
+        onProgress?.Invoke(finalPhase!, totalTokens);
+
         return parsed with
         {
             Provider = agent.Provider,

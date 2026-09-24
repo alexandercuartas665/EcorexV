@@ -49,6 +49,26 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// costo y evitar ciclos si la persona no da el dato. Superado -> el paso vuelve a una persona.</summary>
     private const int MaxWhatsAppAsks = 4;
 
+    /// <summary>
+    /// Tope de reloj de UNA corrida del agente (la llamada al proveedor + su bucle de herramientas). Acota un
+    /// proveedor colgado: superado, el paso vuelve a una persona con el motivo. Configurable por entorno
+    /// (ECOREX_AGENT_RUN_TIMEOUT_MIN), 6 min por defecto.
+    /// </summary>
+    private static readonly int RunTimeoutMinutes = ReadEnvInt("ECOREX_AGENT_RUN_TIMEOUT_MIN", 6, 1, 60);
+
+    /// <summary>
+    /// Cuanto puede quedar un paso EN ESPERA (llamada/WhatsApp) antes de que el reaper lo cierre por tiempo
+    /// agotado. Evita que un paso quede colgado indefinidamente si la respuesta nunca llega. Configurable por
+    /// entorno (ECOREX_AGENT_WAIT_TIMEOUT_HOURS), 6 horas por defecto.
+    /// </summary>
+    public static readonly int WaitTimeoutHours = ReadEnvInt("ECOREX_AGENT_WAIT_TIMEOUT_HOURS", 6, 1, 720);
+
+    private static int ReadEnvInt(string name, int fallback, int min, int max)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(raw, out var v) ? Math.Clamp(v, min, max) : fallback;
+    }
+
     public WorkflowAgentStepRunner(
         IApplicationDbContext db,
         IWorkflowAgentContextBuilder contextBuilder,
@@ -137,11 +157,39 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // (no el _db), asi que no interfiere con la regla de "nada abierto" de la fase 2.
         var taskId = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
-        Action<string, long>? onProgress = taskId is Guid tid
-            ? (phase, tokens) => ReportProgress(step.TenantId, tid, step.NodeId, phase, tokens)
-            : null;
 
-        var invocation = await _invoker.InvokeAsync(context, cancellationToken, onProgress);
+        // Log del agente (C): recolectamos las fases que el invoker reporta EN VIVO por el callback, para
+        // persistirlas como bitacora legible del paso ADEMAS de transmitirlas por SignalR.
+        var rounds = new List<string>();
+        Action<string, long> onProgress = (phase, tokens) =>
+        {
+            if (!string.IsNullOrWhiteSpace(phase)) { rounds.Add(phase.Trim()); }
+            if (taskId is Guid tp) { ReportProgress(step.TenantId, tp, step.NodeId, phase, tokens); }
+        };
+
+        var attemptNo = step.AgentAttemptCount + 1;
+
+        // Tope de reloj de la corrida (B): un proveedor colgado no debe dejar el paso "trabajando" sin fin.
+        WorkflowAgentInvocationResult invocation;
+        using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            timeoutCts.CancelAfter(TimeSpan.FromMinutes(RunTimeoutMinutes));
+            try
+            {
+                invocation = await _invoker.InvokeAsync(context, timeoutCts.Token, onProgress);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Fue el timeout de la corrida (no un apagado del proceso): se trata como "no pudo".
+                AppendRun(step, attemptNo, 0, rounds, "tiempo de ejecucion agotado");
+                return await ReturnToPersonAsync(
+                    step, nodeAgent,
+                    $"El agente supero el tiempo maximo de ejecucion ({RunTimeoutMinutes} min) sin resolver.",
+                    cancellationToken);
+            }
+        }
+
+        var runTokens = (long)invocation.InputTokens + invocation.OutputTokens;
 
         // Consumo: se registra aunque el intento fallara (los tokens de una llamada fallida a mitad
         // de camino tambien se facturan). Va en su propio SaveChanges, fuera de la transaccion de
@@ -152,6 +200,12 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 nodeAgent.AiAgentId, invocation.Provider, invocation.Model,
                 invocation.InputTokens, invocation.OutputTokens, UsageSource, invocation.Ok, cancellationToken);
         }
+
+        // Tokens y bitacora del paso: se anexan a la instancia RASTREADA; cualquier SaveChanges posterior
+        // (propuesta, pausa, cierre o devolucion) los persiste junto con la decision.
+        step.AgentTokensUsed = (step.AgentTokensUsed ?? 0) + (int)Math.Min(runTokens, int.MaxValue);
+        AppendRun(step, attemptNo, runTokens, rounds,
+            invocation.Ok ? "ok" : ("no pudo: " + (invocation.Error ?? "sin detalle")));
 
         if (!invocation.Ok)
         {
@@ -305,6 +359,8 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.PendingVoiceCallId = placed.CallId;
         step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
         step.AgentProposalComment = Clip(callRequest.Objetivo, 2000);
+        // Fecha limite (B): si la llamada nunca se resuelve, el reaper cerrara el paso pasada esta hora.
+        step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AddTaskNoteAsync(step,
@@ -367,6 +423,8 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.PendingWhatsAppConversationId = conversationId;
         step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
         step.AgentProposalComment = Clip(request.Pregunta, 2000);
+        // Fecha limite (B): si la respuesta nunca llega, el reaper cerrara el paso pasada esta hora.
+        step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AddTaskNoteAsync(step,
@@ -488,8 +546,6 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private async Task<WorkflowAgentStepOutcome> ReturnToPersonAsync(
         WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, string reason, CancellationToken cancellationToken)
     {
-        var agentId = nodeAgent.AiAgentId;
-
         // POLITICA DE FALLO (configurable por nodo). 1) REINTENTAR: si quedan reintentos, NO se marca
         // AgentAttemptedAt -> el worker retoma el paso en el proximo ciclo. Solo se cuenta el intento;
         // el nodo sigue viendose "trabajando" (no se fija motivo de fallo hasta rendirse).
@@ -502,18 +558,33 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             await _db.SaveChangesAsync(cancellationToken);
             _logger.LogInformation(
                 "Agente {AgentId}: paso {StepId} no resuelto; reintento {N}/{Max}.",
-                agentId, step.Id, step.AgentAttemptCount, nodeAgent.FailureRetries);
+                nodeAgent.AiAgentId, step.Id, step.AgentAttemptCount, nodeAgent.FailureRetries);
             return WorkflowAgentStepOutcome.ReturnedToPerson;
         }
 
+        return await FinalizeAsFailureAsync(step, nodeAgent, reason, allowRoute: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Cierra el intento del agente como FALLIDO (sin reintentar): si <paramref name="allowRoute"/> y el nodo
+    /// tiene ruta de contingencia, enruta por ella; si no, devuelve el paso a una persona con el motivo. La
+    /// usan tanto la ruta normal de "no pudo" como el corte manual y el timeout (que ya no deben reintentar).
+    /// </summary>
+    private async Task<WorkflowAgentStepOutcome> FinalizeAsFailureAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, string reason, bool allowRoute, CancellationToken cancellationToken)
+    {
+        var agentId = nodeAgent.AiAgentId;
+
         // 2) TOMAR RUTA de contingencia: cerrar el paso con esa ruta para que el motor enrute por la rama
         // de respaldo. Si el motor no la acepta, cae a "devolver a persona" mas abajo.
-        if (nodeAgent.OnFailure == WorkflowAgentFailureAction.TakeRoute
+        if (allowRoute
+            && nodeAgent.OnFailure == WorkflowAgentFailureAction.TakeRoute
             && !string.IsNullOrWhiteSpace(nodeAgent.FailureRoute))
         {
             step.AgentAttemptedAt = _clock.GetUtcNow();
             step.AgentAttemptCount += 1;
             step.AgentFailureReason = Clip(reason, 500);
+            step.AgentDeadlineAt = null;
             await _db.SaveChangesAsync(cancellationToken);
             var routed = await _engine.CompleteStepAsync(
                 step.InstanceId, step.Id, executedByTenantUserId: null,
@@ -533,12 +604,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         }
 
         // 3) DEVOLVER A PERSONA (default) y, si la politica es Notify, avisar al encargado. El paso sigue
-        // Pending y vigente: nunca se pierde ni se cierra en falso.
+        // Pending y vigente: nunca se pierde ni se cierra en falso. Se corta cualquier espera pendiente.
         step.AgentAttemptedAt = _clock.GetUtcNow();
         step.AgentAttemptCount += 1;
         step.ExecutedByAiAgentId = null;
         step.AgentFailureReason = Clip(reason, 500);
+        step.PendingVoiceCallId = null;
         step.PendingWhatsAppConversationId = null;
+        step.AgentDeadlineAt = null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AssignToPersonIfUnambiguousAsync(step, cancellationToken);
@@ -565,6 +638,63 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             "El agente {AgentId} devolvio el paso {StepId} a atencion humana: {Reason}", agentId, step.Id, reason);
         return WorkflowAgentStepOutcome.ReturnedToPerson;
     }
+
+    /// <inheritdoc />
+    public async Task<bool> CancelAsync(Guid stepId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
+    {
+        var step = await _db.WorkflowStepHistories.FirstOrDefaultAsync(s => s.Id == stepId, cancellationToken);
+        if (step is null || !step.IsCurrent || step.Status != WorkflowStepStatus.Pending)
+        {
+            return false;
+        }
+        var nodeAgent = await _db.WorkflowNodeAgents.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.NodeId == step.NodeId, cancellationToken);
+        if (nodeAgent is null)
+        {
+            return false;
+        }
+        var who = await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.Id == actorTenantUserId).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken);
+        var reason = string.IsNullOrWhiteSpace(who)
+            ? "Terminado manualmente; el paso vuelve a atencion humana."
+            : $"Terminado manualmente por {who}; el paso vuelve a atencion humana.";
+        // Corte manual: NO sigue la ruta de contingencia (la persona esta retomando el control).
+        AppendRun(step, step.AgentAttemptCount + 1, 0, Array.Empty<string>(), "cancelado por una persona");
+        await FinalizeAsFailureAsync(step, nodeAgent, reason, allowRoute: false, cancellationToken);
+        _logger.LogInformation("Paso {StepId} de agente terminado manualmente por {User}.", step.Id, actorTenantUserId);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TimeoutAsync(Guid stepId, CancellationToken cancellationToken = default)
+    {
+        var step = await _db.WorkflowStepHistories.FirstOrDefaultAsync(s => s.Id == stepId, cancellationToken);
+        if (step is null || !step.IsCurrent || step.Status != WorkflowStepStatus.Pending)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(step.AgentFailureReason))
+        {
+            return false;   // ya estaba marcado como fallido
+        }
+        var nodeAgent = await _db.WorkflowNodeAgents.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.NodeId == step.NodeId, cancellationToken);
+        if (nodeAgent is null)
+        {
+            return false;
+        }
+        var reason = $"Tiempo de espera agotado ({WaitTimeoutHours}h) sin resolver; el paso se cierra automaticamente.";
+        AppendRun(step, step.AgentAttemptCount + 1, 0, Array.Empty<string>(), "tiempo de espera agotado");
+        await FinalizeAsFailureAsync(step, nodeAgent, reason, allowRoute: true, cancellationToken);
+        _logger.LogInformation("Paso {StepId} de agente cerrado por timeout ({Hours}h).", step.Id, WaitTimeoutHours);
+        return true;
+    }
+
+    /// <summary>Anexa una entrada al log legible del agente en el paso RASTREADO (se persiste con el SaveChanges
+    /// del camino que sigue). No abre transaccion ni guarda por si mismo.</summary>
+    private void AppendRun(WorkflowStepHistory step, int attempt, long tokens, IReadOnlyList<string> rounds, string outcome)
+        => step.AgentRunLog = WorkflowAgentRunLog.Append(step.AgentRunLog,
+            new WorkflowAgentRunLogEntry(_clock.GetUtcNow(), attempt, tokens, outcome, rounds.ToArray()));
 
     /// <summary>
     /// Destinatario humano del paso, con el MISMO resolutor por nodo que usa la bandeja

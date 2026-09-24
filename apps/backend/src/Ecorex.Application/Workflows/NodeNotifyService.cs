@@ -184,6 +184,19 @@ public sealed class NodeNotifyService : INodeNotifyService
                         await _sender.SendWhatsAppDocumentAsync(lineId, phone!, b64, cotDoc.MimeType, cotDoc.FileName, null, actor, ct);
                     }
                 }
+
+                // Contexto para el agente conversacional (SARA): si el mensaje fue al CONTACTO (cliente) con un
+                // enlace de decision y/o un archivo, se deja una NOTA en su conversacion, para que si el cliente
+                // responde, el agente sepa de que se trata (el envio del flujo antes no dejaba rastro en el hilo).
+                if (rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
+                {
+                    try
+                    {
+                        await RecordContactShareObservationAsync(
+                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, ct);
+                    }
+                    catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
+                }
                 break;
         }
     }
@@ -212,6 +225,63 @@ public sealed class NodeNotifyService : INodeNotifyService
             return await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
         }
         catch { return null; } // best-effort: el adjunto no debe romper la notificacion
+    }
+
+    /// <summary>
+    /// Deja una NOTA en la conversacion de WhatsApp del contacto (misma clave (linea, telefono) que usa la
+    /// ingesta de chat), para que el agente conversacional (SARA) tenga CONTEXTO si el cliente responde: sabe
+    /// que se le envio un enlace de decision y/o un archivo, y por que proceso. Se guarda como saliente (nota
+    /// simple): reusa la conversacion si existe o la crea. Best-effort; el llamador la envuelve en try/catch.
+    /// </summary>
+    private async Task RecordContactShareObservationAsync(
+        Domain.Entities.TaskItem task, Guid lineId, string phone, bool hasDecisionLink,
+        Forms.QuoteDocument? cotDoc, CancellationToken ct)
+    {
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) { return; }
+
+        var conversation = await _db.Conversations
+            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var now = DateTimeOffset.UtcNow;
+        if (conversation is null)
+        {
+            conversation = new Domain.Entities.Conversation
+            {
+                TenantId = task.TenantId,
+                ContactPhone = digits,
+                WhatsAppLineId = lineId,
+                LastMessageAt = now
+            };
+            _db.Conversations.Add(conversation);
+        }
+        else
+        {
+            conversation.LastMessageAt = now;
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("Nota interna del flujo: se le envio a este contacto un mensaje de WhatsApp");
+        if (hasDecisionLink) { sb.Append(" con un enlace de decision (el cliente puede responder por el enlace)"); }
+        if (cotDoc is not null)
+        {
+            sb.Append(hasDecisionLink ? " y" : " con");
+            sb.Append($" un archivo adjunto (cotizacion: {cotDoc.FileName})");
+        }
+        sb.Append($", en el proceso {task.Number}");
+        if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
+        sb.Append(". Si el cliente escribe, es en respuesta a esto.");
+
+        _db.Messages.Add(new Domain.Entities.Message
+        {
+            TenantId = task.TenantId,
+            ConversationId = conversation.Id,
+            Direction = Domain.Enums.MessageDirection.Outbound,
+            Body = sb.ToString(),
+            MessageType = "text",
+            SentByName = "Sistema (flujo)",
+            SentAt = now
+        });
+        await _db.SaveChangesAsync(ct);
     }
 
     private static string AppendLink(string body, string? link)

@@ -4,20 +4,24 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Domain.Entities;
 
 /// <summary>
-/// Definicion de un campo configurable de un ITEM de inventario (000066), agrupado POR TIPO
-/// (<see cref="ItemType"/>: producto, servicio, insumo...). Entidad TENANT-SCOPED: cada tenant
-/// agrega/quita los campos que quiere capturar en la ficha de sus items, sin tocar codigo, y
-/// esos campos se muestran solo cuando el item es del tipo dueno del campo. Los VALORES por item
+/// Definicion de un campo configurable de un ITEM de inventario (000066). El campo puede ser
+/// GENERAL (aplica a TODOS los items del tenant, <see cref="ItemTypeId"/> == null; equivale a la
+/// ficha "base" del Directorio) o POR TIPO (<see cref="ItemType"/>: producto, servicio, insumo...;
+/// se muestra solo cuando el item es de ese tipo). Entidad TENANT-SCOPED: cada tenant agrega/quita
+/// los campos que quiere capturar en la ficha de sus items, sin tocar codigo. Los VALORES por item
 /// se guardan en <see cref="Item.FieldValuesJson"/> (dict FieldKey -&gt; valor). Calcado del patron
-/// probado de <see cref="TerceroFieldDefinition"/>, agrupando por tipo en vez de por ficha.
+/// probado de <see cref="TerceroFieldDefinition"/> (general + por ficha).
 /// </summary>
 public class ItemFieldDefinition : TenantEntity
 {
-    /// <summary>Tipo de item dueno del campo. Los campos son POR tipo (producto/servicio/insumo).</summary>
-    public Guid ItemTypeId { get; set; }
+    /// <summary>
+    /// Tipo de item dueno del campo, o NULL para un campo GENERAL que aplica a todos los items del
+    /// tenant sin importar su tipo (como la ficha "base" del Directorio).
+    /// </summary>
+    public Guid? ItemTypeId { get; set; }
     public ItemType? ItemType { get; set; }
 
-    /// <summary>Clave estable del campo (slug). Unica por (tenant, tipo).</summary>
+    /// <summary>Clave estable del campo (slug). Unica por (tenant, tipo); general = tipo null.</summary>
     public string FieldKey { get; set; } = null!;
 
     /// <summary>Etiqueta visible.</summary>
@@ -43,9 +47,9 @@ public class ItemFieldDefinition : TenantEntity
 
     /// <summary>
     /// Solo para <see cref="TerceroFieldType.Calculated"/>: expresion a evaluar, con los campos
-    /// referenciados entre llaves. Ej: <c>{costo} * (1 + {margen} / 100)</c>. En items solo puede
-    /// referenciar campos del MISMO tipo de item: un item tiene un unico tipo, asi que los de otro
-    /// tipo no existirian al evaluar. Ver ADR-0029.
+    /// referenciados entre llaves. Ej: <c>{costo} * (1 + {margen} / 100)</c>. Un campo GENERAL solo
+    /// puede referenciar otros generales; un campo POR TIPO puede referenciar los generales y los del
+    /// MISMO tipo (los unicos que existen a la vez en un item de ese tipo). Ver ADR-0029.
     /// </summary>
     public string? Formula { get; set; }
 

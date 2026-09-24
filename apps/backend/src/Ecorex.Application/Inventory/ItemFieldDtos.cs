@@ -3,17 +3,19 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Application.Inventory;
 
 /// <summary>
-/// Campo configurable de un item de inventario (000066), agrupado POR TIPO (ItemType). Calcado
-/// del patron de campos del Directorio General (TerceroFieldDto), agrupando por tipo en vez de
-/// por ficha. El valor por item se guarda en Item.FieldValuesJson indexado por FieldKey.
+/// Campo configurable de un item de inventario (000066). GENERAL (ItemTypeId == null, aplica a
+/// todos los items) o POR TIPO (ItemType). Calcado del patron de campos del Directorio General
+/// (TerceroFieldDto): general + por ficha. El valor por item se guarda en Item.FieldValuesJson
+/// indexado por FieldKey.
 /// </summary>
+/// <param name="ItemTypeId">Tipo dueno del campo, o null si es GENERAL (todos los items).</param>
 /// <param name="Column">Ancho en la rejilla de 3: 1 = pequena (1/3), 2 = media (2/3), 3 = completo.</param>
 /// <param name="Formula">Solo si FieldType=Calculated. Ver ADR-0029.</param>
 /// <param name="ShowInFilter">El campo se ofrece como filtro en el listado de items.</param>
 /// <param name="RepeatWithFieldKey">Clave del campo numerico que dice cuantas veces se repite este.</param>
 public sealed record ItemFieldDto(
     Guid Id,
-    Guid ItemTypeId,
+    Guid? ItemTypeId,
     string FieldKey,
     string Label,
     TerceroFieldType FieldType,
@@ -27,9 +29,9 @@ public sealed record ItemFieldDto(
     bool ShowInFilter = false,
     string? RepeatWithFieldKey = null);
 
-/// <summary>Alta de un campo configurable para un tipo de item.</summary>
+/// <summary>Alta de un campo configurable. ItemTypeId null = campo GENERAL (todos los items).</summary>
 public sealed record CreateItemFieldRequest(
-    Guid ItemTypeId,
+    Guid? ItemTypeId,
     string Label,
     TerceroFieldType FieldType,
     int Column = 1,

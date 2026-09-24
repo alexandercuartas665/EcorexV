@@ -96,7 +96,11 @@ public static class DependencyInjection
         services.AddHttpClient<Ecorex.Application.Tenancy.IYCloudApiClient, YCloud.YCloudApiClient>();
         services.AddHttpClient<Ecorex.Application.Voice.IRetellApiClient, Retell.RetellApiClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.ITelegramClient, Telegram.TelegramBotClient>();
-        services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>();
+        // Timeout por LLAMADA al proveedor de IA: sin el, el HttpClient usa 100s por defecto y, con la
+        // cadena de reintentos, una corrida del agente podia colgarse minutos. 60s acota cada llamada; el
+        // tope de reloj de la corrida completa (RunTimeoutMinutes) y el reaper de esperas cubren el resto.
+        services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>(
+                static client => client.Timeout = TimeSpan.FromSeconds(60));
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
         // Importacion manual desde API REST del Contenedor de datos (disparo por el usuario).
         services.AddHttpClient<Ecorex.Application.DataContainers.IApiImportService, Ecorex.Application.DataContainers.ApiImportService>(

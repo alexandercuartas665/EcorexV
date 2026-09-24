@@ -6623,7 +6623,7 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_system");
 
-                    b.Property<Guid>("ItemTypeId")
+                    b.Property<Guid?>("ItemTypeId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_type_id");
 
@@ -15818,6 +15818,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("agent_attempted_at");
 
+                    b.Property<DateTimeOffset?>("AgentDeadlineAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("agent_deadline_at");
+
                     b.Property<string>("AgentFailureReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -15832,6 +15836,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("agent_proposal_result");
+
+                    b.Property<string>("AgentRunLog")
+                        .HasColumnType("text")
+                        .HasColumnName("agent_run_log");
+
+                    b.Property<int?>("AgentTokensUsed")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_tokens_used");
 
                     b.Property<string>("ApprovalComment")
                         .HasMaxLength(2000)
@@ -16931,7 +16943,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ItemTypeId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("fk_item_field_definitions_item_types_item_type_id");
 
                     b.Navigation("ItemType");

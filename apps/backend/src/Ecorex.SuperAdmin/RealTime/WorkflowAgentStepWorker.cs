@@ -79,7 +79,6 @@ public sealed class WorkflowAgentStepWorker : BackgroundService
             var dispatcher = scope.ServiceProvider.GetRequiredService<IWorkflowAgentStepDispatcher>();
             tenants = await dispatcher.FindTenantsWithPendingAgentStepsAsync(cancellationToken);
         }
-        if (tenants.Count == 0) { return; }
 
         // 2) Atencion ACOTADA a cada tenant (scope propio + tenant ambiente).
         foreach (var tenantId in tenants)
@@ -104,6 +103,39 @@ public sealed class WorkflowAgentStepWorker : BackgroundService
             {
                 // El fallo de un tenant no debe frenar a los demas.
                 _logger.LogError(ex, "Fallo la atencion de pasos por agente del tenant {TenantId}.", tenantId);
+            }
+        }
+
+        // 3) REAPER de timeouts: cierra los pasos de agente EN ESPERA cuya fecha limite ya vencio, para que
+        // no queden colgados "trabajando" indefinidamente ni sigan esperando una respuesta que no llega.
+        var now = DateTimeOffset.UtcNow;
+        IReadOnlyList<Guid> expiredTenants;
+        await using (var scope = _scopeFactory.CreateAsyncScope())
+        {
+            var dispatcher = scope.ServiceProvider.GetRequiredService<IWorkflowAgentStepDispatcher>();
+            expiredTenants = await dispatcher.FindTenantsWithExpiredAgentWaitsAsync(now, cancellationToken);
+        }
+        foreach (var tenantId in expiredTenants)
+        {
+            if (cancellationToken.IsCancellationRequested) { break; }
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    var dispatcher = scope.ServiceProvider.GetRequiredService<IWorkflowAgentStepDispatcher>();
+                    var reaped = await dispatcher.ReapExpiredForTenantAsync(now, cancellationToken);
+                    if (reaped > 0)
+                    {
+                        _logger.LogInformation(
+                            "Agentes en nodos: {Reaped} paso(s) cerrado(s) por timeout en el tenant {TenantId}.",
+                            reaped, tenantId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fallo el reaper de timeouts de agente del tenant {TenantId}.", tenantId);
             }
         }
     }

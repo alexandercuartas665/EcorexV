@@ -2,6 +2,100 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.127: Nodo-agente con borrador/Guardar + indicador; y contexto para SARA al enviar link
+
+- Tema 1 (editor de flujos): el modal del agente auto-guardaba en cada cambio (un clic por error en el
+  desplegable dejaba el nodo "con agente" sin poder deshacer; solo habia boton "Listo"). Ahora es
+  BORRADOR/COMMIT como las notificaciones: los handlers mutan _nodeAgent en memoria y SOLO "Guardar" persiste;
+  "Cancelar"/X/overlay restauran el snapshot (_agentSaved). Ademas, INDICADOR de configurado: punto verde en el
+  encabezado del acordeon (Agente y Notificacion) del nodo seleccionado (helper AccConfigured).
+- Tema 2 (contexto del agente conversacional): al enviar por el flujo el WhatsApp con el enlace de decision y/o
+  el archivo al CONTACTO, se deja una NOTA saliente en su conversacion (NodeNotifyService.RecordContactShare
+  ObservationAsync, reusa/crea la conversacion por (linea, telefono) como WorkflowAgentWhatsApp.AskAsync). Asi,
+  si el cliente responde, SARA tiene contexto ("se envio enlace de decision + archivo, proceso Txxxx"). Best-
+  effort; la bitacora del agente (AiAgentRunLog) NO se uso porque no llega al contexto de la IA.
+- Build verde. Sin migracion. NO desplegado.
+
+## 2026-09-23 - v0.16.126: Reasignar encargado de una tarea de flujo tambien reasigna el paso actual
+
+- Bug (usuario): al cambiar el encargado de una tarea que nace de un flujo, "no lo hace del todo". Diagnostico:
+  hay DOS asignados -- TaskItem.AssigneeTenantUserId (dueno, encabezado/tablero) y WorkflowStepHistory.
+  AssignedToTenantUserId (paso actual, enruta el flujo/'mis pendientes'). Solo se enlazaban al CREAR; el pill
+  "Reasignar encargado" (AssignAsync) cambiaba solo el dueno y el flujo seguia enrutando al anterior.
+- Fix (regla elegida: BLOQUEAR como al crear): AssignAsync ahora tambien reasigna el PASO VIGENTE; si el nodo
+  tiene cargo y el nuevo encargado no es candidato, se bloquea con mensaje (misma validacion que CreateAsync).
+  UnassignAsync devuelve el paso al grupo (sin asignar). En flujos con varios pasos vigentes en paralelo se
+  PREFIERE el paso humano sobre el de agente (helper ResolveCurrentAssignableStepAsync).
+- Validado en vivo (dev, T00070, flujo con paso humano 'Cliente decide compra' + agente en paralelo): reasignar
+  el encargado sincronizo el paso humano (tarea y paso quedaron con el mismo usuario). Build verde. Sin migracion.
+- NO desplegado. (Basado en ADR-0035 asignacion por nodo.)
+
+## 2026-09-23 - v0.16.125: Agente de flujo - razonamiento EN VIVO paso a paso
+
+- Feedback: "veo el agente trabajar por mucho rato y no se en que esta". Causa: la ruta single-shot (nodos de
+  decision/compuerta sin formulario) NO emitia progreso, asi que solo se veia "El agente esta trabajando..."
+  estatico; y el stream solo guardaba la ultima linea.
+- Fix: (1) WorkflowAgentInvoker single-shot ahora emite fases ("Leyendo el caso para decidir/elegir la ruta..."
+  + la narracion/decision o el motivo del modelo, con tokens). (2) TaskDetailModal acumula las fases por nodo
+  (_liveThinkingLog) y las muestra como lista que CRECE ("ACTIVIDAD EN VIVO") en el menu del paso, ademas de
+  la ultima linea en el nodo. Llega por SignalR (best-effort).
+- Validado en vivo en dev: al re-correr el paso, la lista aparecio y crecio paso a paso (2 fases) por SignalR.
+- Build verde. Sin migracion. NO desplegado.
+
+## 2026-09-23 - v0.16.124: La lista de chequeo del concepto se copia a la tarea nueva
+
+- Bug (usuario): la "Lista de chequeo" preconfigurada en la sub-categoria/concepto (ActividadSubcategoria.
+  Chequeo, items separados por ';') NO llegaba a la tarea al crearla: TaskItemService.CreateAsync nunca leia
+  ese campo.
+- Fix: CreateAsync ahora materializa esos items como TaskItemChecklistItem (mismo patron que AddChecklistItem).
+- Extra (solo Development): endpoint GET /dev/run-agent-steps para PROBAR el motor de agentes en nodos sin
+  encender todos los workers (evita que la copia de prod mande mensajes reales); corre una pasada del
+  dispatcher sobre los pasos de agente pendientes del tenant del dev-login. Se uso para validar el log
+  del agente (v0.16.123) end-to-end en dev (2 pasos corridos, ~10.7k tok c/u, "no pudo" registrado + visible).
+- Build verde. Sin migracion. NO desplegado.
+
+## 2026-09-23 - v0.16.123: Agente de flujo - visibilidad, corte manual y timeout (ADR-0108)
+
+- Problema (usuario): un nodo-agente quedaba "trabajando" 5h; miedo a que gastara tokens y sin forma de
+  ver que hacia ni de terminarlo. Diagnostico: la corrida esta acotada (8 rondas, 1024 tok/llamada) y el
+  "en espera Xh" es tiempo desde que llego el paso (no computo); el paso quedaba EN ESPERA (llamada/WhatsApp)
+  sin reaper, sin timeout y sin log por paso.
+- A (corte manual): IWorkflowInboxService.CancelAgentStepAsync -> runner.CancelAsync; boton "Terminar y
+  devolver a una persona" en el menu del nodo (misma auth que "Retomar y cerrar").
+- B (timeout): tope de reloj de la corrida (CancelAfter, env ECOREX_AGENT_RUN_TIMEOUT_MIN=6) + HttpClient del
+  proveedor a 60s + reaper de esperas vencidas (AgentDeadlineAt = ahora + ECOREX_AGENT_WAIT_TIMEOUT_HOURS=6)
+  en el worker/dispatcher -> runner.TimeoutAsync (aplica OnFailure del nodo).
+- C (visibilidad): WorkflowStepHistory.AgentRunLog (JSON) + AgentTokensUsed; el runner anexa una entrada por
+  corrida (hora/intento/tokens/resultado/fases); "Ver actividad del agente" en el menu del nodo. Tipo
+  compartido WorkflowAgentRunLog.
+- Migracion dual AddAgentStepRunLogAndDeadline (3 columnas nullable en workflow_step_histories). Sin estado
+  terminal nuevo (el fallo sigue siendo AgentFailureReason). Build verde. NO desplegado. Detalle en ADR-0108.
+
+## 2026-09-23 - v0.16.122: Inventarios - imagen de tarjeta que no tapa + campos GENERALES ademas de por tipo
+
+- Bug 1 (imagen tapa el detalle): en la tarjeta de item, .inv-card-media (grid + place-items:center)
+  con img height:100% NO resolvia contra los 140px; la imagen tomaba su alto natural (~333px) y con
+  overflow:visible se derramaba tapando titulo/precio/stock. Fix (InventarioItems.razor, CSS): img
+  con position:absolute inset:0 + object-fit:contain + overflow:hidden -> la imagen se ADAPTA dentro
+  del alto fijo, se ve completa y el cuerpo queda debajo sin solapes.
+- Bug 2 / feature (configurador de campos "no funciona"): el configurador agrupaba SOLO por tipo de
+  item; un tenant sin tipos (items "Sin tipo") no podia configurar nada. Se agrega el ambito GENERAL
+  (aplica a todos los items) ademas de por tipo, dando paridad con el Directorio. ItemTypeId -> Guid?
+  (null=general); migracion dual AddItemFieldGeneralScope; editor muestra generales + del tipo
+  (ListForItemAsync, incluso items sin tipo); formulas por ambito visible; UI con ambito "General" y
+  "Mover a..." entre General/tipos. Detalle en ADR-0027 (Actualizacion 2026-09-23).
+- Build verde. Migraciones PG + SqlServer. NO desplegado.
+
+## 2026-09-23 - v0.16.121: Detalle de tarea - la Bitacora ya no se solapa en ventana angosta
+
+- Bug (imagen del usuario): al minimizar/reducir la ventana, el Resumen (rail) se solapaba con la Bitacora.
+- Causa: en ancho angosto (media <=1280px) la Bitacora baja a todo el ancho, pero el rail conservaba
+  position:sticky y la columna izquierda/bitacora mantenian alturas fijas con scroll interno; al scrollear el
+  modal el Resumen quedaba pegado arriba y se montaba sobre la Bitacora.
+- Fix (app.css, solo CSS): en <=1280px el modal scrollea como UN solo documento -> se anulan los sticky y las
+  alturas fijas de .tk-detail-left / .tk-detail-rail / .tk-detail-bitacora-col. Sin cambios de C# ni migracion.
+- NO desplegado.
+
 ## 2026-09-21 - v0.16.100: Directorio Modular - la persona de contacto (O1-3) hereda correo/ciudad/pais
 
 - Hallazgo en validacion en PROD (SOLDARCO): al crear Org + Persona a la vez (O1-3), la persona hija NO

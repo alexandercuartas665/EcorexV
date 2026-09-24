@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.131: Directorio Modular - remediacion R2 (circuito Blazor) + R3 (seeding aditivo)
+
+- Ola combinada del plan de remediacion (vault "Remediacion hallazgos auditoria"). SIN migracion.
+- R2 (estabilidad del circuito Blazor): en la auditoria el WebSocket reconectaba ~cada 52s y la pagina
+  quedaba en blanco hasta reconectar. Causa: el navegador estrangula los timers de una pestana en SEGUNDO
+  PLANO y el keepalive del cliente baja a ~1/min; con ClientTimeoutInterval por defecto (30s) el servidor
+  tiraba el circuito. Fix en Program.cs (AddHubOptions): ClientTimeoutInterval=90s, KeepAliveInterval=15s,
+  HandshakeTimeout=30s; + CircuitOptions.DisconnectedCircuitRetentionPeriod=5min (para recuperar estado al
+  reconectar). Afecta a usuarios reales que dejan la pestana abierta/al fondo, no solo al MCP.
+  PENDIENTE (infra, lo aplica el usuario en el host): revisar el timeout de WebSocket del proxy inverso
+  (nginx/traefik) del `/_blazor` para que sea >= 90s (idealmente algunos minutos).
+- R3 (seeding estrictamente aditivo): se confirmo que EnsureDefaultsAsync YA es idempotente (solo siembra si
+  el tenant no tiene categorias; nunca borra ni pisa AplicaA). El reset de SOLDARCO vino de un WIPE manual
+  (borraron la data modular -> re-seed con defaults), no del seed. Endurecido: el sembrado de secciones y
+  campos ahora omite las claves mod_ que ya existan (no duplica en estados parciales). Nunca toca lo existente.
+- Archivos: Program.cs (SignalR/circuito), DirectorioCategoriaService.cs (seed idempotente por clave).
+  Build verde; 982 tests verdes.
+- NO desplegado. Pendiente merge a tronco + main y deploy a su senal.
+
 ## 2026-09-24 - v0.16.130: Inventarios - importar/exportar items por archivo (.xlsx), como el Directorio
 
 - Pedido: Items no tenia como IMPORTAR por archivo; dejarlo como el Directorio + pruebas de carga. La plantilla

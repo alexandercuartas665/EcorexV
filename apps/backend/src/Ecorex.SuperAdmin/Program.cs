@@ -30,10 +30,27 @@ CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents()
-    // Sube el limite de mensajes del circuito SignalR: al arrastrar y soltar archivos al chat,
-    // el contenido viaja como base64 por invokeMethodAsync y el limite por defecto (32 KB) lo
-    // rechazaba en silencio. 32 MB cubre el tope de 16 MB del archivo (~21 MB en base64).
-    .AddHubOptions(options => options.MaximumReceiveMessageSize = 32L * 1024 * 1024);
+    .AddHubOptions(options =>
+    {
+        // Sube el limite de mensajes del circuito SignalR: al arrastrar y soltar archivos al chat,
+        // el contenido viaja como base64 por invokeMethodAsync y el limite por defecto (32 KB) lo
+        // rechazaba en silencio. 32 MB cubre el tope de 16 MB del archivo (~21 MB en base64).
+        options.MaximumReceiveMessageSize = 32L * 1024 * 1024;
+        // R2 (estabilidad del circuito): tolerar clientes lentos y pestanas en SEGUNDO PLANO. El navegador
+        // estrangula los timers en background y el keepalive del cliente baja a ~1/min; con el
+        // ClientTimeoutInterval por defecto (30s) el servidor tiraba el circuito y reconectaba cada ~52s
+        // (pantalla en blanco hasta reconectar). Se sube el timeout del cliente por encima de ese ~1/min.
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(90);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        options.HandshakeTimeout = TimeSpan.FromSeconds(30);
+    });
+
+// R2: retiene el circuito desconectado unos minutos para que una reconexion RECUPERE el estado (sin
+// re-renderizar en blanco). Complementa el auto-reconnect del cliente y el timeout de arriba.
+builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(o =>
+{
+    o.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(5);
+});
 
 // Motor de Reportes / Ola 2 (ADR-0051): editor+visor Bold Reports (RDL).
 // Registro de licencia: la clave se lee de Bold:LicenseKey (user-secrets/env, NUNCA versionada).

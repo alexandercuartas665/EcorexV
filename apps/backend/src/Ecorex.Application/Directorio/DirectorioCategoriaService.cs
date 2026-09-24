@@ -31,10 +31,22 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
         // Idempotente: si ya hay categorias Modular, no re-siembra.
         if (await _db.DirectorioCategorias.AnyAsync(cancellationToken)) { return; }
 
+        // R3 (seeding ADITIVO/idempotente): no re-crear secciones/campos que ya existan. Evita duplicados si
+        // el tenant quedo en un estado parcial (p.ej. categorias borradas pero secciones aun presentes). El
+        // seed NUNCA borra ni pisa lo existente (incluida la personalizacion de AplicaA); solo agrega faltantes.
+        var secExistentes = (await _app.TerceroFichaDefinitions.AsNoTracking()
+            .Where(f => f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
+            .Select(f => f.FichaKey).ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        var campoExistentes = (await _app.TerceroFieldDefinitions.AsNoTracking()
+            .Where(f => f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
+            .Select(f => new { f.FichaKey, f.FieldKey }).ToListAsync(cancellationToken))
+            .Select(x => x.FichaKey + "|" + x.FieldKey).ToHashSet(StringComparer.Ordinal);
+
         // 1) Secciones -> TerceroFichaDefinition con clave prefijada "mod_" (separacion del Clasico).
         var secOrder = 0;
         foreach (var s in DirectorioModularDefaults.Secciones)
         {
+            if (secExistentes.Contains(DirectorioModularDefaults.SeccionKey(s.Key))) { continue; }
             _app.TerceroFichaDefinitions.Add(new TerceroFichaDefinition
             {
                 TenantId = tenantId,
@@ -56,6 +68,7 @@ public sealed class DirectorioCategoriaService : IDirectorioCategoriaService
         foreach (var c in DirectorioModularDefaults.Campos)
         {
             var fk = DirectorioModularDefaults.SeccionKey(c.Seccion);
+            if (campoExistentes.Contains(fk + "|" + c.Key)) { continue; }
             var so = fieldOrder.TryGetValue(fk, out var v) ? v : 0;
             fieldOrder[fk] = so + 1;
             _app.TerceroFieldDefinitions.Add(new TerceroFieldDefinition

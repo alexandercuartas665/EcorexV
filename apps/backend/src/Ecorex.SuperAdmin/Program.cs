@@ -254,6 +254,10 @@ builder.Services.AddScoped<Ecorex.SuperAdmin.Services.CircuitFormGate>();
 // la unica capa que conoce WebRootPath; el servicio documental solo ve la interfaz.
 builder.Services.AddScoped<Ecorex.Application.Documentos.IDocumentoFileStore,
     Ecorex.SuperAdmin.Services.DocumentoFileStore>();
+// Publica el PDF de una cotizacion como MEDIA del header de una plantilla HSM (YCloud). Se registra AQUI
+// porque es la unica capa que conoce WebRootPath; NodeNotifyService solo ve la interfaz.
+builder.Services.AddScoped<Ecorex.Application.Notifications.ITemplateMediaStore,
+    Ecorex.SuperAdmin.Services.TemplateMediaStore>();
 // Config global de almacenamiento (Azure Blob), editable desde el Super Admin. Usa el SDK de Azure,
 // por eso su implementacion vive en presentacion.
 builder.Services.AddScoped<Ecorex.Application.Admin.IStorageConfigService,

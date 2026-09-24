@@ -91,7 +91,13 @@ else
                     <td><strong>@t.Name</strong></td>
                     <td class="muted-cell">@t.Language</td>
                     <td class="muted-cell">@t.Category</td>
-                    <td class="muted-cell">@(t.WhatsAppLineName ?? "-")</td>
+                    <td class="muted-cell">
+                        @(t.WhatsAppLineName ?? "-")
+                        @if (t.Provider is WhatsAppProvider prov)
+                        {
+                            <span class="wa-prov @ProviderClass(prov)" title="@ProviderHint(prov)">@ProviderLabel(prov)</span>
+                        }
+                    </td>
                     <td>
                         <span class="wa-badge @StatusClass(t.Status)">@StatusLabel(t.Status)</span>
                         @if (t.Status == WhatsAppTemplateStatus.Rejected && !string.IsNullOrEmpty(t.RejectionReason))
@@ -383,6 +389,14 @@ else
     .wa-badge.wa-approved { background: var(--t-green-bg, #dcfce7); color: var(--t-green, #16a34a); }
     .wa-badge.wa-rejected { background: var(--t-red-bg, #fee2e2); color: var(--danger, var(--destructive)); }
     .wa-badge.wa-paused { background: var(--t-amber-bg, #fef3c7); color: var(--t-amber, #d97706); }
+    /* Proveedor de la linea: distingue de un vistazo una HSM REAL de Meta (YCloud/Cloud) de una plantilla
+       Evolution (texto libre, sin aprobacion de Meta). Sin esto, una Evolution se ve "Aprobada" y confunde. */
+    .wa-prov { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 800; letter-spacing: .02em;
+        text-transform: uppercase; padding: 1px 6px; border-radius: 6px; vertical-align: middle; }
+    .wa-prov.wa-prov-ycloud { background: var(--t-blue-bg, var(--primary-soft)); color: var(--t-blue, var(--primary)); }
+    .wa-prov.wa-prov-cloud { background: var(--t-green-bg, #dcfce7); color: var(--t-green, #16a34a); }
+    .wa-prov.wa-prov-evo { background: var(--t-amber-bg, #fef3c7); color: var(--t-amber, #d97706); }
+    .wa-prov.wa-prov-emu { background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
 </style>
 
 @code {
@@ -830,5 +844,33 @@ else
         WhatsAppTemplateStatus.Paused => "Pausada",
         WhatsAppTemplateStatus.Disabled => "Deshabilitada",
         _ => status.ToString()
+    };
+
+    // Proveedor de la linea a la que pertenece la plantilla: YCloud/Cloud son HSM REALES de Meta (requieren
+    // aprobacion y, si tienen header de media, el documento por envio); Evolution NO usa Meta (texto libre).
+    private static string ProviderLabel(WhatsAppProvider provider) => provider switch
+    {
+        WhatsAppProvider.YCloud => "YCloud",
+        WhatsAppProvider.Cloud => "Meta Cloud",
+        WhatsAppProvider.Evolution => "Evolution",
+        WhatsAppProvider.Emulator => "Emulador",
+        _ => provider.ToString()
+    };
+
+    private static string ProviderClass(WhatsAppProvider provider) => provider switch
+    {
+        WhatsAppProvider.YCloud => "wa-prov-ycloud",
+        WhatsAppProvider.Cloud => "wa-prov-cloud",
+        WhatsAppProvider.Evolution => "wa-prov-evo",
+        _ => "wa-prov-emu"
+    };
+
+    private static string ProviderHint(WhatsAppProvider provider) => provider switch
+    {
+        WhatsAppProvider.YCloud => "HSM real de Meta via YCloud: 'Someter' la crea y Meta la aprueba.",
+        WhatsAppProvider.Cloud => "HSM real de Meta (Cloud API).",
+        WhatsAppProvider.Evolution => "Evolution: NO es HSM de Meta; se envia como texto libre (no requiere aprobacion).",
+        WhatsAppProvider.Emulator => "Linea de emulacion (pruebas).",
+        _ => provider.ToString()
     };
 }

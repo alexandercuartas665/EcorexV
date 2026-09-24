@@ -1556,7 +1556,11 @@ public sealed class FormResponseService : IFormResponseService
             userEmail = u?.Email;
         }
 
-        var nowUtc = DateTimeOffset.UtcNow;
+        // @fecha.hoy/@fecha.hora se resuelven en hora LOCAL del servidor (America/Bogota en prod), NO en UTC,
+        // para que "Hora exp. OT" y demas defaults de fecha/hora cuadren con la hora de EMISION que el print
+        // muestra con ToLocalTime (FormTemplateRenderService). Antes se usaba UtcNow -> el prellenado salia
+        // adelantado ~5h respecto a lo impreso.
+        var nowLocal = DateTimeOffset.UtcNow.ToLocalTime();
         foreach (var (destCode, rawToken) in defaults)
         {
             if (!targetCodes.Contains(destCode)) { continue; }
@@ -1574,9 +1578,9 @@ public sealed class FormResponseService : IFormResponseService
                     case "@usuario.email" or "@usuario.correo" or "@user.email":
                         value = userEmail; break;
                     case "@fecha.hoy" or "@hoy" or "@today":
-                        value = nowUtc.ToString("yyyy-MM-dd"); type = "Date"; break;
+                        value = nowLocal.ToString("yyyy-MM-dd"); type = "Date"; break;
                     case "@fecha.hora" or "@hora" or "@now":
-                        value = nowUtc.ToString("HH:mm"); type = "Time"; break;
+                        value = nowLocal.ToString("HH:mm"); type = "Time"; break;
                     default:
                         value = null; break; // token desconocido -> no rellena
                 }

@@ -42,6 +42,7 @@ public sealed class NotificationChannelSender : INotificationChannelSender
     public async Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
         IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
         string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
+        string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
@@ -62,6 +63,14 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             }
             var lang = string.IsNullOrWhiteSpace(language) ? tpl.Language : language!;
             var (mediaType, mediaUrl) = HeaderMedia(tpl);
+            // Header de media DINAMICO (p.ej. el PDF de la cotizacion): sobreescribe el header fijo de la plantilla.
+            if (!string.IsNullOrWhiteSpace(headerMediaUrlOverride))
+            {
+                mediaUrl = headerMediaUrlOverride;
+                mediaType = string.IsNullOrWhiteSpace(headerMediaTypeOverride)
+                    ? (string.IsNullOrWhiteSpace(mediaType) ? "document" : mediaType)
+                    : headerMediaTypeOverride!.Trim().ToLowerInvariant();
+            }
             var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, attachmentBase64, attachmentMime, attachmentFileName, cancellationToken);
             if (!res.Ok)
             {

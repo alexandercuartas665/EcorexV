@@ -2,6 +2,43 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.135/136: crashes de circuito (DbContext concurrente), header YCloud, NIT, hora local, badge proveedor
+
+Batch grande (sin migracion). Deploy verificado (build Release + tests).
+
+- **Crash "A second operation was started on this context" (Blazor Server) - DOS instancias reales en prod:**
+  1. **Lista de chequeo:** marcar/desmarcar varios items rapido disparaba handlers async CONCURRENTES sobre el
+     DbContext scoped del circuito (TaskItemService.ToggleChecklistItemAsync <- TaskDetailModal.ToggleChecklistAsync).
+     Fix: un `SemaphoreSlim` (`_checklistGate`) que SERIALIZA los toggles (se encolan, se aplican todos). Validado
+     en vivo: 9 clics concurrentes -> 9/9, sin crash.
+  2. **Directorio:** en Blazor los componentes inicializan EN PARALELO; `NavMenu` (en el layout, en TODAS las
+     paginas) consultaba tenant/subs/plans con el `_db` del circuito y chocaba con el OnInitializedAsync de la
+     pagina. Fix: NavMenu resuelve tenant/plan en un SCOPE AISLADO (ya lo hacia para marca y menu). Validado:
+     recargas repetidas de /directorio-general sin crash ni "second operation".
+  - Barrido: los unicos componentes que tocaban el `_db` del circuito directo eran NavMenu (arreglado) e Inicio
+    (ya usaba scope); el badge/hub de notificaciones de MainLayout ya usaban scope. Deuda de fondo documentada:
+    `EcorexDbContext` es scoped al circuito (compartido); el arreglo canonico es `IDbContextFactory` para lecturas
+    de UI (transversal, se deja para despues).
+- **Header de documento del nodo (YCloud):** una HSM con encabezado de MEDIA (p.ej. `entrega_cotizacion`) exige el
+  documento POR ENVIO (Meta lo descarga por URL). El nodo no lo mandaba -> Meta descartaba el mensaje ("no llega").
+  Nuevo `ITemplateMediaStore` (impl en SuperAdmin, reusa `wwwroot/uploads/templates` servido en `/uploads`): publica
+  el PDF de la cotizacion a una URL PUBLICA (`ECOREX_PUBLIC_BASE_URL`) y `NodeNotifyService` lo pasa como header del
+  template (`SendWhatsAppTemplateAsync` gana override `headerMediaType/UrlOverride`). Solo entrega en PROD (Meta no
+  alcanza localhost). Diagnostico apoyado en la instrumentacion (v0.16.134): el error real era "Template not found"
+  -> la plantilla correcta es `entrega_cotizacion`/`es_CO` (YCloud), no `envio_cotizacion` (era de Evolution).
+- **Badge de proveedor en Plantillas WhatsApp:** la lista mostraba la linea pero no si era YCloud (HSM real) o
+  Evolution (texto libre) -> confundia. Ahora cada plantilla muestra un pill YCLOUD/EVOLUTION con tooltip.
+- **NIT en formularios de la tarea:** el wizard capturaba el NIT del Tercero pero no lo persistia; ahora
+  `CreateTaskItemRequest` pasa `RequesterDocument` -> `{tareas.nit/documento/identificacion}` prellena en los forms.
+  (El enfoque de "aplicar autofill_map al prellenar" era inviable: el lookup Tercero solo resuelve por Guid y la
+  tarea no guarda el id del Tercero.)
+- **`@fecha.hora`/`@fecha.hoy` en hora LOCAL** (FormResponseService.ResolveContextDefaultsAsync usa ToLocalTime),
+  para que "Hora exp. OT" cuadre con el print.
+- Archivos: TaskDetailModal.razor (gate chequeo), NavMenu.razor (scope tenant/plan), ITemplateMediaStore +
+  TemplateMediaStore + Program.cs (DI), INotificationChannelSender/NotificationChannelSender (override header),
+  NodeNotifyService (header dinamico), PlantillasWhatsApp.razor (badge), TaskWizard.razor (NIT),
+  FormResponseService.cs (hora local), AgentReactivacionServiceTests.cs (fake). Build verde; tests verdes.
+
 ## 2026-09-24 - v0.16.134: Flujo - spinner en botones + notificaciones que dejan de fallar en silencio
 
 - Pedido (usuario, validando el PROCESO COMERCIAL de AGRO):

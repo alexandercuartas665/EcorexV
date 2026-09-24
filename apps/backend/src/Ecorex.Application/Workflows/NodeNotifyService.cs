@@ -14,9 +14,11 @@ public sealed class NodeNotifyService : INodeNotifyService
     private readonly INotifyLinkBuilder _link;
     private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
     private readonly IWorkflowDecisionLinkService _decisionLinks;
+    private readonly Notifications.ITemplateMediaStore _mediaStore;
 
     public NodeNotifyService(IApplicationDbContext db, INotifyTokenResolver tokens, INotificationChannelSender sender,
-        INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc, IWorkflowDecisionLinkService decisionLinks)
+        INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc, IWorkflowDecisionLinkService decisionLinks,
+        Notifications.ITemplateMediaStore mediaStore)
     {
         _db = db;
         _tokens = tokens;
@@ -24,6 +26,7 @@ public sealed class NodeNotifyService : INodeNotifyService
         _link = link;
         _quoteDoc = quoteDoc;
         _decisionLinks = decisionLinks;
+        _mediaStore = mediaStore;
     }
 
     public async Task NotifyStepArrivalAsync(Guid nodeId, Guid stepId, Guid? taskId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -169,17 +172,52 @@ public sealed class NodeNotifyService : INodeNotifyService
                 var provider = await _db.WhatsAppLines.AsNoTracking()
                     .Where(l => l.Id == lineId).Select(l => (Domain.Enums.WhatsAppProvider?)l.Provider).FirstOrDefaultAsync(ct);
 
+                // Tipo de encabezado de la plantilla: si es MEDIA (Documento/Imagen/Video), su archivo va por ENVIO
+                // (no es fijo). Con un PDF de cotizacion, se publica a una URL publica y se manda como HEADER de la
+                // plantilla (YCloud/Cloud). Sin esto, Meta descarta el mensaje por faltarle el parametro del header.
+                var headerType = await _db.WhatsAppTemplates.AsNoTracking()
+                    .Where(t => t.Name == rule.Plantilla && t.IsActive
+                        && (string.IsNullOrWhiteSpace(rule.Idioma) || t.Language == rule.Idioma))
+                    .Select(t => (Domain.Enums.WhatsAppTemplateHeaderType?)t.HeaderType)
+                    .FirstOrDefaultAsync(ct);
+                var templateHasMediaHeader = headerType is Domain.Enums.WhatsAppTemplateHeaderType.Document
+                    or Domain.Enums.WhatsAppTemplateHeaderType.Image or Domain.Enums.WhatsAppTemplateHeaderType.Video;
+
+                string? headerMediaType = null, headerMediaUrl = null;
+                if (cotDoc is not null && templateHasMediaHeader
+                    && provider is Domain.Enums.WhatsAppProvider.YCloud or Domain.Enums.WhatsAppProvider.Cloud)
+                {
+                    headerMediaUrl = await _mediaStore.PublishAsync(cotDoc.Bytes, cotDoc.FileName, ct);
+                    headerMediaType = headerType switch
+                    {
+                        Domain.Enums.WhatsAppTemplateHeaderType.Image => "image",
+                        Domain.Enums.WhatsAppTemplateHeaderType.Video => "video",
+                        _ => "document"
+                    };
+                }
+
                 WhatsAppSendOutcome waOutcome;
                 if (cotDoc is not null && provider == Domain.Enums.WhatsAppProvider.Evolution)
                 {
+                    // Evolution: documento + cuerpo COMBINADOS en un solo mensaje (no usa HSM de Meta).
                     var b64 = Convert.ToBase64String(cotDoc.Bytes);
                     waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
-                        b64, cotDoc.MimeType, cotDoc.FileName, ct);
+                        b64, cotDoc.MimeType, cotDoc.FileName, cancellationToken: ct);
+                }
+                else if (headerMediaType is not null && headerMediaUrl is null)
+                {
+                    // La plantilla EXIGE un documento en el header pero no se pudo publicar (falta ECOREX_PUBLIC_BASE_URL):
+                    // no se envia a ciegas (Meta lo descartaria). Motivo visible via el registro de fallo de abajo.
+                    waOutcome = new WhatsAppSendOutcome(false,
+                        "La plantilla tiene encabezado de documento y no hay URL publica para el archivo (falta configurar ECOREX_PUBLIC_BASE_URL).");
                 }
                 else
                 {
-                    waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, cancellationToken: ct);
-                    if (cotDoc is not null)
+                    // YCloud/Cloud: plantilla + (si aplica) el documento como HEADER de la propia plantilla.
+                    waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
+                        headerMediaTypeOverride: headerMediaType, headerMediaUrlOverride: headerMediaUrl, cancellationToken: ct);
+                    // Documento aparte SOLO si NO fue como header (compat. atras; en YCloud igual no se soporta).
+                    if (cotDoc is not null && headerMediaUrl is null)
                     {
                         var b64 = Convert.ToBase64String(cotDoc.Bytes);
                         await _sender.SendWhatsAppDocumentAsync(lineId, phone!, b64, cotDoc.MimeType, cotDoc.FileName, null, actor, ct);

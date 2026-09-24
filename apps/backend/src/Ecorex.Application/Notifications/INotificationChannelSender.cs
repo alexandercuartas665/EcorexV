@@ -40,6 +40,10 @@ public interface INotificationChannelSender
         // Adjunto opcional (Evolution): documento que se manda EN EL MISMO mensaje que la plantilla (el cuerpo
         // va como caption), en vez de una notificacion aparte. Ej. la cotizacion por tarea.
         string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
+        // Header de MEDIA por envio (YCloud/Cloud): si la plantilla tiene encabezado Documento/Imagen/Video y su
+        // archivo es DINAMICO (p.ej. el PDF de la cotizacion), se pasan aqui el tipo ("document"/"image"/"video")
+        // y la URL PUBLICA del archivo; sobreescriben el header fijo de la plantilla. Null = usar el de la plantilla.
+        string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Texto plano a un grupo de Evolution (jid "...@g.us") desde una linea Evolution.</summary>

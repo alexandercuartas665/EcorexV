@@ -1269,6 +1269,9 @@
             RequesterName: string.IsNullOrWhiteSpace(_requesterName) ? null : _requesterName.Trim(),
             RequesterEmail: string.IsNullOrWhiteSpace(_requesterEmail) ? null : _requesterEmail.Trim(),
             RequesterPhone: string.IsNullOrWhiteSpace(_requesterPhone) ? null : _requesterPhone.Trim(),
+            // Identificacion/NIT del solicitante (capturada del Tercero al elegirlo): sin esto quedaba null y
+            // {tareas.nit}/{tareas.documento}/{tareas.identificacion} no prellenaban en los formularios de la tarea.
+            RequesterDocument: string.IsNullOrWhiteSpace(_requesterDoc) ? null : _requesterDoc.Trim(),
             CcEmails: _ccEmails.Count == 0 ? null : _ccEmails.ToList(),
             ProjectId: _projectId,
             Color: null,

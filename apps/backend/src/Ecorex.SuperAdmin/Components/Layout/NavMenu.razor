@@ -360,20 +360,26 @@ else
             _roleLabel = state.User.FindFirst("tenant_role")?.Value ?? "Miembro";
             if (Guid.TryParse(tenantClaim, out var tenantId))
             {
-                var tenant = await TenantsSvc.GetAsync(tenantId);
-                _tenantName = tenant?.Name;
-
-                // Plan activo para la cabecera del workspace ("Plan Empresa - ECOREX").
-                // Si no hay suscripcion (o falla), se muestra la bajada generica.
+                // Tenant + plan en un scope AISLADO (DbContext propio): en Blazor los componentes inicializan EN
+                // PARALELO, asi que si NavMenu usara el _db del circuito chocaria con el OnInitializedAsync de la
+                // pagina -> "A second operation was started on this context" (se caia, p.ej. en el Directorio).
                 try
                 {
-                    var sub = (await SubsSvc.ListByTenantAsync(tenantId)).FirstOrDefault();
+                    await using var infoScope = ScopeFactory.CreateAsyncScope();
+                    var tenantsSvc = infoScope.ServiceProvider.GetRequiredService<ITenantAdminService>();
+                    var tenant = await tenantsSvc.GetAsync(tenantId);
+                    _tenantName = tenant?.Name;
+
+                    // Plan activo para la cabecera del workspace ("Plan Empresa - ECOREX").
+                    var subsSvc = infoScope.ServiceProvider.GetRequiredService<ISubscriptionAdminService>();
+                    var sub = (await subsSvc.ListByTenantAsync(tenantId)).FirstOrDefault();
                     if (sub is not null)
                     {
-                        _planName = (await PlansSvc.GetAsync(sub.PlanId))?.Name;
+                        var plansSvc = infoScope.ServiceProvider.GetRequiredService<IPlanAdminService>();
+                        _planName = (await plansSvc.GetAsync(sub.PlanId))?.Name;
                     }
                 }
-                catch { /* sin plan visible: bajada generica */ }
+                catch { /* sin tenant/plan visible: bajada generica */ }
 
                 // Menu configurable (Ola 1): resuelve el arbol de la vista del usuario (o la
                 // IsDefault del tenant) en un scope aislado, como la marca. Si falla, _menu queda

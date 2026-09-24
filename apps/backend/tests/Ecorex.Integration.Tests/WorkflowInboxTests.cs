@@ -70,7 +70,7 @@ public abstract class WorkflowInboxTestsBase
             new CreateTaskItemRequest("Tarea inbox", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
         Assert.True(created.IsOk, created.Error);
 
-        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine));
+        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
 
         // El Asesor (candidato de Requerimiento) ve el paso; un extrano NO.
         var asesorSteps = await inbox.GetMyPendingStepsAsync(asesorId.UserId);
@@ -114,7 +114,7 @@ public abstract class WorkflowInboxTestsBase
             var (asesor, aprobador, _) = await SeedCargosAsync(ctx, tenantCtx, seed);
             var definition = await PublishFlowAsync(engine, ctx, seed);
             await AttachPoliciesAsync(ctx, tenantCtx, definition, asesor.CargoId, aprobador.CargoId);
-            var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine));
+            var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
 
             var run = (await engine.StartInstanceAsync(definition.Id)).Value!;
             var req = Assert.Single(await inbox.GetMyPendingStepsAsync(asesor.UserId));
@@ -138,7 +138,7 @@ public abstract class WorkflowInboxTestsBase
             var (asesor, aprobador, _) = await LoadCargosAsync(ctx, seed);
             var definition = await ctx.WorkflowDefinitions.AsNoTracking()
                 .FirstAsync(d => d.ProcessCode == "INB-01" && d.IsPublished);
-            var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine));
+            var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
 
             var run = (await engine.StartInstanceAsync(definition.Id)).Value!;
             var req = Assert.Single(await inbox.GetMyPendingStepsAsync(asesor.UserId));
@@ -179,7 +179,7 @@ public abstract class WorkflowInboxTestsBase
             // El filtro global oculta pasos/instancias de A: aunque preguntemos por el usuario de A,
             // el contexto B no ve nada (y el usuario de A no existe en B).
             var tenantCtxB = new TestTenantContext(seedB.TenantId, seedB.PlatformUserId);
-            var inboxB = new WorkflowInboxService(ctxB, tenantCtxB, new NodeAssigneeResolver(ctxB), BuildEngine(ctxB, seedB), new WorkflowDesignService(ctxB, BuildEngine(ctxB, seedB)));
+            var inboxB = new WorkflowInboxService(ctxB, tenantCtxB, new NodeAssigneeResolver(ctxB), BuildEngine(ctxB, seedB), new WorkflowDesignService(ctxB, BuildEngine(ctxB, seedB)), new NoOpAgentStepRunner());
             Assert.Empty(await inboxB.GetMyPendingStepsAsync(asesorAUserId));
             Assert.Empty(await ctxB.WorkflowStepHistories.ToListAsync());
         }
@@ -344,4 +344,18 @@ public sealed class WorkflowInboxTests_SqlServer
     public WorkflowInboxTests_SqlServer(SqlServerTenantIsolationFixture fixture) : base(fixture)
     {
     }
+}
+
+/// <summary>Runner no-op para los tests de la bandeja: estos no ejercen la cancelacion/timeout de pasos de
+/// agente, solo necesitan satisfacer la dependencia del ctor de WorkflowInboxService.</summary>
+internal sealed class NoOpAgentStepRunner : IWorkflowAgentStepRunner
+{
+    public Task<WorkflowAgentStepOutcome> RunAsync(Guid stepId, CancellationToken cancellationToken = default)
+        => Task.FromResult(WorkflowAgentStepOutcome.NoAgent);
+
+    public Task<bool> CancelAsync(Guid stepId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> TimeoutAsync(Guid stepId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
 }

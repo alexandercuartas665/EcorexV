@@ -2,6 +2,39 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - Config (prompt EPRING): el agente ahora LEE la factura y rutea por su valor (Fix A)
+
+- Data-ops en prod (solo prompt del agente EPRING id 01a07c57, sin codigo). Sintoma: el agente "elegia la ruta
+  que queria" al pedir la factura. Causa raiz: (1) el prompt asumia una cabecera de OCR ficticia
+  "TIPO_IMAGEN: FACTURA_ENERGIA / VALOR_TOTAL_COP" que NINGUN codigo produce (grep=0); (2) el prompt le decia
+  "Tu NO ves la imagen: ves su lectura", negandole la vision; (3) la viabilidad solo se disparaba si el cliente
+  MENCIONABA el consumo por texto, nunca conectada al valor de la factura. Evidencia: factura_costoservicioenergia
+  capturado 1 sola vez en todo EPRING.
+- Fix A (prompt via SQL): el agente SI ve la imagen y debe leerla EN ese turno (unica vez que la ve), extraer el
+  VALOR TOTAL y evaluar viabilidad con el (el total de la factura ES el "consumo" de los CRITERIOS 1/2). Se
+  eliminaron todas las referencias a la cabecera ficticia (TIPO_IMAGEN=0). Backup previo: ecorex-2026-09-24-0518.
+- Pruebas por linea simulada (emulador): misma factura $650.000 -> Cali (Valle) = VIABLE (continua checklist);
+  Bogota = NO VIABLE (envia el mensaje de "beneficio moderado"). Ruteo por valor+ubicacion CONFIRMADO.
+- Hueco pendiente (fix B, hand-off a dev): el valor leido por vision NO se PERSISTE al estado (el extractor de
+  cache lee solo texto, no la imagen). El ruteo funciona en el turno, pero el valor no queda guardado para pasos
+  posteriores. Lo cierra un paso de OCR/extraccion que inyecte VALOR_TOTAL_COP/CONSUMO_KWH como texto del turno.
+- Binding del agente restaurado a la linea real AGENTE_IA_3042584913 tras las pruebas.
+
+## 2026-09-24 - v0.16.128: Fix B - la imagen entrante se LEE (vision) y su texto se persiste al cache
+
+- Problema (medido en prod): el agente conversacional recibia la imagen (factura) solo como vision y solo en el
+  turno de llegada; podia rutear (Fix A) pero el VALOR no se persistia -> factura_costoservicioenergia quedaba
+  vacio. Causa: el extractor de cache (ExtractAndStoreCacheUpdatesAsync) lee SOLO texto de los turns, no la imagen.
+- Fix B (AiInferenceService.RunCoreAsync, un solo metodo): al llegar una imagen se corre una pasada de VISION
+  (IAiProviderClient.CompleteVisionAsync, reusando provider/apiKey/modelo del agente) que la CLASIFICA y extrae
+  sus campos como TEXTO (TIPO_IMAGEN + VALOR_TOTAL_COP/CONSUMO/ESTRATO/CIUDAD/TECHO/MOTOBOMBA); ese bloque se
+  anexa al ultimo turno del cliente ("[Lectura automatica de la imagen adjunta]"). Como ahora los turns pasan a
+  las TRES consumidoras (system prompt, tool loop, extractor de cache), el valor se persiste y sobrevive a los
+  turnos siguientes. Helper nuevo ReadImageAsync. Best-effort: solo corre con imagen, nunca rompe la respuesta.
+- Sin migracion. Multi-tenant intacto (provider/apiKey del propio agente). Build verde. NO desplegado.
+- Pendiente (config, lado usuario): reconciliar el prompt de EPRING para consumir el bloque; afinar la
+  descripcion de factura_costoservicioenergia; re-correr pruebas del emulador. PDFs = 2a ola (mismo patron).
+
 ## 2026-09-24 - v0.16.127: Nodo-agente con borrador/Guardar + indicador; y contexto para SARA al enviar link
 
 - Tema 1 (editor de flujos): el modal del agente auto-guardaba en cada cambio (un clic por error en el

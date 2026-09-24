@@ -133,7 +133,27 @@ public sealed class AiInferenceService : IAiInferenceService
             .Where(v => v.AgentId == agentId && v.SessionId == sessionId)
             .ToDictionaryAsync(v => v.FieldKey, v => v.Value, cancellationToken);
 
-        var systemPrompt = await BuildSystemPrompt(agentId, systemPromptOverride ?? agent.SystemPrompt, resources, cacheFields, cacheValues, turns, autonomous, cancellationToken);
+        // Fix B (lectura de imagen entrante): si el turno del cliente trae una imagen, se corre una pasada de
+        // VISION que la CLASIFICA y EXTRAE sus campos como TEXTO, y se anexa al ultimo turno. Asi la ven TANTO el
+        // modelo principal (system prompt + tool loop) COMO el extractor de cache -> el valor se persiste y
+        // sobrevive a los turnos siguientes (antes la imagen solo llegaba por vision y su valor no se guardaba).
+        // Best-effort: solo corre cuando hay imagen; nunca bloquea ni rompe la respuesta al cliente.
+        var work = turns.ToList();
+        if (!string.IsNullOrWhiteSpace(imageBase64) && work.Count > 0
+            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var reading = await ReadImageAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, imageBase64!, imageMime, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(reading))
+                {
+                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n[Lectura automatica de la imagen adjunta]\n" + reading!.Trim() };
+                }
+            }
+            catch { /* best-effort: la lectura de la imagen nunca debe romper la respuesta */ }
+        }
+
+        var systemPrompt = await BuildSystemPrompt(agentId, systemPromptOverride ?? agent.SystemPrompt, resources, cacheFields, cacheValues, work, autonomous, cancellationToken);
 
         // Log de prompts: registramos cada llamada al LLM con su titulo y fecha/hora.
         var debugPrompts = new List<AiDebugPrompt>
@@ -151,7 +171,7 @@ public sealed class AiInferenceService : IAiInferenceService
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds, agent.Id);
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, imageBase64, imageMime, audioBase64, audioMime, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, imageBase64, imageMime, audioBase64, audioMime, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -168,7 +188,7 @@ public sealed class AiInferenceService : IAiInferenceService
             {
                 await ExtractAndStoreCacheUpdatesAsync(
                     agentId, sessionId, agent.Provider, apiKey, providerCfg.BaseUrl, model,
-                    cacheFields, cacheValues, turns, result.Text!, resources, debugPrompts, cancellationToken);
+                    cacheFields, cacheValues, work, result.Text!, resources, debugPrompts, cancellationToken);
             }
             catch
             {
@@ -236,6 +256,37 @@ public sealed class AiInferenceService : IAiInferenceService
         DayOfWeek.Saturday => "sabado",
         _ => "domingo"
     };
+
+    /// <summary>
+    /// Fix B: LEE una imagen entrante del cliente con una pasada de VISION de un solo turno y devuelve un bloque
+    /// de texto plano con sus campos clasificados (tipo de imagen + valores). Ese texto se anexa luego al ultimo
+    /// turno del cliente para que lo vea el modelo principal Y el extractor de cache (que solo mira texto). Reusa
+    /// el mismo proveedor/apiKey/modelo del agente. Best-effort: devuelve null si falla (nunca lanza).
+    /// </summary>
+    private async Task<string?> ReadImageAsync(AiProvider provider, string apiKey, string? baseUrl,
+        string model, string imageBase64, string? imageMime, CancellationToken ct)
+    {
+        const string sys = @"Eres un extractor. Miras UNA imagen que envio un cliente por WhatsApp y devuelves
+SOLO un bloque de texto plano con estos campos (una linea por campo). Si un campo no aplica o no se lee, pon
+NO_LEGIBLE. No agregues nada mas, sin markdown.
+TIPO_IMAGEN: (FACTURA_ENERGIA | FOTO_TECHO_AREA | PLACA_MOTOBOMBA | OTRO)
+COMERCIALIZADORA:
+VALOR_TOTAL_COP: (solo digitos, el valor total a pagar del mes)
+CONSUMO_KWH: (solo digitos)
+ESTRATO:
+PERIODO_FACTURADO:
+CIUDAD:
+TIPO_TECHO: (teja | losa | metalico | otro, solo si es FOTO_TECHO_AREA)
+MOTOBOMBA: (MARCA/MODELO/POTENCIA_HP/VOLTAJE/FASES/AMPERAJE, solo si es PLACA_MOTOBOMBA)";
+        var mime = string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!;
+        var content = new List<AiVisionPart>
+        {
+            new(Text: "Lee la imagen y devuelve el bloque de campos."),
+            new(ImageBase64: imageBase64, ImageMime: mime)
+        };
+        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
+        return r.Ok ? r.Text?.Trim() : null;
+    }
 
     /// <summary>
     /// Ejecuta la conversacion con function calling: pasa los turnos + las herramientas de agenda al

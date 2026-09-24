@@ -79,10 +79,10 @@ public class AgentReactivacionServiceTests
         public List<(Guid LineId, string Phone, string Template)> TemplateSends { get; } = new();
         public bool NextOk = true;
 
-        public Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default)
+        public Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default)
         {
             TemplateSends.Add((lineId, phone, templateName));
-            return Task.FromResult(NextOk);
+            return Task.FromResult(new WhatsAppSendOutcome(NextOk, NextOk ? null : "test-fail"));
         }
 
         public Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default) => throw new NotSupportedException();

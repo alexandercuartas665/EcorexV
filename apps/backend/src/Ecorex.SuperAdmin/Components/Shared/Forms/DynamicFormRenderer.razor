@@ -2046,6 +2046,12 @@ else
                                             }
                                         }
                                     }
+                                    else if (col.IsSeq)
+                                    {
+                                        @* Columna CONSECUTIVA (auto-numerada por posicion): solo lectura. El valor ya lo
+                                           calculo RecomputeGrids -> Compute (letras A,B,C... o numeros 1,2,3...) y quedo en la celda. *@
+                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled value="@cell" />
+                                    }
                                     else if (col.Calc is not null)
                                     {
                                         @* Columna calculada por fila (ola F2): solo lectura, con formato de presentacion. *@

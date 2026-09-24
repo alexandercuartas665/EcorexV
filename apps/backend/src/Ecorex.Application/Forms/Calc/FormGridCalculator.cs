@@ -43,13 +43,23 @@ public sealed record FormGridColumn(
     IReadOnlyList<FormGridPill>? Pills = null,
     // Valor MINIMO permitido en la celda (DATO, en options_json: "min"). Null = sin minimo. Con min=0 se
     // bloquean negativos. El renderer lo aplica en captura (input type=number min) y al guardar (clampa).
-    decimal? Min = null)
+    decimal? Min = null,
+    // Columna CONSECUTIVA/auto-numerada (Kind="seq", DATO en options_json: "seq"): read-only, se recalcula
+    // segun la POSICION de la fila y se guarda en la celda (para que imprima con {{col.id}}). Formato:
+    // "num" = 1,2,3...; cualquier otro (o null) = letras A,B,C...Z,AA,AB... Null si la columna no es seq.
+    string? Seq = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>La columna es de gestiones (pildoras que abren subformularios por fila).</summary>
     public bool IsGestion => string.Equals(Kind, "gestion", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>La columna es CONSECUTIVA (auto-numerada por posicion de fila): read-only, se guarda para imprimir.</summary>
+    public bool IsSeq => string.Equals(Kind, "seq", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>El consecutivo es NUMERICO (1,2,3...). Por defecto (o cualquier otro valor) es de LETRAS.</summary>
+    public bool SeqIsNumeric => string.Equals(Seq, "num", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Una pildora de la columna "gestion": abre la def-detalle <see cref="DefCode"/> ligada a la fila.</summary>
@@ -122,6 +132,8 @@ public static class FormGridCalculator
                     else if (pmin.ValueKind == JsonValueKind.String
                         && decimal.TryParse(pmin.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var mns)) { min = mns; }
                 }
+                // Columna consecutiva (Kind="seq"): formato del auto-numerado ("num" o "alpha"; default letras).
+                var seq = el.TryGetProperty("seq", out var pseq) ? pseq.GetString() : null;
                 // CAP 1: id de la columna clave por la que se agrupan los subtotales de ESTA columna agregada.
                 var groupBy = el.TryGetProperty("groupBy", out var pgb) ? pgb.GetString() : null;
                 // CAP 3: esta columna es la CLAVE de agrupacion visual de la grilla (opt-in de presentacion).
@@ -172,11 +184,26 @@ public static class FormGridCalculator
                     string.IsNullOrWhiteSpace(groupBy) ? null : groupBy.Trim(),
                     groupRender,
                     pills,
-                    min));
+                    min,
+                    string.IsNullOrWhiteSpace(seq) ? null : seq.Trim().ToLowerInvariant()));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }
         return list;
+    }
+
+    /// <summary>Consecutivo de LETRAS bijectivo (base 26): 0-&gt;A, 25-&gt;Z, 26-&gt;AA, 27-&gt;AB, 51-&gt;AZ, 52-&gt;BA...</summary>
+    private static string SeqAlpha(int index)
+    {
+        var n = index + 1;
+        var s = string.Empty;
+        while (n > 0)
+        {
+            n--;
+            s = (char)('A' + (n % 26)) + s;
+            n /= 26;
+        }
+        return s;
     }
 
     /// <summary>Agrega los valores numericos de una columna segun el tipo de agregado.</summary>
@@ -253,6 +280,22 @@ public static class FormGridCalculator
             {
                 var res = FormExpressionEvaluator.Evaluate(col.Calc, row, headerValues);
                 row[col.Id] = res?.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        // Columnas CONSECUTIVAS (Kind="seq"): el valor deriva de la POSICION de la fila (no de una formula).
+        // Se ESCRIBE en la celda (por col.Id) para que persista en el JSON y se imprima con {{col.id}}; al re-
+        // ejecutarse Compute en cada alta/baja/reordenamiento, el consecutivo se recalcula automaticamente.
+        if (columns.Any(c => c.IsSeq))
+        {
+            for (var i = 0; i < result.Count; i++)
+            {
+                foreach (var col in columns.Where(c => c.IsSeq))
+                {
+                    result[i][col.Id] = col.SeqIsNumeric
+                        ? (i + 1).ToString(CultureInfo.InvariantCulture)
+                        : SeqAlpha(i);
+                }
             }
         }
 

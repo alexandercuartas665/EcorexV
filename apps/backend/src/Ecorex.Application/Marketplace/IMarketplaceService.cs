@@ -53,6 +53,20 @@ public interface IMarketplaceService
     Task<MarketplaceResult<MarketplaceItemDto>> PublishFlowAsync(Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default);
     Task<MarketplaceResult<MarketplaceItemDto>> PublishFormAsync(Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Id de la plantilla de FLUJO ACTIVA ya publicada de ESTE flujo (match por SourceCode = ProcessCode), o
+    /// null si no hay ninguna. Sirve para ofrecer ACTUALIZAR la plantilla existente en vez de duplicarla al
+    /// re-publicar (asi el snapshot se refresca con el BpmnXml del diagrama y las flechas llegan bien).
+    /// </summary>
+    Task<Guid?> FindFlowItemIdBySourceAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// RE-PUBLICA (actualiza) una plantilla de flujo existente re-exportando el flujo de origen: refresca el
+    /// snapshot (que ahora lleva el BpmnXml verbatim -> import FIEL con waypoints reales) y sus metadatos. Es la
+    /// via para corregir plantillas viejas cuyas flechas llegaban mal (snapshot sin BpmnXml, import LEGADO).
+    /// </summary>
+    Task<MarketplaceResult<MarketplaceItemDto>> RepublishFlowAsync(Guid itemId, Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<MarketplaceItemDto>> ListAsync(MarketplaceItemKind? kind, string? category, string? query, bool includeInactive, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default);
 

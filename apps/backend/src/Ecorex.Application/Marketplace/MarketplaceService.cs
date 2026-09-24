@@ -48,6 +48,50 @@ public sealed class MarketplaceService : IMarketplaceService
         return await CreateItemAsync(MarketplaceItemKind.Flow, input, snap.Value!, sourceCode, platformUserId, cancellationToken);
     }
 
+    public async Task<Guid?> FindFlowItemIdBySourceAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var code = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.Id == definitionId).Select(d => d.ProcessCode).FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(code)) { return null; }
+        return await _db.MarketplaceItems.AsNoTracking()
+            .Where(i => i.Kind == MarketplaceItemKind.Flow && i.IsActive && i.SourceCode == code)
+            .OrderByDescending(i => i.PublishedAt)
+            .Select(i => (Guid?)i.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<MarketplaceResult<MarketplaceItemDto>> RepublishFlowAsync(
+        Guid itemId, Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default)
+    {
+        var check = ValidateInput(input);
+        if (check is not null) { return MarketplaceResult<MarketplaceItemDto>.Fail(check); }
+
+        var item = await _db.MarketplaceItems.FirstOrDefaultAsync(
+            i => i.Id == itemId && i.Kind == MarketplaceItemKind.Flow, cancellationToken);
+        if (item is null) { return MarketplaceResult<MarketplaceItemDto>.Fail("La plantilla no existe (o no es un flujo)."); }
+
+        var snap = await _flowPackage.ExportAsync(definitionId, cancellationToken);
+        if (!snap.IsOk || string.IsNullOrWhiteSpace(snap.Value))
+        {
+            return MarketplaceResult<MarketplaceItemDto>.Fail(snap.Error ?? "No se pudo empaquetar el flujo.");
+        }
+        var sourceCode = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.Id == definitionId).Select(d => d.ProcessCode).FirstOrDefaultAsync(cancellationToken);
+
+        // Refresca el snapshot (ahora con BpmnXml verbatim -> import FIEL) y los metadatos; conserva la imagen
+        // anterior si no se subio una nueva. ImportCount se mantiene.
+        item.SnapshotJson = snap.Value!;
+        item.SourceCode = sourceCode;
+        item.Title = input.Title.Trim();
+        item.Description = NullIfBlank(input.Description);
+        item.Category = NullIfBlank(input.Category);
+        if (!string.IsNullOrWhiteSpace(input.ImageRef)) { item.ImageRef = NullIfBlank(input.ImageRef); }
+        item.PublishedByPlatformUserId = platformUserId;
+        item.PublishedAt = _clock.GetUtcNow();
+        await _db.SaveChangesAsync(cancellationToken);
+        return MarketplaceResult<MarketplaceItemDto>.Success(ToDto(item));
+    }
+
     public async Task<MarketplaceResult<MarketplaceItemDto>> PublishFormAsync(
         Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default)
     {

@@ -304,10 +304,20 @@
             {
                 <img src="@_pubImage" alt="vista previa" style="max-height:120px;border-radius:8px;margin-top:6px;display:block;" />
             }
+            @if (_pubExistingId is not null)
+            {
+                <div class="fl-muted" style="margin-top:10px;padding:8px 10px;background:var(--surface-2,#f4f4f5);border-radius:8px;">
+                    Ya existe una plantilla de este flujo en la galeria.
+                    <label style="display:flex;align-items:center;gap:8px;margin-top:6px;font-weight:600;color:var(--ink,#111);">
+                        <input type="checkbox" checked="@_pubUpdateExisting" @onchange="@(e => _pubUpdateExisting = (bool)(e.Value ?? false))" />
+                        Actualizar la existente (refresca sus flechas). Si lo desmarcas, se crea una nueva.
+                    </label>
+                </div>
+            }
             @if (_pubError is not null) { <div class="tk-field-error">@_pubError</div> }
             <div class="fl-modal-foot">
                 <button class="fl-btn-ghost" @onclick="() => _publishOpen = false" disabled="@_busy">Cancelar</button>
-                <button class="fl-btn-sm" @onclick="PublishAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_pubTitle))">Publicar</button>
+                <button class="fl-btn-sm" @onclick="PublishAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_pubTitle))">@(_pubExistingId is not null && _pubUpdateExisting ? "Actualizar plantilla" : "Publicar")</button>
             </div>
         </div>
     </div>
@@ -471,6 +481,10 @@
     private string _pubCat = "";
     private string? _pubImage;
     private string? _pubError;
+    // Si ya existe una plantilla de ESTE flujo en la galeria, se ofrece ACTUALIZARLA (refresca sus flechas)
+    // en vez de crear una duplicada. _pubUpdateExisting arranca en true cuando hay match.
+    private Guid? _pubExistingId;
+    private bool _pubUpdateExisting;
 
     private sealed record CardGroup(string Title, string? Color, List<FlowCardDto> Cards);
 
@@ -672,10 +686,15 @@
     }
 
     // ---- Publicar al marketplace ----
-    private void OpenPublish(Guid defId, string name)
+    private async Task OpenPublish(Guid defId, string name)
     {
         _pubDefId = defId; _pubTitle = name; _pubDesc = ""; _pubCat = ""; _pubImage = null; _pubError = null;
+        _pubExistingId = null; _pubUpdateExisting = false;
         _publishOpen = true;
+        // Si este flujo ya tiene una plantilla en la galeria, se ofrece actualizarla (default) para refrescar
+        // su snapshot -> el BpmnXml viaja y las flechas llegan bien (rama FIEL).
+        _pubExistingId = await MarketSvc.FindFlowItemIdBySourceAsync(defId);
+        _pubUpdateExisting = _pubExistingId is not null;
     }
 
     private async Task OnPublishImagePicked(InputFileChangeEventArgs e)
@@ -701,8 +720,12 @@
         await _gate.WaitAsync();
         try
         {
-            var res = await MarketSvc.PublishFlowAsync(_pubDefId,
-                new MarketplacePublishInput(_pubTitle.Trim(), _pubDesc, _pubCat, _pubImage), null);
+            var input = new MarketplacePublishInput(_pubTitle.Trim(), _pubDesc, _pubCat, _pubImage);
+            // Si hay una plantilla existente de este flujo y se eligio actualizar, se RE-PUBLICA (refresca su
+            // snapshot con BpmnXml) en vez de crear un duplicado; asi sus flechas llegan bien al traerla.
+            var res = _pubExistingId is Guid ex && _pubUpdateExisting
+                ? await MarketSvc.RepublishFlowAsync(ex, _pubDefId, input, null)
+                : await MarketSvc.PublishFlowAsync(_pubDefId, input, null);
             if (!res.Ok) { _pubError = res.Error ?? "No se pudo publicar."; return; }
             _publishOpen = false;
         }

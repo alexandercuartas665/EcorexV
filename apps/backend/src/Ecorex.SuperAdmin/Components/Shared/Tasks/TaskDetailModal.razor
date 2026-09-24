@@ -1469,12 +1469,16 @@
                     var rr = r;
                     @* Compuerta ATENDIDA: la rama se sigue por su DESTINO (ADR-0072). Un paso Task con compuerta
                        AUTOMATICA adelante: se completa con el approvalResult (nombre) y el motor enruta. *@
-                    <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy"
+                    <button class="tk-flow-route @FlowRouteClass(rr.Kind) @(_busyStepId == mnode.StepId ? "is-busy" : "")" disabled="@_busy"
                             @onclick="@(() => (mnode.NodeType == WorkflowNodeType.ExclusiveGateway && rr.TargetNodeId is Guid tgt)
                                 ? ChooseGatewayRouteAsync(mnode.StepId!.Value, tgt, _flowNote)
                                 : CompleteFlowNodeAsync(mnode.StepId!.Value, rr.Option, _flowNote))">
                         <span class="tk-flow-route-opt">@rr.Option</span>
-                        @if (!string.IsNullOrWhiteSpace(rr.TargetName) && !string.Equals(rr.TargetName, rr.Option, StringComparison.Ordinal))
+                        @if (_busyStepId == mnode.StepId)
+                        {
+                            <span class="tk-spin"></span>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(rr.TargetName) && !string.Equals(rr.TargetName, rr.Option, StringComparison.Ordinal))
                         {
                             <span class="tk-flow-route-to">&#8594; @rr.TargetName</span>
                         }
@@ -1486,7 +1490,9 @@
                 @foreach (var opt in mnode.ApprovalOptions)
                 {
                     var o = opt;
-                    <button class="tk-flow-route" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, o, _flowNote))">&#8594; @o</button>
+                    <button class="tk-flow-route @(_busyStepId == mnode.StepId ? "is-busy" : "")" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, o, _flowNote))">
+                        @if (_busyStepId == mnode.StepId) { <span class="tk-spin"></span> } else { <span>&#8594; @o</span> }
+                    </button>
                 }
             }
             <textarea class="tk-flow-textarea" placeholder="Anotacion (opcional)..." @bind="_flowNote"></textarea>
@@ -1496,7 +1502,16 @@
         {
             <div class="tk-flow-menu-t">@(mnode.IsAuto ? "RETOMAR Y CERRAR" : "CERRAR ACTIVIDAD")</div>
             <textarea class="tk-flow-textarea" placeholder="Anotacion al cerrar (opcional)..." @bind="_flowNote"></textarea>
-            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, null, _flowNote))">@(mnode.IsAuto ? "Retomar y cerrar" : "Cerrar actividad")</button>
+            <button class="tk-flow-close @(_busyStepId == mnode.StepId ? "is-busy" : "")" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(mnode.StepId!.Value, null, _flowNote))">
+                @if (_busyStepId == mnode.StepId)
+                {
+                    <span class="tk-spin"></span> <span>@(mnode.IsAuto ? "Retomando..." : "Cerrando...")</span>
+                }
+                else
+                {
+                    @(mnode.IsAuto ? "Retomar y cerrar" : "Cerrar actividad")
+                }
+            </button>
             @if (mnode.HasForm)
             {
                 <button class="tk-flow-link" disabled="@_busy" @onclick="@(() => { _modalTab = "formularios"; _flowMenuNodeId = null; })">Diligenciar formulario</button>
@@ -1506,7 +1521,9 @@
         else if (mnode.IsClaimable && mnode.StepId is not null)
         {
             <div class="tk-flow-menu-t">PASO SIN RECLAMAR</div>
-            <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => ClaimFlowNodeAsync(mnode.StepId!.Value))">Tomar este paso</button>
+            <button class="tk-flow-close @(_busyStepId == mnode.StepId ? "is-busy" : "")" disabled="@_busy" @onclick="@(() => ClaimFlowNodeAsync(mnode.StepId!.Value))">
+                @if (_busyStepId == mnode.StepId) { <span class="tk-spin"></span> <span>Tomando...</span> } else { <text>Tomar este paso</text> }
+            </button>
         }
         else
         {
@@ -1604,6 +1621,10 @@
     private string? _customError;
 
     private bool _busy;
+    // Paso cuyo boton (cerrar / elegir ruta / reclamar) se esta procesando AHORA, para mostrarle un spinner
+    // en ESE boton (no en todos, que comparten _busy). El click asincrono cierra el paso + recarga el detalle,
+    // que tarda; sin esta senal el boton solo se veia deshabilitado y parecia colgado.
+    private Guid? _busyStepId;
     private string? _openMenu;
     private bool _editingTitle;
     private string _editTitle = "";
@@ -2409,7 +2430,9 @@
     {
         if (_detail is null || _actorTenantUserId is not Guid me) { return; }
         _busy = true;
+        _busyStepId = stepId;
         _actionError = null;
+        StateHasChanged();   // pinta el spinner ANTES del await lento (cerrar paso + recargar detalle)
         try
         {
             var taskId = _detail.Item.Id;
@@ -2424,7 +2447,7 @@
             await ReloadAsync(taskId);
             await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
         }
-        finally { _busy = false; }
+        finally { _busy = false; _busyStepId = null; }
     }
 
     /// <summary>Elige la rama de una compuerta ATENDIDA por su nodo destino (ADR-0072): funciona aunque las
@@ -2433,7 +2456,9 @@
     {
         if (_detail is null || _actorTenantUserId is not Guid me) { return; }
         _busy = true;
+        _busyStepId = stepId;
         _actionError = null;
+        StateHasChanged();   // pinta el spinner ANTES del await lento
         try
         {
             var taskId = _detail.Item.Id;
@@ -2448,14 +2473,16 @@
             await ReloadAsync(taskId);
             await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
         }
-        finally { _busy = false; }
+        finally { _busy = false; _busyStepId = null; }
     }
 
     private async Task ClaimFlowNodeAsync(Guid stepId)
     {
         if (_detail is null || _actorTenantUserId is not Guid me) { return; }
         _busy = true;
+        _busyStepId = stepId;
         _actionError = null;
+        StateHasChanged();   // pinta el spinner ANTES del await lento
         try
         {
             var result = await InboxSvc.ClaimStepAsync(stepId, me);
@@ -2463,7 +2490,7 @@
             _flowMenuNodeId = null;
             await ReloadAsync(_detail.Item.Id);
         }
-        finally { _busy = false; }
+        finally { _busy = false; _busyStepId = null; }
     }
 
     /// <summary>Termina manualmente un paso de AGENTE (A): corta la espera del agente y lo devuelve a una

@@ -2544,9 +2544,9 @@ else
                             <div class="fb-gridcol-head">
                                 <input class="fb-input fb-gridcol-name" value="@col.Label" placeholder="Etiqueta de la columna"
                                        @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Label = e.Value?.ToString() ?? c.Label }))" />
-                                <span class="fb-gridcol-badge @(ext?.Lookup is not null ? "lk" : col.Calc is not null ? "fx" : col.IsSelect ? "list" : "txt")"
-                                      title="@(ext?.Lookup is not null ? "Lookup con autollenado" : col.Calc is not null ? "Columna calculada" : col.IsSelect ? "Lista de opciones" : "Texto")">
-                                    @(ext?.Lookup is not null ? "Lookup" : col.Calc is not null ? "fx" : col.IsSelect ? "Lista" : "Texto")
+                                <span class="fb-gridcol-badge @(ext?.Lookup is not null ? "lk" : col.Calc is not null ? "fx" : col.IsSeq ? "fx" : col.IsSelect ? "list" : "txt")"
+                                      title="@(ext?.Lookup is not null ? "Lookup con autollenado" : col.Calc is not null ? "Columna calculada" : col.IsSeq ? "Consecutivo (auto-numerado)" : col.IsSelect ? "Lista de opciones" : "Texto")">
+                                    @(ext?.Lookup is not null ? "Lookup" : col.Calc is not null ? "fx" : col.IsSeq ? "Consec." : col.IsSelect ? "Lista" : "Texto")
                                 </span>
                                 <button type="button" class="fb-gridcol-mv" title="Mover a la izquierda" disabled="@(idx == 0)"
                                         @onclick="@(() => MoveGridColumnAsync(node.Q!, idx, -1))">&larr;</button>
@@ -2590,9 +2590,10 @@ else
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
                                                     @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect)">Texto</option>
+                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsSeq)">Texto</option>
                                                 <option value="select" selected="@(ext?.Lookup is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
                                                 <option value="formula" selected="@(ext?.Lookup is null && col.Calc is not null)">Formula (calculada)</option>
+                                                <option value="seq" selected="@(col.IsSeq)">Consecutivo (letras/numeros)</option>
                                                 <option value="lookup" selected="@(ext?.Lookup is not null)">Lookup (autollenar)</option>
                                             </select>
                                         </div>
@@ -2615,6 +2616,18 @@ else
                                                 (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
                                                 oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
                                                 () => PatchGridColumnOptionAsync(node.Q!, idx, -1, null))
+                                        </div>
+                                    }
+                                    @if (col.IsSeq)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Formato del consecutivo</label>
+                                            <select class="fb-select"
+                                                    @onchange="@(e => PatchGridColumnJsonAsync(node.Q!, idx, obj => obj["seq"] = (e.Value?.ToString() == "num" ? "num" : "alpha")))">
+                                                <option value="alpha" selected="@(!col.SeqIsNumeric)">Letras (A, B, C ... AA)</option>
+                                                <option value="num" selected="@(col.SeqIsNumeric)">Numeros (1, 2, 3 ...)</option>
+                                            </select>
+                                            <div class="fb-hint">Columna de solo lectura: numera cada fila automaticamente y se recalcula al agregar, borrar o reordenar. El valor se guarda en la fila (imprime con &#123;&#123;@col.Id&#125;&#125;).</div>
                                         </div>
                                     }
                                     @if (ext?.Lookup is { } lk)
@@ -3531,6 +3544,9 @@ else
                 o["type"] = "select";
                 o["options"] = (c.Options ?? new List<FormOption>()).Select(x => new { id = x.Id, label = x.Label }).ToList();
             }
+            // Columna consecutiva (auto-numerada): "type" es core key, hay que re-emitirlo o se pierde al re-guardar.
+            // El formato ("seq"=alpha|num) NO es core key -> se preserva solo via RawColumnExtras.
+            if (c.IsSeq) { o["type"] = "seq"; }
             if (c.Required) { o["required"] = true; }
             if (!string.IsNullOrWhiteSpace(c.Calc)) { o["calc"] = c.Calc; }
             if (c.Agg != FormAggregate.None) { o["agg"] = c.Agg.ToString(); }
@@ -3598,6 +3614,7 @@ else
         => PatchGridColumnJsonAsync(q, index, obj =>
         {
             obj.Remove("lookup");
+            obj.Remove("seq");   // al cambiar de tipo se limpia el formato del consecutivo (lo re-pone case "seq")
             switch (type)
             {
                 case "select":
@@ -3612,6 +3629,13 @@ else
                     obj["type"] = "text";
                     obj.Remove("options");
                     if (obj["calc"] is null) { obj["calc"] = "0"; }
+                    break;
+                case "seq":
+                    // Columna consecutiva/auto-numerada: read-only. type="seq" y el formato en "seq" (letras por defecto).
+                    obj["type"] = "seq";
+                    obj.Remove("calc");
+                    obj.Remove("options");
+                    if (obj["seq"] is null) { obj["seq"] = "alpha"; }
                     break;
                 case "lookup":
                     obj["type"] = "text";

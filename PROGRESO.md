@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.134: Flujo - spinner en botones + notificaciones que dejan de fallar en silencio
+
+- Pedido (usuario, validando el PROCESO COMERCIAL de AGRO):
+  1. Al dar click en "Cerrar actividad" / elegir ruta el boton se quedaba "pasmado" (solo disabled, apenas se
+     notaba) y no se sabia si el click se dio.
+  2. El WhatsApp por notificacion de nodo (plantilla YCloud) "no llega" y no hay forma de saber por que.
+- Tema 1 (spinner): TaskDetailModal.razor. Nuevo campo `_busyStepId` (el paso cuyo boton se procesa AHORA, para
+  no pintar spinner en todos, que comparten `_busy`). Los botones de cerrar/ruta/tomar muestran spinner
+  (`.tk-spin` en app.css + keyframe) y texto "Cerrando.../Procesando..." apenas se hace click; los handlers
+  (CompleteFlowNodeAsync, ChooseGatewayRouteAsync, ClaimFlowNodeAsync) fijan `_busyStepId` y llaman
+  StateHasChanged() ANTES del await lento (cerrar paso + recargar detalle) para que el estado se pinte de una.
+- Tema 2 (observabilidad de notificaciones): DIAGNOSTICO en dev (copia de prod): la linea YCloud SARA estaba
+  Connected + key + phone, la plantilla `envio_cotizacion` Approved/activa con sus 4 variables, la regla del nodo
+  apuntaba a la linea YCloud correcta, el contacto tenia telefono y el flujo llego al nodo DESPUES de guardar la
+  config -> o sea la notificacion SI se disparo y SI intento enviar. El problema: el resultado del envio se
+  DESCARTABA (NotificationChannelSender devolvia bool y NodeNotifyService lo ignoraba; el motivo de rechazo que
+  el cliente YCloud si captura se tiraba). Fix: `SendWhatsAppTemplateAsync` ahora devuelve `WhatsAppSendOutcome`
+  (Ok + Error del proveedor; convierte implicito a bool para no romper llamadores). El sender inyecta ILogger y
+  LOGUEA el motivo de Meta/YCloud (rechazo, plantilla inexistente, excepcion) sin telefono en claro.
+  NodeNotifyService, si el envio fallo, deja una NOTA VISIBLE en la conversacion del contacto ("No se pudo enviar
+  el WhatsApp de la plantilla 'X'... Motivo: <razon>") y ya NO escribe la nota de contexto SARA de "se envio"
+  cuando en realidad fallo. Con esto, al reintentar en prod se lee la razon exacta (log + nota).
+- Sospecha a confirmar en prod (con el log): el `from`/`to` van a YCloud SIN el `+` de E.164.
+- Archivos: TaskDetailModal.razor, app.css, INotificationChannelSender.cs (record WhatsAppSendOutcome),
+  NotificationChannelSender.cs (ILogger + retorno con motivo), NodeNotifyService.cs (captura outcome + nota de
+  fallo + guard de la nota SARA), AgentReactivacionServiceTests.cs (fake a la nueva firma).
+- Sin migracion. Build verde (SuperAdmin + tests). 18/18 tests de reactivacion/notify verdes. NO desplegado.
+
 ## 2026-09-24 - v0.16.133: Grillas - columna CONSECUTIVA auto-numerada (letras/numeros), self-serve
 
 - Pedido (sesion de config/diseno): una columna de grilla de solo lectura que numere las filas

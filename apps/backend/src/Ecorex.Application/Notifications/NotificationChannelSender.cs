@@ -4,6 +4,7 @@ using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.Application.Notifications;
 
@@ -15,14 +16,16 @@ public sealed class NotificationChannelSender : INotificationChannelSender
     private readonly IEmailSender _email;
     private readonly ITelegramClient _telegram;
     private readonly ISecretProtector _secretProtector;
+    private readonly ILogger<NotificationChannelSender> _logger;
 
-    public NotificationChannelSender(IApplicationDbContext db, IWhatsAppConnectorService wa, IEmailSender email, ITelegramClient telegram, ISecretProtector secretProtector)
+    public NotificationChannelSender(IApplicationDbContext db, IWhatsAppConnectorService wa, IEmailSender email, ITelegramClient telegram, ISecretProtector secretProtector, ILogger<NotificationChannelSender> logger)
     {
         _db = db;
         _wa = wa;
         _email = email;
         _telegram = telegram;
         _secretProtector = secretProtector;
+        _logger = logger;
     }
 
     public async Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
@@ -36,24 +39,43 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         catch { return false; }
     }
 
-    public async Task<bool> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
+    public async Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
         IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
         string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName)) { return false; }
+        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
+        {
+            return new WhatsAppSendOutcome(false, "Falta el numero o la plantilla.");
+        }
         try
         {
             var q = _db.WhatsAppTemplates.AsNoTracking().Where(t => t.Name == templateName && t.IsActive);
             if (!string.IsNullOrWhiteSpace(language)) { q = q.Where(t => t.Language == language); }
             var tpl = await q.FirstOrDefaultAsync(cancellationToken);
-            if (tpl is null) { return false; } // solo enviamos plantillas que existen
+            if (tpl is null)
+            {
+                // solo enviamos plantillas que existen y estan activas en el tenant
+                var reason = $"No existe una plantilla activa '{templateName}'" + (string.IsNullOrWhiteSpace(language) ? "." : $" en idioma '{language}'.");
+                _logger.LogWarning("WhatsApp plantilla no enviada (linea {LineId}, {Template}): {Reason}", lineId, templateName, reason);
+                return new WhatsAppSendOutcome(false, reason);
+            }
             var lang = string.IsNullOrWhiteSpace(language) ? tpl.Language : language!;
             var (mediaType, mediaUrl) = HeaderMedia(tpl);
             var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, attachmentBase64, attachmentMime, attachmentFileName, cancellationToken);
-            return res.Ok;
+            if (!res.Ok)
+            {
+                // El motivo de Meta/YCloud (numero invalido, parametros, plantilla no aprobada, ventana, etc.)
+                // que antes se descartaba. Sin telefono en claro para no filtrar datos personales al log.
+                _logger.LogWarning("WhatsApp plantilla RECHAZADA (linea {LineId}, {Template} {Lang}): {Reason}", lineId, tpl.Name, lang, res.Error ?? "(sin detalle)");
+            }
+            return new WhatsAppSendOutcome(res.Ok, res.Error);
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WhatsApp plantilla fallo por excepcion (linea {LineId}, {Template})", lineId, templateName);
+            return new WhatsAppSendOutcome(false, ex.Message);
+        }
     }
 
     public async Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default)

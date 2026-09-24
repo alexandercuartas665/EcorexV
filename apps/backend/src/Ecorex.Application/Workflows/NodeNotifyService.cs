@@ -169,15 +169,16 @@ public sealed class NodeNotifyService : INodeNotifyService
                 var provider = await _db.WhatsAppLines.AsNoTracking()
                     .Where(l => l.Id == lineId).Select(l => (Domain.Enums.WhatsAppProvider?)l.Provider).FirstOrDefaultAsync(ct);
 
+                WhatsAppSendOutcome waOutcome;
                 if (cotDoc is not null && provider == Domain.Enums.WhatsAppProvider.Evolution)
                 {
                     var b64 = Convert.ToBase64String(cotDoc.Bytes);
-                    await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
+                    waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
                         b64, cotDoc.MimeType, cotDoc.FileName, ct);
                 }
                 else
                 {
-                    await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, cancellationToken: ct);
+                    waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor, cancellationToken: ct);
                     if (cotDoc is not null)
                     {
                         var b64 = Convert.ToBase64String(cotDoc.Bytes);
@@ -185,10 +186,20 @@ public sealed class NodeNotifyService : INodeNotifyService
                     }
                 }
 
-                // Contexto para el agente conversacional (SARA): si el mensaje fue al CONTACTO (cliente) con un
-                // enlace de decision y/o un archivo, se deja una NOTA en su conversacion, para que si el cliente
+                // Si el proveedor (Meta/YCloud) RECHAZO el envio, se deja rastro VISIBLE con el motivo en la
+                // conversacion del contacto: antes un "no llego" quedaba totalmente invisible (el sender ya lo
+                // loguea; aqui ademas lo hace legible para el usuario). Best-effort, envuelto en try/catch.
+                if (!waOutcome.Ok && rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
+                {
+                    try { await RecordSendFailureNoteAsync(task, lineId, phone!, rule.Plantilla!, waOutcome.Error, ct); }
+                    catch { /* best-effort: registrar el fallo nunca debe romper el flujo */ }
+                }
+
+                // Contexto para el agente conversacional (SARA): si el mensaje SE ENVIO al CONTACTO (cliente) con
+                // un enlace de decision y/o un archivo, se deja una NOTA en su conversacion, para que si el cliente
                 // responde, el agente sepa de que se trata (el envio del flujo antes no dejaba rastro en el hilo).
-                if (rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
+                // Solo si el envio fue OK: si Meta lo rechazo, la nota de arriba ya explica el fallo.
+                if (waOutcome.Ok && rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
                 {
                     try
                     {
@@ -270,6 +281,55 @@ public sealed class NodeNotifyService : INodeNotifyService
         sb.Append($", en el proceso {task.Number}");
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
         sb.Append(". Si el cliente escribe, es en respuesta a esto.");
+
+        _db.Messages.Add(new Domain.Entities.Message
+        {
+            TenantId = task.TenantId,
+            ConversationId = conversation.Id,
+            Direction = Domain.Enums.MessageDirection.Outbound,
+            Body = sb.ToString(),
+            MessageType = "text",
+            SentByName = "Sistema (flujo)",
+            SentAt = now
+        });
+        await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Deja una NOTA VISIBLE del FALLO de envio en la conversacion del contacto (misma clave (linea, telefono)
+    /// que usa la ingesta de chat), para que el "no llego" deje de ser invisible: el usuario ve el motivo que
+    /// devolvio Meta/YCloud. Se guarda como nota interna del sistema (no sale al cliente). Best-effort.
+    /// </summary>
+    private async Task RecordSendFailureNoteAsync(
+        Domain.Entities.TaskItem task, Guid lineId, string phone, string plantilla, string? reason, CancellationToken ct)
+    {
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) { return; }
+
+        var conversation = await _db.Conversations
+            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var now = DateTimeOffset.UtcNow;
+        if (conversation is null)
+        {
+            conversation = new Domain.Entities.Conversation
+            {
+                TenantId = task.TenantId,
+                ContactPhone = digits,
+                WhatsAppLineId = lineId,
+                LastMessageAt = now
+            };
+            _db.Conversations.Add(conversation);
+        }
+        else
+        {
+            conversation.LastMessageAt = now;
+        }
+
+        var sb = new StringBuilder();
+        sb.Append($"⚠ No se pudo enviar el WhatsApp de la plantilla '{plantilla}' en el proceso {task.Number}");
+        if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
+        sb.Append(". Motivo: ");
+        sb.Append(string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor." : reason!.Trim());
 
         _db.Messages.Add(new Domain.Entities.Message
         {

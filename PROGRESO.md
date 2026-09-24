@@ -2,6 +2,46 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.133: Grillas - columna CONSECUTIVA auto-numerada (letras/numeros), self-serve
+
+- Pedido (sesion de config/diseno): una columna de grilla de solo lectura que numere las filas
+  automaticamente como LETRAS (A, B, C ... Z, AA, AB) o NUMEROS (1, 2, 3), que se recalcule al agregar,
+  borrar o reordenar filas, y cuyo valor quede GUARDADO en la fila para que imprima con {{col.id}}.
+  Configurable por el usuario desde el disenador (self-serve, [[hand-off-siempre-con-ui-disenador]]).
+- Modelo/computo (FormGridCalculator.cs): FormGridColumn gana el parametro `Seq` (DATO en options_json:
+  "seq" = "num" | "alpha") + props IsSeq (type=="seq") y SeqIsNumeric (seq=="num"). ParseColumns lee
+  "seq". Compute, tras el bucle de formulas, recorre las filas por INDICE y escribe en cada celda de la
+  columna seq su valor por POSICION: SeqAlpha(i) (bijectivo base-26: 0->A, 25->Z, 26->AA...) o (i+1) si
+  es numerica. Al guardarse en la celda, persiste e imprime sin tocar la capa de impresion.
+- Render/recompute (DynamicFormRenderer.razor): la celda seq se pinta como input read-only+disabled
+  (clase dfr-calc, tabindex -1). No necesito recompute nuevo: agregar/borrar/duplicar/ordenar/editar
+  celda ya pasan por SetValue -> RecomputeGrids -> Compute, que re-numera al vuelo.
+- Editor (FormDesigner.razor): nuevo tipo de columna "Consecutivo (letras/numeros)" (value="seq") en el
+  desplegable "Tipo de columna"; sub-editor con "Formato del consecutivo" (Letras / Numeros) + hint.
+  SaveGridColumnsAsync re-emite `type="seq"` (es core key, si no se perderia al re-guardar); el formato
+  "seq" se auto-preserva via RawColumnExtras. ChangeGridColumnTypeAsync limpia "seq" al cambiar de tipo
+  y, en `case "seq"`, pone type=seq, quita calc/options y default "alpha".
+- Validado en dev (AGRO, OT FT-C-008 grilla items): la opcion y el sub-editor aparecen; al elegir seq y
+  agregar filas la columna Item numera A, B, C, D read-only; el tipo persiste tras recargar (round-trip
+  OK). Prueba revertida (columna item vuelta a texto; dev == prod). El usuario dejara por config la
+  columna `item` de la OT como consecutivo de letras en prod.
+- Sin migracion. Build verde. NO desplegado.
+
+## 2026-09-24 - v0.16.132: Galeria - re-publicar refresca el snapshot (flechas llegan bien)
+
+- Bug (usuario): al TRAER una plantilla de la galeria las flechas llegaban mal (rectas, cruzando nodos), igual
+  que pasaba con Importar JSON antes de v0.16.98. Diagnostico: galeria e Importar JSON usan el MISMO importador
+  (FlowPackageService.ImportAsync) con rama FIEL (si el paquete trae BpmnXml -> replay verbatim, waypoints reales)
+  vs LEGADO (sin BpmnXml -> BpmnXmlWriter waypoints rectos de 2 puntos). Importar JSON siempre usa un export
+  fresco (post-fix, con BpmnXml) -> FIEL. La galeria usa MarketplaceItem.SnapshotJson congelado AL PUBLICAR; los
+  flujos publicados antes de v0.16.98 no tienen BpmnXml -> LEGADO -> flechas feas.
+- Fix (opcion elegida: re-publicar identico): al publicar un flujo cuya plantilla ya existe (match por SourceCode
+  = ProcessCode) se ofrece ACTUALIZAR la existente (default) en vez de duplicar: RepublishFlowAsync re-exporta y
+  refresca SnapshotJson (ahora con BpmnXml) -> al traerla usa la rama FIEL -> flechas identicas al diseno.
+  Nuevos: IMarketplaceService.FindFlowItemIdBySourceAsync + RepublishFlowAsync; checkbox en el dialogo de
+  publicar de Flujos.razor. Para arreglar las plantillas viejas: el admin re-publica sus flujos (actualiza).
+- Sin migracion. Build verde. NO desplegado.
+
 ## 2026-09-24 - v0.16.131: Directorio Modular - remediacion R2 (circuito Blazor) + R3 (seeding aditivo)
 
 - Ola combinada del plan de remediacion (vault "Remediacion hallazgos auditoria"). SIN migracion.
@@ -13944,3 +13984,16 @@ Verificado en local: solucion COMPLETA verde (incl. tests), 3 migraciones aplica
 board), servidor arranca sin errores en v0.16.114. NOTA: la PC del usuario saco pantalla azul a mitad del
 trabajo; TODO el working tree quedo intacto en disco (los cambios se escriben conforme se hacen). Sin
 commit/deploy aun (a senal del usuario). Falta prueba de flujo real y validar las tarjetas en el tablero.
+
+## 2026-09-24 - BITCODE: flujo comercial importado del sistema viejo (FLW-005, borrador)
+
+Peticion: subir a BITCODE un BPMN del sistema viejo (proceso comercial). El motor ECOREX solo ejecuta
+start/task/exclusiveGateway/end y valida 1 start + >=1 end; el diagrama origen no tenia endEvent y usaba
+2 intermediateThrowEvent ("retoma/reiniciar a cotizar") no soportados -> ImportBpmnAsync lo rechazaba.
+Adaptacion confirmada por el usuario: los 2 throw-events pasan a flechas de regreso a "Cotizacion a
+Proveedores" (bucles), y se agregan 2 endEvent (uno tras "Negocio perdido", uno comun tras las 4 tareas
+finales). Creado por SQL (excepcion ETL) replicando ImportBpmnAsync: workflow_definitions FLW-005
+"Flujo Comercial" (Comercial, v1, is_published=false) con bpmn_xml adaptado (con DI) + 14 workflow_nodes
+(1 StartEvent, 8 Task, 3 ExclusiveGateway, 2 EndEvent; node_type string, allows_assignment=Task, x/y/w/h)
++ 18 workflow_edges (source/target por id, 0 huerfanas). Queda como BORRADOR editable/publicable en el
+disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-1115.

@@ -27,10 +27,11 @@ public sealed record CreateModularTerceroRequest(
     Dictionary<string, Dictionary<string, string>> Valores);
 
 /// <summary>Un tercero del motor Modular listo para editar: su categoria (para armar la ficha), su estado,
-/// su naturaleza (INMUTABLE en edicion, O1-2) y los valores guardados (seccion -> campo -> valor).</summary>
+/// su naturaleza (INMUTABLE en edicion, O1-2), si es un CONTACTO (persona vinculada a una organizacion, que
+/// se edita como "publico basico" - R1) y los valores guardados (seccion -> campo -> valor).</summary>
 public sealed record ModularEditDto(
     Guid Id, string? CategoriaKey, string Estado, TerceroTipo Tipo,
-    Dictionary<string, Dictionary<string, string>> Valores);
+    Dictionary<string, Dictionary<string, string>> Valores, bool EsContacto = false);
 
 // ---------------------------------------------------------------------------
 // Lectura de estructura para el modal "Configurar directorio" (Capa 8, Fase 2).

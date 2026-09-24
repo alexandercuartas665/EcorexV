@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.129: Directorio Modular - contacto se edita como "publico basico" (remediacion R1)
+
+- Hallazgo (auditoria en prod SOLDARCO): el contacto-hijo que crea la regla O1-3 mostraba la Seccion
+  comercial. El toggle de config "Aplica a = Empresa" lo tapaba pero se perdio en un re-seed del tenant.
+- Decision de criterio: NO hacer "comercial = solo Empresa" global (una persona natural CLIENTE si puede
+  tener ficha comercial; ademas chocaba con "solo SOLDARCO"). El caso real es el CONTACTO (persona
+  vinculada a una organizacion), que debe ser minimo.
+- R1 (regla de codigo, SIN migracion, universal): al editar un tercero que es CONTACTO (persona con
+  EmpresaId o con un TerceroVinculo como persona) la ficha muestra SOLO la seccion publica (publico basico),
+  independiente de la composicion de la categoria y del AplicaA. Una persona natural independiente conserva
+  sus secciones; la empresa, completa.
+- Archivos: DirectorioModularFichaDtos.cs (ModularEditDto.EsContacto), DirectorioModularFichaService.cs
+  (GetTerceroParaEditarAsync calcula EsContacto), DirectorioModularFichaModal.razor (_esContacto +
+  MostrarSeccion solo publica). Build verde; 982 tests verdes.
+- Plan de remediacion por olas en el vault: "Remediacion hallazgos auditoria (plan por olas)" (R1 hecho;
+  R2 circuito Blazor/proxy, R3 seeding aditivo, pendientes). NO desplegado.
+
 ## 2026-09-24 - Config (prompt EPRING): el agente ahora LEE la factura y rutea por su valor (Fix A)
 
 - Data-ops en prod (solo prompt del agente EPRING id 01a07c57, sin codigo). Sintoma: el agente "elegia la ruta

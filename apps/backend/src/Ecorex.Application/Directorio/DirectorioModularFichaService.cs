@@ -257,7 +257,12 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
 
         var catKey = t.Categorias.FirstOrDefault()?.CategoriaKey;
         var estado = t.Estado == TerceroEstado.Inactivo ? "Inactivo" : "Activo";
-        return new ModularEditDto(t.Id, catKey, estado, t.Tipo, valores);
+        // R1: es un CONTACTO si es una persona vinculada a una organizacion (enlace primario EmpresaId o un
+        // vinculo M:N como persona). El modal lo edita como "publico basico" (solo la seccion publica).
+        var esContacto = t.Tipo == TerceroTipo.Persona
+            && (t.EmpresaId is not null
+                || await _db.TerceroVinculos.AsNoTracking().AnyAsync(v => v.PersonaId == id, cancellationToken));
+        return new ModularEditDto(t.Id, catKey, estado, t.Tipo, valores, esContacto);
     }
 
     public async Task<(Guid? OrgId, string? Error)> ConvertirAOrganizacionAsync(Guid personaId, string nombreOrganizacion, CancellationToken cancellationToken = default)

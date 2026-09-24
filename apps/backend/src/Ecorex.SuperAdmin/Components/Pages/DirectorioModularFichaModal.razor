@@ -372,6 +372,10 @@
     // Null = alta (la naturaleza se deduce de lo que se llena).
     private TerceroTipo? _natFijo;
 
+    // R1: el tercero en edicion es un CONTACTO (persona vinculada a una organizacion). Se edita como
+    // "publico basico": solo la seccion publica, sin secciones de perfilamiento (comercial/cliente/...).
+    private bool _esContacto;
+
     // O2-1: coincidencias de duplicidad detectadas en vivo (por identificacion/correo/telefono).
     private IReadOnlyList<ModularDuplicadoDto> _duplicados = Array.Empty<ModularDuplicadoDto>();
     private bool _dupChecking;
@@ -407,6 +411,7 @@
         _estado = "Activo";
         _notModular = false;
         _natFijo = null;
+        _esContacto = false;
         _duplicados = Array.Empty<ModularDuplicadoDto>();
 
         var catKey = CategoriaKey;
@@ -422,6 +427,7 @@
             cargados = ed.Valores;
             _estado = ed.Estado;
             _natFijo = ed.Tipo;   // naturaleza inmutable en edicion (O1-2)
+            _esContacto = ed.EsContacto;   // R1: contacto -> publico basico
         }
 
         if (catKey is null) { return; }
@@ -716,9 +722,14 @@
         return "";
     }
 
-    /// <summary>Muestra la seccion? En edicion oculta las que no aplican a la naturaleza fija.</summary>
+    // Clave de la seccion publica (unica que ve un contacto en modo "publico basico", R1).
+    private static readonly string PublicaKey = DirectorioModularDefaults.SeccionKey("publica");
+
+    /// <summary>Muestra la seccion? R1: un contacto (persona vinculada a una organizacion) solo ve la
+    /// seccion publica. Si no, en edicion se oculta lo que no aplica a la naturaleza fija (O1-2).</summary>
     private bool MostrarSeccion(ModularSeccionDto sec)
     {
+        if (_esContacto) { return string.Equals(sec.FichaKey, PublicaKey, StringComparison.Ordinal); }
         if (_natFijo is not TerceroTipo nat) { return true; }
         if (string.IsNullOrWhiteSpace(sec.AplicaA)) { return true; }
         var token = nat == TerceroTipo.Empresa ? "empresa" : "contacto";

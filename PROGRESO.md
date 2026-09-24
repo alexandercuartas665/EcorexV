@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-24 - v0.16.130: Inventarios - importar/exportar items por archivo (.xlsx), como el Directorio
+
+- Pedido: Items no tenia como IMPORTAR por archivo; dejarlo como el Directorio + pruebas de carga. La plantilla
+  (ItemTemplateXlsx) + boton ya existian (paso 1/4); faltaba parser, export, servicio y el modal.
+- Nuevo (patron 1:1 del Directorio, ClosedXML): ItemImportXlsx.Parse (columnas fijas 1-9 + stock dinamico por
+  encabezado "Stock: {bodega}"; catalogos por NOMBRE via diccionarios de la UI; valida por fila, no aborta),
+  ItemExportXlsx.Build (mismo layout, re-importable), IItemService.ImportAsync/ExportXlsxAsync/GetExistingSkus
+  Async, y el modal "Importar items por archivo" en InventarioItems.razor (Descargar plantilla / Exportar /
+  Elegir .xlsx / vista previa Total-A crear-Con error-Duplicados / Importar N). Dedup por SKU; sin SKU se genera
+  consecutivo ITM. ImportAsync reusa CreateAsync (SKU unico, stock, validacion de catalogos), fila a fila.
+- Sin migracion. Build verde. NO desplegado. Pendiente: pruebas de carga (crear un .xlsx grande y medir; hotspot
+  = SequenceService.NextAsync por fila + transaccion por item).
+
 ## 2026-09-24 - v0.16.129: Directorio Modular - contacto se edita como "publico basico" (remediacion R1)
 
 - Hallazgo (auditoria en prod SOLDARCO): el contacto-hijo que crea la regla O1-3 mostraba la Seccion

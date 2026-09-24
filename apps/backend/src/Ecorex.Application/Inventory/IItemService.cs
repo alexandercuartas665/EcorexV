@@ -27,4 +27,19 @@ public interface IItemService
 
     /// <summary>Actualiza el texto a superponer sobre una imagen (max 200; null/vacio lo borra).</summary>
     Task<InventoryResult<bool>> UpdateImageTextoAsync(Guid imageId, string? texto, CancellationToken cancellationToken = default);
+
+    // ---- Importar / exportar por archivo (.xlsx) ----
+
+    /// <summary>
+    /// Da de alta en lote las filas VALIDAS parseadas de la plantilla (misma via que CreateAsync: SKU unico,
+    /// consecutivo, stock por bodega, validacion de catalogos). Cada fila en su propio intento; una que falla
+    /// no frena las demas. Devuelve cuantas se crearon y cuantas fallaron.
+    /// </summary>
+    Task<(int Done, int Failed)> ImportAsync(IReadOnlyList<ItemImportXlsx.ItemImportRow> rows, CancellationToken cancellationToken = default);
+
+    /// <summary>Exporta los items activos del tenant a un .xlsx con la misma estructura de la plantilla (re-importable).</summary>
+    Task<byte[]> ExportXlsxAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>SKUs existentes del tenant (normalizados a minusculas), para detectar duplicados en la vista previa.</summary>
+    Task<IReadOnlyCollection<string>> GetExistingSkusAsync(CancellationToken cancellationToken = default);
 }

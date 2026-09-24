@@ -49,6 +49,7 @@
         @if (_canCreate)
         {
             <button class="btn btn-outline-secondary" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con datos de ejemplo y hojas de codigos para importar">&#8681; Plantilla Excel</button>
+            <button class="btn btn-outline-secondary" @onclick="OpenImport" title="Importar / exportar items por archivo Excel (.xlsx)">&#8645; Importar / Exportar</button>
         }
         @if (_canEdit)
         {
@@ -850,6 +851,65 @@ else
     </div>
 }
 
+@* ===== Modal importar / exportar por archivo (.xlsx) ===== *@
+@if (_impOpen)
+{
+    <div class="modal-overlay" @onclick="CloseImport">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Importar items por archivo</h3>
+                <button class="modal-close" @onclick="CloseImport">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="inv-fld-help">Los items se crean con SKU unico (si va vacio, se genera un consecutivo ITM). Los catalogos (marca/grupo/subgrupo/tipo/bodega) se referencian por NOMBRE exacto; usa la plantilla.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl">&#8681; @(_downloadingTpl ? "Generando..." : "Descargar plantilla")</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ExportAsync" disabled="@_exporting">&#8683; @(_exporting ? "Exportando..." : "Exportar items")</button>
+                    <label class="btn btn-sm btn-outline-secondary" style="margin:0;">
+                        &#8682; Elegir archivo .xlsx
+                        <InputFile OnChange="OnImportFileAsync" accept=".xlsx" style="display:none" />
+                    </label>
+                    @if (_impFileName is not null) { <span class="inv-fld-help" style="align-self:center;">@_impFileName</span> }
+                </div>
+
+                @if (_impBusy && _impParse is null) { <div class="inv-fld-help">Leyendo archivo...</div> }
+                @if (_impFatal is not null) { <div class="tk-field-error">@_impFatal</div> }
+
+                @if (_impParse is not null && _impFatal is null)
+                {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px;">
+                        <span class="inv-stock-chip">Total: <strong>@_impParse.Total</strong></span>
+                        <span class="inv-stock-chip" style="background:var(--t-green-bg,#dcfce7);">A crear: <strong>@ImportableCount</strong></span>
+                        @if (_impParse.Invalid > 0) { <span class="inv-stock-chip" style="background:var(--t-red-bg,#fee2e2);">Con error: <strong>@_impParse.Invalid</strong></span> }
+                        @if (_impDupRows.Count > 0) { <span class="inv-stock-chip" style="background:var(--t-amber-bg,#fef3c7);">Duplicados (se omiten): <strong>@_impDupRows.Count</strong></span> }
+                    </div>
+                    @if (_impParse.Invalid > 0)
+                    {
+                        <div class="inv-fld-help" style="margin-top:6px;">Primeras filas con error:</div>
+                        <ul style="margin:2px 0 0;padding-left:18px;font-size:12px;color:var(--t-red,#b91c1c);max-height:120px;overflow:auto;">
+                            @foreach (var er in _impParse.Rows.Where(r => !r.IsValid).Take(8))
+                            {
+                                <li>Fila @er.RowNumber: @er.Error</li>
+                            }
+                        </ul>
+                    }
+                    @if (_impFinished)
+                    {
+                        <div class="inv-fld-help" style="margin-top:8px;">Importacion terminada: <strong>@_impDone creado(s)</strong>@(_impFailed > 0 ? $", {_impFailed} con error" : "")@(_impSkipped > 0 ? $", {_impSkipped} omitido(s)" : "").</div>
+                    }
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseImport" disabled="@_impBusy">@(_impFinished ? "Cerrar" : "Cancelar")</button>
+                @if (!_impFinished)
+                {
+                    <button class="btn btn-primary" @onclick="RunImportAsync" disabled="@(_impBusy || ImportableCount == 0)">@(_impBusy && _impParse is not null ? $"Importando... ({_impDone})" : $"Importar {ImportableCount}")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .inv-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
     .inv-thumb { width: 40px; height: 40px; border-radius: 9px; object-fit: cover; border: 1px solid var(--line, var(--border)); }
@@ -1127,6 +1187,15 @@ else
 
     private bool _downloadingTpl;
 
+    // --- Importar / exportar por archivo (.xlsx): mismo patron que el Directorio ---
+    private bool _impOpen, _impBusy, _impFinished, _exporting;
+    private string? _impFileName, _impFatal;
+    private ItemImportXlsx.ItemImportParse? _impParse;
+    private readonly HashSet<int> _impDupRows = new();
+    private int _impDone, _impFailed, _impSkipped;
+    private int ImportableCount => _impParse?.Rows.Count(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)) ?? 0;
+    private const long ImpMaxBytes = 12L * 1024 * 1024;
+
     /// <summary>Descarga la plantilla Excel de importacion: hoja "Items" con filas de ejemplo + hojas
     /// de codigos (Marcas/Grupos/Subgrupos/Tipos/Bodegas) para cargar items con su relacionalidad.</summary>
     private async Task DownloadTemplateAsync()
@@ -1138,6 +1207,89 @@ else
             await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-items.xlsx", ItemTemplateXlsx.Mime, Convert.ToBase64String(bytes));
         }
         finally { _downloadingTpl = false; }
+    }
+
+    private void OpenImport()
+    {
+        _impOpen = true; _impParse = null; _impFatal = null; _impFileName = null;
+        _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+    }
+
+    private void CloseImport() { if (!_impBusy) { _impOpen = false; } }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        try
+        {
+            var bytes = await ItemSvc.ExportXlsxAsync();
+            var nombre = $"items-{DateTime.Now:yyyyMMdd}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", nombre, ItemExportXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _exporting = false; }
+    }
+
+    private async Task OnImportFileAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _impFileName = file.Name;
+        _impParse = null; _impFatal = null; _impDone = 0; _impFailed = 0; _impSkipped = 0; _impFinished = false; _impDupRows.Clear();
+        _impBusy = true;
+        try
+        {
+            if (file.Size > ImpMaxBytes) { _impFatal = "El archivo supera el limite de 12 MB."; return; }
+            using var ms = new System.IO.MemoryStream();
+            await file.OpenReadStream(ImpMaxBytes).CopyToAsync(ms);
+            ms.Position = 0;
+
+            // Catalogos VIVOS del tenant, por nombre -> Id (indexer para no reventar si hay nombres repetidos).
+            var brandsByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var b in _brands) { brandsByName[b.Name] = b.Id; }
+            var groupsByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in _groups) { groupsByName[g.Name] = g.Id; }
+            var typesByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in _types) { typesByName[t.Name] = t.Id; }
+            var warehousesByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            foreach (var w in _warehouses) { warehousesByName[w.Name] = w.Id; }
+            var subgroupsByName = new Dictionary<string, ItemImportXlsx.SubgroupRef>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in _subgroups) { subgroupsByName[s.Name] = new ItemImportXlsx.SubgroupRef(s.Id, s.GroupName); }
+
+            _impParse = ItemImportXlsx.Parse(ms, brandsByName, groupsByName, subgroupsByName, typesByName, warehousesByName);
+            if (_impParse.FatalError is not null) { _impFatal = _impParse.FatalError; }
+            else { await ComputeDuplicatesAsync(); }
+        }
+        catch (Exception ex) { _impFatal = "No se pudo procesar el archivo: " + ex.Message; }
+        finally { _impBusy = false; }
+    }
+
+    // Duplicados por SKU (contra los existentes y dentro del propio archivo). Filas SIN SKU no se dedup:
+    // el servicio les genera un consecutivo ITM.
+    private async Task ComputeDuplicatesAsync()
+    {
+        _impDupRows.Clear();
+        if (_impParse is null) { return; }
+        var seen = new HashSet<string>(await ItemSvc.GetExistingSkusAsync(), StringComparer.Ordinal);
+        foreach (var row in _impParse.Rows.Where(r => r.IsValid))
+        {
+            if (row.SkuKey is null) { continue; }
+            if (!seen.Add(row.SkuKey)) { _impDupRows.Add(row.RowNumber); }
+        }
+    }
+
+    private async Task RunImportAsync()
+    {
+        if (_impParse is null || _impBusy) { return; }
+        var toCreate = _impParse.Rows.Where(r => r.IsValid && !_impDupRows.Contains(r.RowNumber)).ToList();
+        _impSkipped = _impParse.Rows.Count(r => r.IsValid && _impDupRows.Contains(r.RowNumber));
+        if (toCreate.Count == 0) { _impFinished = true; return; }
+        _impBusy = true; _impDone = 0; _impFailed = 0;
+        try
+        {
+            var (done, failed) = await ItemSvc.ImportAsync(toCreate);
+            _impDone = done; _impFailed = failed; _impFinished = true;
+            await ReloadAsync();
+        }
+        finally { _impBusy = false; }
     }
 
     protected override async Task OnInitializedAsync()

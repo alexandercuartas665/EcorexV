@@ -924,6 +924,49 @@ if (app.Environment.IsDevelopment())
             return Results.Ok(new { attended });
         }).AllowAnonymous();
 
+        // Atajo de DESARROLLO para PRUEBA DE CARGA del import de items: crea N items via el mismo camino real
+        // (IItemService.ImportAsync -> CreateAsync por fila: SKU consecutivo + stock + validacion) y mide el
+        // tiempo. Los items quedan con nombre 'CARGA {hora}-{i}' para poder limpiarlos. Solo Development.
+        app.MapGet("/dev/loadtest-items", async (IServiceProvider sp, int? n) =>
+        {
+            var count = Math.Clamp(n ?? 500, 1, 5000);
+            var normalized = devLoginEmail.Trim().ToLowerInvariant();
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
+            if (user is null) { return Results.NotFound("dev user"); }
+            var membership = await db.TenantUsers.IgnoreQueryFilters()
+                .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+                .OrderBy(tu => tu.CreatedAt).FirstOrDefaultAsync();
+            if (membership is null) { return Results.BadRequest("dev user sin tenant"); }
+            object payload;
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(membership.TenantId))
+            {
+                var itemSvc = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Inventory.IItemService>();
+                var wh = await db.Warehouses.Select(w => (Guid?)w.Id).FirstOrDefaultAsync();
+                var stamp = DateTime.Now.ToString("HHmmss");
+                var rows = new List<Ecorex.Application.Inventory.ItemImportXlsx.ItemImportRow>(count);
+                for (var i = 1; i <= count; i++)
+                {
+                    IReadOnlyDictionary<Guid, int> stock = wh is Guid w
+                        ? new Dictionary<Guid, int> { [w] = (i % 20) + 1 }
+                        : new Dictionary<Guid, int>();
+                    rows.Add(new Ecorex.Application.Inventory.ItemImportXlsx.ItemImportRow(
+                        i + 1, $"CARGA {stamp}-{i}", null, "carga de prueba", null, 1000m + i,
+                        null, null, null, null, stock, null));
+                }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var (done, failed) = await itemSvc.ImportAsync(rows);
+                sw.Stop();
+                payload = new
+                {
+                    count, done, failed, ms = sw.ElapsedMilliseconds,
+                    perItemMs = Math.Round(sw.ElapsedMilliseconds / (double)Math.Max(1, done), 2), stamp
+                };
+            }
+            return Results.Ok(payload);
+        }).AllowAnonymous();
+
         app.Logger.LogWarning("DEV AUTO-LOGIN habilitado para {Email} en /dev/login (SOLO Development).", devLoginEmail);
     }
 }

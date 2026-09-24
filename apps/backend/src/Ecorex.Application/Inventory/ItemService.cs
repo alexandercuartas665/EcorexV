@@ -583,4 +583,72 @@ public sealed class ItemService : IItemService
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // ---- Importar / exportar por archivo (.xlsx) ----
+
+    public async Task<(int Done, int Failed)> ImportAsync(
+        IReadOnlyList<ItemImportXlsx.ItemImportRow> rows, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        int done = 0, failed = 0;
+        // Cada fila en su propio intento (reusa CreateAsync: SKU unico, consecutivo, stock, validacion de
+        // catalogos). Una que falla (SKU duplicado, catalogo invalido, subgrupo de otro grupo) no frena las demas.
+        foreach (var row in rows.Where(r => r.IsValid))
+        {
+            try
+            {
+                var r = await CreateAsync(row.ToRequest(), cancellationToken);
+                if (r.IsOk) { done++; } else { failed++; }
+            }
+            catch { failed++; }
+        }
+        return (done, failed);
+    }
+
+    public async Task<byte[]> ExportXlsxAsync(CancellationToken cancellationToken = default)
+    {
+        var warehouses = await _db.Warehouses.AsNoTracking()
+            .OrderBy(w => w.SortOrder).ThenBy(w => w.Name)
+            .Select(w => new WarehouseDto(w.Id, w.Name, w.Description, w.City, w.Address, w.Phone, w.IsActive, w.SortOrder, 0))
+            .ToListAsync(cancellationToken);
+
+        var items = await _db.Items.AsNoTracking()
+            .Where(i => i.IsActive)
+            .OrderBy(i => i.Name)
+            .Select(i => new
+            {
+                i.Id, i.Name, i.Sku, i.Description, i.Specifications, i.Price,
+                Brand = _db.Brands.Where(b => b.Id == i.BrandId).Select(b => b.Name).FirstOrDefault(),
+                Group = _db.ItemGroups.Where(g => g.Id == i.GroupId).Select(g => g.Name).FirstOrDefault(),
+                Subgroup = _db.ItemSubgroups.Where(s => s.Id == i.SubgroupId).Select(s => s.Name).FirstOrDefault(),
+                Type = _db.ItemTypes.Where(t => t.Id == i.ItemTypeId).Select(t => t.Name).FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        var itemIds = items.Select(i => i.Id).ToList();
+        var stockRows = await _db.ItemStocks.AsNoTracking()
+            .Where(s => itemIds.Contains(s.ItemId) && s.Stock != 0)
+            .Select(s => new { s.ItemId, s.WarehouseId, s.Stock })
+            .ToListAsync(cancellationToken);
+        var stockByItem = stockRows
+            .GroupBy(s => s.ItemId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyDictionary<Guid, int>)g.ToDictionary(s => s.WarehouseId, s => s.Stock));
+
+        var empty = (IReadOnlyDictionary<Guid, int>)new Dictionary<Guid, int>();
+        var rows = items.Select(i => new ItemExportXlsx.Row(
+            i.Name, i.Sku, i.Description, i.Specifications, i.Price,
+            i.Brand, i.Group, i.Subgroup, i.Type,
+            stockByItem.TryGetValue(i.Id, out var st) ? st : empty));
+
+        return ItemExportXlsx.Build(rows, warehouses);
+    }
+
+    public async Task<IReadOnlyCollection<string>> GetExistingSkusAsync(CancellationToken cancellationToken = default)
+    {
+        var skus = await _db.Items.AsNoTracking()
+            .Where(i => i.Sku != null && i.Sku != "")
+            .Select(i => i.Sku!)
+            .ToListAsync(cancellationToken);
+        return skus.Select(s => s.Trim().ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+    }
 }

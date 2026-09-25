@@ -370,6 +370,8 @@ public static class FormGridCalculator
         return ParseNumber(s) is decimal n ? n.ToString(CultureInfo.InvariantCulture) : s.ToLowerInvariant();
     }
 
-    private static decimal? ParseNumber(string? v)
+    /// <summary>Parseo numerico del motor de grillas (quita espacios y separadores de miles, cultura invariante).
+    /// Publico para reusarlo en otras reglas (p.ej. gridDerive de la conversion de formularios). Null si no es numero.</summary>
+    public static decimal? ParseNumber(string? v)
         => decimal.TryParse((v ?? "").Replace(" ", "").Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture, out var n) ? n : null;
 }

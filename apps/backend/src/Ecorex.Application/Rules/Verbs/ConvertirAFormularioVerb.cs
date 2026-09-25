@@ -49,6 +49,13 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
                 + "{ grilla: { colOrigen: colDestino } }. Cada fila del destino queda SOLO con las columnas "
                 + "mapeadas; las no mapeadas se omiten. Sin entrada para la grilla se copia tal cual. Ej.: "
                 + "{ \"items\": { \"producto\": \"descripcion\", \"cantidad\": \"cant\" } }."),
+            new RuleVerbParamDescriptor("gridDerive", "Auto-marcado de columnas de grilla", RuleParamType.Json, Required: false,
+                "Opcional. AUTO-MARCA columnas de una grilla por fila segun una condicion sobre OTRA columna de la "
+                + "MISMA fila (corre DESPUES de copiar; no toca el resto de la fila). JSON { grilla: [ { target, "
+                + "from, when, set } ] }. Por cada regla: si 'when' se cumple sobre la columna 'from', pone 'set' en "
+                + "'target'; si no, 'target' queda vacio. Operadores 'when': '>N' (numerico mayor que N, ej. '>0') y "
+                + "'notempty' (no vacio y distinto de 0/false). Ej.: "
+                + "{ \"items\": [ { \"target\": \"ciz\", \"from\": \"cortes\", \"when\": \">0\", \"set\": \"X\" } ] }."),
             new RuleVerbParamDescriptor("defaults", "Valores por defecto / transformacion", RuleParamType.Json, Required: false,
                 "Opcional. JSON { campoDestino: valor } que RELLENA campos del destino que NO vienen del origen "
                 + "(solo si quedan vacios). El valor puede ser una constante o un token de contexto: "
@@ -83,9 +90,10 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
         var mapping = ParseMapping(context, "mapping");
         var defaults = ParseMapping(context, "defaults");
         var gridMapping = ParseGridMapping(context, "gridMapping");
+        var gridDerive = ParseGridDerive(context, "gridDerive");
 
         var result = await _forms.CreateDerivedFormAsync(
-            sourceId, targetDef.Id, mapping, defaults, context.ExecutedByTenantUserId, gridMapping, cancellationToken);
+            sourceId, targetDef.Id, mapping, defaults, context.ExecutedByTenantUserId, gridMapping, gridDerive, cancellationToken);
         if (!result.IsOk)
         {
             return RuleVerbResult.Fail(result.Error ?? "No se pudo crear el formulario destino.");
@@ -163,4 +171,50 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
         }
         return outer.Count > 0 ? outer : null;
     }
+
+    /// <summary>Lee 'gridDerive' { grilla: [ { target, from, when, set } ] }. Acepta objeto JSON o cadena con JSON.
+    /// Cada grilla trae una LISTA de reglas de auto-marcado por columna.</summary>
+    private static IReadOnlyDictionary<string, IReadOnlyList<GridDeriveRule>>? ParseGridDerive(RuleContext context, string paramName)
+    {
+        if (!context.Params.TryGetValue(paramName, out var el)) { return null; }
+        if (el.ValueKind == JsonValueKind.Object) { return ReadGridDerive(el); }
+        if (el.ValueKind == JsonValueKind.String)
+        {
+            var s = el.GetString();
+            if (string.IsNullOrWhiteSpace(s)) { return null; }
+            try
+            {
+                using var doc = JsonDocument.Parse(s);
+                return doc.RootElement.ValueKind == JsonValueKind.Object ? ReadGridDerive(doc.RootElement) : null;
+            }
+            catch (JsonException) { return null; }
+        }
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<GridDeriveRule>>? ReadGridDerive(JsonElement obj)
+    {
+        var outer = new Dictionary<string, IReadOnlyList<GridDeriveRule>>(StringComparer.Ordinal);
+        foreach (var grid in obj.EnumerateObject())
+        {
+            if (grid.Value.ValueKind != JsonValueKind.Array) { continue; }
+            var rules = new List<GridDeriveRule>();
+            foreach (var r in grid.Value.EnumerateArray())
+            {
+                if (r.ValueKind != JsonValueKind.Object) { continue; }
+                var target = Str(r, "target");
+                var from = Str(r, "from");
+                var when = Str(r, "when");
+                if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(when)) { continue; }
+                var set = Str(r, "set");
+                rules.Add(new GridDeriveRule(target!.Trim(), from!.Trim(), when!.Trim(),
+                    string.IsNullOrWhiteSpace(set) ? "X" : set!.Trim()));
+            }
+            if (rules.Count > 0) { outer[grid.Name] = rules; }
+        }
+        return outer.Count > 0 ? outer : null;
+    }
+
+    private static string? Str(JsonElement obj, string name)
+        => obj.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
 }

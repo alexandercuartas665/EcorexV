@@ -1,6 +1,15 @@
 namespace Ecorex.Application.Forms;
 
 /// <summary>
+/// Regla de AUTO-MARCADO de una columna de grilla en la conversion de formularios (gridDerive): en cada fila del
+/// grid destino, si <see cref="When"/> se cumple sobre el valor de la columna <see cref="From"/>, se pone
+/// <see cref="Set"/> en la columna <see cref="Target"/>; si no, <see cref="Target"/> queda vacio. El resto de la
+/// fila no se toca. Operadores <see cref="When"/>: "&gt;N" (numerico mayor que N, ej. "&gt;0") y "notempty"
+/// (no vacio y distinto de "0"/"false"); extensible.
+/// </summary>
+public sealed record GridDeriveRule(string Target, string From, string When, string Set);
+
+/// <summary>
 /// Ciclo de vida de las respuestas de formularios dinamicos (ADR-0015): borrador con
 /// autosave, envio con VALIDACION SERVIDOR completa por tipo (errores por fieldCode) y,
 /// si la respuesta esta vinculada a un paso de flujo (FormFlowLink Pending), completa el
@@ -135,12 +144,17 @@ public interface IFormResponseService
     /// <param name="gridMapping">Opcional. Remapeo de COLUMNAS por grilla (GridDetail) cuando los ids difieren
     /// entre origen y destino: { gridFieldCode: { colOrigen: colDestino } }. Cada fila del destino queda SOLO
     /// con las columnas mapeadas; las no mapeadas se omiten. Sin entrada para la grilla -> se copia tal cual.</param>
+    /// <param name="gridDerive">Opcional (ADITIVO, corre DESPUES de la copia verbatim/gridMapping): por grilla,
+    /// AUTO-MARCA columnas por fila segun una condicion sobre OTRA columna de la MISMA fila. No toca el resto de
+    /// la fila. Forma: { gridFieldCode: [ { target, from, when, set } ] }. Por cada regla y fila del destino, si
+    /// <c>when</c> se cumple sobre <c>row[from]</c> entonces <c>row[target] = set</c>; si no, target queda vacio.</param>
     Task<FormResult<Guid>> CreateDerivedFormAsync(
         Guid sourceResponseId, Guid targetDefinitionId,
         IReadOnlyDictionary<string, string>? fieldMapping,
         IReadOnlyDictionary<string, string>? contextDefaults = null,
         Guid? actorTenantUserId = null,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? gridMapping = null,
+        IReadOnlyDictionary<string, IReadOnlyList<GridDeriveRule>>? gridDerive = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

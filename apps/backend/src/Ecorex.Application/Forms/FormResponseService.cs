@@ -1367,6 +1367,7 @@ public sealed class FormResponseService : IFormResponseService
         IReadOnlyDictionary<string, string>? contextDefaults = null,
         Guid? actorTenantUserId = null,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? gridMapping = null,
+        IReadOnlyDictionary<string, IReadOnlyList<GridDeriveRule>>? gridDerive = null,
         CancellationToken cancellationToken = default)
     {
         var src = await _db.FormResponses.AsNoTracking()
@@ -1423,6 +1424,30 @@ public sealed class FormResponseService : IFormResponseService
             }
 
             mapped[targetCode] = val;
+        }
+
+        // AUTO-MARCADO de columnas de grilla por fila (gridDerive): ADITIVO, corre DESPUES de la copia (verbatim o
+        // gridMapping). Por cada regla y fila del grid destino ya copiado, si 'when' se cumple sobre row[from] se
+        // pone 'set' en row[target]; si no, target queda vacio. NO toca las demas columnas (detalle, cantidad...).
+        if (gridDerive is not null && gridDerive.Count > 0)
+        {
+            foreach (var (gridCode, rules) in gridDerive)
+            {
+                if (rules is null || rules.Count == 0) { continue; }
+                if (!mapped.TryGetValue(gridCode, out var gridVal)) { continue; } // la grilla no se copio (sin filas)
+                var rows = FormFieldValidator.ParseGridRows(gridVal.Value);
+                if (rows.Count == 0) { continue; }
+                foreach (var row in rows)
+                {
+                    foreach (var rule in rules)
+                    {
+                        if (string.IsNullOrWhiteSpace(rule.Target) || string.IsNullOrWhiteSpace(rule.From)) { continue; }
+                        var cell = row.TryGetValue(rule.From, out var c) ? c : null;
+                        row[rule.Target] = GridDeriveMatches(rule.When, cell) ? (rule.Set ?? string.Empty) : string.Empty;
+                    }
+                }
+                mapped[gridCode] = new FormFieldValue(JsonSerializer.Serialize(rows), gridVal.Type);
+            }
         }
 
         // Valores por defecto / TRANSFORMACION configurable (contextDefaults): rellenan campos del destino SIN
@@ -1526,6 +1551,28 @@ public sealed class FormResponseService : IFormResponseService
                 doc[code] = val;
             }
         }
+    }
+
+    /// <summary>Evalua el operador 'when' de una regla gridDerive sobre el valor de una celda. Extensible:
+    /// "&gt;N" = numerico mayor que N (ej. "&gt;0"; reusa el parseo del motor de grillas); "notempty" = no vacio y
+    /// distinto de "0"/"false". Operador desconocido o valor no numerico en "&gt;N" -> false (no marca).</summary>
+    private static bool GridDeriveMatches(string? when, string? value)
+    {
+        when = when?.Trim();
+        if (string.IsNullOrEmpty(when)) { return false; }
+        if (when.StartsWith('>'))
+        {
+            var threshold = Calc.FormGridCalculator.ParseNumber(when[1..]) ?? 0m;
+            return Calc.FormGridCalculator.ParseNumber(value) is decimal n && n > threshold;
+        }
+        if (string.Equals(when, "notempty", StringComparison.OrdinalIgnoreCase))
+        {
+            var v = value?.Trim();
+            return !string.IsNullOrEmpty(v)
+                && !string.Equals(v, "0", StringComparison.Ordinal)
+                && !string.Equals(v, "false", StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
     }
 
     /// <summary>Resuelve el mapa configurable { campoDestino: token } a valores concretos. Un token que empieza

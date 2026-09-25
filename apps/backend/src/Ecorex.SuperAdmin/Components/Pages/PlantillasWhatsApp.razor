@@ -245,6 +245,35 @@ else
                     <input class="form-control" @bind="_fFooterText" maxlength="60" />
                 </div>
 
+                @if (_fButtons.Count > 0)
+                {
+                    <div class="field">
+                        <label class="form-label">Botones (importados de Meta, solo lectura)</label>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            @foreach (var b in _fButtons)
+                            {
+                                <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+                                    <span class="badge" style="background:#eef2ff;color:#4338ca;">@ButtonTypeLabel(b.Type)</span>
+                                    <strong>@b.Text</strong>
+                                    @if (!string.IsNullOrWhiteSpace(b.Url))
+                                    {
+                                        <code style="font-size:12px;color:#6b7280;">@b.Url</code>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(b.PhoneNumber))
+                                    {
+                                        <code style="font-size:12px;color:#6b7280;">@b.PhoneNumber</code>
+                                    }
+                                    @if (b.HasUrlVariable)
+                                    {
+                                        <span class="badge" style="background:#ecfdf5;color:#047857;" title="Boton URL con sufijo variable {{1}}: puede llevar un valor distinto por envio.">dinamico</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <small class="muted-cell">Los botones se definen en la plantilla aprobada de Meta; ECOREX los muestra aqui pero no se editan. Meta los pinta al entregar el mensaje.</small>
+                    </div>
+                }
+
                 @if (_editorError is not null)
                 {
                     <div class="tk-field-error">@_editorError</div>
@@ -449,7 +478,18 @@ else
     private bool _uploadingHeader;
     private string _fBodyText = "";
     private string? _fFooterText;
+    private IReadOnlyList<WhatsAppTemplateButtonDto> _fButtons = new List<WhatsAppTemplateButtonDto>();
     private string? _editorError;
+
+    // Etiqueta legible del tipo de boton de Meta (URL/QUICK_REPLY/PHONE_NUMBER/COPY_CODE/...).
+    private static string ButtonTypeLabel(string? type) => (type ?? "").ToUpperInvariant() switch
+    {
+        "URL" => "Enlace",
+        "QUICK_REPLY" => "Respuesta rapida",
+        "PHONE_NUMBER" => "Telefono",
+        "COPY_CODE" => "Copiar codigo",
+        _ => string.IsNullOrWhiteSpace(type) ? "Boton" : type!
+    };
 
     private string DetectedTokens
     {
@@ -485,6 +525,7 @@ else
         _fHeaderFileName = null;
         _fBodyText = "";
         _fFooterText = null;
+        _fButtons = new List<WhatsAppTemplateButtonDto>();
     }
 
     private async Task OpenEditorAsync(Guid? id)
@@ -513,6 +554,7 @@ else
                 : Uri.UnescapeDataString(detail.HeaderMediaUrl.Split('/').LastOrDefault() ?? "");
             _fBodyText = detail.BodyText;
             _fFooterText = detail.FooterText;
+            _fButtons = detail.Buttons;
         }
         else
         {

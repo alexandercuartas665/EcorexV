@@ -67,6 +67,13 @@ public sealed record YCloudTemplateStatus(
     string? HeaderText = null,
     string? BodyText = null,
     string? FooterText = null,
-    IReadOnlyList<string>? VariableExamples = null);
+    IReadOnlyList<string>? VariableExamples = null,
+    IReadOnlyList<WhatsAppTemplateButtonInfo>? Buttons = null);
+
+/// <summary>Un boton de una plantilla HSM tal como lo trae Meta/YCloud (para IMPORTARLO y mostrarlo).
+/// <paramref name="Type"/> en MAYUSCULAS: URL | QUICK_REPLY | PHONE_NUMBER | COPY_CODE | ...
+/// <paramref name="HasUrlVariable"/> = boton URL con sufijo variable {{1}} (dinamico por envio).</summary>
+public sealed record WhatsAppTemplateButtonInfo(
+    string Type, string? Text = null, string? Url = null, string? PhoneNumber = null, bool HasUrlVariable = false);
 
 public sealed record YCloudTemplateListResult(bool IsSuccess, IReadOnlyList<YCloudTemplateStatus> Items, string? Error);

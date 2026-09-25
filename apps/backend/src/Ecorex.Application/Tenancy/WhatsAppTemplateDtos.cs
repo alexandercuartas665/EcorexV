@@ -7,6 +7,12 @@ namespace Ecorex.Application.Tenancy;
 /// en orden de aparicion.</summary>
 public sealed record WhatsAppTemplateVariable(string Token, string Example);
 
+/// <summary>Un boton de la plantilla, IMPORTADO de Meta (solo lectura). <paramref name="Type"/> en
+/// MAYUSCULAS (URL | QUICK_REPLY | PHONE_NUMBER | COPY_CODE | ...); <paramref name="HasUrlVariable"/> = boton
+/// URL con sufijo variable {{1}} (dinamico por envio).</summary>
+public sealed record WhatsAppTemplateButtonDto(
+    string Type, string? Text, string? Url, string? PhoneNumber, bool HasUrlVariable);
+
 /// <summary>Fila del grid + detalle de una plantilla HSM (todos los campos).</summary>
 public sealed record WhatsAppTemplateDto(
     Guid Id,
@@ -19,6 +25,7 @@ public sealed record WhatsAppTemplateDto(
     string BodyText,
     string? FooterText,
     IReadOnlyList<WhatsAppTemplateVariable> Variables,
+    IReadOnlyList<WhatsAppTemplateButtonDto> Buttons,
     WhatsAppProvider? Provider,
     Guid WhatsAppLineId,
     string? WhatsAppLineName,

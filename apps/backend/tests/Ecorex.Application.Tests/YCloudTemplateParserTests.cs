@@ -86,4 +86,56 @@ public class YCloudTemplateParserTests
         var it = Item("""{ "language": "es", "status": "APPROVED" }""");
         Assert.Null(YCloudTemplateParser.ParseItem(it));
     }
+
+    [Fact]
+    public void ParseItem_ConBotones_ExtraeUrlQuickReplyYTelefono()
+    {
+        var it = Item("""
+        {
+          "name": "entrega_cotizacion_botones", "language": "es_CO", "status": "APPROVED", "category": "UTILITY",
+          "components": [
+            { "type": "BODY", "text": "Hola {{1}}, aqui esta {{2}}." },
+            { "type": "BUTTONS", "buttons": [
+              { "type": "URL", "text": "Aprobar", "url": "https://app2.bitcode.com.co/d/{{1}}", "example": ["abc123"] },
+              { "type": "URL", "text": "Sitio", "url": "https://bitcode.com.co" },
+              { "type": "QUICK_REPLY", "text": "Rechazar" },
+              { "type": "PHONE_NUMBER", "text": "Llamar", "phone_number": "+573001112233" }
+            ]}
+          ]
+        }
+        """);
+
+        var t = YCloudTemplateParser.ParseItem(it);
+
+        Assert.NotNull(t);
+        Assert.NotNull(t!.Buttons);
+        Assert.Equal(4, t.Buttons!.Count);
+
+        // URL con variable {{1}} -> dinamico.
+        Assert.Equal("URL", t.Buttons[0].Type);
+        Assert.Equal("Aprobar", t.Buttons[0].Text);
+        Assert.Equal("https://app2.bitcode.com.co/d/{{1}}", t.Buttons[0].Url);
+        Assert.True(t.Buttons[0].HasUrlVariable);
+
+        // URL fija -> NO dinamico.
+        Assert.Equal("URL", t.Buttons[1].Type);
+        Assert.False(t.Buttons[1].HasUrlVariable);
+
+        // Quick reply y telefono.
+        Assert.Equal("QUICK_REPLY", t.Buttons[2].Type);
+        Assert.Equal("PHONE_NUMBER", t.Buttons[3].Type);
+        Assert.Equal("+573001112233", t.Buttons[3].PhoneNumber);
+    }
+
+    [Fact]
+    public void ParseItem_SinBotones_ButtonsNull()
+    {
+        var it = Item("""
+        { "name": "sin_botones", "language": "es", "status": "APPROVED",
+          "components": [ { "type": "BODY", "text": "Hola." } ] }
+        """);
+        var t = YCloudTemplateParser.ParseItem(it);
+        Assert.NotNull(t);
+        Assert.Null(t!.Buttons);
+    }
 }

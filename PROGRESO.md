@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
+
+- Pedido del usuario (AGRO): creo la plantilla `entrega_cotizacion_botones` en Meta pero al importarla a ECOREX
+  "cae sin botones". Diagnostico: `YCloudTemplateParser` solo leia HEADER/BODY/FOOTER e IGNORABA el componente
+  BUTTONS; la entidad ni siquiera tenia donde guardarlos.
+- Cambio (extiende ADR-0097 "traer plantillas"):
+  1. Parser: nuevo ParseButtons -> lee `buttons[]` (URL/QUICK_REPLY/PHONE_NUMBER/COPY_CODE/...), detecta boton URL
+     con sufijo variable {{1}} (hasUrlVariable = dinamico por envio).
+  2. Contrato: YCloudTemplateStatus.Buttons + record WhatsAppTemplateButtonInfo.
+  3. Entidad: WhatsAppTemplate.ButtonsJson (jsonb PG / nvarchar(max) SQL Server). Migracion DUAL
+     AddWhatsAppTemplateButtons (buttons_json, nullable, en ambos motores).
+  4. Import (ImportFromYCloudAsync): serializa los botones a ButtonsJson + entra al Fingerprint (detecta cambios).
+  5. DTO WhatsAppTemplateButtonDto + WhatsAppTemplateDto.Buttons; UI PlantillasWhatsApp muestra los botones en el
+     detalle (solo lectura, con badge "dinamico" para URL con variable).
+- Nota: los botones son SOLO LECTURA (Meta los define y los pinta al entregar). Que cada boton lleve una URL
+  distinta POR TAREA (el /d/{token}) es un paso aparte: enviar el componente `button` (sub_type url) en el send;
+  no incluido aqui.
+- Prod aplica la migracion sola (ECOREX_RUN_MIGRATIONS=true en el compose from-git).
+- Archivos: WhatsAppTemplate.cs, IYCloudApiClient.cs, YCloudTemplateParser.cs, WhatsAppTemplateService.cs,
+  WhatsAppTemplateDtos.cs, EcorexDbContext.cs, 2 migraciones, PlantillasWhatsApp.razor + tests. Build Release verde;
+  37 tests de plantillas/parser OK; format limpio. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.145: WhatsApp plantilla con header de documento - no enviar a ciegas + log del render PDF
 
 - Reportado en prod (T00179, AGROMETALICAS): el nodo "Gestion del agente" NO entrega el WhatsApp `entrega_cotizacion`.

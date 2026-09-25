@@ -14710,6 +14710,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("body_text");
 
+                    b.Property<string>("ButtonsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("buttons_json");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasMaxLength(40)

@@ -48,6 +48,15 @@ public class WhatsAppTemplate : TenantEntity
     /// </summary>
     public string VariablesJson { get; set; } = "[]";
 
+    /// <summary>
+    /// JSON con los BOTONES de la plantilla, IMPORTADOS de Meta (solo lectura; Meta los pinta al entregar):
+    /// [{ "type": "URL"|"QUICK_REPLY"|"PHONE_NUMBER"|"COPY_CODE"|..., "text": "...", "url": "...",
+    /// "phoneNumber": "...", "hasUrlVariable": true }]. jsonb en PostgreSQL, nvarchar(max) en SQL Server
+    /// (DAL dual). Null/[] = plantilla sin botones. hasUrlVariable indica un boton URL con sufijo {{1}}
+    /// (dinamico por envio); los demas botones son estaticos.
+    /// </summary>
+    public string? ButtonsJson { get; set; }
+
     // === Proveedor / destino del submit ======================================
     /// <summary>Proveedor de la linea (referencia). Null hasta elegir linea.</summary>
     public WhatsAppProvider? Provider { get; set; }

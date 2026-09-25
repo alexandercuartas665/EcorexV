@@ -16,7 +16,7 @@ public static class YCloudTemplateParser
         var name = Str(it, "name");
         if (string.IsNullOrWhiteSpace(name)) { return null; }
 
-        var (headerFormat, headerText, bodyText, footerText, varExamples) = ParseComponents(it);
+        var (headerFormat, headerText, bodyText, footerText, varExamples, buttons) = ParseComponents(it);
         return new YCloudTemplateStatus(
             name!,
             Str(it, "language"),
@@ -24,17 +24,19 @@ public static class YCloudTemplateParser
             Str(it, "id"),
             Str(it, "rejectedReason") ?? Str(it, "qualityScore"),
             Str(it, "category"),
-            headerFormat, headerText, bodyText, footerText, varExamples);
+            headerFormat, headerText, bodyText, footerText, varExamples, buttons);
     }
 
-    private static (string? headerFormat, string? headerText, string? bodyText, string? footerText, IReadOnlyList<string>? varExamples)
+    private static (string? headerFormat, string? headerText, string? bodyText, string? footerText,
+        IReadOnlyList<string>? varExamples, IReadOnlyList<WhatsAppTemplateButtonInfo>? buttons)
         ParseComponents(JsonElement it)
     {
         string? headerFormat = null, headerText = null, bodyText = null, footerText = null;
         List<string>? varExamples = null;
+        List<WhatsAppTemplateButtonInfo>? buttons = null;
         if (!it.TryGetProperty("components", out var comps) || comps.ValueKind != JsonValueKind.Array)
         {
-            return (null, null, null, null, null);
+            return (null, null, null, null, null, null);
         }
         foreach (var c in comps.EnumerateArray())
         {
@@ -64,9 +66,34 @@ public static class YCloudTemplateParser
                 case "FOOTER":
                     footerText = Str(c, "text");
                     break;
+                case "BUTTONS":
+                    buttons = ParseButtons(c);
+                    break;
             }
         }
-        return (headerFormat, headerText, bodyText, footerText, varExamples);
+        return (headerFormat, headerText, bodyText, footerText, varExamples, buttons);
+    }
+
+    /// <summary>Lee el arreglo <c>buttons[]</c> de un componente BUTTONS (formato Meta). Cada boton trae
+    /// type (URL/QUICK_REPLY/PHONE_NUMBER/COPY_CODE/...), text y, segun el tipo, url o phone_number. Un boton
+    /// URL con <c>{{</c> en la url es DINAMICO (sufijo variable por envio). Devuelve null si no hay botones.</summary>
+    private static List<WhatsAppTemplateButtonInfo>? ParseButtons(JsonElement comp)
+    {
+        if (!comp.TryGetProperty("buttons", out var arr) || arr.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        var list = new List<WhatsAppTemplateButtonInfo>();
+        foreach (var b in arr.EnumerateArray())
+        {
+            if (b.ValueKind != JsonValueKind.Object) { continue; }
+            var type = Str(b, "type")?.ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(type)) { continue; }
+            var url = Str(b, "url");
+            var hasVar = !string.IsNullOrWhiteSpace(url) && url!.Contains("{{", StringComparison.Ordinal);
+            list.Add(new WhatsAppTemplateButtonInfo(type!, Str(b, "text"), url, Str(b, "phone_number"), hasVar));
+        }
+        return list.Count > 0 ? list : null;
     }
 
     private static string? Str(JsonElement el, string prop)

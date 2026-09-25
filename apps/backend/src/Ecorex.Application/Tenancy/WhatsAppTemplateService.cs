@@ -389,6 +389,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             var headerText = string.IsNullOrWhiteSpace(it.HeaderText) ? null : it.HeaderText!.Trim();
             var footerText = string.IsNullOrWhiteSpace(it.FooterText) ? null : it.FooterText!.Trim();
             var variablesJson = BuildPositionalVariablesJson(it.VariableExamples);
+            var buttonsJson = BuildButtonsJson(it.Buttons);
             var rejection = status == WhatsAppTemplateStatus.Rejected ? it.RejectedReason : null;
 
             if (byKey.TryGetValue((name.ToLowerInvariant(), language.ToLowerInvariant()), out var existing))
@@ -401,6 +402,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
                 existing.BodyText = body;
                 existing.FooterText = footerText;
                 existing.VariablesJson = variablesJson;
+                existing.ButtonsJson = buttonsJson;
                 existing.Provider = WhatsAppProvider.YCloud;
                 existing.WhatsAppLineId = line.Id;
                 existing.WabaId = line.YCloudWabaId;
@@ -421,6 +423,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
                     BodyText = body,
                     FooterText = footerText,
                     VariablesJson = variablesJson,
+                    ButtonsJson = buttonsJson,
                     Provider = WhatsAppProvider.YCloud,
                     WhatsAppLineId = line.Id,
                     WabaId = line.YCloudWabaId,
@@ -443,9 +446,29 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
     // ===== Helpers ============================================================
 
     // Huella de los campos que el import puede cambiar (para distinguir "actualizada" de "sin cambios").
+    // Los botones se guardan en camelCase (type/text/url/phoneNumber/hasUrlVariable); al leerlos toleramos
+    // cualquier casing por robustez.
+    private static readonly JsonSerializerOptions ButtonsJsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private static string Fingerprint(WhatsAppTemplate t)
         => string.Join("|", t.Category, t.Status, t.HeaderType, t.HeaderText, t.BodyText, t.FooterText,
-            t.VariablesJson, t.ProviderTemplateId, t.RejectionReason, t.WabaId);
+            t.VariablesJson, t.ButtonsJson, t.ProviderTemplateId, t.RejectionReason, t.WabaId);
+
+    /// <summary>Serializa los botones importados de Meta a JSON (o null si no hay). Se guarda tal cual para
+    /// mostrarlos en el admin; Meta los pinta al entregar (no viajan en el envio salvo el sufijo dinamico).</summary>
+    private static string? BuildButtonsJson(IReadOnlyList<WhatsAppTemplateButtonInfo>? buttons)
+    {
+        if (buttons is null || buttons.Count == 0) { return null; }
+        var shaped = buttons.Select(b => new
+        {
+            type = b.Type,
+            text = b.Text,
+            url = b.Url,
+            phoneNumber = b.PhoneNumber,
+            hasUrlVariable = b.HasUrlVariable
+        });
+        return JsonSerializer.Serialize(shaped);
+    }
 
     private static WhatsAppTemplateCategory MapCategory(string? category) => category?.ToUpperInvariant() switch
     {
@@ -526,9 +549,17 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         IReadOnlyList<WhatsAppTemplateVariable> vars;
         try { vars = JsonSerializer.Deserialize<List<WhatsAppTemplateVariable>>(t.VariablesJson) ?? new(); }
         catch { vars = new List<WhatsAppTemplateVariable>(); }
+        IReadOnlyList<WhatsAppTemplateButtonDto> buttons;
+        try
+        {
+            buttons = string.IsNullOrWhiteSpace(t.ButtonsJson)
+                ? new List<WhatsAppTemplateButtonDto>()
+                : JsonSerializer.Deserialize<List<WhatsAppTemplateButtonDto>>(t.ButtonsJson, ButtonsJsonOptions) ?? new();
+        }
+        catch { buttons = new List<WhatsAppTemplateButtonDto>(); }
         return new WhatsAppTemplateDto(
             t.Id, t.Name, t.Language, t.Category, t.HeaderType, t.HeaderText, t.HeaderMediaUrl, t.BodyText, t.FooterText,
-            vars, t.Provider, t.WhatsAppLineId,
+            vars, buttons, t.Provider, t.WhatsAppLineId,
             lineNames.TryGetValue(t.WhatsAppLineId, out var lineName) ? lineName : null,
             t.WabaId, t.Status, t.ProviderTemplateId, t.RejectionReason,
             t.SubmittedAt, t.ReviewedAt, t.IsActive);

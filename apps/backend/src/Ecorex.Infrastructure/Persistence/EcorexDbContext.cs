@@ -3224,6 +3224,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.FooterText).HasMaxLength(60);
             // Variables de ejemplo: jsonb en PostgreSQL, nvarchar(max) en SQL Server (DAL dual).
             b.Property(x => x.VariablesJson).HasColumnType(jsonColumnType).IsRequired();
+            // Botones importados de Meta (opcional): jsonb en PostgreSQL, nvarchar(max) en SQL Server.
+            b.Property(x => x.ButtonsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.WabaId).HasMaxLength(120);
             b.Property(x => x.ProviderTemplateId).HasMaxLength(200);
             b.Property(x => x.RejectionReason).HasMaxLength(1000);

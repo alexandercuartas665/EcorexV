@@ -343,10 +343,25 @@ else
             var state = await AuthState;
             _tenantId = state.User.FindFirst("tenant_id")?.Value;
         }
-        _users = (await TenantUsersSvc.ListAsync()).ToList();
-        _types = (await TypesSvc.ListAsync()).ToList();
-        _projects = (await ProjectsSvc.ListAsync()).ToList();
-        _tags = (await TasksSvc.ListTagsAsync()).ToList();
+        // Catalogos del encabezado (usuarios/tipos/proyectos/etiquetas) en un SCOPE EF PROPIO, igual que
+        // ReloadAsync: en Blazor los componentes inicializan en paralelo y compartir el DbContext del circuito
+        // provoca "second operation on this context". Begin() fija el tenant para que el scope nuevo lo herede.
+        if (Guid.TryParse(_tenantId, out var tenantGuid))
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            _users = (await scope.ServiceProvider.GetRequiredService<ITenantUserService>().ListAsync()).ToList();
+            _types = (await scope.ServiceProvider.GetRequiredService<IActivityTypeService>().ListAsync()).ToList();
+            _projects = (await scope.ServiceProvider.GetRequiredService<IProjectService>().ListAsync()).ToList();
+            _tags = (await scope.ServiceProvider.GetRequiredService<ITaskItemService>().ListTagsAsync()).ToList();
+        }
+        else
+        {
+            _users = (await TenantUsersSvc.ListAsync()).ToList();
+            _types = (await TypesSvc.ListAsync()).ToList();
+            _projects = (await ProjectsSvc.ListAsync()).ToList();
+            _tags = (await TasksSvc.ListTagsAsync()).ToList();
+        }
         await ReloadAsync();
         _loading = false;
         await EnsureHubAsync();

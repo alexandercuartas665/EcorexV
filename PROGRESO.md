@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.137: deuda "DbContext por operacion en circuito Blazor" (ADR-0109)
+
+- Objetivo: atacar la raiz de los crashes "A second operation was started on this context".
+- Decision (ADR-0109): el primitivo seguro es **scope EF nuevo + `AmbientTenantContext.Begin` (+ gate si hay
+  concurrencia)**, NO `IDbContextFactory` crudo. Motivo: el factory crudo crea contextos con el provider raiz
+  -> `ITenantContext` sin el tenant del circuito -> FUGA cross-tenant (regla #1). El scope nuevo re-resuelve el
+  tenant. Hallazgo: el equipo YA usa este patron en los caminos calientes (`TaskKanban.ReloadAsync`, NavMenu,
+  MainLayout, Inicio).
+- Hecho en esta tanda: `TaskKanban.OnInitializedAsync` (catalogos usuarios/tipos/proyectos/etiquetas) pasa del
+  DbContext del circuito a un scope propio con Begin (igual que su ReloadAsync). Validado: board carga (12 cards)
+  sin error ni "second operation".
+- PENDIENTE (deuda incremental, documentada en ADR-0109): convertir el resto de paginas UNA a la vez al mismo
+  patron, cada tanda pasando por `TenantIsolationTests`. NO big-bang (un error = fuga cross-tenant). Tras el fix
+  del shell (v0.16.136), el barrido de 11 modulos ya quedo sin crashes, asi que el riesgo residual es bajo.
+- Archivos: TaskKanban.razor, docs/decisiones/ADR-0109-*.md. Build verde.
+
 ## 2026-09-24 - v0.16.135/136: crashes de circuito (DbContext concurrente), header YCloud, NIT, hora local, badge proveedor
 
 Batch grande (sin migracion). Deploy verificado (build Release + tests).

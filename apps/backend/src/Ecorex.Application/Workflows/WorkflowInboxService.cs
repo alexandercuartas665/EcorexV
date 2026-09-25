@@ -608,7 +608,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken) is { } missingForm)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid(
-                $"Este paso requiere el formulario '{missingForm}'. Diligencialo y ENVIALO (boton Enviar) antes de cerrar.");
+                $"Este paso requiere el formulario '{missingForm}'. Diligencialo antes de cerrar (al cerrar se envia solo; no hace falta pulsar Enviar).");
         }
 
         // Auto-envio al cerrar (fix del "gotcha"): si el paso tiene formularios DILIGENCIADOS pero aun en
@@ -617,6 +617,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         // en vez de perderse porque la persona cerro el paso sin pulsar "Enviar". Solo aplica a formularios
         // CON datos; los obligatorios ya se validaron arriba, y un borrador vacio se deja como esta.
         await AutoSubmitFilledStepFormsAsync(step, tenantUserId, cancellationToken);
+        // Ademas, los formularios OBLIGATORIOS del nodo diligenciados pero SIN link de paso (p.ej. el COT creado
+        // desde la tarjeta de genero, anclado a "{numero}-{n}") tambien se dan por enviados al cerrar.
+        await AutoSubmitRequiredNodeFormsByReferenceAsync(step, node, tenantUserId, cancellationToken);
 
         // La decision (approvalResult) se captura EN el paso Task que entra a la compuerta. El
         // motor la propaga: al avanzar, el exclusiveGateway se auto-resuelve heredando este
@@ -662,6 +665,47 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 response.SubmittedByTenantUserId = tenantUserId;
             }
             link.Status = FormFlowLinkStatus.Completed;
+            changed = true;
+        }
+        if (changed) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>Al cerrar el paso, da por ENVIADOS los formularios OBLIGATORIOS del nodo que estan DILIGENCIADOS
+    /// (con datos) pero en borrador, anclados al numero de la tarea o a una variante "{numero}-{n}", AUNQUE no
+    /// tengan FormFlowLink (p.ej. el COT creado desde la tarjeta de genero, no desde "Diligenciar" del paso).
+    /// Complementa a AutoSubmitFilledStepFormsAsync (que solo cubre los links Pending del paso).</summary>
+    private async Task AutoSubmitRequiredNodeFormsByReferenceAsync(
+        Domain.Entities.WorkflowStepHistory step, Domain.Entities.WorkflowNode node, Guid tenantUserId,
+        CancellationToken cancellationToken)
+    {
+        var requiredDefIds = await _db.WorkflowNodeForms.AsNoTracking()
+            .Where(f => f.NodeId == node.Id && f.IsRequired)
+            .Select(f => f.DefinitionId)
+            .ToListAsync(cancellationToken);
+        if (requiredDefIds.Count == 0) { return; }
+
+        var taskNumber = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == step.InstanceId && i.TaskItemId != null)
+            .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, t => t.Id, (i, t) => t.Number)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (taskNumber == null) { return; }
+        var variantPrefix = taskNumber + "-";
+
+        var drafts = await _db.FormResponses
+            .Where(r => requiredDefIds.Contains(r.DefinitionId) && r.Reference != null
+                && (r.Reference == taskNumber || r.Reference.StartsWith(variantPrefix))
+                && r.Status == FormResponseStatus.Draft)
+            .ToListAsync(cancellationToken);
+        if (drafts.Count == 0) { return; }
+
+        var now = DateTimeOffset.UtcNow;
+        var changed = false;
+        foreach (var r in drafts)
+        {
+            if (!FormHasData(r.Data)) { continue; } // borrador vacio: no se envia
+            r.Status = FormResponseStatus.Submitted;
+            r.SubmittedAt = now;
+            r.SubmittedByTenantUserId = tenantUserId;
             changed = true;
         }
         if (changed) { await _db.SaveChangesAsync(cancellationToken); }
@@ -813,7 +857,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken) is { } missingForm)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid(
-                $"Esta compuerta requiere el formulario '{missingForm}'. Diligencialo y ENVIALO (boton Enviar) antes de elegir la ruta.");
+                $"Esta compuerta requiere el formulario '{missingForm}'. Diligencialo antes de elegir la ruta (se envia solo al avanzar).");
         }
 
         return await _engine.ChooseGatewayRouteAsync(
@@ -852,13 +896,20 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 select l.Id).AnyAsync(cancellationToken);
             if (linkDone) { continue; }
 
-            var respDone = taskNumber != null && await _db.FormResponses.AsNoTracking()
-                .AnyAsync(r => r.DefinitionId == def.Id && r.Reference != null
-                    && (r.Reference == taskNumber || r.Reference.StartsWith(variantPrefix))
-                    && r.Status == FormResponseStatus.Submitted, cancellationToken);
-            if (respDone) { continue; }
+            // "Listo" = enviado, O un BORRADOR CON DATOS anclado al numero base o a una variante "{numero}-{n}":
+            // basta con que este DILIGENCIADO (no hace falta pulsar Enviar); al cerrar el paso se auto-envia. Se
+            // evalua FormHasData en memoria (una tarea tiene pocas respuestas por definicion).
+            var candidates = taskNumber == null
+                ? new List<(FormResponseStatus Status, string? Data)>()
+                : (await _db.FormResponses.AsNoTracking()
+                    .Where(r => r.DefinitionId == def.Id && r.Reference != null
+                        && (r.Reference == taskNumber || r.Reference.StartsWith(variantPrefix)))
+                    .Select(r => new { r.Status, r.Data })
+                    .ToListAsync(cancellationToken))
+                    .Select(x => (x.Status, x.Data)).ToList();
+            if (candidates.Any(c => c.Status == FormResponseStatus.Submitted || FormHasData(c.Data))) { continue; }
 
-            return string.IsNullOrWhiteSpace(def.Title) ? def.Code : def.Title; // este obligatorio falta
+            return string.IsNullOrWhiteSpace(def.Title) ? def.Code : def.Title; // este obligatorio: ni enviado ni con datos
         }
         return null;
     }

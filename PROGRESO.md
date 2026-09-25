@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.143: formulario obligatorio - con que este DILIGENCIADO basta (no hace falta Enviar)
+
+- Aclaracion del usuario sobre v0.16.142: la idea es que si el formulario obligatorio esta LISTO (lleno) baste,
+  sin obligar a pulsar "Enviar".
+- Cambio: el gate FirstUnfilledRequiredFormAsync se satisface con un formulario ENVIADO **o un BORRADOR CON DATOS**
+  (FormHasData) anclado al numero base o a una variante "{numero}-{n}". Solo bloquea si esta vacio.
+- Al CERRAR el paso, ademas del auto-envio por link (AutoSubmitFilledStepFormsAsync), nuevo
+  AutoSubmitRequiredNodeFormsByReferenceAsync: envia los borradores CON DATOS de los formularios obligatorios del
+  nodo anclados por referencia (base/variante) aunque NO tengan FormFlowLink (caso COT desde tarjeta de genero).
+- Mensajes actualizados: "Diligencialo antes de cerrar (al cerrar se envia solo; no hace falta pulsar Enviar)".
+- Archivos: WorkflowInboxService.cs. Build verde; 35 tests de workflow/inbox OK. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.142: formulario obligatorio del paso - acepta variantes + nombra cual (ADR-0077)
 
 - Reportado en prod (T00179): al marcar el paso "Se prepara la cotizacion" dice "formulario obligatorio" aunque

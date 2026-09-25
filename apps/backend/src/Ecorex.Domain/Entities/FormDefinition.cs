@@ -65,6 +65,11 @@ public class FormDefinition : TenantEntity, IVersioned
     /// <summary>Si es true, el formulario es un modulo con nodo de menu propio y bandeja en /m/{code}.</summary>
     public bool IsModule { get; set; }
 
+    /// <summary>Si es true, el formulario es FUENTE de reportes (form:{code}) SIN ser modulo (ADR-0068): aparece
+    /// en el catalogo de reportes pero NO en el menu ni en /m/{code}. Independiente de <see cref="IsModule"/>
+    /// (un modulo ya es reportable por si mismo). Default false.</summary>
+    public bool IsReportable { get; set; }
+
     /// <summary>Nodo de menu generado al promover a modulo (el usuario elige DONDE colgarlo). Null si no es modulo.</summary>
     public Guid? ModuleMenuNodeId { get; set; }
 

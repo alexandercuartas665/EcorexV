@@ -692,7 +692,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.CardLayout, definition.CustomCss,
             definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
             definition.HideSubmitBar, definition.StatusLadderJson, definition.ThemeJson, definition.KpisJson,
-            definition.CloseRuleJson);
+            definition.CloseRuleJson, definition.IsReportable);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -724,6 +724,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         // Ancho de tarjeta y "ocultar barra de envio": se guardan desde el mismo panel de Propiedades.
         definition.CardLayout = request.CardLayout;
         definition.HideSubmitBar = request.HideSubmitBar;
+        // Reportable-no-modulo (ADR-0068 ext): NO toca IsModule ni la logica de menu; solo marca el form como
+        // fuente de reportes. Independiente del toggle Modulo (un modulo ya es reportable por si mismo).
+        definition.IsReportable = request.IsReportable;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

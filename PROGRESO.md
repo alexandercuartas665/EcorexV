@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.139: formulario REPORTABLE sin ser modulo (flag IsReportable, ADR-0110)
+
+- Peticion de la sesion de Reportes: que un form de captura que NO es modulo pueda ser fuente de reportes
+  (form:{code}) sin convertirlo en modulo. Antes FormResponseReportReader (ADR-0068) solo publicaba is_module.
+- Nuevo flag **FormDefinition.IsReportable** (columna is_reportable, bool NOT NULL default false). Migracion
+  DUAL (PG 20260925_AddFormIsReportable + SQL Server). El reader ahora usa (IsModule || IsReportable) en sus 3
+  condiciones (ListModules/Describe/Query-resolve-id). Clave sigue form:{code}; sin otros cambios de contrato.
+- Self-serve en el disenador: checkbox "Disponible para reportes" junto al toggle "Es un modulo" (pestana Modulo
+  de Propiedades). Se persiste por SetTransactionalAsync (panel Propiedades): NO toca IsModule ni menu/modulo/
+  export. Campos: IsReportable en FormDefinitionDetailDto + SetFormTransactionalRequest; carga/guardado en
+  FormDesigner. FormGridCalculator no interviene.
+- Validado en dev (AGRO): marcar COT como reportable persiste is_reportable=t sin cambiar is_module; el checkbox
+  renderiza "form:COT". Test de integracion (matriz dual): un form IsReportable=true/IsModule=false aparece en el
+  catalogo, uno con ambos false NO, y un modulo sigue apareciendo (ReportAuthoringTests).
+- Sin efectos colaterales sobre IsModule. Solo ASCII. Build verde (solucion completa). NO desplegado (a senal de
+  Alexander). Archivos: FormDefinition.cs, FormResponseReportReader.cs (3 condiciones), FormDtos.cs (2 records),
+  FormDefinitionService.cs (map + save), EcorexDbContext.cs (HasDefaultValue), FormDesigner.razor (checkbox),
+  migraciones DUAL, ReportAuthoringTests.cs, ADR-0110.
+
 ## 2026-09-25 - v0.16.137: deuda "DbContext por operacion en circuito Blazor" (ADR-0109)
 
 - Objetivo: atacar la raiz de los crashes "A second operation was started on this context".

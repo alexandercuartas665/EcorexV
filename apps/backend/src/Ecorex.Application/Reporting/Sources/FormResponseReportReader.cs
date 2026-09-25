@@ -71,7 +71,8 @@ public sealed class FormResponseReportReader
     public async Task<IReadOnlyList<ReportSourceDescriptor>> ListModulesAsync(CancellationToken ct = default)
     {
         var modules = await _db.FormDefinitions.AsNoTracking()
-            .Where(d => d.IsModule && !d.IsArchived)
+            // Reportable = modulo (is_module) O marcado reportable-no-modulo (is_reportable, ADR-0068 ext).
+            .Where(d => (d.IsModule || d.IsReportable) && !d.IsArchived)
             .OrderBy(d => d.Title)
             .Select(d => new { d.Id, d.Code, d.Title })
             .ToListAsync(ct);
@@ -90,7 +91,7 @@ public sealed class FormResponseReportReader
     public async Task<ReportSourceDescriptor?> DescribeAsync(string code, CancellationToken ct = default)
     {
         var module = await _db.FormDefinitions.AsNoTracking()
-            .Where(d => d.IsModule && !d.IsArchived && d.Code == code)
+            .Where(d => (d.IsModule || d.IsReportable) && !d.IsArchived && d.Code == code)
             .Select(d => new { d.Id, d.Code, d.Title })
             .FirstOrDefaultAsync(ct);
         if (module is null)
@@ -144,7 +145,7 @@ public sealed class FormResponseReportReader
             ?? throw new ReportValidationException($"Clave de modulo invalida: '{descriptor.Key}'.");
 
         var definitionId = await _db.FormDefinitions.AsNoTracking()
-            .Where(d => d.IsModule && d.Code == code)
+            .Where(d => (d.IsModule || d.IsReportable) && d.Code == code)
             .Select(d => (Guid?)d.Id)
             .FirstOrDefaultAsync(ct);
         if (definitionId is null)

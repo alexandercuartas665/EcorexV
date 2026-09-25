@@ -5421,6 +5421,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_module");
 
+                    b.Property<bool>("IsReportable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_reportable");
+
                     b.Property<bool>("IsTransactional")
                         .HasColumnType("bit")
                         .HasColumnName("is_transactional");

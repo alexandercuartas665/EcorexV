@@ -117,6 +117,51 @@ public abstract class ReportAuthoringTestsBase
         }
     }
 
+    [Fact]
+    public async Task FormReportReader_IncludesModuleAndReportable_ExcludesPlainForm()
+    {
+        // ADR-0068 ext (IsReportable): un form puede ser fuente de reportes (form:{code}) por ser MODULO o por
+        // estar marcado reportable-no-modulo. Un form normal (ambos false) NO aparece en el catalogo.
+        var tenantId = Guid.CreateVersion7();
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            ctx.Tenants.Add(new Tenant { Id = tenantId, Name = "Rep-" + tenantId.ToString("N")[..6] });
+            await ctx.SaveChangesAsync();
+        }
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            ctx.FormDefinitions.Add(NewForm(tenantId, "MODU", "Modulo", isModule: true, isReportable: false));
+            ctx.FormDefinitions.Add(NewForm(tenantId, "REPO", "Reportable sin modulo", isModule: false, isReportable: true));
+            ctx.FormDefinitions.Add(NewForm(tenantId, "PLAI", "Formulario normal", isModule: false, isReportable: false));
+            await ctx.SaveChangesAsync();
+        }
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var reader = new FormResponseReportReader(ctx);
+            var codes = (await reader.ListModulesAsync())
+                .Select(m => FormResponseReportReader.ParseCode(m.Key)).ToHashSet();
+            Assert.Contains("MODU", codes);   // el modulo sigue apareciendo
+            Assert.Contains("REPO", codes);   // reportable-no-modulo aparece
+            Assert.DoesNotContain("PLAI", codes); // form normal NO aparece
+
+            Assert.NotNull(await reader.DescribeAsync("REPO")); // describible por code
+            Assert.NotNull(await reader.DescribeAsync("MODU"));
+            Assert.Null(await reader.DescribeAsync("PLAI"));
+        }
+    }
+
+    private static FormDefinition NewForm(Guid tenantId, string code, string title, bool isModule, bool isReportable)
+        => new()
+        {
+            Id = Guid.CreateVersion7(),
+            TenantId = tenantId,
+            Code = code,
+            Title = title,
+            Status = FormStatus.Active,
+            IsModule = isModule,
+            IsReportable = isReportable
+        };
+
     // ---- Helpers ----
 
     private async Task<ReportAuthoringResult> AuthorAsync(Guid tenantId, string cannedJson)

@@ -551,6 +551,9 @@ else
                 @if (_propsTab == "modulo")
                 {
                 <label class="pl-toggle"><input type="checkbox" @bind="_isModule" @bind:after="OnModuleToggledAsync" /> Es un modulo del sistema (menu propio + bandeja en /m/@_def.Code)</label>
+                @* Reportable SIN ser modulo (ADR-0068 ext): habilita form:{code} como fuente de reportes sin
+                   agregarlo al menu ni a /m/{code}. Se guarda con el boton Guardar del modal (SetTransactional). *@
+                <label class="pl-toggle" style="margin-top:8px;"><input type="checkbox" @bind="_isReportable" /> Disponible para reportes (fuente <code>form:@_def.Code</code>, sin menu)</label>
                 @if (_isModule)
                 {
                     <div class="field-row" style="margin-top:12px;">
@@ -725,6 +728,7 @@ else
     }
     // Formulario como modulo (ola F4).
     private bool _isModule;
+    private bool _isReportable;
     private Guid? _moduleViewId;
     private string? _moduleParentId;
     private string? _moduleIcon;
@@ -1655,6 +1659,7 @@ else
         _txNextMsg = null; _txNextOk = false;
         _cardLayout = _def.CardLayout;
         _hideSubmitBar = _def.HideSubmitBar;
+        _isReportable = _def.IsReportable;
         _customCss = _def.CustomCss ?? "";
         _statusLadderJson = _def.StatusLadderJson;
         _themeJson = _def.ThemeJson;
@@ -1729,7 +1734,7 @@ else
         {
             var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
                 new SetFormTransactionalRequest(_txIsTransactional, mode, _txField, _cardLayout,
-                    _txPrefix, _txPadding, _hideSubmitBar));
+                    _txPrefix, _txPadding, _hideSubmitBar, _isReportable));
             if (!tx.IsOk) { _modalError = tx.Error; return; }
             _def = tx.Value;
             // Refresca el preview con lo persistido (prefijo/padding normalizados + next_value actual).

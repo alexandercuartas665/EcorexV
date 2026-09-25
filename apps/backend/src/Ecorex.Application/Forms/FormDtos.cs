@@ -83,7 +83,9 @@ public sealed record FormDefinitionDetailDto(
     // KPIs configurables de la bandeja del modulo (Ola 6/A1). Null = KPIs por defecto.
     string? KpisJson = null,
     // Cierre por evento de un registro transaccional (Ola 6/A3). Null = sin cierre automatico.
-    string? CloseRuleJson = null);
+    string? CloseRuleJson = null,
+    // Reportable-no-modulo (ADR-0068 ext): el form es fuente de reportes (form:{code}) sin ser modulo.
+    bool IsReportable = false);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding
@@ -92,7 +94,9 @@ public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode,
     FormCardLayout CardLayout = FormCardLayout.Normal,
     string? IdentityPrefix = null, int IdentityPadding = 6,
-    bool HideSubmitBar = false);
+    bool HideSubmitBar = false,
+    // Reportable-no-modulo (ADR-0068 ext): fuente de reportes sin promover a modulo. Se edita en el mismo panel.
+    bool IsReportable = false);
 
 /// <summary>Fija el "proximo numero" (next_value) del consecutivo de un formulario. Operacion separada
 /// del guardado del panel: valida anti-colision (no bajar por debajo de un numero ya emitido).</summary>

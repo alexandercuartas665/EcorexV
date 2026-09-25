@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.140: gridDerive - operador de igualdad "=<valor>"
+
+- Peticion de config: gridDerive (CONVERTIR_A_FORMULARIO, v0.16.138) necesita igualdad para select SI/NO.
+- GridDeriveMatches (FormResponseService): nuevo operador **"=<valor>"** (compara la celda con lo que sigue al
+  '=', trim + case-insensitive; ej. "=SI" marca solo si la celda es "SI"). Se mantienen ">N" y "notempty".
+  Actualizado el doc del record GridDeriveRule y el param descriptor del verbo. Build verde. NO desplegado.
+
 ## 2026-09-25 - v0.16.139: formulario REPORTABLE sin ser modulo (flag IsReportable, ADR-0110)
 
 - Peticion de la sesion de Reportes: que un form de captura que NO es modulo pueda ser fuente de reportes

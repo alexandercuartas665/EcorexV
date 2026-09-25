@@ -1554,8 +1554,9 @@ public sealed class FormResponseService : IFormResponseService
     }
 
     /// <summary>Evalua el operador 'when' de una regla gridDerive sobre el valor de una celda. Extensible:
-    /// "&gt;N" = numerico mayor que N (ej. "&gt;0"; reusa el parseo del motor de grillas); "notempty" = no vacio y
-    /// distinto de "0"/"false". Operador desconocido o valor no numerico en "&gt;N" -> false (no marca).</summary>
+    /// "&gt;N" = numerico mayor que N (ej. "&gt;0"; reusa el parseo del motor de grillas); "=&lt;valor&gt;" = igualdad
+    /// (trim, case-insensitive; ej. "=SI" marca solo si la celda es "SI"); "notempty" = no vacio y distinto de
+    /// "0"/"false". Operador desconocido o valor no numerico en "&gt;N" -> false (no marca).</summary>
     private static bool GridDeriveMatches(string? when, string? value)
     {
         when = when?.Trim();
@@ -1564,6 +1565,11 @@ public sealed class FormResponseService : IFormResponseService
         {
             var threshold = Calc.FormGridCalculator.ParseNumber(when[1..]) ?? 0m;
             return Calc.FormGridCalculator.ParseNumber(value) is decimal n && n > threshold;
+        }
+        if (when.StartsWith('='))
+        {
+            // Igualdad exacta con lo que sigue al '=': trim + case-insensitive (celda vacia solo iguala a "=").
+            return string.Equals((value ?? string.Empty).Trim(), when[1..].Trim(), StringComparison.OrdinalIgnoreCase);
         }
         if (string.Equals(when, "notempty", StringComparison.OrdinalIgnoreCase))
         {

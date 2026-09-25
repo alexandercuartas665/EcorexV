@@ -4,8 +4,8 @@ namespace Ecorex.Application.Forms;
 /// Regla de AUTO-MARCADO de una columna de grilla en la conversion de formularios (gridDerive): en cada fila del
 /// grid destino, si <see cref="When"/> se cumple sobre el valor de la columna <see cref="From"/>, se pone
 /// <see cref="Set"/> en la columna <see cref="Target"/>; si no, <see cref="Target"/> queda vacio. El resto de la
-/// fila no se toca. Operadores <see cref="When"/>: "&gt;N" (numerico mayor que N, ej. "&gt;0") y "notempty"
-/// (no vacio y distinto de "0"/"false"); extensible.
+/// fila no se toca. Operadores <see cref="When"/>: "&gt;N" (numerico mayor que N, ej. "&gt;0"), "=&lt;valor&gt;"
+/// (igualdad exacta trim + case-insensitive, ej. "=SI") y "notempty" (no vacio y distinto de "0"/"false"); extensible.
 /// </summary>
 public sealed record GridDeriveRule(string Target, string From, string When, string Set);
 

@@ -53,8 +53,9 @@ public sealed class ConvertirAFormularioVerb : IRuleVerb
                 "Opcional. AUTO-MARCA columnas de una grilla por fila segun una condicion sobre OTRA columna de la "
                 + "MISMA fila (corre DESPUES de copiar; no toca el resto de la fila). JSON { grilla: [ { target, "
                 + "from, when, set } ] }. Por cada regla: si 'when' se cumple sobre la columna 'from', pone 'set' en "
-                + "'target'; si no, 'target' queda vacio. Operadores 'when': '>N' (numerico mayor que N, ej. '>0') y "
-                + "'notempty' (no vacio y distinto de 0/false). Ej.: "
+                + "'target'; si no, 'target' queda vacio. Operadores 'when': '>N' (numerico mayor que N, ej. '>0'), "
+                + "'=<valor>' (igualdad exacta trim + case-insensitive, ej. '=SI') y 'notempty' (no vacio y distinto "
+                + "de 0/false). Ej.: "
                 + "{ \"items\": [ { \"target\": \"ciz\", \"from\": \"cortes\", \"when\": \">0\", \"set\": \"X\" } ] }."),
             new RuleVerbParamDescriptor("defaults", "Valores por defecto / transformacion", RuleParamType.Json, Required: false,
                 "Opcional. JSON { campoDestino: valor } que RELLENA campos del destino que NO vienen del origen "

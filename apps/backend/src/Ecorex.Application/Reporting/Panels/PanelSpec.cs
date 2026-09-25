@@ -318,6 +318,7 @@ public sealed class PanelColumn
     /// <summary>Campo de la agregacion (no requerido para count).</summary>
     public string? AggField { get; set; }
 
-    /// <summary>Formato numerico: money | moneyM | percent | int.</summary>
+    /// <summary>Formato: money | moneyM | percent | int | date | datetime. Los de fecha aplican TAMBIEN a
+    /// columnas de campo directo (date -> yyyy-MM-dd, datetime -> yyyy-MM-dd HH:mm).</summary>
     public string? Format { get; set; }
 }

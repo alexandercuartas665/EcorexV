@@ -183,4 +183,44 @@ public class PanelDataEngineTests
         Assert.Equal(1234m, PanelDataEngine.AsDecimal("1234"));
         Assert.Null(PanelDataEngine.AsDecimal("x"));
     }
+
+    [Fact]
+    public void FormatValue_DateAndDatetime_OnDirectColumn()
+    {
+        var dto = new DateTimeOffset(2026, 9, 18, 19, 26, 54, TimeSpan.Zero);
+
+        // Columna de campo directo con Format "date"/"datetime": cultura invariante, sin la basura del offset.
+        Assert.Equal("2026-09-18", PanelDataEngine.FormatValue(dto, "date"));
+        Assert.Equal("2026-09-18 19:26", PanelDataEngine.FormatValue(dto, "datetime"));
+
+        // Tambien parsea fecha en texto (como llega del EAV).
+        Assert.Equal("2026-09-18", PanelDataEngine.FormatValue("2026-09-18T19:26:54+00:00", "date"));
+
+        // Numericos siguen respetando su formato; sin formato = texto normalizado; null = celda vacia.
+        Assert.Equal("$1,234", PanelDataEngine.FormatValue(1234m, "money"));
+        Assert.Equal("hola", PanelDataEngine.FormatValue("  hola  ", null));
+        Assert.Equal("", PanelDataEngine.FormatValue(null, "date"));
+
+        // Valor que NO es fecha con Format "date" cae a texto (no revienta).
+        Assert.Equal("N/A", PanelDataEngine.FormatValue("N/A", "date"));
+    }
+
+    [Fact]
+    public void ExportValue_KeepsRealTypesForExcel()
+    {
+        var dto = new DateTimeOffset(2026, 9, 18, 19, 26, 54, TimeSpan.Zero);
+
+        // Fecha -> DateTime REAL (Excel la ordena y filtra), no un string.
+        Assert.Equal(new DateTime(2026, 9, 18, 19, 26, 54), Assert.IsType<DateTime>(PanelDataEngine.ExportValue(dto, "datetime")));
+
+        // Numerico -> decimal real.
+        Assert.Equal(1234m, Assert.IsType<decimal>(PanelDataEngine.ExportValue("1234", "money")));
+
+        // Sin formato pero ya tipado nativo: se conserva.
+        Assert.Equal(7, Assert.IsType<int>(PanelDataEngine.ExportValue(7, null)));
+
+        // Texto plano y null.
+        Assert.Equal("abc", PanelDataEngine.ExportValue("abc", null));
+        Assert.Null(PanelDataEngine.ExportValue(null, "datetime"));
+    }
 }

@@ -19,7 +19,7 @@ public static class PanelSpecValidator
         new(new[] { "sum", "count", "countdistinct", "avg" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownFormats =
-        new(new[] { "money", "moneym", "percent", "int" }, StringComparer.OrdinalIgnoreCase);
+        new(new[] { "money", "moneym", "percent", "int", "date", "datetime" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownDerivedOps =
         new(new[] { "year", "yyyymm", "month", "date", "dow", "weekday" }, StringComparer.OrdinalIgnoreCase);

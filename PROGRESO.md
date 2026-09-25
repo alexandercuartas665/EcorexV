@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.144: tabla de reporte - fecha, scroll/sticky y export a Excel con valores reales (ADR-0111)
+
+- Doc 16 (reportes): el reporte "Registro de cotizaciones (GESTION COMERCIAL)" (AGROMETALICAS, form:{code}, ~129x10)
+  era inservible por 3 temas del MOTOR del renderizador (no del spec).
+- (1) Formato de fecha en columnas: se agregan formatos `date` (yyyy-MM-dd) y `datetime` (yyyy-MM-dd HH:mm) a
+  PanelSpecValidator.KnownFormats. Nuevo PanelDataEngine.FormatValue(raw, format): aplica col.Format a CUALQUIER
+  valor (fechas via AsDate, numericos via Format), cultura invariante; no-fecha o null -> texto/celda vacia. El
+  renderer usa FormatValue para columnas de campo directo (antes Norm ignoraba col.Format -> salia "09/18/2026 ... +00:00").
+- (2) Aspecto de tabla: <table> envuelta en div.rpt-table-wrap (overflow:auto; max-height:60vh; borde/radio); header
+  sticky (thead th position:sticky top:0 bg #fff); tabla a ancho de contenido (width:auto; min-width:100%); celdas
+  white-space:nowrap. El scroll (V y H) queda DENTRO del contenedor; la pagina no scrollea en horizontal. Componente
+  rpt-* es siempre claro (fondos #fff fijos, sin tokens dark).
+- (3) Export a Excel: YA existia (BuildExcelBytes + boton "Generar Excel" en la galeria, ClosedXML). Se corrige a
+  VALORES REALES: nuevo PanelDataEngine.ExportValue(raw, format) devuelve numero/fecha nativos; el renderer captura
+  en el mismo recorrido la fila de texto (tabla) y la de export (real). ReportExcelExport.SetCell ahora escribe
+  DateTime/DateTimeOffset como fecha real (Excel ordena/suma). Respeta filtros (usa _filtered). Filename = "{reporte} {yyyy-MM-dd}.xlsx".
+- Archivos: PanelDataEngine.cs, PanelSpecValidator.cs, PanelSpec.cs, ReportExcelExport.cs, SpecPanelRenderer.razor(.css),
+  ReportGallery.razor + tests (PanelDataEngineTests, ReportExcelExportTests, PanelSpecValidatorTests). Build verde;
+  53 tests de reporting OK; dotnet format limpio. NO desplegado (pido OK). NO se toco la BD de prod.
+- Config pendiente (no codigo): marcar el form COT "REGISTRO COTIZACIONES" como reportable en el disenador de prod.
+
 ## 2026-09-25 - v0.16.143: formulario obligatorio - con que este DILIGENCIADO basta (no hace falta Enviar)
 
 - Aclaracion del usuario sobre v0.16.142: la idea es que si el formulario obligatorio esta LISTO (lleno) baste,

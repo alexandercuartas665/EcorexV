@@ -514,6 +514,7 @@
             }
             var safe = new string((_open.Name ?? "reporte").Where(ch => !Path.GetInvalidFileNameChars().Contains(ch)).ToArray()).Trim();
             if (string.IsNullOrWhiteSpace(safe)) { safe = "reporte"; }
+            safe = $"{safe} {DateTime.Now:yyyy-MM-dd}";
             await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", $"{safe}.xlsx",
                 Convert.ToBase64String(bytes),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

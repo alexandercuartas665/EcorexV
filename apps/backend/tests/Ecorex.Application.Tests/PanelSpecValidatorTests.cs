@@ -329,6 +329,20 @@ public class PanelSpecValidatorTests
     }
 
     [Fact]
+    public void Format_DateAndDatetime_AreKnown_ButBogusIsReported()
+    {
+        var spec = PipelineSpec();
+        spec.Kpis.Add(new PanelKpi { Label = "F1", Agg = "count", Format = "date" });
+        spec.Kpis.Add(new PanelKpi { Label = "F2", Agg = "count", Format = "datetime" });
+        var ok = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.DoesNotContain(ok, e => e.Contains("formato desconocido"));
+
+        spec.Kpis.Add(new PanelKpi { Label = "F3", Agg = "count", Format = "bogus" });
+        var bad = PanelSpecValidator.Validate(spec, PipelineCatalog());
+        Assert.Contains(bad, e => e.Contains("formato desconocido") && e.Contains("bogus"));
+    }
+
+    [Fact]
     public void Where_UnknownOp_IsReported()
     {
         var spec = PipelineSpec();

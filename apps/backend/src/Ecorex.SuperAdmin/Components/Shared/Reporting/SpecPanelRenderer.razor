@@ -141,35 +141,37 @@
                             }
                             break;
                         case WKind.Table:
-                            <table class="rpt-table">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        @for (var i = 0; i < widget.TableHeaders.Count; i++)
-                                        {
-                                            <th class="@(widget.TableNumeric[i] ? "num" : "")">@widget.TableHeaders[i]</th>
-                                        }
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @{ var rank = 0; }
-                                    @foreach (var row in widget.TableRows)
-                                    {
-                                        rank++;
+                            <div class="rpt-table-wrap">
+                                <table class="rpt-table">
+                                    <thead>
                                         <tr>
-                                            <td>@rank</td>
-                                            @for (var i = 0; i < row.Count; i++)
+                                            <th>#</th>
+                                            @for (var i = 0; i < widget.TableHeaders.Count; i++)
                                             {
-                                                <td class="@(widget.TableNumeric[i] ? "num" : "")">@row[i]</td>
+                                                <th class="@(widget.TableNumeric[i] ? "num" : "")">@widget.TableHeaders[i]</th>
                                             }
                                         </tr>
-                                    }
-                                    @if (widget.TableRows.Count == 0)
-                                    {
-                                        <tr><td colspan="@(widget.TableHeaders.Count + 1)" class="rpt-empty">Sin datos para el filtro.</td></tr>
-                                    }
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        @{ var rank = 0; }
+                                        @foreach (var row in widget.TableRows)
+                                        {
+                                            rank++;
+                                            <tr>
+                                                <td>@rank</td>
+                                                @for (var i = 0; i < row.Count; i++)
+                                                {
+                                                    <td class="@(widget.TableNumeric[i] ? "num" : "")">@row[i]</td>
+                                                }
+                                            </tr>
+                                        }
+                                        @if (widget.TableRows.Count == 0)
+                                        {
+                                            <tr><td colspan="@(widget.TableHeaders.Count + 1)" class="rpt-empty">Sin datos para el filtro.</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
                             break;
                         default:
                             <p class="rpt-empty">@widget.Message</p>
@@ -874,11 +876,15 @@
                     {
                         rw.TableHeaders.Add(col.Label);
                         rw.TableNumeric.Add(!string.IsNullOrWhiteSpace(col.Agg));
+                        rw.ExportHeaders.Add(col.Label);
                     }
 
+                    // Se arma en un solo recorrido lo que ve la tabla (texto formateado) y lo que va al
+                    // Excel (valor REAL: numero/fecha nativos) para que Excel pueda ordenar y sumar.
                     foreach (var raw in rows)
                     {
                         var cells = new List<string>(w.Columns.Count);
+                        var exp = new List<object?>(w.Columns.Count);
                         for (var i = 0; i < w.Columns.Count; i++)
                         {
                             var col = w.Columns[i];
@@ -886,14 +892,17 @@
                             {
                                 var dec = raw[i] is decimal d ? d : 0m;
                                 cells.Add(PanelDataEngine.Format(dec, col.Format ?? "int"));
+                                exp.Add(dec);
                             }
                             else
                             {
-                                cells.Add(PanelDataEngine.Norm(raw[i]));
+                                cells.Add(PanelDataEngine.FormatValue(raw[i], col.Format));
+                                exp.Add(PanelDataEngine.ExportValue(raw[i], col.Format));
                             }
                         }
 
                         rw.TableRows.Add(cells);
+                        rw.ExportRows.Add(exp);
                     }
 
                     break;

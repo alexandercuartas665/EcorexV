@@ -142,18 +142,18 @@ public static class PanelDataEngine
             case "contains":
                 return Norm(cell).Contains(target, StringComparison.OrdinalIgnoreCase);
             case "gt" or "gte" or "lt" or "lte":
-            {
-                var a = AsDecimal(cell);
-                var b = AsDecimal(target);
-                if (a is not null && b is not null)
                 {
-                    return CompareOp(a.Value.CompareTo(b.Value), op!);
-                }
+                    var a = AsDecimal(cell);
+                    var b = AsDecimal(target);
+                    if (a is not null && b is not null)
+                    {
+                        return CompareOp(a.Value.CompareTo(b.Value), op!);
+                    }
 
-                var da = AsDate(cell);
-                var db = AsDate(target);
-                return da is not null && db is not null && CompareOp(da.Value.CompareTo(db.Value), op!);
-            }
+                    var da = AsDate(cell);
+                    var db = AsDate(target);
+                    return da is not null && db is not null && CompareOp(da.Value.CompareTo(db.Value), op!);
+                }
             default:
                 return true;
         }
@@ -180,45 +180,45 @@ public static class PanelDataEngine
             case "count":
                 return rows.Count();
             case "countdistinct":
-            {
-                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var r in rows)
                 {
-                    var s = Norm(field is null ? null : r.GetValueOrDefault(field));
-                    if (s.Length > 0)
+                    var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var r in rows)
                     {
-                        set.Add(s);
+                        var s = Norm(field is null ? null : r.GetValueOrDefault(field));
+                        if (s.Length > 0)
+                        {
+                            set.Add(s);
+                        }
                     }
-                }
 
-                return set.Count;
-            }
+                    return set.Count;
+                }
             case "sum":
-            {
-                if (field is null)
                 {
-                    return 0m;
-                }
+                    if (field is null)
+                    {
+                        return 0m;
+                    }
 
-                decimal total = 0m;
-                foreach (var r in rows)
-                {
-                    total += AsDecimal(r.GetValueOrDefault(field)) ?? 0m;
-                }
+                    decimal total = 0m;
+                    foreach (var r in rows)
+                    {
+                        total += AsDecimal(r.GetValueOrDefault(field)) ?? 0m;
+                    }
 
-                return total;
-            }
+                    return total;
+                }
             case "avg":
-            {
-                if (field is null)
                 {
-                    return 0m;
-                }
+                    if (field is null)
+                    {
+                        return 0m;
+                    }
 
-                var vals = rows.Select(r => AsDecimal(r.GetValueOrDefault(field))).Where(x => x.HasValue)
-                    .Select(x => x!.Value).ToList();
-                return vals.Count == 0 ? 0m : Math.Round(vals.Sum() / vals.Count, 0);
-            }
+                    var vals = rows.Select(r => AsDecimal(r.GetValueOrDefault(field))).Where(x => x.HasValue)
+                        .Select(x => x!.Value).ToList();
+                    return vals.Count == 0 ? 0m : Math.Round(vals.Sum() / vals.Count, 0);
+                }
             default:
                 return rows.Count();
         }
@@ -440,6 +440,70 @@ public static class PanelDataEngine
                 return value.ToString("0.#", Inv) + "%";
             default:
                 return value.ToString("N0", Inv);
+        }
+    }
+
+    // ---- Formato de columnas de tabla que NO son agregadas (campo directo) ----
+    // Aplica el 'format' de la columna a un valor crudo. Cubre fechas ("date"/"datetime") y los
+    // formatos numericos ya conocidos; si el valor no encaja con el formato, cae a Norm (texto plano).
+    // Cultura invariante para que PG y SQL Server coincidan. Null/vacio -> celda vacia.
+
+    /// <summary>Texto a MOSTRAR de una celda de campo directo, respetando col.Format.</summary>
+    public static string FormatValue(object? raw, string? format)
+    {
+        if (raw is null) { return ""; }
+        var f = (format ?? "").Trim().ToLowerInvariant();
+        switch (f)
+        {
+            case "date":
+            case "datetime":
+                {
+                    var d = AsDate(raw);
+                    if (d is null) { return Norm(raw); }
+                    return f == "datetime"
+                        ? d.Value.ToString("yyyy-MM-dd HH:mm", Inv)
+                        : d.Value.ToString("yyyy-MM-dd", Inv);
+                }
+            case "money":
+            case "moneym":
+            case "percent":
+            case "int":
+                {
+                    var dec = AsDecimal(raw);
+                    return dec.HasValue ? Format(dec.Value, f) : Norm(raw);
+                }
+            default:
+                return Norm(raw);
+        }
+    }
+
+    /// <summary>Valor REAL (numero/fecha nativos) de una celda para exportar a Excel, respetando col.Format.
+    /// Asi Excel puede ordenar y sumar; si no encaja con el formato, exporta el texto normalizado.</summary>
+    public static object? ExportValue(object? raw, string? format)
+    {
+        if (raw is null) { return null; }
+        var f = (format ?? "").Trim().ToLowerInvariant();
+        switch (f)
+        {
+            case "date":
+            case "datetime":
+                {
+                    var d = AsDate(raw);
+                    return d?.DateTime ?? (object?)Norm(raw);
+                }
+            case "money":
+            case "moneym":
+            case "percent":
+            case "int":
+                {
+                    var dec = AsDecimal(raw);
+                    return dec.HasValue ? dec.Value : (object?)Norm(raw);
+                }
+            default:
+                // Sin formato: si ya viene tipado nativo, exportar tal cual; si no, texto.
+                return raw is decimal or double or float or int or long or short or DateTime or DateTimeOffset
+                    ? raw
+                    : Norm(raw);
         }
     }
 }

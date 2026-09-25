@@ -30,7 +30,12 @@
 .rpt-card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #374151; }
 .rpt-full { grid-column: 1 / -1; overflow-x: auto; }
 
-.rpt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* La tabla scrollea DENTRO de su contenedor (vertical y horizontal); el body de la pagina nunca se
+   desplaza en horizontal. El header queda fijo (sticky) al hacer scroll vertical. */
+.rpt-table-wrap { overflow: auto; max-height: 60vh; border: 1px solid #e5e7eb; border-radius: 8px; }
+.rpt-table { width: auto; min-width: 100%; border-collapse: collapse; font-size: 13px; }
+.rpt-table th, .rpt-table td { white-space: nowrap; }
+.rpt-table thead th { position: sticky; top: 0; background: #fff; z-index: 1; box-shadow: inset 0 -1px 0 #e5e7eb; }
 .rpt-table th { text-align: left; color: #6b7280; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid #e5e7eb; }
 .rpt-table th.num, .rpt-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rpt-table td { padding: 8px 6px; border-bottom: 1px solid #f3f4f6; color: #374151; }

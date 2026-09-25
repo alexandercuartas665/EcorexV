@@ -73,4 +73,31 @@ public class ReportExcelExportTests
         using var wb = Roundtrip(bytes);
         Assert.True(wb.Worksheets.Count >= 1);
     }
+
+    [Fact]
+    public void Build_escribe_fechas_y_numeros_como_valores_reales()
+    {
+        var fecha = new System.DateTime(2026, 9, 18, 19, 26, 54);
+        var sheets = new[]
+        {
+            new ReportExcelSheet("Cotizaciones",
+                new[] { "Fecha", "Total", "Cliente" },
+                new IReadOnlyList<object?>[]
+                {
+                    new object?[] { fecha, 1_500_000m, "ACME" },
+                }),
+        };
+
+        var bytes = ReportExcelExport.Build(System.Array.Empty<(string, string)>(), sheets);
+        using var wb = Roundtrip(bytes);
+        var s = wb.Worksheet("Cotizaciones");
+
+        // La fecha entra como fecha REAL (Excel puede ordenar/filtrar), no como texto.
+        Assert.Equal(XLDataType.DateTime, s.Cell(2, 1).DataType);
+        Assert.Equal(fecha, s.Cell(2, 1).GetDateTime());
+        // El monto entra como numero.
+        Assert.Equal(XLDataType.Number, s.Cell(2, 2).DataType);
+        Assert.Equal(1_500_000d, s.Cell(2, 2).GetDouble());
+        Assert.Equal("ACME", s.Cell(2, 3).GetString());
+    }
 }

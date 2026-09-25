@@ -69,8 +69,12 @@ public static class ReportExcelExport
             case null: break;
             case double d: cell.Value = d; break;
             case decimal m: cell.Value = m; break;
+            case float f: cell.Value = f; break;
             case int i: cell.Value = i; break;
             case long l: cell.Value = l; break;
+            case short s: cell.Value = s; break;
+            case DateTime dt: cell.Value = dt; break;                       // fecha REAL: Excel la ordena y filtra
+            case DateTimeOffset dto: cell.Value = dto.DateTime; break;
             default: cell.Value = v.ToString(); break;
         }
     }

@@ -2,6 +2,7 @@ using System.Text;
 using Ecorex.Application.Common;
 using Ecorex.Application.Notifications;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.Application.Workflows;
 
@@ -15,10 +16,11 @@ public sealed class NodeNotifyService : INodeNotifyService
     private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
     private readonly IWorkflowDecisionLinkService _decisionLinks;
     private readonly Notifications.ITemplateMediaStore _mediaStore;
+    private readonly ILogger<NodeNotifyService> _logger;
 
     public NodeNotifyService(IApplicationDbContext db, INotifyTokenResolver tokens, INotificationChannelSender sender,
         INotifyLinkBuilder link, Forms.IQuoteDocumentRenderer quoteDoc, IWorkflowDecisionLinkService decisionLinks,
-        Notifications.ITemplateMediaStore mediaStore)
+        Notifications.ITemplateMediaStore mediaStore, ILogger<NodeNotifyService> logger)
     {
         _db = db;
         _tokens = tokens;
@@ -27,6 +29,7 @@ public sealed class NodeNotifyService : INodeNotifyService
         _quoteDoc = quoteDoc;
         _decisionLinks = decisionLinks;
         _mediaStore = mediaStore;
+        _logger = logger;
     }
 
     public async Task NotifyStepArrivalAsync(Guid nodeId, Guid stepId, Guid? taskId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -204,6 +207,19 @@ public sealed class NodeNotifyService : INodeNotifyService
                     waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
                         b64, cotDoc.MimeType, cotDoc.FileName, cancellationToken: ct);
                 }
+                else if (templateHasMediaHeader && rule.AdjuntarPdfFormDefId is not null && cotDoc is null)
+                {
+                    // Se configuro adjuntar el PDF (de la cotizacion) como encabezado, pero NO se pudo generar el
+                    // documento (el render devolvio null: plantilla de impresion vacia, sin respuesta anclada o
+                    // fallo de Chromium; el motivo real ya quedo en el log de ResolveFormPdfAsync). La plantilla
+                    // EXIGE un documento en el header: no se envia a ciegas porque Meta lo descartaria en silencio
+                    // tras un HTTP 200 (el clasico "no llego"). Se deja el motivo VISIBLE con la nota de abajo.
+                    _logger.LogWarning(
+                        "Notify WhatsApp '{Plantilla}' NO enviada: la plantilla exige documento en el encabezado y no se pudo generar el PDF (formDef {FormDefId}, plantilla impresion {TemplateId}).",
+                        rule.Plantilla, rule.AdjuntarPdfFormDefId, rule.AdjuntarPdfTemplateId);
+                    waOutcome = new WhatsAppSendOutcome(false,
+                        "La plantilla exige un documento en el encabezado y no se pudo generar el PDF de la cotizacion (revisa la plantilla de impresion y que el formulario tenga datos).");
+                }
                 else if (headerMediaType is not null && headerMediaUrl is null)
                 {
                     // La plantilla EXIGE un documento en el header pero no se pudo publicar (falta ECOREX_PUBLIC_BASE_URL):
@@ -269,11 +285,35 @@ public sealed class NodeNotifyService : INodeNotifyService
                 .ThenBy(r => r.CreatedAt)
                 .Select(r => (Guid?)r.Id)
                 .FirstOrDefaultAsync(ct);
-            if (responseId is not Guid rid) { return null; }
+            if (responseId is not Guid rid)
+            {
+                // No hay respuesta del formulario anclada a la tarea: no hay nada que adjuntar.
+                _logger.LogWarning(
+                    "ResolveFormPdf: sin respuesta del formulario {FormDefId} anclada a la tarea {Numero}; no se adjunta PDF.",
+                    formDefId, num);
+                return null;
+            }
 
-            return await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
+            var pdf = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
+            if (pdf is null)
+            {
+                // La respuesta existe pero el render devolvio null (plantilla de impresion vacia o PDF vacio).
+                _logger.LogWarning(
+                    "ResolveFormPdf: el render de la respuesta {ResponseId} (formulario {FormDefId}, plantilla impresion {TemplateId}) devolvio null; no se adjunta PDF.",
+                    rid, formDefId, templateId);
+            }
+
+            return pdf;
         }
-        catch { return null; } // best-effort: el adjunto no debe romper la notificacion
+        catch (Exception ex)
+        {
+            // best-effort: el adjunto no debe romper la notificacion, pero el motivo YA NO se traga en silencio
+            // (antes un fallo de Chromium/plantilla dejaba "no llego" sin rastro alguno en el log).
+            _logger.LogWarning(ex,
+                "ResolveFormPdf: fallo al generar el PDF del formulario {FormDefId} (plantilla impresion {TemplateId}) para la tarea {Numero}.",
+                formDefId, templateId, task.Number);
+            return null;
+        }
     }
 
     /// <summary>

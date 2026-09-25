@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.145: WhatsApp plantilla con header de documento - no enviar a ciegas + log del render PDF
+
+- Reportado en prod (T00179, AGROMETALICAS): el nodo "Gestion del agente" NO entrega el WhatsApp `entrega_cotizacion`.
+- Diagnostico por log de prod (solo lectura): ECOREX POST a YCloud -> HTTP 200 (aceptado), pero Meta lo DESCARTA en
+  silencio porque la plantilla tiene header_type=Document (exige PDF) y a ese envio NO se le adjunto el PDF (no se
+  publico media a las 16:53). Causa: `ResolveFormPdfAsync` devolvio null (el render HTML->PDF fallo/vacio) y lo tragaba
+  un `catch { return null; }` MUDO -> cero rastro en el log. Con cotDoc=null el codigo caia al else y enviaba la
+  plantilla SIN header -> 200 y a la basura (el clasico "no llego" invisible).
+- Fix (motor de notificaciones, NodeNotifyService.cs):
+  1. Inyectado ILogger. El catch de ResolveFormPdfAsync ahora LOGUEA el motivo real (excepcion, o "sin respuesta
+     anclada", o "render devolvio null" con response/formDef/plantilla-impresion). Ya no hay fallo mudo.
+  2. Guard nuevo: si la plantilla exige header de documento (Document/Image/Video) Y la regla pide adjuntar PDF
+     (AdjuntarPdfFormDefId) Y cotDoc es null -> NO se envia a ciegas; se marca WhatsAppSendOutcome fallido con motivo
+     visible (misma politica que el guard de ECOREX_PUBLIC_BASE_URL), que ya deja nota en la conversacion del contacto.
+- Nota: Chromium SI funciona en prod (rindio el OT de T00156 a las 10:50); el fallo del render de la COT T00179-1 es
+  puntual y AHORA quedara visible en el log/nota al reintentar. La config del nodo esta correcta (adjunta COT 0ae07986
+  con plantilla impresion b204cfe0 "Cotizacion AGROMETALICAS").
+- Archivos: NodeNotifyService.cs. Build verde; 11 tests de notify OK; dotnet format limpio. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.144: tabla de reporte - fecha, scroll/sticky y export a Excel con valores reales (ADR-0111)
 
 - Doc 16 (reportes): el reporte "Registro de cotizaciones (GESTION COMERCIAL)" (AGROMETALICAS, form:{code}, ~129x10)

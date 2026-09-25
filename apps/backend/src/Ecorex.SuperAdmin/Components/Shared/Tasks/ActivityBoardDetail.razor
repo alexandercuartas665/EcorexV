@@ -1449,8 +1449,18 @@
         _view, _filtersVisible, (int)_scope,
         _fColumns.ToList(), _fUsers.ToList(), _fTags.ToList(), _fDue, _fDueOn);
 
+    // Evita RE-ENTRAR OnAfterRenderAsync: sus flujos de arranque (abrir wizard/form-first, cargar prefs +
+    // ReloadAsync) hacen I/O de EF async sobre el DbContext del circuito; si una segunda invocacion (otro render)
+    // arranca otra consulta mientras la primera sigue en vuelo -> "A second operation was started on this context"
+    // y se cae el circuito. El dispatcher de Blazor es single-thread, asi que este bool basta (sin true paralelismo).
+    private bool _afterRenderBusy;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_afterRenderBusy) { return; }
+        _afterRenderBusy = true;
+        try
+        {
         // Los @ref existen recien tras el primer render; aqui abrimos el arranque UNA vez.
         if (_openWizardPending && _wizard is not null && _formFirst is not null
             && PresetSubcategoriaId is Guid presetSub)
@@ -1522,6 +1532,8 @@
             catch (Microsoft.JSInterop.JSException) { /* el JS aun no cargo */ }
             catch (InvalidOperationException) { /* prerender: sin JS todavia */ }
         }
+        }
+        finally { _afterRenderBusy = false; }
     }
 
     /// <summary>El wizard creo la actividad: refrescar el tablero para que aparezca la tarjeta.</summary>

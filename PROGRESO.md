@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.141: fix crash "second operation" en ActivityBoardDetail (board ?sub=) - ADR-0109
+
+- Reportado en prod (v0.16.138): al abrir un tablero filtrado por concepto (/actividades?sub=...) se caia el
+  circuito ("Ha ocurrido un error. Recargar"). Stack (log prod): ActivityBoardDetail.OnAfterRenderAsync disparaba
+  VARIOS flujos async a la vez sobre el DbContext del circuito -> "A second operation was started on this context":
+  TaskWizard.OpenAsync (ListCategorias), FormFirstStarter.TryOpenAsync (GetSubcategoria) y ReloadAsync
+  (TaskFieldService.ListByBoard + EnsureFormValues->FormDefinitionService.GetAsync). ReloadAsync ya estaba aislado
+  (scope+Begin+_reloadLock) pero su cola (FieldSvc/EnsureFormValues/EnsureDetail) corre en el _db del circuito y se
+  solapaba con el wizard-open/form-first que OnAfterRender lanza en otro render.
+- Fix (patron ADR-0109): guard de RE-ENTRANCIA `_afterRenderBusy` en OnAfterRenderAsync (bool; el dispatcher de
+  Blazor es single-thread pero el I/O de EF es async) -> serializa abrir-wizard/form-first/reload; una segunda
+  invocacion no arranca otra consulta mientras la primera sigue en vuelo. Validado en dev: recargas repetidas del
+  board ?sub= sin crash ni "second operation".
+- Residual conocido (raro): un ReloadAsync por HUB (TaskChanged de otra sesion) podria solaparse con el wizard-open
+  del arranque; ventana muy estrecha; se endurece incremental (mover la cola de ReloadAsync al scope) segun ADR-0109.
+- Archivos: ActivityBoardDetail.razor. Build verde. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.140: gridDerive - operador de igualdad "=<valor>"
 
 - Peticion de config: gridDerive (CONVERTIR_A_FORMULARIO, v0.16.138) necesita igualdad para select SI/NO.

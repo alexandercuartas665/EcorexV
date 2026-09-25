@@ -604,11 +604,11 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
 
         // Formulario OBLIGATORIO (ADR-0077): si el nodo tiene un formulario marcado requerido y aun no se
-        // ha enviado, no se puede cerrar el paso.
-        if (await HasUnfilledRequiredFormAsync(step, node, cancellationToken))
+        // ha enviado, no se puede cerrar el paso. El mensaje NOMBRA cual falta.
+        if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken) is { } missingForm)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid(
-                "Este paso tiene un formulario obligatorio. Diligencialo y envialo antes de cerrar.");
+                $"Este paso requiere el formulario '{missingForm}'. Diligencialo y ENVIALO (boton Enviar) antes de cerrar.");
         }
 
         // Auto-envio al cerrar (fix del "gotcha"): si el paso tiene formularios DILIGENCIADOS pero aun en
@@ -810,52 +810,57 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
 
         // Formulario OBLIGATORIO (ADR-0077): en una compuerta atendida, no se puede ELEGIR la ruta (ni saltar
         // a otro nodo) hasta enviar el formulario requerido del nodo -- p.ej. confirmar que el cliente acepta.
-        if (await HasUnfilledRequiredFormAsync(step, node, cancellationToken))
+        if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken) is { } missingForm)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid(
-                "Esta compuerta tiene un formulario obligatorio. Diligencialo y envialo antes de elegir la ruta.");
+                $"Esta compuerta requiere el formulario '{missingForm}'. Diligencialo y ENVIALO (boton Enviar) antes de elegir la ruta.");
         }
 
         return await _engine.ChooseGatewayRouteAsync(
             step.InstanceId, step.Id, targetNodeId, tenantUserId, note, cancellationToken: cancellationToken);
     }
 
-    /// <summary>True si el nodo tiene algun formulario marcado OBLIGATORIO (ADR-0077) que aun NO se ha enviado
-    /// en esta instancia. "Enviado" = existe un FormFlowLink Completed para (instancia, nodo) de esa definicion,
-    /// o una FormResponse Submitted anclada al numero de la tarea (robustez si el link aun no se creo).</summary>
-    private async Task<bool> HasUnfilledRequiredFormAsync(
+    /// <summary>Nombre del PRIMER formulario OBLIGATORIO (ADR-0077) del nodo que aun NO se ha enviado en esta
+    /// instancia, o null si todos estan enviados. "Enviado" = existe un FormFlowLink Completed para (instancia,
+    /// nodo) de esa definicion, O una FormResponse Submitted anclada al numero de la tarea O a una VARIANTE
+    /// "{numero}-{n}" (los generos/segundos formularios de la tarea, ADR-0078): antes se exigia el numero EXACTO,
+    /// asi que enviar la variante "-1" dejaba el paso bloqueado. Devuelve el titulo (o el codigo) para nombrarlo.</summary>
+    private async Task<string?> FirstUnfilledRequiredFormAsync(
         WorkflowStepHistory step, WorkflowNode node, CancellationToken cancellationToken)
     {
-        var requiredDefIds = await _db.WorkflowNodeForms.AsNoTracking()
+        var required = await _db.WorkflowNodeForms.AsNoTracking()
             .Where(f => f.NodeId == node.Id && f.IsRequired)
-            .Select(f => f.DefinitionId)
+            .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id,
+                (f, d) => new { d.Id, d.Title, d.Code })
             .ToListAsync(cancellationToken);
-        if (requiredDefIds.Count == 0) { return false; }
+        if (required.Count == 0) { return null; }
 
         var taskNumber = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId && i.TaskItemId != null)
             .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, t => t.Id, (i, t) => t.Number)
             .FirstOrDefaultAsync(cancellationToken);
+        var variantPrefix = taskNumber + "-";
 
-        foreach (var defId in requiredDefIds)
+        foreach (var def in required)
         {
             var linkDone = await (
                 from l in _db.FormFlowLinks.AsNoTracking()
                 where l.WorkflowInstanceId == step.InstanceId && l.WorkflowNodeId == node.Id
                     && l.Status == FormFlowLinkStatus.Completed
                 join r in _db.FormResponses.AsNoTracking() on l.FormResponseId equals r.Id
-                where r.DefinitionId == defId
+                where r.DefinitionId == def.Id
                 select l.Id).AnyAsync(cancellationToken);
             if (linkDone) { continue; }
 
             var respDone = taskNumber != null && await _db.FormResponses.AsNoTracking()
-                .AnyAsync(r => r.DefinitionId == defId && r.Reference == taskNumber
+                .AnyAsync(r => r.DefinitionId == def.Id && r.Reference != null
+                    && (r.Reference == taskNumber || r.Reference.StartsWith(variantPrefix))
                     && r.Status == FormResponseStatus.Submitted, cancellationToken);
             if (respDone) { continue; }
 
-            return true; // hay un formulario obligatorio sin enviar
+            return string.IsNullOrWhiteSpace(def.Title) ? def.Code : def.Title; // este obligatorio falta
         }
-        return false;
+        return null;
     }
 
     // ---- Helpers ----

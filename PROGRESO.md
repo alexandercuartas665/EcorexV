@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-25 - v0.16.142: formulario obligatorio del paso - acepta variantes + nombra cual (ADR-0077)
+
+- Reportado en prod (T00179): al marcar el paso "Se prepara la cotizacion" dice "formulario obligatorio" aunque
+  el COT esta diligenciado. Diagnostico (prod, solo lectura): la respuesta COT esta anclada como "T00179-1"
+  (variante/genero, ADR-0078) y en estado Draft; sin FormFlowLink. El gate HasUnfilledRequiredFormAsync exigia
+  Reference == numero EXACTO ("T00179") y Submitted -> ni enviando la variante "-1" se desbloqueaba (bug).
+- Fix (2 partes): (A) el gate ahora acepta la respuesta Submitted anclada al numero base O a una variante
+  "{numero}-{n}" (StartsWith numero + "-"). (B) el mensaje NOMBRA el formulario que falta y aclara "ENVIALO
+  (boton Enviar)": FirstUnfilledRequiredFormAsync devuelve el Title/Code del primer obligatorio sin enviar. Cubre
+  cierre de paso y compuerta atendida.
+- Nota para el usuario: el COT de T00179 sigue en Draft -> hay que darle Enviar; con este fix, enviar la variante
+  "-1" ya satisface el paso.
+- Archivos: WorkflowInboxService.cs. Build verde; 65 tests de workflow/inbox OK. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.141: fix crash "second operation" en ActivityBoardDetail (board ?sub=) - ADR-0109
 
 - Reportado en prod (v0.16.138): al abrir un tablero filtrado por concepto (/actividades?sub=...) se caia el

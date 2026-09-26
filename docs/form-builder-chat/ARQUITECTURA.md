@@ -75,7 +75,12 @@ Gateway) + un agente con herramientas (FormAuthoringToolset) para construir el f
   - Infra: FormBuilderChatStore sobre EcorexDbContext + DbSets + config + conversiones enum.
   - Migraciones DAL-dual (PG 20260926041513 + SqlServer 20260926041653) AddFormBuilderChat.
   - DI: servicio (Application) + store (Infrastructure).
-- F2 (UI): 4a columna de chat en el disenador. Puntos concretos:
+- F2 (UI): [HECHO - commit 64ea299f, build SuperAdmin verde 0 errores. Falta correr end-to-end.]
+  - FormBuilderChatPanel.razor (+ .razor.css): chat (burbujas), adjuntar Excel/PDF/imagen (InputFile),
+    tarjetas de PROPUESTA con Confirmar/Rechazar, recarga del lienzo tras confirmar (OnFormChanged).
+  - FormDesigner.razor: boton "Asistente IA" (header) + 4a columna .fb-chat en .fb-body; OnFormChanged=ReloadAsync.
+  - El chat opera sobre el formulario ABIERTO (Id): crear = abrir un borrador en blanco y construirlo; editar = idem.
+  Detalle original del plan (referencia):
   - Componente nuevo `FormBuilderChatPanel.razor` (modelar sobre el test-chat de Agentes.razor:
     burbujas, InputFile imagen/xlsx/pdf, boton enviar). Inyecta IFormBuilderChatService.
   - Insertarlo en `FormDesigner.razor` dentro de `.fb-body` como 4a columna `.fb-chat` (despues de

@@ -119,7 +119,11 @@ PLANTILLA DE IMPRESION (si la piden). SINTAXIS EXACTA de marcadores (el motor NO
   {{{{/tabla.<field_code_de_la_grilla>}}}} -> SIEMPRE con el prefijo ""tabla."" y el field_code REAL de la
   grilla (no ""<algo>_grid""). Dentro del bloque, {{{{fila}}}} es el numero de fila.
 - Sistema: {{{{numero}}}} (consecutivo del registro), {{{{fecha}}}}, {{{{empresa}}}}, {{{{tarea}}}}.
-  Codigos: {{{{barcode:numero|tarea|campo.x}}}}, {{{{qr:...}}}}.
+  Codigos: {{{{barcode:numero|tarea|campo.x}}}}, {{{{qr:...}}}}. Dentro del bloque de tabla: {{{{fila}}}} = numero de fila.
+- NO hay EXPRESIONES ni condicionales dentro de los marcadores: {{{{fila % 2 == 0 ? ... }}}} NO funciona.
+  Los marcadores solo se sustituyen por su valor. Para filas alternadas (zebra) usa CSS: tbody tr:nth-child(even).
+- DISENO: la plantilla es HTML+CSS libre; usa los colores de marca y estilos que pidan (encabezado, tabla con
+  thead de color, totales resaltados). El estilo va en <style> o inline; no dependas de CSS del formulario.
 Ejemplo (grilla con field_code ""items"" y columnas ""descripcion_producto"",""cantidad"",""subtotal_linea"";
 campo destino del rollup ""subtotal_general""):
   <h1>Cotizacion {{{{numero}}}}</h1><p>Cliente: {{{{campo.nombre_cliente}}}} - Fecha: {{{{fecha}}}}</p>
@@ -127,6 +131,17 @@ campo destino del rollup ""subtotal_general""):
   {{{{#tabla.items}}}}<tr><td>{{{{col.descripcion_producto}}}}</td><td>{{{{col.cantidad}}}}</td><td>{{{{col.subtotal_linea}}}}</td></tr>{{{{/tabla.items}}}}
   </tbody></table><p>Subtotal: {{{{campo.subtotal_general}}}} - IVA: {{{{campo.iva}}}} - Total: {{{{campo.total_a_pagar}}}}</p>
 Usa create_template + wire_print_button (crea regla + boton + los enlaza).
+
+DISENO / APARIENCIA DEL FORMULARIO.
+- COLORES / IDENTIDAD DE MARCA: usa set_theme, NO set_custom_css. set_theme(color=""#RRGGBB"") fija la
+  variable --brand que TODO el renderer consume (encabezados de seccion, acentos, opt-cards, chips) -> aplica
+  la marca al formulario ENTERO de forma correcta. Adivinar selectores CSS NO funciona (las clases reales son
+  dfr-*). tema=""prototipo"" activa un look hero + rotulo; hero/eyebrow/hide_chips/cards son flags opcionales.
+- LAYOUT (columnas, secciones, pestanas): el ancho va en width sobre la rejilla de 12 (width=6 -> 2 columnas,
+  width=4 -> 3 columnas) en campos y secciones. Para PESTANAS crea un contenedor Tabs y mueve las secciones
+  DENTRO (update_container con parent_id = id del Tabs). Para agrupar visualmente usa Section/Row/Col.
+- Solo si piden un detalle fino que set_theme no cubre, usa set_custom_css apuntando a las clases REALES del
+  renderer (dfr-seg-head, form-control, dfr-tabbar/.dfr-tab, dfr-formbtn); nunca .form-section/.btn-primary.
 
 TABLA O CAMPOS SUELTOS (CLAVE, no te equivoques). Un grupo de datos que se REPITE por registro es UNA
 tabla (un solo GridDetail con esas columnas), NO muchos campos sueltos. Senales de tabla: una fila de

@@ -164,8 +164,11 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "Promueve (o retira) el formulario como MODULO del menu, publicandolo en /m/{code}. menu_view_id + parent_node_id ubican el nodo; icon, list_columns y filter_fields configuran su listado.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"is_module":{"type":"boolean"},"menu_view_id":{"type":"string"},"parent_node_id":{"type":"string"},"icon":{"type":"string"},"menu_label":{"type":"string"},"list_columns":{"type":"array","items":{"type":"string"}},"filter_fields":{"type":"array","items":{"type":"string"}}},"required":["form_id","is_module"],"additionalProperties":false}"""),
         new("set_custom_css",
-            "Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador).",
+            "Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador). Para colores/marca usa MEJOR set_theme (aplica la variable --brand que el renderer si consume). Si usas CSS, apunta a las clases REALES del renderer: dfr-segment/.dfr-seg-head (secciones), form-control (inputs), dfr-tabbar/.dfr-tab (pestanas), dfr-formbtn (botones). NO uses .form-section/.btn-primary/.nav-tabs (no existen).",
             """{"type":"object","properties":{"form_id":{"type":"string"},"custom_css":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
+        new("set_theme",
+            "APARIENCIA/TEMA del formulario (la forma correcta de aplicar la identidad de marca). 'color' (hex) es el COLOR DE MARCA: fija la variable --brand que TODO el renderer usa (encabezados de seccion, acentos, opt-cards, chips) -> tematiza el formulario entero de una. tema: clasico|prototipo (prototipo activa el look hero+rotulo). hero: encabezado tipo hero. eyebrow: rotulo pequeno arriba del titulo. hide_chips: oculta chips tecnicos. cards: estilo tarjetas para opciones (Radio/MultiCheck). Enviar todo vacio/omitido deja el tema clasico por defecto.",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"color":{"type":"string","description":"Color de marca hex (#RRGGBB): fija --brand y tematiza todo"},"tema":{"type":"string","description":"clasico|prototipo"},"hero":{"type":"boolean"},"eyebrow":{"type":"string"},"hide_chips":{"type":"boolean"},"cards":{"type":"boolean"}},"required":["form_id"],"additionalProperties":false}"""),
         new("activate",
             "Activa el formulario (Draft/Inactive -> Active), validando su estructura. Empieza a aceptar respuestas.",
             """{"type":"object","properties":{"form_id":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
@@ -249,6 +252,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "set_sequence_next" => await SetSequenceNextAsync(args, cancellationToken),
                 "set_module" => await SetModuleAsync(args, cancellationToken),
                 "set_custom_css" => await SetCustomCssAsync(args, cancellationToken),
+                "set_theme" => await SetThemeAsync(args, cancellationToken),
                 "activate" => await ActivateAsync(args, cancellationToken),
                 "deactivate" => await DeactivateAsync(args, cancellationToken),
                 "archive" => await ArchiveAsync(args, cancellationToken),
@@ -282,7 +286,15 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             field_presentations = Names<FormFieldPresentation>(),
             aggregates = Names<FormAggregate>(),
             container_types = Names<FormContainerType>(),
-            card_layouts = Names<FormCardLayout>()
+            card_layouts = Names<FormCardLayout>(),
+            theme = new
+            {
+                tool = "set_theme",
+                brand_color = "set_theme(color=#RRGGBB) fija --brand y tematiza TODO el formulario; es la forma correcta de aplicar la marca (no adivinar CSS)",
+                tema = new[] { "clasico", "prototipo" },
+                flags = new[] { "hero", "eyebrow", "hide_chips", "cards" },
+                layout = "columnas via width (rejilla de 12; 6=2 col, 4=3 col); pestanas via contenedor Tabs + mover secciones dentro (update_container parent_id)"
+            }
         },
         control_capabilities = new
         {
@@ -681,6 +693,43 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
         var r = await _forms.SetCustomCssAsync(id, new SetFormCssRequest(Str(args, "custom_css")), ct);
         return FormResp(r, v => new { ok = true, form = v });
+    }
+
+    // Solo hex (#rgb/#rrggbb/#rrggbbaa): el color va a un bloque <style> del renderer, se valida contra inyeccion.
+    private static readonly System.Text.RegularExpressions.Regex HexColor =
+        new("^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private async Task<AgentToolResult> SetThemeAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
+        var tema = (Str(args, "tema") ?? "clasico").Trim().ToLowerInvariant();
+        if (tema is not ("clasico" or "prototipo")) { tema = "clasico"; }
+        var color = Str(args, "color")?.Trim();
+        if (!string.IsNullOrWhiteSpace(color) && !HexColor.IsMatch(color!)) { return Err($"'color' debe ser hex (#RRGGBB). Recibido: {color}"); }
+        var hero = Bool(args, "hero") ?? false;
+        var eyebrow = Str(args, "eyebrow")?.Trim();
+        var hideChips = Bool(args, "hide_chips") ?? false;
+        var cards = Bool(args, "cards") ?? false;
+
+        // Todo por defecto -> tema clasico (theme_json null). Igual que FormThemeJson.Build del renderer.
+        string? themeJson;
+        if (tema == "clasico" && string.IsNullOrWhiteSpace(color) && !hero && string.IsNullOrWhiteSpace(eyebrow) && !hideChips && !cards)
+        {
+            themeJson = null;
+        }
+        else
+        {
+            var o = new JsonObject { ["tema"] = tema };
+            if (!string.IsNullOrWhiteSpace(color)) { o["color"] = color; }
+            if (hero) { o["hero"] = true; }
+            if (!string.IsNullOrWhiteSpace(eyebrow)) { o["eyebrow"] = eyebrow; }
+            if (hideChips) { o["hideChips"] = true; }
+            if (cards) { o["cards"] = true; }
+            themeJson = o.ToJsonString(JsonOut);
+        }
+
+        var r = await _forms.SetThemeAsync(id, themeJson, ct);
+        return FormResp(r, v => new { ok = true, theme_json = themeJson, form = v });
     }
 
     private async Task<AgentToolResult> ActivateAsync(JsonElement args, CancellationToken ct)

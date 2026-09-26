@@ -169,8 +169,12 @@ BARRERAS.
   ""equals|notEquals|includes|empty|notEmpty"",""value"":""x""}}. 'field' es el field_code de OTRA pregunta.
 - ACCESO POR CARGO a una seccion: usa allowed_cargos_json en add/update_container = arreglo JSON de ids que
   devuelve list_org_units (Dependencias/Cargos). Vacio = sin restriccion. Descubre los ids con list_org_units.
-- gridDerive (auto-marcado de columnas al convertir un formulario en otro) AUN no tiene herramienta: si lo
-  piden, dilo con claridad y ofrece dejarlo anotado; no lo simules.
+- CONVERTIR A OTRO FORMULARIO (ej. Cotizacion -> Orden de Trabajo) y gridDerive: usa wire_convert_button
+  (deja un boton que crea+abre un registro del formulario destino copiando lo mapeable). Params: target_code
+  (codigo destino), mapping_json {{origen:destino}}, grid_mapping_json {{grilla:{{colO:colD}}}}, defaults_json
+  {{campoDestino:valor|@token}}. gridDerive (auto-marcar columnas al convertir) va en grid_derive_json =
+  {{grilla:[{{target,from,when,set}}]}}; when: '>N' | '=<valor>' | 'notempty'. El formulario DESTINO debe
+  existir; si no, avisalo.
 - Ante cualquier duda estructural, PREGUNTA en vez de asumir.
 
 ESTILO. Frases cortas, un paso a la vez, confirma antes de construir y resume tras construir. Cuando

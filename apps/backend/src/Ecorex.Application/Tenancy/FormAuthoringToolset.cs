@@ -189,6 +189,12 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         new("wire_print_button",
             "En UNA operacion: crea (o reusa) un documento de reglas, una regla IMPRIMIR_PLANTILLA {template,format}, una pregunta tipo Button y los enlaza, dejando el boton de imprimir en el formulario. format: print|pdf|img.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"template_name":{"type":"string"},"format":{"type":"string","description":"print|pdf|img"},"button_label":{"type":"string"},"container_id":{"type":"string","description":"Contenedor donde poner el boton (opcional)"},"field_code":{"type":"string","description":"Codigo del campo Button (opcional; se genera si se omite)"}},"required":["form_id","template_name"],"additionalProperties":false}"""),
+        new("wire_convert_button",
+            "En UNA operacion deja un boton 'Convertir a otro formulario' (CONVERTIR_A_FORMULARIO, ADR-0078): crea documento de reglas + regla + pregunta Button + enlace. Copia los datos mapeables del registro actual a un NUEVO registro del formulario destino (por codigo) y lo abre. " +
+            "target_code: codigo EXACTO del formulario destino (activo). mapping_json: {campoOrigen:campoDestino} solo para los que cambian de nombre (los de igual codigo se copian solos). grid_mapping_json: {grilla:{colOrigen:colDestino}}. " +
+            "grid_derive_json (AUTO-MARCADO de columnas de grilla al convertir): {grilla:[{target,from,when,set}]}; por fila, si 'when' se cumple sobre la columna 'from' pone 'set' en 'target' (si no, vacio). when: '>N' (numerico mayor que N), '=<valor>' (igualdad, ej '=SI'), 'notempty'. set por defecto 'X'. " +
+            "defaults_json: {campoDestino:valor} para rellenar lo que no viene del origen; admite tokens @usuario.nombre/@usuario.email/@fecha.hoy/@fecha.hora.",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"target_code":{"type":"string"},"button_label":{"type":"string"},"mapping_json":{"type":"string"},"grid_mapping_json":{"type":"string"},"grid_derive_json":{"type":"string","description":"gridDerive {grilla:[{target,from,when,set}]}"},"defaults_json":{"type":"string"},"open_mode":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"}},"required":["form_id","target_code"],"additionalProperties":false}"""),
 
         // ---------- Enlaces compartidos ----------
         new("create_share_link",
@@ -250,6 +256,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "update_template" => await UpdateTemplateAsync(args, actorUserId, cancellationToken),
                 "set_default_template" => await SetDefaultTemplateAsync(args, actorUserId, cancellationToken),
                 "wire_print_button" => await WirePrintButtonAsync(args, cancellationToken),
+                "wire_convert_button" => await WireConvertButtonAsync(args, cancellationToken),
                 "create_share_link" => await CreateShareLinkAsync(args, cancellationToken),
                 "create_record" => await CreateRecordAsync(args, cancellationToken),
                 "get_render_urls" => GetRenderUrls(args),
@@ -341,6 +348,12 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             params_json = "{\"template\":\"<nombre>\",\"format\":\"print|pdf|img\"}",
             formats = new[] { "print", "pdf", "img" },
             wire_helper = "wire_print_button hace documento+regla+boton+enlace en una sola llamada"
+        },
+        convert = new
+        {
+            verb = "CONVERTIR_A_FORMULARIO",
+            wire_helper = "wire_convert_button deja un boton que crea+abre un registro de OTRO formulario copiando lo mapeable",
+            grid_derive = "grid_derive_json = {\"grilla\":[{\"target\":\"col\",\"from\":\"colOrigen\",\"when\":\">0|=SI|notempty\",\"set\":\"X\"}]}"
         },
         public_link = "/f/{token} (create_share_link)",
         module_url = "/m/{code} (set_module)"
@@ -768,6 +781,95 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             template = templateName,
             format
         });
+    }
+
+    private async Task<AgentToolResult> WireConvertButtonAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var formId)) { return Err("Falta un 'form_id' valido."); }
+        var targetCode = Str(args, "target_code")?.Trim();
+        if (string.IsNullOrWhiteSpace(targetCode)) { return Err("Falta 'target_code' (codigo del formulario destino)."); }
+        var label = Str(args, "button_label") ?? "Convertir";
+
+        var form = await _forms.GetAsync(formId, ct);
+        if (form is null) { return Err("No se encontro el formulario."); }
+
+        // Aviso (no bloqueante): el verbo exige que el destino este ACTIVO al hacer clic.
+        var targetExists = await _db.FormDefinitions.AnyAsync(d => d.Code == targetCode, ct);
+
+        // 1) Documento de reglas (estable por formulario): crea o REUSA el existente por codigo (re-ejecutar
+        //    no debe fallar: CreateDocument da Conflict si el codigo ya existe).
+        var docCode = $"CONVERSION-{form.Code}";
+        var docReq = new SaveRuleDocumentRequest(docCode, $"Conversion {form.Title}", "Conversion");
+        var docRes = await _rules.CreateDocumentAsync(docReq, ct);
+        Guid docId;
+        if (docRes.IsOk && docRes.Value is not null) { docId = docRes.Value.Id; }
+        else
+        {
+            var docs = await _rules.ListDocumentsAsync(true, ct);
+            var existing = docs.FirstOrDefault(d => string.Equals(d.DocumentCode, docCode, StringComparison.OrdinalIgnoreCase));
+            if (existing is null) { return Err($"No se pudo crear/obtener el documento de reglas: {docRes.Error}"); }
+            docId = existing.Id;
+        }
+
+        // 2) Regla CONVERTIR_A_FORMULARIO {targetCode, mapping?, gridMapping?, gridDerive?, defaults?, openMode?}.
+        var paramsObj = new JsonObject { ["targetCode"] = targetCode };
+        AddJsonParam(paramsObj, "mapping", Str(args, "mapping_json"));
+        AddJsonParam(paramsObj, "gridMapping", Str(args, "grid_mapping_json"));
+        AddJsonParam(paramsObj, "gridDerive", Str(args, "grid_derive_json"));
+        AddJsonParam(paramsObj, "defaults", Str(args, "defaults_json"));
+        var openMode = Str(args, "open_mode");
+        if (!string.IsNullOrWhiteSpace(openMode)) { paramsObj["openMode"] = openMode!.Trim(); }
+        var ruleReq = new SaveRuleRequest($"Convertir a {targetCode}", "CONVERTIR_A_FORMULARIO", ParamsJson: paramsObj.ToJsonString(JsonOut));
+        var ruleRes = await _rules.CreateRuleAsync(docId, ruleReq, ct);
+        if (!ruleRes.IsOk || ruleRes.Value is null) { return Err($"No se pudo crear la regla: {ruleRes.Error}"); }
+
+        // 3) Pregunta tipo Button.
+        var fieldCode = Str(args, "field_code");
+        if (string.IsNullOrWhiteSpace(fieldCode)) { fieldCode = $"btn_convertir_{targetCode!.ToLowerInvariant().Replace('-', '_')}"; }
+        var qReq = new SaveFormQuestionRequest(
+            ContainerId: TryGuid(args, "container_id", out var cid) ? cid : null,
+            FieldCode: fieldCode!.Trim(), Label: label, ControlType: FormControlType.Button);
+        var qRes = await _forms.AddQuestionAsync(formId, qReq, ct);
+        if (!qRes.IsOk || qRes.Value is null) { return FormResp(qRes, v => new { ok = true }); }
+
+        // 4) Enlazar la regla al boton.
+        var linkRes = await _rules.LinkToQuestionAsync(ruleRes.Value.Id, qRes.Value.Id, 0, ct);
+        if (!linkRes.IsOk) { return Err($"Se creo el boton pero no se pudo enlazar la regla: {linkRes.Error}"); }
+
+        return Ok(new
+        {
+            ok = true,
+            document_id = docId,
+            rule_id = ruleRes.Value.Id,
+            question_id = qRes.Value.Id,
+            field_code = fieldCode,
+            target_code = targetCode,
+            target_exists = targetExists,
+            note = targetExists ? null : $"OJO: no existe (aun) un formulario con codigo '{targetCode}'. El boton fallara al usarse hasta que el destino exista y este ACTIVO."
+        });
+    }
+
+    // Parsea un *_json del agente y lo embebe como JSON REAL en los params de la regla. Tolerante: si el
+    // modelo mando "casi-JSON" con comillas simples ({'items':[...]}) lo normaliza a JSON valido. Si aun asi
+    // no parsea, guarda el texto crudo (para no perderlo). Vacio/omitido -> no se agrega.
+    private static void AddJsonParam(JsonObject target, string key, string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson)) { return; }
+        var node = TryParseJsonLenient(rawJson);
+        target[key] = node ?? (JsonNode)rawJson.Trim();
+    }
+
+    // Intenta parsear JSON; si falla, reintenta cambiando comillas simples por dobles (formato que a veces
+    // emite el modelo para objetos/arreglos con claves/valores simples, sin apostrofes internos).
+    private static JsonNode? TryParseJsonLenient(string s)
+    {
+        try { return JsonNode.Parse(s); } catch (JsonException) { }
+        var t = s.Trim();
+        if (t.Length > 1 && (t[0] is '{' or '[') && t.Contains('\''))
+        {
+            try { return JsonNode.Parse(t.Replace('\'', '"')); } catch (JsonException) { }
+        }
+        return null;
     }
 
     // ================= Enlaces compartidos =================

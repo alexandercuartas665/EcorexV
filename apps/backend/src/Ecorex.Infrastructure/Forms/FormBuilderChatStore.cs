@@ -62,4 +62,16 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
         _db.FormBuilderMessages.Update(message);
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default)
+    {
+        var cfg = await _db.AiProviderConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Provider == provider, cancellationToken);
+        return cfg is null ? null : new FormBuilderProviderInfo(cfg.IsEnabled, cfg.ApiKeyEncrypted, cfg.Model, cfg.BaseUrl);
+    }
+
+    public async Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+        => await _db.FormDefinitions.AsNoTracking().Where(d => d.Id == formDefinitionId).Select(d => d.Title).FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<string> GetTenantNameAsync(Guid tenantId, CancellationToken cancellationToken = default)
+        => await _db.Tenants.AsNoTracking().Where(t => t.Id == tenantId).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken) ?? string.Empty;
 }

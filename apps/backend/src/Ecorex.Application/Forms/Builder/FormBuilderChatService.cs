@@ -5,7 +5,6 @@ using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
-using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Forms.Builder;
 
@@ -18,7 +17,6 @@ namespace Ecorex.Application.Forms.Builder;
 /// </summary>
 public sealed class FormBuilderChatService : IFormBuilderChatService
 {
-    private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _secrets;
     private readonly IAiProviderClient _ai;
     private readonly IFormAuthoringToolset _toolset;
@@ -32,10 +30,9 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public FormBuilderChatService(
-        IApplicationDbContext db, ISecretProtector secrets, IAiProviderClient ai,
+        ISecretProtector secrets, IAiProviderClient ai,
         IFormAuthoringToolset toolset, IFormBuilderChatStore store)
     {
-        _db = db;
         _secrets = secrets;
         _ai = ai;
         _toolset = toolset;
@@ -45,17 +42,17 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     public async Task<FormBuilderStartResult> StartAsync(Guid? formDefinitionId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
     {
         // Valida que el proveedor este habilitado antes de crear la conversacion.
-        var cfg = await _db.AiProviderConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Provider == Provider, cancellationToken);
-        if (cfg is null || !cfg.IsEnabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
+        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
             return new FormBuilderStartResult(false, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.", Guid.Empty, null);
         }
-        var model = !string.IsNullOrWhiteSpace(cfg.Model) ? cfg.Model : AiProviderCatalog.For(Provider).DefaultModel;
+        var model = !string.IsNullOrWhiteSpace(cfg.Model) ? cfg.Model! : AiProviderCatalog.For(Provider).DefaultModel;
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
         {
-            var t = await _db.FormDefinitions.AsNoTracking().Where(d => d.Id == fid).Select(d => d.Title).FirstOrDefaultAsync(cancellationToken);
+            var t = await _store.GetFormTitleAsync(fid, cancellationToken);
             if (!string.IsNullOrWhiteSpace(t)) { title = t!; }
         }
 
@@ -182,8 +179,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     // ===== Nucleo: bucle del agente con GATE humano =====
     private async Task<FormBuilderTurnResult> RunAgentAsync(FormBuilderConversation conv, IReadOnlyList<AiInlineImage>? images, IReadOnlyList<AiInlineDocument>? docs, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var cfg = await _db.AiProviderConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Provider == Provider, cancellationToken);
-        if (cfg is null || !cfg.IsEnabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
+        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
             return FormBuilderTurnResult.Fail(conv.Id, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.");
         }
@@ -196,7 +193,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             : !string.IsNullOrWhiteSpace(cfg.Model) ? cfg.Model! : meta.DefaultModel;
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
-        var tenantName = await _db.Tenants.AsNoTracking().Where(t => t.Id == conv.TenantId).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken) ?? "tu empresa";
+        var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(tenantName)) { tenantName = "tu empresa"; }
         var systemPrompt = FormBuilderHarness.SystemPrompt(tenantName, editingExisting: conv.FormDefinitionId is not null);
         var tools = _toolset.GetSpecs();
         var readOnly = _toolset.ReadOnlyTools;

@@ -29,6 +29,9 @@ public sealed record FormBuilderTurnResult(
 /// <summary>Resultado de iniciar una conversacion.</summary>
 public sealed record FormBuilderStartResult(bool Ok, string? Error, Guid ConversationId, Guid? FormDefinitionId);
 
+/// <summary>Cuenta del proveedor de IA resuelta (la key sigue CIFRADA; el servicio la descifra).</summary>
+public sealed record FormBuilderProviderInfo(bool Enabled, string? ApiKeyEncrypted, string? Model, string? BaseUrl);
+
 /// <summary>
 /// Persistencia de las conversaciones del asistente (implementada en Infrastructure sobre EcorexDbContext).
 /// Aisla al servicio de EF. Todo es tenant-scoped por el filtro global; el TenantId lo sella el interceptor.
@@ -48,6 +51,15 @@ public interface IFormBuilderChatStore
     Task<FormBuilderMessage> AddMessageAsync(FormBuilderMessage message, CancellationToken cancellationToken = default);
 
     Task SaveMessageAsync(FormBuilderMessage message, CancellationToken cancellationToken = default);
+
+    /// <summary>Cuenta global del proveedor de IA (Gemini) o null si no existe. La key va cifrada.</summary>
+    Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default);
+
+    /// <summary>Titulo del formulario (para el titulo de la conversacion / modo edicion); null si no existe.</summary>
+    Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Nombre del tenant (para el arnes); cadena vacia si no se encuentra.</summary>
+    Task<string> GetTenantNameAsync(Guid tenantId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

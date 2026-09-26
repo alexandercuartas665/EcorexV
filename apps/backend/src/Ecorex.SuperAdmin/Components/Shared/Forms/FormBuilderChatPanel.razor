@@ -1,0 +1,203 @@
+@* Panel de chat del ASISTENTE DE CREACION DE FORMULARIOS (F2). 4a columna del disenador: sube un
+   Excel/PDF/imagen y arma/edita el formulario conversando. Gate humano: las acciones mutantes llegan como
+   PROPUESTAS con Confirmar/Rechazar; al confirmar se ejecutan y se recarga el lienzo (OnFormChanged). *@
+@using Ecorex.Application.Forms.Builder
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IFormBuilderChatService Chat
+
+<div class="fbc">
+    <div class="fbc-head">
+        <div class="fbc-title">Asistente IA</div>
+        <div class="fbc-sub">Sube un Excel/PDF/imagen o describe los campos; se arma paso a paso.</div>
+    </div>
+
+    <div class="fbc-msgs">
+        @foreach (var m in _messages)
+        {
+            <div class="fbc-bubble @m.Css">@m.Text</div>
+        }
+        @if (_awaiting && _proposals.Count > 0)
+        {
+            <div class="fbc-proposal">
+                <div class="fbc-proposal-h">El asistente quiere hacer:</div>
+                <ul class="fbc-proposal-list">
+                    @foreach (var p in _proposals)
+                    {
+                        <li><b>@p.ToolName</b><span class="fbc-args">@Summarize(p.ArgumentsJson)</span></li>
+                    }
+                </ul>
+                <div class="fbc-proposal-actions">
+                    <button class="btn btn-primary btn-sm" @onclick="ConfirmAsync" disabled="@_busy">Confirmar</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="RejectAsync" disabled="@_busy">Rechazar</button>
+                </div>
+            </div>
+        }
+        @if (_busy)
+        {
+            <div class="fbc-bubble bot fbc-typing">Pensando...</div>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="fbc-error">@_error</div>
+    }
+
+    @if (_attachments.Count > 0)
+    {
+        <div class="fbc-chips">
+            @foreach (var a in _attachments)
+            {
+                <span class="fbc-chip">@a.FileName <button type="button" @onclick="@(() => _attachments.Remove(a))">&times;</button></span>
+            }
+        </div>
+    }
+
+    <div class="fbc-input">
+        <label class="fbc-attach" title="Adjuntar Excel / PDF / imagen">
+            <InputFile OnChange="OnAttachAsync" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="display:none;" />
+            +
+        </label>
+        <textarea class="form-control fbc-textarea" @bind="_input" @bind:event="oninput"
+                  placeholder="Escribe que necesitas..." disabled="@(_busy || _awaiting)"
+                  @onkeydown="OnKeyDown"></textarea>
+        <button class="btn btn-primary btn-sm" @onclick="SendAsync"
+                disabled="@(_busy || _awaiting || (string.IsNullOrWhiteSpace(_input) && _attachments.Count == 0))">Enviar</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid FormDefinitionId { get; set; }
+
+    /// <summary>Se invoca tras cada accion CONFIRMADA para que el disenador recargue el lienzo en vivo.</summary>
+    [Parameter] public EventCallback OnFormChanged { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed record Bubble(string Css, string Text);
+
+    private Guid? _conversationId;
+    private readonly List<Bubble> _messages = new();
+    private readonly List<FormBuilderAttachment> _attachments = new();
+    private List<FormBuilderProposalDto> _proposals = new();
+    private string _input = string.Empty;
+    private bool _busy;
+    private bool _awaiting;
+    private bool _started;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await EnsureStartedAsync();
+
+    private async Task EnsureStartedAsync()
+    {
+        if (_started) { return; }
+        _started = true;
+        var actor = await ActorAsync();
+        var r = await Chat.StartAsync(FormDefinitionId, actor);
+        if (!r.Ok) { _error = r.Error; return; }
+        _conversationId = r.ConversationId;
+        _messages.Add(new Bubble("bot", "Hola. Sube un Excel/PDF/imagen o dime que campos necesitas y lo armamos paso a paso."));
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) { await SendAsync(); }
+    }
+
+    private async Task OnAttachAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var f = e.File;
+            if (f is null) { return; }
+            using var ms = new MemoryStream();
+            await f.OpenReadStream(20 * 1024 * 1024).CopyToAsync(ms);
+            _attachments.Add(new FormBuilderAttachment(f.Name, f.ContentType ?? string.Empty, Convert.ToBase64String(ms.ToArray())));
+            _error = null;
+        }
+        catch (Exception ex) { _error = "No se pudo leer el archivo: " + ex.Message; }
+    }
+
+    private async Task SendAsync()
+    {
+        if (_busy || _awaiting) { return; }
+        await EnsureStartedAsync();
+        if (_conversationId is null) { return; }
+
+        var text = _input?.Trim();
+        if (string.IsNullOrWhiteSpace(text) && _attachments.Count == 0) { return; }
+
+        var shown = string.IsNullOrWhiteSpace(text) ? "(archivo adjunto)" : text!;
+        if (_attachments.Count > 0) { shown += "  [" + string.Join(", ", _attachments.Select(a => a.FileName)) + "]"; }
+        _messages.Add(new Bubble("me", shown));
+
+        var atts = _attachments.ToList();
+        _input = string.Empty;
+        _attachments.Clear();
+        _busy = true; _error = null;
+        StateHasChanged();
+
+        var actor = await ActorAsync();
+        FormBuilderTurnResult r;
+        try { r = await Chat.SendAsync(_conversationId.Value, text, atts, actor); }
+        catch (Exception ex) { r = FormBuilderTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        Apply(r);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        var actor = await ActorAsync();
+        FormBuilderTurnResult r;
+        try { r = await Chat.ConfirmAsync(_conversationId.Value, actor); }
+        catch (Exception ex) { r = FormBuilderTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        Apply(r);
+        // Recarga el lienzo del disenador con lo recien construido.
+        if (r.Ok) { await OnFormChanged.InvokeAsync(); }
+    }
+
+    private async Task RejectAsync()
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        var actor = await ActorAsync();
+        FormBuilderTurnResult r;
+        try { r = await Chat.RejectAsync(_conversationId.Value, null, actor); }
+        catch (Exception ex) { r = FormBuilderTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        Apply(r);
+    }
+
+    private void Apply(FormBuilderTurnResult r)
+    {
+        if (!r.Ok)
+        {
+            _error = r.Error;
+            _awaiting = false;
+            _proposals = new();
+            StateHasChanged();
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(r.AssistantText)) { _messages.Add(new Bubble("bot", r.AssistantText!)); }
+        _proposals = r.Proposals?.ToList() ?? new();
+        _awaiting = r.AwaitingConfirmation;
+        StateHasChanged();
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string Summarize(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) { return string.Empty; }
+        var s = argsJson.Trim();
+        return s.Length > 180 ? s[..180] + "..." : s;
+    }
+}

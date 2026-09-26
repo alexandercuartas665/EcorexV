@@ -69,6 +69,7 @@ else
                 }
                 <span class="fb-status" style="background:@StatusSoft();color:@StatusColor()">@StatusLabel()</span>
                 <div class="fb-header-actions">
+                    <button class="fb-btn-ghost @(_showChat ? "on" : "")" @onclick="@(() => _showChat = !_showChat)" title="Crear/editar con IA desde un Excel, PDF o imagen">Asistente IA</button>
                     <button class="fb-btn-ghost" @onclick="OpenFormProps">Propiedades</button>
                     <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
                     @if (_def.Status == FormStatus.Active)
@@ -290,6 +291,13 @@ else
                         }
                     </div>
                 </aside>
+                @* 4a columna: asistente IA que crea/edita el formulario conversando (F2). *@
+                @if (_showChat)
+                {
+                    <aside class="fb-chat" style="width:360px;flex:0 0 360px;min-height:0;overflow:hidden;border-left:1px solid var(--line, #e5e7eb);display:flex;flex-direction:column;">
+                        <FormBuilderChatPanel FormDefinitionId="Id" OnFormChanged="ReloadAsync" />
+                    </aside>
+                }
             </div>
         </div>
     </div>
@@ -661,6 +669,9 @@ else
 
 @code {
     [Parameter] public Guid Id { get; set; }
+
+    // F2: muestra/oculta la 4a columna del asistente IA (chat que crea/edita el formulario).
+    private bool _showChat;
 
     private FormDefinitionDetailDto? _def;
     private bool _loading = true;

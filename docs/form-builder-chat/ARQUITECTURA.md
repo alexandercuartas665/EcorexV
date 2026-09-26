@@ -65,12 +65,42 @@ Gateway) + un agente con herramientas (FormAuthoringToolset) para construir el f
 6. Se itera hasta terminar; el usuario revisa y publica (activate) el formulario.
 
 ## Fases
-- F0: worktree + andamiaje + ARNES (system-prompt) + esta arquitectura. [en curso]
-- F1 (MVP): invocador agente disenador con gate + persistencia (tabla+migracion) + ingesta Excel + crear
-  formulario nuevo en vivo (sin UI final, probado por endpoint/harness).
-- F2: UI 4a columna en el disenador + upload + recarga en vivo + tarjetas de confirmacion.
-- F3: vision (imagen) + PDF (Gemini) + editar existente + generar plantilla de impresion.
-- F4: tools faltantes (cargo/visibilidad/gridDerive) + pulido + streaming opcional.
+- F0: worktree + andamiaje + ARNES (system-prompt) + esta arquitectura. [HECHO]
+- F1 (MVP backend): [HECHO - commit 89661703, build verde 0 errores]
+  - Dominio: FormBuilderConversation / FormBuilderMessage (+ enums), tenant-scoped.
+  - Application: FormBuilderHarness (system prompt), contratos (IFormBuilderChatService/Store + DTOs),
+    FormBuilderChatService (loop con GATE humano sobre IAiProviderClient.CompleteWithToolsAsync;
+    lecturas auto, mutaciones se proponen y se corren tras confirmar; reconstruye el hilo con el
+    proveedor; ingesta Excel via SpreadsheetText + imagen/PDF inline; proveedor Gemini).
+  - Infra: FormBuilderChatStore sobre EcorexDbContext + DbSets + config + conversiones enum.
+  - Migraciones DAL-dual (PG 20260926041513 + SqlServer 20260926041653) AddFormBuilderChat.
+  - DI: servicio (Application) + store (Infrastructure).
+- F2 (UI): 4a columna de chat en el disenador. Puntos concretos:
+  - Componente nuevo `FormBuilderChatPanel.razor` (modelar sobre el test-chat de Agentes.razor:
+    burbujas, InputFile imagen/xlsx/pdf, boton enviar). Inyecta IFormBuilderChatService.
+  - Insertarlo en `FormDesigner.razor` dentro de `.fb-body` como 4a columna `.fb-chat` (despues de
+    `.fb-right`), con un toggle para mostrar/ocultar.
+  - actorTenantUserId: resolverlo como lo hace FormDesigner/DynamicFormRenderer (usuario logueado).
+  - Tarjetas de PROPUESTA: cuando SendAsync/ConfirmAsync devuelve AwaitingConfirmation=true, pintar las
+    propuestas (ToolName + resumen legible) con botones Confirmar (ConfirmAsync) / Rechazar (RejectAsync).
+  - RECARGA EN VIVO: tras cada ConfirmAsync exitoso, recargar la definicion del formulario en el lienzo
+    del disenador (FormDesigner ya carga por Id; exponer un metodo ReloadDefinitionAsync y llamarlo).
+  - Persistir/mostrar transcripcion via GetTranscriptAsync al reabrir.
+- F3: vision (imagen) + PDF (Gemini) end-to-end + editar existente + generar plantilla de impresion.
+- F4: tools faltantes en FormAuthoringToolset (AllowedCargosJson/VisibleWhenJson en contenedores;
+  FieldVisibilityJson/CascadeConfigJson/DefaultDynamic/Subform en preguntas; autorar gridDerive) +
+  pulido + streaming opcional.
+
+## Notas / decisiones de implementacion (F1)
+- GATE a nivel de TURNO del asistente: si el turno del modelo trae alguna tool MUTANTE, se propone TODO
+  el turno (para mantener consistente el hilo con el proveedor: cada tool_call debe tener su tool_result).
+  Turnos 100% de solo-lectura se ejecutan sin gate.
+- Reconstruccion del hilo: las propuestas CONFIRMADAS contiguas se reagrupan en un turno assistant con
+  tool_calls + sus tool_results. Pendientes/Rechazadas no entran al hilo del proveedor.
+- TenantId lo sella AuditableTenantInterceptor; el filtro global aisla por tenant (entidades TenantEntity).
+- Limitacion conocida MVP: las imagenes/PDF solo se re-inyectan (inline) en el TURNO actual; turnos
+  anteriores con imagen dependen del texto ya derivado en la conversacion (el proveedor es sin estado).
+- Pendiente correr las migraciones en la BD (deploy). No se ejecuto `database update` (solo se generaron).
 
 ## Reglas de trabajo
 - Solo ASCII en archivos nuevos. Multi-tenant real (todo bajo el tenant logueado). Auditoria de mutaciones.

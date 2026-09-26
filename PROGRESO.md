@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - form-builder-chat: medicion contra un formulario REAL de prod + 3 fixes
+
+- Prueba de calidad del asistente de formularios: se calco el formulario REAL `desarrollo.f2.CONTACTO CLIENTE`
+  (SOLDARCO, prod) mirandolo en vista ejecucion (MCP Chrome), se hizo un HTML-muestra fiel (sin anotaciones de
+  ingenieria, para no "ponersela facil") y se le dio al agente para reconstruirlo desde cero en local.
+- Resultado: fidelidad ~95% (hero+tema, transaccional inferido, 3 secciones, 11 campos con tipos/requeridos/
+  layout 3col-2col, opciones de selects, subformulario con toolbar Exportar/Plantilla/Importar, Observaciones,
+  y de yapa boton Imprimir+plantilla). El test destapo 3 huecos, ya corregidos:
+  1. TITULO no se renombraba: el hero quedaba "Formulario nuevo". FIX (arnes): si el form abierto tiene titulo
+     generico, renombrar con update_form_header al titulo detectado (el hero sale del titulo del form).
+  2. EYEBROW salia con la entidad literal `&#9889;` en vez de un rayo. FIX (codigo): set_theme decodifica
+     entidades HTML del eyebrow (WebUtility.HtmlDecode) + nota en el schema de usar el emoji directo.
+  3. GESTIONES (chips +Cotizacion/+PQR...) se asumia como MultiCheck cuando en realidad son botones de
+     CONVERSION por fila. FIX (arnes): ante chips con "+"/nombres de otros formularios, PREGUNTAR si son
+     botones que crean otro registro (wire_convert_button) antes de asumir multicheck. (Una imagen/HTML
+     estatico no distingue una cosa de la otra.)
+- Verificado en vivo: re-corrida del agente -> ahora renombra (hero="CONTACTO CLIENTE"), el eyebrow muestra el
+  rayo real (sin `&#9889;`), y el agente PREGUNTA por las gestiones antes de construir.
+- Archivos: FormAuthoringToolset.cs (SetThemeAsync decode + schema), FormBuilderHarness.cs (rename + regla de
+  chips de conversion). Build de Application y SuperAdmin verde. NO desplegado (worktree; deploy solo a senal).
+
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 
 - Pedido del usuario (AGRO): creo la plantilla `entrega_cotizacion_botones` en Meta pero al importarla a ECOREX

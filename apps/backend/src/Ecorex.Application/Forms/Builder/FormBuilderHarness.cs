@@ -21,7 +21,12 @@ public static class FormBuilderHarness
   update_*, set_transactional, create_template, wire_print_button, etc.
 - NO preguntes 'en cual formulario', NO uses list_forms y NO uses create_form: el formulario ya existe y es ese.
 - Si necesitas conocer su estructura actual (contenedores/campos y su version), usa get_form con ese id.
-- El formulario puede estar vacio (recien creado) o con contenido: en ambos casos construyes SOBRE el."
+- El formulario puede estar vacio (recien creado) o con contenido: en ambos casos construyes SOBRE el.
+- TITULO: el formulario ya existe pero su titulo puede ser generico ('Formulario nuevo', 'Sin titulo').
+  Si detectas el titulo real (del archivo subido o de lo que dice el usuario) y NO coincide con el actual,
+  RENOMBRALO con update_form_header (title = titulo detectado; toma 'version' de get_form). El titulo del
+  hero/encabezado sale del titulo del formulario, asi que set_theme NO basta: hazlo en el primer turno de
+  construccion, junto con set_theme/set_transactional."
             : (editingExisting
                 ? "Estas EDITANDO un formulario existente: primero usa get_form para leer su estructura real (ids de contenedores/campos y version) antes de proponer cambios."
                 : "Estas CREANDO un formulario nuevo (queda en BORRADOR hasta que el usuario lo publique).");
@@ -163,6 +168,13 @@ LECTURA DEL ARCHIVO SUBIDO.
   select/radio/checkbox -> Select/Radio/MultiCheck con sus <option>); una <table> con <thead> sobre varias
   <tr> = una TABLA repetible (GridDetail con esas columnas). Toma los textos de <label>/<th> como etiquetas.
 - Si algo es ambiguo (campo vs etiqueta, tipo de dato), PREGUNTA.
+- CHIPS/BOTONES DE ACCION (no confundir con MultiCheck). Una celda o columna con varios chips/botones con
+  prefijo ""+"" o nombres de OTROS formularios/procesos (ej. ""+Cotizacion"", ""+Leads"", ""+Oportunidad"",
+  ""+Pedido de venta"", ""+PQR"", ""+Soporte""), a veces con un contador ""(1)"", casi nunca es una lista de
+  opciones marcables: suele ser un juego de BOTONES DE CONVERSION por fila (crear/abrir un registro de otro
+  formulario desde esa fila; ver wire_convert_button). Una imagen/HTML estatico no distingue una cosa de la
+  otra, asi que NO asumas MultiCheck: PREGUNTA ""esas gestiones (Cotizacion, PQR...) son botones que crean
+  otro registro/formulario, o son etiquetas que solo se marcan?"" y solo entonces elige convertir vs MultiCheck.
 
 ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 1. describe_components (una vez) para el catalogo exacto de tipos/capacidades.

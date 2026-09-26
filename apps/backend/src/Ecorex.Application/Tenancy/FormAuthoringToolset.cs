@@ -168,7 +168,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             """{"type":"object","properties":{"form_id":{"type":"string"},"custom_css":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
         new("set_theme",
             "APARIENCIA/TEMA del formulario (la forma correcta de aplicar la identidad de marca). 'color' (hex) es el COLOR DE MARCA: fija la variable --brand que TODO el renderer usa (encabezados de seccion, acentos, opt-cards, chips) -> tematiza el formulario entero de una. tema: clasico|prototipo (prototipo activa el look hero+rotulo). hero: encabezado tipo hero. eyebrow: rotulo pequeno arriba del titulo. hide_chips: oculta chips tecnicos. cards: estilo tarjetas para opciones (Radio/MultiCheck). Enviar todo vacio/omitido deja el tema clasico por defecto.",
-            """{"type":"object","properties":{"form_id":{"type":"string"},"color":{"type":"string","description":"Color de marca hex (#RRGGBB): fija --brand y tematiza todo"},"tema":{"type":"string","description":"clasico|prototipo"},"hero":{"type":"boolean"},"eyebrow":{"type":"string"},"hide_chips":{"type":"boolean"},"cards":{"type":"boolean"}},"required":["form_id"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"form_id":{"type":"string"},"color":{"type":"string","description":"Color de marca hex (#RRGGBB): fija --brand y tematiza todo"},"tema":{"type":"string","description":"clasico|prototipo"},"hero":{"type":"boolean"},"eyebrow":{"type":"string","description":"Rotulo pequeno sobre el titulo. Si lleva icono, usa el EMOJI directo (ej. ⚡ Gestion), NO entidades HTML como &#9889;"},"hide_chips":{"type":"boolean"},"cards":{"type":"boolean"}},"required":["form_id"],"additionalProperties":false}"""),
         new("activate",
             "Activa el formulario (Draft/Inactive -> Active), validando su estructura. Empieza a aceptar respuestas.",
             """{"type":"object","properties":{"form_id":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
@@ -707,7 +707,11 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         var color = Str(args, "color")?.Trim();
         if (!string.IsNullOrWhiteSpace(color) && !HexColor.IsMatch(color!)) { return Err($"'color' debe ser hex (#RRGGBB). Recibido: {color}"); }
         var hero = Bool(args, "hero") ?? false;
-        var eyebrow = Str(args, "eyebrow")?.Trim();
+        // El renderer muestra el eyebrow como texto plano (no decodifica entidades HTML). Si el
+        // agente copia una entidad de la fuente (ej. "&#9889; Gestion") saldria literal, asi que
+        // la decodificamos aqui para que "&#9889;" se guarde ya como el caracter real (rayo).
+        var eyebrow = System.Net.WebUtility.HtmlDecode(Str(args, "eyebrow")?.Trim() ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(eyebrow)) { eyebrow = null; }
         var hideChips = Bool(args, "hide_chips") ?? false;
         var cards = Bool(args, "cards") ?? false;
 

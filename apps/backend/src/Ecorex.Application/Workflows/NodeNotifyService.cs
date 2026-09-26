@@ -237,6 +237,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                     // YCloud/Cloud: plantilla + (si aplica) el documento como HEADER de la propia plantilla.
                     waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
                         headerMediaTypeOverride: headerMediaType, headerMediaUrlOverride: headerMediaUrl,
+                        headerMediaFileNameOverride: cotDoc?.FileName,
                         decisionLinksByButtonLabel: decisionLinksByButtonLabel, cancellationToken: ct);
                     // Documento aparte SOLO si NO fue como header (compat. atras; en YCloud igual no se soporta).
                     if (cotDoc is not null && headerMediaUrl is null)

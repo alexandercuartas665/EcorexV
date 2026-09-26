@@ -34,7 +34,7 @@ public interface IYCloudApiClient
     /// indice del boton en la plantilla y el sufijo a inyectar. Se emiten como componentes
     /// { type:"button", sub_type:"url", index, parameters:[{ type:"text", text }] }. Null/vacio = plantilla sin
     /// botones dinamicos (los botones fijos los pinta Meta solo).</param>
-    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default);
+    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0096: envia una REACCION (emoji) al mensaje entrante identificado por <paramref name="messageId"/>
     /// (el wamid del mensaje del cliente). Un <paramref name="emoji"/> vacio QUITA la reaccion. Paridad con Evolution.</summary>

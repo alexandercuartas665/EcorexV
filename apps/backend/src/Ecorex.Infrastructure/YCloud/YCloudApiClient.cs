@@ -100,7 +100,7 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return SendMessageAsync(apiKey, payload, cancellationToken);
     }
 
-    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default)
+    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default)
     {
         // Payload de plantilla (WhatsApp/YCloud v2): componentes con los parametros en orden.
         // Header de media (imagen/documento/video): { type:"header", parameters:[{ type:"image", image:{ link } }] }.
@@ -110,6 +110,15 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         {
             var kind = headerMediaType!.Trim().ToLowerInvariant();   // "image" | "document" | "video"
             var mediaObj = new Dictionary<string, object?> { ["link"] = headerMediaUrl!.Trim() };
+            // Solo el DOCUMENTO admite nombre visible: sin el, WhatsApp lo muestra como "Sin titulo". Se usa el
+            // nombre dado o, en su defecto, el ultimo segmento de la URL (decodificado).
+            if (kind == "document")
+            {
+                var fileName = !string.IsNullOrWhiteSpace(headerMediaFileName)
+                    ? headerMediaFileName!.Trim()
+                    : FileNameFromUrl(headerMediaUrl!);
+                if (!string.IsNullOrWhiteSpace(fileName)) { mediaObj["filename"] = fileName; }
+            }
             components.Add(new Dictionary<string, object?>
             {
                 ["type"] = "header",
@@ -167,6 +176,16 @@ internal sealed class YCloudApiClient : IYCloudApiClient
             ["reaction"] = new { message_id = messageId, emoji }
         };
         return SendMessageAsync(apiKey, payload, cancellationToken);
+    }
+
+    // Ultimo segmento de una URL como nombre de archivo (decodificado), o null. Da titulo al documento del header.
+    private static string? FileNameFromUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) { return null; }
+        var noQuery = url.Split('?', '#')[0].TrimEnd('/');
+        var last = noQuery.Split('/').LastOrDefault();
+        if (string.IsNullOrWhiteSpace(last)) { return null; }
+        try { return Uri.UnescapeDataString(last); } catch { return last; }
     }
 
     private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)

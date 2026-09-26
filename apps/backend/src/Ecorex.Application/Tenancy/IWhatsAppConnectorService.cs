@@ -39,7 +39,7 @@ public interface IWhatsAppConnectorService
     /// soportados en este corte). <paramref name="bodyParams"/> = variables del cuerpo en orden.
     /// <paramref name="headerMediaType"/> ("image"/"document"/"video") + <paramref name="headerMediaUrl"/> (URL publica)
     /// para plantillas con header de media; ambos null para header de texto o sin header.</summary>
-    Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default);
+    Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default);
 
     /// <summary>Envia un adjunto (imagen/video/audio/documento) en base64 desde la linea al numero. Ver remoteJid en SendTestAsync.</summary>
     Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, Domain.Enums.MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);

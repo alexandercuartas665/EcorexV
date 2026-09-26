@@ -398,7 +398,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(ok, error, messageId);
     }
 
-    public async Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
         {
@@ -421,7 +421,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         {
             var key = YCloudApiKey(line);
             if (key is null || string.IsNullOrWhiteSpace(line.YCloudPhoneNumberId)) { return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud."); }
-            var r = await _ycloud.SendTemplateAsync(key, line.YCloudPhoneNumberId!, digits, templateName.Trim(), lang, bodyParams, headerMediaType, headerMediaUrl, urlButtons, cancellationToken);
+            var r = await _ycloud.SendTemplateAsync(key, line.YCloudPhoneNumberId!, digits, templateName.Trim(), lang, bodyParams, headerMediaType, headerMediaUrl, headerMediaFileName, urlButtons, cancellationToken);
             (ok, error, messageId) = (r.IsSuccess, r.Error, r.MessageId);
         }
         else if (line.Provider == WhatsAppProvider.Evolution)

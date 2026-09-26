@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - v0.16.150: documento del header WhatsApp con NOMBRE (ya no llega "Sin titulo")
+
+- Validado en prod (T00183): el flujo envio la plantilla con PDF + cuerpo + los 2 botones dinamicos (YCloud 200).
+  Unico detalle: el PDF llegaba como "Sin titulo" porque el componente `document` no incluia `filename`.
+- Fix: se enhebra el nombre del documento por la cadena de envio (headerMediaFileName). YCloudApiClient agrega
+  `filename` al objeto document (solo para header de tipo documento); si la regla no da nombre, lo deriva del
+  ultimo segmento de la URL (decodificado). NodeNotifyService pasa cotDoc.FileName (nombre amigable del formulario).
+  Cubre tanto el envio por flujo como el "Probar".
+- Archivos: YCloudApiClient.cs (+filename +FileNameFromUrl), IYCloudApiClient, IWhatsAppConnectorService(+impl),
+  INotificationChannelSender(+impl), NodeNotifyService + firmas de mocks. Build verde; 24 tests OK; format limpio.
+  NO desplegado (pido OK).
+- Pendiente aparte (reportado): tras firmar por el boton, el gateway quedo Completed pero el flujo no avanzo a la
+  rama "Cliente decide comprar" (quedo Skipped y "Se prepara la cotizacion" volvio a Pending) - anomalia de ruteo
+  de la decision, a investigar.
+
 ## 2026-09-26 - v0.16.149: "Probar" plantilla - campos editables para el valor de cada boton dinamico
 
 - El usuario noto que el modal de "Probar" no tenia campos para escribir el valor de los botones. Ahora, por cada

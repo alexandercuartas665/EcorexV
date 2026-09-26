@@ -44,6 +44,9 @@ public interface INotificationChannelSender
         // archivo es DINAMICO (p.ej. el PDF de la cotizacion), se pasan aqui el tipo ("document"/"image"/"video")
         // y la URL PUBLICA del archivo; sobreescriben el header fijo de la plantilla. Null = usar el de la plantilla.
         string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
+        // Nombre visible del documento del header (solo aplica a header de DOCUMENTO): sin el, WhatsApp lo
+        // muestra como "Sin titulo". Ej. el nombre de la cotizacion adjunta.
+        string? headerMediaFileNameOverride = null,
         // Enlaces de decision por ETIQUETA de boton (ADR botones dinamicos): mapa buttonLabel -> URL del enlace
         // /d/{token} de la tarea. Si la plantilla tiene botones URL con variable, se casan por texto del boton y
         // se inyecta el sufijo correspondiente como parametro del boton en el envio. Null = sin botones dinamicos.

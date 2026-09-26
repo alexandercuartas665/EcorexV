@@ -101,6 +101,17 @@ public sealed class FormSnapshotService : IFormSnapshotService
             }
         }
 
+        // 3) Cancela las PROPUESTAS PENDIENTES de las conversaciones de este formulario: tras revertir la
+        //    estructura, una propuesta vieja apuntaria a contenedores/campos que ya no existen y fallaria.
+        var convIds = _db.FormBuilderConversations
+            .Where(c => c.FormDefinitionId == snap.FormDefinitionId)
+            .Select(c => c.Id);
+        await _db.FormBuilderMessages
+            .Where(m => convIds.Contains(m.ConversationId)
+                        && m.Role == FormBuilderMessageRole.Proposal
+                        && m.ProposalState == FormBuilderProposalState.Pending)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.ProposalState, FormBuilderProposalState.Rejected), cancellationToken);
+
         return FormResult<bool>.Ok(true);
     }
 }

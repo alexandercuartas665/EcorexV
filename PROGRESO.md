@@ -29,11 +29,18 @@
   HTML (CSS de columnas), imagen/PDF (misma linea horizontal) y Excel (columnas contiguas); y el PLAN debe
   declarar cuantos campos por fila. Verificado en vivo: la seccion 1 salio 3/2/3/3 (por bounding boxes),
   identica al form real (antes salia 1 col).
-- HALLAZGO NUEVO (separado, pendiente): armando el GridDetail con columnas select/multicheck (opciones
-  anidadas), el agente entro en BUCLE de error de options_json (omitia el 'label' de cada opcion) y termino
-  omitiendo la tabla. En corridas previas la grilla si se creo; el nesting de opciones dentro de una columna
-  es fragil para el modelo. Propuesta: tolerar en el toolset (normalizar opciones de columna: string->
-  {id,label}; sin label->label=id) para romper el bucle, + ejemplo concreto en el arnes. Sin hacer aun.
+- GridDetail ENDURECIDO (pedido despues): armando la grilla con columnas select/multicheck de opciones
+  anidadas, el agente entraba en BUCLE de error de options_json (omitia el 'label' de cada opcion) y terminaba
+  omitiendo la tabla. FIX (codigo, FormAuthoringToolset.cs): NormalizeGridCalc -> NormalizeOptionsJson que,
+  segun el control_type, normaliza EN SITIO: en GridDetail recorre columnas (calc {codigo} + options anidadas
+  de select/multicheck) y en Select/Radio/MultiCheck normaliza el arreglo de opciones. Cada opcion queda
+  {id,label} no vacios: string suelto -> {id:slug,label}; claves value/text/name/key -> id/label; falta id ->
+  slug del label; falta label -> label=id (helper SlugId). Asi la persistencia nunca rechaza por 'label'
+  faltante y se rompe el bucle. Arnes: ejemplo concreto de columna select con options=[{id,label}] + nota de
+  que CADA opcion necesita id Y label. Verificado en vivo (DB): la grilla se creo al PRIMER intento con
+  options_json completo (medio_contacto select y gestiones multicheck, todas las opciones con id+label).
+  Limitacion aparte (renderer, no autoria): una columna multicheck en la grilla se pinta como input de texto
+  en la vista previa; el dato se guarda bien. No tocado.
 
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 

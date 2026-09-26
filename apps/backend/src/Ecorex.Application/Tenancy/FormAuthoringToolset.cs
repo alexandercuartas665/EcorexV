@@ -565,13 +565,15 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     }
 
     private SaveFormQuestionRequest BuildQuestionRequest(JsonElement args)
-        => new(
+    {
+        var controlType = EnumOr(args, "control_type", FormControlType.Text);
+        return new(
             ContainerId: TryGuid(args, "container_id", out var cid) ? cid : null,
             FieldCode: (Str(args, "field_code") ?? string.Empty).Trim(),
             Label: (Str(args, "label") ?? string.Empty).Trim(),
-            ControlType: EnumOr(args, "control_type", FormControlType.Text),
+            ControlType: controlType,
             HelpText: Str(args, "help_text"),
-            OptionsJson: NormalizeGridCalc(Str(args, "options_json")),
+            OptionsJson: NormalizeOptionsJson(Str(args, "options_json"), controlType),
             Required: Bool(args, "required") ?? false,
             ValidationJson: Str(args, "validation_json"),
             Width: Int(args, "width") ?? 12,
@@ -588,33 +590,106 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             Aggregate: EnumOr(args, "aggregate", FormAggregate.None),
             Format: Str(args, "format"),
             VisibleWhenJson: Str(args, "visible_when_json"));
+    }
 
-    // BLINDAJE de autoria por agente: normaliza el 'calc' de cada columna de una grilla (GridDetail) a la
-    // sintaxis del motor ({codigo}), por si el modelo uso corchetes [x] o nombres sueltos. Deja el resto del
-    // options_json intacto; si no es un arreglo JSON valido, lo devuelve sin tocar.
-    private static string? NormalizeGridCalc(string? optionsJson)
+    // BLINDAJE de autoria por agente para el options_json. Segun el control:
+    //  - GridDetail: es un arreglo de COLUMNAS -> normaliza el 'calc' de cada columna a la sintaxis del motor
+    //    ({codigo}) y, en columnas select/multicheck, normaliza sus 'options' anidadas para que cada una tenga
+    //    id Y label (el modelo suele omitir el label y la persistencia lo rechaza -> bucle de error).
+    //  - Select/Radio/MultiCheck: es un arreglo de OPCIONES -> normaliza cada opcion (string suelto o falta de
+    //    id/label) al par {id,label}.
+    // Si no es JSON de arreglo valido lo devuelve sin tocar (no rompe nada).
+    private static string? NormalizeOptionsJson(string? optionsJson, FormControlType controlType)
     {
         if (string.IsNullOrWhiteSpace(optionsJson)) { return optionsJson; }
         JsonNode? root;
         try { root = JsonNode.Parse(optionsJson); }
         catch (JsonException) { return optionsJson; }
-        if (root is not JsonArray cols) { return optionsJson; }
+        if (root is not JsonArray arr) { return optionsJson; }
+
         var changed = false;
-        foreach (var col in cols)
+        if (controlType == FormControlType.GridDetail)
         {
-            if (col is not JsonObject obj) { continue; }
-            if (obj.TryGetPropertyValue("calc", out var calcNode) && calcNode is JsonValue cv
-                && cv.TryGetValue<string>(out var calc) && !string.IsNullOrWhiteSpace(calc))
+            foreach (var col in arr)
             {
-                var norm = FormExpressionEvaluator.NormalizeReferences(calc);
-                if (!string.Equals(norm, calc, StringComparison.Ordinal))
+                if (col is not JsonObject obj) { continue; }
+                // 1) calc de columna -> sintaxis {codigo}
+                if (obj.TryGetPropertyValue("calc", out var calcNode) && calcNode is JsonValue cv
+                    && cv.TryGetValue<string>(out var calc) && !string.IsNullOrWhiteSpace(calc))
                 {
-                    obj["calc"] = norm;
-                    changed = true;
+                    var norm = FormExpressionEvaluator.NormalizeReferences(calc);
+                    if (!string.Equals(norm, calc, StringComparison.Ordinal)) { obj["calc"] = norm; changed = true; }
+                }
+                // 2) options anidadas de una columna select/multicheck -> cada una {id,label}
+                if (obj.TryGetPropertyValue("options", out var optsNode) && optsNode is JsonArray colOpts)
+                {
+                    changed |= NormalizeOptionArray(colOpts);
                 }
             }
         }
+        else if (controlType is FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck)
+        {
+            changed |= NormalizeOptionArray(arr);
+        }
+
         return changed ? root.ToJsonString() : optionsJson;
+    }
+
+    // Normaliza EN SITIO un arreglo de opciones para que cada una sea {id,label} no vacios. Tolera:
+    //  - string suelto "Cotizacion" -> {id:"cotizacion", label:"Cotizacion"}
+    //  - claves alternativas (value/text/name/title/key) -> id/label
+    //  - falta id -> id derivado del label; falta label -> label = id.
+    // Devuelve true si cambio algo.
+    private static bool NormalizeOptionArray(JsonArray options)
+    {
+        var changed = false;
+        for (var i = 0; i < options.Count; i++)
+        {
+            var node = options[i];
+            if (node is JsonValue val && val.TryGetValue<string>(out var s) && !string.IsNullOrWhiteSpace(s))
+            {
+                options[i] = new JsonObject { ["id"] = SlugId(s), ["label"] = s.Trim() };
+                changed = true;
+                continue;
+            }
+            if (node is not JsonObject obj) { continue; }
+
+            string? Pick(params string[] keys)
+            {
+                foreach (var k in keys)
+                {
+                    if (obj.TryGetPropertyValue(k, out var n) && n is JsonValue v
+                        && v.TryGetValue<string>(out var str) && !string.IsNullOrWhiteSpace(str)) { return str.Trim(); }
+                }
+                return null;
+            }
+
+            var label = Pick("label", "text", "name", "title", "nombre", "etiqueta");
+            var idv = Pick("id", "value", "key", "valor", "clave");
+            if (label is null && idv is null) { continue; } // no reconocible: no la tocamos
+
+            label ??= idv;
+            idv ??= SlugId(label!);
+
+            var curId = (obj.TryGetPropertyValue("id", out var idn) && idn is JsonValue iv && iv.TryGetValue<string>(out var ids)) ? ids : null;
+            var curLabel = (obj.TryGetPropertyValue("label", out var ln) && ln is JsonValue lv && lv.TryGetValue<string>(out var lbs)) ? lbs : null;
+            if (!string.Equals(curId, idv, StringComparison.Ordinal)) { obj["id"] = idv; changed = true; }
+            if (!string.Equals(curLabel, label, StringComparison.Ordinal)) { obj["label"] = label; changed = true; }
+        }
+        return changed;
+    }
+
+    // Slug estable para un id de opcion: minusculas, no-alfanumerico -> '_', sin bordes; vacio -> "opcion".
+    private static string SlugId(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (var ch in text.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch)) { sb.Append(ch); }
+            else if (sb.Length > 0 && sb[^1] != '_') { sb.Append('_'); }
+        }
+        var slug = sb.ToString().Trim('_');
+        return string.IsNullOrEmpty(slug) ? "opcion" : slug;
     }
 
     private async Task<AgentToolResult> AddQuestionAsync(JsonElement args, CancellationToken ct)

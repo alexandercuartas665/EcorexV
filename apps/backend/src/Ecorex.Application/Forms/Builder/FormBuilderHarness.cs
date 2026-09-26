@@ -88,7 +88,10 @@ MODELO DE FORMULARIOS ECOREX.
 GRILLAS (GridDetail): options_json = arreglo de COLUMNAS. Claves por columna:
 - id (snake_case), label, width (px opcional), type: text|number|date|select|lookup|resolve|calc|seq,
   format (currency|integer|decimal|percent).
-- select: options=[{{id,label}}]. seq (auto-consecutivo): seq=""alpha"" (A,B,C) o ""num"" (1,2,3).
+- select / multicheck: la columna lleva options=[{{id,label}}] y CADA opcion DEBE tener id Y label (los dos,
+  no basta el id). Ejemplo de una columna select con opciones:
+  {{""id"":""medio"",""label"":""Medio contacto"",""type"":""select"",""options"":[{{""id"":""mail"",""label"":""Mail""}},{{""id"":""telefono"",""label"":""Telefono""}}]}}.
+- seq (auto-consecutivo): seq=""alpha"" (A,B,C) o ""num"" (1,2,3).
 - calc: formula por fila que referencia OTRAS columnas por {{col}} y encabezados por {{#campo}}. Funciones:
   SI(cond; siVerdad; siFalso), REDONDEAR, MIN, MAX. El motor es NUMERICO (no produce texto).
 - agg: None|Sum|Count|Avg|Min|Max; rollup: field_code del encabezado donde cae el total de la columna.

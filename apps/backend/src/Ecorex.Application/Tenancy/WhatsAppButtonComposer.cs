@@ -62,6 +62,35 @@ public static class WhatsAppButtonComposer
         return result.Count > 0 ? result : null;
     }
 
+    /// <summary>Para el ENVIO DE PRUEBA ("Probar"): como no hay enlaces de decision reales, arma un parametro por
+    /// cada boton URL con variable con un sufijo PLACEHOLDER, para que Meta acepte el envio y el usuario pueda VER
+    /// los botones renderizar. Devuelve null si la plantilla no tiene botones URL dinamicos.</summary>
+    public static IReadOnlyList<WhatsAppUrlButtonParam>? BuildTestButtonParams(string? buttonsJson, string placeholderSuffix)
+    {
+        if (string.IsNullOrWhiteSpace(buttonsJson)) { return null; }
+        var suffix = string.IsNullOrWhiteSpace(placeholderSuffix) ? "prueba" : placeholderSuffix.Trim();
+        var result = new List<WhatsAppUrlButtonParam>();
+        try
+        {
+            using var doc = JsonDocument.Parse(buttonsJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return null; }
+            var index = 0;
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var current = index++;
+                if (el.ValueKind != JsonValueKind.Object) { continue; }
+                var type = ReadProp(el, "type")?.Trim().ToUpperInvariant();
+                var url = ReadProp(el, "url");
+                if (type == "URL" && !string.IsNullOrWhiteSpace(url) && url!.Contains("{{", StringComparison.Ordinal))
+                {
+                    result.Add(new WhatsAppUrlButtonParam(current, suffix));
+                }
+            }
+        }
+        catch { return null; }
+        return result.Count > 0 ? result : null;
+    }
+
     private static string? ReadProp(JsonElement obj, string name)
     {
         foreach (var p in obj.EnumerateObject())

@@ -271,8 +271,11 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         // se usa esa; si no, la guardada en la plantilla.
         var (headerType, headerUrl) = ResolveTestHeader(t, headerMediaUrl);
         var actor = _tenantContext.UserId ?? Guid.Empty;
+        // Botones URL DINAMICOS: en la prueba no hay enlaces de decision reales, asi que se rellenan con un sufijo
+        // placeholder para que Meta acepte el envio y el usuario VEA los botones (con URL de muestra).
+        var urlButtons = WhatsAppButtonComposer.BuildTestButtonParams(t.ButtonsJson, "prueba");
         var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, sendValues, actor,
-            headerType, headerUrl, cancellationToken: cancellationToken);
+            headerType, headerUrl, urlButtons: urlButtons, cancellationToken: cancellationToken);
         return res.Ok
             ? WhatsAppTemplateResult<bool>.Ok(true)
             : WhatsAppTemplateResult<bool>.Invalid(res.Error ?? "No se pudo enviar la prueba.");

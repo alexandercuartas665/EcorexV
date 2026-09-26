@@ -94,4 +94,25 @@ public class WhatsAppButtonComposerTests
         Assert.Null(WhatsAppButtonComposer.BuildUrlButtonParams(TwoDynamicButtons, null));
         Assert.Null(WhatsAppButtonComposer.BuildUrlButtonParams(TwoDynamicButtons, new Dictionary<string, string>()));
     }
+
+    [Fact]
+    public void TestButtonParams_RellenaCadaBotonDinamicoConElPlaceholder()
+    {
+        var res = WhatsAppButtonComposer.BuildTestButtonParams(TwoDynamicButtons, "prueba");
+
+        Assert.NotNull(res);
+        Assert.Equal(2, res!.Count);
+        Assert.Equal(0, res[0].Index);
+        Assert.Equal("prueba", res[0].Text);
+        Assert.Equal(1, res[1].Index);
+        Assert.Equal("prueba", res[1].Text);
+    }
+
+    [Fact]
+    public void TestButtonParams_SinBotonesDinamicos_DevuelveNull()
+    {
+        var fijos = """[ { "type": "URL", "text": "Sitio", "url": "https://bitcode.com.co" } ]""";
+        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(fijos, "prueba"));
+        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(null, "prueba"));
+    }
 }

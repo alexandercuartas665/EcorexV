@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - v0.16.148: "Probar" plantilla rellena los botones dinamicos con placeholder (para verlos)
+
+- Duda del usuario: al re-importar, la plantilla trae los botones (ok), pero al "Probar" no los ve. Causa: el
+  envio de prueba (TestSendAsync) llama al connector SIN parametros de boton; para una plantilla con botones URL
+  dinamicos Meta EXIGE el parametro, asi que no renderizan (o rechaza).
+- Cambio: WhatsAppButtonComposer.BuildTestButtonParams arma un parametro por cada boton URL con variable con un
+  sufijo PLACEHOLDER ("prueba"); TestSendAsync lo pasa a _connector.SendTemplateAsync(urlButtons: ...). Asi el
+  mensaje de prueba llega CON los botones (URL de muestra https://.../prueba) y el usuario los ve renderizar.
+- Los botones dinamicos "de verdad" (con el /d/{token} por tarea) siguen saliendo solo por el FLUJO (v0.16.147);
+  "Probar" es solo para verlos visualmente.
+- Archivos: WhatsAppButtonComposer.cs, WhatsAppTemplateService.cs + tests. Build verde; 7 tests del composer OK;
+  format limpio. NO desplegado (pido OK).
+
 ## 2026-09-26 - v0.16.147: botones URL DINAMICOS en el envio de plantillas WhatsApp (ADR-0112)
 
 - Continuacion (AGRO): la plantilla `entrega_cotizacion_button_fin` (Approved) SI tiene botones URL con variable

@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - v0.16.151: compuerta con enlaces de decision del cliente ESPERA sin asignacion humana (ADR-0113)
+
+- Analisis (pedido del usuario): la compuerta "Gestion del agente" es una NOTIFICACION donde decide el CLIENTE por
+  el link /d/{token}, no un humano ni el agente. Pero el runtime solo esperaba+notificaba si WaitsForHuman
+  (= AllowsAssignment "Permite asignacion manual"). Al quitar la asignacion (T00184), la compuerta se auto-resolvio
+  por la salida default y NO envio nada (solo se notifican pasos que quedan Pending).
+- Fix (WorkflowEngine.ActivateNodeAsync, 1 condicion + 1 helper): la compuerta tambien queda Pending (espera +
+  notifica) cuando tiene enlacesDecision, aunque no tenga asignacion. GatewayHasDecisionLinks(node) parsea
+  NotifyJson con NodeNotifyConfig. El cliente resuelve por link (exclusiva: la salida elegida avanza, las demas se
+  apagan). Sin regresion: gateways sin enlaces o con AllowsAssignment se comportan igual.
+- Archivos: WorkflowEngine.cs. Build verde; 41 tests de workflow/notify OK; format limpio. ADR-0113. NO desplegado (pido OK).
+- Pendiente aparte: el flujo tiene DOS compuertas en paralelo desde "Se prepara la cotizacion" (una rama queda
+  colgada) - tema de diseno del flujo, a reconectar en el editor.
+
 ## 2026-09-26 - v0.16.150: documento del header WhatsApp con NOMBRE (ya no llega "Sin titulo")
 
 - Validado en prod (T00183): el flujo envio la plantilla con PDF + cuerpo + los 2 botones dinamicos (YCloud 200).

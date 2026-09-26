@@ -903,6 +903,12 @@ public sealed class WorkflowEngine : IWorkflowEngine
         return seen;
     }
 
+    /// <summary>True si la compuerta tiene ENLACES DE DECISION (una regla de notificacion que emite un link
+    /// publico /d/{token} por salida): entonces decide el CLIENTE por el link y la compuerta debe ESPERAR
+    /// (Pending) aunque no tenga asignacion humana. Puro; tolera notify_json vacio o invalido.</summary>
+    private static bool GatewayHasDecisionLinks(WorkflowNode node)
+        => NodeNotifyConfig.Parse(node.NotifyJson).Reglas?.Any(r => r.EnlacesDecision is { Count: > 0 }) == true;
+
     /// <summary>
     /// Crea el paso Pending del nodo y lo activa: los startEvent se completan solos; los
     /// exclusiveGateway se completan AUTOMATICAMENTE heredando el ApprovalResult del paso que
@@ -924,15 +930,18 @@ public sealed class WorkflowEngine : IWorkflowEngine
             step.Status = WorkflowStepStatus.Completed;
             step.CompletedAt = DateTimeOffset.UtcNow;
         }
-        else if (node.NodeType == WorkflowNodeType.ExclusiveGateway && !node.WaitsForHuman)
+        else if (node.NodeType == WorkflowNodeType.ExclusiveGateway && !node.WaitsForHuman && !GatewayHasDecisionLinks(node))
         {
-            // Compuerta AUTOMATICA (sin asignacion, ADR-0037): hereda la decision del paso de origen y se
-            // completa en el acto. El bucle lo tomara como IsReady y ResolveOutgoing evaluara sus aristas
-            // contra este ApprovalResult (o tomara la default). Sigue siendo una fila de historial (auditoria).
+            // Compuerta AUTOMATICA (sin asignacion NI enlaces de decision, ADR-0037): hereda la decision del paso
+            // de origen y se completa en el acto. El bucle lo tomara como IsReady y ResolveOutgoing evaluara sus
+            // aristas contra este ApprovalResult (o tomara la default). Sigue siendo fila de historial (auditoria).
             step.Status = WorkflowStepStatus.Completed;
             step.CompletedAt = DateTimeOffset.UtcNow;
             step.ApprovalResult = Normalize(inheritedApprovalResult);
         }
+        // Compuerta con ENLACES DE DECISION del CLIENTE (regla que emite un link /d/{token} por salida): aunque no
+        // tenga asignacion humana, DEBE esperar -> queda Pending para (1) disparar la notificacion (envia los links)
+        // y (2) que la compuerta se resuelva cuando el CLIENTE elige por su link (no decide un humano ni el agente).
         // Compuerta / evento de fin ATENDIDOS (ADR-0068, node.WaitsForHuman): NO caen en ninguna rama y
         // quedan Pending+IsCurrent -> el asignado ELIGE la ruta (compuerta, con su ApprovalResult) o
         // CONFIRMA el cierre (fin) desde la bandeja. El inheritedApprovalResult se ignora (lo pone el humano).

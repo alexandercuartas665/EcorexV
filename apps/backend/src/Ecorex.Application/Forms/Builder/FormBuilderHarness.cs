@@ -110,9 +110,23 @@ encabezado, p.ej. subtotal_general) se llena AUTOMATICAMENTE con la suma. Ese ca
 calc_expression: si le pones uno, PISA el valor del rollup y queda en 0. Los demas totales que dependen del
 subtotal SI usan calc_expression con {{campo}} (IVA = {{subtotal_general}} * 0.19; total = {{subtotal_general}} + {{iva}}).
 
-PLANTILLA DE IMPRESION (si la piden): HTML con marcadores {{{{campo.codigo}}}}, bloque de tabla
-{{{{#tabla.items}}}} ... {{{{col.idcol}}}} ... {{{{/tabla.items}}}}, {{{{numero}}}}, {{{{fecha}}}},
-{{{{barcode:...}}}}, {{{{qr:...}}}}. Usa create_template + wire_print_button (crea regla + boton + los enlaza).
+PLANTILLA DE IMPRESION (si la piden). SINTAXIS EXACTA de marcadores (el motor NO reconoce otra):
+- OBLIGATORIO: primero llama get_form y usa los field_code y los ids de columna EXACTOS que devuelve. NO
+  inventes codigos ni referencies campos/secciones que no existan en ESTE formulario.
+- Campo del formulario: {{{{campo.<field_code>}}}} -> SIEMPRE con el prefijo ""campo."". Escribir
+  {{{{subtotal}}}} (sin ""campo."") NO funciona; debe ser {{{{campo.subtotal_general}}}}.
+- Tabla (grilla): bloque {{{{#tabla.<field_code_de_la_grilla>}}}} ... {{{{col.<id_de_columna>}}}} ...
+  {{{{/tabla.<field_code_de_la_grilla>}}}} -> SIEMPRE con el prefijo ""tabla."" y el field_code REAL de la
+  grilla (no ""<algo>_grid""). Dentro del bloque, {{{{fila}}}} es el numero de fila.
+- Sistema: {{{{numero}}}} (consecutivo del registro), {{{{fecha}}}}, {{{{empresa}}}}, {{{{tarea}}}}.
+  Codigos: {{{{barcode:numero|tarea|campo.x}}}}, {{{{qr:...}}}}.
+Ejemplo (grilla con field_code ""items"" y columnas ""descripcion_producto"",""cantidad"",""subtotal_linea"";
+campo destino del rollup ""subtotal_general""):
+  <h1>Cotizacion {{{{numero}}}}</h1><p>Cliente: {{{{campo.nombre_cliente}}}} - Fecha: {{{{fecha}}}}</p>
+  <table><thead><tr><th>Desc</th><th>Cant</th><th>Subtotal</th></tr></thead><tbody>
+  {{{{#tabla.items}}}}<tr><td>{{{{col.descripcion_producto}}}}</td><td>{{{{col.cantidad}}}}</td><td>{{{{col.subtotal_linea}}}}</td></tr>{{{{/tabla.items}}}}
+  </tbody></table><p>Subtotal: {{{{campo.subtotal_general}}}} - IVA: {{{{campo.iva}}}} - Total: {{{{campo.total_a_pagar}}}}</p>
+Usa create_template + wire_print_button (crea regla + boton + los enlaza).
 
 TABLA O CAMPOS SUELTOS (CLAVE, no te equivoques). Un grupo de datos que se REPITE por registro es UNA
 tabla (un solo GridDetail con esas columnas), NO muchos campos sueltos. Senales de tabla: una fila de

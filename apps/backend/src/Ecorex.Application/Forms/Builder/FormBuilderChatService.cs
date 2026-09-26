@@ -24,8 +24,13 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
 
     // Proveedor fijo para esta funcion (decision de producto): Gemini (fuerte en tool-use + vision + PDF nativo).
     private const AiProvider Provider = AiProvider.Gemini;
+    // Modelo por defecto de la funcion: FLASH (respuesta rapida en un chat con muchas herramientas; pro es
+    // demasiado lento para el ida y vuelta interactivo). Es un modelo valido de Gemini en el catalogo.
+    private const string FeatureModel = "gemini-2.5-flash";
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
+    // Timeout por llamada al modelo: un cuelgue debe fallar limpio en vez de congelar la conversacion.
+    private static readonly TimeSpan AiCallTimeout = TimeSpan.FromSeconds(90);
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -47,7 +52,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         {
             return new FormBuilderStartResult(false, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.", Guid.Empty, null);
         }
-        var model = !string.IsNullOrWhiteSpace(cfg.Model) ? cfg.Model! : AiProviderCatalog.For(Provider).DefaultModel;
+        var model = FeatureModel;
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
@@ -189,13 +194,13 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         catch { return FormBuilderTurnResult.Fail(conv.Id, "La API key del proveedor esta cifrada con una version anterior. Vuelve a guardarla en Servidores de IA."); }
 
         var meta = AiProviderCatalog.For(Provider);
-        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model!
-            : !string.IsNullOrWhiteSpace(cfg.Model) ? cfg.Model! : meta.DefaultModel;
+        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FeatureModel;
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
         var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
         if (string.IsNullOrWhiteSpace(tenantName)) { tenantName = "tu empresa"; }
-        var systemPrompt = FormBuilderHarness.SystemPrompt(tenantName, editingExisting: conv.FormDefinitionId is not null);
+        var systemPrompt = FormBuilderHarness.SystemPrompt(tenantName, editingExisting: conv.FormDefinitionId is not null,
+            formId: conv.FormDefinitionId?.ToString("D"));
         var tools = _toolset.GetSpecs();
         var readOnly = _toolset.ReadOnlyTools;
 
@@ -207,7 +212,13 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             AiCompletion completion;
             try
             {
-                completion = await _ai.CompleteWithToolsAsync(Provider, apiKey, baseUrl, model, systemPrompt, messages, tools, cancellationToken);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(AiCallTimeout);
+                completion = await _ai.CompleteWithToolsAsync(Provider, apiKey, baseUrl, model, systemPrompt, messages, tools, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return FormBuilderTurnResult.Fail(conv.Id, "La IA tardo demasiado en responder. Intenta de nuevo o simplifica la instruccion.");
             }
             catch (Exception ex)
             {

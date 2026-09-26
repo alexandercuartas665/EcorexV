@@ -8,12 +8,23 @@ namespace Ecorex.Application.Forms.Builder;
 /// </summary>
 public static class FormBuilderHarness
 {
-    /// <summary>Arma el system prompt inyectando el nombre del tenant y si se edita un formulario existente.</summary>
-    public static string SystemPrompt(string tenantName, bool editingExisting)
+    /// <summary>
+    /// Arma el system prompt. <paramref name="formId"/> es el id del formulario ABIERTO en el disenador
+    /// (siempre presente cuando el chat corre dentro del disenador): el agente debe usar ESE id en todas las
+    /// herramientas y NO preguntar cual formulario ni crear/listar formularios.
+    /// </summary>
+    public static string SystemPrompt(string tenantName, bool editingExisting, string? formId)
     {
-        var modo = editingExisting
-            ? "Estas EDITANDO un formulario existente: primero usa get_form para leer su estructura real (ids de contenedores/campos y version) antes de proponer cambios."
-            : "Estas CREANDO un formulario nuevo (queda en BORRADOR hasta que el usuario lo publique).";
+        var modo = !string.IsNullOrWhiteSpace(formId)
+            ? $@"Estas trabajando sobre el formulario que YA ESTA ABIERTO en el disenador. Su id es: {formId}.
+- USA SIEMPRE ese id como form_id (o formId) en TODAS las herramientas: add_container, add_question,
+  update_*, set_transactional, create_template, wire_print_button, etc.
+- NO preguntes 'en cual formulario', NO uses list_forms y NO uses create_form: el formulario ya existe y es ese.
+- Si necesitas conocer su estructura actual (contenedores/campos y su version), usa get_form con ese id.
+- El formulario puede estar vacio (recien creado) o con contenido: en ambos casos construyes SOBRE el."
+            : (editingExisting
+                ? "Estas EDITANDO un formulario existente: primero usa get_form para leer su estructura real (ids de contenedores/campos y version) antes de proponer cambios."
+                : "Estas CREANDO un formulario nuevo (queda en BORRADOR hasta que el usuario lo publique).");
 
         return
 $@"Eres el ASISTENTE DE CONSTRUCCION DE FORMULARIOS de ECOREX, trabajando para el tenant ""{tenantName}"".

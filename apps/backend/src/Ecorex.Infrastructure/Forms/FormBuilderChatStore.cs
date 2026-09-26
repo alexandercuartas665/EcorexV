@@ -32,6 +32,7 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
         };
         _db.FormBuilderConversations.Add(conv);
         await _db.SaveChangesAsync(cancellationToken);
+        Detach(conv);
         return conv;
     }
 
@@ -40,8 +41,11 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
 
     public async Task SaveConversationAsync(FormBuilderConversation conversation, CancellationToken cancellationToken = default)
     {
-        _db.FormBuilderConversations.Update(conversation);
+        DetachTrackedById<FormBuilderConversation>(conversation.Id);
+        _db.Attach(conversation);
+        _db.Entry(conversation).State = EntityState.Modified;
         await _db.SaveChangesAsync(cancellationToken);
+        Detach(conversation);
     }
 
     public async Task<IReadOnlyList<FormBuilderMessage>> GetMessagesAsync(Guid conversationId, CancellationToken cancellationToken = default)
@@ -54,13 +58,27 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
     {
         _db.FormBuilderMessages.Add(message);
         await _db.SaveChangesAsync(cancellationToken);
+        Detach(message);
         return message;
     }
 
     public async Task SaveMessageAsync(FormBuilderMessage message, CancellationToken cancellationToken = default)
     {
-        _db.FormBuilderMessages.Update(message);
+        DetachTrackedById<FormBuilderMessage>(message.Id);
+        _db.Attach(message);
+        _db.Entry(message).State = EntityState.Modified;
         await _db.SaveChangesAsync(cancellationToken);
+        Detach(message);
+    }
+
+    // El DbContext scoped vive por TODO el circuito Blazor Server; para no acumular entidades trackeadas
+    // entre turnos (y evitar "instance with the same key is already being tracked"), destrackeamos siempre.
+    private void Detach<TEntity>(TEntity entity) where TEntity : class => _db.Entry(entity).State = EntityState.Detached;
+
+    private void DetachTrackedById<TEntity>(Guid id) where TEntity : Ecorex.Domain.Common.BaseEntity
+    {
+        var tracked = _db.ChangeTracker.Entries<TEntity>().FirstOrDefault(e => e.Entity.Id == id);
+        if (tracked is not null) { tracked.State = EntityState.Detached; }
     }
 
     public async Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default)

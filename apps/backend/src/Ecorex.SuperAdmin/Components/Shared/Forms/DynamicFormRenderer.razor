@@ -503,6 +503,7 @@ else
                 catch { /* sin grafo: las secciones restringidas quedan en solo-lectura (fail-safe) */ }
             }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
+            _rollupTargets = null;   // recomputar destinos de rollup para la nueva definicion
             _theme = FormThemeJson.Read(_definition?.ThemeJson);   // apariencia / tema (Ola 5)
             _response = null;
             _values.Clear();
@@ -908,6 +909,13 @@ else
         // Campo calculado (ola F2, doc 01 D5): solo lectura, valor recomputado por el evaluador.
         // Con formato (ola F6) se muestra formateado (moneda/%/...).
         if (!string.IsNullOrWhiteSpace(q.CalcExpression))
+        {
+            <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
+            return;
+        }
+        // Campo DESTINO de un rollup de grilla: su valor lo escribe la grilla (Sum/Count/...), no el usuario.
+        // Se muestra igual que un calculado: solo lectura y FORMATEADO (moneda/%/...), no el numero crudo.
+        if (IsRollupTarget(q.FieldCode))
         {
             <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
             return;
@@ -1687,6 +1695,29 @@ else
 
     private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    // Campos que son DESTINO de un rollup de grilla (una columna con agg + rollup=<field_code>). Su valor
+    // lo escribe la grilla, no el usuario: el render los muestra como computados (read-only + formateados).
+    // Se calcula una vez por definicion (se resetea a null al cargar una nueva).
+    private HashSet<string>? _rollupTargets;
+    private bool IsRollupTarget(string fieldCode)
+    {
+        if (_rollupTargets is null)
+        {
+            _rollupTargets = new HashSet<string>(StringComparer.Ordinal);
+            if (_definition is not null)
+            {
+                foreach (var g in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+                {
+                    foreach (var col in FormGridCalculator.ParseColumns(g.OptionsJson))
+                    {
+                        if (!string.IsNullOrWhiteSpace(col.Rollup)) { _rollupTargets.Add(col.Rollup!); }
+                    }
+                }
+            }
+        }
+        return _rollupTargets.Contains(fieldCode);
+    }
 
     // ---- Configurador en cascada (motor generico) ----
     private readonly Dictionary<string, CascadeConfig?> _cascadeCache = new(StringComparer.Ordinal);

@@ -39,11 +39,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     private readonly ITerceroFieldService _terceroFields;
     private readonly IMenuConfigService _menus;
     private readonly IApplicationDbContext _db;
+    private readonly Organization.IWorkflowNodePolicyService _orgUnits;
 
     public FormAuthoringToolset(
         IFormDefinitionService forms, IFormTokenService tokens, IFormResponseService responses,
         IQuoteTemplateService templates, IRuleDocumentService rules, IDataContainerService containers,
-        ITerceroFieldService terceroFields, IMenuConfigService menus, IApplicationDbContext db)
+        ITerceroFieldService terceroFields, IMenuConfigService menus, IApplicationDbContext db,
+        Organization.IWorkflowNodePolicyService orgUnits)
     {
         _forms = forms;
         _tokens = tokens;
@@ -54,6 +56,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         _terceroFields = terceroFields;
         _menus = menus;
         _db = db;
+        _orgUnits = orgUnits;
     }
 
     public string GroupKey => "form-authoring";
@@ -68,7 +71,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "describe_components", "list_tenants", "list_forms", "get_form", "list_templates",
-        "list_data_containers", "list_tercero_fields", "list_menu_views", "list_menu_nodes",
+        "list_data_containers", "list_tercero_fields", "list_org_units", "list_menu_views", "list_menu_nodes",
         "export_form", "get_render_urls"
     };
 
@@ -103,6 +106,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         new("list_tercero_fields",
             "Lista los campos disponibles de Tercero (Directorio) para autofill de un lookup con source=Tercero: base (nombre, identificacion, ciudad, email, telefono, vendedor, sector, cargo, estado) + los campos de ficha configurados.",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
+        new("list_org_units",
+            "Lista las Dependencias y Cargos del organigrama del tenant (id, nombre, classifier Dependencia|Cargo, parent). Usa estos ids en 'allowed_cargos_json' de add_container/update_container para restringir el acceso a una seccion.",
+            """{"type":"object","properties":{},"additionalProperties":false}"""),
         new("list_menu_views",
             "Lista las vistas de menu del tenant (id, nombre, si es la predeterminada). Usa el id como 'menu_view_id' de set_module para publicar el formulario como modulo bajo esa vista.",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
@@ -124,11 +130,12 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "Actualiza titulo/descripcion del formulario. Requiere 'version' (concurrencia optimista) que entrega get_form.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"version":{"type":"integer"}},"required":["form_id","title","version"],"additionalProperties":false}"""),
         new("add_container",
-            "Agrega un contenedor (seccion/tabla/fila/columna/tabs/modal) al formulario. container_type: Segment,Table,Row,Col,Section,Tabs,Modal. width en la rejilla de 12.",
-            """{"type":"object","properties":{"form_id":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string"},"parent_id":{"type":"string","description":"Contenedor padre (opcional; raiz si se omite)"},"width":{"type":"integer"},"inline_labels":{"type":"boolean"},"style":{"type":"string"}},"required":["form_id","name"],"additionalProperties":false}"""),
+            "Agrega un contenedor (seccion/tabla/fila/columna/tabs/modal) al formulario. container_type: Segment,Table,Row,Col,Section,Tabs,Modal. width en la rejilla de 12. " +
+            "visible_when_json: muestra/oculta la seccion segun el valor de otra pregunta {field,op,value}. allowed_cargos_json: restringe el acceso a la seccion a ciertos Cargos/Dependencias (arreglo de ids de list_org_units).",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string"},"parent_id":{"type":"string","description":"Contenedor padre (opcional; raiz si se omite)"},"width":{"type":"integer"},"inline_labels":{"type":"boolean"},"style":{"type":"string"},"visible_when_json":{"type":"string","description":"Condicion de visibilidad {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"},"allowed_cargos_json":{"type":"string","description":"Arreglo JSON de ids de OrgUnit (Cargo|Dependencia) de list_org_units; vacio/omitido = sin restriccion"}},"required":["form_id","name"],"additionalProperties":false}"""),
         new("update_container",
-            "Actualiza un contenedor por su id (nombre/tipo/ancho/estilo).",
-            """{"type":"object","properties":{"container_id":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string"},"width":{"type":"integer"},"inline_labels":{"type":"boolean"},"style":{"type":"string"},"parent_id":{"type":"string"}},"required":["container_id","name"],"additionalProperties":false}"""),
+            "Actualiza un contenedor por su id (nombre/tipo/ancho/estilo/visibilidad/acceso por cargo).",
+            """{"type":"object","properties":{"container_id":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string"},"width":{"type":"integer"},"inline_labels":{"type":"boolean"},"style":{"type":"string"},"parent_id":{"type":"string"},"visible_when_json":{"type":"string"},"allowed_cargos_json":{"type":"string"}},"required":["container_id","name"],"additionalProperties":false}"""),
         new("move_container",
             "Mueve un contenedor a otro padre (o a la raiz con parent_id vacio) en la posicion 'index'.",
             """{"type":"object","properties":{"container_id":{"type":"string"},"parent_id":{"type":"string"},"index":{"type":"integer"}},"required":["container_id","index"],"additionalProperties":false}"""),
@@ -137,10 +144,10 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "OptionsJson: para Select/Radio/MultiCheck es un arreglo de opciones; para GridDetail es el arreglo de columnas (ver describe_components). " +
             "Lookup a nivel de campo: source_kind (Options|DataContainer|Tercero|Item)+source_ref+display_field+value_field+filter_json+autofill_map_json+presentation. " +
             "Calculo: calc_expression + aggregate. Formato de salida: 'format'. field_code debe ser unico en el formulario.",
-            """{"type":"object","properties":{"form_id":{"type":"string"},"container_id":{"type":"string","description":"Contenedor destino (opcional; raiz si se omite)"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string","description":"JSON de opciones (Select/Radio/MultiCheck) o de columnas (GridDetail)"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string","description":"Autocomplete|Dropdown|Modal"},"calc_expression":{"type":"string"},"aggregate":{"type":"string","description":"None|Sum|Count|Avg|Min|Max"},"format":{"type":"string"},"validation_json":{"type":"string"}},"required":["form_id","field_code","label","control_type"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"form_id":{"type":"string"},"container_id":{"type":"string","description":"Contenedor destino (opcional; raiz si se omite)"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string","description":"JSON de opciones (Select/Radio/MultiCheck) o de columnas (GridDetail)"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string","description":"Autocomplete|Dropdown|Modal"},"calc_expression":{"type":"string"},"aggregate":{"type":"string","description":"None|Sum|Count|Avg|Min|Max"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string","description":"Muestra/oculta el campo segun otra pregunta {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"}},"required":["form_id","field_code","label","control_type"],"additionalProperties":false}"""),
         new("update_question",
             "Actualiza una pregunta por su id. Mismos campos que add_question (los que omitas vuelven a su valor por defecto del request).",
-            """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"validation_json":{"type":"string"}},"required":["question_id","field_code","label","control_type"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string"}},"required":["question_id","field_code","label","control_type"],"additionalProperties":false}"""),
         new("move_question",
             "Mueve una pregunta a otro contenedor (o a la raiz con container_id vacio) en la posicion 'index'.",
             """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"index":{"type":"integer"}},"required":["question_id","index"],"additionalProperties":false}"""),
@@ -218,6 +225,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "list_templates" => await ListTemplatesAsync(cancellationToken),
                 "list_data_containers" => await ListDataContainersAsync(cancellationToken),
                 "list_tercero_fields" => await ListTerceroFieldsAsync(cancellationToken),
+                "list_org_units" => await ListOrgUnitsAsync(cancellationToken),
                 "list_menu_views" => await ListMenuViewsAsync(cancellationToken),
                 "list_menu_nodes" => await ListMenuNodesAsync(args, cancellationToken),
                 "create_form" => await CreateFormAsync(args, cancellationToken),
@@ -410,6 +418,18 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         });
     }
 
+    private async Task<AgentToolResult> ListOrgUnitsAsync(CancellationToken ct)
+    {
+        var units = await _orgUnits.ListAssignableUnitsAsync(ct);
+        return Ok(new
+        {
+            ok = true,
+            total = units.Count,
+            note = "Usa estos ids en allowed_cargos_json de una seccion para restringir su acceso.",
+            units = units.Select(u => new { id = u.Id, name = u.Name, classifier = u.Classifier.ToString(), parent_id = u.ParentId })
+        });
+    }
+
     private async Task<AgentToolResult> ListMenuViewsAsync(CancellationToken ct)
     {
         var views = await _menus.ListViewsAsync(ct);
@@ -486,7 +506,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             TryGuid(args, "parent_id", out var pid) ? pid : null,
             Str(args, "style"),
             Width: Int(args, "width") ?? 12,
-            InlineLabels: Bool(args, "inline_labels") ?? false);
+            InlineLabels: Bool(args, "inline_labels") ?? false,
+            AllowedCargosJson: Str(args, "allowed_cargos_json"),
+            VisibleWhenJson: Str(args, "visible_when_json"));
         var r = await _forms.AddContainerAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, container = v });
     }
@@ -502,7 +524,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             TryGuid(args, "parent_id", out var pid) ? pid : null,
             Str(args, "style"),
             Width: Int(args, "width") ?? 12,
-            InlineLabels: Bool(args, "inline_labels") ?? false);
+            InlineLabels: Bool(args, "inline_labels") ?? false,
+            AllowedCargosJson: Str(args, "allowed_cargos_json"),
+            VisibleWhenJson: Str(args, "visible_when_json"));
         var r = await _forms.UpdateContainerAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, container = v });
     }
@@ -537,7 +561,8 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             Presentation: EnumOr(args, "presentation", FormFieldPresentation.Autocomplete),
             CalcExpression: FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")),
             Aggregate: EnumOr(args, "aggregate", FormAggregate.None),
-            Format: Str(args, "format"));
+            Format: Str(args, "format"),
+            VisibleWhenJson: Str(args, "visible_when_json"));
 
     // BLINDAJE de autoria por agente: normaliza el 'calc' de cada columna de una grilla (GridDetail) a la
     // sintaxis del motor ({codigo}), por si el modelo uso corchetes [x] o nombres sueltos. Deja el resto del

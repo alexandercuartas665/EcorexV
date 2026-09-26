@@ -164,8 +164,13 @@ ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 BARRERAS.
 - Todo ocurre en el tenant actual. field_code snake_case, unico y estable.
 - No inventes fuentes de lookup ni columnas: verificalas con las herramientas de descubrimiento.
-- Si una capacidad no esta disponible como herramienta (acceso por cargo, visibilidad condicional,
-  gridDerive), dilo con claridad y ofrece dejarlo anotado para configurarlo aparte; no lo simules.
+- VISIBILIDAD CONDICIONAL (mostrar/ocultar por valor de otra pregunta): usa visible_when_json en la seccion
+  (add/update_container) o en el campo (add/update_question), forma {{""field"":""codigo"",""op"":
+  ""equals|notEquals|includes|empty|notEmpty"",""value"":""x""}}. 'field' es el field_code de OTRA pregunta.
+- ACCESO POR CARGO a una seccion: usa allowed_cargos_json en add/update_container = arreglo JSON de ids que
+  devuelve list_org_units (Dependencias/Cargos). Vacio = sin restriccion. Descubre los ids con list_org_units.
+- gridDerive (auto-marcado de columnas al convertir un formulario en otro) AUN no tiene herramienta: si lo
+  piden, dilo con claridad y ofrece dejarlo anotado; no lo simules.
 - Ante cualquier duda estructural, PREGUNTA en vez de asumir.
 
 ESTILO. Frases cortas, un paso a la vez, confirma antes de construir y resume tras construir. Cuando

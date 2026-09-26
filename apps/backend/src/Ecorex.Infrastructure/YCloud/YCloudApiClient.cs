@@ -100,7 +100,7 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return SendMessageAsync(apiKey, payload, cancellationToken);
     }
 
-    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default)
+    public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default)
     {
         // Payload de plantilla (WhatsApp/YCloud v2): componentes con los parametros en orden.
         // Header de media (imagen/documento/video): { type:"header", parameters:[{ type:"image", image:{ link } }] }.
@@ -123,6 +123,21 @@ internal sealed class YCloudApiClient : IYCloudApiClient
                 type = "body",
                 parameters = bodyParams.Select(p => new { type = "text", text = p }).ToArray()
             });
+        }
+        // Botones URL DINAMICOS: un componente por boton con su indice y el sufijo que reemplaza {{1}}.
+        // { type:"button", sub_type:"url", index:N, parameters:[{ type:"text", text }] }.
+        if (urlButtons is { Count: > 0 })
+        {
+            foreach (var b in urlButtons)
+            {
+                components.Add(new Dictionary<string, object?>
+                {
+                    ["type"] = "button",
+                    ["sub_type"] = "url",
+                    ["index"] = b.Index,
+                    ["parameters"] = new[] { new Dictionary<string, object?> { ["type"] = "text", ["text"] = b.Text } }
+                });
+            }
         }
         var template = new Dictionary<string, object?>
         {

@@ -86,19 +86,24 @@ public sealed class NodeNotifyService : INodeNotifyService
         IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, Guid stepId, CancellationToken ct)
     {
         // Enlaces publicos de decision del cliente que ESTA regla emite: se genera (o reusa) un token por
-        // salida y su URL /d/{token} se inyecta bajo la variable configurada, para que el llenado por
-        // nombre (plantilla WhatsApp) o el token {Variable} del cuerpo (correo/texto) tomen el enlace.
+        // salida y su URL /d/{token} se inyecta bajo la variable configurada (para el llenado por nombre de la
+        // plantilla o el token {Variable} del cuerpo) Y se mapea por ETIQUETA de boton, para poder inyectarla
+        // como parametro de un boton URL dinamico de la plantilla en el envio.
+        IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null;
         if (rule.EnlacesDecision is { Count: > 0 })
         {
             var copy = new Dictionary<string, string>(tokens, StringComparer.OrdinalIgnoreCase);
+            var byLabel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var d in rule.EnlacesDecision)
             {
-                if (string.IsNullOrWhiteSpace(d.Variable)) { continue; }
                 var url = await _decisionLinks.EnsureLinkAsync(stepId, d.TargetNodeId, d.Capture,
                     d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, ct);
-                if (!string.IsNullOrWhiteSpace(url)) { copy[d.Variable.Trim()] = url!; }
+                if (string.IsNullOrWhiteSpace(url)) { continue; }
+                if (!string.IsNullOrWhiteSpace(d.Variable)) { copy[d.Variable.Trim()] = url!; }
+                if (!string.IsNullOrWhiteSpace(d.ButtonLabel)) { byLabel[d.ButtonLabel!.Trim()] = url!; }
             }
             tokens = copy;
+            decisionLinksByButtonLabel = byLabel.Count > 0 ? byLabel : null;
         }
 
         var body = _tokens.Render(rule.Mensaje, tokens);
@@ -231,7 +236,8 @@ public sealed class NodeNotifyService : INodeNotifyService
                 {
                     // YCloud/Cloud: plantilla + (si aplica) el documento como HEADER de la propia plantilla.
                     waOutcome = await _sender.SendWhatsAppTemplateAsync(lineId, phone!, rule.Plantilla!, rule.Idioma, waTokens, actor,
-                        headerMediaTypeOverride: headerMediaType, headerMediaUrlOverride: headerMediaUrl, cancellationToken: ct);
+                        headerMediaTypeOverride: headerMediaType, headerMediaUrlOverride: headerMediaUrl,
+                        decisionLinksByButtonLabel: decisionLinksByButtonLabel, cancellationToken: ct);
                     // Documento aparte SOLO si NO fue como header (compat. atras; en YCloud igual no se soporta).
                     if (cotDoc is not null && headerMediaUrl is null)
                     {

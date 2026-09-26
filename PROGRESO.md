@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - v0.16.147: botones URL DINAMICOS en el envio de plantillas WhatsApp (ADR-0112)
+
+- Continuacion (AGRO): la plantilla `entrega_cotizacion_button_fin` (Approved) SI tiene botones URL con variable
+  (`https://app2.bitcode.com.co/{{button1}}` / `{{button2}}`, hasUrlVariable=true, import v0.16.146 los trajo bien),
+  pero el mensaje no llevaba los botones porque el envio NUNCA emitia el componente `button`.
+- Cambio: al enviar plantilla YCloud/Cloud, si tiene botones URL con variable Y la regla define enlaces de decision,
+  se emite `{ type:"button", sub_type:"url", index:N, parameters:[{type:"text", text:<sufijo>}] }` por boton.
+  - Mapeo por TEXTO del boton == buttonLabel de la regla; indice = posicion del boton; sufijo = URL del enlace
+    /d/{token} menos el prefijo fijo del boton (antes de "{{").
+  - Solo botones URL con variable llevan parametro; fijos/quick-reply los pinta Meta solo.
+  - Logica pura en WhatsAppButtonComposer.BuildUrlButtonParams (5 tests). Se enhebra urlButtons por
+    IYCloudApiClient/IWhatsAppConnectorService y decisionLinksByButtonLabel por INotificationChannelSender;
+    NodeNotifyService arma el mapa label->/d/{token} desde EnlacesDecision. Evolution/Emulator lo ignoran.
+- Nota: requiere que el boton en Meta tenga el sufijo {{1}} y comparta host con /d/{token}. Ademas, entrega_cotizacion
+  (la vieja) da "Template not found" en Meta: el nodo debe apuntar a entrega_cotizacion_button_fin.
+- Archivos: IYCloudApiClient/YCloudApiClient, IWhatsAppConnectorService/WhatsAppConnectorService,
+  INotificationChannelSender/NotificationChannelSender, NodeNotifyService, WhatsAppButtonComposer (nuevo) + tests
+  (composer + firmas de mocks). Build Release verde; 21 tests OK; format limpio. ADR-0112. NO desplegado (pido OK).
+
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 
 - Pedido del usuario (AGRO): creo la plantilla `entrega_cotizacion_botones` en Meta pero al importarla a ECOREX

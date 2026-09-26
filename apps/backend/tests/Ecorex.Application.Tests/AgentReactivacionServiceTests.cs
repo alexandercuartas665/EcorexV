@@ -65,7 +65,7 @@ public class AgentReactivacionServiceTests
         public Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<bool> DeleteLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -79,7 +79,7 @@ public class AgentReactivacionServiceTests
         public List<(Guid LineId, string Phone, string Template)> TemplateSends { get; } = new();
         public bool NextOk = true;
 
-        public Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null, CancellationToken cancellationToken = default)
+        public Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language, IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null, IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null, CancellationToken cancellationToken = default)
         {
             TemplateSends.Add((lineId, phone, templateName));
             return Task.FromResult(new WhatsAppSendOutcome(NextOk, NextOk ? null : "test-fail"));
@@ -324,8 +324,12 @@ public class AgentReactivacionServiceTests
     {
         var agent = new AiAgent
         {
-            TenantId = Tenant, Name = "Agente", SystemPrompt = "", IsActive = true,
-            Provider = AiProvider.Gemini, ReactivacionJson = cfg.Serialize()
+            TenantId = Tenant,
+            Name = "Agente",
+            SystemPrompt = "",
+            IsActive = true,
+            Provider = AiProvider.Gemini,
+            ReactivacionJson = cfg.Serialize()
         };
         inner.AiAgents.Add(agent);
         return agent.Id;
@@ -336,7 +340,10 @@ public class AgentReactivacionServiceTests
         var lineId = Guid.NewGuid();
         inner.AiAgentLineBindings.Add(new AiAgentLineBinding
         {
-            TenantId = Tenant, AgentId = agentId, WhatsAppLineId = lineId, IsConnected = true
+            TenantId = Tenant,
+            AgentId = agentId,
+            WhatsAppLineId = lineId,
+            IsConnected = true
         });
         return lineId;
     }
@@ -345,7 +352,10 @@ public class AgentReactivacionServiceTests
     {
         var conv = new Conversation
         {
-            TenantId = Tenant, ContactPhone = phone, WhatsAppLineId = lineId, LeadId = leadId,
+            TenantId = Tenant,
+            ContactPhone = phone,
+            WhatsAppLineId = lineId,
+            LeadId = leadId,
             LastMessageAt = DateTimeOffset.UtcNow
         };
         inner.Conversations.Add(conv);
@@ -356,8 +366,12 @@ public class AgentReactivacionServiceTests
     {
         inner.Messages.Add(new Message
         {
-            TenantId = Tenant, ConversationId = convId, Direction = MessageDirection.Inbound,
-            Body = "hola", MessageType = "text", SentAt = at
+            TenantId = Tenant,
+            ConversationId = convId,
+            Direction = MessageDirection.Inbound,
+            Body = "hola",
+            MessageType = "text",
+            SentAt = at
         });
     }
 

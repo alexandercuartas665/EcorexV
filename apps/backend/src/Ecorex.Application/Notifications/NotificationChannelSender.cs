@@ -43,6 +43,7 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
         string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
         string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
+        IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(templateName))
@@ -71,7 +72,10 @@ public sealed class NotificationChannelSender : INotificationChannelSender
                     ? (string.IsNullOrWhiteSpace(mediaType) ? "document" : mediaType)
                     : headerMediaTypeOverride!.Trim().ToLowerInvariant();
             }
-            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, attachmentBase64, attachmentMime, attachmentFileName, cancellationToken);
+            // Botones URL DINAMICOS: si la plantilla trae botones URL con variable y la regla aporta enlaces de
+            // decision por etiqueta, se arma un parametro de boton por cada uno (indice + sufijo del enlace).
+            var urlButtons = WhatsAppButtonComposer.BuildUrlButtonParams(tpl.ButtonsJson, decisionLinksByButtonLabel);
+            var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, attachmentBase64, attachmentMime, attachmentFileName, urlButtons, cancellationToken);
             if (!res.Ok)
             {
                 // El motivo de Meta/YCloud (numero invalido, parametros, plantilla no aprobada, ventana, etc.)

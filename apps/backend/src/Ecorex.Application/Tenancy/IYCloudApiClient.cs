@@ -30,7 +30,11 @@ public interface IYCloudApiClient
     /// <param name="headerMediaType">Si la plantilla tiene header de media, su tipo en minusculas ("image"/"document"/"video");
     /// null para header de texto o sin header.</param>
     /// <param name="headerMediaUrl">URL publica de la media del header (se envia como header.link). Requiere headerMediaType.</param>
-    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default);
+    /// <param name="urlButtons">Parametros de los BOTONES URL DINAMICOS (con sufijo variable {{1}}): por cada uno, el
+    /// indice del boton en la plantilla y el sufijo a inyectar. Se emiten como componentes
+    /// { type:"button", sub_type:"url", index, parameters:[{ type:"text", text }] }. Null/vacio = plantilla sin
+    /// botones dinamicos (los botones fijos los pinta Meta solo).</param>
+    Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0096: envia una REACCION (emoji) al mensaje entrante identificado por <paramref name="messageId"/>
     /// (el wamid del mensaje del cliente). Un <paramref name="emoji"/> vacio QUITA la reaccion. Paridad con Evolution.</summary>
@@ -75,5 +79,10 @@ public sealed record YCloudTemplateStatus(
 /// <paramref name="HasUrlVariable"/> = boton URL con sufijo variable {{1}} (dinamico por envio).</summary>
 public sealed record WhatsAppTemplateButtonInfo(
     string Type, string? Text = null, string? Url = null, string? PhoneNumber = null, bool HasUrlVariable = false);
+
+/// <summary>Parametro de un boton URL DINAMICO al ENVIAR: el indice del boton en la plantilla (0-based, la
+/// posicion en el arreglo de botones) y el <paramref name="Text"/> que reemplaza el sufijo variable {{1}} de
+/// su URL (p.ej. "d/abc123" para que la URL final sea la del enlace de decision de esa tarea).</summary>
+public sealed record WhatsAppUrlButtonParam(int Index, string Text);
 
 public sealed record YCloudTemplateListResult(bool IsSuccess, IReadOnlyList<YCloudTemplateStatus> Items, string? Error);

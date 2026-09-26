@@ -313,6 +313,18 @@ else
                         </div>
                     }
                 }
+                @if (_testButtons.Count > 0)
+                {
+                    <label class="form-label" style="margin-top:10px;">Botones (URL dinamica)</label>
+                    <div class="muted-cell" style="margin-bottom:4px;">Escribe el valor que reemplaza @("{{1}}") en la URL de cada boton (lo que va despues del dominio). En un flujo real, aqui va el enlace de decision de la tarea.</div>
+                    @foreach (var b in _testButtons)
+                    {
+                        <div class="field" style="margin-bottom:6px;">
+                            <label class="form-label" style="font-size:12px;color:var(--ink-3,#64748b);">@b.Label</label>
+                            <input class="form-control" @bind="b.Value" placeholder="ej. d/prueba123" />
+                        </div>
+                    }
+                }
                 @if (TestNeedsMedia)
                 {
                     <label class="form-label" style="margin-top:10px;">Archivo del encabezado (@_testHeaderType)</label>
@@ -450,8 +462,13 @@ else
     private string? _testMediaFileName;
     private bool _uploadingTestMedia;
     private List<TestVar> _testVars = new();
+    private List<TestButton> _testButtons = new();
 
     private sealed class TestVar { public string Token = ""; public string Value = ""; }
+
+    // Boton URL DINAMICO en la prueba: Index = posicion del boton en la plantilla (lo que espera Meta),
+    // Label = texto del boton (para mostrar), Value = sufijo que el usuario quiere probar.
+    private sealed class TestButton { public int Index; public string Label = ""; public string Value = ""; }
 
     private bool TestNeedsMedia => _testHeaderType is WhatsAppTemplateHeaderType.Image
         or WhatsAppTemplateHeaderType.Document or WhatsAppTemplateHeaderType.Video;
@@ -781,6 +798,13 @@ else
         _testOk = false;
         // Campos editables por variable (prellenados con el ejemplo) para que la prueba pida los parametros.
         _testVars = t.Variables.Select(v => new TestVar { Token = v.Token, Value = v.Example }).ToList();
+        // Un campo por cada boton URL DINAMICO (con variable), con su INDICE real en la plantilla. Asi la prueba
+        // deja al usuario escribir el sufijo que va en cada boton (los fijos los pinta Meta, no llevan campo).
+        _testButtons = t.Buttons
+            .Select((b, i) => (b, i))
+            .Where(x => x.b.HasUrlVariable && string.Equals(x.b.Type, "URL", StringComparison.OrdinalIgnoreCase))
+            .Select(x => new TestButton { Index = x.i, Label = string.IsNullOrWhiteSpace(x.b.Text) ? $"Boton {x.i + 1}" : x.b.Text!, Value = "" })
+            .ToList();
         // Encabezado de media: se puede APORTAR el archivo para el envio (las importadas de YCloud llegan sin el).
         _testHeaderType = t.HeaderType;
         _testMediaUrl = t.HeaderMediaUrl;
@@ -836,7 +860,12 @@ else
         try
         {
             var values = _testVars.Select(v => v.Value ?? string.Empty).ToList();
-            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone, values, _testMediaUrl);
+            // Valores de los botones dinamicos que escribio el usuario (indice del boton -> sufijo).
+            var buttonValues = _testButtons
+                .Where(b => !string.IsNullOrWhiteSpace(b.Value))
+                .Select(b => new WhatsAppTestButtonValue(b.Index, b.Value.Trim()))
+                .ToList();
+            var res = await TemplateSvc.TestSendAsync(_testId, _testPhone, values, _testMediaUrl, buttonValues);
             if (res.IsOk) { _testOk = true; }
             else { _testError = res.Error ?? "No se pudo enviar la prueba."; }
         }

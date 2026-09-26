@@ -253,7 +253,7 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         return WhatsAppTemplateResult<WhatsAppTemplateDto>.Ok((await GetAsync(template.Id, cancellationToken))!);
     }
 
-    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default)
+    public async Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppTestButtonValue>? buttonValues = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone))
         {
@@ -271,9 +271,12 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         // se usa esa; si no, la guardada en la plantilla.
         var (headerType, headerUrl) = ResolveTestHeader(t, headerMediaUrl);
         var actor = _tenantContext.UserId ?? Guid.Empty;
-        // Botones URL DINAMICOS: en la prueba no hay enlaces de decision reales, asi que se rellenan con un sufijo
-        // placeholder para que Meta acepte el envio y el usuario VEA los botones (con URL de muestra).
-        var urlButtons = WhatsAppButtonComposer.BuildTestButtonParams(t.ButtonsJson, "prueba");
+        // Botones URL DINAMICOS: se usan los valores que ESCRIBIO el usuario (indice -> sufijo); los que deje en
+        // blanco se rellenan con un placeholder para que Meta acepte el envio (todo boton dinamico exige parametro).
+        var valuesByIndex = buttonValues is { Count: > 0 }
+            ? buttonValues.GroupBy(b => b.Index).ToDictionary(g => g.Key, g => g.Last().Text)
+            : null;
+        var urlButtons = WhatsAppButtonComposer.BuildTestButtonParams(t.ButtonsJson, valuesByIndex, "prueba");
         var res = await _connector.SendTemplateAsync(t.WhatsAppLineId, phone.Trim(), t.Name, t.Language, sendValues, actor,
             headerType, headerUrl, urlButtons: urlButtons, cancellationToken: cancellationToken);
         return res.Ok

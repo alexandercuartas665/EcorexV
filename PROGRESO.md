@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - v0.16.149: "Probar" plantilla - campos editables para el valor de cada boton dinamico
+
+- El usuario noto que el modal de "Probar" no tenia campos para escribir el valor de los botones. Ahora, por cada
+  boton URL con variable, el modal muestra un input (etiquetado con el texto del boton) donde escribe el sufijo
+  que reemplaza {{1}} (ej. "d/prueba123"). Los que deje en blanco caen al placeholder para que Meta acepte el envio.
+- Cambios: PlantillasWhatsApp.razor (estado _testButtons + seccion en el modal + DoTestAsync pasa los valores);
+  WhatsAppTestButtonValue (DTO); IWhatsAppTemplateService/WhatsAppTemplateService.TestSendAsync recibe buttonValues;
+  WhatsAppButtonComposer.BuildTestButtonParams ahora toma valuesByIndex (usuario) con fallback al placeholder.
+- Archivos: PlantillasWhatsApp.razor, WhatsAppTemplateDtos.cs, IWhatsAppTemplateService.cs, WhatsAppTemplateService.cs,
+  WhatsAppButtonComposer.cs + tests. Build verde; 8 tests del composer OK; format limpio. NO desplegado (pido OK).
+
 ## 2026-09-26 - v0.16.148: "Probar" plantilla rellena los botones dinamicos con placeholder (para verlos)
 
 - Duda del usuario: al re-importar, la plantilla trae los botones (ok), pero al "Probar" no los ve. Causa: el

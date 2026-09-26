@@ -62,13 +62,15 @@ public static class WhatsAppButtonComposer
         return result.Count > 0 ? result : null;
     }
 
-    /// <summary>Para el ENVIO DE PRUEBA ("Probar"): como no hay enlaces de decision reales, arma un parametro por
-    /// cada boton URL con variable con un sufijo PLACEHOLDER, para que Meta acepte el envio y el usuario pueda VER
-    /// los botones renderizar. Devuelve null si la plantilla no tiene botones URL dinamicos.</summary>
-    public static IReadOnlyList<WhatsAppUrlButtonParam>? BuildTestButtonParams(string? buttonsJson, string placeholderSuffix)
+    /// <summary>Para el ENVIO DE PRUEBA ("Probar"): arma un parametro por cada boton URL con variable. Usa el
+    /// valor que el usuario escribio para ese indice (<paramref name="valuesByIndex"/>); si no lo escribio, cae
+    /// al <paramref name="placeholderSuffix"/>, porque todo boton dinamico EXIGE parametro para que Meta acepte el
+    /// envio y el usuario pueda VER los botones. Devuelve null si la plantilla no tiene botones URL dinamicos.</summary>
+    public static IReadOnlyList<WhatsAppUrlButtonParam>? BuildTestButtonParams(
+        string? buttonsJson, IReadOnlyDictionary<int, string>? valuesByIndex, string placeholderSuffix)
     {
         if (string.IsNullOrWhiteSpace(buttonsJson)) { return null; }
-        var suffix = string.IsNullOrWhiteSpace(placeholderSuffix) ? "prueba" : placeholderSuffix.Trim();
+        var fallback = string.IsNullOrWhiteSpace(placeholderSuffix) ? "prueba" : placeholderSuffix.Trim();
         var result = new List<WhatsAppUrlButtonParam>();
         try
         {
@@ -83,7 +85,10 @@ public static class WhatsAppButtonComposer
                 var url = ReadProp(el, "url");
                 if (type == "URL" && !string.IsNullOrWhiteSpace(url) && url!.Contains("{{", StringComparison.Ordinal))
                 {
-                    result.Add(new WhatsAppUrlButtonParam(current, suffix));
+                    var text = valuesByIndex is not null && valuesByIndex.TryGetValue(current, out var v) && !string.IsNullOrWhiteSpace(v)
+                        ? v.Trim()
+                        : fallback;
+                    result.Add(new WhatsAppUrlButtonParam(current, text));
                 }
             }
         }

@@ -96,9 +96,9 @@ public class WhatsAppButtonComposerTests
     }
 
     [Fact]
-    public void TestButtonParams_RellenaCadaBotonDinamicoConElPlaceholder()
+    public void TestButtonParams_SinValores_UsaElPlaceholder()
     {
-        var res = WhatsAppButtonComposer.BuildTestButtonParams(TwoDynamicButtons, "prueba");
+        var res = WhatsAppButtonComposer.BuildTestButtonParams(TwoDynamicButtons, null, "prueba");
 
         Assert.NotNull(res);
         Assert.Equal(2, res!.Count);
@@ -109,10 +109,23 @@ public class WhatsAppButtonComposerTests
     }
 
     [Fact]
+    public void TestButtonParams_UsaLosValoresDelUsuario_YRellenaLosVacios()
+    {
+        // El usuario escribio solo el boton 0; el 1 cae al placeholder.
+        var valores = new Dictionary<int, string> { [0] = "d/abc" };
+        var res = WhatsAppButtonComposer.BuildTestButtonParams(TwoDynamicButtons, valores, "prueba");
+
+        Assert.NotNull(res);
+        Assert.Equal(2, res!.Count);
+        Assert.Equal("d/abc", res[0].Text);
+        Assert.Equal("prueba", res[1].Text);
+    }
+
+    [Fact]
     public void TestButtonParams_SinBotonesDinamicos_DevuelveNull()
     {
         var fijos = """[ { "type": "URL", "text": "Sitio", "url": "https://bitcode.com.co" } ]""";
-        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(fijos, "prueba"));
-        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(null, "prueba"));
+        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(fijos, null, "prueba"));
+        Assert.Null(WhatsAppButtonComposer.BuildTestButtonParams(null, null, "prueba"));
     }
 }

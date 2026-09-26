@@ -29,7 +29,7 @@ public interface IWhatsAppTemplateService
     /// <summary>Envio de PRUEBA de la plantilla a un numero. <paramref name="values"/> = valores de las variables
     /// EN ORDEN (los que teclee el usuario); si es null/vacio se usan los ejemplos. Manda por la linea de la
     /// plantilla (YCloud requiere Aprobada; Evolution la renderiza a texto/media al vuelo).</summary>
-    Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, CancellationToken cancellationToken = default);
+    Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppTestButtonValue>? buttonValues = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// STUB (ADR-0029): la sincronizacion de estado con el proveedor no esta implementada (no hay

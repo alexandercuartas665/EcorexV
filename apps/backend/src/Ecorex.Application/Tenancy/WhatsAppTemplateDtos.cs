@@ -13,6 +13,10 @@ public sealed record WhatsAppTemplateVariable(string Token, string Example);
 public sealed record WhatsAppTemplateButtonDto(
     string Type, string? Text, string? Url, string? PhoneNumber, bool HasUrlVariable);
 
+/// <summary>Valor que el usuario escribe en el ENVIO DE PRUEBA para un boton URL dinamico: el indice del boton
+/// en la plantilla y el sufijo (lo que reemplaza {{1}} en su URL).</summary>
+public sealed record WhatsAppTestButtonValue(int Index, string Text);
+
 /// <summary>Fila del grid + detalle de una plantilla HSM (todos los campos).</summary>
 public sealed record WhatsAppTemplateDto(
     Guid Id,

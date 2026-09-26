@@ -69,10 +69,38 @@
 }
 .fb-error-x { border: none; background: none; color: inherit; font-size: 15px; cursor: pointer; }
 
-/* ---- Cuerpo 3 columnas ---- */
+/* ---- Cuerpo: columnas redimensibles (grid + barras .fb-gutter) ----
+   Las variables --fb-left / --fb-right / --fb-chat controlan el ancho de cada
+   pista; fb-splitter.js las ajusta al arrastrar la barra. El centro toma 1fr. */
 .fb-body {
-    display: grid; grid-template-columns: 276px 1fr 320px;
-    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: var(--fb-left, 276px) 6px minmax(300px, 1fr) 6px var(--fb-right, 320px);
+    flex: 1; min-height: 0; overflow-x: auto;
+}
+.fb-body.fb-has-chat {
+    grid-template-columns:
+        var(--fb-left, 276px) 6px minmax(300px, 1fr) 6px var(--fb-right, 320px) 6px var(--fb-chat, 360px);
+}
+
+/* Barra de arrastre entre columnas (ocupa la pista de 6px del grid). */
+.fb-gutter {
+    position: relative; align-self: stretch; cursor: col-resize;
+    background: transparent; z-index: 5; touch-action: none;
+    transition: background .12s;
+}
+.fb-gutter::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    width: 2px; height: 34px; transform: translate(-50%, -50%);
+    border-radius: 2px; background: var(--line-2, #d5d7e0); opacity: 0;
+    transition: opacity .12s;
+}
+.fb-gutter:hover, .fb-gutter.fb-drag { background: var(--brand-soft, #eef0ff); }
+.fb-gutter:hover::before, .fb-gutter.fb-drag::before { opacity: 1; background: var(--brand, #6366f1); }
+
+/* ---- Chat (4a columna, asistente IA) ---- */
+.fb-chat {
+    min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+    background: var(--surface); border-left: 1px solid var(--line);
 }
 
 /* ---- Izquierda ---- */

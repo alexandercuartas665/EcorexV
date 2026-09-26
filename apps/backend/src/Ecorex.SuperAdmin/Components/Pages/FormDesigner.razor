@@ -94,7 +94,7 @@ else
                 </div>
             }
 
-            <div class="fb-body">
+            <div class="fb-body @(_showChat ? "fb-has-chat" : "")">
                 @* ===== IZQUIERDA: paleta + estructura ===== *@
                 <aside class="fb-left">
                     <div class="fb-left-scroll">
@@ -205,6 +205,9 @@ else
                     </div>
                 </aside>
 
+                @* Barra redimensible izquierda|centro *@
+                <div class="fb-gutter" data-fb-var="--fb-left" data-fb-panel=".fb-left" data-fb-dir="1" data-fb-min="200" data-fb-max="520" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
+
                 @* ===== CENTRO: toolbar device + lienzo ===== *@
                 <div class="fb-center">
                     <div class="fb-devicebar">
@@ -236,6 +239,9 @@ else
                         </div>
                     </div>
                 </div>
+
+                @* Barra redimensible centro|derecha *@
+                <div class="fb-gutter" data-fb-var="--fb-right" data-fb-panel=".fb-right" data-fb-dir="-1" data-fb-min="240" data-fb-max="560" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
 
                 @* ===== DERECHA: propiedades ===== *@
                 <aside class="fb-right">
@@ -294,7 +300,9 @@ else
                 @* 4a columna: asistente IA que crea/edita el formulario conversando (F2). *@
                 @if (_showChat)
                 {
-                    <aside class="fb-chat" style="width:360px;flex:0 0 360px;min-height:0;overflow:hidden;border-left:1px solid var(--line, #e5e7eb);display:flex;flex-direction:column;">
+                    @* Barra redimensible derecha|chat *@
+                    <div class="fb-gutter" data-fb-var="--fb-chat" data-fb-panel=".fb-chat" data-fb-dir="-1" data-fb-min="300" data-fb-max="680" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
+                    <aside class="fb-chat">
                         <FormBuilderChatPanel FormDefinitionId="Id" OnFormChanged="ReloadAsync" />
                     </aside>
                 }
@@ -945,6 +953,13 @@ else
         // Unidades asignables + conteo de candidatos para el picker de acceso por seccion (ADR-0082).
         await LoadAssignableUnitsAsync();
         _loading = false;
+    }
+
+    // Cablea las barras redimensibles del grid (idempotente): tras cada render engancha las .fb-gutter
+    // aun sin inicializar, asi tambien atiende la 4a columna (chat) cuando aparece/desaparece.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("fbSplitter.init"); } catch { /* JS no listo en prerender */ }
     }
 
     private async Task LoadAssignableUnitsAsync()

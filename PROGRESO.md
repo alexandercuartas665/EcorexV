@@ -50,6 +50,16 @@
   1 opcion) + SaveGridColumns re-emite type="multicheck" y las options (antes se perdian al re-guardar).
   Verificado en vivo: la columna gestiones se pinta como 6 casillas con etiqueta; marcar Cotizacion/PQR/
   Oportunidad persiste; el disenador ofrece el tipo. Build verde.
+- IMPRESION de multicheck/select (FormTemplateRenderService.cs): un {{col.x}} de columna select imprimia el id
+  y un multicheck imprimia el JSON crudo (["cotizacion","pqr"]). Ahora FormatCellDisplay mapea id->etiqueta y
+  une el multicheck con ", " (grilla plana y agrupada). Para CAMPOS sueltos (no grilla) se agrego un parametro
+  OPCIONAL fieldChoices a FormTemplateMerge.Render (fieldCode -> options_json + esMulti) y FormatChoiceField,
+  para que un {{campo.x}} de Select/Radio/MultiCheck tambien imprima la etiqueta ("Prospecto", "Mail, Telefono")
+  en vez del id/JSON. 2 tests nuevos (columna y campo) verdes.
+- De paso: el PROYECTO de pruebas Application no compilaba desde la feature de snapshots (los fakes de
+  IApplicationDbContext no tenian FormBuilderSnapshots/Conversations/Messages; un IFormDefinitionService fake sin
+  ReplaceStructureFromJsonAsync; y FormBuilderChatServiceTests construia el service sin el nuevo IFormSnapshotService).
+  Se completaron esos stubs (FakeSnapshots no-op). Suite Application entera VERDE: 1005/1005.
 
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 

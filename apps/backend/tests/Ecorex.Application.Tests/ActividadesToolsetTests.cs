@@ -184,6 +184,7 @@ public class ActividadesToolsetTests
         public Task<FormResult<FormDefinitionDetailDto>> CreateAsync(CreateFormDefinitionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<string>> ExportAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> ImportAsync(string json, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<FormDefinitionDetailDto>> ReplaceStructureFromJsonAsync(Guid definitionId, string json, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> UpdateHeaderAsync(Guid definitionId, UpdateFormDefinitionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<long>> SetSequenceNextAsync(Guid definitionId, long next, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -322,6 +323,9 @@ public class ActividadesToolsetTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
+        public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
+        public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();
         public DbSet<WorkflowNodeNote> WorkflowNodeNotes => throw new NotSupportedException();
         public DbSet<FormSubmitRule> FormSubmitRules => throw new NotSupportedException();
         public DbSet<FormFlowLink> FormFlowLinks => throw new NotSupportedException();

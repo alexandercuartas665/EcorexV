@@ -88,6 +88,13 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         var canvasOptions = questions
             .Where(q => q.ControlType == FormControlType.Canvas)
             .ToDictionary(q => q.FieldCode, q => q.OptionsJson, StringComparer.OrdinalIgnoreCase);
+        // Campos de eleccion: para imprimir la etiqueta (o "A, B" en multi) en vez del id/JSON crudo.
+        var fieldChoices = questions
+            .Where(q => q.ControlType is FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck)
+            .ToDictionary(
+                q => q.FieldCode,
+                q => (q.OptionsJson, IsMulti: q.ControlType == FormControlType.MultiCheck),
+                StringComparer.OrdinalIgnoreCase);
 
         var fecha = (response.TransactionDate ?? response.SubmittedAt ?? response.CreatedAt).ToLocalTime();
         // Numero de la TAREA: la Reference SIN el ordinal final ("T00042-1" -> "T00042"). Alimenta {{tarea}} y
@@ -96,7 +103,8 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         if (string.IsNullOrEmpty(tarea)) { tarea = response.RecordNumber ?? response.Reference ?? string.Empty; }
         return FormTemplateMerge.Render(
             template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions, canvasOptions,
-            tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea);
+            tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea,
+            fieldChoices);
     }
 
     public async Task<string?> GetDocumentNameAsync(Guid responseId, CancellationToken cancellationToken = default)
@@ -162,7 +170,10 @@ public static class FormTemplateMerge
         string empresa,
         DateTimeOffset fecha,
         string numero,
-        string tarea)
+        string tarea,
+        // Campos de eleccion (Select/Radio/MultiCheck): fieldCode -> (options_json, esMulti). Con esto un
+        // {{campo.x}} de un campo de lista imprime la ETIQUETA (o "A, B" en multi) en vez del id/JSON crudo.
+        IReadOnlyDictionary<string, (string? OptionsJson, bool IsMulti)>? fieldChoices = null)
     {
         var values = ParseResponseData(responseDataJson);
         var html = RenderGridBlocks(templateHtml, values, gridOptions);
@@ -170,9 +181,13 @@ public static class FormTemplateMerge
         html = Regex.Replace(html, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
-            return values.TryGetValue(code, out var raw)
-                ? EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero, tarea, fecha)
-                : string.Empty;
+            if (!values.TryGetValue(code, out var raw)) { return string.Empty; }
+            // Campo de lista/opciones: mapear id(s) a etiqueta legible antes de emitir.
+            if (fieldChoices is not null && fieldChoices.TryGetValue(code, out var choice) && !string.IsNullOrWhiteSpace(raw))
+            {
+                return Esc(FormatChoiceField(choice.OptionsJson, choice.IsMulti, raw));
+            }
+            return EmitField(fieldFormat.GetValueOrDefault(code), raw, canvasOptions.GetValueOrDefault(code), values, fieldFormat, numero, tarea, fecha);
         });
 
         // Codigo de barras: {{barcode:numero}}, {{barcode:tarea}} o {{barcode:campo.codigo}} -> SVG Code39 inline.
@@ -205,6 +220,8 @@ public static class FormTemplateMerge
                 : (IReadOnlyList<FormGridColumn>)System.Array.Empty<FormGridColumn>();
             var colFormat = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             foreach (var col in cols) { colFormat[col.Id] = col.Format; }
+            var colById = new Dictionary<string, FormGridColumn>(StringComparer.OrdinalIgnoreCase);
+            foreach (var col in cols) { colById[col.Id] = col; }
 
             // CAP 3 (ADR-0081): si la plantilla usa un sub-bloque {{#grupo}} ... {{/grupo}}, se renderiza
             // AGRUPADO por la columna GroupRender (o, si no hay, como un solo grupo). Sin {{#grupo}}, plano.
@@ -220,7 +237,7 @@ public static class FormTemplateMerge
                 var chunk = Regex.Replace(inner, @"\{\{\s*col\.([a-zA-Z0-9_]+)\s*\}\}", cm =>
                 {
                     var cell = row.TryGetValue(cm.Groups[1].Value, out var cv) ? cv : null;
-                    return Esc(FormatCell(colFormat.GetValueOrDefault(cm.Groups[1].Value), cell));
+                    return Esc(FormatCellDisplay(colById.GetValueOrDefault(cm.Groups[1].Value), cell));
                 });
                 chunk = chunk.Replace("{{fila}}", (i + 1).ToString(CultureInfo.InvariantCulture));
                 outSb.Append(chunk);
@@ -242,6 +259,7 @@ public static class FormTemplateMerge
     {
         var groupCol = cols.FirstOrDefault(c => c.GroupRender);
         var aggById = cols.ToDictionary(c => c.Id, c => c.Agg, StringComparer.OrdinalIgnoreCase);
+        var colById = cols.ToDictionary(c => c.Id, c => c, StringComparer.OrdinalIgnoreCase);
 
         // Grupos en orden de primera aparicion (clave normalizada, misma semantica que el calculo).
         var order = new List<string>();
@@ -278,7 +296,7 @@ public static class FormTemplateMerge
                     var rowChunk = Regex.Replace(rowTpl, @"\{\{\s*col\.([a-zA-Z0-9_]+)\s*\}\}", cm =>
                     {
                         var cell = row.TryGetValue(cm.Groups[1].Value, out var cv) ? cv : null;
-                        return Esc(FormatCell(colFormat.GetValueOrDefault(cm.Groups[1].Value), cell));
+                        return Esc(FormatCellDisplay(colById.GetValueOrDefault(cm.Groups[1].Value), cell));
                     });
                     rowChunk = rowChunk.Replace("{{fila}}", fila.ToString(CultureInfo.InvariantCulture));
                     rowsSb.Append(rowChunk);
@@ -364,6 +382,43 @@ public static class FormTemplateMerge
     }
 
     /// <summary>Formato de presentacion (currency/integer/decimal/percent). Sin formato o si no es numero, tal cual.</summary>
+    /// <summary>Valor de celda para IMPRESION: mapea ids de opcion a su etiqueta legible. Una columna
+    /// multicheck guarda un arreglo JSON de ids -> se imprime "Etiqueta1, Etiqueta2"; una columna select
+    /// guarda un id -> se imprime su etiqueta. El resto pasa por el formato numerico habitual. Asi la
+    /// plantilla nunca muestra el JSON crudo ni el id interno.</summary>
+    private static string FormatCellDisplay(FormGridColumn? col, string? cell)
+    {
+        if (string.IsNullOrWhiteSpace(cell)) { return string.Empty; }
+        if (col?.Options is { Count: > 0 } opts)
+        {
+            if (col.IsMultiCheck)
+            {
+                var labels = FormFieldValidator.ParseMultiValues(cell)
+                    .Select(id => opts.FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.Ordinal))?.Label ?? id);
+                return string.Join(", ", labels);
+            }
+            if (col.IsSelect)
+            {
+                return opts.FirstOrDefault(o => string.Equals(o.Id, cell, StringComparison.Ordinal))?.Label ?? cell;
+            }
+        }
+        return FormatCell(col?.Format, cell);
+    }
+
+    /// <summary>Valor de un CAMPO de eleccion (Select/Radio/MultiCheck) para impresion: mapea id(s) a su
+    /// etiqueta. MultiCheck (arreglo JSON de ids) -> "Etiqueta1, Etiqueta2"; Select/Radio (un id) -> etiqueta.
+    /// Si un id no esta en las opciones se deja tal cual (nunca se pierde el dato).</summary>
+    private static string FormatChoiceField(string? optionsJson, bool isMulti, string raw)
+    {
+        var opts = FormFieldValidator.ParseOptions(optionsJson);
+        if (isMulti)
+        {
+            return string.Join(", ", FormFieldValidator.ParseMultiValues(raw)
+                .Select(id => opts.FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.Ordinal))?.Label ?? id));
+        }
+        return opts.FirstOrDefault(o => string.Equals(o.Id, raw, StringComparison.Ordinal))?.Label ?? raw;
+    }
+
     private static string FormatCell(string? format, string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) { return string.Empty; }

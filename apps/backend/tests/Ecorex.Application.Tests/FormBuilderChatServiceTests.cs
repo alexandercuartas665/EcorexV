@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Forms;
 using Ecorex.Application.Forms.Builder;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
@@ -108,7 +109,7 @@ public class FormBuilderChatServiceTests
     private static IFormBuilderChatService NewService(FakeAi ai, FakeToolset toolset, out FakeStore store)
     {
         store = new FakeStore();
-        return new FormBuilderChatService(new IdentitySecrets(), ai, toolset, store);
+        return new FormBuilderChatService(new IdentitySecrets(), ai, toolset, store, new FakeSnapshots());
     }
 
     // ===== Fakes =====
@@ -117,6 +118,18 @@ public class FormBuilderChatServiceTests
     {
         public string Protect(string plaintext) => plaintext;
         public string Unprotect(string ciphertext) => ciphertext;
+    }
+
+    // Auto-snapshot: no-op en las pruebas (no persiste; el confirm no debe depender de el).
+    private sealed class FakeSnapshots : IFormSnapshotService
+    {
+        public Task<Guid?> SnapshotAsync(Guid formDefinitionId, string label, FormSnapshotTrigger trigger,
+            Guid? conversationId, Guid? actorTenantUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Guid?>(null);
+        public Task<IReadOnlyList<FormSnapshotItemDto>> ListAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FormSnapshotItemDto>>(System.Array.Empty<FormSnapshotItemDto>());
+        public Task<FormResult<bool>> RestoreAsync(Guid snapshotId, Guid? actorTenantUserId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeAi : IAiProviderClient

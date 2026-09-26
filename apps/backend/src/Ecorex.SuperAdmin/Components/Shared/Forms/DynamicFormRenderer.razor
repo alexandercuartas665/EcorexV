@@ -2103,6 +2103,22 @@ else
                                             }
                                         </select>
                                     }
+                                    else if (col.IsMultiCheck)
+                                    {
+                                        @* Columna MULTI-SELECCION: casillas por opcion. El valor de la celda es un arreglo
+                                           JSON de ids (mismo formato que un campo MultiCheck), toggle por opcion. *@
+                                        var selCell = FormFieldValidator.ParseMultiValues(cell).ToHashSet(StringComparer.Ordinal);
+                                        <div class="dfr-grid-multi" style="display:flex;flex-wrap:wrap;gap:3px 10px;min-width:150px;white-space:nowrap">
+                                            @foreach (var opt in col.Options ?? Array.Empty<FormOption>())
+                                            {
+                                                <label class="dfr-check dfr-grid-check @(selCell.Contains(opt.Id) ? "on" : "")">
+                                                    <input type="checkbox" checked="@selCell.Contains(opt.Id)" disabled="@IsDisabled"
+                                                           @onchange="@(e => ToggleGridMulti(q, rowIndex, colId, opt.Id, (bool)e.Value!))" />
+                                                    <span>@opt.Label</span>
+                                                </label>
+                                            }
+                                        </div>
+                                    }
                                     else if (col.Min is decimal colMin)
                                     {
                                         @* Columna con MINIMO (ej. sin negativos): input numerico nativo con min/step; el valor se
@@ -2857,6 +2873,20 @@ else
         // persistir, para que el calculo que corre en SetValue use los precios ya resueltos.
         await ResolveGridRowAsync(q, rows, rowIndex);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    // Alterna una opcion de una columna MULTI-SELECCION de la grilla. El valor de la celda es un arreglo
+    // JSON de ids (identico formato al de un campo MultiCheck), y se persiste via SetGridCell (que recalcula
+    // y guarda). Reusa el mismo parser/serializador que ToggleMulti para que impresion y validacion cuadren.
+    private async Task ToggleGridMulti(FormQuestionDto q, int rowIndex, string colId, string optionId, bool on)
+    {
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var selected = FormFieldValidator.ParseMultiValues(rows[rowIndex].GetValueOrDefault(colId)).ToList();
+        if (on && !selected.Contains(optionId, StringComparer.Ordinal)) { selected.Add(optionId); }
+        else if (!on) { selected.RemoveAll(s => string.Equals(s, optionId, StringComparison.Ordinal)); }
+        var newVal = selected.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(selected);
+        await SetGridCell(q, rowIndex, colId, newVal);
     }
 
     // ---- Auto-resolucion multi-clave de columnas (VLOOKUP/INDEX-MATCH, ola actual) ----

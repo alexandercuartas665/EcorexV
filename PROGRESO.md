@@ -40,7 +40,16 @@
   que CADA opcion necesita id Y label. Verificado en vivo (DB): la grilla se creo al PRIMER intento con
   options_json completo (medio_contacto select y gestiones multicheck, todas las opciones con id+label).
   Limitacion aparte (renderer, no autoria): una columna multicheck en la grilla se pinta como input de texto
-  en la vista previa; el dato se guarda bien. No tocado.
+  en la vista previa; el dato se guarda bien. [RESUELTO abajo]
+- MULTICHECK EN GRILLA (renderer + disenador self-serve): una columna GridDetail de tipo multicheck ya no cae
+  a input de texto. (1) FormGridColumn.IsMultiCheck (kind "multicheck"/"multi"). (2) DynamicFormRenderer: rama
+  de celda que pinta casillas por opcion + ToggleGridMulti (valor de celda = arreglo JSON de ids, mismo formato
+  y helpers que un campo MultiCheck; persiste via SetGridCell -> recalcula/guarda); wrapper con min-width 150px
+  y nowrap para que las etiquetas no se corten. (3) FormDesigner (hand-off UI): opcion "Multi-seleccion
+  (casillas)" en el dropdown "Tipo de columna" + cases en ChangeGridColumnType/SetGridColumnType (siembra
+  1 opcion) + SaveGridColumns re-emite type="multicheck" y las options (antes se perdian al re-guardar).
+  Verificado en vivo: la columna gestiones se pinta como 6 casillas con etiqueta; marcar Cotizacion/PQR/
+  Oportunidad persiste; el disenador ofrece el tipo. Build verde.
 
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 

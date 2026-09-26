@@ -2736,8 +2736,9 @@ else
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
                                                     @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsSeq)">Texto</option>
+                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq)">Texto</option>
                                                 <option value="select" selected="@(ext?.Lookup is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="multicheck" selected="@(ext?.Lookup is null && col.Calc is null && col.IsMultiCheck)">Multi-seleccion (casillas)</option>
                                                 <option value="formula" selected="@(ext?.Lookup is null && col.Calc is not null)">Formula (calculada)</option>
                                                 <option value="seq" selected="@(col.IsSeq)">Consecutivo (letras/numeros)</option>
                                                 <option value="lookup" selected="@(ext?.Lookup is not null)">Lookup (autollenar)</option>
@@ -2754,10 +2755,10 @@ else
                                             </div>
                                         }
                                     </div>
-                                    @if (col.IsSelect)
+                                    @if (col.IsSelect || col.IsMultiCheck)
                                     {
                                         <div class="fb-gcp-field">
-                                            <label>Opciones de la lista</label>
+                                            <label>@(col.IsMultiCheck ? "Opciones (casillas)" : "Opciones de la lista")</label>
                                             @RenderChipList((col.Options ?? new List<FormOption>()).Select(o => o.Label).ToList(), "var(--t-blue)",
                                                 (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
                                                 oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
@@ -3685,9 +3686,9 @@ else
         var shaped = cols.Select(c =>
         {
             var o = new Dictionary<string, object?> { ["id"] = c.Id, ["label"] = c.Label };
-            if (c.IsSelect)
+            if (c.IsSelect || c.IsMultiCheck)
             {
-                o["type"] = "select";
+                o["type"] = c.IsMultiCheck ? "multicheck" : "select";
                 o["options"] = (c.Options ?? new List<FormOption>()).Select(x => new { id = x.Id, label = x.Label }).ToList();
             }
             // Columna consecutiva (auto-numerada): "type" es core key, hay que re-emitirlo o se pierde al re-guardar.
@@ -3765,6 +3766,14 @@ else
             {
                 case "select":
                     obj["type"] = "select";
+                    obj.Remove("calc");
+                    if (obj["options"] is not JsonArray)
+                    {
+                        obj["options"] = new JsonArray(new JsonObject { ["id"] = "op_1", ["label"] = "Opcion 1" });
+                    }
+                    break;
+                case "multicheck":
+                    obj["type"] = "multicheck";
                     obj.Remove("calc");
                     if (obj["options"] is not JsonArray)
                     {
@@ -4006,6 +4015,7 @@ else
         => PatchGridColumnAsync(q, index, c => type switch
         {
             "select" => c with { Kind = "select", Calc = null, Options = c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") } },
+            "multicheck" => c with { Kind = "multicheck", Calc = null, Options = c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") } },
             "formula" => c with { Kind = "text", Calc = string.IsNullOrWhiteSpace(c.Calc) ? "0" : c.Calc },
             _ => c with { Kind = "text", Calc = null }
         });

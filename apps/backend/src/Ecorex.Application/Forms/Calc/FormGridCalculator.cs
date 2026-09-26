@@ -52,6 +52,10 @@ public sealed record FormGridColumn(
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>La columna captura VARIAS opciones de una lista (MultiCheck). Valor de celda = arreglo JSON de ids.</summary>
+    public bool IsMultiCheck => string.Equals(Kind, "multicheck", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Kind, "multi", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>La columna es de gestiones (pildoras que abren subformularios por fila).</summary>
     public bool IsGestion => string.Equals(Kind, "gestion", StringComparison.OrdinalIgnoreCase);
 

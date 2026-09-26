@@ -8,7 +8,7 @@
 <div class="fbc">
     <div class="fbc-head">
         <div class="fbc-title">Asistente IA</div>
-        <div class="fbc-sub">Sube un Excel/PDF/imagen o describe los campos; se arma paso a paso.</div>
+        <div class="fbc-sub">Sube un Excel/PDF/imagen/HTML o describe los campos; se arma paso a paso.</div>
     </div>
 
     <div class="fbc-msgs">
@@ -54,8 +54,8 @@
     }
 
     <div class="fbc-input">
-        <label class="fbc-attach" title="Adjuntar Excel / PDF / imagen">
-            <InputFile OnChange="OnAttachAsync" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="display:none;" />
+        <label class="fbc-attach" title="Adjuntar Excel / PDF / imagen / HTML">
+            <InputFile OnChange="OnAttachAsync" accept=".xlsx,.xls,.csv,application/pdf,image/*,text/html,.html,.htm,.txt" style="display:none;" />
             +
         </label>
         <textarea class="form-control fbc-textarea" @bind="_input" @bind:event="oninput"
@@ -96,7 +96,7 @@
         var r = await Chat.StartAsync(FormDefinitionId, actor);
         if (!r.Ok) { _error = r.Error; return; }
         _conversationId = r.ConversationId;
-        _messages.Add(new Bubble("bot", "Hola. Sube un Excel/PDF/imagen o dime que campos necesitas y lo armamos paso a paso."));
+        _messages.Add(new Bubble("bot", "Hola. Sube un Excel/PDF/imagen/HTML o dime que campos necesitas y lo armamos paso a paso."));
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)

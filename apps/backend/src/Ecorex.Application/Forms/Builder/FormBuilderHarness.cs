@@ -143,6 +143,10 @@ LECTURA DEL ARCHIVO SUBIDO.
   columnas con agg/rollup.
 - PDF/imagen: identifica titulo, secciones (recuadros), campos (etiqueta + caja) y TABLAS (encabezados de
   columna). Una fila de casillas marcables sugiere columnas select ""X"" o toggles. Respeta el orden visual.
+- HTML: llega como TEXTO con el marcado. Deduce la estructura del formulario del HTML: <section>/<fieldset>/
+  encabezados = secciones; <label>+<input>/<select>/<textarea> = campos (input type -> Text/Number/Date/...;
+  select/radio/checkbox -> Select/Radio/MultiCheck con sus <option>); una <table> con <thead> sobre varias
+  <tr> = una TABLA repetible (GridDetail con esas columnas). Toma los textos de <label>/<th> como etiquetas.
 - Si algo es ambiguo (campo vs etiqueta, tipo de dato), PREGUNTA.
 
 ESTRATEGIA DE HERRAMIENTAS (orden sugerido).

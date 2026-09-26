@@ -102,6 +102,30 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 {
                     docs.Add(new AiInlineDocument(a.Base64, string.IsNullOrWhiteSpace(a.Mime) ? "application/pdf" : a.Mime, a.FileName));
                 }
+                else if ((a.Mime?.Contains("html", StringComparison.OrdinalIgnoreCase) ?? false)
+                    || a.FileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                    || a.FileName.EndsWith(".htm", StringComparison.OrdinalIgnoreCase))
+                {
+                    // HTML: es TEXTO; el agente lee la maqueta del formulario (secciones, campos, tablas) del
+                    // marcado. Se pasa como contenido textual (no como imagen), acotado para no inflar el prompt.
+                    var html = DecodeText(a.Base64);
+                    if (!string.IsNullOrWhiteSpace(html))
+                    {
+                        sb.Append("\n\n[Contenido HTML del archivo ").Append(a.FileName)
+                          .Append(" - deduce la estructura del formulario (secciones, campos y tablas) de este marcado]\n")
+                          .Append(Truncate(html, 60000));
+                    }
+                }
+                else if ((a.Mime?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ?? false)
+                    || a.FileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Texto plano: se anexa tal cual (acotado).
+                    var text = DecodeText(a.Base64);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        sb.Append("\n\n[Contenido del archivo ").Append(a.FileName).Append("]\n").Append(Truncate(text, 60000));
+                    }
+                }
             }
         }
 
@@ -413,4 +437,15 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         catch (JsonException) { }
         return null;
     }
+
+    // Decodifica un adjunto de TEXTO (HTML/txt) desde base64 a string UTF-8. Devuelve "" si no es base64 valido.
+    private static string DecodeText(string base64)
+    {
+        try { return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(base64)); }
+        catch (FormatException) { return string.Empty; }
+    }
+
+    // Acota un texto largo (HTML puede ser enorme) para no inflar el prompt del modelo.
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..max] + "\n... [contenido truncado]";
 }

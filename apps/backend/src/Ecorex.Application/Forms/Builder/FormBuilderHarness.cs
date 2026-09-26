@@ -91,6 +91,25 @@ GRILLAS (GridDetail): options_json = arreglo de COLUMNAS. Claves por columna:
   (VLOOKUP multi-clave): {{source, sourceRef, return, match, when}}.
 Las columnas calc y de rollup se recalculan solas al guardar: no captures un total a mano.
 
+FORMULAS (SINTAXIS OBLIGATORIA - el motor NO evalua de otra forma). Aplica IGUAL al 'calc' de una columna
+de grilla y al 'calc_expression' de un campo (ej. subtotal, IVA, total):
+- TODA referencia a otra columna o campo va SIEMPRE entre LLAVES: {{codigo}}. Referencia al encabezado del
+  formulario desde una grilla: {{#codigo}}. NUNCA uses corchetes [codigo] NI el nombre suelto sin llaves:
+  '[cantidad]' o 'subtotal' NO se calculan; deben ser '{{cantidad}}' y '{{subtotal}}'.
+- Operadores + - * / y parentesis; funciones SI(cond; siSi; siNo), REDONDEAR, REDONDEAR.SUPERIOR,
+  REDONDEAR.INFERIOR, MIN, MAX. Motor NUMERICO (no produce texto).
+- PORCENTAJES: un campo/columna con format ""percent"" guarda el numero TAL CUAL se teclea (5 = 5, no 0.05).
+  Para aplicar un descuento/porcentaje DIVIDE entre 100: usa (1 - {{dcto}}/100), nunca (1 - {{dcto}}).
+Ejemplos correctos: subtotal de linea = {{cantidad}} * {{precio_unitario}} * (1 - {{dcto_porcentaje}}/100);
+IVA de campo = {{subtotal}} * 0.19; total = {{subtotal}} + {{iva}}.
+
+TOTAL DE UNA COLUMNA DE GRILLA (subtotal general). Para sumar una columna de la tabla NO uses
+calc_expression ni ningun token tipo {{grilla.columna_sum}} (NO existe). Se hace SOLO con el ROLLUP: la
+columna calc lleva agg=""Sum"" y rollup=""<field_code_destino>"", y ese campo destino (un Number del
+encabezado, p.ej. subtotal_general) se llena AUTOMATICAMENTE con la suma. Ese campo destino NO debe tener
+calc_expression: si le pones uno, PISA el valor del rollup y queda en 0. Los demas totales que dependen del
+subtotal SI usan calc_expression con {{campo}} (IVA = {{subtotal_general}} * 0.19; total = {{subtotal_general}} + {{iva}}).
+
 PLANTILLA DE IMPRESION (si la piden): HTML con marcadores {{{{campo.codigo}}}}, bloque de tabla
 {{{{#tabla.items}}}} ... {{{{col.idcol}}}} ... {{{{/tabla.items}}}}, {{{{numero}}}}, {{{{fecha}}}},
 {{{{barcode:...}}}}, {{{{qr:...}}}}. Usa create_template + wire_print_button (crea regla + boton + los enlaza).
@@ -116,8 +135,11 @@ ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 1. describe_components (una vez) para el catalogo exacto de tipos/capacidades.
 2. Si habra lookups: list_data_containers / list_tercero_fields.
 3. create_form (codigo + titulo).
-4. Por cada seccion: add_container(Section) y luego add_question de sus campos (o una GridDetail con sus
-   columnas en options_json). Agrupa la confirmacion por seccion.
+4. Por cada seccion: PRIMERO propon SOLO add_container(Section) y confirmalo. NO adivines el id del
+   contenedor nuevo: tras confirmar, el sistema te devuelve el contenedor con su id real (o usa get_form
+   para leerlo); recien ENTONCES, en el siguiente turno, propon los add_question de sus campos usando ese
+   container_id real. Mezclar add_container y sus add_question en el MISMO turno hace que los campos apunten
+   a un id inexistente y fallen.
 5. Si aplica: set_transactional, create_template + wire_print_button.
 6. No actives (activate) el formulario sin que el usuario lo pida.
 

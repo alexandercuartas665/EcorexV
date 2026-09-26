@@ -76,6 +76,37 @@ public class FormExpressionEvaluatorTests
         Assert.NotNull(FormExpressionEvaluator.Validate("{a} * "));
     }
 
+    // ---- Blindaje de autoria: NormalizeReferences ([x] y nombres sueltos -> {x}) ----
+
+    [Theory]
+    [InlineData("[cantidad] * [precio]", "{cantidad} * {precio}")]        // corchetes -> llaves
+    [InlineData("subtotal * 0.19", "{subtotal} * 0.19")]                  // nombre suelto -> llaves
+    [InlineData("subtotal + iva", "{subtotal} + {iva}")]                  // varios nombres sueltos
+    [InlineData("[cantidad] * [precio] * (1 - [dcto]/100)", "{cantidad} * {precio} * (1 - {dcto}/100)")]
+    [InlineData("{a} * {b}", "{a} * {b}")]                                // ya correcto: idempotente
+    [InlineData("{#iva} * {base}", "{#iva} * {base}")]                    // ref de encabezado intacta
+    [InlineData("MAX({a}; {b})", "MAX({a}; {b})")]                        // funcion intacta
+    [InlineData("SI({b}=0; 0; {a}/{b})", "SI({b}=0; 0; {a}/{b})")]        // SI intacta
+    [InlineData("REDONDEAR.SUPERIOR(subtotal; 1000)", "REDONDEAR.SUPERIOR({subtotal}; 1000)")]
+    public void NormalizeReferences_reescribe_a_sintaxis_del_motor(string input, string expected)
+        => Assert.Equal(expected, FormExpressionEvaluator.NormalizeReferences(input));
+
+    [Fact]
+    public void NormalizeReferences_luego_evalua_correctamente()
+    {
+        // Formula tal cual la escribio el agente (corchetes + porcentaje) -> normalizar -> evaluar.
+        var norm = FormExpressionEvaluator.NormalizeReferences("[cantidad] * [precio] * (1 - [dcto]/100)");
+        var values = V(("cantidad", "10"), ("precio", "1000"), ("dcto", "0"));
+        Assert.Equal(10000m, FormExpressionEvaluator.Evaluate(norm, values));
+    }
+
+    [Fact]
+    public void NormalizeReferences_es_idempotente()
+    {
+        var once = FormExpressionEvaluator.NormalizeReferences("subtotal + [iva]");
+        Assert.Equal(once, FormExpressionEvaluator.NormalizeReferences(once));
+    }
+
     // ---- C2: comparadores ----
 
     [Theory]

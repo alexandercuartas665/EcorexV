@@ -1,9 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.Directorio;
 using Ecorex.Application.Forms;
+using Ecorex.Application.Forms.Calc;
 using Ecorex.Application.MenuConfig;
 using Ecorex.Application.Rules;
 using Ecorex.Domain.Enums;
@@ -520,7 +522,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             Label: (Str(args, "label") ?? string.Empty).Trim(),
             ControlType: EnumOr(args, "control_type", FormControlType.Text),
             HelpText: Str(args, "help_text"),
-            OptionsJson: Str(args, "options_json"),
+            OptionsJson: NormalizeGridCalc(Str(args, "options_json")),
             Required: Bool(args, "required") ?? false,
             ValidationJson: Str(args, "validation_json"),
             Width: Int(args, "width") ?? 12,
@@ -533,9 +535,37 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             FilterJson: Str(args, "filter_json"),
             AutofillMapJson: Str(args, "autofill_map_json"),
             Presentation: EnumOr(args, "presentation", FormFieldPresentation.Autocomplete),
-            CalcExpression: Str(args, "calc_expression"),
+            CalcExpression: FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")),
             Aggregate: EnumOr(args, "aggregate", FormAggregate.None),
             Format: Str(args, "format"));
+
+    // BLINDAJE de autoria por agente: normaliza el 'calc' de cada columna de una grilla (GridDetail) a la
+    // sintaxis del motor ({codigo}), por si el modelo uso corchetes [x] o nombres sueltos. Deja el resto del
+    // options_json intacto; si no es un arreglo JSON valido, lo devuelve sin tocar.
+    private static string? NormalizeGridCalc(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return optionsJson; }
+        JsonNode? root;
+        try { root = JsonNode.Parse(optionsJson); }
+        catch (JsonException) { return optionsJson; }
+        if (root is not JsonArray cols) { return optionsJson; }
+        var changed = false;
+        foreach (var col in cols)
+        {
+            if (col is not JsonObject obj) { continue; }
+            if (obj.TryGetPropertyValue("calc", out var calcNode) && calcNode is JsonValue cv
+                && cv.TryGetValue<string>(out var calc) && !string.IsNullOrWhiteSpace(calc))
+            {
+                var norm = FormExpressionEvaluator.NormalizeReferences(calc);
+                if (!string.Equals(norm, calc, StringComparison.Ordinal))
+                {
+                    obj["calc"] = norm;
+                    changed = true;
+                }
+            }
+        }
+        return changed ? root.ToJsonString() : optionsJson;
+    }
 
     private async Task<AgentToolResult> AddQuestionAsync(JsonElement args, CancellationToken ct)
     {

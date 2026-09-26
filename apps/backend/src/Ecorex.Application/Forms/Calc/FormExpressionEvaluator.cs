@@ -85,6 +85,72 @@ public static class FormExpressionEvaluator
         return refs;
     }
 
+    /// <summary>
+    /// Normaliza una formula "escrita por humano o IA" a la sintaxis EXACTA del motor, para blindar la
+    /// autoria por agente (que a veces usa corchetes o nombres sueltos). Reglas, en una sola pasada:
+    /// - Referencias con corchetes <c>[codigo]</c> pasan a <c>{codigo}</c>.
+    /// - Identificadores SUELTOS (un nombre de campo NO envuelto y NO seguido de '(') se envuelven:
+    ///   <c>subtotal * 0.19</c> -> <c>{subtotal} * 0.19</c>.
+    /// - Se dejan INTACTOS: numeros, operadores, las funciones de la allow-list (SI, REDONDEAR,
+    ///   REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX -> van seguidas de '('), y las referencias
+    ///   que YA vienen como <c>{codigo}</c> o <c>{#codigo}</c>.
+    /// Es IDEMPOTENTE: aplicarla dos veces da el mismo resultado. No valida la forma; solo reescribe.
+    /// </summary>
+    public static string? NormalizeReferences(string? expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression)) { return expression; }
+        var s = expression;
+        var sb = new System.Text.StringBuilder(s.Length + 8);
+        var i = 0;
+        while (i < s.Length)
+        {
+            var c = s[i];
+            if (c == '{')
+            {
+                // Referencia ya correcta ({codigo} o {#codigo}): copiar verbatim hasta '}'.
+                var end = s.IndexOf('}', i + 1);
+                if (end < 0) { sb.Append(s, i, s.Length - i); break; }
+                sb.Append(s, i, end - i + 1);
+                i = end + 1;
+            }
+            else if (c == '[')
+            {
+                // Referencia con corchetes [codigo] -> {codigo}.
+                var end = s.IndexOf(']', i + 1);
+                if (end < 0) { sb.Append(c); i++; continue; }
+                var inner = s.Substring(i + 1, end - i - 1).Trim();
+                if (inner.Length == 0) { sb.Append(s, i, end - i + 1); }
+                else { sb.Append('{').Append(inner).Append('}'); }
+                i = end + 1;
+            }
+            else if (char.IsAsciiLetter(c))
+            {
+                // Identificador: nombre de campo suelto o nombre de funcion.
+                var start = i;
+                while (i < s.Length && (char.IsAsciiLetterOrDigit(s[i]) || s[i] == '.' || s[i] == '_')) { i++; }
+                var name = s.Substring(start, i - start);
+                var j = i;
+                while (j < s.Length && char.IsWhiteSpace(s[j])) { j++; }
+                if (j < s.Length && s[j] == '(')
+                {
+                    // Funcion (allow-list): dejar el nombre tal cual; el '(' se procesa despues.
+                    sb.Append(name);
+                }
+                else
+                {
+                    // Campo suelto -> envolver en {codigo}.
+                    sb.Append('{').Append(name).Append('}');
+                }
+            }
+            else
+            {
+                sb.Append(c);
+                i++;
+            }
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Valida que la expresion sea parseable (sin resolver valores). Null = ok; si no, mensaje.</summary>
     public static string? Validate(string? expression)
     {

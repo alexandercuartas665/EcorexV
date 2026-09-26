@@ -320,13 +320,18 @@ else
         <div class="modal-dialog fd-preview-dialog" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Vista previa - @_def.Title</h3>
+                @if (_def.Status != FormStatus.Active)
+                {
+                    <span class="fd-preview-sandbox" title="Puedes escribir y agregar filas para probar; nada se guarda hasta activar el formulario">Modo prueba - no se guarda</span>
+                }
                 <button class="modal-close" @onclick="@(() => _showPreview = false)">&times;</button>
             </div>
             <div class="modal-body">
-                @* Fill real cuando el formulario esta activo (llenado end-to-end desde el
-                   constructor, ADR-0021); Design (solo lectura) mientras es borrador. *@
+                @* Fill real cuando el formulario esta activo (llenado end-to-end desde el constructor,
+                   ADR-0021); Sandbox (interactivo, sin persistir) mientras es borrador: deja PROBAR el
+                   formulario -escribir, agregar/quitar filas de tabla, ver formulas- antes de activarlo. *@
                 <DynamicFormRenderer DefinitionId="@_def.Id"
-                                     Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Design)"
+                                     Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Sandbox)"
                                      ApplyCardWidth="true"
                                      Reference="@($"PREVIEW-{_def.Code}")" />
             </div>

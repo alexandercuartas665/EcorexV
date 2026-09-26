@@ -433,7 +433,9 @@ else
     /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado: solo dentro del wizard de crear tarea
     /// (EmbeddedInTask) y si la definicion lo pide (HideSubmitBar). Tambien apaga el autosave periodico.</summary>
     private bool HideSubmitChrome => EmbeddedInTask && _definition?.HideSubmitBar == true;
-    private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsLocked;
+    // Editable en Fill (llenado real) y en Sandbox (vista previa interactiva de borrador, sin persistir).
+    private bool IsEditableMode => Mode is FormRenderMode.Fill or FormRenderMode.Sandbox;
+    private bool IsDisabled => _busy || !IsEditableMode || IsLocked;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -537,9 +539,9 @@ else
                 _derivedRecord = _response is not null
                     ? await ResponsesSvc.GetDerivedRecordAsync(_response.Id)
                     : null;
-                // Valor por defecto del disenador (ADR-0021): solo en Fill, solo campos de
-                // captura reales y sin valor previo en el borrador.
-                if (Mode == FormRenderMode.Fill && !IsLocked)
+                // Valor por defecto del disenador (ADR-0021): en Fill y en la vista previa interactiva
+                // (Sandbox), solo campos de captura reales y sin valor previo en el borrador.
+                if (IsEditableMode && !IsLocked)
                 {
                     foreach (var q in _definition.Questions)
                     {

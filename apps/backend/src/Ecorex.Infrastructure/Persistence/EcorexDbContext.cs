@@ -152,6 +152,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FormContainer> FormContainers => Set<FormContainer>();
     public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();
+    // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
+    public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
+    public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
@@ -326,6 +329,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
         configurationBuilder.Properties<BillingFrequency>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<PaymentStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<PlatformRole>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormBuilderConversationStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormBuilderMessageRole>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormBuilderProposalState>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<LimitEnforcementMode>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AuditActorType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TenantRole>().HaveConversion<string>().HaveMaxLength(40);
@@ -1702,6 +1708,28 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()
                 .HasFilter(isNpgsql ? "record_number IS NOT NULL" : "[record_number] IS NOT NULL");
+        });
+
+        // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
+        modelBuilder.Entity<FormBuilderConversation>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100);
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+            b.HasIndex(x => x.FormDefinitionId);
+        });
+
+        modelBuilder.Entity<FormBuilderMessage>(b =>
+        {
+            b.Property(x => x.Content).HasColumnType(longTextColumnType);
+            b.Property(x => x.AttachmentsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolCallId).HasMaxLength(100);
+            b.Property(x => x.ToolName).HasMaxLength(100);
+            b.Property(x => x.ToolArgsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolResultJson).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Conversation).WithMany(x => x.Messages)
+                .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ConversationId, x.Sequence });
         });
 
         modelBuilder.Entity<FormFlowLink>(b =>

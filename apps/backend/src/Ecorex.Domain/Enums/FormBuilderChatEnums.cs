@@ -29,3 +29,12 @@ public enum FormBuilderProposalState
     Confirmed = 2,
     Rejected = 3,
 }
+
+/// <summary>Que disparo un snapshot (version) de formulario.</summary>
+public enum FormSnapshotTrigger
+{
+    /// <summary>Guardado manual por el usuario.</summary>
+    Manual = 0,
+    /// <summary>Automatico, antes de aplicar un lote de mutaciones confirmado desde el chat.</summary>
+    BeforeAgentBatch = 1,
+}

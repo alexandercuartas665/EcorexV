@@ -21,6 +21,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private readonly IAiProviderClient _ai;
     private readonly IFormAuthoringToolset _toolset;
     private readonly IFormBuilderChatStore _store;
+    private readonly IFormSnapshotService _snapshots;
 
     // Proveedor fijo para esta funcion (decision de producto): Gemini (fuerte en tool-use + vision + PDF nativo).
     private const AiProvider Provider = AiProvider.Gemini;
@@ -36,12 +37,14 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
 
     public FormBuilderChatService(
         ISecretProtector secrets, IAiProviderClient ai,
-        IFormAuthoringToolset toolset, IFormBuilderChatStore store)
+        IFormAuthoringToolset toolset, IFormBuilderChatStore store,
+        IFormSnapshotService snapshots)
     {
         _secrets = secrets;
         _ai = ai;
         _toolset = toolset;
         _store = store;
+        _snapshots = snapshots;
     }
 
     public async Task<FormBuilderStartResult> StartAsync(Guid? formDefinitionId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
@@ -123,6 +126,19 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var pending = msgs.Where(m => m.Role == FormBuilderMessageRole.Proposal && m.ProposalState == FormBuilderProposalState.Pending)
             .OrderBy(m => m.Sequence).ToList();
         if (pending.Count == 0) { return FormBuilderTurnResult.Fail(conversationId, "No hay acciones pendientes por confirmar."); }
+
+        // VERSIONADO: si ya hay un formulario, toma un snapshot ANTES de aplicar el lote confirmado, para
+        // poder revertir si el agente lo daña. Best-effort: un fallo del snapshot NO bloquea la ejecucion.
+        if (conv.FormDefinitionId is Guid snapFormId)
+        {
+            try
+            {
+                var tools = string.Join(", ", pending.Select(p => p.ToolName).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct());
+                var label = $"Antes de: {(string.IsNullOrWhiteSpace(tools) ? "cambios del asistente" : tools)}";
+                await _snapshots.SnapshotAsync(snapFormId, label, FormSnapshotTrigger.BeforeAgentBatch, conversationId, actorUserId, cancellationToken);
+            }
+            catch { /* el snapshot es una red de seguridad; nunca frena la operacion */ }
+        }
 
         // Ejecuta cada herramienta propuesta EN ORDEN; guarda el resultado y marca Confirmed.
         foreach (var p in pending)

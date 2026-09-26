@@ -12,6 +12,7 @@
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
@@ -19,8 +20,10 @@
 @inject IMenuConfigService MenuSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Organization.IWorkflowNodePolicyService NodePolicySvc
+@inject Ecorex.Application.Forms.Builder.IFormSnapshotService Snapshots
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
 
 @* ============================================================
    CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
@@ -72,6 +75,7 @@ else
                     <button class="fb-btn-ghost @(_showChat ? "on" : "")" @onclick="@(() => _showChat = !_showChat)" title="Crear/editar con IA desde un Excel, PDF o imagen">Asistente IA</button>
                     <button class="fb-btn-ghost" @onclick="OpenFormProps">Propiedades</button>
                     <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
+                    <button class="fb-btn-ghost" @onclick="OpenVersionsAsync" title="Guardar y restaurar versiones del formulario">Versiones</button>
                     @if (_def.Status == FormStatus.Active)
                     {
                         <button class="fb-btn-ghost" @onclick="DeactivateAsync" disabled="@_busy">Desactivar</button>
@@ -334,6 +338,55 @@ else
                                      Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Sandbox)"
                                      ApplyCardWidth="true"
                                      Reference="@($"PREVIEW-{_def.Code}")" />
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal Versiones (snapshots): guardar y restaurar el formulario + sus plantillas ===== *@
+@if (_showVersions && _def is not null)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showVersions = false)">
+        <div class="modal-dialog" style="max-width:620px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Versiones - @_def.Title</h3>
+                <button class="modal-close" @onclick="@(() => _showVersions = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="fb-hint-text" style="margin-bottom:12px;">
+                    Cada vez que confirmas cambios del Asistente IA se guarda una version automatica. Puedes
+                    guardar una manual y restaurar cualquiera (repone el formulario y sus plantillas de impresion).
+                </p>
+                <div style="display:flex;gap:8px;margin-bottom:14px;">
+                    <button class="fb-btn-primary" @onclick="SaveVersionAsync" disabled="@_versionsBusy">Guardar version ahora</button>
+                    <button class="fb-btn-ghost" @onclick="OpenVersionsAsync" disabled="@_versionsBusy">Refrescar</button>
+                </div>
+                @if (_versionsError is not null)
+                {
+                    <div class="fb-error" style="margin:0 0 12px;">@_versionsError</div>
+                }
+                @if (_snapshots.Count == 0)
+                {
+                    <p class="fb-hint-text">Aun no hay versiones guardadas de este formulario.</p>
+                }
+                else
+                {
+                    <div class="fd-versions-list">
+                        @foreach (var s in _snapshots)
+                        {
+                            <div class="fd-version-row">
+                                <div class="fd-version-tx">
+                                    <div class="fd-version-label">@s.Label</div>
+                                    <div class="fd-version-meta">
+                                        @(s.Trigger == Ecorex.Domain.Enums.FormSnapshotTrigger.BeforeAgentBatch ? "Automatica" : "Manual")
+                                        &middot; @s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                    </div>
+                                </div>
+                                <button class="fb-btn-ghost" @onclick="@(() => RestoreVersionAsync(s.Id))" disabled="@_versionsBusy">Restaurar</button>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -712,6 +765,11 @@ else
     // Vista previa y tokens.
     private bool _showPreview;
     private bool _showTokenModal;
+    // Versiones (snapshots): guardar/restaurar el formulario + plantillas.
+    private bool _showVersions;
+    private bool _versionsBusy;
+    private string? _versionsError;
+    private IReadOnlyList<Ecorex.Application.Forms.Builder.FormSnapshotItemDto> _snapshots = [];
     // Propiedades del formulario / transaccionalidad (ola F3).
     private bool _showFormProps;
     // Pestana activa del modal de Propiedades (General / Registro / Modulo / CSS).
@@ -984,6 +1042,58 @@ else
     private async Task ReloadAsync()
     {
         _def = await FormsSvc.GetAsync(Id);
+    }
+
+    // ---- Versiones (snapshots) ----
+
+    private async Task<Guid?> ActorAsync()
+    {
+        try
+        {
+            var state = await AuthProvider.GetAuthenticationStateAsync();
+            var raw = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            return Guid.TryParse(raw, out var g) ? g : null;
+        }
+        catch { return null; }
+    }
+
+    private async Task OpenVersionsAsync()
+    {
+        _showVersions = true;
+        _versionsError = null;
+        _versionsBusy = true;
+        try { _snapshots = await Snapshots.ListAsync(Id); }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
+    }
+
+    private async Task SaveVersionAsync()
+    {
+        _versionsBusy = true;
+        _versionsError = null;
+        try
+        {
+            await Snapshots.SnapshotAsync(Id, "Version manual", Ecorex.Domain.Enums.FormSnapshotTrigger.Manual, null, await ActorAsync());
+            _snapshots = await Snapshots.ListAsync(Id);
+        }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
+    }
+
+    private async Task RestoreVersionAsync(Guid snapshotId)
+    {
+        _versionsBusy = true;
+        _versionsError = null;
+        try
+        {
+            var res = await Snapshots.RestoreAsync(snapshotId, await ActorAsync());
+            if (!res.IsOk) { _versionsError = res.Error ?? "No se pudo restaurar."; return; }
+            await ReloadAsync();          // repone el lienzo con la version restaurada
+            _selId = null;
+            _showVersions = false;
+        }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
     }
 
     private async Task SaveFlashAsync()

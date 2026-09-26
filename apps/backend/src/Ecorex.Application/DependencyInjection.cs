@@ -310,6 +310,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.FormAuthoringToolset>());
         // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
         services.AddScoped<Forms.Builder.IFormBuilderChatService, Forms.Builder.FormBuilderChatService>();
+        services.AddScoped<Forms.Builder.IFormSnapshotService, Forms.Builder.FormSnapshotService>();
         // Toolset de Actividades por concepto (ADR-0098, Opcion A): crear una actividad tipada por concepto y
         // llenar+enviar su formulario. SEPARADO de crear_tarea (TasksToolset), que no se toca. Cada agente
         // elige su via por disabled_tools_json.

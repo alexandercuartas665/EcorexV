@@ -30,6 +30,7 @@ public interface IApplicationDbContext
     DbSet<TenantBlockedNumber> TenantBlockedNumbers { get; }
     DbSet<MessageTemplate> MessageTemplates { get; }
     DbSet<QuoteTemplate> QuoteTemplates { get; }
+    DbSet<FormBuilderSnapshot> FormBuilderSnapshots { get; }
     DbSet<EmailTemplate> EmailTemplates { get; }
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }

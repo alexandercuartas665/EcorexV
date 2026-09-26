@@ -155,6 +155,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
+    public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
@@ -331,6 +332,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
         configurationBuilder.Properties<PlatformRole>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormBuilderConversationStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormBuilderMessageRole>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormSnapshotTrigger>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormBuilderProposalState>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<LimitEnforcementMode>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AuditActorType>().HaveConversion<string>().HaveMaxLength(40);
@@ -1730,6 +1732,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasOne(x => x.Conversation).WithMany(x => x.Messages)
                 .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.ConversationId, x.Sequence });
+        });
+
+        modelBuilder.Entity<FormBuilderSnapshot>(b =>
+        {
+            b.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            b.Property(x => x.FormJson).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.TemplatesJson).HasColumnType(longTextColumnType);
+            b.HasIndex(x => new { x.FormDefinitionId, x.CreatedAt });
         });
 
         modelBuilder.Entity<FormFlowLink>(b =>

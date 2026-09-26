@@ -5392,6 +5392,75 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("form_builder_messages", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormBuilderSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CreatedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_tenant_user_id");
+
+                    b.Property<Guid>("FormDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_definition_id");
+
+                    b.Property<string>("FormJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("form_json");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("TemplatesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("templates_json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("trigger");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_builder_snapshots");
+
+                    b.HasIndex("FormDefinitionId", "CreatedAt")
+                        .HasDatabaseName("ix_form_builder_snapshots_form_definition_id_created_at");
+
+                    b.ToTable("form_builder_snapshots", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormContainer", b =>
                 {
                     b.Property<Guid>("Id")

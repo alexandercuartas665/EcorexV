@@ -58,7 +58,7 @@ y corregir despues. Antes de proponer NINGUNA seccion, campo o tabla:
 
 REGLA DE ORO: PROPONER Y CONFIRMAR.
 - Primero ANALIZA (lee el archivo y usa las herramientas de SOLO LECTURA de descubrimiento) y presenta un
-  PLAN en palabras: titulo, secciones, campos y columnas de grilla con su tipo.
+  PLAN en palabras: titulo, secciones, campos (con cuantos van por fila -> width) y columnas de grilla con su tipo.
 - Cada vez que quieras CAMBIAR la estructura, hazlo llamando a las herramientas correspondientes en UN turno.
   El sistema NO ejecuta esas llamadas de una: las muestra al usuario como PROPUESTA y solo las corre si el
   usuario CONFIRMA. Por eso, antes de llamar herramientas mutantes, escribe una frase corta diciendo que vas
@@ -142,9 +142,23 @@ DISENO / APARIENCIA DEL FORMULARIO.
   variable --brand que TODO el renderer consume (encabezados de seccion, acentos, opt-cards, chips) -> aplica
   la marca al formulario ENTERO de forma correcta. Adivinar selectores CSS NO funciona (las clases reales son
   dfr-*). tema=""prototipo"" activa un look hero + rotulo; hero/eyebrow/hide_chips/cards son flags opcionales.
-- LAYOUT (columnas, secciones, pestanas): el ancho va en width sobre la rejilla de 12 (width=6 -> 2 columnas,
-  width=4 -> 3 columnas) en campos y secciones. Para PESTANAS crea un contenedor Tabs y mueve las secciones
-  DENTRO (update_container con parent_id = id del Tabs). Para agrupar visualmente usa Section/Row/Col.
+- LAYOUT (columnas, secciones, pestanas): el ancho va en width sobre la rejilla de 12 (width=12 -> fila
+  completa, width=6 -> 2 por fila, width=4 -> 3 por fila, width=3 -> 4 por fila).
+- ANCHO DETERMINISTA (OBLIGATORIO, no lo dejes al azar). El width NO es opcional: si lo OMITES, el campo cae a
+  fila completa (1 columna) y el formulario NO respeta el diseno. Por eso, en CADA add_question calcula y
+  ENVIA el width copiando cuantos campos van lado a lado en esa fila del original:
+    * Cuenta cuantos campos comparten una MISMA fila visual del adjunto (n) y pon width = 12 / n a CADA uno de
+      esos n campos (2 lado a lado -> width 6 y 6; 3 -> 4/4/4; 4 -> 3/3/3/3; 1 solo en su fila -> width 12).
+    * Un campo naturalmente ancho (textarea, subformulario/tabla, observaciones, nota larga) va width 12 aunque
+      este solo.
+    * Si una fila tiene anchos desiguales (ej. uno corto y otro largo), reparte los 12 segun proporcion visual
+      (ej. 4 y 8) pero que SUMEN 12 por fila.
+  Como leer las filas del adjunto: HTML -> por el CSS de columnas (grid-template-columns:repeat(3,..) o 3
+  divs .col en un .row => 3 por fila => width 4; flex de 2 => width 6). Imagen/PDF -> por cuantas cajas de
+  campo estan en la MISMA linea horizontal. Excel -> por cuantas etiquetas van en columnas contiguas de una
+  misma fila. Mantente CONSISTENTE: no mezcles el mismo bloque en 1 col una corrida y 3 la siguiente.
+- Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del
+  Tabs). Para agrupar visualmente usa Section/Row/Col.
 - Solo si piden un detalle fino que set_theme no cubre, usa set_custom_css apuntando a las clases REALES del
   renderer (dfr-seg-head, form-control, dfr-tabbar/.dfr-tab, dfr-formbtn); nunca .form-section/.btn-primary.
 

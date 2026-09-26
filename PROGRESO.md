@@ -22,6 +22,18 @@
   rayo real (sin `&#9889;`), y el agente PREGUNTA por las gestiones antes de construir.
 - Archivos: FormAuthoringToolset.cs (SetThemeAsync decode + schema), FormBuilderHarness.cs (rename + regla de
   chips de conversion). Build de Application y SuperAdmin verde. NO desplegado (worktree; deploy solo a senal).
+- LAYOUT DETERMINISTA (refuerzo pedido despues): el width de campos salia inconsistente (una corrida 3 col,
+  otra 1 col) porque el agente lo omitia y caia a fila completa. Arnes FormBuilderHarness.cs: regla ANCHO
+  DETERMINISTA (OBLIGATORIO) -> contar cuantos campos van lado a lado en cada fila del original y poner
+  width=12/n a cada uno (2->6/6, 3->4/4/4, 4->3/3/3/3, 1 o textarea/subform->12); como leer las filas de
+  HTML (CSS de columnas), imagen/PDF (misma linea horizontal) y Excel (columnas contiguas); y el PLAN debe
+  declarar cuantos campos por fila. Verificado en vivo: la seccion 1 salio 3/2/3/3 (por bounding boxes),
+  identica al form real (antes salia 1 col).
+- HALLAZGO NUEVO (separado, pendiente): armando el GridDetail con columnas select/multicheck (opciones
+  anidadas), el agente entro en BUCLE de error de options_json (omitia el 'label' de cada opcion) y termino
+  omitiendo la tabla. En corridas previas la grilla si se creo; el nesting de opciones dentro de una columna
+  es fragil para el modelo. Propuesta: tolerar en el toolset (normalizar opciones de columna: string->
+  {id,label}; sin label->label=id) para romper el bucle, + ejemplo concreto en el arnes. Sin hacer aun.
 
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 

@@ -38,8 +38,8 @@ public static class FormVisibilityEvaluator
     }
 
     // Lee un escalar JSON como texto sin importar su tipo (string/number/bool/null). Evita que un 'value'
-    // numerico o booleano en la condicion rompa la evaluacion.
-    private static string? ScalarText(JsonElement el) => el.ValueKind switch
+    // numerico o booleano en la condicion rompa la evaluacion. internal: lo reusa FormStatusLadder.
+    internal static string? ScalarText(JsonElement el) => el.ValueKind switch
     {
         JsonValueKind.String => el.GetString(),
         JsonValueKind.Number => el.GetRawText(),

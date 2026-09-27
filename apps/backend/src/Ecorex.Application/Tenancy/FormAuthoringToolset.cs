@@ -72,7 +72,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     {
         "describe_components", "list_tenants", "list_forms", "get_form", "list_templates",
         "list_data_containers", "describe_data_container", "list_tercero_fields", "list_org_units",
-        "list_menu_views", "list_menu_nodes", "export_form", "get_render_urls"
+        "list_activity_types", "list_menu_views", "list_menu_nodes", "export_form", "get_render_urls"
     };
 
     public IReadOnlyList<AiToolSpec> GetSpecs() => Specs;
@@ -123,6 +123,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             """{"type":"object","properties":{},"additionalProperties":false}"""),
         new("list_org_units",
             "Lista las Dependencias y Cargos del organigrama del tenant (id, nombre, classifier Dependencia|Cargo, parent). Usa estos ids en 'allowed_cargos_json' de add_container/update_container para restringir el acceso a una seccion.",
+            """{"type":"object","properties":{},"additionalProperties":false}"""),
+        new("list_activity_types",
+            "Lista los tipos de actividad/tarea del tenant (id, nombre). Usa el id como 'activity_type_id' de wire_submit_task_rule (la tarea que se crea al enviar el formulario).",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
         new("list_menu_views",
             "Lista las vistas de menu del tenant (id, nombre, si es la predeterminada). Usa el id como 'menu_view_id' de set_module para publicar el formulario como modulo bajo esa vista.",
@@ -184,6 +187,19 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         new("set_theme",
             "APARIENCIA/TEMA del formulario (la forma correcta de aplicar la identidad de marca). 'color' (hex) es el COLOR DE MARCA: fija la variable --brand que TODO el renderer usa (encabezados de seccion, acentos, opt-cards, chips) -> tematiza el formulario entero de una. tema: clasico|prototipo (prototipo activa el look hero+rotulo). hero: encabezado tipo hero. eyebrow: rotulo pequeno arriba del titulo. hide_chips: oculta chips tecnicos. cards: estilo tarjetas para opciones (Radio/MultiCheck). Enviar todo vacio/omitido deja el tema clasico por defecto.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"color":{"type":"string","description":"Color de marca hex (#RRGGBB): fija --brand y tematiza todo"},"tema":{"type":"string","description":"clasico|prototipo"},"hero":{"type":"boolean"},"eyebrow":{"type":"string","description":"Rotulo pequeno sobre el titulo. Si lleva icono, usa el EMOJI directo (ej. ⚡ Gestion), NO entidades HTML como &#9889;"},"hide_chips":{"type":"boolean"},"cards":{"type":"boolean"}},"required":["form_id"],"additionalProperties":false}"""),
+        new("set_status_ladder",
+            "Escalon de ESTADOS calculados del registro: un campo 'estado' toma la etiqueta del escalon MAS ALTO cuyas " +
+            "condiciones se cumplen (solo avanza, nunca baja). status_ladder_json = {\"field\":\"<field_code destino>\"," +
+            "\"states\":[{\"label\":\"Inicial\",\"when\":[]},{\"label\":\"Siguiente\",\"when\":[{\"field\":\"otro_codigo\"," +
+            "\"op\":\"equals|notEquals|includes|notEmpty|empty\",\"value\":\"x\"}]}, ...]}. Estados ORDENADOS de menor a " +
+            "mayor; el primero (when vacio) es el piso. El 'field' destino es un campo del formulario (Text) que muestra el estado.",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"status_ladder_json":{"type":"string","description":"JSON del escalon {field,states[]}; vacio/omitido lo quita"}},"required":["form_id"],"additionalProperties":false}"""),
+        new("wire_submit_task_rule",
+            "REGLA AL ENVIAR que crea una TAREA/actividad cuando se envia el formulario (incl. la ruta publica /f/). " +
+            "activity_type_id (de list_activity_types) es el tipo de actividad a crear. Titulo: 'fixed_title' (una sola tarea) " +
+            "O 'table_field_code' (una tarea POR FILA de esa grilla, con 'title_key' = columna que da el titulo). 'assignee_user_id' " +
+            "opcional (a quien se asigna); 'title_prefix' opcional; 'auto_complete' la deja completada.",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"activity_type_id":{"type":"string"},"assignee_user_id":{"type":"string"},"fixed_title":{"type":"string"},"table_field_code":{"type":"string"},"title_key":{"type":"string"},"title_prefix":{"type":"string"},"auto_complete":{"type":"boolean"}},"required":["form_id","activity_type_id"],"additionalProperties":false}"""),
         new("activate",
             "Activa el formulario (Draft/Inactive -> Active), validando su estructura. Empieza a aceptar respuestas.",
             """{"type":"object","properties":{"form_id":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
@@ -253,6 +269,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "add_container_rows" => await AddContainerRowsAsync(args, actorUserId, cancellationToken),
                 "list_tercero_fields" => await ListTerceroFieldsAsync(cancellationToken),
                 "list_org_units" => await ListOrgUnitsAsync(cancellationToken),
+                "list_activity_types" => await ListActivityTypesAsync(cancellationToken),
                 "list_menu_views" => await ListMenuViewsAsync(cancellationToken),
                 "list_menu_nodes" => await ListMenuNodesAsync(args, cancellationToken),
                 "create_form" => await CreateFormAsync(args, cancellationToken),
@@ -271,6 +288,8 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "set_module" => await SetModuleAsync(args, cancellationToken),
                 "set_custom_css" => await SetCustomCssAsync(args, cancellationToken),
                 "set_theme" => await SetThemeAsync(args, cancellationToken),
+                "set_status_ladder" => await SetStatusLadderAsync(args, cancellationToken),
+                "wire_submit_task_rule" => await WireSubmitTaskRuleAsync(args, cancellationToken),
                 "activate" => await ActivateAsync(args, cancellationToken),
                 "deactivate" => await DeactivateAsync(args, cancellationToken),
                 "archive" => await ArchiveAsync(args, cancellationToken),
@@ -963,6 +982,53 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
 
         var r = await _forms.SetThemeAsync(id, themeJson, ct);
         return FormResp(r, v => new { ok = true, theme_json = themeJson, form = v });
+    }
+
+    private async Task<AgentToolResult> SetStatusLadderAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
+        var json = Str(args, "status_ladder_json");
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try { using var _ = JsonDocument.Parse(json); }
+            catch (JsonException) { return Err("'status_ladder_json' no es un JSON valido."); }
+        }
+        var r = await _forms.SetStatusLadderAsync(id, string.IsNullOrWhiteSpace(json) ? null : json, ct);
+        return FormResp(r, v => new { ok = true, form = v });
+    }
+
+    private async Task<AgentToolResult> ListActivityTypesAsync(CancellationToken ct)
+    {
+        var list = await _db.ActivityTypes.AsNoTracking()
+            .Where(a => !a.IsArchived)
+            .OrderBy(a => a.Name)
+            .Select(a => new { id = a.Id, name = a.Name })
+            .ToListAsync(ct);
+        return Ok(new { ok = true, total = list.Count, activity_types = list });
+    }
+
+    private async Task<AgentToolResult> WireSubmitTaskRuleAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var formId)) { return Err("Falta un 'form_id' valido."); }
+        if (!TryGuid(args, "activity_type_id", out var atId)) { return Err("Falta 'activity_type_id' (ver list_activity_types)."); }
+        var fixedTitle = Str(args, "fixed_title");
+        var tableField = Str(args, "table_field_code");
+        if (string.IsNullOrWhiteSpace(fixedTitle) && string.IsNullOrWhiteSpace(tableField))
+        {
+            return Err("Define el origen del titulo: 'fixed_title' (una tarea) o 'table_field_code' (una tarea por fila).");
+        }
+        var req = new CreateFormSubmitTaskRuleRequest(
+            DefinitionId: formId,
+            ActivityTypeId: atId,
+            AssigneeTenantUserId: TryGuid(args, "assignee_user_id", out var au) ? au : null,
+            TableFieldCode: tableField,
+            TitleKey: Str(args, "title_key"),
+            FixedTitle: fixedTitle,
+            TitlePrefix: Str(args, "title_prefix"),
+            AutoComplete: Bool(args, "auto_complete") ?? false);
+        var r = await _rules.CreateFormSubmitTaskRuleAsync(req, ct);
+        if (!r.IsOk || r.Value is null) { return Err($"No se pudo crear la regla al enviar: {r.Error}"); }
+        return Ok(new { ok = true, submit_rule = r.Value });
     }
 
     private async Task<AgentToolResult> ActivateAsync(JsonElement args, CancellationToken ct)

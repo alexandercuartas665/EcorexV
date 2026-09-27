@@ -58,8 +58,10 @@ public static class FormStatusLadder
                     {
                         if (cond.ValueKind != JsonValueKind.Object) { continue; }
                         var cf = cond.TryGetProperty("field", out var cfp) ? cfp.GetString() : null;
-                        var co = cond.TryGetProperty("op", out var cop) ? cop.GetString() : "equals";
-                        var cv = cond.TryGetProperty("value", out var cvp) ? cvp.GetString() : null;
+                        // op/value tolerantes al tipo JSON: un value numerico o booleano (ej. value:0) no debe
+                        // reventar la evaluacion (mismo blindaje que FormVisibilityEvaluator).
+                        var co = cond.TryGetProperty("op", out var cop) ? FormVisibilityEvaluator.ScalarText(cop) : "equals";
+                        var cv = cond.TryGetProperty("value", out var cvp) ? FormVisibilityEvaluator.ScalarText(cvp) : null;
 
                         // Operadores de HIJOS de subform (FormRecordLink): cuentan registros hijos, no leen el doc.
                         var opNorm = (co ?? "equals").Trim().ToLowerInvariant();

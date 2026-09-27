@@ -21,6 +21,25 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-27 - form-builder-chat: cerrados los 3 huecos guia-vs-agente (prellenado, estados, regla al enviar)
+
+- #21 PRELLENADO desde la tarea: solo faltaba GUIA (no tool). Arnes: para prellenar un campo, default_value con
+  token {tareas.cliente|contacto|solicitante|email|correo|telefono|nit|documento|identificacion|titulo|numero|
+  comercial} o de sistema {hoy}/{hoy+N}/{ahora}/{numero}. (Los tokens los resuelve DynamicFormRenderer/
+  FormSystemTokens; ya existian.)
+- #22 ESCALON DE ESTADOS: nueva tool set_status_ladder (envuelve IFormDefinitionService.SetStatusLadderAsync)
+  con validacion de JSON. Arnes con el formato {field,states[{label,when[]}]}. Ademas HARDENING: FormStatusLadder
+  leia el value de una condicion con GetString() (mismo crash que la visibilidad si value es numero); ahora usa
+  FormVisibilityEvaluator.ScalarText (internal, compartido). 2 tests nuevos (FormStatusLadderTests).
+- #26 REGLA AL ENVIAR (crear tarea): nuevas tools list_activity_types (descubrir el tipo) y wire_submit_task_rule
+  (envuelve IRuleDocumentService.CreateFormSubmitTaskRuleAsync): crea la regla on-submit que genera una tarea
+  (fixed_title = una tarea; table_field_code + title_key = una por fila). Arnes lo documenta y aclara que solo
+  cubre crear tareas al enviar.
+- De paso, arnes: nota de que visible_when no tiene > (usar notEquals 0) y de que los FILTROS usan los valores
+  reales de la fuente ('Activo = Si', no true) -> corrige el detalle hallado en la prueba del brief maestro.
+- Build SuperAdmin verde; suite Application entera VERDE 1011/1011. Con esto la guia HTML y el agente quedan a la
+  par: las 27 funciones de datos son alcanzables por el asistente.
+
 ## 2026-09-26 - form-builder-chat: contenedores de datos self-serve (listas y formulas VLOOKUP)
 
 - Pedido del usuario: los formularios con LISTAS (desplegable de catalogo) o FORMULAS VLOOKUP (traer precio por

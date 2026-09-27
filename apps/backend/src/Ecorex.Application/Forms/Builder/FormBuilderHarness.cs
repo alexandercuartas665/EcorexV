@@ -221,15 +221,34 @@ ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
    para leerlo); recien ENTONCES, en el siguiente turno, propon los add_question de sus campos usando ese
    container_id real. Mezclar add_container y sus add_question en el MISMO turno hace que los campos apunten
    a un id inexistente y fallen.
-5. Si aplica: set_transactional, create_template + wire_print_button.
-6. No actives (activate) el formulario sin que el usuario lo pida.
+5. Si aplica: set_transactional, set_status_ladder (escalon de estados), create_template + wire_print_button,
+   wire_convert_button, wire_submit_task_rule (regla al enviar que crea tarea; list_activity_types primero).
+6. No actives (activate) el formulario sin que el usuario lo pida (el enlace publico si requiere activarlo).
 
 BARRERAS.
 - Todo ocurre en el tenant actual. field_code snake_case, unico y estable.
 - No inventes fuentes de lookup ni columnas: verificalas con las herramientas de descubrimiento.
+- FILTROS de lookup/columna: usa los VALORES REALES tal como estan en la fuente. Si el catalogo guarda ""Si""/
+  ""No"" (texto), filtra por ""Activo = 'Si'"", NO por true/false. Ante la duda, mira las filas con
+  describe_data_container / consulta antes de fijar el filtro.
 - VISIBILIDAD CONDICIONAL (mostrar/ocultar por valor de otra pregunta): usa visible_when_json en la seccion
   (add/update_container) o en el campo (add/update_question), forma {{""field"":""codigo"",""op"":
   ""equals|notEquals|includes|empty|notEmpty"",""value"":""x""}}. 'field' es el field_code de OTRA pregunta.
+  OJO: no hay operadores > o <. Para ""mayor que 0"" o ""distinto de cero"" usa op=notEquals con value=0.
+- PRELLENADO desde la TAREA/CONTACTO: para que un campo llegue con un dato ya puesto, ponle default_value con
+  un token. Tokens de la tarea anfitriona: {{tareas.cliente}}, {{tareas.contacto}}, {{tareas.solicitante}},
+  {{tareas.email}} (o {{tareas.correo}}), {{tareas.telefono}}, {{tareas.nit}} (o {{tareas.documento}}/
+  {{tareas.identificacion}}), {{tareas.titulo}}, {{tareas.numero}}, {{tareas.comercial}}. Tokens de sistema:
+  {{hoy}} / {{hoy+N}} (fecha, para un campo Date), {{ahora}} (hora, para un campo Time), {{numero}} (numero del
+  registro). Ej.: el campo numero_tarea con default_value ""{{tareas.numero}}"". Fuera de una tarea el token
+  queda vacio (no estorba). NO es una integracion aparte: es el default_value del campo.
+- ESCALON DE ESTADOS (un campo 'estado' que avanza solo segun otros valores): usa set_status_ladder con
+  status_ladder_json {{field: <field_code destino>, states:[{{label,when:[cond]}}]}} (estados de menor a mayor;
+  el primero con when vacio es el piso; solo avanza). Crea antes el campo destino (Text) que muestra el estado.
+- REGLA AL ENVIAR que crea una TAREA (ej. ""al enviar, crea una tarea para el asesor""): usa
+  wire_submit_task_rule. Primero list_activity_types para el activity_type_id. Titulo: fixed_title (una tarea)
+  o table_field_code + title_key (una tarea POR FILA de esa grilla). assignee_user_id opcional. (Solo cubre
+  crear tareas al enviar; otras acciones on-submit no estan expuestas: avisalo.)
 - ACCESO POR CARGO a una seccion: usa allowed_cargos_json en add/update_container = arreglo JSON de ids que
   devuelve list_org_units (Dependencias/Cargos). Vacio = sin restriccion. Descubre los ids con list_org_units.
 - CONVERTIR A OTRO FORMULARIO (ej. Cotizacion -> Orden de Trabajo) y gridDerive: usa wire_convert_button

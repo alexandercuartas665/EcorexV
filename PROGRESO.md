@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-27 - form-builder-chat: prueba del "brief maestro" E2E + fix de crash en visibilidad
+
+- Prueba de la guia HTML de funciones de datos: se le paso al agente el BRIEF MAESTRO (lenguaje natural) + un
+  Excel de 2 hojas (cotizacion + catalogo con columna Activo). Resultado fuerte: de una sola conversacion armo
+  ~20 de 27 funciones (transaccional COT-/6, contenedor 'Catalogo de Productos' creado+cargado, cliente por
+  Tercero + autollenado NIT/tel/ciudad, prioridad lista, grilla con seq + producto lookup+filtro+autofill de
+  precio + total calc + rollup a subtotal + servicios multicheck, cadena de totales con % /100, motivo con
+  visibilidad condicional, formatos, boton imprimir PDF + plantilla, enlace publico + activado). Ademas fue
+  HONESTO con lo que no pudo (stock sin fuente de inventario; cargo 'Coordinador Comercial' inexistente en
+  SOLDARCO; convertir a Orden de Trabajo con destino inexistente -> pendiente como se pidio).
+- HALLAZGOS: (a) BUG real de render -> FormVisibilityEvaluator.IsVisible hacia GetString() sobre el 'value' de
+  la condicion; el agente puso value:0 (numero, "distinto de 0") y lanzaba InvalidOperationException tumbando
+  TODO el formulario en vista previa. FIX: ScalarText tolera number/bool/string/null. 4 tests nuevos
+  (FormVisibilityEvaluatorTests) verdes. (b) La GUIA va por delante del AGENTE en 3 funciones sin herramienta
+  expuesta: #21 prellenado desde tarea ({tareas.x}, solo falta guia en arnes + default_value), #22 escalon de
+  estados (SetStatusLadderAsync existe pero no se expuso como tool), #26 regla al enviar (form_submit_rules sin
+  wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
+- Build de Application verde; suite entera seguia verde antes del fix.
+
 ## 2026-09-26 - form-builder-chat: contenedores de datos self-serve (listas y formulas VLOOKUP)
 
 - Pedido del usuario: los formularios con LISTAS (desplegable de catalogo) o FORMULAS VLOOKUP (traer precio por

@@ -71,8 +71,8 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "describe_components", "list_tenants", "list_forms", "get_form", "list_templates",
-        "list_data_containers", "list_tercero_fields", "list_org_units", "list_menu_views", "list_menu_nodes",
-        "export_form", "get_render_urls"
+        "list_data_containers", "describe_data_container", "list_tercero_fields", "list_org_units",
+        "list_menu_views", "list_menu_nodes", "export_form", "get_render_urls"
     };
 
     public IReadOnlyList<AiToolSpec> GetSpecs() => Specs;
@@ -103,6 +103,21 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         new("list_data_containers",
             "Lista los contenedores de datos del tenant (id, nombre). Usa el id como 'sourceRef' de un lookup/resolve con source=DataContainer.",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
+        new("describe_data_container",
+            "Devuelve el ESQUEMA de un contenedor de datos: sus columnas (nombre + tipo) y cuantas filas tiene. " +
+            "Llamala ANTES de enlazar un lookup/resolve para saber que columnas usar como displayField/valueField " +
+            "(lista) o match/return (VLOOKUP): esos campos van por NOMBRE de columna. Acepta 'container_id' (GUID) o 'name'.",
+            """{"type":"object","properties":{"container_id":{"type":"string","description":"Id (GUID) del contenedor"},"name":{"type":"string","description":"Nombre exacto (alternativa al id)"}},"additionalProperties":false}"""),
+        new("create_data_container",
+            "Crea un CONTENEDOR de datos (tabla de respaldo para una lista/desplegable o una formula VLOOKUP del formulario). " +
+            "columns: arreglo de {name, type} con type = Text|Number|Decimal|Date|Boolean. Devuelve el id del contenedor y sus " +
+            "columnas con id. Si ya existe uno con ese nombre lo REUSA (no duplica). Luego carga filas con add_container_rows.",
+            """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"columns":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string","description":"Text|Number|Decimal|Date|Boolean"}},"required":["name"]}}},"required":["name","columns"],"additionalProperties":false}"""),
+        new("add_container_rows",
+            "Carga filas en un contenedor de datos (ej. un catalogo/lista de precios sacado de una hoja del Excel). 'rows' es un " +
+            "arreglo de objetos donde cada CLAVE es el NOMBRE de una columna del contenedor y su valor el dato; las claves que no " +
+            "sean columnas se ignoran. Todo se guarda como texto (EAV). Solo INSERTA. Acepta 'container_id' o 'name'.",
+            """{"type":"object","properties":{"container_id":{"type":"string"},"name":{"type":"string"},"rows":{"type":"array","items":{"type":"object"},"description":"Filas: cada objeto es columna->valor"}},"required":["rows"],"additionalProperties":false}"""),
         new("list_tercero_fields",
             "Lista los campos disponibles de Tercero (Directorio) para autofill de un lookup con source=Tercero: base (nombre, identificacion, ciudad, email, telefono, vendedor, sector, cargo, estado) + los campos de ficha configurados.",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
@@ -233,6 +248,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "get_form" => await GetFormAsync(args, cancellationToken),
                 "list_templates" => await ListTemplatesAsync(cancellationToken),
                 "list_data_containers" => await ListDataContainersAsync(cancellationToken),
+                "describe_data_container" => await DescribeDataContainerAsync(args, cancellationToken),
+                "create_data_container" => await CreateDataContainerAsync(args, actorUserId, cancellationToken),
+                "add_container_rows" => await AddContainerRowsAsync(args, actorUserId, cancellationToken),
                 "list_tercero_fields" => await ListTerceroFieldsAsync(cancellationToken),
                 "list_org_units" => await ListOrgUnitsAsync(cancellationToken),
                 "list_menu_views" => await ListMenuViewsAsync(cancellationToken),
@@ -430,6 +448,142 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             containers = list.Select(c => new { id = c.Id, name = c.Name, source_kind = c.SourceKind, columns = c.ColumnCount, rows = c.RowCount })
         });
     }
+
+    // Columnas ESCALARES de un contenedor (se excluyen Submodel y los tipos deprecados de relacion, que
+    // no tienen celda simple ni sirven como campo de lookup por nombre).
+    private static bool IsScalarColumn(DataContainerColumnType t)
+        => t is not (DataContainerColumnType.Submodel or DataContainerColumnType.Reference or DataContainerColumnType.RelationMany);
+
+    // Resuelve un contenedor por 'container_id' (GUID) o, si no, por 'name' (exacto, case-insensitive).
+    private async Task<DataContainerDetailDto?> ResolveContainerAsync(JsonElement args, CancellationToken ct)
+    {
+        if (TryGuid(args, "container_id", out var id)) { return await _containers.GetAsync(id, ct); }
+        var name = Str(args, "name")?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) { return null; }
+        var all = await _containers.ListAsync(ct);
+        var match = all.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        return match is null ? null : await _containers.GetAsync(match.Id, ct);
+    }
+
+    private async Task<AgentToolResult> DescribeDataContainerAsync(JsonElement args, CancellationToken ct)
+    {
+        var detail = await ResolveContainerAsync(args, ct);
+        if (detail is null) { return Err("No se encontro el contenedor. Pasa un 'container_id' valido o el 'name' exacto (ver list_data_containers)."); }
+        var rows = await _containers.ListRowsAsync(detail.Id, take: 1, ct: ct);
+        var hasRows = rows.Count > 0;
+        return Ok(new
+        {
+            ok = true,
+            id = detail.Id,
+            name = detail.Name,
+            has_rows = hasRows,
+            columns = detail.Columns.Where(c => IsScalarColumn(c.Type))
+                .OrderBy(c => c.SortOrder)
+                .Select(c => new { name = c.Name, type = c.Type.ToString(), required = c.IsRequired })
+        });
+    }
+
+    // Mapea el 'type' textual de una columna (tolera ingles/espanol) al enum. Default Text.
+    private static DataContainerColumnType ParseColumnType(string? type) => (type ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "number" or "numero" or "entero" or "int" or "integer" => DataContainerColumnType.Number,
+        "decimal" or "moneda" or "currency" or "float" or "double" => DataContainerColumnType.Decimal,
+        "date" or "fecha" or "datetime" => DataContainerColumnType.Date,
+        "boolean" or "bool" or "si_no" or "sino" => DataContainerColumnType.Boolean,
+        _ => DataContainerColumnType.Text,
+    };
+
+    private async Task<AgentToolResult> CreateDataContainerAsync(JsonElement args, Guid actorUserId, CancellationToken ct)
+    {
+        var name = Str(args, "name")?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) { return Err("Falta 'name' del contenedor."); }
+
+        // Reuso idempotente: si ya existe uno con ese nombre, se devuelve (no se duplica).
+        var existing = (await _containers.ListAsync(ct)).FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            var det0 = await _containers.GetAsync(existing.Id, ct);
+            return Ok(new
+            {
+                ok = true,
+                reused = true,
+                id = existing.Id,
+                name = existing.Name,
+                columns = det0?.Columns.Where(c => IsScalarColumn(c.Type)).Select(c => new { id = c.Id, name = c.Name, type = c.Type.ToString() })
+            });
+        }
+
+        var colsEl = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("columns", out var cv) && cv.ValueKind == JsonValueKind.Array ? cv : (JsonElement?)null;
+        if (colsEl is not { } colsArr || colsArr.GetArrayLength() == 0) { return Err("Falta 'columns' (arreglo de {name,type})."); }
+
+        var columns = new List<SaveDataColumnInput>();
+        var order = 0;
+        foreach (var col in colsArr.EnumerateArray())
+        {
+            if (col.ValueKind != JsonValueKind.Object) { continue; }
+            var cname = (col.TryGetProperty("name", out var cn) && cn.ValueKind == JsonValueKind.String ? cn.GetString() : null)?.Trim();
+            if (string.IsNullOrWhiteSpace(cname)) { continue; }
+            var ctype = ParseColumnType(col.TryGetProperty("type", out var ct2) && ct2.ValueKind == JsonValueKind.String ? ct2.GetString() : null);
+            columns.Add(new SaveDataColumnInput(null, cname!, null, ctype, order++, IsRequired: false));
+        }
+        if (columns.Count == 0) { return Err("Ninguna columna valida en 'columns' (cada una necesita 'name')."); }
+
+        var req = new SaveDataContainerRequest(null, name!, Str(args, "description"), DataSourceKind.Manual, columns);
+        var saved = await _containers.SaveAsync(req, actorUserId, ct);
+        if (saved is null) { return Err("No se pudo crear el contenedor."); }
+        return Ok(new
+        {
+            ok = true,
+            id = saved.Id,
+            name = saved.Name,
+            columns = saved.Columns.Where(c => IsScalarColumn(c.Type)).Select(c => new { id = c.Id, name = c.Name, type = c.Type.ToString() })
+        });
+    }
+
+    private async Task<AgentToolResult> AddContainerRowsAsync(JsonElement args, Guid actorUserId, CancellationToken ct)
+    {
+        var detail = await ResolveContainerAsync(args, ct);
+        if (detail is null) { return Err("No se encontro el contenedor. Pasa 'container_id' o 'name' (ver list_data_containers)."); }
+
+        var rowsEl = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("rows", out var rv) && rv.ValueKind == JsonValueKind.Array ? rv : (JsonElement?)null;
+        if (rowsEl is not { } rowsArr || rowsArr.GetArrayLength() == 0) { return Err("Falta 'rows' (arreglo de objetos columna->valor)."); }
+
+        var colByName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in detail.Columns.Where(c => IsScalarColumn(c.Type)))
+        {
+            if (!colByName.ContainsKey(c.Name.Trim())) { colByName[c.Name.Trim()] = c.Id; }
+        }
+        if (colByName.Count == 0) { return Err("El contenedor no tiene columnas escalares donde cargar datos."); }
+
+        var loaded = 0;
+        var cells = 0;
+        foreach (var item in rowsArr.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) { continue; }
+            var values = new Dictionary<Guid, string?>();
+            foreach (var prop in item.EnumerateObject())
+            {
+                if (!colByName.TryGetValue(prop.Name.Trim(), out var colId)) { continue; }
+                values[colId] = CellText(prop.Value);
+                cells++;
+            }
+            if (values.Count == 0) { continue; }
+            await _containers.SaveRowAsync(new SaveDataRowRequest(detail.Id, null, values), actorUserId, ct);
+            loaded++;
+        }
+        return Ok(new { ok = true, loaded, cells, container = detail.Name, id = detail.Id });
+    }
+
+    // El contenedor guarda TODO como texto (EAV): numeros/booleanos se serializan a su texto tal cual.
+    private static string? CellText(JsonElement v) => v.ValueKind switch
+    {
+        JsonValueKind.String => v.GetString(),
+        JsonValueKind.Number => v.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null => null,
+        _ => v.GetRawText(),
+    };
 
     private async Task<AgentToolResult> ListTerceroFieldsAsync(CancellationToken ct)
     {

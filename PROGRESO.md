@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-26 - form-builder-chat: contenedores de datos self-serve (listas y formulas VLOOKUP)
+
+- Pedido del usuario: los formularios con LISTAS (desplegable de catalogo) o FORMULAS VLOOKUP (traer precio por
+  clave) necesitan datos de respaldo; el asistente sabia ENLAZAR a un contenedor existente pero no verlo/crearlo/
+  cargarlo. Alcance elegido: self-serve completo, datos desde una HOJA del Excel subido.
+- Sin tablas ni servicios nuevos: reusa IDataContainerService. 3 herramientas nuevas en FormAuthoringToolset.cs:
+  * describe_data_container (read): esquema (columnas nombre+tipo, si tiene filas) para saber que columna usar
+    de displayField/valueField (lista) o match/return (VLOOKUP) -> van por NOMBRE de columna.
+  * create_data_container (write): crea el contenedor con su tabla+columnas (Text|Number|Decimal|Date|Boolean);
+    idempotente (si ya existe por nombre, lo REUSA).
+  * add_container_rows (write): carga filas {columna->valor} (EAV como texto); ignora claves que no son columna.
+  Arnes FormBuilderHarness.cs: bloque CONTENEDORES DE DATOS (flujo describe/create/load + enlazar lookup/resolve),
+  cue en lectura de Excel (una hoja de catalogo/tarifa = contenedor de respaldo, no seccion) y en la estrategia.
+- Verificado E2E con un Excel de 2 hojas (Pedido + Catalogo): el agente creo el contenedor 'Catalogo' (Manual,
+  4 columnas), cargo las 5 filas del catalogo (add_container_rows) y wireo la columna Producto de la grilla como
+  lookup source=DataContainer -> ese contenedor, displayField/valueField=Producto y AUTOFILL Precio->precio_unitario
+  (comprobado en BD: data_containers/rows + options_json de la pregunta). El render del desplegable es la UI de
+  lookup ya existente (no se toco); no logre captura limpia de las opciones por el clic automatizado sobre la celda
+  (Blazor re-render mueve coordenadas), pero el cableado quedo correcto. Build verde (SuperAdmin + Application).
+
 ## 2026-09-26 - form-builder-chat: medicion contra un formulario REAL de prod + 3 fixes
 
 - Prueba de calidad del asistente de formularios: se calco el formulario REAL `desarrollo.f2.CONTACTO CLIENTE`

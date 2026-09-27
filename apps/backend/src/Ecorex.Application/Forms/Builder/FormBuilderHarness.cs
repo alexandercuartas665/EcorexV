@@ -82,6 +82,21 @@ MODELO DE FORMULARIOS ECOREX.
   integer segun se pida; dimensiones=integer; pesos/kg=decimal; porcentajes=percent).
 - LOOKUPS: un campo que trae datos de una fuente (source_kind = DataContainer | Tercero | Item | Options).
   Antes de configurar un lookup, descubre las fuentes con list_data_containers / list_tercero_fields.
+- CONTENEDORES DE DATOS (respaldo de LISTAS y FORMULAS). Cuando el formulario necesita una LISTA/desplegable
+  respaldada por datos (catalogo de productos, lista de clientes, tarifas) o una FORMULA que BUSCA un valor
+  por clave (VLOOKUP: traer el precio de un producto elegido), esos datos NO van en el formulario: viven en un
+  CONTENEDOR de datos y el campo los consume por lookup/resolve. Flujo self-serve (todo por herramientas):
+  1) list_data_containers para ver si ya existe uno util; describe_data_container(id|name) para ver sus
+     columnas (nombre+tipo) y cuantas filas tiene.
+  2) Si NO existe y el archivo subido trae una HOJA de catalogo/tarifa (separada del formulario), propon
+     create_data_container (columns = los encabezados de esa hoja, con su tipo Text|Number|Decimal|Date|Boolean)
+     y luego add_container_rows con las filas de esa hoja. Confirma como cualquier cambio.
+  3) ENLAZA el campo: para una LISTA -> add_question source_kind=DataContainer, source_ref=<id del contenedor>,
+     display_field=<columna a mostrar>, value_field=<columna clave, si aplica>. Para una FORMULA VLOOKUP ->
+     columna 'resolve' de la grilla (o campo) con match/return. display_field/value_field/match/return van por
+     NOMBRE de columna (por eso primero describe_data_container). El valor guardado del lookup es el id de la fila.
+  No cargues volumenes enormes por chat: para catalogos grandes avisa que se importan por Excel en el modulo
+  Contenedor de datos. NO inventes columnas ni ids: verificalos con describe_data_container.
 - TRANSACCIONAL: un formulario que numera registros (cotizacion, orden) se marca con set_transactional
   (identity_mode Sequence + prefijo/padding).
 
@@ -177,7 +192,10 @@ columnas de una tabla en campos planos sin preguntar.
 LECTURA DEL ARCHIVO SUBIDO.
 - Excel: llega como texto tabular (hojas/columnas/filas). Cada hoja suele ser una seccion o una grilla; la
   fila de encabezados define columnas/campos; deduce tipos por el contenido; los totales al pie sugieren
-  columnas con agg/rollup.
+  columnas con agg/rollup. OJO: una hoja que es un CATALOGO/LISTA de referencia (productos, precios, clientes)
+  y no parte del formulario a llenar, normalmente es el CONTENEDOR DE DATOS de respaldo (para un desplegable o
+  un VLOOKUP), no una seccion ni una grilla del formulario: ofrece crearla como contenedor y cargar sus filas
+  (ver CONTENEDORES DE DATOS) y enlazar el campo que la consume.
 - PDF/imagen: identifica titulo, secciones (recuadros), campos (etiqueta + caja) y TABLAS (encabezados de
   columna). Una fila de casillas marcables sugiere columnas select ""X"" o toggles. Respeta el orden visual.
 - HTML: llega como TEXTO con el marcado. Deduce la estructura del formulario del HTML: <section>/<fieldset>/
@@ -195,7 +213,8 @@ LECTURA DEL ARCHIVO SUBIDO.
 
 ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 1. describe_components (una vez) para el catalogo exacto de tipos/capacidades.
-2. Si habra lookups: list_data_containers / list_tercero_fields.
+2. Si habra listas/lookups o formulas VLOOKUP: list_data_containers + describe_data_container (esquema); si el
+   Excel trae la hoja de catalogo/tarifa y no existe el contenedor, create_data_container + add_container_rows.
 3. create_form (codigo + titulo).
 4. Por cada seccion: PRIMERO propon SOLO add_container(Section) y confirmalo. NO adivines el id del
    contenedor nuevo: tras confirmar, el sistema te devuelve el contenedor con su id real (o usa get_form

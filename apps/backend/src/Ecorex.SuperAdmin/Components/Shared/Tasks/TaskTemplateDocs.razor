@@ -1,0 +1,348 @@
+@* Panel embebido en la pestana Documentos de una tarea (ola 2 de plantillas de documento):
+   "Redactar desde plantilla" -> resuelve tokens de la tarea -> editor -> guarda como Documento
+   versionado en el Gestor Documental (Origen=Tarea). NO envia correos: solo redacta y versiona; la
+   tarea muestra la version vigente (o la que el usuario active). El editor es TinyMCE (interop
+   ecorex-doc-editor.js). Solo ASCII. *@
+@using Ecorex.Application.PlantillasDocumento
+@inject ITaskDocumentComposerService Composer
+@inject IJSRuntime JS
+
+<div class="ttd">
+    <div class="ttd-head">
+        <div class="ttd-title">Documentos desde plantilla</div>
+        @if (_templates.Count > 0)
+        {
+            <button class="btn btn-sm btn-primary" @onclick="OpenPicker">+ Redactar desde plantilla</button>
+        }
+    </div>
+
+    @if (_templates.Count == 0)
+    {
+        <p class="ttd-hint">Este concepto no ofrece grupos de plantillas de documento. Asignalos en el concepto (000270) &rarr; seccion "Plantillas de documento", o crealos en <a href="/plantillas-documentos" target="_blank">Plantillas de documento</a>.</p>
+    }
+
+    @if (_loading)
+    {
+        <p class="ttd-hint">Cargando documentos...</p>
+    }
+    else if (_docs.Count == 0)
+    {
+        <p class="ttd-hint">Aun no hay documentos generados desde plantilla para esta tarea.</p>
+    }
+    else
+    {
+        <div class="ttd-list">
+            @foreach (var d in _docs)
+            {
+                var dd = d;
+                <div class="ttd-row">
+                    <div class="ttd-main">
+                        <div class="ttd-name">@dd.Titulo <span class="ttd-ver">v@dd.NumeroVersiones</span></div>
+                        <div class="ttd-sub">Actualizado @dd.ActualizadoAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                    </div>
+                    <div class="ttd-actions">
+                        @if (!string.IsNullOrEmpty(dd.UrlActual))
+                        {
+                            <button class="btn btn-xs btn-outline-secondary" @onclick="() => VerAsync(dd.UrlActual!)">Ver</button>
+                        }
+                        <button class="btn btn-xs btn-outline-secondary" @onclick="() => OpenEditAsync(dd)" disabled="@_busy">Editar</button>
+                        <button class="btn btn-xs btn-outline-secondary" @onclick="() => OpenVersionesAsync(dd)" disabled="@_busy">Versiones (@dd.NumeroVersiones)</button>
+                        <button class="btn btn-xs btn-outline-secondary" @onclick="() => EliminarAsync(dd)" disabled="@_busy">Eliminar</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="text-danger small ttd-err">@_error</div>
+    }
+</div>
+
+@* ===== Modal: elegir plantilla ===== *@
+@if (_pickerOpen)
+{
+    <div class="modal-overlay" @onclick="() => _pickerOpen = false">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Elegir plantilla</h3>
+                <button class="modal-close" @onclick="() => _pickerOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                @foreach (var grp in _templates.GroupBy(t => t.GroupName))
+                {
+                    <div class="ttd-pick-group">@grp.Key</div>
+                    @foreach (var t in grp)
+                    {
+                        var tt = t;
+                        <button class="ttd-pick" @onclick="() => PickTemplateAsync(tt)" disabled="@_busy">@tt.Name</button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: editor del documento ===== *@
+@if (_editorOpen)
+{
+    <div class="modal-overlay" @onclick="CloseEditorAsync">
+        <div class="modal-dialog ttd-editor-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingDocId is null ? "Nuevo documento" : "Nueva version")</h3>
+                <button class="modal-close" @onclick="CloseEditorAsync">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Titulo *</label>
+                    <input class="form-control" @bind="_editorTitulo" maxlength="200" disabled="@(_editingDocId is not null)" />
+                </div>
+                @if (_editingDocId is not null)
+                {
+                    <div class="field">
+                        <label class="form-label">Notas del cambio (opcional)</label>
+                        <input class="form-control" @bind="_editorNotas" maxlength="1000" placeholder="Ej. Ajuste de valores" />
+                    </div>
+                }
+                <label class="form-label">Contenido del documento</label>
+                <textarea id="@EditorId" class="form-control">@_editorHtml</textarea>
+                @if (_modalError is not null)
+                {
+                    <div class="text-danger small">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseEditorAsync">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveEditorAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: versiones ===== *@
+@if (_versionesOpen)
+{
+    <div class="modal-overlay" @onclick="() => _versionesOpen = false">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Versiones &middot; @_versionesTitulo</h3>
+                <button class="modal-close" @onclick="() => _versionesOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ttd-vlist">
+                    @foreach (var v in _versiones)
+                    {
+                        var vv = v;
+                        <div class="ttd-vrow">
+                            <div class="ttd-vmain">
+                                <div class="ttd-vnum">
+                                    v@vv.Numero
+                                    @if (vv.EsActual)
+                                    {
+                                        <span class="ttd-badge">Vigente</span>
+                                    }
+                                </div>
+                                <div class="ttd-vsub">@vv.CreadoAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")@(string.IsNullOrWhiteSpace(vv.NotasCambio) ? "" : " - " + vv.NotasCambio)</div>
+                            </div>
+                            <div class="ttd-vactions">
+                                <button class="btn btn-xs btn-outline-secondary" @onclick="() => VerAsync(vv.Url)">Ver</button>
+                                @if (!vv.EsActual)
+                                {
+                                    <button class="btn btn-xs btn-outline-secondary" @onclick="() => ActivarAsync(vv)" disabled="@_busy">Activar</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid TaskId { get; set; }
+    [Parameter] public Guid? SubcategoriaId { get; set; }
+
+    private const string EditorId = "tt-doc-editor";
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+
+    private IReadOnlyList<TaskDocTemplateDto> _templates = Array.Empty<TaskDocTemplateDto>();
+    private List<TaskDocumentoDto> _docs = new();
+
+    // Editor
+    private bool _editorOpen;
+    private bool _editorNeedsInit;
+    private Guid? _editingDocId;
+    private string _editorTitulo = "";
+    private string _editorHtml = "";
+    private string _editorNotas = "";
+    private string? _modalError;
+    private IJSObjectReference? _editor;
+
+    // Picker + versiones
+    private bool _pickerOpen;
+    private bool _versionesOpen;
+    private string _versionesTitulo = "";
+    private Guid _versionesDocId;
+    private List<TaskDocumentoVersionDto> _versiones = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _templates = await Composer.ListPlantillasAsync(TaskId);
+        await ReloadDocsAsync();
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_editorNeedsInit && _editorOpen)
+        {
+            _editorNeedsInit = false;
+            _editor ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
+            await _editor.InvokeAsync<bool>("init", EditorId, _editorHtml);
+        }
+    }
+
+    private async Task ReloadDocsAsync() => _docs = (await Composer.ListDocumentosAsync(TaskId)).ToList();
+
+    private async Task VerAsync(string url) => await JS.InvokeVoidAsync("open", url, "_blank");
+
+    // ---- Redactar (nuevo) ----
+    private void OpenPicker()
+    {
+        _error = null;
+        _pickerOpen = true;
+    }
+
+    private async Task PickTemplateAsync(TaskDocTemplateDto t)
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var res = await Composer.RenderPlantillaAsync(TaskId, t.Id);
+            if (!res.IsOk) { _error = res.Error; _pickerOpen = false; return; }
+            _editingDocId = null;
+            _editorTitulo = t.Name;
+            _editorNotas = "";
+            _editorHtml = res.Value ?? "";
+            _pickerOpen = false;
+            _editorOpen = true;
+            _editorNeedsInit = true;
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Editar (nueva version) ----
+    private async Task OpenEditAsync(TaskDocumentoDto d)
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var res = await Composer.GetVersionHtmlAsync(d.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            _editingDocId = d.Id;
+            _editorTitulo = d.Titulo;
+            _editorNotas = "";
+            _editorHtml = res.Value ?? "";
+            _editorOpen = true;
+            _editorNeedsInit = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveEditorAsync()
+    {
+        _modalError = null;
+        if (_editingDocId is null && string.IsNullOrWhiteSpace(_editorTitulo))
+        {
+            _modalError = "El titulo es obligatorio.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var html = _editor is not null
+                ? await _editor.InvokeAsync<string>("getContent", EditorId)
+                : _editorHtml;
+
+            if (_editingDocId is Guid docId)
+            {
+                var res = await Composer.GuardarNuevaVersionAsync(docId, html, string.IsNullOrWhiteSpace(_editorNotas) ? null : _editorNotas.Trim());
+                if (!res.IsOk) { _modalError = res.Error; return; }
+            }
+            else
+            {
+                var res = await Composer.GuardarNuevoAsync(TaskId, _editorTitulo.Trim(), html);
+                if (!res.IsOk) { _modalError = res.Error; return; }
+            }
+            await DestroyEditorAsync();
+            _editorOpen = false;
+            await ReloadDocsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CloseEditorAsync()
+    {
+        await DestroyEditorAsync();
+        _editorOpen = false;
+    }
+
+    private async Task DestroyEditorAsync()
+    {
+        if (_editor is not null)
+        {
+            try { await _editor.InvokeVoidAsync("destroy", EditorId); }
+            catch { /* el circuito puede estar cerrandose */ }
+        }
+    }
+
+    // ---- Versiones ----
+    private async Task OpenVersionesAsync(TaskDocumentoDto d)
+    {
+        _busy = true;
+        try
+        {
+            _versionesDocId = d.Id;
+            _versionesTitulo = d.Titulo;
+            _versiones = (await Composer.ListVersionesAsync(d.Id)).ToList();
+            _versionesOpen = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ActivarAsync(TaskDocumentoVersionDto v)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Composer.ActivarVersionAsync(_versionesDocId, v.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            _versiones = (await Composer.ListVersionesAsync(_versionesDocId)).ToList();
+            await ReloadDocsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task EliminarAsync(TaskDocumentoDto d)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar el documento \"{d.Titulo}\"?")) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Composer.EliminarAsync(d.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            await ReloadDocsAsync();
+        }
+        finally { _busy = false; }
+    }
+}

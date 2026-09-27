@@ -921,6 +921,10 @@
                 @if (_modalTab == "documentos")
                 {
                     <div class="tk-tabpane">
+                        @* Ola 2 plantillas de documento: redactar/versionar documentos de la tarea desde plantillas
+                           del concepto (Gestor Documental, Origen=Tarea). Separado de los adjuntos de abajo. *@
+                        <TaskTemplateDocs TaskId="_detail.Item.Id" SubcategoriaId="_detail.Item.SubcategoriaId" />
+
                         <div class="tk-doc-toolbar">
                             <div class="tk-doc-modes">
                                 <button type="button" class="tk-doc-mode @(_docMode == "galeria" ? "active" : "")" @onclick='@(() => _docMode = "galeria")' title="Galeria">

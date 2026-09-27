@@ -59,7 +59,9 @@ public enum TipoEventoDocumento
     Archivado,
     Reactivado,
     /// <summary>Soft-delete: el documento queda inactivo, el archivo NO se borra.</summary>
-    EliminacionLogica
+    EliminacionLogica,
+    /// <summary>Se fijo como vigente una version ya existente (activar version).</summary>
+    CambioVersionActiva
 }
 
 /// <summary>Como se consumio el documento. Alimenta las estadisticas de uso.</summary>

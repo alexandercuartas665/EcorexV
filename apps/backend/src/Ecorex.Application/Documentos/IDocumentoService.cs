@@ -66,6 +66,10 @@ public interface IDocumentoService
     /// <summary>Agrega una version y mueve el puntero de la vigente. Las anteriores se conservan.</summary>
     Task<DocumentoResult> SubirNuevaVersionAsync(Guid documentoId, NuevaVersionRequest req, CancellationToken ct = default);
 
+    /// <summary>Fija como vigente una version YA EXISTENTE del documento (activar version): mueve el
+    /// puntero <c>VersionActualId</c> a esa version sin crear una nueva. Las demas se conservan.</summary>
+    Task<DocumentoResult> ActivarVersionAsync(Guid documentoId, Guid versionId, CancellationToken ct = default);
+
     Task<DocumentoResult> ActualizarMetadatosAsync(Guid id, ActualizarMetadatosRequest req, CancellationToken ct = default);
 
     /// <summary>Transiciones soportadas: Borrador -> Vigente y Vigente -> Archivado (y su reactivacion).</summary>

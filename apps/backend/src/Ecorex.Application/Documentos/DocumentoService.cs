@@ -567,6 +567,30 @@ public sealed class DocumentoService : IDocumentoService
         }
     }
 
+    public async Task<DocumentoResult> ActivarVersionAsync(
+        Guid documentoId, Guid versionId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return DocumentoResult.Fail("No hay tenant activo."); }
+
+        var doc = await _db.Documentos.FirstOrDefaultAsync(d => d.Id == documentoId && d.Activo, ct);
+        if (doc is null) { return DocumentoResult.Fail("El documento no existe."); }
+
+        var version = await _db.DocumentoVersiones.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.Id == versionId && v.DocumentoId == documentoId, ct);
+        if (version is null) { return DocumentoResult.Fail("La version no pertenece al documento."); }
+        if (doc.VersionActualId == versionId) { return DocumentoResult.Ok(versionId); }
+
+        var anterior = doc.NumeroVersiones;
+        doc.VersionActualId = version.Id;
+        doc.NombreArchivoOriginal = version.NombreArchivo;
+        // NumeroVersiones es el contador de cuantas versiones existen (no el numero de la vigente),
+        // asi que NO se toca al activar una version previa: no se crea ninguna version nueva.
+        Auditar(documentoId, tenantId, TipoEventoDocumento.CambioVersionActiva,
+            JsonSerializer.Serialize(new { versionAnterior = anterior, versionVigente = version.Numero }));
+        await _db.SaveChangesAsync(ct);
+        return DocumentoResult.Ok(version.Id);
+    }
+
     public async Task<DocumentoResult> ActualizarMetadatosAsync(
         Guid id, ActualizarMetadatosRequest req, CancellationToken ct = default)
     {

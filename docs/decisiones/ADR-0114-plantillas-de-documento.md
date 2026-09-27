@@ -59,12 +59,16 @@ grupos).
 prod tiene salida a internet. Se puede vendorizar a `wwwroot/lib/` mas adelante si se requiere
 offline (como bpmn-js/echarts). El editor **no** tiene accion de envio de correo.
 
-### Ola 2 (siguiente)
+### Ola 2 (implementada, v0.16.153)
 
-Puente tarea<->Gestor Documental: desde el modulo de documentos de la tarea, "Agregar desde
-plantilla" -> elegir grupo/plantilla habilitada por el concepto -> resolver tokens con
-`INotifyTokenResolver` -> abrir editor -> guardar como `Documento` versionado
-(`OrigenDocumento.Tarea`). Activar version = fijar `VersionActualId`. Sin envio de correo.
+Puente tarea<->Gestor Documental: en la pestana Documentos de la tarea, "Redactar desde plantilla"
+-> elegir plantilla habilitada por el concepto -> resolver tokens con `INotifyTokenResolver` -> editor
+-> guardar como `Documento` versionado (`OrigenDocumento.Tarea`, `OrigenEntidadId = taskId`). El
+documento se guarda como HTML (text/html) para ser re-editable (una version nueva parte del HTML de la
+vigente). Activar version = `IDocumentoService.ActivarVersionAsync` (mueve `VersionActualId` a una
+version ya existente, sin crear otra). Sin envio de correo. Servicio `ITaskDocumentComposerService`;
+UI en el componente aislado `TaskTemplateDocs.razor` embebido en `TaskDetailModal`. Categoria destino
+"Documentos de tareas" (creada on-demand).
 
 ### Ola 3 (opcional)
 

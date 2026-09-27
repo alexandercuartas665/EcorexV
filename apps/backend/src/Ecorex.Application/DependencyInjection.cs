@@ -236,6 +236,9 @@ public static class DependencyInjection
         // Plantillas de documento (000270): catalogo de grupos + plantillas HTML con tokens que
         // alimenta el editor de documentos de una tarea y el picker de plantillas del concepto.
         services.AddScoped<PlantillasDocumento.IDocumentTemplateService, PlantillasDocumento.DocumentTemplateService>();
+        // Puente tarea<->Gestor Documental (ola 2): redactar un documento de la tarea desde una plantilla
+        // habilitada por su concepto, resolver tokens y guardarlo versionado (Origen=Tarea, sin correo).
+        services.AddScoped<PlantillasDocumento.ITaskDocumentComposerService, PlantillasDocumento.TaskDocumentComposerService>();
         // Motor de programaciones (modulo 000889 "Programar actividad"): CRUD de programaciones
         // (cabecera + reglas + canales). El worker de disparo + bitacora llega en P2.
         services.AddScoped<Scheduling.IScheduledJobService, Scheduling.ScheduledJobService>();

@@ -1,0 +1,32 @@
+.ttd { margin-bottom: 16px; }
+.ttd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.ttd-title { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.ttd-hint { font-size: 12.5px; color: var(--ink-3); margin: 6px 0; }
+.ttd-err { margin-top: 8px; }
+
+.ttd-list { display: flex; flex-direction: column; gap: 8px; }
+.ttd-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ttd-main { flex: 1; min-width: 0; }
+.ttd-name { font-size: 13.5px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.ttd-ver { font-size: 10px; font-weight: 700; color: var(--ink-3); background: var(--t-slate-bg); padding: 1px 7px; border-radius: 999px; }
+.ttd-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.ttd-actions { display: flex; gap: 6px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+
+.btn-xs { font-size: 11px; padding: 2px 8px; line-height: 1.5; border-radius: 8px; }
+
+/* Picker */
+.ttd-pick-group { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 12px 0 6px; }
+.ttd-pick { display: block; width: 100%; text-align: left; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+.ttd-pick:hover { border-color: var(--brand, #6d28d9); color: var(--brand, #6d28d9); }
+
+/* Editor */
+.ttd-editor-dialog { max-width: 900px; width: 94vw; }
+
+/* Versiones */
+.ttd-vlist { display: flex; flex-direction: column; gap: 8px; }
+.ttd-vrow { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2, rgba(0,0,0,.02)); }
+.ttd-vmain { flex: 1; min-width: 0; }
+.ttd-vnum { font-size: 13px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.ttd-vsub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.ttd-vactions { display: flex; gap: 6px; flex: none; }
+.ttd-badge { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--t-green-bg); color: var(--t-green); }

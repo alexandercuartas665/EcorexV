@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-27 - v0.16.153: Plantillas de documento - Ola 2 (puente tarea<->Gestor Documental) (ADR-0114)
+
+- Puente: en la pestana Documentos de una tarea, "Redactar desde plantilla" -> elige una plantilla habilitada
+  por el concepto -> resuelve los tokens con INotifyTokenResolver.BuildAsync(tarea) -> editor TinyMCE -> guarda
+  como Documento VERSIONADO en el Gestor Documental (Origen=Tarea, OrigenEntidadId=taskId). NO envia correos.
+- Servicio ITaskDocumentComposerService (ListPlantillas/RenderPlantilla/ListDocumentos/ListVersiones/
+  GetVersionHtml/GuardarNuevo/GuardarNuevaVersion/ActivarVersion/Eliminar) + DTOs + DI. Guarda el documento
+  como HTML (text/html) para que sea re-editable (una version nueva parte del HTML de la vigente). Ensure de
+  categoria "Documentos de tareas" en el Gestor.
+- IDocumentoService.ActivarVersionAsync nuevo: fija como vigente una version YA existente (mueve VersionActualId
+  sin crear otra) + evento de auditoria CambioVersionActiva. Reusa SubirDocumentoAsync/SubirNuevaVersionAsync.
+- UI: componente aislado TaskTemplateDocs.razor embebido en la pestana Documentos de TaskDetailModal (no infla
+  el modal de 3575 lineas): lista de documentos con Ver/Editar(nueva version)/Versiones(activar)/Eliminar +
+  editor + picker de plantilla. Reusa el interop ecorex-doc-editor.js (sin paleta: el texto ya viene resuelto).
+- Build verde; NO desplegado (pido OK). Siguiente: Ola 3 = tokens {tercero.*}/{directorio.*} (enlazar TaskItem<->Tercero).
+
 ## 2026-09-27 - v0.16.152: Plantillas de documento - Ola 1 (config + editor + binding al concepto) (ADR-0114)
 
 - Feature nueva (pedido del usuario, proyecto hermano PQRSD): crear documentos en una tarea a partir de plantillas

@@ -3077,6 +3077,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(gen.Id, "Roles y permisos", "roles-permisos", "000198");
         // Contenedor de datos (modelos dinamicos + importacion): pagina real /contenedor-datos.
         Item(gen.Id, "Contenedor de datos", "contenedor-datos", "000920");
+        // Plantillas de documento (grupos + plantillas HTML con tokens) que alimentan el editor de
+        // documentos de una tarea (Gestor Documental) y el picker del concepto (000270). Backfill
+        // idempotente para BD ya sembradas: EnsurePlantillasDocumentoMenuItemAsync.
+        Item(gen.Id, "Plantillas de documento", "plantillas-documentos");
 
         // ---- Seccion: Sistema - Desarrollo (slug dev) ----
         var dev = Add(MenuNodeKind.Section, "Sistema \u00b7 Desarrollo", null, "dev", iconKey: "gear");
@@ -3205,6 +3209,49 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 IconKey = null,
                 LegacyCode = null,
                 Route = "config-voz",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxSort + 1
+            });
+            added = true;
+        }
+
+        if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Plantillas de documento" (ruta plantillas-documentos) bajo la
+    /// seccion Sistema - General en los menus YA sembrados (feature plantillas de documento, ola 1). Corre en
+    /// cada arranque; no duplica. Los menus NUEVOS ya lo traen via <see cref="EnsureDefaultMenuAsync"/>.
+    /// </summary>
+    public async Task EnsurePlantillasDocumentoMenuItemAsync(CancellationToken cancellationToken = default)
+    {
+        var genSections = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Section && n.Route == "gen")
+            .ToListAsync(cancellationToken);
+
+        var added = false;
+        foreach (var gen in genSections)
+        {
+            var exists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == gen.MenuViewId && n.Route == "plantillas-documentos", cancellationToken);
+            if (exists) { continue; }
+
+            var maxSort = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.ParentId == gen.Id)
+                .Select(n => (int?)n.SortOrder)
+                .MaxAsync(cancellationToken) ?? gen.SortOrder;
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = gen.TenantId,
+                MenuViewId = gen.MenuViewId,
+                ParentId = gen.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Plantillas de documento",
+                IconKey = null,
+                LegacyCode = null,
+                Route = "plantillas-documentos",
                 State = MenuNodeState.Ready,
                 IsVisible = true,
                 SortOrder = maxSort + 1

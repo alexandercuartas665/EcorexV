@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-27 - v0.16.152: Plantillas de documento - Ola 1 (config + editor + binding al concepto) (ADR-0114)
+
+- Feature nueva (pedido del usuario, proyecto hermano PQRSD): crear documentos en una tarea a partir de plantillas
+  precargadas. Plan en 3 olas; esta sesion = Ola 1 (columna vertebral). El editor YA NO envia correos: solo redacta
+  y (Ola 2) versiona el documento en el Gestor Documental. Reuso: motor de tokens INotifyTokenResolver, patron M:N
+  por concepto (Tercero/Sede), pagina modelo PlantillasCorreo.razor, Gestor Documental para el versionado (Ola 2).
+- Backend: entidades DocumentTemplateGroup / DocumentTemplate / ActividadSubcategoriaPlantillaGrupo (TENANT-SCOPED);
+  config EF dual + migracion AddDocumentTemplates (PG y SQL Server); IDocumentTemplateService (CRUD grupos+plantillas
+  + catalogo de tokens) + DTOs + DI; DbSets en IApplicationDbContext.
+- UI: pagina /plantillas-documentos (grupos como tarjetas + plantillas + editor TinyMCE 7 GPL via CDN jsDelivr,
+  interop ecorex-doc-editor.js, paleta de tokens). Binding en Conceptos.razor (seccion 10 "Plantillas de documento":
+  el concepto elige uno o varios grupos) + ActividadCatalogoService (Sync/Include/ToDto/combos).
+- Menu: item "Plantillas de documento" bajo Sistema - General en EnsureDefaultMenuAsync (tenants nuevos) + backfill
+  idempotente EnsurePlantillasDocumentoMenuItemAsync (BD ya sembradas), cableado en Program.cs (prod y dev).
+- Decision TinyMCE: CDN (no vendorizado ~30MB en repo publico); prod tiene internet. Vendorizable luego si se
+  requiere offline. ADR-0114. NO desplegado (pido OK).
+- Siguiente: Ola 2 = puente tarea<->Gestor Documental (agregar desde plantilla, resolver tokens, guardar versionado,
+  activar version, sin correo). Ola 3 opcional = tokens {directorio.*}/{tercero.*} (requiere enlazar TaskItem<->Tercero).
+
 ## 2026-09-26 - v0.16.151: compuerta con enlaces de decision del cliente ESPERA sin asignacion humana (ADR-0113)
 
 - Analisis (pedido del usuario): la compuerta "Gestion del agente" es una NOTIFICACION donde decide el CLIENTE por

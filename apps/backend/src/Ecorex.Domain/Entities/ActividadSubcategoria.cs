@@ -80,4 +80,8 @@ public class ActividadSubcategoria : TenantEntity
     /// aplica el concepto. Vacio = aplica a TODAS. Alimenta el selector "Empresa/Area" del alta de
     /// actividades.</summary>
     public ICollection<ActividadSubcategoriaSede> Sedes { get; set; } = new List<ActividadSubcategoriaSede>();
+
+    /// <summary>Grupos de plantillas de documento que la tarea puede usar al redactar un documento
+    /// (pueden ser varios). Vacio = el concepto no ofrece plantillas de documento.</summary>
+    public ICollection<ActividadSubcategoriaPlantillaGrupo> PlantillaGrupos { get; set; } = new List<ActividadSubcategoriaPlantillaGrupo>();
 }

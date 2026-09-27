@@ -1,0 +1,46 @@
+.pd-eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
+
+.pd-layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; margin-top: 14px; align-items: start; }
+
+/* ---- Grupos (columna izquierda) ---- */
+.pd-groups { display: flex; flex-direction: column; gap: 8px; }
+.pd-gcard { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 12px 14px; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.pd-gcard:hover { border-color: var(--brand, #6d28d9); }
+.pd-gcard.sel { border-color: var(--brand, #6d28d9); box-shadow: 0 0 0 2px var(--brand-bg, rgba(109,40,217,.12)); }
+.pd-gcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pd-gname { font-size: 14px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pd-gcount { font-size: 11px; font-weight: 700; color: var(--ink-3); flex: none; }
+.pd-gdesc { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+.pd-gactions { display: flex; gap: 6px; margin-top: 10px; }
+
+/* ---- Plantillas (columna derecha) ---- */
+.pd-templates { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 14px 16px; min-height: 220px; }
+.pd-empty { color: var(--ink-3); font-size: 13px; padding: 40px 0; text-align: center; }
+.pd-thead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.pd-ttitle { font-size: 16px; font-weight: 700; color: var(--ink); margin: 0; }
+.pd-tlist { display: flex; flex-direction: column; gap: 8px; }
+.pd-trow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.02)); }
+.pd-tmain { flex: 1; min-width: 0; }
+.pd-tname { font-size: 13.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.pd-tactions { display: flex; gap: 6px; flex: none; }
+
+.pd-badge { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 1px 8px; border-radius: 999px; background: var(--t-slate-bg); color: var(--t-slate); }
+
+.btn-xs { font-size: 11px; padding: 2px 8px; line-height: 1.5; border-radius: 8px; }
+
+/* ---- Editor de plantilla ---- */
+.pd-editor-dialog { max-width: 980px; width: 96vw; }
+.pd-editor-grid { display: grid; grid-template-columns: 1fr 220px; gap: 14px; margin-top: 10px; align-items: start; }
+.pd-editor-main { min-width: 0; }
+.pd-tokens { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--surface-2, rgba(0,0,0,.02)); max-height: 520px; overflow: auto; }
+.pd-tokens-lbl { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--ink-3); text-transform: uppercase; }
+.pd-tokens-help { font-size: 11px; color: var(--ink-3); margin: 4px 0 8px; }
+.pd-token-group { font-size: 10.5px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin: 10px 0 4px; }
+.pd-token { display: block; width: 100%; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; margin-bottom: 4px; cursor: pointer; }
+.pd-token:hover { border-color: var(--brand, #6d28d9); color: var(--brand, #6d28d9); }
+
+@media (max-width: 860px) {
+    .pd-layout { grid-template-columns: 1fr; }
+    .pd-editor-grid { grid-template-columns: 1fr; }
+    .pd-tokens { max-height: none; }
+}

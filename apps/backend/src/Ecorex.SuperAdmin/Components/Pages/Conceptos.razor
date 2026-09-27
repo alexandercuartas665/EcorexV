@@ -588,6 +588,46 @@
                     </div>
                 </div>
 
+                @* -- 10. Plantillas de documento -- *@
+                <div class="cn-acc @(_acc10 ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _acc10 = !_acc10)">
+                        <div class="cn-acc-title">Plantillas de documento <span class="cn-chip">@_mPlantillaGrupoIds.Count</span></div>
+                        <span>@(_acc10 ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <p class="cn-hint">Grupos de plantillas que la tarea de este concepto podra usar al redactar un documento (pueden ser varios). Vacio = el concepto no ofrece plantillas de documento.</p>
+                        <div class="cn-chip-list">
+                            @foreach (var id in _mPlantillaGrupoIds)
+                            {
+                                <span class="cn-chip removable">@PlantillaGrupoLabel(id)
+                                    <button class="cn-chip-x" @onclick="@(() => _mPlantillaGrupoIds.Remove(id))">&times;</button>
+                                </span>
+                            }
+                            @if (_mPlantillaGrupoIds.Count == 0)
+                            {
+                                <span class="cn-chip dashed">Sin plantillas de documento</span>
+                            }
+                        </div>
+                        @if (_combos.PlantillaGrupos.Count == 0)
+                        {
+                            <p class="cn-hint">No hay grupos de plantillas todavia. Crealos en <a href="/plantillas-documentos">Plantillas de documento</a>.</p>
+                        }
+                        else
+                        {
+                            <div class="cn-field cn-field-add">
+                                <label>Agregar grupo</label>
+                                <select value="" @onchange="AddPlantillaGrupo">
+                                    <option value="">-- Selecciona un grupo --</option>
+                                    @foreach (var g in _combos.PlantillaGrupos.Where(g => !_mPlantillaGrupoIds.Contains(g.Id)))
+                                    {
+                                        <option value="@g.Id">@g.Nombre (@g.PlantillasActivas)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                </div>
+
                 <div class="cn-modal-foot">
                     @if (_mId is not null)
                     {
@@ -658,7 +698,7 @@
     private List<ActividadCategoriaDto> _cats = new();
     private List<ActividadSubcategoriaDto> _subs = new();
     private ActividadKpisDto _kpis = new(0, 0, 0, 0);
-    private ActividadComboOptionsDto _combos = new([], [], [], [], [], [], []);
+    private ActividadComboOptionsDto _combos = new([], [], [], [], [], [], [], []);
 
     private Guid? _selectedCatId;
     private string _catSearch = "";
@@ -687,9 +727,10 @@
     private readonly List<Guid> _mTerceroIds = new();
     private readonly List<Guid> _mNotifUserIds = new();
     private readonly List<Guid> _mSedeIds = new();
+    private readonly List<Guid> _mPlantillaGrupoIds = new();
     private string? _mError;
     private bool _confirmDelete;
-    private bool _acc1 = true, _acc2 = true, _acc3, _acc4, _acc5, _acc6, _acc7, _acc8, _acc9;
+    private bool _acc1 = true, _acc2 = true, _acc3, _acc4, _acc5, _acc6, _acc7, _acc8, _acc9, _acc10;
 
     // Mini modal categoria
     private bool _catModalOpen;
@@ -801,11 +842,12 @@
         _mError = null;
         _confirmDelete = false;
         _mFirstNodeFormId = null;
-        _acc1 = true; _acc2 = true; _acc3 = false; _acc4 = false; _acc5 = false; _acc6 = false; _acc7 = false; _acc8 = false; _acc9 = false;
+        _acc1 = true; _acc2 = true; _acc3 = false; _acc4 = false; _acc5 = false; _acc6 = false; _acc7 = false; _acc8 = false; _acc9 = false; _acc10 = false;
         _mCargoIds.Clear();
         _mTerceroIds.Clear();
         _mNotifUserIds.Clear();
         _mSedeIds.Clear();
+        _mPlantillaGrupoIds.Clear();
         if (sub is null)
         {
             _mId = null;
@@ -843,6 +885,7 @@
             _mTerceroIds.AddRange(sub.TerceroIds);
             _mNotifUserIds.AddRange(sub.NotificacionUserIds);
             _mSedeIds.AddRange(sub.SedeEntidadIds);
+            _mPlantillaGrupoIds.AddRange(sub.PlantillaGrupoIds);
         }
         _mOpen = true;
 
@@ -909,8 +952,19 @@
         }
     }
 
+    private void AddPlantillaGrupo(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var g) && !_mPlantillaGrupoIds.Contains(g))
+        {
+            _mPlantillaGrupoIds.Add(g);
+        }
+    }
+
     private string SedeLabel(Guid id)
         => _combos.Sedes.FirstOrDefault(s => s.Id == id)?.Nombre ?? "(entidad)";
+
+    private string PlantillaGrupoLabel(Guid id)
+        => _combos.PlantillaGrupos.FirstOrDefault(g => g.Id == id)?.Nombre ?? "(grupo)";
 
     private async Task SaveSubAsync()
     {
@@ -946,7 +1000,8 @@
                 _mCargoIds.ToList(),
                 _mTerceroIds.ToList(),
                 _mSedeIds.ToList(),
-                _mNotifUserIds.ToList());
+                _mNotifUserIds.ToList(),
+                _mPlantillaGrupoIds.ToList());
 
             var result = _mId is Guid id
                 ? await Svc.UpdateSubcategoriaAsync(id, request)

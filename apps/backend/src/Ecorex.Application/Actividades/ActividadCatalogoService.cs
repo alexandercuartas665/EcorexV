@@ -151,6 +151,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
             .Include(s => s.Sedes)
+            .Include(s => s.PlantillaGrupos)
             .AsQueryable();
         if (categoriaId is Guid cid) { query = query.Where(s => s.CategoriaId == cid); }
         if (!includeArchived) { query = query.Where(s => !s.IsArchived); }
@@ -169,6 +170,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
             .Include(s => s.Sedes)
+            .Include(s => s.PlantillaGrupos)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         return entity is null ? null : ToDto(entity);
     }
@@ -210,6 +212,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
         SyncSedes(entity, request.SedeEntidadIds, tenantId);
+        SyncPlantillaGrupos(entity, request.PlantillaGrupoIds, tenantId);
         // Coherencia: cada concepto tiene su tablero. Si no se eligio uno, se crea y enlaza.
         await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
@@ -233,6 +236,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
             .Include(s => s.Sedes)
+            .Include(s => s.PlantillaGrupos)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -259,6 +263,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
         SyncSedes(entity, request.SedeEntidadIds, tenantId);
+        SyncPlantillaGrupos(entity, request.PlantillaGrupoIds, tenantId);
         // Coherencia: si tras editar el concepto queda sin tablero, se le crea y enlaza uno dedicado.
         await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
@@ -276,6 +281,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
             .Include(s => s.Sedes)
+            .Include(s => s.PlantillaGrupos)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -288,6 +294,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         _db.ActividadSubcategoriaTerceros.RemoveRange(entity.Terceros);
         _db.ActividadSubcategoriaNotificaciones.RemoveRange(entity.Notificaciones);
         _db.ActividadSubcategoriaSedes.RemoveRange(entity.Sedes);
+        _db.ActividadSubcategoriaPlantillaGrupos.RemoveRange(entity.PlantillaGrupos);
         _db.ActividadSubcategorias.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return TaskCoreResult<bool>.Ok(true);
@@ -369,7 +376,16 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Select(e => new SedeOptionDto(e.Id, e.Codigo, e.Nombre))
             .ToListAsync(cancellationToken);
 
-        return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros, usuarios, sedes);
+        // Grupos de plantillas de documento (activos) para el picker "Plantillas de documento".
+        var plantillaGrupos = await _db.DocumentTemplateGroups.AsNoTracking()
+            .Where(g => g.IsActive)
+            .OrderBy(g => g.SortOrder).ThenBy(g => g.Name)
+            .Select(g => new PlantillaGrupoOptionDto(
+                g.Id, g.Name, g.Templates.Count(t => t.IsActive)))
+            .ToListAsync(cancellationToken);
+
+        return new ActividadComboOptionsDto(
+            workflows, forms, boards, cargos, terceros, usuarios, sedes, plantillaGrupos);
     }
 
     public async Task<IReadOnlyList<Guid>> ListEncargadoUserIdsAsync(
@@ -619,6 +635,22 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         }
     }
 
+    private void SyncPlantillaGrupos(ActividadSubcategoria entity, IReadOnlyList<Guid>? grupoIds, Guid tenantId)
+    {
+        _db.ActividadSubcategoriaPlantillaGrupos.RemoveRange(entity.PlantillaGrupos);
+        entity.PlantillaGrupos.Clear();
+        if (grupoIds is null) { return; }
+        foreach (var id in grupoIds.Distinct())
+        {
+            _db.ActividadSubcategoriaPlantillaGrupos.Add(new ActividadSubcategoriaPlantillaGrupo
+            {
+                TenantId = tenantId,
+                SubcategoriaId = entity.Id,
+                GroupId = id
+            });
+        }
+    }
+
     private async Task<string?> ValidateSubcategoriaAsync(
         SaveSubcategoriaRequest request, CancellationToken cancellationToken)
     {
@@ -686,7 +718,8 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         s.Cargos.Select(c => c.OrgUnitId).ToList(),
         s.Terceros.Select(t => t.TerceroId).ToList(),
         s.Sedes.Select(x => x.EntidadId).ToList(),
-        s.Notificaciones.Select(n => n.TenantUserId).ToList());
+        s.Notificaciones.Select(n => n.TenantUserId).ToList(),
+        s.PlantillaGrupos.Select(g => g.GroupId).ToList());
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

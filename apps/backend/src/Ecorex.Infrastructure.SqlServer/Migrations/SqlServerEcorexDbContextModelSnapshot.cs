@@ -366,6 +366,57 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("actividad_subcategoria_notificaciones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaPlantillaGrupo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid>("SubcategoriaId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("subcategoria_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_actividad_subcategoria_plantilla_grupos");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_actividad_subcategoria_plantilla_grupos_group_id");
+
+                    b.HasIndex("SubcategoriaId", "GroupId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_actividad_subcategoria_plantilla_grupos_subcategoria_id_group_id");
+
+                    b.HasIndex("TenantId", "GroupId")
+                        .HasDatabaseName("ix_actividad_subcategoria_plantilla_grupos_tenant_id_group_id");
+
+                    b.ToTable("actividad_subcategoria_plantilla_grupos", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaSede", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3614,6 +3665,127 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_directorio_categoria_secciones_tenant_id_categoria_key_orden");
 
                     b.ToTable("directorio_categoria_secciones", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("HtmlContent")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("html_content");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_document_templates");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_document_templates_group_id");
+
+                    b.HasIndex("TenantId", "GroupId", "SortOrder")
+                        .HasDatabaseName("ix_document_templates_tenant_id_group_id_sort_order");
+
+                    b.ToTable("document_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentTemplateGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_document_template_groups");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_document_template_groups_tenant_id_name");
+
+                    b.HasIndex("TenantId", "IsActive", "SortOrder")
+                        .HasDatabaseName("ix_document_template_groups_tenant_id_is_active_sort_order");
+
+                    b.ToTable("document_template_groups", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Documento", b =>
@@ -16074,6 +16246,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaPlantillaGrupo", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.DocumentTemplateGroup", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_actividad_subcategoria_plantilla_grupos_document_template_groups_group_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
+                        .WithMany("PlantillaGrupos")
+                        .HasForeignKey("SubcategoriaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_actividad_subcategoria_plantilla_grupos_actividad_subcategorias_subcategoria_id");
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Subcategoria");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaSede", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Entidad", "Entidad")
@@ -16500,6 +16693,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Relation");
 
                     b.Navigation("ToRow");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentTemplate", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.DocumentTemplateGroup", "Group")
+                        .WithMany("Templates")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_document_templates_document_template_groups_group_id");
+
+                    b.Navigation("Group");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Documento", b =>
@@ -18232,6 +18437,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.Navigation("Notificaciones");
 
+                    b.Navigation("PlantillaGrupos");
+
                     b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
@@ -18262,6 +18469,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.DataModel", b =>
                 {
                     b.Navigation("Tables");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentTemplateGroup", b =>
+                {
+                    b.Navigation("Templates");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Documento", b =>

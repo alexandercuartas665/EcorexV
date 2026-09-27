@@ -324,6 +324,8 @@ if (!app.Environment.IsDevelopment())
         //    bajo Infraestructura IA.
         await seeder.EnsureAgentesColmenaMenuItemAsync();
         await seeder.EnsureVozMenuItemAsync();
+        //  - "Plantillas de documento" (feature plantillas de documento, ola 1) bajo Sistema - General.
+        await seeder.EnsurePlantillasDocumentoMenuItemAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
         // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
         await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
@@ -479,6 +481,8 @@ else
     await seeder.EnsureAgentesColmenaMenuItemAsync();
     // Backfill idempotente (voz IA, ADR-0056): item "Configuracion de voz" bajo Infraestructura IA.
     await seeder.EnsureVozMenuItemAsync();
+    // Backfill idempotente (plantillas de documento, ola 1): item "Plantillas de documento" bajo Sistema - General.
+    await seeder.EnsurePlantillasDocumentoMenuItemAsync();
     // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.
     await seeder.RemovePlantillasMenuItemAsync();
     // Plantillas de arranque del marketplace (ADR-0097): igual que en prod, corre tras ambas ramas
@@ -981,8 +985,12 @@ if (app.Environment.IsDevelopment())
                 sw.Stop();
                 payload = new
                 {
-                    count, done, failed, ms = sw.ElapsedMilliseconds,
-                    perItemMs = Math.Round(sw.ElapsedMilliseconds / (double)Math.Max(1, done), 2), stamp
+                    count,
+                    done,
+                    failed,
+                    ms = sw.ElapsedMilliseconds,
+                    perItemMs = Math.Round(sw.ElapsedMilliseconds / (double)Math.Max(1, done), 2),
+                    stamp
                 };
             }
             return Results.Ok(payload);

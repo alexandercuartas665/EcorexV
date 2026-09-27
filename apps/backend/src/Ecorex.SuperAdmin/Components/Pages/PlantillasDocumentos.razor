@@ -1,0 +1,432 @@
+@page "/plantillas-documentos"
+@attribute [Authorize]
+@* Administrador de PLANTILLAS DE DOCUMENTO (configuracion). Grupos (categorias) como tarjetas +
+   sus plantillas (HTML con tokens {ns.clave}). El editor es TinyMCE (GPL, CDN, interop
+   ecorex-doc-editor.js) con paleta de tokens de la tarea/contacto/sistema/formulario. Las plantillas
+   alimentan el editor de documentos de una tarea (Gestor Documental) y el picker de plantillas del
+   concepto (000270). Este editor NO envia correos: solo redacta y versiona el documento. Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.PlantillasDocumento
+@using Ecorex.Application.Tenancy
+@inject IDocumentTemplateService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Plantillas de documento - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Plantillas de documento</span>
+</nav>
+
+<div class="page-header">
+    <div>
+        <div class="pd-eyebrow">CONFIGURACION &#183; DOCUMENTOS</div>
+        <h1 class="page-title" style="margin-top:6px;">Plantillas de documento</h1>
+        <p class="page-sub" style="margin-bottom:0;">Crea grupos y plantillas HTML con tokens del contexto de la tarea (<b>{tarea.contacto}</b>, <b>{tarea.numero}</b>, <b>{sistema.fecha}</b>...). Los grupos se asignan a un concepto (000270) para usarlos al redactar el documento de una tarea.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenNewGroup">+ Nuevo grupo</button>
+</div>
+
+@if (_loading)
+{
+    <p class="text-muted">Cargando plantillas...</p>
+}
+else
+{
+    <div class="pd-layout">
+        @* ---- Columna izquierda: grupos ---- *@
+        <aside class="pd-groups">
+            @if (_groups.Count == 0)
+            {
+                <p class="text-muted">Aun no hay grupos. Usa "+ Nuevo grupo" para crear el primero.</p>
+            }
+            @foreach (var g in _groups)
+            {
+                var gg = g;
+                <div class="pd-gcard @(gg.Id == _selectedGroupId ? "sel" : "")" @onclick="() => SelectGroup(gg.Id)">
+                    <div class="pd-gcard-top">
+                        <div class="pd-gname">
+                            @gg.Name
+                            @if (!gg.IsActive)
+                            {
+                                <span class="pd-badge pd-off">Inactivo</span>
+                            }
+                        </div>
+                        <div class="pd-gcount">@gg.TemplatesActivas / @gg.TemplatesTotales</div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(gg.Description))
+                    {
+                        <div class="pd-gdesc">@gg.Description</div>
+                    }
+                    <div class="pd-gactions">
+                        <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenEditGroup(gg)">Editar</button>
+                        <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => ToggleGroupAsync(gg)" disabled="@_busy">@(gg.IsActive ? "Desactivar" : "Activar")</button>
+                        <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => DeleteGroupAsync(gg)" disabled="@_busy">Eliminar</button>
+                    </div>
+                </div>
+            }
+        </aside>
+
+        @* ---- Columna derecha: plantillas del grupo seleccionado ---- *@
+        <section class="pd-templates">
+            @if (_selectedGroup is null)
+            {
+                <div class="pd-empty">Selecciona un grupo para ver sus plantillas.</div>
+            }
+            else
+            {
+                <div class="pd-thead">
+                    <h2 class="pd-ttitle">@_selectedGroup.Name</h2>
+                    <button class="btn btn-primary btn-sm" @onclick="OpenNewTemplate">+ Nueva plantilla</button>
+                </div>
+                @if (_templates.Count == 0)
+                {
+                    <p class="text-muted">Este grupo aun no tiene plantillas.</p>
+                }
+                <div class="pd-tlist">
+                    @foreach (var t in _templates)
+                    {
+                        var tt = t;
+                        <div class="pd-trow">
+                            <div class="pd-tmain">
+                                <div class="pd-tname">
+                                    @tt.Name
+                                    @if (!tt.IsActive)
+                                    {
+                                        <span class="pd-badge pd-off">Inactiva</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="pd-tactions">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEditTemplate(tt)">Editar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleTemplateAsync(tt)" disabled="@_busy">@(tt.IsActive ? "Desactivar" : "Activar")</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteTemplateAsync(tt)" disabled="@_busy">Eliminar</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="text-danger small" style="margin-top:10px">@_error</div>
+}
+
+@* ===== Modal: grupo ===== *@
+@if (_groupOpen)
+{
+    <div class="modal-overlay" @onclick="() => _groupOpen = false">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingGroupId is null ? "Nuevo grupo" : "Editar grupo")</h3>
+                <button class="modal-close" @onclick="() => _groupOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_gName" maxlength="150" placeholder="Ej. Cartas de cobro" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="3" @bind="_gDesc" maxlength="500" placeholder="Opcional"></textarea>
+                </div>
+                @if (_modalError is not null)
+                {
+                    <div class="text-danger small">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _groupOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveGroupAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: plantilla (editor TinyMCE) ===== *@
+@if (_tplOpen)
+{
+    <div class="modal-overlay" @onclick="CloseTemplateModal">
+        <div class="modal-dialog pd-editor-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingTplId is null ? "Nueva plantilla" : "Editar plantilla")</h3>
+                <button class="modal-close" @onclick="CloseTemplateModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_tName" maxlength="200" placeholder="Ej. Carta de cobro estandar" />
+                </div>
+                <div class="pd-editor-grid">
+                    <div class="pd-editor-main">
+                        <label class="form-label">Contenido del documento</label>
+                        <textarea id="@EditorId" class="form-control">@_tHtml</textarea>
+                    </div>
+                    <div class="pd-tokens">
+                        <div class="pd-tokens-lbl">TOKENS</div>
+                        <p class="pd-tokens-help">Clic para insertar en el cursor.</p>
+                        @foreach (var grp in _tokens.GroupBy(x => x.Grupo))
+                        {
+                            <div class="pd-token-group">@grp.Key</div>
+                            @foreach (var tk in grp)
+                            {
+                                var tok = tk;
+                                <button type="button" class="pd-token" title="@tok.Descripcion" @onclick="() => InsertTokenAsync(tok.Token)">@tok.Token</button>
+                            }
+                        }
+                    </div>
+                </div>
+                @if (_modalError is not null)
+                {
+                    <div class="text-danger small">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseTemplateModal">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveTemplateAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string EditorId = "pd-doc-editor";
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+
+    private List<DocumentTemplateGroupDto> _groups = new();
+    private Guid? _selectedGroupId;
+    private DocumentTemplateGroupDto? _selectedGroup;
+    private List<DocumentTemplateDto> _templates = new();
+    private IReadOnlyList<PlantillaTokenDto> _tokens = Array.Empty<PlantillaTokenDto>();
+
+    // Modal grupo
+    private bool _groupOpen;
+    private Guid? _editingGroupId;
+    private string _gName = "";
+    private string _gDesc = "";
+
+    // Modal plantilla
+    private bool _tplOpen;
+    private Guid? _editingTplId;
+    private string _tName = "";
+    private string _tHtml = "";
+    private bool _editorNeedsInit;
+
+    private string? _modalError;
+    private IJSObjectReference? _editor;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tokens = Svc.GetTokenCatalog();
+        await ReloadGroupsAsync();
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_editorNeedsInit && _tplOpen)
+        {
+            _editorNeedsInit = false;
+            _editor ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
+            await _editor.InvokeAsync<bool>("init", EditorId, _tHtml);
+        }
+    }
+
+    private async Task ReloadGroupsAsync()
+    {
+        _groups = (await Svc.ListGroupsAsync()).ToList();
+        if (_selectedGroupId is Guid gid && _groups.All(g => g.Id != gid))
+        {
+            _selectedGroupId = null;
+        }
+        _selectedGroupId ??= _groups.FirstOrDefault()?.Id;
+        await ReloadTemplatesAsync();
+    }
+
+    private async Task ReloadTemplatesAsync()
+    {
+        _selectedGroup = _groups.FirstOrDefault(g => g.Id == _selectedGroupId);
+        _templates = _selectedGroupId is Guid gid
+            ? (await Svc.ListTemplatesAsync(gid)).ToList()
+            : new();
+    }
+
+    private async Task SelectGroup(Guid id)
+    {
+        _selectedGroupId = id;
+        await ReloadTemplatesAsync();
+    }
+
+    // ---- Grupos ----
+
+    private void OpenNewGroup()
+    {
+        _modalError = null;
+        _editingGroupId = null;
+        _gName = "";
+        _gDesc = "";
+        _groupOpen = true;
+    }
+
+    private void OpenEditGroup(DocumentTemplateGroupDto g)
+    {
+        _modalError = null;
+        _editingGroupId = g.Id;
+        _gName = g.Name;
+        _gDesc = g.Description ?? "";
+        _groupOpen = true;
+    }
+
+    private async Task SaveGroupAsync()
+    {
+        _modalError = null;
+        if (string.IsNullOrWhiteSpace(_gName)) { _modalError = "El nombre es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            var req = new SaveDocumentTemplateGroupRequest(_gName.Trim(), _gDesc);
+            var res = _editingGroupId is Guid id
+                ? await Svc.UpdateGroupAsync(id, req)
+                : await Svc.CreateGroupAsync(req);
+            if (!res.IsOk) { _modalError = res.Error; return; }
+            _selectedGroupId = res.Value!.Id;
+            _groupOpen = false;
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleGroupAsync(DocumentTemplateGroupDto g)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Svc.SetGroupActiveAsync(g.Id, !g.IsActive);
+            if (!res.IsOk) { _error = res.Error; return; }
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteGroupAsync(DocumentTemplateGroupDto g)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar el grupo \"{g.Name}\" y sus plantillas?")) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeleteGroupAsync(g.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            if (_selectedGroupId == g.Id) { _selectedGroupId = null; }
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Plantillas ----
+
+    private void OpenNewTemplate()
+    {
+        if (_selectedGroupId is null) { return; }
+        _modalError = null;
+        _editingTplId = null;
+        _tName = "";
+        _tHtml = "";
+        _tplOpen = true;
+        _editorNeedsInit = true;
+    }
+
+    private void OpenEditTemplate(DocumentTemplateDto t)
+    {
+        _modalError = null;
+        _editingTplId = t.Id;
+        _tName = t.Name;
+        _tHtml = t.HtmlContent;
+        _tplOpen = true;
+        _editorNeedsInit = true;
+    }
+
+    private async Task InsertTokenAsync(string token)
+    {
+        if (_editor is not null)
+        {
+            await _editor.InvokeVoidAsync("insertToken", EditorId, token);
+        }
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        _modalError = null;
+        if (string.IsNullOrWhiteSpace(_tName)) { _modalError = "El nombre es obligatorio."; return; }
+        if (_selectedGroupId is not Guid gid) { _modalError = "Selecciona un grupo."; return; }
+        _busy = true;
+        try
+        {
+            var html = _editor is not null
+                ? await _editor.InvokeAsync<string>("getContent", EditorId)
+                : _tHtml;
+            var req = new SaveDocumentTemplateRequest(gid, _tName.Trim(), html);
+            var res = _editingTplId is Guid id
+                ? await Svc.UpdateTemplateAsync(id, req)
+                : await Svc.CreateTemplateAsync(req);
+            if (!res.IsOk) { _modalError = res.Error; return; }
+            await DestroyEditorAsync();
+            _tplOpen = false;
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleTemplateAsync(DocumentTemplateDto t)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Svc.SetTemplateActiveAsync(t.Id, !t.IsActive);
+            if (!res.IsOk) { _error = res.Error; return; }
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteTemplateAsync(DocumentTemplateDto t)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar la plantilla \"{t.Name}\"?")) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeleteTemplateAsync(t.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CloseTemplateModal()
+    {
+        await DestroyEditorAsync();
+        _tplOpen = false;
+    }
+
+    private async Task DestroyEditorAsync()
+    {
+        if (_editor is not null)
+        {
+            try { await _editor.InvokeVoidAsync("destroy", EditorId); }
+            catch { /* el circuito puede estar cerrandose */ }
+        }
+    }
+}

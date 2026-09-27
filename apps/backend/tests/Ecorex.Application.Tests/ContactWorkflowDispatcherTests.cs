@@ -188,6 +188,9 @@ public class ContactWorkflowDispatcherTests
         public DbSet<TerceroFormLink> TerceroFormLinks => NotUsed<TerceroFormLink>();
         public DbSet<TenantConfiguration> TenantConfigurations => NotUsed<TenantConfiguration>();
         public DbSet<ConceptoActividad> ConceptosActividad => NotUsed<ConceptoActividad>();
+        public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => NotUsed<ActividadSubcategoriaPlantillaGrupo>();
+        public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => NotUsed<DocumentTemplateGroup>();
+        public DbSet<DocumentTemplate> DocumentTemplates => NotUsed<DocumentTemplate>();
         public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => NotUsed<TenantEvolutionConfig>();
         public DbSet<PipelineStage> PipelineStages => NotUsed<PipelineStage>();
         public DbSet<PipelineFieldDefinition> PipelineFieldDefinitions => NotUsed<PipelineFieldDefinition>();

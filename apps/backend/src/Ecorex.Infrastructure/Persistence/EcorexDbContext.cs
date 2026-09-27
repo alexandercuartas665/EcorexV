@@ -287,6 +287,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
     public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => Set<ActividadSubcategoriaNotificacion>();
     public DbSet<ActividadSubcategoriaSede> ActividadSubcategoriaSedes => Set<ActividadSubcategoriaSede>();
+    public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => Set<ActividadSubcategoriaPlantillaGrupo>();
+
+    // Plantillas de documento (HTML rico con tokens) agrupadas por categoria: catalogo de configuracion
+    // que alimenta el editor de documentos de una tarea (Gestor Documental).
+    public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => Set<DocumentTemplateGroup>();
+    public DbSet<DocumentTemplate> DocumentTemplates => Set<DocumentTemplate>();
 
     // Motor de programaciones (modulo 000889 "Programar actividad"): "cron de negocio" gobernado.
     // Cabecera + reglas de recurrencia 1:N + canales N + bitacora de ejecucion (KPIs/idempotencia).
@@ -2417,6 +2423,37 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.EntidadId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.SubcategoriaId, x.EntidadId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.EntidadId });
+        });
+
+        // ---- Plantillas de documento (catalogo de configuracion) ----
+
+        modelBuilder.Entity<DocumentTemplateGroup>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(500);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<DocumentTemplate>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.HtmlContent).HasColumnType(longTextColumnType);
+            // Vive y muere con su grupo (Cascade).
+            b.HasOne(x => x.Group).WithMany(x => x.Templates)
+                .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.GroupId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoriaPlantillaGrupo>(b =>
+        {
+            // Vive y muere con la subcategoria (Cascade). La FK al grupo es NO ACTION.
+            b.HasOne(x => x.Subcategoria).WithMany(x => x.PlantillaGrupos)
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Group).WithMany()
+                .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.SubcategoriaId, x.GroupId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.GroupId });
         });
 
         // ---- Gestor de Clientes (000740): bolsa, oportunidades, citas, filtros, prospectos ----

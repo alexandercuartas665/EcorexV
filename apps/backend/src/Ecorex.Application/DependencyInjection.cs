@@ -233,6 +233,9 @@ public static class DependencyInjection
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();
+        // Plantillas de documento (000270): catalogo de grupos + plantillas HTML con tokens que
+        // alimenta el editor de documentos de una tarea y el picker de plantillas del concepto.
+        services.AddScoped<PlantillasDocumento.IDocumentTemplateService, PlantillasDocumento.DocumentTemplateService>();
         // Motor de programaciones (modulo 000889 "Programar actividad"): CRUD de programaciones
         // (cabecera + reglas + canales). El worker de disparo + bitacora llega en P2.
         services.AddScoped<Scheduling.IScheduledJobService, Scheduling.ScheduledJobService>();

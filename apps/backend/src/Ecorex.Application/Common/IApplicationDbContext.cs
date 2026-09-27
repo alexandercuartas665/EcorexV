@@ -277,6 +277,12 @@ public interface IApplicationDbContext
     DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros { get; }
     DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones { get; }
     DbSet<ActividadSubcategoriaSede> ActividadSubcategoriaSedes { get; }
+    DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos { get; }
+
+    /// <summary>Plantillas de documento (HTML con tokens) agrupadas por categoria: catalogo de
+    /// configuracion que alimenta el editor de documentos de una tarea (Gestor Documental).</summary>
+    DbSet<DocumentTemplateGroup> DocumentTemplateGroups { get; }
+    DbSet<DocumentTemplate> DocumentTemplates { get; }
 
     /// <summary>Conceptos de actividad del CRM (000125): catalogo propio del gestor de contactos.</summary>
     DbSet<ConceptoActividad> ConceptosActividad { get; }

@@ -36,7 +36,8 @@ public sealed record ActividadSubcategoriaDto(
     IReadOnlyList<Guid> CargoIds,
     IReadOnlyList<Guid> TerceroIds,
     IReadOnlyList<Guid> SedeEntidadIds,
-    IReadOnlyList<Guid> NotificacionUserIds)
+    IReadOnlyList<Guid> NotificacionUserIds,
+    IReadOnlyList<Guid> PlantillaGrupoIds)
 {
     /// <summary>Numero de items de la lista de chequeo (separados por ';').</summary>
     public int ChequeoCount => string.IsNullOrWhiteSpace(Chequeo)
@@ -69,7 +70,8 @@ public sealed record SaveSubcategoriaRequest(
     IReadOnlyList<Guid>? CargoIds = null,
     IReadOnlyList<Guid>? TerceroIds = null,
     IReadOnlyList<Guid>? SedeEntidadIds = null,
-    IReadOnlyList<Guid>? NotificacionUserIds = null);
+    IReadOnlyList<Guid>? NotificacionUserIds = null,
+    IReadOnlyList<Guid>? PlantillaGrupoIds = null);
 
 /// <summary>KPIs de cabecera del modulo (como el prototipo).</summary>
 public sealed record ActividadKpisDto(
@@ -89,6 +91,8 @@ public sealed record TerceroOptionDto(Guid Id, string Nombre);
 public sealed record UsuarioOptionDto(Guid Id, string Nombre);
 /// <summary>Entidad (agencia/area/sucursal de "Configuracion de la entidad") para el picker de sedes.</summary>
 public sealed record SedeOptionDto(Guid Id, string Codigo, string Nombre);
+/// <summary>Grupo de plantillas de documento (000270) para el picker "Plantillas de documento" del concepto.</summary>
+public sealed record PlantillaGrupoOptionDto(Guid Id, string Nombre, int PlantillasActivas);
 
 /// <summary>Todas las opciones de los combos del editor, cargadas de una sola vez.</summary>
 public sealed record ActividadComboOptionsDto(
@@ -98,4 +102,5 @@ public sealed record ActividadComboOptionsDto(
     IReadOnlyList<CargoOptionDto> Cargos,
     IReadOnlyList<TerceroOptionDto> Terceros,
     IReadOnlyList<UsuarioOptionDto> Usuarios,
-    IReadOnlyList<SedeOptionDto> Sedes);
+    IReadOnlyList<SedeOptionDto> Sedes,
+    IReadOnlyList<PlantillaGrupoOptionDto> PlantillaGrupos);

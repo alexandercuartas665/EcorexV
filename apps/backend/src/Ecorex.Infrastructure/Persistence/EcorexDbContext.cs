@@ -1298,8 +1298,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.Entidad).WithMany()
                 .HasForeignKey(x => x.EntidadId).OnDelete(DeleteBehavior.Restrict);
+            // Ola 3 (plantillas de documento): tercero (cliente del Directorio) elegido en el wizard,
+            // para tokens {tercero.*}/{directorio.*}. Nullable, FK Restrict (NO ACTION en ambos motores).
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.SubcategoriaId });
             b.HasIndex(x => new { x.TenantId, x.EntidadId });
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             // Proyectos P3: enlace opcional a un hito del proyecto. Restrict (NO ACTION en ambos motores).
             b.HasOne(x => x.Milestone).WithMany()

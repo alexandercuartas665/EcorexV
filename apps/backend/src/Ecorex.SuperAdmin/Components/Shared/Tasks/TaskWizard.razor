@@ -1278,6 +1278,9 @@
             TagIds: tagIds.Count == 0 ? null : tagIds,
             SubcategoriaId: _subcategoriaId,
             EntidadId: _entidadId,
+            // Ola 3 plantillas de documento: persiste el tercero elegido en el lookup para tokens
+            // {tercero.*}/{directorio.*} al redactar documentos desde plantilla.
+            TerceroId: _requesterTerceroId,
             MilestoneId: _milestoneId,
             BoardId: _presetBoardId,
             ColumnId: _presetColumnId);

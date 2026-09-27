@@ -233,6 +233,7 @@ public sealed class TaskItemService : ITaskItemService
             ActivityTypeId = request.ActivityTypeId,
             SubcategoriaId = request.SubcategoriaId,
             EntidadId = request.EntidadId,
+            TerceroId = request.TerceroId,
             Priority = request.Priority,
             // Estado inicial: Pending; Active si nace asignada.
             Status = request.AssigneeTenantUserId is null ? TaskItemStatus.Pending : TaskItemStatus.Active,

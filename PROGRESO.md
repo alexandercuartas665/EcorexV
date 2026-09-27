@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-27 - v0.16.154: Plantillas de documento - Ola 3 (tokens {tercero.*}/{directorio.*}) (ADR-0114)
+
+- Enlace TaskItem<->Tercero: nueva columna TaskItem.TerceroId (FK Restrict, nullable) + migracion dual
+  AddTaskItemTercero. El wizard YA capturaba el tercero del lookup (_requesterTerceroId) pero se perdia por no
+  tener columna; ahora se persiste via CreateTaskItemRequest.TerceroId (los 14 llamadores usan args nombrados,
+  la insercion del parametro opcional no rompe).
+- NotifyTokenResolver.BuildAsync: si la tarea tiene TerceroId, carga el Tercero y expone {tercero.*} + alias
+  {directorio.*}: columnas (nombre/ciudad/identificacion/nit/documento/email/telefono/sector/cargo/tipo) y los
+  campos de las FICHAS dinamicas (jsonb) aplanados con NormalizeKey (sin tildes, minuscula) -> p.ej.
+  {directorio.direccion}. Los de columna ganan (TryAdd). Sin TerceroId -> tokens vacios (sin regresion).
+- Paleta del editor: se agregan los tokens Tercero/Directorio en el catalogo.
+- Cierra la feature plantillas de documento (olas 1-3). NO desplegado (pido OK).
+
 ## 2026-09-27 - v0.16.153: Plantillas de documento - Ola 2 (puente tarea<->Gestor Documental) (ADR-0114)
 
 - Puente: en la pestana Documentos de una tarea, "Redactar desde plantilla" -> elige una plantilla habilitada

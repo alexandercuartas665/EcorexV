@@ -70,10 +70,16 @@ version ya existente, sin crear otra). Sin envio de correo. Servicio `ITaskDocum
 UI en el componente aislado `TaskTemplateDocs.razor` embebido en `TaskDetailModal`. Categoria destino
 "Documentos de tareas" (creada on-demand).
 
-### Ola 3 (opcional)
+### Ola 3 (implementada, v0.16.154)
 
-Tokens `{directorio.*}`/`{tercero.*}`. Hoy `TaskItem` guarda datos denormalizados del contacto
-(no hay FK a `Tercero`); estos tokens requieren enlazar la tarea con el tercero.
+Tokens `{tercero.*}` y su alias `{directorio.*}`. Se agrega `TaskItem.TerceroId` (FK Restrict, nullable):
+el wizard ya capturaba el tercero elegido en el lookup (`_requesterTerceroId`) pero se perdia por no
+tener columna; ahora se persiste (`CreateTaskItemRequest.TerceroId`). `NotifyTokenResolver.BuildAsync`,
+cuando la tarea tiene `TerceroId`, carga el `Tercero` y expone sus columnas (`nombre`, `ciudad`,
+`identificacion`/`nit`/`documento`, `email`, `telefono`, `sector`, `cargo`, `tipo`) y los campos de las
+fichas dinamicas (jsonb) aplanados: `{directorio.<campo>}`/`{tercero.<campo>}`, p.ej.
+`{directorio.direccion}`. Migracion dual `AddTaskItemTercero`. Los tokens nuevos se agregan a la paleta
+del editor. Tareas sin tercero enlazado -> tokens vacios (sin regresion).
 
 ## Consecuencias
 

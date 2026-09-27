@@ -310,5 +310,13 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         new("{sistema.hora}", "Hora actual", "Sistema"),
         new("{sistema.fechahora}", "Fecha y hora actual", "Sistema"),
         new("{form.CODIGO}", "Respuesta del formulario por codigo de campo", "Formulario"),
+        // Tercero del Directorio enlazado a la tarea (si se eligio del lookup al crearla). {directorio.*}
+        // es alias de {tercero.*}; ademas admite campos de las fichas, p.ej. {directorio.direccion}.
+        new("{tercero.nombre}", "Nombre/razon social del tercero", "Tercero / Directorio"),
+        new("{tercero.identificacion}", "Identificacion (NIT/cedula) del tercero", "Tercero / Directorio"),
+        new("{tercero.email}", "Correo del tercero", "Tercero / Directorio"),
+        new("{tercero.telefono}", "Telefono del tercero", "Tercero / Directorio"),
+        new("{tercero.ciudad}", "Ciudad del tercero", "Tercero / Directorio"),
+        new("{directorio.direccion}", "Direccion (campo de ficha del Directorio)", "Tercero / Directorio"),
     };
 }

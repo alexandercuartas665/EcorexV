@@ -75,6 +75,9 @@ public sealed record CreateTaskItemRequest(
     // uno de ActivityTypeId o SubcategoriaId. Con SubcategoriaId y sin BoardId, el tablero/
     // columna se derivan del concepto.
     Guid? SubcategoriaId = null, Guid? EntidadId = null,
+    // Plantillas de documento Ola 3: tercero (cliente del Directorio) elegido en el lookup del wizard.
+    // Enlaza la tarea con su registro del directorio para tokens {tercero.*}/{directorio.*}. Opcional.
+    Guid? TerceroId = null,
     // Proyectos P3: hito (debe pertenecer al ProjectId indicado).
     Guid? MilestoneId = null,
     // Subtareas: tarea padre (la subtarea hereda tablero/columna/tenant del padre).

@@ -41,6 +41,15 @@ public class TaskItem : TenantEntity, IVersioned
     public Guid? EntidadId { get; set; }
     public Entidad? Entidad { get; set; }
 
+    /// <summary>
+    /// Tercero (Directorio General, 000232) elegido como cliente/solicitante al crear la tarea desde el
+    /// lookup del wizard. Enlaza la tarea con su registro del directorio para resolver tokens ricos
+    /// ({tercero.*} / {directorio.*}) al redactar documentos desde plantilla (ADR-0114 Ola 3). Nullable:
+    /// las tareas con solicitante de texto libre o legacy quedan en null. FK Restrict (NO ACTION).
+    /// </summary>
+    public Guid? TerceroId { get; set; }
+    public Tercero? Tercero { get; set; }
+
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
 
     public TaskItemStatus Status { get; set; } = TaskItemStatus.Pending;

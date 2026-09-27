@@ -12309,6 +12309,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<Guid?>("TerceroId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tercero_id");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -12365,6 +12369,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("SubcategoriaId")
                         .HasDatabaseName("ix_task_items_subcategoria_id");
 
+                    b.HasIndex("TerceroId")
+                        .HasDatabaseName("ix_task_items_tercero_id");
+
                     b.HasIndex("WorkflowInstanceId")
                         .HasDatabaseName("ix_task_items_workflow_instance_id");
 
@@ -12392,6 +12399,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "SubcategoriaId")
                         .HasDatabaseName("ix_task_items_tenant_id_subcategoria_id");
+
+                    b.HasIndex("TenantId", "TerceroId")
+                        .HasDatabaseName("ix_task_items_tenant_id_tercero_id");
 
                     b.HasIndex("TenantId", "AssigneeTenantUserId", "Status")
                         .HasDatabaseName("ix_task_items_tenant_id_assignee_tenant_user_id_status");
@@ -17877,6 +17887,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_actividad_subcategorias_subcategoria_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
+                        .WithMany()
+                        .HasForeignKey("TerceroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_terceros_tercero_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WorkflowInstance", "WorkflowInstance")
                         .WithMany()
                         .HasForeignKey("WorkflowInstanceId")
@@ -17902,6 +17918,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("SourceTask");
 
                     b.Navigation("Subcategoria");
+
+                    b.Navigation("Tercero");
 
                     b.Navigation("WorkflowInstance");
                 });

@@ -61,6 +61,41 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
         Put("documento", task.RequesterDocument);
         Put("nit", task.RequesterDocument);
 
+        // Tercero del Directorio (000232) enlazado a la tarea: tokens {tercero.*} y alias {directorio.*}
+        // (ADR-0114 Ola 3). Columnas + campos dinamicos de las fichas (jsonb) -> p.ej. {directorio.direccion}.
+        if (task.TerceroId is Guid terceroId)
+        {
+            var tercero = await _db.Terceros.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == terceroId, cancellationToken);
+            if (tercero is not null)
+            {
+                void PutTercero(string key, string? value)
+                {
+                    var norm = NormalizeKey(key);
+                    if (norm.Length == 0) { return; }
+                    var v = value ?? string.Empty;
+                    map.TryAdd("tercero." + norm, v);
+                    map.TryAdd("directorio." + norm, v);
+                }
+                PutTercero("nombre", tercero.Nombre);
+                PutTercero("razonsocial", tercero.Nombre);
+                PutTercero("ciudad", tercero.Ciudad);
+                PutTercero("email", tercero.Email);
+                PutTercero("correo", tercero.Email);
+                PutTercero("telefono", tercero.Telefono);
+                PutTercero("celular", tercero.Telefono);
+                PutTercero("sector", tercero.Sector);
+                PutTercero("cargo", tercero.Cargo);
+                PutTercero("tipo", tercero.Tipo.ToString());
+                PutTercero("identificacion", tercero.IdValor);
+                PutTercero("nit", tercero.IdValor);
+                PutTercero("documento", tercero.IdValor);
+                PutTercero("idtipo", tercero.IdTipo.ToString());
+                // Campos de las fichas dinamicas: los de columna ya estan puestos y ganan (TryAdd no pisa).
+                AddFichasTokens(map, tercero.FichasJson);
+            }
+        }
+
         // Datos de los formularios anclados a la tarea (Reference == numero o "numero-n"). Primer valor no
         // vacio por codigo de campo. Se exponen como {form.<codigo>} y, si no colisiona con la tarea, tambien bare.
         var num = task.Number;
@@ -100,6 +135,51 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
             var key = m.Groups[1].Value + "." + m.Groups[2].Value;
             return tokens.TryGetValue(key, out var v) ? v : string.Empty;
         });
+    }
+
+    // Aplana los campos de las fichas dinamicas del tercero (jsonb: ficha -> campo -> valor) y los expone
+    // como {directorio.<campo>} y {tercero.<campo>}. TryAdd: no pisa los tokens de columna ya puestos ni el
+    // primer valor no vacio de un campo repetido entre fichas.
+    private static void AddFichasTokens(IDictionary<string, string> map, string? fichasJson)
+    {
+        if (string.IsNullOrWhiteSpace(fichasJson)) { return; }
+        try
+        {
+            using var doc = JsonDocument.Parse(fichasJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return; }
+            foreach (var ficha in doc.RootElement.EnumerateObject())
+            {
+                if (ficha.Value.ValueKind != JsonValueKind.Object) { continue; }
+                foreach (var campo in ficha.Value.EnumerateObject())
+                {
+                    var value = ReadFieldValue(campo.Value);
+                    if (string.IsNullOrWhiteSpace(value)) { continue; }
+                    var norm = NormalizeKey(campo.Name);
+                    if (norm.Length == 0) { continue; }
+                    map.TryAdd("directorio." + norm, value!);
+                    map.TryAdd("tercero." + norm, value!);
+                }
+            }
+        }
+        catch (JsonException) { /* fichas corruptas: se ignoran */ }
+    }
+
+    // Normaliza una clave a los caracteres que admite el token {ns.clave} ([a-z0-9_]): sin tildes, en
+    // minuscula, espacios/guiones -> '_', el resto se descarta. "Direccion" -> "direccion".
+    private static string NormalizeKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) { return string.Empty; }
+        var normalized = key.Trim().Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder(normalized.Length);
+        foreach (var ch in normalized)
+        {
+            var cat = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (cat == System.Globalization.UnicodeCategory.NonSpacingMark) { continue; }
+            if (ch is ' ' or '-') { sb.Append('_'); }
+            else if (char.IsLetterOrDigit(ch) && ch < 128) { sb.Append(char.ToLowerInvariant(ch)); }
+            else if (ch == '_') { sb.Append('_'); }
+        }
+        return sb.ToString().Trim('_');
     }
 
     // Lee el valor de un campo del Data ({ code: { value, type } }); tolera value string o escalar.

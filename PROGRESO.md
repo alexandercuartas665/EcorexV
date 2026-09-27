@@ -21,6 +21,25 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-27 - form-builder-chat: re-corrida del brief maestro OK + test limite + fix resolve() en arnes
+
+- Re-corrida del brief maestro (verifica los 3 arreglos en vivo): el agente uso set_status_ladder (estado
+  Borrador->Enviada->Aprobada), prellenado numero_tarea con default_value {tareas.numero}, y wire_submit_task_rule
+  (no hay tipos de actividad en SOLDARCO -> declino honesto). Y lo clave: el PREVIEW YA NO SE CAE con value
+  numerico en visible_when / status ladder (el fix aguanta).
+- TEST LIMITE ("medir las pelotas"): brief-tortura de 9 puntos con trampas (Orden de Servicio Tecnico + Excel de
+  tarifas por equipo+ciudad y repuestos). Resultado ~8/9, verificado en BD:
+  OK -> #2 SI({subtotal}>5000000;15;8); #3 recargo SI({prioridad}=='Urgente';...); #4 seccion oculta por toggle
+  (visible_when value:true); #6 NaturalKey (numero = NIT, identity_source_field_code=nit_cliente); #8 precio max
+  con agg=Max; #9 cross-grid (2 rollups + gran_total). Declino HONESTO -> #7 correo automatico (no hay verbo),
+  #8-nombre del maximo (argmax no soportado, solo el valor). Flojo -> #5 ambiguo asumio Texto sin preguntar.
+  BUG real -> #1 VLOOKUP 2 claves a un campo suelto: el agente FABRICO una funcion resolve() dentro de
+  calc_expression, que NO existe en el motor (resolve es COLUMNA de grilla). FIX (arnes): en FORMULAS se aclara
+  que esas son TODAS las funciones (SI/REDONDEAR/MIN/MAX + operadores/comparadores) y que NO hay resolve()/
+  vlookup()/lookup(); un VLOOKUP multi-clave es una columna 'resolve' de una GRILLA (las claves viven en una
+  fila); a nivel de campo suelto no hay soporte -> modelar como grilla o AVISAR, nunca fingirlo con calc. Se
+  corrigio tambien el ""(o campo)"" enganoso del bloque de contenedores. Build Application verde.
+
 ## 2026-09-27 - form-builder-chat: cerrados los 3 huecos guia-vs-agente (prellenado, estados, regla al enviar)
 
 - #21 PRELLENADO desde la tarea: solo faltaba GUIA (no tool). Arnes: para prellenar un campo, default_value con

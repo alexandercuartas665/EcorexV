@@ -21,6 +21,27 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-27 - form-builder-chat: eficiencia de tokens (menos turnos + arnes mas liviano) + review de caching
+
+- CACHING (review): AiProviderClient NO implementa caching explicito (ni cache_control de Anthropic ni
+  cachedContent de Gemini). El agente de formularios va por OpenAiCompatibleWithTools (Gemini ->
+  generativelanguage.../openai/chat/completions). Implicaciones: Gemini 2.5 y OpenAI dan caching IMPLICITO
+  automatico del prefijo repetido (probablemente ya descuenta algo, verificar el modelo); la ruta Claude
+  (ClaudeWithTools) NO agrega cache_control -> si un tenant rutea a Claude paga el prefijo completo cada turno
+  (mejora pendiente: cache_control en system+tools). El prefijo estable medido: arnes ~20k + 44 tools ~24k chars
+  ~= 11-12k tokens por turno.
+- #2 MENOS TURNOS (mayor palanca real, multiplica): se reconcilio una contradiccion del arnes (REGLA DE ORO decia
+  "seccion y campos juntos" pero el paso 4 prohibe mezclar add_container+add_question). Ahora es explicito: turno
+  1 = solo add_container(Section) para el id real; turno 2 = TODOS los campos de la seccion en UN turno (varios
+  add_question juntos); la config de una vez (update_form_header/set_transactional/set_theme) junta en el 1er
+  turno. Un form de 4 secciones ~8-10 turnos, no 30.
+- #3 ARNES MAS LIVIANO (se manda cada turno): se movio el DETALLE de referencia del system prompt a
+  describe_components (que el agente llama una vez): nuevos bloques calc (funciones/percent/rollup/no-resolve),
+  prefill_tokens, status_ladder (formato), submit_task_rule. En el arnes quedaron solo las reglas ANTI-BUG (que
+  ahorran reintentos) + punteros. Se condensaron GRILLAS/FORMULAS/PLANTILLA/CONVERT/prefill/estados/regla. Arnes
+  23.9k -> 19.1k chars (~20%, ~1.2k tokens/turno). Se trimearon las 2 descripciones de tool mas largas
+  (add_question, add_container); los schemas no se tocaron (riesgo). Build Application verde.
+
 ## 2026-09-27 - form-builder-chat: re-corrida del brief maestro OK + test limite + fix resolve() en arnes
 
 - Re-corrida del brief maestro (verifica los 3 arreglos en vivo): el agente uso set_status_ladder (estado

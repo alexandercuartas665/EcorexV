@@ -148,8 +148,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "Actualiza titulo/descripcion del formulario. Requiere 'version' (concurrencia optimista) que entrega get_form.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"version":{"type":"integer"}},"required":["form_id","title","version"],"additionalProperties":false}"""),
         new("add_container",
-            "Agrega un contenedor (seccion/tabla/fila/columna/tabs/modal) al formulario. container_type: Segment,Table,Row,Col,Section,Tabs,Modal. width en la rejilla de 12. " +
-            "visible_when_json: muestra/oculta la seccion segun el valor de otra pregunta {field,op,value}. allowed_cargos_json: restringe el acceso a la seccion a ciertos Cargos/Dependencias (arreglo de ids de list_org_units).",
+            "Agrega un contenedor (seccion/tabla/fila/columna/tabs/modal). container_type: Segment,Table,Row,Col,Section,Tabs,Modal. " +
+            "width en la rejilla de 12. visible_when_json (muestra/oculta por valor de otra pregunta) y allowed_cargos_json " +
+            "(restringe a Cargos/Dependencias, ids de list_org_units).",
             """{"type":"object","properties":{"form_id":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string"},"parent_id":{"type":"string","description":"Contenedor padre (opcional; raiz si se omite)"},"width":{"type":"integer"},"inline_labels":{"type":"boolean"},"style":{"type":"string"},"visible_when_json":{"type":"string","description":"Condicion de visibilidad {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"},"allowed_cargos_json":{"type":"string","description":"Arreglo JSON de ids de OrgUnit (Cargo|Dependencia) de list_org_units; vacio/omitido = sin restriccion"}},"required":["form_id","name"],"additionalProperties":false}"""),
         new("update_container",
             "Actualiza un contenedor por su id (nombre/tipo/ancho/estilo/visibilidad/acceso por cargo).",
@@ -158,10 +159,9 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "Mueve un contenedor a otro padre (o a la raiz con parent_id vacio) en la posicion 'index'.",
             """{"type":"object","properties":{"container_id":{"type":"string"},"parent_id":{"type":"string"},"index":{"type":"integer"}},"required":["container_id","index"],"additionalProperties":false}"""),
         new("add_question",
-            "Agrega una pregunta/campo al formulario. control_type: Text,TextArea,Heading,Select,MultiCheck,Radio,Toggle,Number,Date,Time,DateTime,Literal,Button,GridDetail,Subform,Geografia,Html,Paragraph,Divider,Spacer,... " +
-            "OptionsJson: para Select/Radio/MultiCheck es un arreglo de opciones; para GridDetail es el arreglo de columnas (ver describe_components). " +
-            "Lookup a nivel de campo: source_kind (Options|DataContainer|Tercero|Item)+source_ref+display_field+value_field+filter_json+autofill_map_json+presentation. " +
-            "Calculo: calc_expression + aggregate. Formato de salida: 'format'. field_code debe ser unico en el formulario.",
+            "Agrega una pregunta/campo. control_type, capacidades (options_json de Select/MultiCheck/GridDetail, lookup " +
+            "de campo con source_kind/source_ref/display_field/value_field/autofill_map_json, calc_expression+aggregate, " +
+            "format, default_value con tokens de prellenado) en describe_components. field_code unico en el formulario.",
             """{"type":"object","properties":{"form_id":{"type":"string"},"container_id":{"type":"string","description":"Contenedor destino (opcional; raiz si se omite)"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string","description":"JSON de opciones (Select/Radio/MultiCheck) o de columnas (GridDetail)"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string","description":"Autocomplete|Dropdown|Modal"},"calc_expression":{"type":"string"},"aggregate":{"type":"string","description":"None|Sum|Count|Avg|Min|Max"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string","description":"Muestra/oculta el campo segun otra pregunta {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"}},"required":["form_id","field_code","label","control_type"],"additionalProperties":false}"""),
         new("update_question",
             "Actualiza una pregunta por su id. Mismos campos que add_question (los que omitas vuelven a su valor por defecto del request).",
@@ -383,6 +383,28 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             }
         },
         field_lookup_keys = new[] { "source_kind", "source_ref", "display_field", "value_field", "filter_json", "autofill_map_json", "presentation" },
+        calc = new
+        {
+            note = "Sintaxis del 'calc'/'calc_expression'. Motor NUMERICO. Refs a otro campo/columna SIEMPRE {codigo}; " +
+                "encabezado desde una grilla {#codigo}. NUNCA [x] ni nombre suelto.",
+            functions = new[] { "SI(cond;siSi;siNo)", "REDONDEAR", "REDONDEAR.SUPERIOR", "REDONDEAR.INFERIOR", "MIN", "MAX" },
+            operators = new[] { "+", "-", "*", "/", ">", "<", ">=", "<=", "==", "!=", "()" },
+            no_lookup_function = "NO existe resolve()/vlookup()/buscarv()/lookup() como funcion; un VLOOKUP multi-clave es una COLUMNA type:resolve de una GRILLA, no una formula",
+            percent = "format 'percent' guarda el numero tal cual (5=5). Para aplicar %, divide entre 100: (1 - {dcto}/100)",
+            rollup = "sumar una columna NO es una formula: la columna calc lleva agg=Sum + rollup=<field_code destino>; el campo destino NO debe tener calc_expression (lo pisaria)"
+        },
+        prefill_tokens = new
+        {
+            note = "Para prellenar un campo pon estos tokens en su default_value. Fuera de una tarea quedan vacios.",
+            tarea = new[] { "{tareas.cliente}", "{tareas.contacto}", "{tareas.solicitante}", "{tareas.email}", "{tareas.correo}", "{tareas.telefono}", "{tareas.nit}", "{tareas.documento}", "{tareas.identificacion}", "{tareas.titulo}", "{tareas.numero}", "{tareas.comercial}", "{tareas.responsable}" },
+            sistema = new[] { "{hoy}", "{hoy+N}", "{ahora}", "{numero}" }
+        },
+        status_ladder = new
+        {
+            note = "Escalon de estados via set_status_ladder. Estados de menor a mayor; el primero (when vacio) es el piso; solo AVANZA.",
+            format = "{\"field\":\"<field_code destino>\",\"states\":[{\"label\":\"Inicial\",\"when\":[]},{\"label\":\"Sig\",\"when\":[{\"field\":\"otro\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}]}]}"
+        },
+        submit_task_rule = "Regla al enviar que crea una tarea: wire_submit_task_rule (activity_type_id de list_activity_types; fixed_title=una tarea o table_field_code+title_key=una por fila). Otras acciones on-submit NO estan expuestas.",
         template_markers = new
         {
             field = "{{campo.codigo}}",

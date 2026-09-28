@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.155: refresco en vivo del diagrama de flujo en el detalle de la tarea
+
+- Sintoma (usuario): al decidir el cliente por el link /d/{token}, el nodo del flujo embebido en el detalle de la
+  tarea NO se refrescaba solo (habia que reabrir el modal). Los tableros SI se refrescaban.
+- Diagnostico (sin codear primero): la cadena del servidor ya emite "TaskChanged" via SignalR
+  (Decision.razor -> WorkflowDecisionLinkService.ApplyAsync -> WorkflowEngine.ChooseGatewayRouteAsync ->
+  BroadcastTaskAsync -> ITaskBroadcaster.TaskChangedAsync -> TaskHub). Los tableros lo escuchan (ActivityBoard*,
+  TaskKanban) y recargan. Pero TaskDetailModal abria el hub y hacia JoinTenant pero SOLO registraba "AgentProgress",
+  nunca "TaskChanged" -> el diagrama (_flowDiagram, solo reconstruido en ReloadAsync) quedaba congelado.
+- Fix (1 punto): en InitAgentStreamAsync se agrega el handler _agentHub.On("TaskChanged") que, si el taskId es el
+  de la tarea abierta, llama ReloadAsync(_detail.Item.Id). Reusa la conexion/grupo ya existentes. Cubre tambien el
+  avance por agente IA (tambien emite TaskChanged), que antes solo repintaba el texto "pensando".
+- Archivo: TaskDetailModal.razor. NO desplegado (pido OK).
+
 ## 2026-09-27 - v0.16.154: Plantillas de documento - Ola 3 (tokens {tercero.*}/{directorio.*}) (ADR-0114)
 
 - Enlace TaskItem<->Tercero: nueva columna TaskItem.TerceroId (FK Restrict, nullable) + migracion dual

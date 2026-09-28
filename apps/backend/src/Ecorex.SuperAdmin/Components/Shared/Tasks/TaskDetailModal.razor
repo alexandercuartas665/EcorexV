@@ -2860,6 +2860,15 @@
                     await InvokeAsync(StateHasChanged);
                 }
             });
+            // Refresco en vivo del detalle (incluido el diagrama del flujo) cuando la tarea ABIERTA cambia de
+            // estado en el servidor: p.ej. el cliente decide por el link /d/{token} o el agente avanza un nodo.
+            // Mismo evento "TaskChanged" que ya refresca los tableros; el modal ya esta unido al grupo del tenant
+            // (JoinTenant mas abajo), solo faltaba escucharlo aqui.
+            _agentHub.On<string, string>("TaskChanged", async (taskId, _) =>
+            {
+                if (_detail?.Item.Id.ToString() != taskId) { return; }
+                await InvokeAsync(() => ReloadAsync(_detail.Item.Id));
+            });
             await _agentHub.StartAsync();
             await _agentHub.SendAsync("JoinTenant", tid.ToString());
         }

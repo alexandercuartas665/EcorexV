@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Investigacion: navegador del agente Colmena NO se ve al scrapear (GUI vs Servicio)
+
+- Pedido (sesion de pruebas): (a) badge de lead + (b) scroll a tope configurable en la busqueda de contactos por
+  agente (000740), y (c) investigar por que no se ve la ventana del navegador al scrapear. AJUSTES (a)+(b) YA ESTABAN
+  en el tronco (commit 852d6005): ComputeBadge/ParseMetrica en ContactSearchRunner (Hot/Calificado/Nuevo, mismo rubro
+  y regex pedidos), ExtractScrollRounds=20 + MaxSeconds=300 en los dos AiStepContext, y la frase de scroll en
+  BuildInstruction. No se re-hizo nada; sin rama nueva.
+- Investigacion (c) - ruteo del Navegador (ADR-0039), solo lectura de apps/agent:
+  * El SERVICIO (LocalSystem, headless) es quien se conecta al hub; NO ejecuta navegador: usa DelegatedBrowserSubAgent,
+    que SIN colmena responde "no desktop" (falla) y CON colmena DELEGA por el pipe. No hay navegador headless en el
+    servicio -> es IMPOSIBLE que un scrape exitoso haya corrido "headless en el Servicio" (hipotesis descartada).
+  * La COLMENA (GUI) no habla con el hub: se conecta al Servicio por pipe (PipeHiveConnection) ofreciendo su
+    WebView2BrowserSubAgent como proveedor, y ademas expone un MCP local (loopback). Su WebView2 SIEMPRE hace
+    window.Show() (linea 185).
+  * Conclusion: si el scrape devolvio datos, un WebView2 de la colmena los ejecuto y SI llamo Show(). Las ventanas son
+    EFIMERAS POR ORDEN (una por leer_html/evaluar_js/captura; se cierran al terminar) y 'navegar' ya es LOCAL (no abre
+    ventana), en (60,40) top-left -> facil de no ver / quedar detras de la app. El "no se vio" es ambiental/behavioral
+    (colmena no interactiva, o ventanas breves) NO un camino headless.
+- Decision: dejar el Navegador VISIBLE y "mirable" de forma fiable (ventana persistente en primer plano durante una
+  busqueda, traer-al-frente, o toggle "ver navegador") es CAMBIO DE AGENTE/MSI (apps/agent) -> se trata APARTE, no se
+  fuerza en esta entrega (asi lo pidio la sesion de pruebas). Sin cambios de codigo en este item; build del backend
+  sigue verde. Duda abierta: como corria el agente en la prueba local (MSI Servicio+GUI, colmena suelta, o mock) y con
+  que clientId, para confirmar por que ruta salio el navegador.
+
 ## 2026-09-28 - v0.16.159: Codigo automatico al crear la cotizacion (num_cotizacion = iniciales + consecutivo global) - ADR-0116
 
 - Pedido (sesion de reportes): el campo COD COT (num_cotizacion) del form de cotizacion debe GENERARSE solo al CREAR

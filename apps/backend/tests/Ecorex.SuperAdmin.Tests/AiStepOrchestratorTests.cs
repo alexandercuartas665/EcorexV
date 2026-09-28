@@ -103,18 +103,20 @@ public class AiStepOrchestratorTests
         var ai = new FakeAi(new[]
         {
             Tool("navegar", "{\"url\":\"https://x\"}"),
+            Tool("leer_html", "{}"),
             Tool("guardar_filas", "{\"filas\":[{\"sku\":\"A1\"},{\"sku\":\"B2\"}]}"),
         });
         var channel = new FakeChannel();
         var sink = new FakeSink();
 
-        var outcome = await New(ai, channel, sink).RunAsync(Ctx(new[] { "navigate" }));
+        var outcome = await New(ai, channel, sink).RunAsync(Ctx(new[] { "navigate", "html" }));
 
         Assert.True(outcome.Ok);
         Assert.Equal(2, outcome.Inserted);
         Assert.Equal(2, sink.TotalRows);
-        Assert.Single(channel.Requests); // solo el navegar fue al navegador (guardar_filas es local).
-        Assert.Equal(BrowserActionKind.Navigate, channel.Requests[0].Actions[0].Kind);
+        // 'navegar' solo fija la URL (local) y 'guardar_filas' es local: SOLO 'leer_html' va al navegador.
+        Assert.Single(channel.Requests);
+        Assert.Equal(BrowserActionKind.Navigate, channel.Requests[0].Actions[0].Kind); // leer_html re-navega dentro de su orden.
     }
 
     [Fact]
@@ -163,16 +165,18 @@ public class AiStepOrchestratorTests
     {
         var ai = new FakeAi(new[]
         {
+            Tool("navegar", "{\"url\":\"https://x\"}"),
             Tool("evaluar_js", "{\"script\":\"document.title\"}"),
             Tool("guardar_filas", "{\"filas\":[{\"t\":\"x\"}]}"),
         });
         var channel = new FakeChannel();
 
-        var outcome = await New(ai, channel, new FakeSink()).RunAsync(Ctx(new[] { "eval" }));
+        var outcome = await New(ai, channel, new FakeSink()).RunAsync(Ctx(new[] { "navigate", "eval" }));
 
         Assert.True(outcome.Ok);
+        // 'navegar' es local: SOLO 'evaluar_js' va al navegador (re-navega + espera + Eval en la misma orden).
         var evalReq = channel.Requests.Single();
-        var action = evalReq.Actions[0];
+        var action = evalReq.Actions.Single(a => a.Kind == BrowserActionKind.Eval);
         Assert.Equal(BrowserActionKind.Eval, action.Kind);
         // El servidor firma el JS de la IA (el agente lo rechazaria sin firma, fail-closed).
         Assert.False(string.IsNullOrEmpty(action.Signature));

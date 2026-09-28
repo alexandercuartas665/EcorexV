@@ -30,6 +30,7 @@
                     <button class="btn btn-primary btn-sm" @onclick="ConfirmAsync" disabled="@_busy">Confirmar</button>
                     <button class="btn btn-outline-secondary btn-sm" @onclick="RejectAsync" disabled="@_busy">Rechazar</button>
                 </div>
+                <div class="fbc-proposal-hint">O escribe abajo para cambiar el rumbo (se descarta lo propuesto).</div>
             </div>
         }
         @if (_busy)
@@ -59,10 +60,10 @@
             +
         </label>
         <textarea class="form-control fbc-textarea" @bind="_input" @bind:event="oninput"
-                  placeholder="Escribe que necesitas..." disabled="@(_busy || _awaiting)"
+                  placeholder="@(_awaiting ? "Escribe para cambiar el rumbo..." : "Escribe que necesitas...")" disabled="@_busy"
                   @onkeydown="OnKeyDown"></textarea>
         <button class="btn btn-primary btn-sm" @onclick="SendAsync"
-                disabled="@(_busy || _awaiting || (string.IsNullOrWhiteSpace(_input) && _attachments.Count == 0))">Enviar</button>
+                disabled="@(_busy || (string.IsNullOrWhiteSpace(_input) && _attachments.Count == 0))">Enviar</button>
     </div>
 </div>
 
@@ -120,7 +121,7 @@
 
     private async Task SendAsync()
     {
-        if (_busy || _awaiting) { return; }
+        if (_busy) { return; }
         await EnsureStartedAsync();
         if (_conversationId is null) { return; }
 
@@ -134,6 +135,9 @@
         var atts = _attachments.ToList();
         _input = string.Empty;
         _attachments.Clear();
+        // Si habia una propuesta pendiente y el usuario prefirio escribir, se descarta en el backend; aqui la
+        // quitamos de la vista de inmediato para que no quede la tarjeta vieja mientras responde.
+        _awaiting = false; _proposals = new();
         _busy = true; _error = null;
         StateHasChanged();
 

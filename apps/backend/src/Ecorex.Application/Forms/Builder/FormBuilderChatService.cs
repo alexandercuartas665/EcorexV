@@ -78,6 +78,11 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var conv = await _store.GetConversationAsync(conversationId, cancellationToken);
         if (conv is null) { return FormBuilderTurnResult.Fail(conversationId, "La conversacion no existe."); }
 
+        // Si el usuario ESCRIBE teniendo una propuesta PENDIENTE, se interpreta como que NO la confirma: se
+        // DESCARTA ese lote y se atiende el nuevo mensaje (asi puede decir "ya no agregues mas" o "cambia X"
+        // sin quedar atrapado en Confirmar/Rechazar).
+        await DiscardPendingProposalsAsync(conv, cancellationToken);
+
         // Procesa adjuntos: Excel -> texto que se anexa al mensaje; imagen/PDF -> inline para vision.
         var images = new List<AiInlineImage>();
         var docs = new List<AiInlineDocument>();
@@ -144,6 +149,23 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             attMeta.Count > 0 ? JsonSerializer.Serialize(attMeta, Json) : null, cancellationToken);
 
         return await RunAgentAsync(conv, images, docs, actorUserId, cancellationToken);
+    }
+
+    // Marca Rejected las propuestas PENDIENTES de la conversacion (si las hay) y deja una nota, para cuando el
+    // usuario redirige escribiendo en vez de confirmar/rechazar. Las propuestas Rejected no entran al historial
+    // del proveedor, asi que el agente no da por hechas esas acciones.
+    private async Task DiscardPendingProposalsAsync(FormBuilderConversation conv, CancellationToken cancellationToken)
+    {
+        var msgs = await _store.GetMessagesAsync(conv.Id, cancellationToken);
+        var pending = msgs.Where(m => m.Role == FormBuilderMessageRole.Proposal && m.ProposalState == FormBuilderProposalState.Pending).ToList();
+        if (pending.Count == 0) { return; }
+        foreach (var p in pending)
+        {
+            p.ProposalState = FormBuilderProposalState.Rejected;
+            await _store.SaveMessageAsync(p, cancellationToken);
+        }
+        await AddMessageAsync(conv, FormBuilderMessageRole.User,
+            "(No confirme la propuesta anterior: descartala y atiende lo que pido a continuacion.)", null, cancellationToken);
     }
 
     public async Task<FormBuilderTurnResult> ConfirmAsync(Guid conversationId, Guid actorUserId, CancellationToken cancellationToken = default)

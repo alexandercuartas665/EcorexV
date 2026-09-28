@@ -126,6 +126,34 @@ public class FormBuilderChatServiceTests
     }
 
     [Fact]
+    public async Task Escribir_con_propuesta_pendiente_la_descarta_y_atiende_el_mensaje()
+    {
+        var ai = new FakeAi();
+        // Turno 1: el agente propone una mutacion (queda PENDIENTE, sin confirmar).
+        ai.Enqueue(new AiCompletion(true, "Voy a crear la seccion.", null, 0, 0,
+            new[] { new AiToolCall("c1", "add_container", "{\"type\":\"Section\"}") }));
+        // Turno 2: el usuario ESCRIBE en vez de confirmar -> se descarta lo pendiente y el agente atiende el mensaje.
+        ai.Enqueue(new AiCompletion(true, "De acuerdo, lo dejo asi.", null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out var store);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r1 = await svc.SendAsync(start.ConversationId, "crea algo", null, Guid.NewGuid());
+        Assert.True(r1.AwaitingConfirmation); // quedo una propuesta pendiente
+
+        var r2 = await svc.SendAsync(start.ConversationId, "ya asi esta bien, no agregues mas", null, Guid.NewGuid());
+
+        Assert.True(r2.Ok);
+        Assert.False(r2.AwaitingConfirmation);
+        var msgs = await store.GetMessagesAsync(start.ConversationId);
+        // La propuesta pendiente quedo DESCARTADA (Rejected) y NO se ejecuto.
+        Assert.Contains(msgs, m => m.Role == FormBuilderMessageRole.Proposal && m.ToolName == "add_container"
+            && m.ProposalState == FormBuilderProposalState.Rejected);
+        Assert.DoesNotContain(msgs, m => m.ProposalState == FormBuilderProposalState.Pending);
+        Assert.DoesNotContain(toolset.Executed, x => x.Tool == "add_container");
+    }
+
+    [Fact]
     public async Task No_fuerza_verify_cuando_el_cierre_es_una_pregunta()
     {
         var ai = new FakeAi();

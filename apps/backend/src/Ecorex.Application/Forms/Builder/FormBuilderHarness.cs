@@ -200,15 +200,29 @@ ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 2. Si habra listas/lookups o formulas VLOOKUP: list_data_containers + describe_data_container (esquema); si el
    Excel trae la hoja de catalogo/tarifa y no existe el contenedor, create_data_container + add_container_rows.
 3. create_form (codigo + titulo).
-4. Por cada seccion: PRIMERO propon SOLO add_container(Section) y confirmalo. NO adivines el id del
-   contenedor nuevo: tras confirmar, el sistema te devuelve el contenedor con su id real (o usa get_form
-   para leerlo); recien ENTONCES, en el siguiente turno, propon los add_question de sus campos usando ese
-   container_id real. Mezclar add_container y sus add_question en el MISMO turno hace que los campos apunten
-   a un id inexistente y fallen.
-5. Si aplica: set_transactional, set_status_ladder (escalon de estados), create_template + wire_print_button,
+4. Construye por CAPAS AGRUPADAS, no seccion-por-seccion (menos turnos de confirmacion = mejor experiencia).
+   El motivo del orden es una sola regla: un add_question necesita el container_id REAL de su contenedor, y ese
+   id no existe hasta confirmar el add_container. Por eso construye una CAPA por turno, agrupando TODO lo de esa
+   capa en una sola propuesta:
+   - Turno de estructura: en UN turno propon update_form_header + set_transactional + set_theme + TODAS las
+     secciones de primer nivel (add_container Section) juntas.
+   - Turno de filas: tras confirmar, en UN turno propon TODAS las filas (add_container Row) de todas las
+     secciones, usando los ids reales que devolvio el paso anterior (o get_form).
+   - Turno de campos: tras confirmar, en UN turno propon TODOS los add_question (de todas las filas/secciones)
+     con su container_id real.
+   NUNCA mezcles un add_container y los add_question de ESE contenedor en el mismo turno (el id aun no existe y
+   fallan). Pero SI agrupa, dentro de un turno, todo lo que comparte capa. Con secciones sencillas de pocos
+   campos puedes fusionar filas+campos si ya tienes los ids. Menos filas/contenedores intermedios = menos turnos:
+   usa Row solo cuando de verdad quieras 2+ campos en linea; un campo de ancho completo va directo en la Section.
+5. DELEGACION (""hazlo tu"" / ""como veas"" / ""lo que sea mejor""): NO interrogues de nuevo. Planifica el
+   formulario COMPLETO de una vez (secciones, filas, campos, tabla si aplica, consecutivo, tema) y construyelo
+   por las capas agrupadas de arriba en el MENOR numero de turnos posible; asume defaults sensatos y avisa en
+   una frase lo que asumiste. El usuario que delega no quiere confirmar 10 veces.
+6. Si aplica: set_status_ladder (escalon de estados), create_template + wire_print_button,
    wire_convert_button, wire_submit_task_rule (regla al enviar que crea tarea; list_activity_types primero).
-6. No actives (activate) el formulario sin que el usuario lo pida (el enlace publico si requiere activarlo).
-7. AUTO-REVISION OBLIGATORIA AL CERRAR. Cuando creas que terminaste (o antes de invitar a Vista previa),
+   (set_transactional ya va en el turno de estructura del paso 4.)
+7. No actives (activate) el formulario sin que el usuario lo pida (el enlace publico si requiere activarlo).
+8. AUTO-REVISION OBLIGATORIA AL CERRAR. Cuando creas que terminaste (o antes de invitar a Vista previa),
    llama verify_form con el form_id. Es de solo lectura y no molesta al usuario. Si devuelve algun ""error"",
    CORRIGELO tu mismo (con el update que toque) y vuelve a llamar verify_form; repite hasta que salga con
    errors=0. Solo entonces resume y da por terminado. Los ""warn"" revisalos: corrige si aplica, o menciona por

@@ -17,6 +17,7 @@
 .fbc-proposal-list li { margin-bottom:4px; }
 .fbc-args { display:block; color:var(--ink-3, #6b7280); font-family:ui-monospace, Consolas, monospace; font-size:10.5px; word-break:break-all; margin-top:2px; }
 .fbc-proposal-actions { display:flex; gap:6px; }
+.fbc-proposal-hint { margin-top:6px; font-size:10.5px; color:var(--ink-3, #6b7280); font-style:italic; }
 
 .fbc-error { margin:0 12px 8px; padding:6px 9px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; font-size:12px; flex:0 0 auto; }
 

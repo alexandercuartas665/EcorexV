@@ -21,6 +21,23 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-28 - form-builder-chat: re-corrida valida el batching PERO destapa regresion del trim -> restaurado
+
+- Re-corrida del brief maestro (maquina descargada). CONFIRMADO el batching (#2): el 1er turno trajo 5 tools
+  juntas (update_form_header+set_transactional+set_theme+add_question+set_status_ladder). Menos turnos = menos
+  tokens, como se buscaba.
+- PERO destapo una REGRESION del trim del arnes (#3 se paso en la zona de totales de grilla): el agente dejo la
+  columna total_item (type=calc) SIN formula y sin rollup, y puso en subtotal un calc {#items.total_item}
+  (referencia inexistente) -> el subtotal no suma. Ademas el campo cliente (Select source_kind=Tercero) fallo con
+  ""requiere una opcion valida"" (le mando options_json vacio).
+- FIX (arnes, restaura detalle bug-preventing sin perder el ahorro del resto): (a) patron EXACTO de totales de
+  tabla con ejemplo (columna total por fila = type=calc CON su formula {cantidad}*{precio} + agg=Sum + rollup a
+  un campo destino SIN calc; nunca {#items.total_item} en el subtotal). (b) {#codigo} SOLO se usa DENTRO de una
+  grilla para leer el encabezado, no al reves. (c) un Select con source_kind Tercero/DataContainer/Item NO lleva
+  options_json. Arnes 19.1k -> 19.9k (sigue ~17% bajo el original de 23.9k). Build Application verde.
+- Leccion: el trim de prompt ahorra tokens pero puede regresar calidad; las reglas anti-bug (rollup, sintaxis)
+  se quedan inline aunque cuesten; solo la referencia enumerativa va a describe_components.
+
 ## 2026-09-27 - form-builder-chat: eficiencia de tokens (menos turnos + arnes mas liviano) + review de caching
 
 - CACHING (review): AiProviderClient NO implementa caching explicito (ni cache_control de Anthropic ni

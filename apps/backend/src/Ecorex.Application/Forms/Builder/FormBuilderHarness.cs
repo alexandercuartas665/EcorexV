@@ -84,7 +84,10 @@ MODELO DE FORMULARIOS ECOREX.
 - FORMATOS numericos (format): currency, integer, decimal, percent. Elige el correcto (dinero=currency o
   integer segun se pida; dimensiones=integer; pesos/kg=decimal; porcentajes=percent).
 - LOOKUPS: un campo que trae datos de una fuente (source_kind = DataContainer | Tercero | Item | Options).
-  Antes de configurar un lookup, descubre las fuentes con list_data_containers / list_tercero_fields.
+  Antes de configurar un lookup, descubre las fuentes con list_data_containers / list_tercero_fields. IMPORTANTE:
+  un Select con source_kind = Tercero/DataContainer/Item NO lleva options_json (las opciones vienen de la fuente);
+  no le mandes options ni una opcion vacia (da el error ""requiere una opcion valida""). options_json es SOLO
+  para source_kind = Options (lista fija escrita a mano).
 - CONTENEDORES DE DATOS (respaldo de LISTAS y FORMULAS). Cuando el formulario necesita una LISTA/desplegable
   respaldada por datos (catalogo de productos, lista de clientes, tarifas) o una FORMULA que BUSCA un valor
   por clave (VLOOKUP: traer el precio de un producto elegido), esos datos NO van en el formulario: viven en un
@@ -107,13 +110,18 @@ MODELO DE FORMULARIOS ECOREX.
 GRILLAS (GridDetail): options_json = arreglo de COLUMNAS (esquema completo en describe_components.grid_column_schema).
 Reglas que MAS se rompen:
 - select/multicheck: options=[{{id,label}}] y CADA opcion necesita id Y label (los dos, no basta el id).
-- SUMAR una columna: NO con formula. La columna calc lleva agg=Sum + rollup=<field_code destino>; ese destino es
-  un Number del encabezado y NO debe tener calc_expression (lo pisaria y queda 0). Los demas totales SI son calc.
+- TOTALES DE UNA TABLA (patron EXACTO, no lo improvises): el total POR FILA es una columna type=calc CON SU
+  formula (ej. total_item: type=calc, calc={{cantidad}}*{{precio_unitario}}) Y ADEMAS agg=Sum + rollup=<campo
+  destino>. El campo destino (ej. subtotal, un Number del encabezado) queda SIN calc_expression: el rollup lo
+  llena solo. NUNCA dejes la columna calc sin su formula, ni pongas en el subtotal un calc tipo
+  {{#items.total_item}} (esa referencia NO existe). Los demas totales (descuento/iva/gran_total) SI son calc
+  sobre {{subtotal}}.
 - lookup autollena; resolve = VLOOKUP multi-clave (columna de solo lectura, match/return). seq = auto-consecutivo.
 
 FORMULAS (calc / calc_expression; funciones y ejemplos en describe_components.calc). Reglas que NO te puedes saltar:
-- Refs a otro campo/columna SIEMPRE entre llaves {{codigo}} (encabezado desde una grilla {{#codigo}}); NUNCA [x]
-  ni el nombre suelto sin llaves.
+- Refs a otro campo/columna SIEMPRE entre llaves {{codigo}}; NUNCA [x] ni el nombre suelto sin llaves. {{#codigo}}
+  SOLO se usa DENTRO de una columna de grilla para leer un campo del ENCABEZADO; un campo del encabezado NO lee
+  columnas de la grilla con {{#...}} (para sumar una columna esta el rollup, ver GRILLAS).
 - PORCENTAJES (format percent) guardan el numero tal cual (5=5); para aplicar % DIVIDE entre 100: (1 - {{dcto}}/100).
 - NO existe resolve()/vlookup()/lookup() como funcion. Un VLOOKUP multi-clave es una COLUMNA type:resolve de una
   GRILLA (las claves viven en una fila). A nivel de campo suelto no hay soporte: modelalo como grilla o AVISA;

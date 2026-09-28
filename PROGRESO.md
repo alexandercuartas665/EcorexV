@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - FIX (rama feat/contacto-search-navega-real): la busqueda de contactos no abria el navegador (fabricaba)
+
+- CORRIGE/PROFUNDIZA la investigacion previa (no era MSI): el navegador no se veia porque NUNCA se abria. Con una
+  sonda de reflexion sobre AiStepOrchestrator.BuildTools confirme que ContactSearchRunner pasaba la lista de
+  DOMINIOS (google.com...) en el slot ToolAllowList (que gatea HERRAMIENTAS via ToolByAllow: navigate/html/eval).
+  Los dominios no matchean ninguna clave -> BuildTools devuelve SOLO [guardar_filas] -> el agente no recibe
+  navegar/leer_html -> no emite ninguna orden de navegador -> la colmena no abre ventana Y el agente "extrae" de
+  su memoria (fabrica), no scrapea. Bug latente desde v0.15.3. La ruta de FLUJOS (BrowserRunService) no lo tiene:
+  pasa las claves de tool configuradas (ToolAllowListJson) y por eso SI navega y se ve.
+- Fix (backend, en mi remit; NO es cambio de agente/MSI): ContactSearchRunner ahora pasa CLAVES DE HERRAMIENTA
+  (constante BrowserToolsForSearch = navigate/html/wait; guardar_filas siempre esta; sin evaluar_js/clic, no
+  hacen falta) en las dos construcciones de AiStepContext (busqueda Maps/redes y enriquecimiento LinkedIn). Se
+  elimino el metodo AllowListFor (dominios muertos): el gate de dominios lo aplica la colmena con su allow-list
+  de la boveda (WebView2BrowserSubAgent.IsAllowed), no el orquestador. Con esto el agente navega de verdad y su
+  ventana se ve (ventanas efimeras por leer_html; 'navegar' es local).
+- Test de regresion: Ecorex.SuperAdmin.csproj expone internals a Ecorex.SuperAdmin.Tests; nuevo test
+  Contact_search_allowlist_enables_real_browsing usa la constante real y prueba que el agente SI navega (el canal
+  recibe la orden de leer_html); ademas afirma que la lista son tools, no dominios. SuperAdmin.Tests 126/126.
+- OJO alcance/deuda: el gate de dominios por-busqueda (defensa en profundidad a nivel servidor) NO existe hoy
+  (los dominios estaban en el slot equivocado); solo la boveda del agente restringe. Empujar dominios por-orden
+  exigiria extender AiStepContext + BrowserRequestMsg + agente (cambio de agente/MSI) -> aparte si se quiere.
+- Build solucion verde. Rama feat/contacto-search-navega-real, SIN merge a tronco y SIN deploy (a validacion E2E
+  de la sesion de pruebas: correr una busqueda y confirmar que la ventana del navegador se abre y los datos son
+  reales del listado, no de memoria).
+
 ## 2026-09-28 - Investigacion: navegador del agente Colmena NO se ve al scrapear (GUI vs Servicio)
 
 - Pedido (sesion de pruebas): (a) badge de lead + (b) scroll a tope configurable en la busqueda de contactos por

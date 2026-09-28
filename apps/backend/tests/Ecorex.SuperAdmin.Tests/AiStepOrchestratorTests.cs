@@ -182,4 +182,31 @@ public class AiStepOrchestratorTests
         Assert.False(string.IsNullOrEmpty(action.Signature));
         Assert.True(AgentSign.Verify(Secret, evalReq.CorrelationId, action.Script!, action.Signature));
     }
+
+    // Regresion: la busqueda de contactos (000740) DEBE ofrecerle al agente herramientas de navegador reales.
+    // Antes pasaba DOMINIOS en el slot de tools -> solo se ofrecia guardar_filas -> el agente no abria el
+    // navegador y "extraia" de su memoria. Con ContactSearchRunner.BrowserToolsForSearch el agente navega.
+    [Fact]
+    public async Task Contact_search_allowlist_enables_real_browsing()
+    {
+        var allow = Ecorex.SuperAdmin.Agents.ContactSearchRunner.BrowserToolsForSearch;
+        Assert.Contains("navigate", allow);
+        Assert.Contains("html", allow);
+        Assert.DoesNotContain(allow, x => x.Contains('.')); // no son dominios (google.com, etc.).
+
+        var ai = new FakeAi(new[]
+        {
+            Tool("navegar", "{\"url\":\"https://maps.google.com\"}"),
+            Tool("leer_html", "{}"),
+            Tool("guardar_filas", "{\"filas\":[{\"nombre\":\"IPS X\"}]}"),
+        });
+        var channel = new FakeChannel();
+
+        var outcome = await New(ai, channel, new FakeSink()).RunAsync(Ctx(allow));
+
+        Assert.True(outcome.Ok);
+        // leer_html llego al navegador -> el agente SI navega (no fabrica); 'navegar' es local.
+        Assert.Single(channel.Requests);
+        Assert.Equal(BrowserActionKind.Navigate, channel.Requests[0].Actions[0].Kind);
+    }
 }

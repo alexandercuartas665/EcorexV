@@ -80,8 +80,13 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         var instruction = BuildInstruction(def, agent);
         var sink = new ProspectoSearchRowSink(_db, tenantId, def.SourceType.ToString(), cap, frase);
         // TargetContainerId no se usa (el SinkOverride escribe en ProspectoScrapeado). MaxSteps/Segundos acotados.
+        // ToolAllowList son las HERRAMIENTAS que se le ofrecen al agente (navegar/leer_html/esperar), NO
+        // dominios: el gate de dominios lo aplica la colmena con su allow-list de la boveda (defensa en
+        // profundidad, WebView2BrowserSubAgent.IsAllowed). Antes se pasaban dominios aqui -> el orquestador
+        // no los reconocia como tools y solo ofrecia guardar_filas -> el agente NO abria el navegador y
+        // "extraia" de su memoria. Con estas tools el agente navega de verdad (y su ventana se ve).
         var ctx = new AiStepContext(
-            def.ClientId!, tenantId, instruction, Guid.Empty, AllowListFor(def.SourceType),
+            def.ClientId!, tenantId, instruction, Guid.Empty, BrowserToolsForSearch,
             MaxSteps: 25, MaxSeconds: 300, AiProviderId: providerCfg.Id, Secret: null, SinkOverride: sink,
             SessionKey: SessionKeyFor(def.SourceType),
             // Barrer TODO el listado: scroll largo en cada lectura (Maps carga perezoso). Con tope 0 (sin
@@ -128,7 +133,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                     forcedEmpresa: empresa, forcedEmpresaProspectoId: empresaId);
                 var liCtx = new AiStepContext(
                     def.ClientId!, tenantId, BuildLinkedInEnrichInstruction(agent, empresa, perCompany),
-                    Guid.Empty, AllowListFor(ContactSearchSource.LinkedIn),
+                    Guid.Empty, BrowserToolsForSearch,
                     MaxSteps: 20, MaxSeconds: 300, AiProviderId: providerCfg.Id, Secret: null,
                     SinkOverride: liSink, SessionKey: "linkedin",
                     // Igual que la busqueda: scroll largo para cargar mas personas de la empresa.
@@ -246,16 +251,11 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         return sb.ToString();
     }
 
-    // Dominios que el agente puede visitar por fuente (defensa en profundidad del navegador Colmena).
-    private static IReadOnlyList<string> AllowListFor(ContactSearchSource s) => s switch
-    {
-        ContactSearchSource.Maps => new[] { "google.com", "www.google.com", "maps.google.com", "google.com.co" },
-        ContactSearchSource.LinkedIn => new[] { "linkedin.com", "www.linkedin.com" },
-        ContactSearchSource.Instagram => new[] { "instagram.com", "www.instagram.com" },
-        ContactSearchSource.Facebook => new[] { "facebook.com", "www.facebook.com" },
-        ContactSearchSource.X => new[] { "x.com", "twitter.com" },
-        _ => new[] { "google.com", "www.google.com", "bing.com", "www.bing.com", "duckduckgo.com" },
-    };
+    // Herramientas de navegador que se le ofrecen al agente en TODA busqueda de contactos: navegar + leer_html
+    // + esperar (solo lectura; sin evaluar_js/clic, que no hacen falta para barrer un listado). guardar_filas
+    // (la salida) siempre esta. Son CLAVES DE HERRAMIENTA, no dominios: el gate de dominios lo aplica la colmena
+    // con su allow-list de la boveda. internal para el test de regresion (evita re-introducir el bug de dominios).
+    internal static readonly string[] BrowserToolsForSearch = { "navigate", "html", "wait" };
 
     // Clave de PERFIL persistente por fuente (scraping LOGUEADO). Solo las redes con "modo login" en la
     // Colmena tienen perfil; Maps/Web/X van efimeros (null) porque no requieren -ni tienen- login guardado.

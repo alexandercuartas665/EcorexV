@@ -70,7 +70,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
 
     public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        "describe_components", "list_tenants", "list_forms", "get_form", "list_templates",
+        "describe_components", "list_tenants", "list_forms", "get_form", "verify_form", "list_templates",
         "list_data_containers", "describe_data_container", "list_tercero_fields", "list_org_units",
         "list_activity_types", "list_menu_views", "list_menu_nodes", "export_form", "get_render_urls"
     };
@@ -97,6 +97,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         new("get_form",
             "Devuelve la definicion COMPLETA de un formulario (cabecera + contenedores + preguntas) incluyendo su Version, para hacer updates con concurrencia optimista.",
             """{"type":"object","properties":{"form_id":{"type":"string","description":"Id (GUID) del formulario"}},"required":["form_id"],"additionalProperties":false}"""),
+        new("verify_form",
+            "AUTO-REVISION de coherencia de un formulario ya construido (read-only). Devuelve la lista de PROBLEMAS: " +
+            "columna calc sin formula, rollup que apunta a un campo inexistente, un CAMPO que suma una columna con " +
+            "{#...} (deberia ser rollup), un campo destino de rollup que ademas tiene calc (lo pisa), lookup sin " +
+            "source_ref, lista Options sin opciones, referencias {codigo} colgantes, NaturalKey a un campo inexistente. " +
+            "Llamala AL TERMINAR de construir y CORRIGE cada 'error' que reporte antes de cerrar.",
+            """{"type":"object","properties":{"form_id":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
         new("list_templates",
             "Lista las plantillas de impresion del tenant (id, nombre, si es la predeterminada, si se envia como imagen).",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
@@ -262,6 +269,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "list_tenants" => await ListTenantsAsync(cancellationToken),
                 "list_forms" => await ListFormsAsync(args, cancellationToken),
                 "get_form" => await GetFormAsync(args, cancellationToken),
+                "verify_form" => await VerifyFormAsync(args, cancellationToken),
                 "list_templates" => await ListTemplatesAsync(cancellationToken),
                 "list_data_containers" => await ListDataContainersAsync(cancellationToken),
                 "describe_data_container" => await DescribeDataContainerAsync(args, cancellationToken),
@@ -405,6 +413,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             format = "{\"field\":\"<field_code destino>\",\"states\":[{\"label\":\"Inicial\",\"when\":[]},{\"label\":\"Sig\",\"when\":[{\"field\":\"otro\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}]}]}"
         },
         submit_task_rule = "Regla al enviar que crea una tarea: wire_submit_task_rule (activity_type_id de list_activity_types; fixed_title=una tarea o table_field_code+title_key=una por fila). Otras acciones on-submit NO estan expuestas.",
+        verify_form = "AUTO-REVISION de solo lectura: verify_form(form_id) devuelve los problemas de coherencia (rollup a un campo inexistente, un campo que suma una columna con {#...}, destino de rollup con calc que lo pisa, lookup sin source_ref, lista sin opciones, referencias {codigo} colgantes, NaturalKey a un campo inexistente). Llamala AL TERMINAR y corrige cada 'error' hasta que salga errors=0.",
         template_markers = new
         {
             field = "{{campo.codigo}}",
@@ -922,6 +931,173 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         }
         return null;
     }
+
+    // ---- AUTO-REVISION (verify_form) --------------------------------------------------------------
+    // Un problema de coherencia hallado por verify_form. Severity "error" (bloquea: hay que corregirlo) o
+    // "warn" (aviso: probablemente esta mal pero no lo damos por seguro).
+    internal sealed record FormVerifyIssue(string Severity, string Where, string Problem, string Fix);
+
+    private async Task<AgentToolResult> VerifyFormAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido (GUID)."); }
+        var d = await _forms.GetAsync(id, ct);
+        if (d is null) { return Err("No se encontro un formulario con ese id."); }
+        var issues = VerifyForm(d);
+        var errors = issues.Count(i => i.Severity == "error");
+        return Ok(new
+        {
+            ok = errors == 0,
+            errors,
+            warnings = issues.Count - errors,
+            message = errors > 0
+                ? "Hay ERRORES que debes CORREGIR antes de dar por terminado el formulario."
+                : issues.Count == 0 ? "Formulario coherente: sin problemas." : "Sin errores; revisa los avisos por si aplican.",
+            issues = issues.Select(i => new { severity = i.Severity, where = i.Where, problem = i.Problem, fix = i.Fix })
+        });
+    }
+
+    // Checks de coherencia PUROS (sin SQL, sin I/O) sobre una definicion ya leida. Solo reporta lo que
+    // sabemos con certeza que rompe el formulario (error) o que casi seguro esta incompleto (warn); nada
+    // que pueda dar falso positivo en un formulario correcto. internal para poder probarlo con datos armados.
+    internal static IReadOnlyList<FormVerifyIssue> VerifyForm(FormDefinitionDetailDto d)
+    {
+        var issues = new List<FormVerifyIssue>();
+        var headerCodes = new HashSet<string>(d.Questions.Select(q => q.FieldCode), StringComparer.OrdinalIgnoreCase);
+        var byCode = new Dictionary<string, FormQuestionDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in d.Questions) { byCode.TryAdd(q.FieldCode, q); }
+
+        // (grid, columna) -> field destino: rollups declarados en las grillas, para cotejarlos con el encabezado.
+        var rollupTargets = new List<(string Grid, string Col, string Target)>();
+
+        foreach (var q in d.Questions)
+        {
+            var isGrid = q.ControlType == FormControlType.GridDetail;
+
+            // 1/2) CAMPO (encabezado) cuyo calc referencia una columna de grilla con {#...} (debe ser rollup),
+            //      o un {codigo} inexistente (referencia colgante por typo).
+            if (!isGrid && !string.IsNullOrWhiteSpace(q.CalcExpression))
+            {
+                foreach (var r in Refs(q.CalcExpression!))
+                {
+                    if (r.StartsWith('#'))
+                    {
+                        issues.Add(new("error", $"campo '{q.FieldCode}'",
+                            $"su calc referencia una columna de grilla con {{{r}}}",
+                            "Un campo NO suma una columna con {#...}. Usa ROLLUP: en la columna pon agg=Sum + rollup y deja este campo SIN calc."));
+                    }
+                    else if (!r.Contains('.') && !headerCodes.Contains(r))
+                    {
+                        issues.Add(new("error", $"campo '{q.FieldCode}'",
+                            $"su calc referencia {{{r}}} que no es un campo del formulario",
+                            "Referencia el field_code exacto de otro campo del encabezado."));
+                    }
+                }
+            }
+
+            // 3) Lookup sin fuente (DataContainer/Item/ExternalDataset requieren source_ref; Tercero no).
+            if (q.SourceKind is FormSourceKind.DataContainer or FormSourceKind.Item or FormSourceKind.ExternalDataset
+                && string.IsNullOrWhiteSpace(q.SourceRef))
+            {
+                issues.Add(new("error", $"campo '{q.FieldCode}'",
+                    $"es un lookup {q.SourceKind} pero no tiene source_ref (fuente)",
+                    "Pon source_ref con el id de la fuente (list_data_containers o la fuente que corresponda)."));
+            }
+
+            // 4) Lista de opciones fijas (Options) sin ninguna opcion.
+            if (q.SourceKind == FormSourceKind.Options
+                && q.ControlType is FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck
+                && FormFieldValidator.ParseOptions(q.OptionsJson).Count == 0)
+            {
+                issues.Add(new("error", $"campo '{q.FieldCode}'",
+                    "es una lista (Select/Radio/MultiCheck) de opciones fijas pero SIN opciones",
+                    "Agrega options [{id,label}] o cambia el source_kind a la fuente correcta."));
+            }
+
+            // 5) Grilla: columnas y sus formulas/agregados.
+            if (isGrid)
+            {
+                var cols = FormGridCalculator.ParseColumns(q.OptionsJson);
+                if (cols.Count == 0)
+                {
+                    issues.Add(new("error", $"tabla '{q.FieldCode}'", "no tiene columnas definidas",
+                        "Define las columnas en options_json ([{id,label,type,calc,agg,rollup}])."));
+                }
+                var colIds = new HashSet<string>(cols.Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
+                foreach (var c in cols)
+                {
+                    // 5a) calc de columna que referencia algo inexistente ({col} de la tabla o {#campo} del encabezado).
+                    if (!string.IsNullOrWhiteSpace(c.Calc))
+                    {
+                        foreach (var r in Refs(c.Calc!))
+                        {
+                            if (r.StartsWith('#'))
+                            {
+                                var head = r[1..];
+                                if (!head.Contains('.') && !headerCodes.Contains(head))
+                                {
+                                    issues.Add(new("warn", $"tabla '{q.FieldCode}', columna '{c.Id}'",
+                                        $"su calc referencia el encabezado {{{r}}} que no existe",
+                                        "Usa {#field_code} de un campo real del encabezado."));
+                                }
+                            }
+                            else if (!r.Contains('.') && !colIds.Contains(r))
+                            {
+                                issues.Add(new("error", $"tabla '{q.FieldCode}', columna '{c.Id}'",
+                                    $"su calc referencia {{{r}}} que no es una columna de la tabla",
+                                    "Referencia una columna existente {col} o el encabezado {#campo}."));
+                            }
+                        }
+                    }
+                    // 5b) columna con agregado: con rollup lo cotejamos contra el encabezado; sin rollup, avisa.
+                    if (c.Agg != FormAggregate.None)
+                    {
+                        if (!string.IsNullOrWhiteSpace(c.Rollup)) { rollupTargets.Add((q.FieldCode, c.Id, c.Rollup!)); }
+                        else
+                        {
+                            issues.Add(new("warn", $"tabla '{q.FieldCode}', columna '{c.Id}'",
+                                "tiene agregado (agg) pero sin rollup: el total no cae en ningun campo",
+                                "Pon rollup=<field_code de un Number del encabezado> para volcar el total."));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6) Coherencia de cada rollup contra el encabezado (destino real y SIN calc que lo pise).
+        foreach (var (grid, col, target) in rollupTargets)
+        {
+            if (!byCode.TryGetValue(target, out var tf))
+            {
+                issues.Add(new("error", $"tabla '{grid}', columna '{col}'",
+                    $"su rollup apunta a '{target}', que no existe como campo del formulario",
+                    "Crea el campo destino (Number) en el encabezado o corrige el rollup al field_code correcto."));
+            }
+            else if (!string.IsNullOrWhiteSpace(tf.CalcExpression))
+            {
+                issues.Add(new("error", $"campo '{target}'",
+                    "es destino de un rollup PERO tiene calc_expression, que pisa el total de la columna",
+                    "Quita el calc_expression de este campo: el rollup de la columna lo llena."));
+            }
+        }
+
+        // 7) NaturalKey: el campo que porta el numero de negocio debe existir.
+        if (d.IsTransactional && d.IdentityMode == FormIdentityMode.NaturalKey
+            && (string.IsNullOrWhiteSpace(d.IdentitySourceFieldCode) || !headerCodes.Contains(d.IdentitySourceFieldCode)))
+        {
+            issues.Add(new("error", "identidad (NaturalKey)",
+                $"identity_source_field_code '{d.IdentitySourceFieldCode}' no es un campo del formulario",
+                "Fija identity_source_field_code a un field_code existente (el que porta el numero de negocio)."));
+        }
+
+        return issues;
+    }
+
+    // Extrae los codigos referenciados {codigo} o {#codigo} de una expresion calc (sin las llaves). Las
+    // funciones (SI/REDONDEAR/...) y los numeros no van en llaves, asi que no se capturan (no dan falso positivo).
+    private static IEnumerable<string> Refs(string expr)
+        => System.Text.RegularExpressions.Regex
+            .Matches(expr, "\\{(#?[A-Za-z0-9_.]+)\\}")
+            .Select(m => m.Groups[1].Value);
 
     private async Task<AgentToolResult> MoveQuestionAsync(JsonElement args, CancellationToken ct)
     {

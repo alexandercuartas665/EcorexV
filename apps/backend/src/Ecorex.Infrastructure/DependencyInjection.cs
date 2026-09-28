@@ -90,6 +90,8 @@ public static class DependencyInjection
         services.AddSingleton<Application.Workflows.INotifyLinkBuilder, Notifications.NotifyLinkBuilder>();
         // Consola SQL admin (000077): ejecuta SQL crudo + audita en sql_console_logs.
         services.AddScoped<Ecorex.Application.Admin.ISqlConsoleService, Sql.SqlConsoleService>();
+        // Store del asistente de creacion de formularios por chat (sobre EcorexDbContext).
+        services.AddScoped<Ecorex.Application.Forms.Builder.IFormBuilderChatStore, Forms.FormBuilderChatStore>();
         services.AddHttpClient<Ecorex.Application.Admin.IWompiApiClient, Wompi.WompiApiClient>();
         services.AddHttpClient<Ecorex.Application.Admin.IEvolutionApiClient, Evolution.EvolutionApiClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();

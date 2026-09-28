@@ -12,6 +12,7 @@
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
@@ -19,8 +20,10 @@
 @inject IMenuConfigService MenuSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Organization.IWorkflowNodePolicyService NodePolicySvc
+@inject Ecorex.Application.Forms.Builder.IFormSnapshotService Snapshots
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
 
 @* ============================================================
    CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
@@ -69,8 +72,10 @@ else
                 }
                 <span class="fb-status" style="background:@StatusSoft();color:@StatusColor()">@StatusLabel()</span>
                 <div class="fb-header-actions">
+                    <button class="fb-btn-ghost @(_showChat ? "on" : "")" @onclick="@(() => _showChat = !_showChat)" title="Crear/editar con IA desde un Excel, PDF o imagen">Asistente IA</button>
                     <button class="fb-btn-ghost" @onclick="OpenFormProps">Propiedades</button>
                     <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
+                    <button class="fb-btn-ghost" @onclick="OpenVersionsAsync" title="Guardar y restaurar versiones del formulario">Versiones</button>
                     @if (_def.Status == FormStatus.Active)
                     {
                         <button class="fb-btn-ghost" @onclick="DeactivateAsync" disabled="@_busy">Desactivar</button>
@@ -93,7 +98,7 @@ else
                 </div>
             }
 
-            <div class="fb-body">
+            <div class="fb-body @(_showChat ? "fb-has-chat" : "")">
                 @* ===== IZQUIERDA: paleta + estructura ===== *@
                 <aside class="fb-left">
                     <div class="fb-left-scroll">
@@ -204,6 +209,9 @@ else
                     </div>
                 </aside>
 
+                @* Barra redimensible izquierda|centro *@
+                <div class="fb-gutter" data-fb-var="--fb-left" data-fb-panel=".fb-left" data-fb-dir="1" data-fb-min="200" data-fb-max="520" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
+
                 @* ===== CENTRO: toolbar device + lienzo ===== *@
                 <div class="fb-center">
                     <div class="fb-devicebar">
@@ -235,6 +243,9 @@ else
                         </div>
                     </div>
                 </div>
+
+                @* Barra redimensible centro|derecha *@
+                <div class="fb-gutter" data-fb-var="--fb-right" data-fb-panel=".fb-right" data-fb-dir="-1" data-fb-min="240" data-fb-max="560" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
 
                 @* ===== DERECHA: propiedades ===== *@
                 <aside class="fb-right">
@@ -290,6 +301,15 @@ else
                         }
                     </div>
                 </aside>
+                @* 4a columna: asistente IA que crea/edita el formulario conversando (F2). *@
+                @if (_showChat)
+                {
+                    @* Barra redimensible derecha|chat *@
+                    <div class="fb-gutter" data-fb-var="--fb-chat" data-fb-panel=".fb-chat" data-fb-dir="-1" data-fb-min="300" data-fb-max="680" title="Arrastra para redimensionar (doble clic: restablecer)"></div>
+                    <aside class="fb-chat">
+                        <FormBuilderChatPanel FormDefinitionId="Id" OnFormChanged="ReloadAsync" />
+                    </aside>
+                }
             </div>
         </div>
     </div>
@@ -304,15 +324,69 @@ else
         <div class="modal-dialog fd-preview-dialog" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Vista previa - @_def.Title</h3>
+                @if (_def.Status != FormStatus.Active)
+                {
+                    <span class="fd-preview-sandbox" title="Puedes escribir y agregar filas para probar; nada se guarda hasta activar el formulario">Modo prueba - no se guarda</span>
+                }
                 <button class="modal-close" @onclick="@(() => _showPreview = false)">&times;</button>
             </div>
             <div class="modal-body">
-                @* Fill real cuando el formulario esta activo (llenado end-to-end desde el
-                   constructor, ADR-0021); Design (solo lectura) mientras es borrador. *@
+                @* Fill real cuando el formulario esta activo (llenado end-to-end desde el constructor,
+                   ADR-0021); Sandbox (interactivo, sin persistir) mientras es borrador: deja PROBAR el
+                   formulario -escribir, agregar/quitar filas de tabla, ver formulas- antes de activarlo. *@
                 <DynamicFormRenderer DefinitionId="@_def.Id"
-                                     Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Design)"
+                                     Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Sandbox)"
                                      ApplyCardWidth="true"
                                      Reference="@($"PREVIEW-{_def.Code}")" />
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal Versiones (snapshots): guardar y restaurar el formulario + sus plantillas ===== *@
+@if (_showVersions && _def is not null)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showVersions = false)">
+        <div class="modal-dialog" style="max-width:620px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Versiones - @_def.Title</h3>
+                <button class="modal-close" @onclick="@(() => _showVersions = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="fb-hint-text" style="margin-bottom:12px;">
+                    Cada vez que confirmas cambios del Asistente IA se guarda una version automatica. Puedes
+                    guardar una manual y restaurar cualquiera (repone el formulario y sus plantillas de impresion).
+                </p>
+                <div style="display:flex;gap:8px;margin-bottom:14px;">
+                    <button class="fb-btn-primary" @onclick="SaveVersionAsync" disabled="@_versionsBusy">Guardar version ahora</button>
+                    <button class="fb-btn-ghost" @onclick="OpenVersionsAsync" disabled="@_versionsBusy">Refrescar</button>
+                </div>
+                @if (_versionsError is not null)
+                {
+                    <div class="fb-error" style="margin:0 0 12px;">@_versionsError</div>
+                }
+                @if (_snapshots.Count == 0)
+                {
+                    <p class="fb-hint-text">Aun no hay versiones guardadas de este formulario.</p>
+                }
+                else
+                {
+                    <div class="fd-versions-list">
+                        @foreach (var s in _snapshots)
+                        {
+                            <div class="fd-version-row">
+                                <div class="fd-version-tx">
+                                    <div class="fd-version-label">@s.Label</div>
+                                    <div class="fd-version-meta">
+                                        @(s.Trigger == Ecorex.Domain.Enums.FormSnapshotTrigger.BeforeAgentBatch ? "Automatica" : "Manual")
+                                        &middot; @s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                                    </div>
+                                </div>
+                                <button class="fb-btn-ghost" @onclick="@(() => RestoreVersionAsync(s.Id))" disabled="@_versionsBusy">Restaurar</button>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -687,6 +761,9 @@ else
 @code {
     [Parameter] public Guid Id { get; set; }
 
+    // F2: muestra/oculta la 4a columna del asistente IA (chat que crea/edita el formulario).
+    private bool _showChat;
+
     private FormDefinitionDetailDto? _def;
     private bool _loading = true;
     private bool _busy;
@@ -713,6 +790,11 @@ else
     // Vista previa y tokens.
     private bool _showPreview;
     private bool _showTokenModal;
+    // Versiones (snapshots): guardar/restaurar el formulario + plantillas.
+    private bool _showVersions;
+    private bool _versionsBusy;
+    private string? _versionsError;
+    private IReadOnlyList<Ecorex.Application.Forms.Builder.FormSnapshotItemDto> _snapshots = [];
     // Propiedades del formulario / transaccionalidad (ola F3).
     private bool _showFormProps;
     // Pestana activa del modal de Propiedades (General / Registro / Modulo / CSS).
@@ -965,6 +1047,13 @@ else
         _loading = false;
     }
 
+    // Cablea las barras redimensibles del grid (idempotente): tras cada render engancha las .fb-gutter
+    // aun sin inicializar, asi tambien atiende la 4a columna (chat) cuando aparece/desaparece.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("fbSplitter.init"); } catch { /* JS no listo en prerender */ }
+    }
+
     private async Task LoadAssignableUnitsAsync()
     {
         try
@@ -982,6 +1071,58 @@ else
     private async Task ReloadAsync()
     {
         _def = await FormsSvc.GetAsync(Id);
+    }
+
+    // ---- Versiones (snapshots) ----
+
+    private async Task<Guid?> ActorAsync()
+    {
+        try
+        {
+            var state = await AuthProvider.GetAuthenticationStateAsync();
+            var raw = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            return Guid.TryParse(raw, out var g) ? g : null;
+        }
+        catch { return null; }
+    }
+
+    private async Task OpenVersionsAsync()
+    {
+        _showVersions = true;
+        _versionsError = null;
+        _versionsBusy = true;
+        try { _snapshots = await Snapshots.ListAsync(Id); }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
+    }
+
+    private async Task SaveVersionAsync()
+    {
+        _versionsBusy = true;
+        _versionsError = null;
+        try
+        {
+            await Snapshots.SnapshotAsync(Id, "Version manual", Ecorex.Domain.Enums.FormSnapshotTrigger.Manual, null, await ActorAsync());
+            _snapshots = await Snapshots.ListAsync(Id);
+        }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
+    }
+
+    private async Task RestoreVersionAsync(Guid snapshotId)
+    {
+        _versionsBusy = true;
+        _versionsError = null;
+        try
+        {
+            var res = await Snapshots.RestoreAsync(snapshotId, await ActorAsync());
+            if (!res.IsOk) { _versionsError = res.Error ?? "No se pudo restaurar."; return; }
+            await ReloadAsync();          // repone el lienzo con la version restaurada
+            _selId = null;
+            _showVersions = false;
+        }
+        catch (Exception ex) { _versionsError = ex.Message; }
+        finally { _versionsBusy = false; }
     }
 
     private async Task SaveFlashAsync()
@@ -2628,8 +2769,9 @@ else
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
                                                     @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsSeq)">Texto</option>
+                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq)">Texto</option>
                                                 <option value="select" selected="@(ext?.Lookup is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="multicheck" selected="@(ext?.Lookup is null && col.Calc is null && col.IsMultiCheck)">Multi-seleccion (casillas)</option>
                                                 <option value="formula" selected="@(ext?.Lookup is null && col.Calc is not null)">Formula (calculada)</option>
                                                 <option value="seq" selected="@(col.IsSeq)">Consecutivo (letras/numeros)</option>
                                                 <option value="lookup" selected="@(ext?.Lookup is not null)">Lookup (autollenar)</option>
@@ -2646,10 +2788,10 @@ else
                                             </div>
                                         }
                                     </div>
-                                    @if (col.IsSelect)
+                                    @if (col.IsSelect || col.IsMultiCheck)
                                     {
                                         <div class="fb-gcp-field">
-                                            <label>Opciones de la lista</label>
+                                            <label>@(col.IsMultiCheck ? "Opciones (casillas)" : "Opciones de la lista")</label>
                                             @RenderChipList((col.Options ?? new List<FormOption>()).Select(o => o.Label).ToList(), "var(--t-blue)",
                                                 (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
                                                 oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
@@ -3577,9 +3719,9 @@ else
         var shaped = cols.Select(c =>
         {
             var o = new Dictionary<string, object?> { ["id"] = c.Id, ["label"] = c.Label };
-            if (c.IsSelect)
+            if (c.IsSelect || c.IsMultiCheck)
             {
-                o["type"] = "select";
+                o["type"] = c.IsMultiCheck ? "multicheck" : "select";
                 o["options"] = (c.Options ?? new List<FormOption>()).Select(x => new { id = x.Id, label = x.Label }).ToList();
             }
             // Columna consecutiva (auto-numerada): "type" es core key, hay que re-emitirlo o se pierde al re-guardar.
@@ -3657,6 +3799,14 @@ else
             {
                 case "select":
                     obj["type"] = "select";
+                    obj.Remove("calc");
+                    if (obj["options"] is not JsonArray)
+                    {
+                        obj["options"] = new JsonArray(new JsonObject { ["id"] = "op_1", ["label"] = "Opcion 1" });
+                    }
+                    break;
+                case "multicheck":
+                    obj["type"] = "multicheck";
                     obj.Remove("calc");
                     if (obj["options"] is not JsonArray)
                     {
@@ -3898,6 +4048,7 @@ else
         => PatchGridColumnAsync(q, index, c => type switch
         {
             "select" => c with { Kind = "select", Calc = null, Options = c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") } },
+            "multicheck" => c with { Kind = "multicheck", Calc = null, Options = c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") } },
             "formula" => c with { Kind = "text", Calc = string.IsNullOrWhiteSpace(c.Calc) ? "0" : c.Calc },
             _ => c with { Kind = "text", Calc = null }
         });

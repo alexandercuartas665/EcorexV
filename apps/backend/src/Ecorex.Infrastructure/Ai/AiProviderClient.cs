@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 
@@ -428,7 +429,9 @@ public sealed class AiProviderClient : IAiProviderClient
         }
 
         object? sysInstr = string.IsNullOrWhiteSpace(systemPrompt) ? null : new { parts = new[] { new { text = systemPrompt } } };
-        var toolDecls = tools.Select(t => new { name = t.Name, description = t.Description ?? "", parameters = ParseSchema(t.ParametersJsonSchema) }).ToArray();
+        // Gemini NATIVO acepta solo un subconjunto de OpenAPI en functionDeclarations: rechaza (HTTP 400)
+        // claves JSON-Schema como "additionalProperties"/"$schema". Se sanean los esquemas para esta ruta.
+        var toolDecls = tools.Select(t => new { name = t.Name, description = t.Description ?? "", parameters = GeminiParams(t.ParametersJsonSchema) }).ToArray();
         object? toolsArr = tools.Count > 0 ? new[] { new { functionDeclarations = toolDecls } } : null;
         object body = new { systemInstruction = sysInstr, contents = contents.ToArray(), tools = toolsArr };
 
@@ -611,6 +614,44 @@ public sealed class AiProviderClient : IAiProviderClient
         {
             using var fallback = JsonDocument.Parse("{\"type\":\"object\",\"properties\":{}}");
             return fallback.RootElement.Clone();
+        }
+    }
+
+    // Claves de JSON Schema que el endpoint NATIVO de Gemini (functionDeclarations) NO acepta y devuelve 400.
+    private static readonly HashSet<string> GeminiSchemaBlocked = new(StringComparer.Ordinal)
+    {
+        "additionalProperties", "unevaluatedProperties", "$schema", "$id", "$ref", "$comment", "$defs",
+        "definitions", "patternProperties", "const", "oneOf", "allOf", "not", "if", "then", "else",
+    };
+
+    // Esquema de parametros saneado para Gemini nativo: quita recursivamente las claves no soportadas,
+    // conservando type/properties/items/enum/required/description/format/etc.
+    private static JsonNode? GeminiParams(string schema)
+    {
+        JsonNode? node;
+        try { node = JsonNode.Parse(string.IsNullOrWhiteSpace(schema) ? "{}" : schema); }
+        catch { node = JsonNode.Parse("{\"type\":\"object\",\"properties\":{}}"); }
+        return StripBlockedKeys(node);
+    }
+
+    private static JsonNode? StripBlockedKeys(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                var res = new JsonObject();
+                foreach (var kv in obj)
+                {
+                    if (GeminiSchemaBlocked.Contains(kv.Key)) { continue; }
+                    res[kv.Key] = StripBlockedKeys(kv.Value);
+                }
+                return res;
+            case JsonArray arr:
+                var ra = new JsonArray();
+                foreach (var el in arr) { ra.Add(StripBlockedKeys(el)); }
+                return ra;
+            default:
+                return node?.DeepClone();
         }
     }
 

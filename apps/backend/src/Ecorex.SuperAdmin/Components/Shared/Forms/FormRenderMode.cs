@@ -8,5 +8,9 @@ public enum FormRenderMode
     /// <summary>Llenado real: borrador con autosave (30s), validacion inmediata y envio.</summary>
     Fill,
     /// <summary>Solo lectura de una respuesta existente.</summary>
-    ReadOnly
+    ReadOnly,
+    /// <summary>Vista previa INTERACTIVA de un borrador: editable (agregar/quitar filas, escribir,
+    /// formulas en vivo) pero SIN persistir respuesta ni enviar. Sirve para probar el formulario
+    /// antes de activarlo. No crea borrador en BD, no autoguarda y no muestra la barra de envio.</summary>
+    Sandbox
 }

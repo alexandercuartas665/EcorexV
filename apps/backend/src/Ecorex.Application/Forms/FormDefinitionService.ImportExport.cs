@@ -111,6 +111,81 @@ public sealed partial class FormDefinitionService
         return FormResult<FormDefinitionDetailDto>.Ok(await BuildDetailAsync(final!, cancellationToken));
     }
 
+    /// <summary>
+    /// RESTAURA (in-place) la estructura de un formulario EXISTENTE desde un JSON exportado: borra sus
+    /// contenedores y preguntas actuales y los reconstruye desde el snapshot, ademas de la cabecera
+    /// (titulo, transaccionalidad, layout, CSS, tema, escalon de estados, regla de cierre). CONSERVA el id
+    /// y el codigo del formulario (no crea uno nuevo), para no romper enlaces (modulo, nodos de flujo).
+    /// Usado por el versionado del asistente para revertir un formulario danado.
+    /// </summary>
+    public async Task<FormResult<FormDefinitionDetailDto>> ReplaceStructureFromJsonAsync(
+        Guid definitionId, string json, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null) { return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado."); }
+
+        FormDefinitionDetailDto? src;
+        try
+        {
+            src = json.Contains("\"definition\"", StringComparison.OrdinalIgnoreCase)
+                ? JsonSerializer.Deserialize<FormExportEnvelope>(json, ImpExpJson)?.Definition
+                : JsonSerializer.Deserialize<FormDefinitionDetailDto>(json, ImpExpJson);
+        }
+        catch (JsonException ex) { return FormResult<FormDefinitionDetailDto>.Invalid($"JSON invalido: {ex.Message}"); }
+        if (src is null || string.IsNullOrWhiteSpace(src.Title))
+        {
+            return FormResult<FormDefinitionDetailDto>.Invalid("El snapshot no contiene un formulario valido.");
+        }
+
+        // 1) Borra la estructura ACTUAL (hard delete, igual que DeleteQuestion/DeleteContainer).
+        var curQs = await _db.FormQuestions.Where(q => q.DefinitionId == definitionId).ToListAsync(cancellationToken);
+        _db.FormQuestions.RemoveRange(curQs);
+        var curCs = await _db.FormContainers.Where(c => c.DefinitionId == definitionId).ToListAsync(cancellationToken);
+        _db.FormContainers.RemoveRange(curCs);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 2) Cabecera (conserva el codigo). Titulo/descripcion directo sobre la entidad trackeada (evita el
+        //    chequeo de version del UpdateHeader); transaccionalidad/layout + CSS/tema/estados/cierre por setter.
+        var titleTrim = (src.Title ?? "").Trim();
+        if (titleTrim.Length is > 0 and <= 200) { definition.Title = titleTrim; }
+        definition.Description = string.IsNullOrWhiteSpace(src.Description) ? null : src.Description.Trim();
+        await SetTransactionalAsync(definitionId,
+            new SetFormTransactionalRequest(src.IsTransactional, src.IdentityMode, src.IdentitySourceFieldCode, src.CardLayout),
+            cancellationToken);
+        await SetCustomCssAsync(definitionId, new SetFormCssRequest(src.CustomCss), cancellationToken);
+        await SetThemeAsync(definitionId, src.ThemeJson, cancellationToken);
+        await SetStatusLadderAsync(definitionId, src.StatusLadderJson, cancellationToken);
+        await SetCloseRuleAsync(definitionId, src.CloseRuleJson, cancellationToken);
+
+        // 3) Reconstruye contenedores (padres antes que hijos) + preguntas, remapeando ids.
+        var idMap = new Dictionary<Guid, Guid>();
+        foreach (var c in OrderContainersParentFirst(src.Containers))
+        {
+            Guid? newParent = c.ParentId is Guid p && idMap.TryGetValue(p, out var np) ? np : null;
+            var req = new SaveFormContainerRequest(
+                c.Name, c.ContainerType, newParent, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels,
+                c.AllowedCargosJson, c.VisibleWhenJson);
+            var res = await AddContainerAsync(definitionId, req, cancellationToken);
+            if (res.IsOk && res.Value is not null) { idMap[c.Id] = res.Value.Id; }
+        }
+        foreach (var q in src.Questions.OrderBy(x => x.SortOrder))
+        {
+            Guid? newContainer = q.ContainerId is Guid cid && idMap.TryGetValue(cid, out var nc) ? nc : null;
+            Guid? subform = q.SubformDefinitionId is Guid sf
+                && await _db.FormDefinitions.AnyAsync(d => d.Id == sf, cancellationToken) ? sf : null;
+            var req = new SaveFormQuestionRequest(
+                newContainer, q.FieldCode, q.Label, q.ControlType, q.Caption, q.HelpText, q.OptionsJson,
+                q.Required, q.GridCol, q.Numeral, q.ValidationJson, q.Width, q.PlaceholderText, q.DefaultValue,
+                q.IsLocked, q.IsHidden, q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
+                q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, subform,
+                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
+            await AddQuestionAsync(definitionId, req, cancellationToken);
+        }
+
+        var final = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        return FormResult<FormDefinitionDetailDto>.Ok(await BuildDetailAsync(final!, cancellationToken));
+    }
+
     // Orden topologico simple: primero los sin padre, luego los que ya tienen su padre emitido.
     private static IEnumerable<FormContainerDto> OrderContainersParentFirst(IReadOnlyList<FormContainerDto> containers)
     {

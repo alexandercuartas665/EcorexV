@@ -157,6 +157,9 @@ public class ScheduledUpsertRunTests
         public DbSet<FormContainer> FormContainers => NotUsed<FormContainer>();
         public DbSet<FormQuestion> FormQuestions => NotUsed<FormQuestion>();
         public DbSet<FormResponse> FormResponses => NotUsed<FormResponse>();
+        public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => NotUsed<FormBuilderSnapshot>();
+        public DbSet<FormBuilderConversation> FormBuilderConversations => NotUsed<FormBuilderConversation>();
+        public DbSet<FormBuilderMessage> FormBuilderMessages => NotUsed<FormBuilderMessage>();
         public DbSet<WorkflowNodeNote> WorkflowNodeNotes => NotUsed<WorkflowNodeNote>();
         public DbSet<FormSubmitRule> FormSubmitRules => NotUsed<FormSubmitRule>();
         public DbSet<FormFlowLink> FormFlowLinks => NotUsed<FormFlowLink>();

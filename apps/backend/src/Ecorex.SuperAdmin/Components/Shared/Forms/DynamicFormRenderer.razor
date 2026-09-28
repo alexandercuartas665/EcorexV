@@ -433,7 +433,9 @@ else
     /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado: solo dentro del wizard de crear tarea
     /// (EmbeddedInTask) y si la definicion lo pide (HideSubmitBar). Tambien apaga el autosave periodico.</summary>
     private bool HideSubmitChrome => EmbeddedInTask && _definition?.HideSubmitBar == true;
-    private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsLocked;
+    // Editable en Fill (llenado real) y en Sandbox (vista previa interactiva de borrador, sin persistir).
+    private bool IsEditableMode => Mode is FormRenderMode.Fill or FormRenderMode.Sandbox;
+    private bool IsDisabled => _busy || !IsEditableMode || IsLocked;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -501,6 +503,7 @@ else
                 catch { /* sin grafo: las secciones restringidas quedan en solo-lectura (fail-safe) */ }
             }
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
+            _rollupTargets = null;   // recomputar destinos de rollup para la nueva definicion
             _theme = FormThemeJson.Read(_definition?.ThemeJson);   // apariencia / tema (Ola 5)
             _response = null;
             _values.Clear();
@@ -537,9 +540,9 @@ else
                 _derivedRecord = _response is not null
                     ? await ResponsesSvc.GetDerivedRecordAsync(_response.Id)
                     : null;
-                // Valor por defecto del disenador (ADR-0021): solo en Fill, solo campos de
-                // captura reales y sin valor previo en el borrador.
-                if (Mode == FormRenderMode.Fill && !IsLocked)
+                // Valor por defecto del disenador (ADR-0021): en Fill y en la vista previa interactiva
+                // (Sandbox), solo campos de captura reales y sin valor previo en el borrador.
+                if (IsEditableMode && !IsLocked)
                 {
                     foreach (var q in _definition.Questions)
                     {
@@ -906,6 +909,13 @@ else
         // Campo calculado (ola F2, doc 01 D5): solo lectura, valor recomputado por el evaluador.
         // Con formato (ola F6) se muestra formateado (moneda/%/...).
         if (!string.IsNullOrWhiteSpace(q.CalcExpression))
+        {
+            <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
+            return;
+        }
+        // Campo DESTINO de un rollup de grilla: su valor lo escribe la grilla (Sum/Count/...), no el usuario.
+        // Se muestra igual que un calculado: solo lectura y FORMATEADO (moneda/%/...), no el numero crudo.
+        if (IsRollupTarget(q.FieldCode))
         {
             <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
             return;
@@ -1686,6 +1696,29 @@ else
     private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
 
+    // Campos que son DESTINO de un rollup de grilla (una columna con agg + rollup=<field_code>). Su valor
+    // lo escribe la grilla, no el usuario: el render los muestra como computados (read-only + formateados).
+    // Se calcula una vez por definicion (se resetea a null al cargar una nueva).
+    private HashSet<string>? _rollupTargets;
+    private bool IsRollupTarget(string fieldCode)
+    {
+        if (_rollupTargets is null)
+        {
+            _rollupTargets = new HashSet<string>(StringComparer.Ordinal);
+            if (_definition is not null)
+            {
+                foreach (var g in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+                {
+                    foreach (var col in FormGridCalculator.ParseColumns(g.OptionsJson))
+                    {
+                        if (!string.IsNullOrWhiteSpace(col.Rollup)) { _rollupTargets.Add(col.Rollup!); }
+                    }
+                }
+            }
+        }
+        return _rollupTargets.Contains(fieldCode);
+    }
+
     // ---- Configurador en cascada (motor generico) ----
     private readonly Dictionary<string, CascadeConfig?> _cascadeCache = new(StringComparer.Ordinal);
 
@@ -2069,6 +2102,22 @@ else
                                                 <option value="@opt.Id" selected="@(opt.Id == cell)">@opt.Label</option>
                                             }
                                         </select>
+                                    }
+                                    else if (col.IsMultiCheck)
+                                    {
+                                        @* Columna MULTI-SELECCION: casillas por opcion. El valor de la celda es un arreglo
+                                           JSON de ids (mismo formato que un campo MultiCheck), toggle por opcion. *@
+                                        var selCell = FormFieldValidator.ParseMultiValues(cell).ToHashSet(StringComparer.Ordinal);
+                                        <div class="dfr-grid-multi" style="display:flex;flex-wrap:wrap;gap:3px 10px;min-width:150px;white-space:nowrap">
+                                            @foreach (var opt in col.Options ?? Array.Empty<FormOption>())
+                                            {
+                                                <label class="dfr-check dfr-grid-check @(selCell.Contains(opt.Id) ? "on" : "")">
+                                                    <input type="checkbox" checked="@selCell.Contains(opt.Id)" disabled="@IsDisabled"
+                                                           @onchange="@(e => ToggleGridMulti(q, rowIndex, colId, opt.Id, (bool)e.Value!))" />
+                                                    <span>@opt.Label</span>
+                                                </label>
+                                            }
+                                        </div>
                                     }
                                     else if (col.Min is decimal colMin)
                                     {
@@ -2824,6 +2873,20 @@ else
         // persistir, para que el calculo que corre en SetValue use los precios ya resueltos.
         await ResolveGridRowAsync(q, rows, rowIndex);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    // Alterna una opcion de una columna MULTI-SELECCION de la grilla. El valor de la celda es un arreglo
+    // JSON de ids (identico formato al de un campo MultiCheck), y se persiste via SetGridCell (que recalcula
+    // y guarda). Reusa el mismo parser/serializador que ToggleMulti para que impresion y validacion cuadren.
+    private async Task ToggleGridMulti(FormQuestionDto q, int rowIndex, string colId, string optionId, bool on)
+    {
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var selected = FormFieldValidator.ParseMultiValues(rows[rowIndex].GetValueOrDefault(colId)).ToList();
+        if (on && !selected.Contains(optionId, StringComparer.Ordinal)) { selected.Add(optionId); }
+        else if (!on) { selected.RemoveAll(s => string.Equals(s, optionId, StringComparison.Ordinal)); }
+        var newVal = selected.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(selected);
+        await SetGridCell(q, rowIndex, colId, newVal);
     }
 
     // ---- Auto-resolucion multi-clave de columnas (VLOOKUP/INDEX-MATCH, ola actual) ----

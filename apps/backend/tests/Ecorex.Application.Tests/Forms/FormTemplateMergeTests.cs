@@ -71,6 +71,53 @@ public class FormTemplateMergeTests
     }
 
     [Fact]
+    public void Columna_select_y_multicheck_imprimen_etiqueta_no_id()
+    {
+        // La celda select guarda el id de la opcion; la multicheck guarda un arreglo JSON de ids.
+        // En impresion deben salir las ETIQUETAS ("Mail" y "Cotizacion, PQR"), no el id ni el JSON crudo.
+        var data = """
+        {
+          "contactos": { "value": "[{\"medio\":\"mail\",\"gestiones\":\"[\\\"cotizacion\\\",\\\"pqr\\\"]\"}]", "type": "grid" }
+        }
+        """;
+        var gridOptions = new Dictionary<string, string?>
+        {
+            ["contactos"] = """[{"id":"medio","label":"Medio","type":"select","options":[{"id":"mail","label":"Mail"},{"id":"telefono","label":"Telefono"}]},{"id":"gestiones","label":"Gestiones","type":"multicheck","options":[{"id":"cotizacion","label":"Cotizacion"},{"id":"leads","label":"Leads"},{"id":"pqr","label":"PQR"}]}]""",
+        };
+        var tpl = "{{#tabla.contactos}}[{{col.medio}}|{{col.gestiones}}]{{/tabla.contactos}}";
+
+        var html = FormTemplateMerge.Render(tpl, data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1", "T1");
+
+        Assert.Equal("[Mail|Cotizacion, PQR]", html);
+    }
+
+    [Fact]
+    public void Campo_select_y_multicheck_imprimen_etiqueta_no_id()
+    {
+        // Campos sueltos (no grilla): un Select guarda el id; un MultiCheck guarda ["id1","id2"].
+        // Con fieldChoices, {{campo.x}} imprime la etiqueta (o "A, B" en multi).
+        var data = """
+        {
+          "perfil":  { "value": "prospecto", "type": "text" },
+          "canales": { "value": "[\"mail\",\"tel\"]", "type": "text" }
+        }
+        """;
+        var perfilOpts = """[{"id":"prospecto","label":"Prospecto"},{"id":"cliente","label":"Cliente"}]""";
+        var canalesOpts = """[{"id":"mail","label":"Mail"},{"id":"tel","label":"Telefono"}]""";
+        var fieldChoices = new Dictionary<string, (string? OptionsJson, bool IsMulti)>
+        {
+            ["perfil"] = (perfilOpts, false),
+            ["canales"] = (canalesOpts, true),
+        };
+
+        var html = FormTemplateMerge.Render(
+            "P:{{campo.perfil}} C:{{campo.canales}}", data, NoFieldFormat, NoGridOptions, NoCanvasOptions,
+            "SKY", Fecha, "1", "T1", fieldChoices);
+
+        Assert.Equal("P:Prospecto C:Mail, Telefono", html);
+    }
+
+    [Fact]
     public void Expone_el_numero_de_tarea_como_tarea_y_barcode()
     {
         // numero (registro) y tarea son distintos: la tarea es la Reference sin el ordinal (lo calcula el

@@ -24,6 +24,10 @@ public interface IFormDefinitionService
     /// <summary>Crea un formulario NUEVO a partir de un JSON exportado. Genera un codigo unico: NUNCA pisa uno existente.</summary>
     Task<FormResult<FormDefinitionDetailDto>> ImportAsync(string json, CancellationToken cancellationToken = default);
 
+    /// <summary>RESTAURA in-place la estructura de un formulario EXISTENTE desde un JSON exportado (borra y
+    /// reconstruye contenedores/preguntas + cabecera), conservando su id y codigo. Para el versionado/undo.</summary>
+    Task<FormResult<FormDefinitionDetailDto>> ReplaceStructureFromJsonAsync(Guid definitionId, string json, CancellationToken cancellationToken = default);
+
     Task<FormResult<FormDefinitionDetailDto>> UpdateHeaderAsync(Guid definitionId, UpdateFormDefinitionRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Configura la transaccionalidad del formulario (ola F3): IsTransactional + modo de identidad + campo clave.</summary>

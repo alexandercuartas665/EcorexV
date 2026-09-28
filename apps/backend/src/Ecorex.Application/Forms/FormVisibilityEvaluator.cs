@@ -26,12 +26,28 @@ public static class FormVisibilityEvaluator
             if (root.ValueKind != JsonValueKind.Object) { return true; }
             var field = root.TryGetProperty("field", out var pf) ? pf.GetString() : null;
             if (string.IsNullOrWhiteSpace(field)) { return true; }
-            var op = (root.TryGetProperty("op", out var po) ? po.GetString() : null) ?? "equals";
-            var value = root.TryGetProperty("value", out var pv) ? pv.GetString() : null;
+            var op = (root.TryGetProperty("op", out var po) ? ScalarText(po) : null) ?? "equals";
+            // El 'value' de comparacion puede venir como texto, numero o booleano (ej. {"op":"notEquals",
+            // "value":0} para "distinto de 0"). GetString() solo funciona en JSON string y lanzaba
+            // InvalidOperationException con un numero, tumbando TODO el render del formulario. Leemos el
+            // valor tolerante a su tipo.
+            var value = root.TryGetProperty("value", out var pv) ? ScalarText(pv) : null;
             return Test(field, op, value, getValue);
         }
         catch (JsonException) { return true; }
     }
+
+    // Lee un escalar JSON como texto sin importar su tipo (string/number/bool/null). Evita que un 'value'
+    // numerico o booleano en la condicion rompa la evaluacion. internal: lo reusa FormStatusLadder.
+    internal static string? ScalarText(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null => null,
+        _ => el.GetRawText(),
+    };
 
     /// <summary>Evalua UNA condicion {field, op, value} contra el valor actual resuelto por getValue. Field
     /// vacio =&gt; true. Compartido por la visibilidad condicional y el escalon de estados (FormStatusLadder).</summary>

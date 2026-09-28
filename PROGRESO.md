@@ -223,6 +223,212 @@
 - Archivos: IYCloudApiClient/YCloudApiClient, IWhatsAppConnectorService/WhatsAppConnectorService,
   INotificationChannelSender/NotificationChannelSender, NodeNotifyService, WhatsAppButtonComposer (nuevo) + tests
   (composer + firmas de mocks). Build Release verde; 21 tests OK; format limpio. ADR-0112. NO desplegado (pido OK).
+## 2026-09-27 - form-builder-chat: prueba del "brief maestro" E2E + fix de crash en visibilidad
+
+- Prueba de la guia HTML de funciones de datos: se le paso al agente el BRIEF MAESTRO (lenguaje natural) + un
+  Excel de 2 hojas (cotizacion + catalogo con columna Activo). Resultado fuerte: de una sola conversacion armo
+  ~20 de 27 funciones (transaccional COT-/6, contenedor 'Catalogo de Productos' creado+cargado, cliente por
+  Tercero + autollenado NIT/tel/ciudad, prioridad lista, grilla con seq + producto lookup+filtro+autofill de
+  precio + total calc + rollup a subtotal + servicios multicheck, cadena de totales con % /100, motivo con
+  visibilidad condicional, formatos, boton imprimir PDF + plantilla, enlace publico + activado). Ademas fue
+  HONESTO con lo que no pudo (stock sin fuente de inventario; cargo 'Coordinador Comercial' inexistente en
+  SOLDARCO; convertir a Orden de Trabajo con destino inexistente -> pendiente como se pidio).
+- HALLAZGOS: (a) BUG real de render -> FormVisibilityEvaluator.IsVisible hacia GetString() sobre el 'value' de
+  la condicion; el agente puso value:0 (numero, "distinto de 0") y lanzaba InvalidOperationException tumbando
+  TODO el formulario en vista previa. FIX: ScalarText tolera number/bool/string/null. 4 tests nuevos
+  (FormVisibilityEvaluatorTests) verdes. (b) La GUIA va por delante del AGENTE en 3 funciones sin herramienta
+  expuesta: #21 prellenado desde tarea ({tareas.x}, solo falta guia en arnes + default_value), #22 escalon de
+  estados (SetStatusLadderAsync existe pero no se expuso como tool), #26 regla al enviar (form_submit_rules sin
+  wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
+- Build de Application verde; suite entera seguia verde antes del fix.
+
+## 2026-09-28 - form-builder-chat: fix "narra pero no emite tools" + set de pruebas doradas (CI)
+
+- BUG "el agente narra el uso de tools y no hace nada" (preocupacion del usuario). Causa raiz en
+  FormBuilderChatService: cuando el agente responde SOLO texto sin tool-calls, el loop lo trataba como turno
+  FINAL y se detenia -> narracion ("voy a agregar la tabla...") sin propuesta, y el usuario tenia que empujarlo.
+  FIX: empujon automatico UNA vez -> si el texto anuncia una accion futura (StoppedMidAction: "voy a"/"a
+  continuacion"/"aqui estan las llamadas"... y NO es pregunta ni cierre), se inyecta un nudge TRANSITORIO (no se
+  guarda, no lo ve el usuario) que le pide emitir las llamadas, y el loop continua en vez de terminar a medias.
+- SET DE PRUEBAS DORADAS (deterministas, corren en CI sin navegador; detectan regresiones como el trim solas):
+  * FormGridGoldenTests: la matematica de la cotizacion via el motor real (FormGridCalculator.Recompute):
+    columna total=cantidad*precio + agg=Sum + rollup=subtotal -> total por fila y subtotal=suma. (La regresion
+    exacta que rompio el trim.)
+  * FormAuthoringGuardTests: el guard HeaderGridCalcError (rechaza calc {#...} en un campo; acepta calc normal;
+    ignora GridDetail).
+  * StoppedMidActionTests: la heuristica empuja en las narraciones reales que vimos y NO en preguntas/cierres.
+  Para testear los guards internos se agrego InternalsVisibleTo(Ecorex.Application.Tests) y se hicieron internal
+  StoppedMidAction y HeaderGridCalcError. Suite Application entera VERDE: 1026/1026 (15 nuevas).
+
+## 2026-09-28 - form-builder-chat: contenedores Row + grid rollup punta a punta (guard) VALIDADO
+
+- Pedido: (a) grid completo punta a punta, (b) el agente casi no usa contenedores Row -> forzarlo en el arnes.
+- CONTENEDORES Row: arnes empuja el patron Section > Row > campos (flujo batcheado: Section; luego todos sus
+  Rows; luego los campos). VALIDADO en vivo: el agente creo Row containers en cada seccion (Row Cliente y
+  Prioridad, Row Items, Row Totales, etc.). (Nota: en la corrida grande mi loop rapido de confirmacion duplico
+  algunos Rows -> artefacto de mi automatizacion, no del agente; el agente hasta se auto-corrigio con delete_container.)
+- GRID ROLLUP: el fix de arnes (commit anterior) no bastaba: el agente REINCIDIO en subtotal.calc=
+  {#items.total_item} (no computa). BLINDAJE DE CODIGO (FormAuthoringToolset.HeaderGridCalcError): add_question/
+  update_question rechazan un calc_expression de CAMPO que contenga {#...} y devuelven el camino correcto (rollup);
+  no aplica a GridDetail. VALIDADO en vivo con un brief minimo (Pedido con tabla+subtotal): el grid quedo PERFECTO
+  -> columna total_item type=Calc calc={cantidad}*{precio_unitario} agg=Sum rollup=subtotal, y subtotal SIN calc.
+  El guard no necesito disparar en esa corrida facil, pero queda como red deterministica para la reincidencia.
+- Commits: fc1367c5 (Row en arnes), e2d3f742 (guard {#}). Build verde.
+
+## 2026-09-28 - form-builder-chat: re-corrida valida el batching PERO destapa regresion del trim -> restaurado
+
+- Re-corrida del brief maestro (maquina descargada). CONFIRMADO el batching (#2): el 1er turno trajo 5 tools
+  juntas (update_form_header+set_transactional+set_theme+add_question+set_status_ladder). Menos turnos = menos
+  tokens, como se buscaba.
+- PERO destapo una REGRESION del trim del arnes (#3 se paso en la zona de totales de grilla): el agente dejo la
+  columna total_item (type=calc) SIN formula y sin rollup, y puso en subtotal un calc {#items.total_item}
+  (referencia inexistente) -> el subtotal no suma. Ademas el campo cliente (Select source_kind=Tercero) fallo con
+  ""requiere una opcion valida"" (le mando options_json vacio).
+- FIX (arnes, restaura detalle bug-preventing sin perder el ahorro del resto): (a) patron EXACTO de totales de
+  tabla con ejemplo (columna total por fila = type=calc CON su formula {cantidad}*{precio} + agg=Sum + rollup a
+  un campo destino SIN calc; nunca {#items.total_item} en el subtotal). (b) {#codigo} SOLO se usa DENTRO de una
+  grilla para leer el encabezado, no al reves. (c) un Select con source_kind Tercero/DataContainer/Item NO lleva
+  options_json. Arnes 19.1k -> 19.9k (sigue ~17% bajo el original de 23.9k). Build Application verde.
+- Leccion: el trim de prompt ahorra tokens pero puede regresar calidad; las reglas anti-bug (rollup, sintaxis)
+  se quedan inline aunque cuesten; solo la referencia enumerativa va a describe_components.
+
+## 2026-09-27 - form-builder-chat: eficiencia de tokens (menos turnos + arnes mas liviano) + review de caching
+
+- CACHING (review): AiProviderClient NO implementa caching explicito (ni cache_control de Anthropic ni
+  cachedContent de Gemini). El agente de formularios va por OpenAiCompatibleWithTools (Gemini ->
+  generativelanguage.../openai/chat/completions). Implicaciones: Gemini 2.5 y OpenAI dan caching IMPLICITO
+  automatico del prefijo repetido (probablemente ya descuenta algo, verificar el modelo); la ruta Claude
+  (ClaudeWithTools) NO agrega cache_control -> si un tenant rutea a Claude paga el prefijo completo cada turno
+  (mejora pendiente: cache_control en system+tools). El prefijo estable medido: arnes ~20k + 44 tools ~24k chars
+  ~= 11-12k tokens por turno.
+- #2 MENOS TURNOS (mayor palanca real, multiplica): se reconcilio una contradiccion del arnes (REGLA DE ORO decia
+  "seccion y campos juntos" pero el paso 4 prohibe mezclar add_container+add_question). Ahora es explicito: turno
+  1 = solo add_container(Section) para el id real; turno 2 = TODOS los campos de la seccion en UN turno (varios
+  add_question juntos); la config de una vez (update_form_header/set_transactional/set_theme) junta en el 1er
+  turno. Un form de 4 secciones ~8-10 turnos, no 30.
+- #3 ARNES MAS LIVIANO (se manda cada turno): se movio el DETALLE de referencia del system prompt a
+  describe_components (que el agente llama una vez): nuevos bloques calc (funciones/percent/rollup/no-resolve),
+  prefill_tokens, status_ladder (formato), submit_task_rule. En el arnes quedaron solo las reglas ANTI-BUG (que
+  ahorran reintentos) + punteros. Se condensaron GRILLAS/FORMULAS/PLANTILLA/CONVERT/prefill/estados/regla. Arnes
+  23.9k -> 19.1k chars (~20%, ~1.2k tokens/turno). Se trimearon las 2 descripciones de tool mas largas
+  (add_question, add_container); los schemas no se tocaron (riesgo). Build Application verde.
+
+## 2026-09-27 - form-builder-chat: re-corrida del brief maestro OK + test limite + fix resolve() en arnes
+
+- Re-corrida del brief maestro (verifica los 3 arreglos en vivo): el agente uso set_status_ladder (estado
+  Borrador->Enviada->Aprobada), prellenado numero_tarea con default_value {tareas.numero}, y wire_submit_task_rule
+  (no hay tipos de actividad en SOLDARCO -> declino honesto). Y lo clave: el PREVIEW YA NO SE CAE con value
+  numerico en visible_when / status ladder (el fix aguanta).
+- TEST LIMITE ("medir las pelotas"): brief-tortura de 9 puntos con trampas (Orden de Servicio Tecnico + Excel de
+  tarifas por equipo+ciudad y repuestos). Resultado ~8/9, verificado en BD:
+  OK -> #2 SI({subtotal}>5000000;15;8); #3 recargo SI({prioridad}=='Urgente';...); #4 seccion oculta por toggle
+  (visible_when value:true); #6 NaturalKey (numero = NIT, identity_source_field_code=nit_cliente); #8 precio max
+  con agg=Max; #9 cross-grid (2 rollups + gran_total). Declino HONESTO -> #7 correo automatico (no hay verbo),
+  #8-nombre del maximo (argmax no soportado, solo el valor). Flojo -> #5 ambiguo asumio Texto sin preguntar.
+  BUG real -> #1 VLOOKUP 2 claves a un campo suelto: el agente FABRICO una funcion resolve() dentro de
+  calc_expression, que NO existe en el motor (resolve es COLUMNA de grilla). FIX (arnes): en FORMULAS se aclara
+  que esas son TODAS las funciones (SI/REDONDEAR/MIN/MAX + operadores/comparadores) y que NO hay resolve()/
+  vlookup()/lookup(); un VLOOKUP multi-clave es una columna 'resolve' de una GRILLA (las claves viven en una
+  fila); a nivel de campo suelto no hay soporte -> modelar como grilla o AVISAR, nunca fingirlo con calc. Se
+  corrigio tambien el ""(o campo)"" enganoso del bloque de contenedores. Build Application verde.
+
+## 2026-09-27 - form-builder-chat: cerrados los 3 huecos guia-vs-agente (prellenado, estados, regla al enviar)
+
+- #21 PRELLENADO desde la tarea: solo faltaba GUIA (no tool). Arnes: para prellenar un campo, default_value con
+  token {tareas.cliente|contacto|solicitante|email|correo|telefono|nit|documento|identificacion|titulo|numero|
+  comercial} o de sistema {hoy}/{hoy+N}/{ahora}/{numero}. (Los tokens los resuelve DynamicFormRenderer/
+  FormSystemTokens; ya existian.)
+- #22 ESCALON DE ESTADOS: nueva tool set_status_ladder (envuelve IFormDefinitionService.SetStatusLadderAsync)
+  con validacion de JSON. Arnes con el formato {field,states[{label,when[]}]}. Ademas HARDENING: FormStatusLadder
+  leia el value de una condicion con GetString() (mismo crash que la visibilidad si value es numero); ahora usa
+  FormVisibilityEvaluator.ScalarText (internal, compartido). 2 tests nuevos (FormStatusLadderTests).
+- #26 REGLA AL ENVIAR (crear tarea): nuevas tools list_activity_types (descubrir el tipo) y wire_submit_task_rule
+  (envuelve IRuleDocumentService.CreateFormSubmitTaskRuleAsync): crea la regla on-submit que genera una tarea
+  (fixed_title = una tarea; table_field_code + title_key = una por fila). Arnes lo documenta y aclara que solo
+  cubre crear tareas al enviar.
+- De paso, arnes: nota de que visible_when no tiene > (usar notEquals 0) y de que los FILTROS usan los valores
+  reales de la fuente ('Activo = Si', no true) -> corrige el detalle hallado en la prueba del brief maestro.
+- Build SuperAdmin verde; suite Application entera VERDE 1011/1011. Con esto la guia HTML y el agente quedan a la
+  par: las 27 funciones de datos son alcanzables por el asistente.
+
+## 2026-09-26 - form-builder-chat: contenedores de datos self-serve (listas y formulas VLOOKUP)
+
+- Pedido del usuario: los formularios con LISTAS (desplegable de catalogo) o FORMULAS VLOOKUP (traer precio por
+  clave) necesitan datos de respaldo; el asistente sabia ENLAZAR a un contenedor existente pero no verlo/crearlo/
+  cargarlo. Alcance elegido: self-serve completo, datos desde una HOJA del Excel subido.
+- Sin tablas ni servicios nuevos: reusa IDataContainerService. 3 herramientas nuevas en FormAuthoringToolset.cs:
+  * describe_data_container (read): esquema (columnas nombre+tipo, si tiene filas) para saber que columna usar
+    de displayField/valueField (lista) o match/return (VLOOKUP) -> van por NOMBRE de columna.
+  * create_data_container (write): crea el contenedor con su tabla+columnas (Text|Number|Decimal|Date|Boolean);
+    idempotente (si ya existe por nombre, lo REUSA).
+  * add_container_rows (write): carga filas {columna->valor} (EAV como texto); ignora claves que no son columna.
+  Arnes FormBuilderHarness.cs: bloque CONTENEDORES DE DATOS (flujo describe/create/load + enlazar lookup/resolve),
+  cue en lectura de Excel (una hoja de catalogo/tarifa = contenedor de respaldo, no seccion) y en la estrategia.
+- Verificado E2E con un Excel de 2 hojas (Pedido + Catalogo): el agente creo el contenedor 'Catalogo' (Manual,
+  4 columnas), cargo las 5 filas del catalogo (add_container_rows) y wireo la columna Producto de la grilla como
+  lookup source=DataContainer -> ese contenedor, displayField/valueField=Producto y AUTOFILL Precio->precio_unitario
+  (comprobado en BD: data_containers/rows + options_json de la pregunta). El render del desplegable es la UI de
+  lookup ya existente (no se toco); no logre captura limpia de las opciones por el clic automatizado sobre la celda
+  (Blazor re-render mueve coordenadas), pero el cableado quedo correcto. Build verde (SuperAdmin + Application).
+
+## 2026-09-26 - form-builder-chat: medicion contra un formulario REAL de prod + 3 fixes
+
+- Prueba de calidad del asistente de formularios: se calco el formulario REAL `desarrollo.f2.CONTACTO CLIENTE`
+  (SOLDARCO, prod) mirandolo en vista ejecucion (MCP Chrome), se hizo un HTML-muestra fiel (sin anotaciones de
+  ingenieria, para no "ponersela facil") y se le dio al agente para reconstruirlo desde cero en local.
+- Resultado: fidelidad ~95% (hero+tema, transaccional inferido, 3 secciones, 11 campos con tipos/requeridos/
+  layout 3col-2col, opciones de selects, subformulario con toolbar Exportar/Plantilla/Importar, Observaciones,
+  y de yapa boton Imprimir+plantilla). El test destapo 3 huecos, ya corregidos:
+  1. TITULO no se renombraba: el hero quedaba "Formulario nuevo". FIX (arnes): si el form abierto tiene titulo
+     generico, renombrar con update_form_header al titulo detectado (el hero sale del titulo del form).
+  2. EYEBROW salia con la entidad literal `&#9889;` en vez de un rayo. FIX (codigo): set_theme decodifica
+     entidades HTML del eyebrow (WebUtility.HtmlDecode) + nota en el schema de usar el emoji directo.
+  3. GESTIONES (chips +Cotizacion/+PQR...) se asumia como MultiCheck cuando en realidad son botones de
+     CONVERSION por fila. FIX (arnes): ante chips con "+"/nombres de otros formularios, PREGUNTAR si son
+     botones que crean otro registro (wire_convert_button) antes de asumir multicheck. (Una imagen/HTML
+     estatico no distingue una cosa de la otra.)
+- Verificado en vivo: re-corrida del agente -> ahora renombra (hero="CONTACTO CLIENTE"), el eyebrow muestra el
+  rayo real (sin `&#9889;`), y el agente PREGUNTA por las gestiones antes de construir.
+- Archivos: FormAuthoringToolset.cs (SetThemeAsync decode + schema), FormBuilderHarness.cs (rename + regla de
+  chips de conversion). Build de Application y SuperAdmin verde. NO desplegado (worktree; deploy solo a senal).
+- LAYOUT DETERMINISTA (refuerzo pedido despues): el width de campos salia inconsistente (una corrida 3 col,
+  otra 1 col) porque el agente lo omitia y caia a fila completa. Arnes FormBuilderHarness.cs: regla ANCHO
+  DETERMINISTA (OBLIGATORIO) -> contar cuantos campos van lado a lado en cada fila del original y poner
+  width=12/n a cada uno (2->6/6, 3->4/4/4, 4->3/3/3/3, 1 o textarea/subform->12); como leer las filas de
+  HTML (CSS de columnas), imagen/PDF (misma linea horizontal) y Excel (columnas contiguas); y el PLAN debe
+  declarar cuantos campos por fila. Verificado en vivo: la seccion 1 salio 3/2/3/3 (por bounding boxes),
+  identica al form real (antes salia 1 col).
+- GridDetail ENDURECIDO (pedido despues): armando la grilla con columnas select/multicheck de opciones
+  anidadas, el agente entraba en BUCLE de error de options_json (omitia el 'label' de cada opcion) y terminaba
+  omitiendo la tabla. FIX (codigo, FormAuthoringToolset.cs): NormalizeGridCalc -> NormalizeOptionsJson que,
+  segun el control_type, normaliza EN SITIO: en GridDetail recorre columnas (calc {codigo} + options anidadas
+  de select/multicheck) y en Select/Radio/MultiCheck normaliza el arreglo de opciones. Cada opcion queda
+  {id,label} no vacios: string suelto -> {id:slug,label}; claves value/text/name/key -> id/label; falta id ->
+  slug del label; falta label -> label=id (helper SlugId). Asi la persistencia nunca rechaza por 'label'
+  faltante y se rompe el bucle. Arnes: ejemplo concreto de columna select con options=[{id,label}] + nota de
+  que CADA opcion necesita id Y label. Verificado en vivo (DB): la grilla se creo al PRIMER intento con
+  options_json completo (medio_contacto select y gestiones multicheck, todas las opciones con id+label).
+  Limitacion aparte (renderer, no autoria): una columna multicheck en la grilla se pinta como input de texto
+  en la vista previa; el dato se guarda bien. [RESUELTO abajo]
+- MULTICHECK EN GRILLA (renderer + disenador self-serve): una columna GridDetail de tipo multicheck ya no cae
+  a input de texto. (1) FormGridColumn.IsMultiCheck (kind "multicheck"/"multi"). (2) DynamicFormRenderer: rama
+  de celda que pinta casillas por opcion + ToggleGridMulti (valor de celda = arreglo JSON de ids, mismo formato
+  y helpers que un campo MultiCheck; persiste via SetGridCell -> recalcula/guarda); wrapper con min-width 150px
+  y nowrap para que las etiquetas no se corten. (3) FormDesigner (hand-off UI): opcion "Multi-seleccion
+  (casillas)" en el dropdown "Tipo de columna" + cases en ChangeGridColumnType/SetGridColumnType (siembra
+  1 opcion) + SaveGridColumns re-emite type="multicheck" y las options (antes se perdian al re-guardar).
+  Verificado en vivo: la columna gestiones se pinta como 6 casillas con etiqueta; marcar Cotizacion/PQR/
+  Oportunidad persiste; el disenador ofrece el tipo. Build verde.
+- IMPRESION de multicheck/select (FormTemplateRenderService.cs): un {{col.x}} de columna select imprimia el id
+  y un multicheck imprimia el JSON crudo (["cotizacion","pqr"]). Ahora FormatCellDisplay mapea id->etiqueta y
+  une el multicheck con ", " (grilla plana y agrupada). Para CAMPOS sueltos (no grilla) se agrego un parametro
+  OPCIONAL fieldChoices a FormTemplateMerge.Render (fieldCode -> options_json + esMulti) y FormatChoiceField,
+  para que un {{campo.x}} de Select/Radio/MultiCheck tambien imprima la etiqueta ("Prospecto", "Mail, Telefono")
+  en vez del id/JSON. 2 tests nuevos (columna y campo) verdes.
+- De paso: el PROYECTO de pruebas Application no compilaba desde la feature de snapshots (los fakes de
+  IApplicationDbContext no tenian FormBuilderSnapshots/Conversations/Messages; un IFormDefinitionService fake sin
+  ReplaceStructureFromJsonAsync; y FormBuilderChatServiceTests construia el service sin el nuevo IFormSnapshotService).
+  Se completaron esos stubs (FakeSnapshots no-op). Suite Application entera VERDE: 1005/1005.
 
 ## 2026-09-25 - v0.16.146: import de plantillas WhatsApp - TRAER los botones (BUTTONS) de Meta
 
@@ -14431,3 +14637,57 @@ finales). Creado por SQL (excepcion ETL) replicando ImportBpmnAsync: workflow_de
 (1 StartEvent, 8 Task, 3 ExclusiveGateway, 2 EndEvent; node_type string, allows_assignment=Task, x/y/w/h)
 + 18 workflow_edges (source/target por id, 0 huerfanas). Queda como BORRADOR editable/publicable en el
 disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-1115.
+
+## 2026-09-28 - form-builder-chat: auto-verificacion del agente (verify_form) + fix grillas camelCase
+
+- verify_form (tool read-only) + checker puro VerifyForm en FormAuthoringToolset: corre checks de coherencia
+  deterministas sobre el formulario ya construido (campo que suma con {#...} -> debe ser rollup; rollup a
+  campo inexistente; destino de rollup CON calc que lo pisa; lookup DataContainer/Item/ExternalDataset sin
+  source_ref; lista Options sin opciones; referencias {codigo} colgantes; NaturalKey a field inexistente).
+  El arnes obliga a llamarla al cerrar y auto-corregir hasta errors=0. Documentado en describe_components.
+  12 pruebas doradas del checker (cero falsos positivos en el patron correcto).
+- BRIEF EN VIVO (SOLDARCO, FORX-FRM-041): el agente armo la cotizacion (seccion Cliente > Fila > campos,
+  tabla items con total_item calc + rollup, subtotal/iva/total). Se inyecto a proposito el error: rollup de
+  total_item -> "gran_total" (campo inexistente). HALLAZGO: el agente escribio la columna en camelCase
+  (calcExpression/aggregate/controlType) en vez de las claves cortas del motor (calc/agg/type) -> la grilla
+  quedaba MUDA (Total Item vacio, Subtotal/Total $0) y verify_form quedaba CIEGO (ParseColumns leia
+  Calc=null/Agg=None -> no veia el rollup colgante). Por eso el agente decia "verificado sin errores".
+- FIX raiz: (a) FormGridCalculator.ParseColumns tolera alias camelCase (aditivo: solo cae al alias si falta la
+  clave canonica -> las columnas correctas no cambian). Arregla runtime + verify_form incluso en forms ya
+  guardados. (b) NormalizeOptionsJson canonicaliza las claves al guardar para dato limpio + editor del
+  disenador. 6 pruebas doradas mas (ParseColumns lee alias, canonica gana, Compute rollup camelCase 2000/3500,
+  verify detecta rollup colgante en grilla camelCase). Suite Application 1044/1044.
+- RE-VALIDADO EN VIVO tras el fix: al pedir la auto-verificacion, verify_form DETECTO el rollup a gran_total
+  inexistente (el agente cito textual el mensaje del checker), el agente CREO gran_total y re-verifico limpio
+  -> loop cerrado. La celda Total Item paso de input editable a celda calculada. gran_total confirmado en BD.
+- Commits worktree-form-builder-chat: 1cf52ba3 (verify_form) + 06f4a479 (grillas camelCase). Pusheados. Sin
+  deploy a prod (a senal del usuario).
+- **verify_form OBLIGATORIO EN EL CIERRE (opcion b elegida, commit 066fd0f7).** Ya no se confia en que el
+  modelo llame verify_form ni en que diga la verdad ("ya verifique"). FormBuilderChatService: cuando un turno
+  CIERRA (texto sin herramientas y que NO es pregunta) y hay formulario, el SERVICIO corre verify_form el
+  mismo (RunMandatoryVerifyAsync, la misma tool read-only); si hay errores, los reinyecta al agente para que
+  emita la correccion (gate humano), en vez de dejar cerrar roto. Acotado MaxForcedVerify=2 (el gate ya impide
+  aplicar en el mismo turno; flujo normal: forzar 1 vez -> agente PROPONE fix -> confirmar -> re-verifica
+  limpio y cierra). EndsWithQuestion: una pregunta al cierre no fuerza. 3 tests nuevos + ajuste del de
+  solo-lectura. Suite 1047/1047.
+- VALIDADO EN VIVO (SOLDARCO): le dije "no verifiques nada, dame por terminado" con un rollup a "total_neto"
+  inexistente; el SISTEMA forzo verify_form al cierre, lo detecto, el agente propuso crear total_neto, se
+  confirmo y re-verifico limpio -> cerro. total_neto/gran_total confirmados en BD. Cierre roto = imposible.
+- **PRUEBA EMULANDO USUARIO NORMAL (poco prompt, delega) + 2 mejoras de UX (commit cf01330a).** Con un brief
+  vago ("formulario para visitas a obra") el agente hace buena entrevista y ante "hazlo tu como veas" asume
+  defaults y construye coherente. Dos fricciones halladas y resueltas:
+  1) El input del chat se BLOQUEABA con una propuesta pendiente -> el usuario no podia decir "ya no mas" ni
+     "cambia X". FIX: SendAsync descarta las propuestas Pending (DiscardPendingProposalsAsync: Rejected + nota)
+     y atiende el mensaje; UI habilita textarea/Enviar con propuesta pendiente (placeholder "cambiar el rumbo",
+     hint, quita la tarjeta al enviar). 1 test nuevo. VALIDADO: con propuesta pendiente escribi "agregale fecha
+     de entrega" -> se descarto el lote y re-propuso incluyendo el campo.
+  2) Construia seccion-por-seccion (~10 confirmaciones). FIX (arnes): construir por CAPAS agrupadas (un turno
+     TODAS las secciones, luego filas, luego campos) y en DELEGACION planificar todo y minimizar turnos; Row
+     solo si 2+ campos en linea. VALIDADO: "hazlo tu" -> header+transaccional+tema+3 secciones en UN turno,
+     luego los campos. Suite 1048/1048. Sin deploy a prod.
+- **Alias name->label en columnas de grilla (commit f970f4b1).** 2da corrida usuario normal confirmo que el
+  batching mejoro (config + 8 contenedores en 1 turno + 13 campos en 1 turno; ~3 turnos vs ~10; dependiente del
+  modelo y las tablas van de a 1-2). Detalle hallado: el agente pone el titulo de columna bajo "name" en vez de
+  "label" -> el header salia con el id. FIX aditivo: ParseColumns cae a "name" si falta "label" (label gana) +
+  NormalizeOptionsJson canonicaliza al guardar; aplica a forms ya guardados. 2 tests. Suite 1050/1050. Validado
+  en vivo (4 tablas con encabezados correctos: "Tipo de Material", "% Avance"...). Sin deploy a prod.

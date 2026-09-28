@@ -1,0 +1,30 @@
+.fbc { display:flex; flex-direction:column; height:100%; min-height:0; background:var(--surface-1, #fff); }
+
+.fbc-head { padding:10px 12px; border-bottom:1px solid var(--line, #e5e7eb); flex:0 0 auto; }
+.fbc-title { font-weight:700; font-size:13px; }
+.fbc-sub { font-size:11px; color:var(--ink-3, #6b7280); margin-top:2px; }
+
+.fbc-msgs { flex:1 1 auto; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; }
+
+.fbc-bubble { max-width:92%; padding:7px 10px; border-radius:10px; font-size:12.5px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+.fbc-bubble.me { align-self:flex-end; background:#2563eb; color:#fff; border-bottom-right-radius:3px; }
+.fbc-bubble.bot { align-self:flex-start; background:var(--surface-3, #f3f4f6); color:var(--ink-1, #111827); border-bottom-left-radius:3px; }
+.fbc-typing { font-style:italic; color:var(--ink-3, #6b7280); }
+
+.fbc-proposal { align-self:stretch; border:1px solid #f59e0b; background:#fffbeb; border-radius:10px; padding:9px 10px; }
+.fbc-proposal-h { font-weight:700; font-size:12px; margin-bottom:5px; }
+.fbc-proposal-list { margin:0 0 8px; padding-left:16px; font-size:12px; }
+.fbc-proposal-list li { margin-bottom:4px; }
+.fbc-args { display:block; color:var(--ink-3, #6b7280); font-family:ui-monospace, Consolas, monospace; font-size:10.5px; word-break:break-all; margin-top:2px; }
+.fbc-proposal-actions { display:flex; gap:6px; }
+.fbc-proposal-hint { margin-top:6px; font-size:10.5px; color:var(--ink-3, #6b7280); font-style:italic; }
+
+.fbc-error { margin:0 12px 8px; padding:6px 9px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; font-size:12px; flex:0 0 auto; }
+
+.fbc-chips { display:flex; flex-wrap:wrap; gap:5px; padding:0 12px 6px; flex:0 0 auto; }
+.fbc-chip { background:var(--surface-3, #f3f4f6); border-radius:12px; padding:2px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px; }
+.fbc-chip button { border:0; background:transparent; cursor:pointer; font-size:13px; line-height:1; color:var(--ink-3, #6b7280); }
+
+.fbc-input { display:flex; align-items:flex-end; gap:6px; padding:8px 10px; border-top:1px solid var(--line, #e5e7eb); flex:0 0 auto; }
+.fbc-attach { width:32px; height:32px; border:1px solid var(--line, #e5e7eb); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:19px; cursor:pointer; color:var(--ink-2, #374151); flex:0 0 auto; }
+.fbc-textarea { flex:1 1 auto; resize:none; min-height:34px; max-height:120px; font-size:12.5px; }

@@ -14416,3 +14416,30 @@ finales). Creado por SQL (excepcion ETL) replicando ImportBpmnAsync: workflow_de
 (1 StartEvent, 8 Task, 3 ExclusiveGateway, 2 EndEvent; node_type string, allows_assignment=Task, x/y/w/h)
 + 18 workflow_edges (source/target por id, 0 huerfanas). Queda como BORRADOR editable/publicable en el
 disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-1115.
+
+## 2026-09-28 - form-builder-chat: auto-verificacion del agente (verify_form) + fix grillas camelCase
+
+- verify_form (tool read-only) + checker puro VerifyForm en FormAuthoringToolset: corre checks de coherencia
+  deterministas sobre el formulario ya construido (campo que suma con {#...} -> debe ser rollup; rollup a
+  campo inexistente; destino de rollup CON calc que lo pisa; lookup DataContainer/Item/ExternalDataset sin
+  source_ref; lista Options sin opciones; referencias {codigo} colgantes; NaturalKey a field inexistente).
+  El arnes obliga a llamarla al cerrar y auto-corregir hasta errors=0. Documentado en describe_components.
+  12 pruebas doradas del checker (cero falsos positivos en el patron correcto).
+- BRIEF EN VIVO (SOLDARCO, FORX-FRM-041): el agente armo la cotizacion (seccion Cliente > Fila > campos,
+  tabla items con total_item calc + rollup, subtotal/iva/total). Se inyecto a proposito el error: rollup de
+  total_item -> "gran_total" (campo inexistente). HALLAZGO: el agente escribio la columna en camelCase
+  (calcExpression/aggregate/controlType) en vez de las claves cortas del motor (calc/agg/type) -> la grilla
+  quedaba MUDA (Total Item vacio, Subtotal/Total $0) y verify_form quedaba CIEGO (ParseColumns leia
+  Calc=null/Agg=None -> no veia el rollup colgante). Por eso el agente decia "verificado sin errores".
+- FIX raiz: (a) FormGridCalculator.ParseColumns tolera alias camelCase (aditivo: solo cae al alias si falta la
+  clave canonica -> las columnas correctas no cambian). Arregla runtime + verify_form incluso en forms ya
+  guardados. (b) NormalizeOptionsJson canonicaliza las claves al guardar para dato limpio + editor del
+  disenador. 6 pruebas doradas mas (ParseColumns lee alias, canonica gana, Compute rollup camelCase 2000/3500,
+  verify detecta rollup colgante en grilla camelCase). Suite Application 1044/1044.
+- RE-VALIDADO EN VIVO tras el fix: al pedir la auto-verificacion, verify_form DETECTO el rollup a gran_total
+  inexistente (el agente cito textual el mensaje del checker), el agente CREO gran_total y re-verifico limpio
+  -> loop cerrado. La celda Total Item paso de input editable a celda calculada. gran_total confirmado en BD.
+- Commits worktree-form-builder-chat: 1cf52ba3 (verify_form) + 06f4a479 (grillas camelCase). Pusheados. Sin
+  deploy a prod (a senal del usuario). Pendiente sugerido: el arnes/agente aun no siempre EMITE verify_form al
+  cerrar por si solo (aqui lo pedimos explicito); StoppedMidAction no atrapa el falso "ya verifique" (claim
+  pasado). Evaluar un empujon anti-claim-de-verificacion o forzar verify_form como paso no-opcional del cierre.

@@ -81,8 +81,9 @@ public sealed class AiInferenceService : IAiInferenceService
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
         string? imageBase64 = null, string? imageMime = null,
         string? docBase64 = null, string? docMime = null, string? docFileName = null,
+        string? audioBase64 = null, string? audioMime = null,
         CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: imageBase64, imageMime: imageMime, pendingAttachments: null, audioBase64: null, audioMime: null, docBase64: docBase64, docMime: docMime, docFileName: docFileName, cancellationToken);
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: imageBase64, imageMime: imageMime, pendingAttachments: null, audioBase64: audioBase64, audioMime: audioMime, docBase64: docBase64, docMime: docMime, docFileName: docFileName, cancellationToken);
 
     private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, string? audioBase64, string? audioMime, string? docBase64, string? docMime, string? docFileName, CancellationToken cancellationToken)
     {
@@ -151,6 +152,24 @@ public sealed class AiInferenceService : IAiInferenceService
                 }
             }
             catch { /* best-effort: la lectura de la imagen nunca debe romper la respuesta */ }
+        }
+
+        // Nota de voz entrante: se TRANSCRIBE y se anexa al ultimo turno como "Transcripcion del audio: ...",
+        // el formato que el prompt (seccion NOTA DE VOZ) ya espera. Asi la ven TANTO el modelo principal COMO el
+        // extractor de cache, y calza sin cambios de prompt. Best-effort: si falla, el audio igual quedo guardado
+        // (ingesta) y el agente usa su fallback en espanol. Alcance: Gemini; otros proveedores devuelven vacio.
+        if (!string.IsNullOrWhiteSpace(audioBase64) && work.Count > 0
+            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var transcripcion = await ReadAudioAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, audioBase64!, audioMime, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(transcripcion))
+                {
+                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\nTranscripcion del audio: " + transcripcion!.Trim() };
+                }
+            }
+            catch { /* best-effort: la transcripcion nunca debe romper la respuesta */ }
         }
 
         var systemPrompt = await BuildSystemPrompt(agentId, systemPromptOverride ?? agent.SystemPrompt, resources, cacheFields, cacheValues, work, autonomous, cancellationToken);
@@ -283,6 +302,28 @@ MOTOBOMBA: (MARCA/MODELO/POTENCIA_HP/VOLTAJE/FASES/AMPERAJE, solo si es PLACA_MO
         {
             new(Text: "Lee la imagen y devuelve el bloque de campos."),
             new(ImageBase64: imageBase64, ImageMime: mime)
+        };
+        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
+        return r.Ok ? r.Text?.Trim() : null;
+    }
+
+    /// <summary>
+    /// Transcribe una nota de voz entrante a TEXTO (mismo proveedor/apiKey/modelo del agente). Best-effort:
+    /// devuelve null si falla o si el proveedor no transcribe (solo Gemini por ahora). Nunca lanza.
+    /// </summary>
+    private async Task<string?> ReadAudioAsync(AiProvider provider, string apiKey, string? baseUrl,
+        string model, string audioBase64, string? audioMime, CancellationToken ct)
+    {
+        // Solo Gemini transcribe audio (generateContent con inlineData). Otros proveedores: sin transcripcion.
+        if (provider != AiProvider.Gemini) { return null; }
+        const string sys = @"Eres un transcriptor. Escuchas UNA nota de voz que envio un cliente por WhatsApp y
+devuelves SOLO la transcripcion literal en el idioma hablado (normalmente espanol), sin comillas, sin
+markdown y sin agregar nada. Si no se entiende nada, devuelve una cadena vacia.";
+        var mime = string.IsNullOrWhiteSpace(audioMime) ? "audio/ogg" : audioMime!;
+        var content = new List<AiVisionPart>
+        {
+            new(Text: "Transcribe la nota de voz."),
+            new(AudioBase64: audioBase64, AudioMime: mime)
         };
         var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
         return r.Ok ? r.Text?.Trim() : null;

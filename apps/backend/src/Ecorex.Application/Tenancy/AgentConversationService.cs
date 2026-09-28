@@ -118,7 +118,7 @@ public sealed class AgentConversationService : IAgentConversationService
         //  - PDF/otro binario -> se pasa como documento (Gemini lo LEE por su ruta nativa generateContent).
         //  - Excel/CSV -> se EXTRAE a texto tabular y se anexa al ultimo turno (Gemini no acepta xlsx nativo).
         // Solo el ultimo turno entrante (igual que hoy con imagen); sin adjunto todo sigue igual.
-        string? imageBase64 = null, imageMime = null, docBase64 = null, docMime = null, docFileName = null;
+        string? imageBase64 = null, imageMime = null, docBase64 = null, docMime = null, docFileName = null, audioBase64 = null, audioMime = null;
         var lastIn = messages[^1];   // garantizado entrante (si fuera saliente ya habriamos retornado)
         if (lastIn.MediaType == MessageMediaType.Image && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
         {
@@ -144,12 +144,19 @@ public sealed class AgentConversationService : IAgentConversationService
                 docFileName = string.IsNullOrWhiteSpace(lastIn.MediaFileName) ? null : lastIn.MediaFileName!.Trim();
             }
         }
+        else if (lastIn.MediaType == MessageMediaType.Audio && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
+        {
+            // Nota de voz -> se pasa al modelo (la OYE) y se transcribe a texto (Gemini). El audio ya quedo
+            // guardado en la conversacion/tarea por la ingesta; esto es solo para que el agente lo ENTIENDA.
+            audioBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
+            audioMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "audio/ogg" : lastIn.MediaMimeType;
+        }
 
         // Actor del sistema (el agente actua de forma autonoma); la auditoria queda sin usuario humano.
         var actor = Guid.Empty;
 
         var result = await _inference.RespondAsync(agent.Id, conversationId, turns, binding.AutoConfirm, actor,
-            imageBase64, imageMime, docBase64, docMime, docFileName, cancellationToken);
+            imageBase64, imageMime, docBase64, docMime, docFileName, audioBase64, audioMime, cancellationToken);
 
         // Bitacora: mensaje recibido + prompts/herramientas + respuesta.
         await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Inbound,

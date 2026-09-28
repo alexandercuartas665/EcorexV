@@ -1467,10 +1467,11 @@ app.MapPost("/webhooks/evolution", async (
     }
 
     var payload = parsed.Payload;
-    // Imagen entrante: descargamos la media (por el id del mensaje) y la guardamos como adjunto, para que
-    // el agente y la consola puedan verla. Fijamos el tenant para resolver el servidor.
-    if (payload.MessageType == "image" && payload.WhatsAppLineId is Guid lid)
+    // Media entrante (imagen o nota de voz): descargamos la media (por el id del mensaje) y la guardamos como
+    // adjunto, para que el agente/consola puedan verla y, en el caso del audio, transcribirla. Fijamos el tenant.
+    if ((payload.MessageType == "image" || payload.MessageType == "audio") && payload.WhatsAppLineId is Guid lid)
     {
+        var isAudio = payload.MessageType == "audio";
         using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(parsed.TenantId))
         {
             try
@@ -1479,15 +1480,29 @@ app.MapPost("/webhooks/evolution", async (
                 if (media.Ok && !string.IsNullOrWhiteSpace(media.Base64))
                 {
                     var bytes = Convert.FromBase64String(media.Base64!);
-                    var mime = string.IsNullOrWhiteSpace(media.Mime) ? "image/jpeg" : media.Mime!;
-                    var ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
+                    var mime = string.IsNullOrWhiteSpace(media.Mime)
+                        ? (isAudio ? "audio/ogg" : "image/jpeg")
+                        : media.Mime!;
+                    string ext;
+                    if (isAudio)
+                    {
+                        // Notas de voz de WhatsApp: audio/ogg; codecs=opus. Fallback .ogg; otros formatos por mime.
+                        ext = mime.Contains("mpeg") || mime.Contains("mp3") ? ".mp3"
+                            : mime.Contains("mp4") || mime.Contains("m4a") ? ".m4a"
+                            : mime.Contains("wav") ? ".wav"
+                            : ".ogg";
+                    }
+                    else
+                    {
+                        ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
+                    }
                     var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
                     System.IO.Directory.CreateDirectory(dir);
                     var fname = $"wa-{Guid.NewGuid():N}{ext}";
                     await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
                     payload = payload with
                     {
-                        MediaType = Ecorex.Domain.Enums.MessageMediaType.Image,
+                        MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio : Ecorex.Domain.Enums.MessageMediaType.Image,
                         MediaUrl = $"/uploads/chat/{fname}",
                         MediaMimeType = mime
                     };
@@ -1495,7 +1510,7 @@ app.MapPost("/webhooks/evolution", async (
             }
             catch (Exception ex)
             {
-                // No romper la ingesta: se ingiere como texto "(imagen)", pero dejamos registro para diagnosticar.
+                // No romper la ingesta: se ingiere como texto "(imagen)"/"(nota de voz)", pero dejamos registro para diagnosticar.
                 log.LogWarning(ex, "Webhook Evolution: no se pudo descargar la media entrante del mensaje {Id}; se ingiere como texto.", payload.ExternalMessageId);
             }
         }

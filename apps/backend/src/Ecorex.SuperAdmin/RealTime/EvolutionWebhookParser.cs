@@ -63,8 +63,9 @@ public static class EvolutionWebhookParser
 
         var name2 = data.TryGetProperty("pushName", out var pn) && pn.ValueKind == JsonValueKind.String ? pn.GetString() : null;
         var isImage = IsImageMessage(data);
+        var isAudio = IsAudioMessage(data);
         var body = ExtractText(data);
-        if (string.IsNullOrWhiteSpace(body)) { body = isImage ? "(imagen)" : "(mensaje no soportado)"; }
+        if (string.IsNullOrWhiteSpace(body)) { body = isImage ? "(imagen)" : isAudio ? "(nota de voz)" : "(mensaje no soportado)"; }
 
         DateTimeOffset? sentAt = null;
         if (data.TryGetProperty("messageTimestamp", out var ts) && ts.ValueKind == JsonValueKind.Number && ts.TryGetInt64(out var secs))
@@ -72,16 +73,23 @@ public static class EvolutionWebhookParser
             sentAt = DateTimeOffset.FromUnixTimeSeconds(secs);
         }
 
-        // Para imagenes marcamos MessageType="image": el webhook descargara la media por el id del mensaje
-        // (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla.
+        // Para imagenes/audio marcamos el MessageType: el webhook descargara la media por el id del mensaje
+        // (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla/transcribirla.
+        var messageType = isImage ? "image" : isAudio ? "audio" : "text";
         return new ParsedInbound(tenantId.Value,
-            new IngestMessageRequest(phone, name2, externalId, body!, isImage ? "image" : "text", sentAt, lineId,
+            new IngestMessageRequest(phone, name2, externalId, body!, messageType, sentAt, lineId,
                 RemoteJid: jid));
     }
 
     private static bool IsImageMessage(JsonElement data) =>
         data.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object
         && msg.TryGetProperty("imageMessage", out var im) && im.ValueKind == JsonValueKind.Object;
+
+    // WhatsApp manda TANTO las notas de voz (ptt=true) COMO los audios normales dentro de audioMessage;
+    // con detectar audioMessage basta para ambos.
+    private static bool IsAudioMessage(JsonElement data) =>
+        data.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object
+        && msg.TryGetProperty("audioMessage", out var am) && am.ValueKind == JsonValueKind.Object;
 
     private static string? ExtractText(JsonElement data)
     {

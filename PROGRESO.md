@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.160: DEPLOY a prod (bump de release del lote acumulado en tronco)
+
+- Bump 0.16.159 -> 0.16.160 para el deploy. Prod venia en v0.16.155; este release ARRASTRA todo lo acumulado en
+  tronco desde entonces SIN desplegar: v0.16.156 (contenedor detalle por campo), v0.16.157 (pagina /d/{token}
+  footer+encuesta, ADR-0115), v0.16.158 (fix eliminar formulario), v0.16.159 (codigo automatico al crear
+  cotizacion, ADR-0116), el MERGE del asistente form-builder-chat (aplica AHORA sus migraciones
+  AddFormBuilderChat/AddFormBuilderSnapshot al arrancar) y el FIX de la busqueda de contactos por agente
+  (d0cc615e: pasaba dominios como tool allow-list -> no navegaba/fabricaba).
+- Deploy con deploy/deploy-prod.ps1 -Version 0.16.160 (build-from-git de fase-0/clon-backbone, backup previo,
+  auto-migra al arrancar). OK explicito del usuario para ESTE deploy.
+
 ## 2026-09-28 - FIX (rama feat/contacto-search-navega-real): la busqueda de contactos no abria el navegador (fabricaba)
 
 - CORRIGE/PROFUNDIZA la investigacion previa (no era MSI): el navegador no se veia porque NUNCA se abria. Con una

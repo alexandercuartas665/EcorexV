@@ -106,6 +106,49 @@ public class FormBuilderChatServiceTests
         Assert.Contains("nit", userMsg.Content);
     }
 
+    [Fact]
+    public async Task Narra_sin_emitir_tools_el_servicio_lo_empuja_a_ejecutar()
+    {
+        var ai = new FakeAi();
+        // 1) El agente SOLO narra una accion futura, sin tool-calls (el bug: se quedaba aqui).
+        ai.Enqueue(new AiCompletion(true, "Entendido. Voy a crear la seccion Datos del cliente. A continuacion agregare los campos.",
+            null, 0, 0, Array.Empty<AiToolCall>()));
+        // 2) Tras el empujon, ahora si emite la llamada.
+        ai.Enqueue(new AiCompletion(true, "Creando la seccion.", null, 0, 0,
+            new[] { new AiToolCall("c1", "add_container", "{\"type\":\"Section\"}") }));
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "arma el formulario completo", null, Guid.NewGuid());
+
+        // El empujon automatico hizo que el agente EMITA la propuesta en vez de terminar solo con la narracion.
+        Assert.True(r.Ok);
+        Assert.True(r.AwaitingConfirmation);
+        Assert.Single(r.Proposals);
+        Assert.Equal("add_container", r.Proposals[0].ToolName);
+    }
+
+    [Fact]
+    public async Task No_empuja_cuando_el_agente_hace_una_pregunta()
+    {
+        var ai = new FakeAi();
+        // Texto-solo que es una PREGUNTA -> debe esperar al usuario, NO auto-empujar.
+        ai.Enqueue(new AiCompletion(true, "Antes de construir: la Prioridad es una lista fija o sale de una fuente?",
+            null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "arma el formulario", null, Guid.NewGuid());
+
+        Assert.True(r.Ok);
+        Assert.False(r.AwaitingConfirmation);
+        // Si hubiera empujado, habria consumido la respuesta de reserva; que quede la PREGUNTA confirma que NO empujo.
+        Assert.Contains("una lista fija o sale de una fuente", r.AssistantText);
+        Assert.Empty(toolset.Executed);
+    }
+
     private static IFormBuilderChatService NewService(FakeAi ai, FakeToolset toolset, out FakeStore store)
     {
         store = new FakeStore();

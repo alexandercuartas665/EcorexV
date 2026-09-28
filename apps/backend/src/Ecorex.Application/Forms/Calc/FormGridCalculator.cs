@@ -106,17 +106,24 @@ public static class FormGridCalculator
                 var id = el.TryGetProperty("id", out var pid) ? pid.GetString() : null;
                 if (string.IsNullOrWhiteSpace(id)) { continue; }
                 var label = el.TryGetProperty("label", out var pl) ? pl.GetString() ?? id : id;
-                var calc = el.TryGetProperty("calc", out var pc) ? pc.GetString() : null;
+                // Tolerancia de ALIAS camelCase: un autor (o el agente de IA) puede escribir la columna con las claves
+                // del campo ("calcExpression"/"aggregate"/"controlType") en vez de las cortas ("calc"/"agg"/"type").
+                // Solo se cae al alias cuando falta la clave canonica, asi que las columnas correctas no cambian y una
+                // grilla escrita en camelCase deja de quedarse muda (calc/rollup no se perdian en silencio).
+                var calc = el.TryGetProperty("calc", out var pc) ? pc.GetString()
+                    : el.TryGetProperty("calcExpression", out var pce) ? pce.GetString() : null;
                 var rollup = el.TryGetProperty("rollup", out var pr) ? pr.GetString() : null;
                 var agg = FormAggregate.None;
-                if (el.TryGetProperty("agg", out var pa) && Enum.TryParse<FormAggregate>(pa.GetString(), ignoreCase: true, out var parsed)) { agg = parsed; }
+                if ((el.TryGetProperty("agg", out var pa) || el.TryGetProperty("aggregate", out pa))
+                    && Enum.TryParse<FormAggregate>(pa.GetString(), ignoreCase: true, out var parsed)) { agg = parsed; }
                 // C4: condicion de INCLUSION del agregado ("aggWhen": "{sin_stock}=0"). Ausente =
                 // se suman todas las filas, o sea el comportamiento de siempre.
                 var aggWhen = el.TryGetProperty("aggWhen", out var paw) ? paw.GetString() : null;
 
                 // D3: tipo de captura y, si es lista, sus opciones. "type" en el JSON por consistencia
                 // con el campo (que usa control_type); aqui es solo "text" o "select".
-                var kind = el.TryGetProperty("type", out var pt) ? (pt.GetString() ?? "text") : "text";
+                var kind = el.TryGetProperty("type", out var pt) ? (pt.GetString() ?? "text")
+                    : el.TryGetProperty("controlType", out var pct) ? (pct.GetString() ?? "text") : "text";
                 var required = el.TryGetProperty("required", out var prq) && prq.ValueKind == JsonValueKind.True;
                 // Ancho por columna (px). Se acepta "width" o el alias corto "w". Solo si es un
                 // numero positivo razonable; cualquier otra cosa se ignora y cae al default por tipo.

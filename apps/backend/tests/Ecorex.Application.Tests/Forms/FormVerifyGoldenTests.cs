@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ecorex.Application.Forms;
+using Ecorex.Application.Forms.Calc;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 using Xunit;
@@ -149,5 +150,61 @@ public class FormVerifyGoldenTests
             "[{\"id\":\"total\",\"label\":\"T\",\"type\":\"calc\",\"calc\":\"{cantidad}*{precio}\"},{\"id\":\"cantidad\",\"label\":\"C\",\"type\":\"text\"}]");
         var issues = FormAuthoringToolset.VerifyForm(Def(new[] { grid }));
         Assert.True(HasError(issues, "precio")); // 'precio' no es columna
+    }
+
+    // REGRESION del brief en vivo: el agente escribio la columna en camelCase (calcExpression/aggregate/
+    // controlType) y apunto el rollup a un campo inexistente. Antes verify_form quedaba ciego (ParseColumns
+    // no leia esas claves -> Agg=None). Ahora, con la tolerancia de alias, debe DETECTAR el rollup colgante.
+    [Fact]
+    public void Grilla_en_camelCase_verify_detecta_rollup_inexistente()
+    {
+        var grid = Field("items", FormControlType.GridDetail, options:
+            "[{\"id\":\"total_item\",\"label\":\"Total\",\"controlType\":\"Number\",\"calcExpression\":\"{cantidad} * {precio}\",\"aggregate\":\"Sum\",\"rollup\":\"gran_total\"},{\"id\":\"cantidad\",\"label\":\"C\",\"controlType\":\"Number\"}]");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { grid }));
+        Assert.True(HasError(issues, "gran_total"));
+    }
+}
+
+// PRUEBA DORADA de la tolerancia de alias camelCase en el parser de columnas del motor: una grilla escrita con
+// calcExpression/aggregate/controlType debe COMPUTAR igual que con calc/agg/type (antes se quedaba muda).
+public class FormGridColumnAliasTests
+{
+    [Fact]
+    public void ParseColumns_lee_alias_camelCase()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            "[{\"id\":\"total_item\",\"label\":\"Total\",\"controlType\":\"Number\",\"calcExpression\":\"{cantidad}*{precio}\",\"aggregate\":\"Sum\",\"rollup\":\"subtotal\"}]");
+        var c = Assert.Single(cols);
+        Assert.Equal("{cantidad}*{precio}", c.Calc);
+        Assert.Equal(FormAggregate.Sum, c.Agg);
+        Assert.Equal("subtotal", c.Rollup);
+        Assert.Equal("number", c.Kind);
+    }
+
+    [Fact]
+    public void ParseColumns_la_clave_canonica_gana_sobre_el_alias()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            "[{\"id\":\"x\",\"calc\":\"{a}\",\"calcExpression\":\"{b}\",\"agg\":\"Sum\",\"aggregate\":\"Count\"}]");
+        var c = Assert.Single(cols);
+        Assert.Equal("{a}", c.Calc);
+        Assert.Equal(FormAggregate.Sum, c.Agg);
+    }
+
+    // Una grilla en camelCase debe rollupear igual: total_item = cantidad*precio, sumado a subtotal.
+    [Fact]
+    public void Compute_rollup_funciona_con_columnas_en_camelCase()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            "[{\"id\":\"cantidad\",\"controlType\":\"Number\"},{\"id\":\"precio\",\"controlType\":\"Number\"}," +
+            "{\"id\":\"total_item\",\"controlType\":\"Number\",\"calcExpression\":\"{cantidad}*{precio}\",\"aggregate\":\"Sum\",\"rollup\":\"subtotal\"}]");
+        var rows = new List<Dictionary<string, string?>>
+        {
+            new(StringComparer.Ordinal) { ["cantidad"] = "2", ["precio"] = "1000" },
+            new(StringComparer.Ordinal) { ["cantidad"] = "3", ["precio"] = "500" },
+        };
+        var (computed, rollups) = FormGridCalculator.Recompute(rows, cols);
+        Assert.Equal("2000", computed[0]["total_item"]);
+        Assert.Equal("3500", rollups["subtotal"]); // 2000 + 1500
     }
 }

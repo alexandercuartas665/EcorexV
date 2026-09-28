@@ -14464,3 +14464,9 @@ disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-
      TODAS las secciones, luego filas, luego campos) y en DELEGACION planificar todo y minimizar turnos; Row
      solo si 2+ campos en linea. VALIDADO: "hazlo tu" -> header+transaccional+tema+3 secciones en UN turno,
      luego los campos. Suite 1048/1048. Sin deploy a prod.
+- **Alias name->label en columnas de grilla (commit f970f4b1).** 2da corrida usuario normal confirmo que el
+  batching mejoro (config + 8 contenedores en 1 turno + 13 campos en 1 turno; ~3 turnos vs ~10; dependiente del
+  modelo y las tablas van de a 1-2). Detalle hallado: el agente pone el titulo de columna bajo "name" en vez de
+  "label" -> el header salia con el id. FIX aditivo: ParseColumns cae a "name" si falta "label" (label gana) +
+  NormalizeOptionsJson canonicaliza al guardar; aplica a forms ya guardados. 2 tests. Suite 1050/1050. Validado
+  en vivo (4 tablas con encabezados correctos: "Tipo de Material", "% Avance"...). Sin deploy a prod.

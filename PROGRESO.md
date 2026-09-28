@@ -14440,6 +14440,15 @@ disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-
   inexistente (el agente cito textual el mensaje del checker), el agente CREO gran_total y re-verifico limpio
   -> loop cerrado. La celda Total Item paso de input editable a celda calculada. gran_total confirmado en BD.
 - Commits worktree-form-builder-chat: 1cf52ba3 (verify_form) + 06f4a479 (grillas camelCase). Pusheados. Sin
-  deploy a prod (a senal del usuario). Pendiente sugerido: el arnes/agente aun no siempre EMITE verify_form al
-  cerrar por si solo (aqui lo pedimos explicito); StoppedMidAction no atrapa el falso "ya verifique" (claim
-  pasado). Evaluar un empujon anti-claim-de-verificacion o forzar verify_form como paso no-opcional del cierre.
+  deploy a prod (a senal del usuario).
+- **verify_form OBLIGATORIO EN EL CIERRE (opcion b elegida, commit 066fd0f7).** Ya no se confia en que el
+  modelo llame verify_form ni en que diga la verdad ("ya verifique"). FormBuilderChatService: cuando un turno
+  CIERRA (texto sin herramientas y que NO es pregunta) y hay formulario, el SERVICIO corre verify_form el
+  mismo (RunMandatoryVerifyAsync, la misma tool read-only); si hay errores, los reinyecta al agente para que
+  emita la correccion (gate humano), en vez de dejar cerrar roto. Acotado MaxForcedVerify=2 (el gate ya impide
+  aplicar en el mismo turno; flujo normal: forzar 1 vez -> agente PROPONE fix -> confirmar -> re-verifica
+  limpio y cierra). EndsWithQuestion: una pregunta al cierre no fuerza. 3 tests nuevos + ajuste del de
+  solo-lectura. Suite 1047/1047.
+- VALIDADO EN VIVO (SOLDARCO): le dije "no verifiques nada, dame por terminado" con un rollup a "total_neto"
+  inexistente; el SISTEMA forzo verify_form al cierre, lo detecto, el agente propuso crear total_neto, se
+  confirmo y re-verifico limpio -> cerro. total_neto/gran_total confirmados en BD. Cierre roto = imposible.

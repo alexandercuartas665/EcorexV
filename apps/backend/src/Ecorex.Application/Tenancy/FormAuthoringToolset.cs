@@ -911,7 +911,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     // {#codigo} (ese token solo vale DENTRO de una columna de grilla, para leer el encabezado). El agente
     // insiste en poner subtotal.calc = {#items.total} para "sumar la columna", lo que no computa. Se rechaza con
     // el camino correcto (rollup), en vez de guardar un formulario roto.
-    private static string? HeaderGridCalcError(SaveFormQuestionRequest req)
+    internal static string? HeaderGridCalcError(SaveFormQuestionRequest req)
     {
         if (req.ControlType == FormControlType.GridDetail) { return null; } // el calc de una grilla va en options_json
         if (req.CalcExpression is { } ce && ce.Contains("{#", StringComparison.Ordinal))

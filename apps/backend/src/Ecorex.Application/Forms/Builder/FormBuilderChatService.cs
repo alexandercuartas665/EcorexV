@@ -244,10 +244,21 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var tools = _toolset.GetSpecs();
         var readOnly = _toolset.ReadOnlyTools;
 
+        // Empujon automatico anti "narra pero no emite": si el agente responde SOLO texto con intencion de actuar
+        // ("voy a agregar la tabla...") pero sin tool-calls, se le inyecta UNA vez este nudge transitorio (no se
+        // guarda en el hilo, no lo ve el usuario) para que emita las llamadas, en vez de dejar la construccion a medias.
+        string? transientNudge = null;
+        var autoNudged = false;
+
         for (var round = 0; round < MaxRounds; round++)
         {
             var stored = await _store.GetMessagesAsync(conv.Id, cancellationToken);
             var messages = BuildProviderMessages(stored, images, docs);
+            if (transientNudge is not null)
+            {
+                messages.Add(new AiToolMessage("user", transientNudge));
+                transientNudge = null;
+            }
 
             AiCompletion completion;
             try
@@ -269,10 +280,20 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 return FormBuilderTurnResult.Fail(conv.Id, completion.Error ?? "La IA no respondio.");
             }
 
-            // Turno FINAL: solo texto, sin herramientas.
+            // Turno solo texto, sin herramientas.
             if (completion.ToolCalls is null || completion.ToolCalls.Count == 0)
             {
                 await AddMessageAsync(conv, FormBuilderMessageRole.Assistant, completion.Text, null, cancellationToken);
+                // Si el agente NARRO una accion futura ("voy a agregar...") pero no emitio nada, empujalo UNA vez a
+                // ejecutar en vez de terminar el turno a medio construir.
+                if (!autoNudged && StoppedMidAction(completion.Text))
+                {
+                    autoNudged = true;
+                    transientNudge = "Describiste lo que ibas a hacer pero NO emitiste las llamadas a las herramientas. " +
+                        "Emitelas AHORA (add_container/add_question/etc.) para eso que acabas de describir; no lo vuelvas a " +
+                        "narrar. Si de verdad ya terminaste o necesitas que el usuario decida algo, dilo en una frase clara.";
+                    continue;
+                }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
                     Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false);
             }
@@ -320,6 +341,31 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         }
 
         return FormBuilderTurnResult.Fail(conv.Id, "El asistente hizo demasiadas consultas seguidas. Intenta de nuevo o precisa la instruccion.");
+    }
+
+    // Heuristica para el empujon anti "narra pero no actua": el texto anuncia una ACCION futura de construccion
+    // (voy a / procedo / a continuacion...) y NO esta esperando al usuario (no termina en pregunta ni dice que
+    // ya termino). Conservadora: ante la duda NO empuja (y de todos modos solo empuja una vez por turno).
+    internal static bool StoppedMidAction(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = text.Trim().ToLowerInvariant();
+        if (t.EndsWith("?") || t.EndsWith("?\"") || t.Contains("?)")) { return false; } // esta preguntando algo
+        // Senales de que YA termino o espera al usuario -> no empujar.
+        if (t.Contains("puedes probar") || t.Contains("ya puedes") || t.Contains("he terminado")
+            || t.Contains("esta listo") || t.Contains("está listo") || t.Contains("ya esta")
+            || t.Contains("ya está") || t.Contains("hazmelo saber") || t.Contains("hazme saber")
+            || t.Contains("necesito que") || t.Contains("confirma") || t.Contains("quieres que"))
+        {
+            return false;
+        }
+        // Intencion FUTURA de actuar (no pasado "he creado"): estas marcas denotan que iba a emitir tools.
+        return t.Contains("voy a ") || t.Contains("vamos a ") || t.Contains("procedo a")
+            || t.Contains("procedere") || t.Contains("procederé") || t.Contains("a continuacion")
+            || t.Contains("a continuación") || t.Contains("enseguida") || t.Contains("acto seguido")
+            || t.Contains("ahora agregare") || t.Contains("ahora agregaré") || t.Contains("ahora creare")
+            || t.Contains("ahora anadire") || t.Contains("ahora añadiré") || t.Contains("aqui estan las llamadas")
+            || t.Contains("aqui te presento las llamadas") || t.Contains("aquí te presento las llamadas");
     }
 
     // Reconstruye la lista de mensajes para el proveedor a partir de los mensajes guardados.

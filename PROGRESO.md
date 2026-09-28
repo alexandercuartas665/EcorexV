@@ -21,6 +21,24 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-28 - form-builder-chat: fix "narra pero no emite tools" + set de pruebas doradas (CI)
+
+- BUG "el agente narra el uso de tools y no hace nada" (preocupacion del usuario). Causa raiz en
+  FormBuilderChatService: cuando el agente responde SOLO texto sin tool-calls, el loop lo trataba como turno
+  FINAL y se detenia -> narracion ("voy a agregar la tabla...") sin propuesta, y el usuario tenia que empujarlo.
+  FIX: empujon automatico UNA vez -> si el texto anuncia una accion futura (StoppedMidAction: "voy a"/"a
+  continuacion"/"aqui estan las llamadas"... y NO es pregunta ni cierre), se inyecta un nudge TRANSITORIO (no se
+  guarda, no lo ve el usuario) que le pide emitir las llamadas, y el loop continua en vez de terminar a medias.
+- SET DE PRUEBAS DORADAS (deterministas, corren en CI sin navegador; detectan regresiones como el trim solas):
+  * FormGridGoldenTests: la matematica de la cotizacion via el motor real (FormGridCalculator.Recompute):
+    columna total=cantidad*precio + agg=Sum + rollup=subtotal -> total por fila y subtotal=suma. (La regresion
+    exacta que rompio el trim.)
+  * FormAuthoringGuardTests: el guard HeaderGridCalcError (rechaza calc {#...} en un campo; acepta calc normal;
+    ignora GridDetail).
+  * StoppedMidActionTests: la heuristica empuja en las narraciones reales que vimos y NO en preguntas/cierres.
+  Para testear los guards internos se agrego InternalsVisibleTo(Ecorex.Application.Tests) y se hicieron internal
+  StoppedMidAction y HeaderGridCalcError. Suite Application entera VERDE: 1026/1026 (15 nuevas).
+
 ## 2026-09-28 - form-builder-chat: contenedores Row + grid rollup punta a punta (guard) VALIDADO
 
 - Pedido: (a) grid completo punta a punta, (b) el agente casi no usa contenedores Row -> forzarlo en el arnes.

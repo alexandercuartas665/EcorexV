@@ -20,4 +20,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Pruebas doradas: exponen helpers internal (guards, heuristicas) a la suite de tests. -->
+    <InternalsVisibleTo Include="Ecorex.Application.Tests" />
+  </ItemGroup>
+
 </Project>

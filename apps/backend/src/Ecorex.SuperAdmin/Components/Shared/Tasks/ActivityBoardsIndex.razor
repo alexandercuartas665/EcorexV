@@ -137,6 +137,10 @@
     private TaskToasts? _toasts;
     private HubConnection? _hub;
     private string? _tenantId;
+    // Restriccion de visibilidad por usuario (tableros): TenantUserId del que mira + si puede ver TODO
+    // (Owner/Admin). Se resuelven en ResolveTenantAsync a partir del AuthState + la lista de usuarios.
+    private Guid? _meTenantUserId;
+    private bool _canSeeAllBoards;
 
     private int FilterCount =>
         (_fUser is null ? 0 : 1) + (_fTag is null ? 0 : 1) + (_fCat is null ? 0 : 1)
@@ -149,8 +153,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await ResolveTenantAsync();
         _users = (await TenantUsersSvc.ListAsync()).ToList();
+        await ResolveTenantAsync(); // usa _users para resolver el TenantUserId del que mira (restriccion de tableros)
         _tags = (await TasksSvc.ListTagsAsync()).ToList();
         _types = (await TypesSvc.ListAsync()).ToList();
         await ReloadAsync();
@@ -162,6 +166,11 @@
         if (AuthState is null) { return; }
         var st = await AuthState;
         _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        // Owner/Admin ven todos los tableros aunque esten restringidos; los demas solo los suyos + los libres.
+        var role = st.User.FindFirst("tenant_role")?.Value;
+        _canSeeAllBoards = role is "Owner" or "Admin";
+        var actorId = Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var a) ? a : Guid.Empty;
+        _meTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actorId)?.Id;
     }
 
     private async Task ReloadAsync()
@@ -171,7 +180,10 @@
             TagId: _fTag,
             ActivityTypeId: _fType,
             HasDueDate: _fDate switch { "conf" => true, "sinf" => false, _ => null },
-            CategoryName: _fCat);
+            CategoryName: _fCat,
+            // Restriccion por usuario: oculta los tableros restringidos a otros (salvo Owner/Admin).
+            CurrentTenantUserId: _meTenantUserId,
+            CanSeeRestricted: _canSeeAllBoards);
         await _reloadLock.WaitAsync();
         try
         {

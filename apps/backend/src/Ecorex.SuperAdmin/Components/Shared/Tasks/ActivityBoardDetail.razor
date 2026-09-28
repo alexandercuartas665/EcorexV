@@ -1340,6 +1340,8 @@
     private List<ActivityTypeDto> _types = new();
     private List<ActividadSubcategoriaDto> _freeSubs = new();
     private Guid? _meTenantUserId;
+    // Owner/Admin ven cualquier tablero aunque este restringido; se resuelve del claim tenant_role.
+    private bool _canSeeAllBoards;
     private Guid _loadedBoardId;
 
     // Filtros combinables (chips del prototipo).
@@ -1583,6 +1585,8 @@
         if (AuthState is null) { return; }
         var st = await AuthState;
         _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        var role = st.User.FindFirst("tenant_role")?.Value;
+        _canSeeAllBoards = role is "Owner" or "Admin";
     }
 
     /// <summary>
@@ -1600,11 +1604,13 @@
                 using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
                 await using var scope = ScopeFactory.CreateAsyncScope();
                 var boardsSvc = scope.ServiceProvider.GetRequiredService<IActivityBoardService>();
-                index = await boardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+                index = await boardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true,
+                    CurrentTenantUserId: _meTenantUserId, CanSeeRestricted: _canSeeAllBoards));
             }
             else
             {
-                index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+                index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true,
+                    CurrentTenantUserId: _meTenantUserId, CanSeeRestricted: _canSeeAllBoards));
             }
             _members = index.Boards.FirstOrDefault(b => b.Id == BoardId)?.Members.ToList() ?? new List<ActivityBoardMemberDto>();
         }
@@ -1632,6 +1638,7 @@
             TagIds: _fTags.Count == 0 ? null : _fTags.ToList(),
             Scope: _scope,
             CurrentTenantUserId: _meTenantUserId,
+            CanSeeRestricted: _canSeeAllBoards,
             OnlyArchived: _onlyArchived,
             Text: string.IsNullOrWhiteSpace(_fSearch) ? null : _fSearch.Trim());
         await _reloadLock.WaitAsync();

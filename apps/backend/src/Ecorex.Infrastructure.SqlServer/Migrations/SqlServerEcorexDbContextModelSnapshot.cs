@@ -11669,6 +11669,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AllowedUserIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("allowed_user_ids_json");
+
                     b.Property<bool>("CardPrimaryContact")
                         .HasColumnType("bit")
                         .HasColumnName("card_primary_contact");

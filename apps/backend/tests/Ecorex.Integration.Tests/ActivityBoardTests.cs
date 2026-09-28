@@ -344,6 +344,56 @@ public abstract class ActivityBoardTestsBase
         }
     }
 
+    // Restriccion de visibilidad por usuario (ADR-0117): vacio = todos; con usuarios solo esos (mas bypass
+    // Owner/Admin via CanSeeRestricted). Se oculta del indice Y se bloquea el acceso directo al detalle.
+    [Fact]
+    public async Task Restricted_board_hides_from_others_and_blocks_direct_access()
+    {
+        var seed = await SeedTenantAsync("Boards Restringidos");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var service = BuildBoardService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+
+        // Tablero restringido al OWNER + tablero sin restriccion (para todos).
+        var restricted = (await service.CreateBoardAsync(
+            new CreateActivityBoardRequest("Restringido", AllowedUserIds: new[] { seed.OwnerUserId }),
+            seed.PlatformUserId, "Tester")).Value!;
+        var open = (await service.CreateBoardAsync(
+            new CreateActivityBoardRequest("Abierto"), seed.PlatformUserId, "Tester")).Value!;
+
+        // (a) El owner (en la lista) ve AMBOS; el restringido trae su AllowedUserIds.
+        var forOwner = await service.ListBoardsAsync(new ActivityBoardIndexFilter(CurrentTenantUserId: seed.OwnerUserId));
+        Assert.Contains(forOwner.Boards, b => b.Id == restricted.Id);
+        Assert.Contains(forOwner.Boards, b => b.Id == open.Id);
+        Assert.Contains(seed.OwnerUserId, forOwner.Boards.First(b => b.Id == restricted.Id).AllowedUserIds!);
+
+        // (b) El segundo usuario (NO en la lista, sin bypass) SOLO ve el abierto.
+        var forSecond = await service.ListBoardsAsync(new ActivityBoardIndexFilter(CurrentTenantUserId: seed.SecondUserId));
+        Assert.DoesNotContain(forSecond.Boards, b => b.Id == restricted.Id);
+        Assert.Contains(forSecond.Boards, b => b.Id == open.Id);
+
+        // (c) Con bypass (Owner/Admin) ve AMBOS aunque no este en la lista.
+        var forSecondAdmin = await service.ListBoardsAsync(
+            new ActivityBoardIndexFilter(CurrentTenantUserId: seed.SecondUserId, CanSeeRestricted: true));
+        Assert.Contains(forSecondAdmin.Boards, b => b.Id == restricted.Id);
+
+        // (d) Acceso directo al detalle: el segundo es NEGADO; el owner y el bypass SI acceden.
+        Assert.False((await service.GetBoardDetailAsync(restricted.Id,
+            new ActivityBoardDetailFilter(CurrentTenantUserId: seed.SecondUserId))).IsOk);
+        Assert.True((await service.GetBoardDetailAsync(restricted.Id,
+            new ActivityBoardDetailFilter(CurrentTenantUserId: seed.OwnerUserId))).IsOk);
+        Assert.True((await service.GetBoardDetailAsync(restricted.Id,
+            new ActivityBoardDetailFilter(CurrentTenantUserId: seed.SecondUserId, CanSeeRestricted: true))).IsOk);
+
+        // (e) Quitar la restriccion (lista vacia) -> el segundo YA lo ve.
+        var upd = await service.UpdateBoardAsync(restricted.Id,
+            new UpdateActivityBoardRequest("Restringido", null, null, TaskBoardStatus.InProgress, null, false,
+                AllowedUserIds: new List<Guid>()),
+            seed.PlatformUserId, "Tester");
+        Assert.True(upd.IsOk, upd.Error);
+        var afterClear = await service.ListBoardsAsync(new ActivityBoardIndexFilter(CurrentTenantUserId: seed.SecondUserId));
+        Assert.Contains(afterClear.Boards, b => b.Id == restricted.Id);
+    }
+
     // ---- Helpers ----
 
     private static ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)

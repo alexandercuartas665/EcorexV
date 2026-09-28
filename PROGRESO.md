@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Tableros de actividades restringidos por usuario (ADR-0117) - rama feat/tableros-restringidos-wip
+
+- Pedido: restringir un tablero a ciertos usuarios; si no define usuarios, disponible para TODOS. Decisiones del
+  usuario: Owner/Admin ven siempre todo (bypass); restriccion SOLO por usuarios (no cargos).
+- Modelo: TaskBoard.AllowedUserIdsJson (jsonb PG / nvarchar SQL; null/vacio = todos) + EF config. Migracion DUAL
+  AddBoardAllowedUsers (PG 20260928214132 + SqlServer 20260928214358).
+- Servicio (ActivityBoardService): filtro en memoria en ListBoardsAsync (helper IsBoardVisibleTo), bloqueo en
+  GetBoardDetailAsync (NotFound si no autorizado), persistencia en Create/Update (SerializeUserIds), summary
+  expone AllowedUserIds. DTOs: filtros +CurrentTenantUserId/+CanSeeRestricted; requests +AllowedUserIds.
+- Bypass en el LLAMADOR (el servicio no resuelve rol): superficies de TRABAJO pasan CurrentTenantUserId +
+  CanSeeRestricted=(rol Owner/Admin, claim tenant_role): ActivityBoardsIndex, ActivityBoardDetail (index +
+  detail), MovilTablero. Superficies de CONFIG pasan bypass: Tableros (CanSeeRestricted=_isAdmin), FlowEditor
+  (picker), TaskDetailModal (contexto de la tarea). Nota: TableroDetalle/Agentes usan ITaskBoardService (otra
+  sobrecarga), no aplican.
+- UI self-serve: seccion "Visible para" en el modal de Tableros.razor (lista de usuarios del tenant; vacio =
+  "disponible para todos"; ToggleAllowedUser; precarga en editar via summary.AllowedUserIds).
+- Test matriz dual (ActivityBoardTests.Restricted_board_hides_from_others_and_blocks_direct_access): oculto del
+  indice a otros, visible al autorizado y con bypass, bloqueo del detalle directo, y quitar restriccion lo
+  vuelve visible. Build solucion + tests 0 errores. SIN migrar prod, SIN deploy, SIN merge a tronco aun.
+
 ## 2026-09-28 - v0.16.160: DEPLOY a prod (bump de release del lote acumulado en tronco)
 
 - Bump 0.16.159 -> 0.16.160 para el deploy. Prod venia en v0.16.155; este release ARRASTRA todo lo acumulado en

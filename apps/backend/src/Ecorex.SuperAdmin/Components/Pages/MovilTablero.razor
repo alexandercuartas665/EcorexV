@@ -342,6 +342,7 @@
 
     private Guid _actorId;
     private Guid? _actorTenantUserId;
+    private bool _canSeeAllBoards;
     private string _actorName = "Movil";
 
     // Paso ACTUAL del flujo de la actividad escaneada (si la gobierna un flujo): se abre en un modal
@@ -362,9 +363,13 @@
         // TenantUserId del operario (para firmar el envio del formulario del paso).
         _actorTenantUserId = (await TenantUsersSvc.ListAsync())
             .FirstOrDefault(u => u.PlatformUserId == _actorId)?.Id;
+        // Owner/Admin ven cualquier tablero aunque este restringido a usuarios.
+        var role = st.User.FindFirst("tenant_role")?.Value;
+        _canSeeAllBoards = role is "Owner" or "Admin";
 
-        // Solo los tableros habilitados para el modulo movil (flag por tablero en su configuracion).
-        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(MobileScanEnabled: true));
+        // Solo los tableros habilitados para el modulo movil (flag por tablero) y visibles para el operario.
+        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(MobileScanEnabled: true,
+            CurrentTenantUserId: _actorTenantUserId, CanSeeRestricted: _canSeeAllBoards));
         _boards = index.Boards;
     }
 
@@ -385,7 +390,8 @@
         _loading = true;
         try
         {
-            var res = await BoardsSvc.GetBoardDetailAsync(id, new ActivityBoardDetailFilter(Scope: ActivityBoardScope.Team));
+            var res = await BoardsSvc.GetBoardDetailAsync(id, new ActivityBoardDetailFilter(Scope: ActivityBoardScope.Team,
+                CurrentTenantUserId: _actorTenantUserId, CanSeeRestricted: _canSeeAllBoards));
             _detail = res.IsOk ? res.Value : null;
         }
         finally { _loading = false; }

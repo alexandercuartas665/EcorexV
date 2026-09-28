@@ -942,7 +942,8 @@ else
     {
         try
         {
-            var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter());
+            // Selector de tablero destino del flujo (diseno): se muestran todos, sin la restriccion por usuario.
+            var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(CanSeeRestricted: true));
             _boards = index.Boards.Select(b => (b.Id, b.Name)).ToList();
             // Columnas de cada tablero (pocos tableros en un tenant; se cachean para los selectores).
             foreach (var (id, _) in _boards)

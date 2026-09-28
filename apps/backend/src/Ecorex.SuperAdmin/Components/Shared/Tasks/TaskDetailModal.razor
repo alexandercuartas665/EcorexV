@@ -1858,7 +1858,8 @@
             _closeReasons = new List<string>();
             if (_detail.Item.BoardId is Guid boardId)
             {
-                var board = await boardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter());
+                // Contexto del tablero de la tarea abierta: no se aplica la restriccion por usuario (ya esta viendo la tarea).
+                var board = await boardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter(CanSeeRestricted: true));
                 if (board.IsOk)
                 {
                     _boardColumns = board.Value!.Columns.ToList();

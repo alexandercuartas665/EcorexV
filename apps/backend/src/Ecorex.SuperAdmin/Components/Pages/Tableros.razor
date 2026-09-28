@@ -12,6 +12,7 @@
 @inject IActivityBoardService BoardsSvc
 @inject ITaskBoardService ColumnsSvc
 @inject ITaskItemService TasksSvc
+@inject ITenantUserService TenantUsersSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -113,6 +114,33 @@ else
                         @if (!string.IsNullOrEmpty(_fColor))
                         {
                             <span style="width:14px;height:14px;border-radius:50%;background:@_fColor;flex:none;border:1px solid var(--border);"></span>
+                        }
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Visible para</label>
+                    <div class="text-muted" style="font-size:12px;margin-bottom:6px;">
+                        @if (_fAllowedUsers.Count == 0)
+                        {
+                            <span>Disponible para <strong>todos</strong> los usuarios. Marca usuarios para restringirlo solo a ellos (los administradores siempre lo ven).</span>
+                        }
+                        else
+                        {
+                            <span>Restringido a <strong>@_fAllowedUsers.Count</strong> usuario(s). Desmarca todos para dejarlo disponible para todos.</span>
+                        }
+                    </div>
+                    <div style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;">
+                        @foreach (var u in _users)
+                        {
+                            <label class="tb-state-done" style="gap:8px;">
+                                <input type="checkbox" checked="@_fAllowedUsers.Contains(u.Id)"
+                                       @onchange="@(e => ToggleAllowedUser(u.Id, (bool)(e.Value ?? false)))" />
+                                <span>@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!)</span>
+                            </label>
+                        }
+                        @if (_users.Count == 0)
+                        {
+                            <span class="text-muted" style="font-size:12px;">No hay usuarios en este tenant.</span>
                         }
                     </div>
                 </div>
@@ -345,6 +373,12 @@ else
         "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#64748b"
     };
 
+    // Usuarios del tenant para el selector "Visible para" + la restriccion elegida en el modal (vacio = todos).
+    private List<TenantUserDto> _users = new();
+    private readonly HashSet<Guid> _fAllowedUsers = new();
+    // Owner/Admin ven todos los tableros aunque esten restringidos (esta pagina es el administrador).
+    private bool _isAdmin;
+
     private string _fName = "";
     private TaskBoardStatus _fStatus = TaskBoardStatus.InProgress;
     private bool _fArchived;
@@ -364,14 +398,22 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        if (AuthState is not null)
+        {
+            var st = await AuthState;
+            var role = st.User.FindFirst("tenant_role")?.Value;
+            _isAdmin = role is "Owner" or "Admin";
+        }
         await ReloadAsync();
         _loading = false;
     }
 
     private async Task ReloadAsync()
     {
-        // Sin filtros y CON archivados: esto es el administrador, no la bandeja de trabajo.
-        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+        // Sin filtros y CON archivados: esto es el administrador, no la bandeja de trabajo. Owner/Admin ven
+        // TODOS los tableros aunque esten restringidos (para poder configurarlos).
+        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true, CanSeeRestricted: _isAdmin));
         _boards = index.Boards.ToList();
     }
 
@@ -385,6 +427,7 @@ else
         _fArchived = false;
         _fScanEnabled = false;
         _fCardPrimaryContact = false;
+        _fAllowedUsers.Clear();
         _error = null;
         _columns.Clear();
         _tagEditColId = null;
@@ -401,6 +444,8 @@ else
         _fArchived = b.IsArchived;
         _fScanEnabled = b.MobileScanEnabled;
         _fCardPrimaryContact = b.CardPrimaryContact;
+        _fAllowedUsers.Clear();
+        foreach (var uid in b.AllowedUserIds ?? Array.Empty<Guid>()) { _fAllowedUsers.Add(uid); }
         _error = null;
         _tagEditColId = null;
         _modalOpen = true;
@@ -410,6 +455,13 @@ else
     private async Task ReloadColumnsAsync()
     {
         if (_editId is Guid id) { _columns = (await ColumnsSvc.ListColumnsAsync(id)).ToList(); }
+    }
+
+    /// <summary>Marca/desmarca un usuario en la restriccion "Visible para" del tablero (vacio = todos).</summary>
+    private void ToggleAllowedUser(Guid tenantUserId, bool on)
+    {
+        if (on) { _fAllowedUsers.Add(tenantUserId); }
+        else { _fAllowedUsers.Remove(tenantUserId); }
     }
 
     // ---- Etiquetas permitidas por columna ----
@@ -623,14 +675,14 @@ else
             {
                 var upd = await BoardsSvc.UpdateBoardAsync(
                     id,
-                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact),
+                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact, AllowedUserIds: _fAllowedUsers.ToList()),
                     actor, actorName);
                 if (!upd.IsOk) { _error = upd.Error ?? "No se pudo guardar el tablero."; return; }
             }
             else
             {
                 var created = await BoardsSvc.CreateBoardAsync(
-                    new CreateActivityBoardRequest(_fName, _fDescription, _fColor), actor, actorName);
+                    new CreateActivityBoardRequest(_fName, _fDescription, _fColor, AllowedUserIds: _fAllowedUsers.ToList()), actor, actorName);
                 if (!created.IsOk) { _error = created.Error ?? "No se pudo crear el tablero."; return; }
             }
 

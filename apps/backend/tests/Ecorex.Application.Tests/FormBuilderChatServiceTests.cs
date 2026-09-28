@@ -79,9 +79,67 @@ public class FormBuilderChatServiceTests
 
         Assert.True(r.Ok);
         Assert.False(r.AwaitingConfirmation);
-        Assert.Single(toolset.Executed);
-        Assert.Equal("get_form", toolset.Executed[0].Tool);
+        Assert.Contains(toolset.Executed, x => x.Tool == "get_form");
+        // Al cerrar (texto sin herramientas, sin pregunta) el SISTEMA corre verify_form obligatorio; salio limpio.
+        Assert.Contains(toolset.Executed, x => x.Tool == "verify_form");
         Assert.Contains("Datos del cliente", r.AssistantText);
+    }
+
+    [Fact]
+    public async Task Cierre_con_errores_el_sistema_fuerza_verify_y_reinyecta_para_corregir()
+    {
+        var ai = new FakeAi();
+        // 1) el agente CIERRA en texto (sin pregunta, sin tools) creyendo que termino.
+        ai.Enqueue(new AiCompletion(true, "El formulario esta listo y verificado.", null, 0, 0, Array.Empty<AiToolCall>()));
+        // 2) tras el verify_form FORZADO por el sistema (que hallo 1 error) y la reinyeccion, propone la correccion.
+        ai.Enqueue(new AiCompletion(true, "Corrijo el rollup: creo el campo gran_total.", null, 0, 0,
+            new[] { new AiToolCall("f1", "add_question", "{\"field_code\":\"gran_total\"}") }));
+        var toolset = new FakeToolset { VerifyErrors = 1 };
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "listo, ciérralo", null, Guid.NewGuid());
+
+        // No dejo cerrar el formulario roto: forzo verify, reinyecto el error y el agente propuso la correccion.
+        Assert.True(r.Ok);
+        Assert.True(r.AwaitingConfirmation);
+        Assert.Single(r.Proposals);
+        Assert.Equal("add_question", r.Proposals[0].ToolName);
+        Assert.Contains(toolset.Executed, x => x.Tool == "verify_form"); // lo corrio el SISTEMA, no el modelo
+    }
+
+    [Fact]
+    public async Task Cierre_sin_errores_el_verify_forzado_pasa_y_cierra()
+    {
+        var ai = new FakeAi();
+        ai.Enqueue(new AiCompletion(true, "El formulario esta listo.", null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset { VerifyErrors = 0 };
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "listo", null, Guid.NewGuid());
+
+        Assert.True(r.Ok);
+        Assert.False(r.AwaitingConfirmation);            // verify obligatorio corrio y salio limpio -> cierra
+        Assert.Empty(r.Proposals);
+        Assert.Contains(toolset.Executed, x => x.Tool == "verify_form");
+    }
+
+    [Fact]
+    public async Task No_fuerza_verify_cuando_el_cierre_es_una_pregunta()
+    {
+        var ai = new FakeAi();
+        // Texto-solo que TERMINA en pregunta: espera al usuario, no es un cierre -> no se fuerza verify.
+        ai.Enqueue(new AiCompletion(true, "Ya agregue los campos. Quieres que agregue el boton de imprimir?", null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset { VerifyErrors = 1 };
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "sigue", null, Guid.NewGuid());
+
+        Assert.True(r.Ok);
+        Assert.False(r.AwaitingConfirmation);
+        Assert.DoesNotContain(toolset.Executed, x => x.Tool == "verify_form"); // era pregunta, no cierre
     }
 
     [Fact]
@@ -194,21 +252,43 @@ public class FormBuilderChatServiceTests
     private sealed class FakeToolset : IFormAuthoringToolset
     {
         public List<(string Tool, string Args)> Executed { get; } = new();
+        // Cuantos errores devuelve verify_form (para probar el cierre forzado). 0 = formulario coherente.
+        public int VerifyErrors { get; set; }
         public string GroupKey => "form-authoring";
         public string GroupLabel => "Autoria de formularios";
-        public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal) { "get_form", "describe_components", "list_data_containers" };
+        public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal) { "get_form", "verify_form", "describe_components", "list_data_containers" };
         public IReadOnlyList<AiToolSpec> GetSpecs() => new[]
         {
             new AiToolSpec("get_form", "lee", "{}"),
+            new AiToolSpec("verify_form", "auto-verifica", "{}"),
             new AiToolSpec("add_container", "crea seccion", "{}"),
+            new AiToolSpec("add_question", "crea campo", "{}"),
             new AiToolSpec("create_form", "crea formulario", "{}"),
         };
         public Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
         {
             Executed.Add((toolName, argumentsJson));
-            var json = string.Equals(toolName, "create_form", StringComparison.Ordinal)
-                ? JsonSerializer.Serialize(new { id = Guid.NewGuid().ToString() })
-                : JsonSerializer.Serialize(new { ok = true });
+            string json;
+            if (string.Equals(toolName, "create_form", StringComparison.Ordinal))
+            {
+                json = JsonSerializer.Serialize(new { id = Guid.NewGuid().ToString() });
+            }
+            else if (string.Equals(toolName, "verify_form", StringComparison.Ordinal))
+            {
+                json = VerifyErrors > 0
+                    ? JsonSerializer.Serialize(new
+                    {
+                        ok = false,
+                        errors = VerifyErrors,
+                        warnings = 0,
+                        issues = new[] { new { severity = "error", where = "tabla 'items', columna 'total_item'", problem = "su rollup apunta a 'gran_total', que no existe como campo", fix = "crea el campo destino o corrige el rollup" } }
+                    })
+                    : JsonSerializer.Serialize(new { ok = true, errors = 0, warnings = 0, issues = System.Array.Empty<object>() });
+            }
+            else
+            {
+                json = JsonSerializer.Serialize(new { ok = true });
+            }
             return Task.FromResult(new AgentToolResult(json, false));
         }
     }

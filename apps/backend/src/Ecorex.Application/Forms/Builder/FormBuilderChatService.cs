@@ -30,6 +30,11 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private const string FeatureModel = "gemini-2.5-flash";
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
+    // Cuantas veces, por turno, el sistema FUERZA verify_form al cierre y reinyecta los errores para que el
+    // agente corrija. Acotado para no ciclar si el agente se empena en cerrar sin arreglar (el gate humano
+    // ya impide aplicar el arreglo en el mismo turno; el flujo normal es: forzar 1 vez -> el agente PROPONE
+    // la correccion -> se confirma -> al proximo cierre se re-verifica limpio).
+    private const int MaxForcedVerify = 2;
     // Timeout por llamada al modelo: un cuelgue debe fallar limpio en vez de congelar la conversacion.
     private static readonly TimeSpan AiCallTimeout = TimeSpan.FromSeconds(90);
 
@@ -249,6 +254,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         // guarda en el hilo, no lo ve el usuario) para que emita las llamadas, en vez de dejar la construccion a medias.
         string? transientNudge = null;
         var autoNudged = false;
+        // Cuantas veces ya se forzo verify_form al cierre en este turno (tope MaxForcedVerify).
+        var forcedVerifyRuns = 0;
 
         for (var round = 0; round < MaxRounds; round++)
         {
@@ -293,6 +300,26 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                         "Emitelas AHORA (add_container/add_question/etc.) para eso que acabas de describir; no lo vuelvas a " +
                         "narrar. Si de verdad ya terminaste o necesitas que el usuario decida algo, dilo en una frase clara.";
                     continue;
+                }
+
+                // CIERRE: verify_form OBLIGATORIO, forzado por el SISTEMA (no se confia en que el modelo lo llame
+                // ni en que diga la verdad al afirmar "ya verifique"). Si el turno cierra (texto sin herramientas y
+                // no es una pregunta al usuario) y hay un formulario, se corre verify_form; si reporta errores, se
+                // reinyectan al agente para que los corrija (el arreglo pasa por el gate humano). Acotado por
+                // MaxForcedVerify para no ciclar si el agente insiste en cerrar sin arreglar.
+                if (conv.FormDefinitionId is Guid verifyFormId && forcedVerifyRuns < MaxForcedVerify
+                    && !EndsWithQuestion(completion.Text))
+                {
+                    var (verifyErrors, verifyDetail) = await RunMandatoryVerifyAsync(verifyFormId, actorUserId, cancellationToken);
+                    if (verifyErrors > 0)
+                    {
+                        forcedVerifyRuns++;
+                        transientNudge = "AUTO-VERIFICACION OBLIGATORIA DEL CIERRE (la corrio el SISTEMA, no tu memoria). " +
+                            $"El formulario tiene {verifyErrors} error(es) de coherencia que DEBES corregir ANTES de cerrar. " +
+                            "Emite YA las llamadas de correccion (no lo narres y NO afirmes que ya verificaste; el sistema " +
+                            "re-verifica solo tras aplicar):\n" + verifyDetail;
+                        continue;
+                    }
                 }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
                     Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false);
@@ -366,6 +393,49 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             || t.Contains("ahora agregare") || t.Contains("ahora agregaré") || t.Contains("ahora creare")
             || t.Contains("ahora anadire") || t.Contains("ahora añadiré") || t.Contains("aqui estan las llamadas")
             || t.Contains("aqui te presento las llamadas") || t.Contains("aquí te presento las llamadas");
+    }
+
+    // El texto es una PREGUNTA al usuario (espera respuesta) -> no es un cierre, no se fuerza la verificacion.
+    internal static bool EndsWithQuestion(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = text.TrimEnd();
+        return t.EndsWith("?", StringComparison.Ordinal)
+            || t.EndsWith("?\"", StringComparison.Ordinal) || t.EndsWith("?)", StringComparison.Ordinal)
+            || t.EndsWith("?**", StringComparison.Ordinal);
+    }
+
+    // Corre verify_form (read-only, la MISMA tool del agente) sobre el formulario y devuelve el # de errores y
+    // un detalle legible (solo severidad 'error') para reinyectar. Si algo falla, devuelve 0 errores para no
+    // bloquear el cierre por un fallo del propio verificador.
+    private async Task<(int Errors, string Detail)> RunMandatoryVerifyAsync(Guid formId, Guid actorUserId, CancellationToken ct)
+    {
+        try
+        {
+            var argsJson = JsonSerializer.Serialize(new { form_id = formId.ToString("D") }, Json);
+            var r = await _toolset.ExecuteAsync("verify_form", argsJson, actorUserId, autonomous: true, ct);
+            using var doc = JsonDocument.Parse(r.Json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return (0, string.Empty); }
+            var errors = root.TryGetProperty("errors", out var e) && e.TryGetInt32(out var ec) ? ec : 0;
+            if (errors <= 0) { return (0, string.Empty); }
+            var sb = new StringBuilder();
+            if (root.TryGetProperty("issues", out var issues) && issues.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var it in issues.EnumerateArray())
+                {
+                    if (it.ValueKind != JsonValueKind.Object) { continue; }
+                    var sev = it.TryGetProperty("severity", out var sv) ? sv.GetString() : null;
+                    if (!string.Equals(sev, "error", StringComparison.OrdinalIgnoreCase)) { continue; }
+                    var where = it.TryGetProperty("where", out var w) ? w.GetString() : string.Empty;
+                    var problem = it.TryGetProperty("problem", out var p) ? p.GetString() : string.Empty;
+                    var fix = it.TryGetProperty("fix", out var f) ? f.GetString() : string.Empty;
+                    sb.Append("- ").Append(where).Append(": ").Append(problem).Append(" -> ").Append(fix).Append('\n');
+                }
+            }
+            return (errors, sb.ToString());
+        }
+        catch { return (0, string.Empty); }
     }
 
     // Reconstruye la lista de mensajes para el proveedor a partir de los mensajes guardados.

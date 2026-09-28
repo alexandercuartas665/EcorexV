@@ -850,6 +850,13 @@ public sealed class FormResponseService : IFormResponseService
                 .ToListAsync(cancellationToken);
             foreach (var n in notas) { n.FormResponseId = null; }
 
+            // Respuestas DERIVADAS de esta (creadas con "Copiar"/duplicar) apuntan aqui por DerivedFromResponseId
+            // (self-FK Restrict por defecto de EF): se desligan para no bloquear el borrado del original.
+            var derivadas = await _db.FormResponses
+                .Where(r => r.DerivedFromResponseId == responseId)
+                .ToListAsync(cancellationToken);
+            foreach (var d in derivadas) { d.DerivedFromResponseId = null; }
+
             // FormFlowLink cae por cascada de BD. El registro se borra de verdad y su numero se libera.
             _db.FormResponses.Remove(response);
             await _db.SaveChangesAsync(cancellationToken);
@@ -861,6 +868,14 @@ public sealed class FormResponseService : IFormResponseService
         {
             if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
             return FormResult<bool>.Conflict(ConflictMessage);
+        }
+        catch (DbUpdateException)
+        {
+            // La BD rechazo el borrado (FK Restrict de algo que aun referencia el registro). Antes esto se
+            // propagaba como excepcion y la UI no mostraba nada; ahora se devuelve un motivo legible.
+            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
+            return FormResult<bool>.Invalid(
+                "No se pudo eliminar: el formulario esta referenciado por otro registro (una actividad, un enlace o una respuesta relacionada). Quita esa relacion antes de eliminarlo.");
         }
         catch
         {

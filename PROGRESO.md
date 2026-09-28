@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.158: fix eliminar formulario (no borraba ni decia por que) + desligar respuestas derivadas
+
+- Sintoma (prod): al "Eliminar" un formulario inactivo de una tarea (pestana Formularios), no lo borraba y NO
+  mostraba ningun error.
+- Causa: (1) UI DeleteConceptFormAsync (TaskDetailModal) ignoraba res.IsOk=false y no tenia catch -> si el borrado
+  fallaba (o lanzaba), no se mostraba nada. (2) DeleteRecordAsync no desligaba las respuestas DERIVADAS
+  (DerivedFromResponseId, self-FK Restrict de EF que crea "Copiar") -> el borrado del original lanzaba
+  DbUpdateException, que se propagaba y la UI tragaba.
+- Fix: DeleteRecordAsync ahora desliga las respuestas derivadas (DerivedFromResponseId=null) antes de borrar, y
+  captura DbUpdateException devolviendo un motivo legible (FK Restrict). La UI muestra res.Error con alert() y
+  captura excepciones. Ya no falla en silencio.
+- Archivos: FormResponseService.cs, TaskDetailModal.razor. Build verde. NO desplegado (pido OK).
+
 ## 2026-09-28 - v0.16.157: Pagina de decision del cliente /d/{token} - rediseno + footer dinamico + encuesta (ADR-0115)
 
 - Pedido: que el link de decision del flujo se vea mas bonito (mockup), traiga un FOOTER dinamico configurable como

@@ -104,6 +104,13 @@ public sealed class ActivityBoardService : IActivityBoardService
         var boards = await query
             .OrderBy(b => b.SortOrder).ThenBy(b => b.Name)
             .ToListAsync(cancellationToken);
+        // Restriccion de visibilidad por usuario: se ocultan los tableros restringidos a OTROS usuarios, a
+        // menos que quien consulta pueda ver todo (Owner/Admin o el administrador de tableros). Se evalua en
+        // memoria (portable PG/SQL Server). Un tablero sin restriccion (lista vacia) siempre pasa.
+        if (!filter.CanSeeRestricted)
+        {
+            boards = boards.Where(b => IsBoardVisibleTo(b.AllowedUserIdsJson, filter.CurrentTenantUserId)).ToList();
+        }
         if (boards.Count == 0)
         {
             return new ActivityBoardIndexDto(Array.Empty<ActivityBoardSummaryDto>(), new ActivityBoardKpisDto(0, 0, 0, 0));
@@ -185,11 +192,41 @@ public sealed class ActivityBoardService : IActivityBoardService
                 board.Id, board.Code, board.Name, board.Description, board.Color,
                 board.Status, board.DueDate, board.IsArchived, board.SortOrder,
                 columns.Where(c => c.BoardId == board.Id).Select(c => c.Name).ToList(),
-                progress, boardTasks.Count, members, board.MobileScanEnabled, board.CardPrimaryContact));
+                progress, boardTasks.Count, members, board.MobileScanEnabled, board.CardPrimaryContact,
+                ParseUserIds(board.AllowedUserIdsJson)));
         }
 
         return new ActivityBoardIndexDto(summaries,
             new ActivityBoardKpisDto(boards.Count, kpiTasks, kpiCompleted, kpiAtRisk));
+    }
+
+    // ---- Restriccion de visibilidad por usuario ----
+
+    /// <summary>Parsea el arreglo JSON de TenantUserId autorizados. Null/blanco/invalido =&gt; lista vacia.</summary>
+    private static IReadOnlyList<Guid> ParseUserIds(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<Guid>(); }
+        try
+        {
+            var ids = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(json!);
+            return ids is null ? Array.Empty<Guid>() : ids.Where(id => id != Guid.Empty).Distinct().ToList();
+        }
+        catch { return Array.Empty<Guid>(); }
+    }
+
+    /// <summary>Un tablero es visible si NO tiene restriccion (lista vacia) o si el usuario esta en la lista.</summary>
+    private static bool IsBoardVisibleTo(string? allowedUserIdsJson, Guid? currentTenantUserId)
+    {
+        var allowed = ParseUserIds(allowedUserIdsJson);
+        if (allowed.Count == 0) { return true; }
+        return currentTenantUserId is Guid uid && allowed.Contains(uid);
+    }
+
+    /// <summary>Serializa la lista de usuarios autorizados (dedup, sin vacios). Lista vacia =&gt; null (sin restriccion).</summary>
+    private static string? SerializeUserIds(IReadOnlyList<Guid>? ids)
+    {
+        var clean = (ids ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+        return clean.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(clean);
     }
 
     // ---- CRUD de tableros ----
@@ -235,7 +272,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             Color = Normalize(request.Color),
             Status = request.Status,
             DueDate = request.DueDate,
-            SortOrder = nextOrder
+            SortOrder = nextOrder,
+            AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds)
         };
         _db.TaskBoards.Add(board);
 
@@ -299,6 +337,11 @@ public sealed class ActivityBoardService : IActivityBoardService
                 .ToList();
             board.CloseReasonsJson = motivos.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(motivos);
         }
+        // Restriccion por usuario: null = no tocar; lista (vacia o no) = reemplazar. Vacia quita la restriccion.
+        if (request.AllowedUserIds is not null)
+        {
+            board.AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds);
+        }
         await _db.SaveChangesAsync(cancellationToken);
 
         var columnNames = await _db.TaskBoardColumns.AsNoTracking()
@@ -309,7 +352,8 @@ public sealed class ActivityBoardService : IActivityBoardService
         return TaskCoreResult<ActivityBoardSummaryDto>.Ok(new ActivityBoardSummaryDto(
             board.Id, board.Code, board.Name, board.Description, board.Color,
             board.Status, board.DueDate, board.IsArchived, board.SortOrder,
-            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled, board.CardPrimaryContact));
+            columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled, board.CardPrimaryContact,
+            ParseUserIds(board.AllowedUserIdsJson)));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteBoardAsync(Guid boardId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -370,6 +414,12 @@ public sealed class ActivityBoardService : IActivityBoardService
         var board = await _db.TaskBoards.AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == boardId && b.Kind == TaskBoardKind.Activities, cancellationToken);
         if (board is null)
+        {
+            return TaskCoreResult<ActivityBoardDetailDto>.NotFound("Tablero de actividades no encontrado.");
+        }
+        // Restriccion por usuario: si el tablero esta restringido a otros y quien abre no puede ver todo, se
+        // niega (mismo mensaje que "no encontrado" para no revelar su existencia).
+        if (!filter.CanSeeRestricted && !IsBoardVisibleTo(board.AllowedUserIdsJson, filter.CurrentTenantUserId))
         {
             return TaskCoreResult<ActivityBoardDetailDto>.NotFound("Tablero de actividades no encontrado.");
         }

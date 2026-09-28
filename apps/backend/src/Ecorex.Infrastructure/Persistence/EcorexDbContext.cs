@@ -1133,6 +1133,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Color).HasMaxLength(20);
             // Ola 2 ADR-0065: config de la vista Lista (columnas/orden/color/titulos) por tablero.
             b.Property(x => x.ListViewConfigJson).HasColumnType(jsonColumnType);
+            // Restriccion de visibilidad por usuario (arreglo de TenantUserId). Null/vacio = todos.
+            b.Property(x => x.AllowedUserIdsJson).HasColumnType(jsonColumnType);
             // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
             // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
             b.Property(x => x.Code).HasMaxLength(20);

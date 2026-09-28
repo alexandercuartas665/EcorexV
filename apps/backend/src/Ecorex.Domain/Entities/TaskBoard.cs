@@ -66,4 +66,12 @@ public class TaskBoard : TenantEntity
     /// <summary>Si las tarjetas de este tablero muestran como TITULO el nombre del contacto/cliente de la
     /// actividad (RequesterName) en vez del titulo de la actividad. Configurable por tablero. Default false.</summary>
     public bool CardPrimaryContact { get; set; }
+
+    /// <summary>
+    /// Restriccion de VISIBILIDAD por usuario: arreglo JSON de TenantUserId (Guid) autorizados a ver y abrir
+    /// este tablero. Null o vacio = SIN restriccion (disponible para todos). Con valores, solo esos usuarios
+    /// lo ven en la bandeja/menu rapido; Owner/Admin siempre lo ven (para administrarlo). El chequeo se hace en
+    /// memoria (portable PG/SQL Server). jsonb PG / nvarchar(max) SQL Server.
+    /// </summary>
+    public string? AllowedUserIdsJson { get; set; }
 }

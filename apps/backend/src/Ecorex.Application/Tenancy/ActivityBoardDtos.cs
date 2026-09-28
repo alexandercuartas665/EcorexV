@@ -23,7 +23,10 @@ public sealed record ActivityBoardSummaryDto(
     // Habilitado para el modulo movil con lector de codigo de barras (/movil/tablero).
     bool MobileScanEnabled = false,
     // Titulo de tarjeta = contacto/cliente (config por tablero).
-    bool CardPrimaryContact = false);
+    bool CardPrimaryContact = false,
+    // Restriccion de visibilidad por usuario (TenantUserId autorizados). Null/vacio = todos. Se usa para
+    // precargar el editor del tablero en el administrador; en la bandeja/menu rapido no se expone.
+    IReadOnlyList<Guid>? AllowedUserIds = null);
 
 public sealed record ActivityBoardIndexDto(
     IReadOnlyList<ActivityBoardSummaryDto> Boards, ActivityBoardKpisDto Kpis);
@@ -46,13 +49,21 @@ public sealed record ActivityBoardIndexFilter(
     // Filtra los tableros con alguna tarea cuyo tipo esta en esa categoria. Null = todas.
     string? CategoryName = null,
     // Solo tableros habilitados (true) / deshabilitados (false) para el modulo movil. Null = todos.
-    bool? MobileScanEnabled = null);
+    bool? MobileScanEnabled = null,
+    // Usuario que consulta (TenantUserId): para aplicar la restriccion de visibilidad por tablero. Null en
+    // superficies de administracion/config, que ademas pasan CanSeeRestricted=true.
+    Guid? CurrentTenantUserId = null,
+    // true = el que consulta ve TODOS los tableros aunque esten restringidos (Owner/Admin o admin de tableros).
+    // false (por defecto) = se ocultan los tableros restringidos a otros usuarios.
+    bool CanSeeRestricted = false);
 
 public sealed record CreateActivityBoardRequest(
     string Name, string? Description = null, string? Color = null,
     string? Code = null,
     TaskBoardStatus Status = TaskBoardStatus.InProgress,
-    DateTimeOffset? DueDate = null);
+    DateTimeOffset? DueDate = null,
+    // Restriccion de visibilidad por usuario al crear (TenantUserId). Null/vacio = todos.
+    IReadOnlyList<Guid>? AllowedUserIds = null);
 
 public sealed record UpdateActivityBoardRequest(
     string Name, string? Description, string? Color,
@@ -62,7 +73,10 @@ public sealed record UpdateActivityBoardRequest(
     // Habilitar el tablero para el modulo movil con lector de codigo de barras.
     bool MobileScanEnabled = false,
     // Mostrar el nombre del contacto/cliente como titulo de las tarjetas (null = no tocar).
-    bool? CardPrimaryContact = null);
+    bool? CardPrimaryContact = null,
+    // Restriccion de visibilidad por usuario: null = NO tocar; lista vacia = quitar la restriccion (todos);
+    // lista con ids = solo esos TenantUser (mas Owner/Admin) ven el tablero.
+    IReadOnlyList<Guid>? AllowedUserIds = null);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope
@@ -105,7 +119,11 @@ public sealed record ActivityBoardDetailFilter(
     bool OnlyArchived = false,
     // Busqueda de texto libre: filtra las tarjetas por ID (numero), titulo, descripcion o datos del
     // solicitante (contains, case-insensitive). Null/vacio = sin filtro de texto.
-    string? Text = null);
+    string? Text = null,
+    // true = el que abre el tablero puede verlo aunque este restringido (Owner/Admin o superficie de
+    // administracion). false (por defecto) = si el tablero esta restringido y CurrentTenantUserId no esta en
+    // la lista, se niega el acceso.
+    bool CanSeeRestricted = false);
 
 /// <summary>
 /// Contadores por alcance del detalle (chips "Equipo / Pendientes mias / No asignadas").

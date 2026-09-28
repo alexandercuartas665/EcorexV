@@ -17,50 +17,67 @@
 
 <PageTitle>Decision - ECOREX</PageTitle>
 
-<div class="fp-shell">
-    <div class="fp-card">
+<div class="dp-page">
+    <div class="dp-wrap">
         @if (_loading)
         {
-            <p><em>Validando enlace...</em></p>
+            <div class="dp-state"><p class="dp-state-txt"><em>Validando enlace...</em></p></div>
         }
         else if (_done)
         {
-            <div class="fp-thanks">
-                <div class="fp-thanks-icon">
+            <div class="dp-state">
+                <div class="dp-state-icon ok">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                 </div>
-                <h2>Gracias, tu respuesta fue registrada.</h2>
-                <p>Ya puedes cerrar esta ventana.</p>
+                <h2 class="dp-state-h">Gracias, tu respuesta fue registrada.</h2>
+                <p class="dp-state-txt">Ya puedes cerrar esta ventana.</p>
             </div>
         }
         else if (_v is null || !_v.IsValid)
         {
-            <div class="fp-thanks">
-                <div class="fp-thanks-icon off">
+            <div class="dp-state">
+                <div class="dp-state-icon off">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>
                 </div>
-                <h2>Este enlace no esta disponible.</h2>
-                <p>El enlace no es valido, expiro o la decision ya fue registrada. Contacta a quien te lo compartio.</p>
+                <h2 class="dp-state-h">Este enlace no esta disponible.</h2>
+                <p class="dp-state-txt">El enlace no es valido, expiro o la decision ya fue registrada. Contacta a quien te lo compartio.</p>
             </div>
         }
         else
         {
-            <div class="dp-head">
+            @* ===== Header con gradiente (icono + numero + titulo + empresa) ===== *@
+            <div class="dp-hero">
+                <div class="dp-hero-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m10 13-1.5 4L12 16l1-1 2.5-2.5a1.4 1.4 0 0 0-2-2L11 13z"/></svg>
+                </div>
                 @if (!string.IsNullOrWhiteSpace(_v.ActivityNumber))
                 {
-                    <span class="dp-num">@_v.ActivityNumber</span>
+                    <span class="dp-hero-num">@_v.ActivityNumber</span>
                 }
-                <h2 class="dp-title">@(_v.ButtonLabel ?? "Confirmar")</h2>
-                @if (!string.IsNullOrWhiteSpace(_v.ActivityTitle))
+                <h1 class="dp-hero-title">@(_v.ButtonLabel ?? "Confirmar")</h1>
+                @if (!string.IsNullOrWhiteSpace(_v.CompanyName))
                 {
-                    <p class="dp-sub">@_v.ActivityTitle</p>
+                    <p class="dp-hero-company">@_v.CompanyName</p>
+                }
+                else if (!string.IsNullOrWhiteSpace(_v.ActivityTitle))
+                {
+                    <p class="dp-hero-company">@_v.ActivityTitle</p>
                 }
             </div>
 
+            @* ===== Tarjeta principal: captura (firma / observacion) ===== *@
             @if (_v.Capture == WorkflowDecisionCapture.Signature)
             {
-                <div class="dp-field">
-                    <label class="dp-label">Firma aqui</label>
+                <div class="dp-card">
+                    <div class="dp-card-head">
+                        <span class="dp-card-ico">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        </span>
+                        <div>
+                            <h2 class="dp-card-title">Firma aqui</h2>
+                            <p class="dp-card-desc">Por favor, firme en el espacio a continuacion con su dedo o el mouse. Su firma sera registrada como aprobacion.</p>
+                        </div>
+                    </div>
                     <div class="dp-sign-wrap">
                         <canvas @ref="_canvas" width="600" height="220" class="dp-sign"
                                 @onmousedown="StartSigning" @ontouchstart="StartSigning"></canvas>
@@ -69,13 +86,26 @@
                             <div class="dp-sign-hint">@SignHint</div>
                         }
                     </div>
-                    <button type="button" class="dp-clear" @onclick="ClearSignatureAsync">Borrar firma</button>
+                    <div class="dp-sign-actions">
+                        <button type="button" class="dp-linkbtn" @onclick="ClearSignatureAsync">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            Borrar firma
+                        </button>
+                    </div>
                 </div>
             }
             else if (_v.Capture == WorkflowDecisionCapture.Observation)
             {
-                <div class="dp-field">
-                    <label class="dp-label">Observacion@(_v.ObservationRequired ? " *" : "")</label>
+                <div class="dp-card">
+                    <div class="dp-card-head">
+                        <span class="dp-card-ico">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </span>
+                        <div>
+                            <h2 class="dp-card-title">Observacion@(_v.ObservationRequired ? " *" : "")</h2>
+                            <p class="dp-card-desc">Escribe tu comentario a continuacion; quedara registrado con tu decision.</p>
+                        </div>
+                    </div>
                     <textarea class="dp-text" rows="4" @bind="_observation" maxlength="1000"
                               placeholder="Escribe tu comentario..."></textarea>
                 </div>
@@ -87,27 +117,68 @@
             }
 
             <button class="dp-submit" @onclick="SubmitAsync" disabled="@_busy">
-                @(_busy ? "Enviando..." : (_v.ButtonLabel ?? "Enviar"))
+                <span class="dp-submit-check">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </span>
+                <span class="dp-submit-lbl">@(_busy ? "Enviando..." : (_v.ButtonLabel ?? "Enviar"))</span>
+                <span class="dp-submit-arrow">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </span>
             </button>
         }
     </div>
 </div>
 
 <style>
-    .dp-head { text-align: center; margin-bottom: 18px; }
-    .dp-num { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .04em; color: #2563eb; background: #eff4ff; padding: 2px 8px; border-radius: 6px; }
-    .dp-title { font-size: 20px; font-weight: 800; margin: 8px 0 2px; color: #111; }
-    .dp-sub { font-size: 13.5px; color: #6b7280; margin: 0; }
-    .dp-field { margin: 16px 0; }
-    .dp-label { display: block; font-size: 12.5px; font-weight: 700; color: #374151; margin-bottom: 6px; }
-    .dp-sign-wrap { position: relative; }
-    .dp-sign { width: 100%; height: auto; border: 1.5px dashed #cbd5e1; border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; display: block; }
-    .dp-sign-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 18px; color: #b6bfca; font-size: 13.5px; font-style: italic; line-height: 1.4; pointer-events: none; }
-    .dp-clear { margin-top: 8px; background: none; border: none; color: #6b7280; font-size: 12.5px; cursor: pointer; text-decoration: underline; }
-    .dp-text { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 10px 12px; font-size: 14px; resize: vertical; }
-    .dp-error { color: #dc2626; font-size: 13px; margin: 4px 0 10px; }
-    .dp-submit { width: 100%; padding: 13px; border: none; border-radius: 12px; background: #2563eb; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
-    .dp-submit:disabled { opacity: .6; cursor: default; }
+    html, body { margin: 0; }
+    .dp-page { min-height: 100vh; background: linear-gradient(180deg, #eef1fc 0%, #e7ecfb 100%); padding: 20px 14px 40px; box-sizing: border-box; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+    .dp-wrap { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Header con gradiente */
+    .dp-hero { position: relative; background: linear-gradient(120deg, #4f6ef7 0%, #6a5cf0 55%, #8b5cf0 100%); border-radius: 22px; padding: 22px 22px 24px; color: #fff; box-shadow: 0 12px 30px rgba(79, 110, 247, .28); overflow: hidden; }
+    .dp-hero-icon { width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,.16); display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+    .dp-hero-icon svg { width: 30px; height: 30px; color: #fff; }
+    .dp-hero-num { position: absolute; top: 20px; right: 20px; font-size: 12px; font-weight: 800; letter-spacing: .06em; color: #fff; background: rgba(255,255,255,.18); padding: 4px 12px; border-radius: 999px; }
+    .dp-hero-title { font-size: 26px; line-height: 1.15; font-weight: 800; margin: 0 0 4px; color: #fff; }
+    .dp-hero-company { font-size: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: rgba(255,255,255,.72); margin: 0; }
+
+    /* Tarjeta blanca */
+    .dp-card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 8px 24px rgba(30, 41, 90, .06); }
+    .dp-card-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+    .dp-card-ico { flex: none; width: 40px; height: 40px; border-radius: 50%; background: #eef3ff; display: flex; align-items: center; justify-content: center; }
+    .dp-card-ico svg { width: 20px; height: 20px; color: #4f6ef7; }
+    .dp-card-title { font-size: 19px; font-weight: 800; color: #1e2a5a; margin: 2px 0 6px; }
+    .dp-card-desc { font-size: 14px; line-height: 1.5; color: #6b7280; margin: 0; }
+
+    /* Firma */
+    .dp-sign-wrap { position: relative; background: #f7f9ff; border-radius: 14px; padding: 8px; }
+    .dp-sign { width: 100%; height: auto; border: 1.5px dashed #c3ccec; border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; display: block; }
+    .dp-sign-hint { position: absolute; inset: 8px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 18px; color: #aeb7d6; font-size: 13.5px; font-style: italic; line-height: 1.4; pointer-events: none; }
+    .dp-sign-actions { display: flex; justify-content: center; margin-top: 12px; }
+    .dp-linkbtn { display: inline-flex; align-items: center; gap: 6px; background: none; border: none; color: #6b7280; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .dp-linkbtn svg { width: 16px; height: 16px; }
+    .dp-linkbtn:hover { color: #4f6ef7; }
+
+    .dp-text { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 12px; font-size: 14px; resize: vertical; }
+    .dp-error { color: #dc2626; font-size: 13.5px; text-align: center; }
+
+    /* Boton grande */
+    .dp-submit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px 20px; border: none; border-radius: 999px; background: linear-gradient(120deg, #4f6ef7 0%, #6a5cf0 100%); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; box-shadow: 0 12px 26px rgba(79, 110, 247, .32); }
+    .dp-submit:disabled { opacity: .65; cursor: default; }
+    .dp-submit-check { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
+    .dp-submit-check svg { width: 18px; height: 18px; color: #4f6ef7; }
+    .dp-submit-lbl { flex: 1; text-align: center; }
+    .dp-submit-arrow { flex: none; display: flex; align-items: center; }
+    .dp-submit-arrow svg { width: 22px; height: 22px; color: rgba(255,255,255,.9); }
+
+    /* Estados (gracias / invalido / cargando) */
+    .dp-state { background: #fff; border-radius: 20px; padding: 40px 24px; text-align: center; box-shadow: 0 8px 24px rgba(30, 41, 90, .06); }
+    .dp-state-icon { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
+    .dp-state-icon svg { width: 34px; height: 34px; }
+    .dp-state-icon.ok { background: #e8f7ee; color: #16a34a; }
+    .dp-state-icon.off { background: #fdecec; color: #dc2626; }
+    .dp-state-h { font-size: 19px; font-weight: 800; color: #1e2a5a; margin: 0 0 6px; }
+    .dp-state-txt { font-size: 14px; color: #6b7280; margin: 0; }
 </style>
 
 @code {

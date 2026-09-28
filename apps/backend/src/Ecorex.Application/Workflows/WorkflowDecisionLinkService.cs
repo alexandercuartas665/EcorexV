@@ -88,8 +88,12 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
                 .FirstOrDefaultAsync(cancellationToken);
             title = task?.Title; number = task?.Number; contact = task?.RequesterName;
         }
+        // Nombre del tenant (empresa) para el encabezado de la pagina de decision. Cross-tenant como el resto:
+        // por el token ya validado (IgnoreQueryFilters), sin tenant en contexto.
+        var company = await _db.Tenants.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.Id == t.TenantId).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken);
         return new DecisionTokenValidation(true, t.TenantId, t.Id, t.Capture, t.ObservationRequired,
-            t.ButtonLabel, title, number, contact);
+            t.ButtonLabel, title, number, contact, company);
     }
 
     public async Task<DecisionApplyResult> ApplyAsync(string token, DecisionSubmit submit, CancellationToken cancellationToken = default)

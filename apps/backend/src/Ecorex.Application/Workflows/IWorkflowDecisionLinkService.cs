@@ -36,7 +36,9 @@ public sealed record DecisionTokenValidation(
     string? ButtonLabel = null,
     string? ActivityTitle = null,
     string? ActivityNumber = null,
-    string? ContactName = null);
+    string? ContactName = null,
+    // Nombre del tenant (empresa) para el encabezado de la pagina de decision (subtitulo tipo "TEST SISTEMAS").
+    string? CompanyName = null);
 
 /// <summary>Datos que aporta el cliente al enviar. La firma ya viene guardada como archivo (SignatureUrl+Size);
 /// la observacion es texto libre.</summary>

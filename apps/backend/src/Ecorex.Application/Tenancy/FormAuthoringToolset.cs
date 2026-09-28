@@ -820,7 +820,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 // 0) CANONICALIZA claves camelCase que el modelo suele escribir por analogia con el campo
                 //    (calcExpression/aggregate/controlType) a las claves cortas del motor (calc/agg/type). Sin
                 //    esto la columna se guarda muda: ParseColumns no la lee y el editor del disenador no la muestra.
-                foreach (var (alias, canon) in new[] { ("calcExpression", "calc"), ("aggregate", "agg"), ("controlType", "type") })
+                foreach (var (alias, canon) in new[] { ("calcExpression", "calc"), ("aggregate", "agg"), ("controlType", "type"), ("name", "label") })
                 {
                     if (!obj.ContainsKey(canon) && obj.TryGetPropertyValue(alias, out var an) && an is JsonValue av
                         && av.TryGetValue<string>(out var asv) && !string.IsNullOrWhiteSpace(asv))

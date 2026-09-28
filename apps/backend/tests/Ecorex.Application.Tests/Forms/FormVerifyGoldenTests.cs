@@ -191,6 +191,24 @@ public class FormGridColumnAliasTests
         Assert.Equal(FormAggregate.Sum, c.Agg);
     }
 
+    // El titulo de columna se acepta desde "name" cuando falta "label" (el agente a veces usa name), en vez de
+    // caer al id crudo -> el encabezado muestra "Tipo de Material", no "tipo_material".
+    [Fact]
+    public void ParseColumns_usa_name_como_label_si_falta_label()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            "[{\"id\":\"tipo_material\",\"name\":\"Tipo de Material\",\"controlType\":\"Text\"}]");
+        Assert.Equal("Tipo de Material", Assert.Single(cols).Label);
+    }
+
+    [Fact]
+    public void ParseColumns_label_gana_sobre_name()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            "[{\"id\":\"c\",\"label\":\"Bueno\",\"name\":\"Malo\"}]");
+        Assert.Equal("Bueno", Assert.Single(cols).Label);
+    }
+
     // Una grilla en camelCase debe rollupear igual: total_item = cantidad*precio, sumado a subtotal.
     [Fact]
     public void Compute_rollup_funciona_con_columnas_en_camelCase()

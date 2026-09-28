@@ -105,7 +105,12 @@ public static class FormGridCalculator
                 if (el.ValueKind != JsonValueKind.Object) { continue; }
                 var id = el.TryGetProperty("id", out var pid) ? pid.GetString() : null;
                 if (string.IsNullOrWhiteSpace(id)) { continue; }
-                var label = el.TryGetProperty("label", out var pl) ? pl.GetString() ?? id : id;
+                // El titulo visible se lee de "label"; si falta, se acepta el alias "name" (el agente lo usa por
+                // analogia con otros esquemas) antes de caer al id. Asi el encabezado muestra "Tipo de Material"
+                // y no "tipo_material" cuando la columna trae name en vez de label.
+                var label = el.TryGetProperty("label", out var pl) && !string.IsNullOrWhiteSpace(pl.GetString()) ? pl.GetString()!
+                    : el.TryGetProperty("name", out var pn) && !string.IsNullOrWhiteSpace(pn.GetString()) ? pn.GetString()!
+                    : id;
                 // Tolerancia de ALIAS camelCase: un autor (o el agente de IA) puede escribir la columna con las claves
                 // del campo ("calcExpression"/"aggregate"/"controlType") en vez de las cortas ("calc"/"agg"/"type").
                 // Solo se cae al alias cuando falta la clave canonica, asi que las columnas correctas no cambian y una

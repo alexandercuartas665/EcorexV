@@ -85,8 +85,11 @@ public sealed class FormSnapshotService : IFormSnapshotService
                     {
                         _db.QuoteTemplates.Add(new QuoteTemplate
                         {
-                            Id = t.Id, Name = t.Name, HtmlContent = t.HtmlContent,
-                            IsDefault = t.IsDefault, SendAsImage = t.SendAsImage,
+                            Id = t.Id,
+                            Name = t.Name,
+                            HtmlContent = t.HtmlContent,
+                            IsDefault = t.IsDefault,
+                            SendAsImage = t.SendAsImage,
                         });
                     }
                     else

@@ -462,9 +462,15 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             total = list.Count,
             forms = list.Select(f => new
             {
-                id = f.Id, code = f.Code, title = f.Title, status = f.Status,
-                questions = f.QuestionCount, version = f.Version, archived = f.IsArchived,
-                responses = f.ResponseCount, rules = f.RuleCount
+                id = f.Id,
+                code = f.Code,
+                title = f.Title,
+                status = f.Status,
+                questions = f.QuestionCount,
+                version = f.Version,
+                archived = f.IsArchived,
+                responses = f.ResponseCount,
+                rules = f.RuleCount
             })
         });
     }

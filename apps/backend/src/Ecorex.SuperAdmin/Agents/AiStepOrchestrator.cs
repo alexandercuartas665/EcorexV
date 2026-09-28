@@ -243,60 +243,60 @@ public sealed class AiStepOrchestrator(
         switch (tool)
         {
             case "navegar":
-            {
-                var url = Str(args, "url");
-                if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
                 {
-                    return "error: url invalida (usa una URL http/https completa).";
+                    var url = Str(args, "url");
+                    if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+                    {
+                        return "error: url invalida (usa una URL http/https completa).";
+                    }
+                    session.CurrentUrl = url;
+                    // No se abre navegador aqui (se perderia al cerrar la celda): la pagina se carga al leer.
+                    return "ok: URL fijada. Llama 'leer_html' para obtener el contenido de la pagina.";
                 }
-                session.CurrentUrl = url;
-                // No se abre navegador aqui (se perderia al cerrar la celda): la pagina se carga al leer.
-                return "ok: URL fijada. Llama 'leer_html' para obtener el contenido de la pagina.";
-            }
             case "esperar":
                 // La espera se pliega dentro de la siguiente lectura; sola no aporta (celda efimera).
                 return "ok";
             case "leer_html":
-            {
-                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de leer_html."; }
-                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                // ExtractReadable: contenido legible ya renderizado (texto + labels de resultados + enlaces)
-                // con auto-scroll para feeds perezosos (Maps/SPA). Reemplaza al outerHTML crudo. Si el agente
-                // es viejo (<1.6.0) esta accion cae en su 'default' (no soportada) y abajo se hace fallback a Html.
-                actions.Add(new BrowserAction(BrowserActionKind.ExtractReadable, ScrollRounds: ctx.ExtractScrollRounds, WaitMs: 1200));
-                break;
-            }
+                {
+                    if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de leer_html."; }
+                    actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                    // ExtractReadable: contenido legible ya renderizado (texto + labels de resultados + enlaces)
+                    // con auto-scroll para feeds perezosos (Maps/SPA). Reemplaza al outerHTML crudo. Si el agente
+                    // es viejo (<1.6.0) esta accion cae en su 'default' (no soportada) y abajo se hace fallback a Html.
+                    actions.Add(new BrowserAction(BrowserActionKind.ExtractReadable, ScrollRounds: ctx.ExtractScrollRounds, WaitMs: 1200));
+                    break;
+                }
             case "captura":
-            {
-                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de captura."; }
-                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
-                actions.Add(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true));
-                break;
-            }
+                {
+                    if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de captura."; }
+                    actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                    actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                    actions.Add(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true));
+                    break;
+                }
             case "evaluar_js":
-            {
-                var js = Str(args, "script");
-                if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
-                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
-                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de evaluar_js."; }
-                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
-                actions.Add(new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!)));
-                break;
-            }
+                {
+                    var js = Str(args, "script");
+                    if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
+                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
+                    if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de evaluar_js."; }
+                    actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                    actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                    actions.Add(new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!)));
+                    break;
+                }
             case "clic":
-            {
-                var selector = Str(args, "selector");
-                if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
-                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
-                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de clic."; }
-                var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
-                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
-                actions.Add(new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson)));
-                break;
-            }
+                {
+                    var selector = Str(args, "selector");
+                    if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
+                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
+                    if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de clic."; }
+                    var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
+                    actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                    actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                    actions.Add(new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson)));
+                    break;
+                }
             default:
                 return $"error: herramienta '{tool}' no disponible en este paso.";
         }

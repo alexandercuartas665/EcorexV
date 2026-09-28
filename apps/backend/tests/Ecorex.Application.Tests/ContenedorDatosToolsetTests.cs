@@ -276,8 +276,11 @@ public class ContenedorDatosToolsetTests
         {
             inner.DataContainerColumns.Add(new DataContainerColumn
             {
-                TenantId = Tenant, ContainerId = containerId, Name = col,
-                Type = DataContainerColumnType.Text, SortOrder = sort++
+                TenantId = Tenant,
+                ContainerId = containerId,
+                Name = col,
+                Type = DataContainerColumnType.Text,
+                SortOrder = sort++
             });
         }
         inner.SaveChanges();

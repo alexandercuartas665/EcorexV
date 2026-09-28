@@ -544,9 +544,15 @@ public class TasksToolsetBoardWhitelistTests
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
+            TenantId = Tenant,
+            Number = "T-777",
+            Title = "Necesito ayuda",
+            Description = null,
+            BoardId = BoardA,
+            RequesterPhone = "573001112233",
+            IsArchived = false,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
         });
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
@@ -567,9 +573,15 @@ public class TasksToolsetBoardWhitelistTests
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardB, RequesterPhone = "573001112233", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            TenantId = Tenant,
+            Number = "T-777",
+            Title = "Necesito ayuda",
+            Description = null,
+            BoardId = BoardB,
+            RequesterPhone = "573001112233",
+            IsArchived = false,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
@@ -588,9 +600,15 @@ public class TasksToolsetBoardWhitelistTests
         var (ts, tasks, inner) = NewToolset();
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-777", Title = "Necesito ayuda", Description = null,
-            BoardId = BoardA, RequesterPhone = "573001112233", IsArchived = true,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            TenantId = Tenant,
+            Number = "T-777",
+            Title = "Necesito ayuda",
+            Description = null,
+            BoardId = BoardA,
+            RequesterPhone = "573001112233",
+            IsArchived = true,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))

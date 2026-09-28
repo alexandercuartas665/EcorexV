@@ -455,8 +455,11 @@ public class ActividadesToolsetTests
         {
             inner.ActividadSubcategorias.Add(new ActividadSubcategoria
             {
-                Id = SubId, TenantId = Tenant, CategoriaId = Guid.NewGuid(),
-                Codigo = "LEAD-01", Nombre = "f1.CAPTACION DE LEAD test",
+                Id = SubId,
+                TenantId = Tenant,
+                CategoriaId = Guid.NewGuid(),
+                Codigo = "LEAD-01",
+                Nombre = "f1.CAPTACION DE LEAD test",
                 TaskBoardId = BoardId,
                 FormDefinitionId = def is null ? null : DefId
             });
@@ -598,9 +601,16 @@ public class ActividadesToolsetTests
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
-            SubcategoriaId = SubId, BoardId = BoardId, RequesterName = "Juan Perez", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
+            TenantId = Tenant,
+            Number = "T-900",
+            Title = "Juan Perez",
+            Description = null,
+            SubcategoriaId = SubId,
+            BoardId = BoardId,
+            RequesterName = "Juan Perez",
+            IsArchived = false,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
         });
         inner.SaveChanges();
 
@@ -625,9 +635,16 @@ public class ActividadesToolsetTests
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
-            SubcategoriaId = SubId, BoardId = OtherBoardId, RequesterName = "Juan Perez", IsArchived = false,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            TenantId = Tenant,
+            Number = "T-900",
+            Title = "Juan Perez",
+            Description = null,
+            SubcategoriaId = SubId,
+            BoardId = OtherBoardId,
+            RequesterName = "Juan Perez",
+            IsArchived = false,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
 
@@ -648,9 +665,16 @@ public class ActividadesToolsetTests
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
         inner.TaskItems.Add(new TaskItem
         {
-            TenantId = Tenant, Number = "T-900", Title = "Juan Perez", Description = null,
-            SubcategoriaId = SubId, BoardId = BoardId, RequesterName = "Juan Perez", IsArchived = true,
-            ConversationId = conv, CreatedAt = DateTimeOffset.UtcNow
+            TenantId = Tenant,
+            Number = "T-900",
+            Title = "Juan Perez",
+            Description = null,
+            SubcategoriaId = SubId,
+            BoardId = BoardId,
+            RequesterName = "Juan Perez",
+            IsArchived = true,
+            ConversationId = conv,
+            CreatedAt = DateTimeOffset.UtcNow
         });
         inner.SaveChanges();
 

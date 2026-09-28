@@ -341,9 +341,14 @@ public class ScheduledUpsertRunTests
         // El proceso persiste Upsert por "Siigo Id"; el disparo arma el plan igual que el /run.
         var process = new ImportProcess
         {
-            TenantId = Tenant, ModelId = Guid.NewGuid(), ConnectorId = ConnectorId,
-            ScheduleKind = ImportScheduleKind.Cron, CronExpression = "0 3 * * *",
-            Mode = ImportRunMode.Upsert, KeyColumn = "Siigo Id", Name = "P"
+            TenantId = Tenant,
+            ModelId = Guid.NewGuid(),
+            ConnectorId = ConnectorId,
+            ScheduleKind = ImportScheduleKind.Cron,
+            CronExpression = "0 3 * * *",
+            Mode = ImportRunMode.Upsert,
+            KeyColumn = "Siigo Id",
+            Name = "P"
         };
         var plan = ConnectorRunPlanner.Build(
             ConnectorId, Container, SiigoMappingJson(), ColumnsByName(),

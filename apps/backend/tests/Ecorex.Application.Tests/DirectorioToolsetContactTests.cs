@@ -47,9 +47,15 @@ public class DirectorioToolsetContactTests
             LastRequest = request; CreateCalls++;
             var t = new Tercero
             {
-                TenantId = Tenant, Nombre = request.Nombre, Tipo = request.Tipo, Estado = request.Estado,
-                Ciudad = request.Ciudad, IdTipo = request.IdTipo, IdValor = request.IdValor,
-                Email = request.Email, Telefono = request.Telefono
+                TenantId = Tenant,
+                Nombre = request.Nombre,
+                Tipo = request.Tipo,
+                Estado = request.Estado,
+                Ciudad = request.Ciudad,
+                IdTipo = request.IdTipo,
+                IdValor = request.IdValor,
+                Email = request.Email,
+                Telefono = request.Telefono
             };
             inner.Terceros.Add(t);
             await inner.SaveChangesAsync(cancellationToken);
@@ -364,8 +370,11 @@ public class DirectorioToolsetContactTests
         var (ts, terceros, inner) = NewToolset();
         inner.Terceros.Add(new Tercero
         {
-            TenantId = Tenant, Nombre = "Cliente", Tipo = TerceroTipo.Persona,
-            Estado = TerceroEstado.Activo, Telefono = "573001234567"
+            TenantId = Tenant,
+            Nombre = "Cliente",
+            Tipo = TerceroTipo.Persona,
+            Estado = TerceroEstado.Activo,
+            Telefono = "573001234567"
         });
         inner.SaveChanges();
         var conv = SeedConversation(inner, "3001234567");   // mismo numero sin prefijo de pais
@@ -383,8 +392,11 @@ public class DirectorioToolsetContactTests
         var (ts, terceros, inner) = NewToolset();
         inner.Terceros.Add(new Tercero
         {
-            TenantId = Tenant, Nombre = "Dado de baja", Tipo = TerceroTipo.Persona,
-            Estado = TerceroEstado.Inactivo, Telefono = "573001234567"
+            TenantId = Tenant,
+            Nombre = "Dado de baja",
+            Tipo = TerceroTipo.Persona,
+            Estado = TerceroEstado.Inactivo,
+            Telefono = "573001234567"
         });
         inner.SaveChanges();
         var conv = SeedConversation(inner, "573001234567");
@@ -402,8 +414,11 @@ public class DirectorioToolsetContactTests
         var (ts, terceros, inner) = NewToolset();
         inner.Terceros.Add(new Tercero
         {
-            TenantId = Tenant, Nombre = "ACME", Tipo = TerceroTipo.Empresa,
-            Estado = TerceroEstado.Activo, IdValor = "900123456"
+            TenantId = Tenant,
+            Nombre = "ACME",
+            Tipo = TerceroTipo.Empresa,
+            Estado = TerceroEstado.Activo,
+            IdValor = "900123456"
         });
         inner.SaveChanges();
         var r = await RunAsync(ts, new { nombre = "ACME SA", identificacion = "900123456", tipo_identificacion = "nit" });

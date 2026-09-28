@@ -892,6 +892,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
         var req = BuildQuestionRequest(args);
         if (string.IsNullOrWhiteSpace(req.FieldCode) || string.IsNullOrWhiteSpace(req.Label)) { return Err("Faltan 'field_code' y 'label'."); }
+        if (HeaderGridCalcError(req) is { } gce) { return Err(gce); }
         var r = await _forms.AddQuestionAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, question = v });
     }
@@ -901,8 +902,25 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         if (!TryGuid(args, "question_id", out var id)) { return Err("Falta un 'question_id' valido."); }
         var req = BuildQuestionRequest(args);
         if (string.IsNullOrWhiteSpace(req.FieldCode) || string.IsNullOrWhiteSpace(req.Label)) { return Err("Faltan 'field_code' y 'label'."); }
+        if (HeaderGridCalcError(req) is { } gce) { return Err(gce); }
         var r = await _forms.UpdateQuestionAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, question = v });
+    }
+
+    // BLINDAJE: el calc_expression de un CAMPO (encabezado) NO puede referenciar una columna de grilla con
+    // {#codigo} (ese token solo vale DENTRO de una columna de grilla, para leer el encabezado). El agente
+    // insiste en poner subtotal.calc = {#items.total} para "sumar la columna", lo que no computa. Se rechaza con
+    // el camino correcto (rollup), en vez de guardar un formulario roto.
+    private static string? HeaderGridCalcError(SaveFormQuestionRequest req)
+    {
+        if (req.ControlType == FormControlType.GridDetail) { return null; } // el calc de una grilla va en options_json
+        if (req.CalcExpression is { } ce && ce.Contains("{#", StringComparison.Ordinal))
+        {
+            return $"El calc de un campo NO puede referenciar una columna de grilla con {{#...}} (eso solo vale " +
+                $"DENTRO de una columna de grilla). Para SUMAR una columna de la tabla usa el ROLLUP: en esa columna " +
+                $"pon agg=Sum + rollup=\"{req.FieldCode}\" y deja el campo '{req.FieldCode}' SIN calc_expression.";
+        }
+        return null;
     }
 
     private async Task<AgentToolResult> MoveQuestionAsync(JsonElement args, CancellationToken ct)

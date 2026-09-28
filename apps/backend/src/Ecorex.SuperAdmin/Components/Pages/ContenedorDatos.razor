@@ -808,18 +808,24 @@ else
                         {
                             var idx = i;
                             var item = _tblColumns[idx];
-                            <div class="dc-col-row">
-                                <input class="form-control" placeholder="Nombre" @bind="item.Name" />
-                                <select class="form-control" @bind="item.Type">
-                                    <option value="@DataContainerColumnType.Text">Texto</option>
-                                    <option value="@DataContainerColumnType.Number">Numero</option>
-                                    <option value="@DataContainerColumnType.Decimal">Decimal</option>
-                                    <option value="@DataContainerColumnType.Date">Fecha</option>
-                                    <option value="@DataContainerColumnType.Boolean">Booleano</option>
-                                    <option value="@DataContainerColumnType.Submodel">Submodelo</option>
-                                </select>
-                                <label class="dc-req"><input type="checkbox" @bind="item.IsRequired" /> Oblig.</label>
-                                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveColumn(idx)" title="Quitar campo">&times;</button>
+                            <div class="dc-col-item">
+                                <div class="dc-col-row">
+                                    <input class="form-control" placeholder="Nombre" @bind="item.Name" />
+                                    <select class="form-control" @bind="item.Type">
+                                        <option value="@DataContainerColumnType.Text">Texto</option>
+                                        <option value="@DataContainerColumnType.Number">Numero</option>
+                                        <option value="@DataContainerColumnType.Decimal">Decimal</option>
+                                        <option value="@DataContainerColumnType.Date">Fecha</option>
+                                        <option value="@DataContainerColumnType.Boolean">Booleano</option>
+                                        <option value="@DataContainerColumnType.Submodel">Submodelo</option>
+                                    </select>
+                                    <label class="dc-req"><input type="checkbox" @bind="item.IsRequired" /> Oblig.</label>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveColumn(idx)" title="Quitar campo">&times;</button>
+                                </div>
+                                @* Detalle del campo: descripcion de que es / para que sirve (opcional). Se persiste en
+                                   DataContainerColumn.Description y sirve de ayuda/tooltip en la alimentacion y reportes. *@
+                                <input class="form-control dc-col-detalle" placeholder="Detalle: que es este campo (opcional)"
+                                       @bind="item.Description" maxlength="200" />
                             </div>
                         }
                     </div>
@@ -1154,8 +1160,11 @@ else
     .dc-lg-many { border-top-style: dashed; border-color: #e08b2f; }
 
     /* Editor de columnas */
-    .dc-cols { display: flex; flex-direction: column; gap: 6px; }
+    .dc-cols { display: flex; flex-direction: column; gap: 10px; }
+    .dc-col-item { display: flex; flex-direction: column; gap: 4px; }
     .dc-col-row { display: grid; grid-template-columns: 1.4fr 1fr auto auto; gap: 6px; align-items: center; }
+    /* Detalle del campo: input secundario, mas discreto que el nombre. */
+    .dc-col-detalle { font-size: 12px; padding: 4px 8px; color: var(--ink-2, var(--muted-foreground)); }
     .dc-req { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); white-space: nowrap; }
     .dc-rel-config { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 8px; border-left: 2px dashed var(--line, var(--border)); margin: 2px 0 4px; }
     .dc-rel-config select { max-width: 260px; }

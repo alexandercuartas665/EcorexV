@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.156: Contenedor de datos - detalle por campo en el editor de tabla
+
+- Pedido: en el modal "Editar tabla" del Contenedor, poder agregar por cada campo un "detalle" (descripcion de
+  que es el campo). El backend YA estaba 100% cableado (ColumnDraft.Description, carga en OpenEditTable, guardado
+  via SaveDataColumnInput; entidad DataContainer col.Description en DataContainer.cs:84 y persistencia en
+  DataContainerService.cs:791). Solo faltaba la UI -> SIN migracion (la columna description ya existe).
+- Cambio (ContenedorDatos.razor): cada campo pasa a un bloque .dc-col-item = fila existente (nombre/tipo/oblig/x)
+  + un input "Detalle: que es este campo (opcional)" bindeado a item.Description (maxlength 200). CSS: .dc-col-item
+  stack, .dc-col-detalle discreto, gap de .dc-cols 6->10px. Se persiste y se relee al reabrir la tabla.
+- Build verde. Rama tronco (fase-0/clon-backbone). NO desplegado (pido OK).
+
 ## 2026-09-28 - Busqueda de contactos (Colmena): badge + scroll a tope (rama feat/contacto-badge-scroll, sin deploy)
 
 - Pedido de la sesion de pruebas. 2 ajustes + 1 investigacion. Sin migracion (columna badge ya existe). Build verde.

@@ -154,8 +154,13 @@ DISENO / APARIENCIA DEL FORMULARIO.
   divs .col en un .row => 3 por fila => width 4; flex de 2 => width 6). Imagen/PDF -> por cuantas cajas de
   campo estan en la MISMA linea horizontal. Excel -> por cuantas etiquetas van en columnas contiguas de una
   misma fila. Mantente CONSISTENTE: no mezcles el mismo bloque en 1 col una corrida y 3 la siguiente.
-- Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del
-  Tabs). Para agrupar visualmente usa Section/Row/Col.
+- ESTRUCTURA CON CONTENEDORES Row (hazlo por defecto, no dejes campos sueltos colgando de la Section). Los campos
+  que comparten una MISMA fila van DENTRO de un contenedor Row: patron Section > Row > campos. Por cada fila
+  visual crea un Row (add_container container_type=Row, parent = la Section) y mete ahi sus campos (con su width).
+  Un campo ancho (textarea, tabla/GridDetail, subform) va en su propio Row width 12. Flujo por seccion en 3
+  turnos batcheados: (1) crea la Section; (2) crea TODOS sus Rows juntos (varios add_container parent=Section en
+  un turno); (3) mete los campos de cada Row juntos. Asi el arbol queda ordenado y el layout es estable.
+- Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
 - Solo si piden un detalle fino que set_theme no cubre, usa set_custom_css apuntando a las clases REALES del
   renderer (dfr-seg-head, form-control, dfr-tabbar/.dfr-tab, dfr-formbtn); nunca .form-section/.btn-primary.
 

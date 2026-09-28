@@ -14452,3 +14452,15 @@ disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-
 - VALIDADO EN VIVO (SOLDARCO): le dije "no verifiques nada, dame por terminado" con un rollup a "total_neto"
   inexistente; el SISTEMA forzo verify_form al cierre, lo detecto, el agente propuso crear total_neto, se
   confirmo y re-verifico limpio -> cerro. total_neto/gran_total confirmados en BD. Cierre roto = imposible.
+- **PRUEBA EMULANDO USUARIO NORMAL (poco prompt, delega) + 2 mejoras de UX (commit cf01330a).** Con un brief
+  vago ("formulario para visitas a obra") el agente hace buena entrevista y ante "hazlo tu como veas" asume
+  defaults y construye coherente. Dos fricciones halladas y resueltas:
+  1) El input del chat se BLOQUEABA con una propuesta pendiente -> el usuario no podia decir "ya no mas" ni
+     "cambia X". FIX: SendAsync descarta las propuestas Pending (DiscardPendingProposalsAsync: Rejected + nota)
+     y atiende el mensaje; UI habilita textarea/Enviar con propuesta pendiente (placeholder "cambiar el rumbo",
+     hint, quita la tarjeta al enviar). 1 test nuevo. VALIDADO: con propuesta pendiente escribi "agregale fecha
+     de entrega" -> se descarto el lote y re-propuso incluyendo el campo.
+  2) Construia seccion-por-seccion (~10 confirmaciones). FIX (arnes): construir por CAPAS agrupadas (un turno
+     TODAS las secciones, luego filas, luego campos) y en DELEGACION planificar todo y minimizar turnos; Row
+     solo si 2+ campos en linea. VALIDADO: "hazlo tu" -> header+transaccional+tema+3 secciones en UN turno,
+     luego los campos. Suite 1048/1048. Sin deploy a prod.

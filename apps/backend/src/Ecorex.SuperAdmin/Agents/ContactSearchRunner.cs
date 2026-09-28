@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -80,8 +82,11 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         // TargetContainerId no se usa (el SinkOverride escribe en ProspectoScrapeado). MaxSteps/Segundos acotados.
         var ctx = new AiStepContext(
             def.ClientId!, tenantId, instruction, Guid.Empty, AllowListFor(def.SourceType),
-            MaxSteps: 25, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null, SinkOverride: sink,
-            SessionKey: SessionKeyFor(def.SourceType));
+            MaxSteps: 25, MaxSeconds: 300, AiProviderId: providerCfg.Id, Secret: null, SinkOverride: sink,
+            SessionKey: SessionKeyFor(def.SourceType),
+            // Barrer TODO el listado: scroll largo en cada lectura (Maps carga perezoso). Con tope 0 (sin
+            // limite) + scroll alto captura todo; por eso tambien se subio MaxSeconds (el scroll tarda mas).
+            ExtractScrollRounds: 20);
 
         var outcome = await _orchestrator.RunAsync(ctx, ct);
 
@@ -124,8 +129,10 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 var liCtx = new AiStepContext(
                     def.ClientId!, tenantId, BuildLinkedInEnrichInstruction(agent, empresa, perCompany),
                     Guid.Empty, AllowListFor(ContactSearchSource.LinkedIn),
-                    MaxSteps: 20, MaxSeconds: 150, AiProviderId: providerCfg.Id, Secret: null,
-                    SinkOverride: liSink, SessionKey: "linkedin");
+                    MaxSteps: 20, MaxSeconds: 300, AiProviderId: providerCfg.Id, Secret: null,
+                    SinkOverride: liSink, SessionKey: "linkedin",
+                    // Igual que la busqueda: scroll largo para cargar mas personas de la empresa.
+                    ExtractScrollRounds: 20);
                 var liOutcome = await _orchestrator.RunAsync(liCtx, ct);
                 _db.ContactSearchRuns.Add(new ContactSearchRun
                 {
@@ -210,11 +217,13 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         var guidance = d.SourceType switch
         {
             ContactSearchSource.Maps =>
-                "Cada resultado de Google Maps es un NEGOCIO (una empresa) = el lead. Guarda UNA sola fila por "
-                + "negocio con nombre = el NOMBRE DEL NEGOCIO (es la empresa; puedes repetirlo en 'empresa'). NO "
-                + "inventes una persona: NO crees un segundo registro ni un 'Contacto de <negocio>', y NO rellenes "
-                + "cargo/nombre de persona (Maps no trae personas). Las PERSONAS salen unicamente del enriquecimiento "
-                + "en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas) e imagen si aparecen.",
+                "Haz scroll hasta el fondo cargando TODOS los resultados posibles del listado antes de extraer; no "
+                + "te detengas en los primeros. Cada resultado de Google Maps es un NEGOCIO (una empresa) = el lead. "
+                + "Guarda UNA sola fila por negocio con nombre = el NOMBRE DEL NEGOCIO (es la empresa; puedes repetirlo "
+                + "en 'empresa'). NO inventes una persona: NO crees un segundo registro ni un 'Contacto de <negocio>', y "
+                + "NO rellenes cargo/nombre de persona (Maps no trae personas). Las PERSONAS salen unicamente del "
+                + "enriquecimiento en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas) e "
+                + "imagen si aparecen.",
             ContactSearchSource.LinkedIn =>
                 $"Estas logueado en LinkedIn. NAVEGA directamente a {lkUrl} (NO uses Google ni site:linkedin.com). "
                 + "Haz scroll para cargar mas resultados. El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y enlaces "
@@ -329,6 +338,9 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
             {
                 continue;
             }
+            // Metrica (estrellas/resenas) y sitio web se extraen una vez: alimentan sus columnas Y el Badge.
+            var metrica = Pick(row, "metrica", "rating", "resenas", "reviews", "estrellas", "seguidores", "conexiones");
+            var sitioWeb = SafeHttpUrl(Pick(row, "sitio_web", "website", "web", "sitio", "pagina", "url_web"));
             var entity = new ProspectoScrapeado
             {
                 TenantId = _tenantId,
@@ -340,11 +352,13 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
                 Correo = Pick(row, "correo", "email", "mail", "e-mail"),
                 Direccion = Pick(row, "direccion", "address", "dir", "ubicacion"),
-                Metrica = Pick(row, "metrica", "rating", "resenas", "reviews", "estrellas", "seguidores", "conexiones"),
+                Metrica = metrica,
+                // Etiqueta de lead calculada de los datos ya extraidos (no depende de que el modelo la ponga).
+                Badge = ComputeBadge(metrica, sitioWeb),
                 // Solo http/https: no se persisten (ni luego se renderizan) URLs javascript:/data: del scraping.
                 ImagenUrl = SafeHttpUrl(Pick(row, "imagen_url", "imagen", "foto", "image", "photo", "avatar", "logo")),
                 // Sitio web PROPIO del negocio (distinto de OrigenUrl = ficha en Maps).
-                SitioWeb = SafeHttpUrl(Pick(row, "sitio_web", "website", "web", "sitio", "pagina", "url_web")),
+                SitioWeb = sitioWeb,
                 OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
                 // Frase efectiva con que se encontro (o "LinkedIn: <empresa>" en el enriquecimiento).
                 FraseBusqueda = _frase,
@@ -361,6 +375,40 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
         }
         if (ins > 0) { await _db.SaveChangesAsync(ct); }
         return (ins, 0, 0);
+    }
+
+    /// <summary>
+    /// Etiqueta de lead (Badge) calculada de forma DETERMINISTA con los datos ya extraidos (metrica + sitio
+    /// web), sin depender de que el modelo la ponga (rubro acordado con el usuario):
+    ///   Hot = rating &gt;= 4.5 y resenas &gt;= 20; Calificado = tiene sitio web o rating &gt;= 4.0; Nuevo = el resto.
+    /// </summary>
+    private static string ComputeBadge(string? metrica, string? sitioWeb)
+    {
+        var (rating, reviews) = ParseMetrica(metrica);
+        if (rating >= 4.5 && reviews >= 20) { return "Hot"; }
+        if (!string.IsNullOrWhiteSpace(sitioWeb) || rating >= 4.0) { return "Calificado"; }
+        return "Nuevo";
+    }
+
+    /// <summary>Extrae (rating, resenas) de la metrica textual de Maps. Formatos: "4.7 (12 opiniones)",
+    /// "3.0(6)", "4.9 (6,690 opiniones)", "Sin opiniones", "No hay opiniones". El primer decimal es el rating;
+    /// el numero entre parentesis son las resenas (se le quitan separadores de miles).</summary>
+    private static (double Rating, int Reviews) ParseMetrica(string? m)
+    {
+        if (string.IsNullOrWhiteSpace(m)) { return (0, 0); }
+        double rating = 0; int reviews = 0;
+        var r = Regex.Match(m, @"(\d+([.,]\d+)?)");            // primer decimal = rating
+        if (r.Success)
+        {
+            double.TryParse(r.Groups[1].Value.Replace(',', '.'),
+                NumberStyles.Any, CultureInfo.InvariantCulture, out rating);
+        }
+        var v = Regex.Match(m, @"\(([\d.,]+)");                // numero entre parentesis = resenas
+        if (v.Success)
+        {
+            int.TryParse(v.Groups[1].Value.Replace(".", "").Replace(",", ""), out reviews);
+        }
+        return (rating, reviews);
     }
 
     private static string? Pick(IReadOnlyDictionary<string, string?> row, params string[] keys)

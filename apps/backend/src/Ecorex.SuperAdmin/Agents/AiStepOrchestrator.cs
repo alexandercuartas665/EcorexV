@@ -15,7 +15,11 @@ public sealed record AiStepContext(
     IScrapeRowSink? SinkOverride = null,
     // Clave de PERFIL persistente del navegador para scraping LOGUEADO (ej. "linkedin"). Null = sesion
     // efimera. Se propaga a cada BrowserRequestMsg que arma el orquestador.
-    string? SessionKey = null);
+    string? SessionKey = null,
+    // Rondas de auto-scroll de 'leer_html' (ExtractReadable) antes de extraer el contenido legible. Sube
+    // cuanto se carga en feeds perezosos (Maps/SPA). Default 4 (flujos/BrowserRunService); las busquedas de
+    // contactos lo suben para barrer TODO el listado.
+    int ExtractScrollRounds = 4);
 
 /// <summary>Como quedo el paso de IA.</summary>
 public sealed record AiStepOutcome(bool Ok, int Inserted, int Updated, int Deleted, string? Error, int RoundsUsed);
@@ -259,7 +263,7 @@ public sealed class AiStepOrchestrator(
                 // ExtractReadable: contenido legible ya renderizado (texto + labels de resultados + enlaces)
                 // con auto-scroll para feeds perezosos (Maps/SPA). Reemplaza al outerHTML crudo. Si el agente
                 // es viejo (<1.6.0) esta accion cae en su 'default' (no soportada) y abajo se hace fallback a Html.
-                actions.Add(new BrowserAction(BrowserActionKind.ExtractReadable, ScrollRounds: 4, WaitMs: 1200));
+                actions.Add(new BrowserAction(BrowserActionKind.ExtractReadable, ScrollRounds: ctx.ExtractScrollRounds, WaitMs: 1200));
                 break;
             }
             case "captura":

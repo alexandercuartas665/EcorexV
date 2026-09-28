@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Busqueda de contactos (Colmena): badge + scroll a tope (rama feat/contacto-badge-scroll, sin deploy)
+
+- Pedido de la sesion de pruebas. 2 ajustes + 1 investigacion. Sin migracion (columna badge ya existe). Build verde.
+- Ajuste 1 (Badge nunca se asignaba): en ContactSearchRunner.cs el mapeo fila->ProspectoScrapeado no seteaba Badge.
+  Se calcula DETERMINISTA de los datos ya extraidos (metrica + sitio web): Hot (rating>=4.5 y resenas>=20),
+  Calificado (tiene sitio web o rating>=4.0), Nuevo (resto). Helpers ComputeBadge/ParseMetrica (regex tolerante a
+  "4.7 (12 opiniones)", "3.0(6)", "4.9 (6,690 opiniones)", "Sin opiniones"). No depende de que el modelo lo ponga.
+- Ajuste 2 (scroll a tope): AiStepContext gana ExtractScrollRounds (default 4, no rompe a flujos/BrowserRunService);
+  AiStepOrchestrator linea 262 usa ctx.ExtractScrollRounds. Las busquedas pasan ExtractScrollRounds:20 y MaxSeconds
+  180->300 (Maps y enriquecimiento LinkedIn). BuildInstruction (guia Maps) pide scroll hasta el fondo. Tope 0 = sin
+  limite (ya existia), con scroll alto captura todo.
+- Investigacion (navegador no se veia): el seam IBrowserSubAgent rutea por HOST. Service (headless, sesion 0, sin
+  escritorio, AgentWorker.cs:92) usa DelegatedBrowserSubAgent -> pide prestado el navegador a una colmena GUI por
+  IPC; sin GUI responde NO explicito (falla, sin ventana). El GUI (MainWindow.xaml.cs:52) usa WebView2BrowserSubAgent
+  que corre en Application.Current.Dispatcher con Show() -> ventana visible. ADEMAS: se crea una ventana NUEVA por
+  cada orden (CreateAsync por BrowserRequestMsg, WebView2BrowserSubAgent.cs:101) y se cierra al terminar -> parpadea
+  por orden, no es una ventana persistente para observar el scroll. => El scraping visible SOLO corre por el GUI;
+  para VERLO/observarlo hace falta cambio de AGENTE/MSI (GUI en sesion interactiva como proveedor + ventana persistente
+  por sesion + Activate/traer-al-frente). Se reporta, NO se fuerza (backend intacto). Archivos backend tocados:
+  ContactSearchRunner.cs, AiStepOrchestrator.cs. Rama feat/contacto-badge-scroll, sin deploy.
+
 ## 2026-09-28 - v0.16.155: refresco en vivo del diagrama de flujo en el detalle de la tarea
 
 - Sintoma (usuario): al decidir el cliente por el link /d/{token}, el nodo del flujo embebido en el detalle de la

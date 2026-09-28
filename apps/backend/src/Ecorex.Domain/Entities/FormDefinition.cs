@@ -60,6 +60,20 @@ public class FormDefinition : TenantEntity, IVersioned
     /// El "proximo numero" NO vive aqui: es <c>tenant_sequences.next_value</c>.</summary>
     public int IdentityPadding { get; set; } = 6;
 
+    // ---- Codigo automatico AL CREAR (iniciales del asignado + consecutivo global por tenant) ----
+    // Distinto del identity/record_number (que se asigna al CONFIRMAR): esto llena un CAMPO Text del
+    // formulario (ej. num_cotizacion) al CREAR la respuesta (aunque quede en borrador). Consecutivo global
+    // por tenant (TenantSequence code "AUTOCOD"), formato {iniciales del asignado}-{consecutivo}. Ej. RG-0001.
+
+    /// <summary>Habilita el codigo automatico al crear la respuesta.</summary>
+    public bool AutoCodeEnabled { get; set; }
+
+    /// <summary>Codigo del campo Text destino que se llena (ej. "num_cotizacion"). Null = deshabilitado.</summary>
+    public string? AutoCodeTargetFieldCode { get; set; }
+
+    /// <summary>Ancho del consecutivo (relleno con ceros). Default 4 (0001). Rango util 1..12.</summary>
+    public int AutoCodePadWidth { get; set; } = 4;
+
     // ---- Formulario como MODULO del sistema (Formularios avanzados, ola F4; doc 01 D1/D6) ----
 
     /// <summary>Si es true, el formulario es un modulo con nodo de menu propio y bandeja en /m/{code}.</summary>

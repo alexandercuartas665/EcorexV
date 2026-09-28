@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.159: Codigo automatico al crear la cotizacion (num_cotizacion = iniciales + consecutivo global) - ADR-0116
+
+- Pedido (sesion de reportes): el campo COD COT (num_cotizacion) del form de cotizacion debe GENERARSE solo al CREAR
+  la cotizacion (aunque quede en borrador), formato {iniciales del vendedor}-{consecutivo}, p.ej. RG-0001. El vendedor
+  = ASIGNADO de la tarea (no hay campo vendedor); iniciales = primeras letras de las 2 primeras palabras en mayuscula
+  (Richard Gonzalez -> RG). Consecutivo GLOBAL por tenant (un solo contador): RG-0001, JA-0002, RG-0003.
+- Config self-serve en FormDesigner (pestana Registro/Datos): bloque "Codigo automatico al crear" con casilla habilitar,
+  desplegable del campo Text destino y ancho del consecutivo. Persiste en FormDefinition (AutoCodeEnabled,
+  AutoCodeTargetFieldCode, AutoCodePadWidth) via SetTransactionalAsync. Migracion DUAL AddFormAutoCode (PG + SqlServer).
+- Generacion: FormResponseService.CreateTaskFormAsync -> ApplyAutoCodeAsync. Resuelve el nombre del asignado
+  (AssigneeTenantUserId -> TenantUser.PlatformUserId -> PlatformUser.DisplayName ?? Email, IgnoreQueryFilters) y las
+  iniciales con MemberInitials.From. Consecutivo GLOBAL reutilizando SequenceService (CAS+retry, dual) con codigo
+  constante "AUTOCOD" (EnsureSequenceAsync antes de NextAsync). Idempotente: no pisa un valor real ya presente ni
+  regenera en autoguardados (solo puede sobreescribir el autorelleno heredado == reference).
+- Solo cotizaciones NUEVAS; SIN backfill de las existentes en este cambio.
+- Tests matriz dual (FormAutoCodeTests): (a) asignado "Richard Gonzalez" -> RG-0001; (b) segundo vendedor -> +1 global
+  (JA-0002); (c) autoguardado no regenera; (d) dos creaciones en paralelo no repiten consecutivo.
+- Archivos: FormDefinition.cs, EcorexDbContext.cs (+ 2 snapshots), FormResponseService.cs, FormDtos.cs,
+  FormDefinitionService.cs, FormDesigner.razor, migracion dual AddFormAutoCode, FormAutoCodeTests.cs, AppVersion.
+- Build verde (solucion completa). NO desplegado (pido OK). No se toco la BD de prod. Decision: ADR-0116.
+
 ## 2026-09-28 - v0.16.158: fix eliminar formulario (no borraba ni decia por que) + desligar respuestas derivadas
 
 - Sintoma (prod): al "Eliminar" un formulario inactivo de una tarea (pestana Formularios), no lo borraba y NO

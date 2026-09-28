@@ -1332,6 +1332,9 @@ public sealed class FormResponseService : IFormResponseService
         var next = await NextFormOrdinalAsync(def.Id, task.Number, cancellationToken);
         var reference = $"{task.Number}-{next}";
         var data = await BuildInheritedNumberDataAsync(def.Id, reference, sourceData: null, cancellationToken);
+        // Codigo automatico AL CREAR (iniciales del asignado + consecutivo global): llena el campo destino si la
+        // config lo pide y esta vacio. Idempotente (no re-genera en autoguardados posteriores: solo aqui).
+        data = await ApplyAutoCodeAsync(def, task, data, reference, cancellationToken);
 
         var response = new FormResponse
         {
@@ -1974,6 +1977,59 @@ public sealed class FormResponseService : IFormResponseService
             : (JsonSerializer.Deserialize<Dictionary<string, FormFieldValue>>(sourceData!, JsonOptions) ?? new(StringComparer.Ordinal));
         var numField = await ResolveNumberFieldAsync(defId, ct);
         if (numField is not null) { doc[numField.Value.Code] = new FormFieldValue(reference, numField.Value.Type); }
+        return JsonSerializer.Serialize(doc, JsonOptions);
+    }
+
+    /// <summary>Codigo constante (tenant-scoped) del consecutivo GLOBAL del codigo automatico: un solo contador
+    /// por tenant, compartido entre vendedores (RG-0001, JA-0002, RG-0003...). Distinto del "F"+idForm del
+    /// record_number (ese es por formulario y al confirmar).</summary>
+    private const string AutoCodeSequence = "AUTOCOD";
+
+    /// <summary>
+    /// Escribe el CODIGO AUTOMATICO en el campo destino al CREAR la respuesta, si la definicion lo habilita y el
+    /// campo esta vacio. Formato {iniciales del asignado de la tarea}-{consecutivo global por tenant}, ej. RG-0001.
+    /// Idempotente: si el campo ya trae valor, NO lo pisa (y NO consume consecutivo). Sin asignado -&gt; prefijo "XX".
+    /// </summary>
+    private async Task<string> ApplyAutoCodeAsync(
+        FormDefinition def, Domain.Entities.TaskItem task, string data, string reference, CancellationToken ct)
+    {
+        if (!def.AutoCodeEnabled || string.IsNullOrWhiteSpace(def.AutoCodeTargetFieldCode)) { return data; }
+        var target = def.AutoCodeTargetFieldCode!.Trim();
+
+        var doc = string.IsNullOrWhiteSpace(data)
+            ? new Dictionary<string, FormFieldValue>(StringComparer.Ordinal)
+            : (JsonSerializer.Deserialize<Dictionary<string, FormFieldValue>>(data, JsonOptions) ?? new(StringComparer.Ordinal));
+        // Idempotencia: si el destino ya trae un valor REAL, no se pisa ni se consume consecutivo. Excepcion: el
+        // auto-relleno del "numero heredado" (== reference) del campo SI se reemplaza por el codigo automatico
+        // (ese campo lo gobierna el codigo automatico cuando esta habilitado).
+        if (doc.TryGetValue(target, out var existing) && !string.IsNullOrWhiteSpace(existing.Value)
+            && existing.Value != reference)
+        {
+            return data;
+        }
+
+        // Iniciales del ASIGNADO de la tarea (la cotizacion no tiene campo "vendedor"): TenantUser -> PlatformUser
+        // (DisplayName o Email). Sin asignado -> "XX".
+        var initials = "XX";
+        if (task.AssigneeTenantUserId is Guid uid)
+        {
+            var platformUserId = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == uid).Select(u => (Guid?)u.PlatformUserId).FirstOrDefaultAsync(ct);
+            if (platformUserId is Guid pid)
+            {
+                var name = await _db.PlatformUsers.IgnoreQueryFilters().AsNoTracking()
+                    .Where(p => p.Id == pid).Select(p => p.DisplayName ?? p.Email).FirstOrDefaultAsync(ct);
+                if (!string.IsNullOrWhiteSpace(name)) { initials = Tenancy.MemberInitials.From(name!); }
+            }
+        }
+
+        // Consecutivo GLOBAL por tenant (mismo contador para todos): CAS+retry de SequenceService, sin duplicados
+        // en concurrencia. EnsureSequence antes de usar (patron del record_number).
+        var width = def.AutoCodePadWidth is > 0 and <= 12 ? def.AutoCodePadWidth : 4;
+        await _sequences.EnsureSequenceAsync(AutoCodeSequence, ct);
+        var consecutivo = await _sequences.NextAsync(AutoCodeSequence, "", width, ct);
+
+        doc[target] = new FormFieldValue($"{initials}-{consecutivo}", FormControlType.Text.ToString());
         return JsonSerializer.Serialize(doc, JsonOptions);
     }
 

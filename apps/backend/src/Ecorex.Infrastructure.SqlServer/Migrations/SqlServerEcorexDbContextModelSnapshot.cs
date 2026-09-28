@@ -5519,6 +5519,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AutoCodeEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("auto_code_enabled");
+
+                    b.Property<int>("AutoCodePadWidth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(4)
+                        .HasColumnName("auto_code_pad_width");
+
+                    b.Property<string>("AutoCodeTargetFieldCode")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("auto_code_target_field_code");
+
                     b.Property<string>("CardLayout")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

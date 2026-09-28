@@ -1621,6 +1621,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.KpisJson).HasColumnType(jsonColumnType);
             // Cierre por evento (Ola 6/A3): JSON dual {field,op,value}. Null = sin cierre automatico.
             b.Property(x => x.CloseRuleJson).HasColumnType(jsonColumnType);
+            // Codigo automatico al crear (iniciales del asignado + consecutivo global). Aditivas.
+            b.Property(x => x.AutoCodeEnabled).HasDefaultValue(false);
+            b.Property(x => x.AutoCodeTargetFieldCode).HasMaxLength(60);
+            b.Property(x => x.AutoCodePadWidth).HasDefaultValue(4);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

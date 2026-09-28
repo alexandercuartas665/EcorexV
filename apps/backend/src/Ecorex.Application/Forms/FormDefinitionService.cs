@@ -692,7 +692,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.CardLayout, definition.CustomCss,
             definition.IdentityPrefix, definition.IdentityPadding, sequenceNext,
             definition.HideSubmitBar, definition.StatusLadderJson, definition.ThemeJson, definition.KpisJson,
-            definition.CloseRuleJson, definition.IsReportable);
+            definition.CloseRuleJson, definition.IsReportable,
+            definition.AutoCodeEnabled, definition.AutoCodeTargetFieldCode, definition.AutoCodePadWidth);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -727,6 +728,12 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         // Reportable-no-modulo (ADR-0068 ext): NO toca IsModule ni la logica de menu; solo marca el form como
         // fuente de reportes. Independiente del toggle Modulo (un modulo ya es reportable por si mismo).
         definition.IsReportable = request.IsReportable;
+        // Codigo automatico al crear (iniciales del asignado + consecutivo global): campo destino (trim; vacio o
+        // deshabilitado -> null) y ancho (clamp 1..12). Se edita en el mismo panel de Propiedades.
+        var autoTarget = request.AutoCodeTargetFieldCode?.Trim();
+        definition.AutoCodeEnabled = request.AutoCodeEnabled && !string.IsNullOrWhiteSpace(autoTarget);
+        definition.AutoCodeTargetFieldCode = definition.AutoCodeEnabled ? autoTarget : null;
+        definition.AutoCodePadWidth = request.AutoCodePadWidth is >= 1 and <= 12 ? request.AutoCodePadWidth : 4;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

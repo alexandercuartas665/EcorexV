@@ -21,6 +21,21 @@
   wire). (c) Menor: el agente puso filtro Activo='True' pero el Excel trae 'Si'/'No' -> no casa (afinar arnes).
 - Build de Application verde; suite entera seguia verde antes del fix.
 
+## 2026-09-28 - form-builder-chat: contenedores Row + grid rollup punta a punta (guard) VALIDADO
+
+- Pedido: (a) grid completo punta a punta, (b) el agente casi no usa contenedores Row -> forzarlo en el arnes.
+- CONTENEDORES Row: arnes empuja el patron Section > Row > campos (flujo batcheado: Section; luego todos sus
+  Rows; luego los campos). VALIDADO en vivo: el agente creo Row containers en cada seccion (Row Cliente y
+  Prioridad, Row Items, Row Totales, etc.). (Nota: en la corrida grande mi loop rapido de confirmacion duplico
+  algunos Rows -> artefacto de mi automatizacion, no del agente; el agente hasta se auto-corrigio con delete_container.)
+- GRID ROLLUP: el fix de arnes (commit anterior) no bastaba: el agente REINCIDIO en subtotal.calc=
+  {#items.total_item} (no computa). BLINDAJE DE CODIGO (FormAuthoringToolset.HeaderGridCalcError): add_question/
+  update_question rechazan un calc_expression de CAMPO que contenga {#...} y devuelven el camino correcto (rollup);
+  no aplica a GridDetail. VALIDADO en vivo con un brief minimo (Pedido con tabla+subtotal): el grid quedo PERFECTO
+  -> columna total_item type=Calc calc={cantidad}*{precio_unitario} agg=Sum rollup=subtotal, y subtotal SIN calc.
+  El guard no necesito disparar en esa corrida facil, pero queda como red deterministica para la reincidencia.
+- Commits: fc1367c5 (Row en arnes), e2d3f742 (guard {#}). Build verde.
+
 ## 2026-09-28 - form-builder-chat: re-corrida valida el batching PERO destapa regresion del trim -> restaurado
 
 - Re-corrida del brief maestro (maquina descargada). CONFIRMADO el batching (#2): el 1er turno trajo 5 tools

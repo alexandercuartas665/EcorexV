@@ -1538,6 +1538,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Token).HasMaxLength(80).IsRequired();
             b.HasIndex(x => x.Token).IsUnique();
             b.Property(x => x.ButtonLabel).HasMaxLength(120);
+            // Footer HTML dinamico (Ola 2) y definicion de encuesta (Ola 3): texto largo por proveedor.
+            b.Property(x => x.FooterHtml).HasColumnType(longTextColumnType);
+            b.Property(x => x.SurveyJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.StepId });
         });
 

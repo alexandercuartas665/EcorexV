@@ -15205,6 +15205,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("expires_at");
 
+                    b.Property<string>("FooterHtml")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("footer_html");
+
                     b.Property<Guid>("GatewayNodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("gateway_node_id");
@@ -15224,6 +15228,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid>("StepId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("step_id");
+
+                    b.Property<string>("SurveyJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("survey_json");
 
                     b.Property<Guid>("TargetNodeId")
                         .HasColumnType("uniqueidentifier")

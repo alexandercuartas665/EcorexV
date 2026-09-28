@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.157: Pagina de decision del cliente /d/{token} - rediseno + footer dinamico + encuesta (ADR-0115)
+
+- Pedido: que el link de decision del flujo se vea mas bonito (mockup), traiga un FOOTER dinamico configurable como
+  HTML al armar la notificacion, y permita una ENCUESTA cuyas respuestas sean reportables. 3 olas (usuario eligio todo).
+- Ola 1 (visual): rediseno de Decision.razor calcando el mockup (header gradiente + icono + badge de numero + titulo
+  + nombre de empresa, tarjeta de firma/observacion con icono+texto, boton pildora con check+flecha, estados
+  reestilizados). CompanyName agregado a DecisionTokenValidation (cargado del tenant en ValidateAsync).
+- Ola 2 (footer): NotifyDecisionLink gana FooterHtml (config: textarea en el editor de enlaces del FlowEditor). Al
+  ARMAR la notificacion (NodeNotifyService), el footer se resuelve con INotifyTokenResolver (tokens {tarea.x}/{form.x}
+  ya calculados) y se CONGELA en el token (nueva columna footer_html). La pagina lo pinta al pie (MarkupString con
+  sanitizacion best-effort: quita <script>/<iframe>/on*/javascript:). Columna longtext.
+- Ola 3 (encuesta): la encuesta = un FORMULARIO REPORTABLE existente (bloqueo: FormResponse.DefinitionId es FK
+  obligatorio, no hay respuesta sin form; se decidio referenciar un form). NotifyDecisionLink gana SurveyFormDefId
+  (config: <select> de formularios en el FlowEditor). Al armar, BuildSurveyJsonAsync serializa las preguntas del form
+  (FieldCode/Label/tipo simple/Required/Options) y las congela en el token (columna survey_json jsonb). La pagina
+  renderiza inputs (text/textarea/select/radio/multicheck/toggle/number/date/time), valida requeridas, y al enviar las
+  respuestas aterrizan como FormResponse (DefinitionId=form, Reference=numero de tarea, Status=Submitted) en ApplyAsync
+  -> reportable. Guard: si el form ya no existe, se omite (no rompe la decision).
+- Migracion dual AddDecisionTokenFooterSurvey (footer_html + survey_json). DTOs DecisionSurvey/DecisionSurveyQuestion.
+- Build verde. Validado en el navegador (movil) con un token real: replica el mockup (hero + firma + encuesta + boton +
+  footer de pago). NO desplegado (pido OK). Nota: el footer HTML es de autor del tenant (confiable), sanitizado best-effort.
+
 ## 2026-09-28 - v0.16.156: Contenedor de datos - detalle por campo en el editor de tabla
 
 - Pedido: en el modal "Editar tabla" del Contenedor, poder agregar por cada campo un "detalle" (descripcion de

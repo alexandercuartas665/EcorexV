@@ -46,6 +46,15 @@ public class WorkflowDecisionToken : TenantEntity
     /// <summary>Texto del boton/accion que ve el cliente (ej. "Firmar aprobacion"). Null = generico.</summary>
     public string? ButtonLabel { get; set; }
 
+    /// <summary>Footer HTML dinamico (Ola 2 plantillas de decision): HTML ya RESUELTO (tokens sustituidos) al
+    /// armarse la notificacion, que la pagina /d/{token} pinta al pie. Null = sin footer.</summary>
+    public string? FooterHtml { get; set; }
+
+    /// <summary>Encuesta (Ola 3): JSON con la definicion de la encuesta capturada al armar el enlace
+    /// (id del formulario reportable + metadatos). La pagina renderiza sus preguntas y las respuestas
+    /// aterrizan como FormResponse anclado a la tarea. Null = sin encuesta.</summary>
+    public string? SurveyJson { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>Marcado al resolver (un-solo-uso). Los hermanos se marcan Revoked al mismo tiempo.</summary>

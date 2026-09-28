@@ -111,6 +111,78 @@
                 </div>
             }
 
+            @* Encuesta (Ola 3): preguntas del formulario reportable elegido; respuestas -> FormResponse en la tarea. *@
+            @if (_survey is { Questions.Count: > 0 })
+            {
+                <div class="dp-card">
+                    <div class="dp-card-head">
+                        <span class="dp-card-ico">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                        </span>
+                        <div>
+                            <h2 class="dp-card-title">@(string.IsNullOrWhiteSpace(_survey.Title) ? "Encuesta" : _survey.Title)</h2>
+                            <p class="dp-card-desc">Responde antes de enviar.</p>
+                        </div>
+                    </div>
+                    @foreach (var q in _survey.Questions)
+                    {
+                        var qq = q;
+                        <div class="dp-q">
+                            <label class="dp-q-label">@qq.Label@(qq.Required ? " *" : "")</label>
+                            @switch (qq.Type)
+                            {
+                                case "textarea":
+                                    <textarea class="dp-text" rows="3" maxlength="2000"
+                                              value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))"></textarea>
+                                    break;
+                                case "select":
+                                    <select class="dp-input" value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))">
+                                        <option value="">-- Selecciona --</option>
+                                        @foreach (var op in qq.Options ?? new List<string>())
+                                        {
+                                            <option value="@op">@op</option>
+                                        }
+                                    </select>
+                                    break;
+                                case "radio":
+                                    <div class="dp-opts">
+                                        @foreach (var op in qq.Options ?? new List<string>())
+                                        {
+                                            var opv = op;
+                                            <label class="dp-opt"><input type="radio" name="@qq.Code" checked="@(GetAns(qq.Code) == opv)" @onchange="@(() => SetAns(qq.Code, opv))" /> @opv</label>
+                                        }
+                                    </div>
+                                    break;
+                                case "multicheck":
+                                    <div class="dp-opts">
+                                        @foreach (var op in qq.Options ?? new List<string>())
+                                        {
+                                            var opv = op;
+                                            <label class="dp-opt"><input type="checkbox" checked="@IsChecked(qq.Code, opv)" @onchange="@(e => ToggleMulti(qq.Code, opv, (bool)(e.Value ?? false)))" /> @opv</label>
+                                        }
+                                    </div>
+                                    break;
+                                case "toggle":
+                                    <label class="dp-opt"><input type="checkbox" checked="@(GetAns(qq.Code) == "Si")" @onchange="@(e => SetAns(qq.Code, (bool)(e.Value ?? false) ? "Si" : "No"))" /> Si</label>
+                                    break;
+                                case "number":
+                                    <input class="dp-input" type="number" value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))" />
+                                    break;
+                                case "date":
+                                    <input class="dp-input" type="date" value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))" />
+                                    break;
+                                case "time":
+                                    <input class="dp-input" type="time" value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))" />
+                                    break;
+                                default:
+                                    <input class="dp-input" type="text" maxlength="500" value="@GetAns(qq.Code)" @onchange="@(e => SetAns(qq.Code, e.Value?.ToString()))" />
+                                    break;
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
             @if (!string.IsNullOrEmpty(_error))
             {
                 <div class="dp-error">@_error</div>
@@ -125,6 +197,12 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                 </span>
             </button>
+
+            @* Footer dinamico (Ola 2): HTML compuesto al armar la notificacion (ej. datos de pago). Se pinta tal cual. *@
+            @if (!string.IsNullOrWhiteSpace(_v.FooterHtml))
+            {
+                <div class="dp-footer">@((MarkupString)SafeFooter(_v.FooterHtml!))</div>
+            }
         }
     </div>
 </div>
@@ -162,6 +240,15 @@
     .dp-text { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 12px; font-size: 14px; resize: vertical; }
     .dp-error { color: #dc2626; font-size: 13.5px; text-align: center; }
 
+    /* Encuesta */
+    .dp-q { margin-top: 14px; }
+    .dp-q:first-child { margin-top: 0; }
+    .dp-q-label { display: block; font-size: 13.5px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+    .dp-input { width: 100%; box-sizing: border-box; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 11px 12px; font-size: 14px; background: #fff; }
+    .dp-opts { display: flex; flex-direction: column; gap: 8px; }
+    .dp-opt { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #374151; cursor: pointer; }
+    .dp-opt input { width: 17px; height: 17px; }
+
     /* Boton grande */
     .dp-submit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px 20px; border: none; border-radius: 999px; background: linear-gradient(120deg, #4f6ef7 0%, #6a5cf0 100%); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer; box-shadow: 0 12px 26px rgba(79, 110, 247, .32); }
     .dp-submit:disabled { opacity: .65; cursor: default; }
@@ -170,6 +257,12 @@
     .dp-submit-lbl { flex: 1; text-align: center; }
     .dp-submit-arrow { flex: none; display: flex; align-items: center; }
     .dp-submit-arrow svg { width: 22px; height: 22px; color: rgba(255,255,255,.9); }
+
+    /* Footer dinamico (HTML del tenant) */
+    .dp-footer { background: #fff; border-radius: 20px; padding: 18px 20px; box-shadow: 0 8px 24px rgba(30, 41, 90, .06); border-left: 4px solid #6a5cf0; font-size: 14px; line-height: 1.55; color: #374151; }
+    .dp-footer :first-child { margin-top: 0; }
+    .dp-footer :last-child { margin-bottom: 0; }
+    .dp-footer a { color: #4f6ef7; }
 
     /* Estados (gracias / invalido / cargando) */
     .dp-state { background: #fff; border-radius: 20px; padding: 40px 24px; text-align: center; box-shadow: 0 8px 24px rgba(30, 41, 90, .06); }
@@ -211,10 +304,45 @@
 
     private void StartSigning() => _signing = true;
 
+    // Sanitiza el HTML del footer (autor = admin del tenant, pero se pinta en pagina publica): quita <script>,
+    // <iframe> y atributos on* / javascript: como defensa en profundidad. Best-effort (no es un parser).
+    private static string SafeFooter(string html)
+    {
+        var s = System.Text.RegularExpressions.Regex.Replace(html, "<script[^>]*>.*?</script>",
+            "", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        s = System.Text.RegularExpressions.Regex.Replace(s, "<iframe[^>]*>.*?</iframe>",
+            "", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"\son\w+\s*=\s*(""[^""]*""|'[^']*'|[^\s>]+)",
+            "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        s = System.Text.RegularExpressions.Regex.Replace(s, "javascript:", "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return s;
+    }
+
+    private DecisionSurvey? _survey;
+    private readonly Dictionary<string, string> _surveyAnswers = new(StringComparer.OrdinalIgnoreCase);
+
     protected override async Task OnInitializedAsync()
     {
         _v = await DecisionSvc.ValidateAsync(Token);
+        if (_v is { IsValid: true } && !string.IsNullOrWhiteSpace(_v.SurveyJson))
+        {
+            try { _survey = System.Text.Json.JsonSerializer.Deserialize<DecisionSurvey>(_v.SurveyJson!); }
+            catch { _survey = null; }
+        }
         _loading = false;
+    }
+
+    private string GetAns(string code) => _surveyAnswers.TryGetValue(code, out var v) ? v : "";
+    private void SetAns(string code, string? value) => _surveyAnswers[code] = (value ?? "").Trim();
+    private bool IsChecked(string code, string option)
+        => GetAns(code).Split('|', StringSplitOptions.RemoveEmptyEntries).Contains(option);
+    private void ToggleMulti(string code, string option, bool on)
+    {
+        var set = GetAns(code).Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (on) { if (!set.Contains(option)) { set.Add(option); } }
+        else { set.Remove(option); }
+        _surveyAnswers[code] = string.Join("|", set);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -265,6 +393,24 @@
             else
             {
                 submit = new DecisionSubmit();
+            }
+
+            // Encuesta (Ola 3): valida las preguntas obligatorias y adjunta las respuestas (el multicheck se
+            // guarda con un separador legible). Aterrizan como FormResponse en ApplyAsync.
+            if (_survey is { Questions.Count: > 0 })
+            {
+                foreach (var q in _survey.Questions)
+                {
+                    if (q.Required && string.IsNullOrWhiteSpace(GetAns(q.Code)))
+                    { _error = $"Responde: {q.Label}"; _busy = false; return; }
+                }
+                var answers = _surveyAnswers
+                    .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value.Replace("|", ", "));
+                if (answers.Count > 0)
+                {
+                    submit = submit with { SurveyAnswersJson = System.Text.Json.JsonSerializer.Serialize(answers) };
+                }
             }
 
             DecisionApplyResult result;

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -23,7 +24,8 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
     }
 
     public async Task<string?> EnsureLinkAsync(Guid stepId, Guid targetNodeId, WorkflowDecisionCapture capture,
-        bool observationRequired, string? buttonLabel, int? expiryHours, CancellationToken cancellationToken = default)
+        bool observationRequired, string? buttonLabel, int? expiryHours,
+        string? footerHtml = null, string? surveyJson = null, CancellationToken cancellationToken = default)
     {
         var step = await _db.WorkflowStepHistories.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == stepId, cancellationToken);
@@ -58,6 +60,9 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
             Capture = capture,
             ObservationRequired = observationRequired,
             ButtonLabel = string.IsNullOrWhiteSpace(buttonLabel) ? null : buttonLabel!.Trim(),
+            // Footer HTML ya resuelto (Ola 2) y encuesta (Ola 3) congelados al armar la notificacion.
+            FooterHtml = string.IsNullOrWhiteSpace(footerHtml) ? null : footerHtml,
+            SurveyJson = string.IsNullOrWhiteSpace(surveyJson) ? null : surveyJson,
             ExpiresAt = now.AddHours(expiryHours is int h && h > 0 ? h : DefaultExpiryHours)
         });
         await _db.SaveChangesAsync(cancellationToken);
@@ -93,7 +98,7 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
         var company = await _db.Tenants.IgnoreQueryFilters().AsNoTracking()
             .Where(x => x.Id == t.TenantId).Select(x => x.Name).FirstOrDefaultAsync(cancellationToken);
         return new DecisionTokenValidation(true, t.TenantId, t.Id, t.Capture, t.ObservationRequired,
-            t.ButtonLabel, title, number, contact, company);
+            t.ButtonLabel, title, number, contact, company, t.FooterHtml, t.SurveyJson);
     }
 
     public async Task<DecisionApplyResult> ApplyAsync(string token, DecisionSubmit submit, CancellationToken cancellationToken = default)
@@ -165,6 +170,45 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
                 ActorName = actorName,
                 Text = text
             });
+
+            // Encuesta (Ola 3): si el enlace traia encuesta y el cliente respondio, se guarda como FormResponse
+            // anclado a la tarea (DefinitionId del form + Reference = numero) -> reportable. Best-effort: una
+            // encuesta corrupta NO revierte la decision ya tomada.
+            if (!string.IsNullOrWhiteSpace(t.SurveyJson) && !string.IsNullOrWhiteSpace(submit.SurveyAnswersJson))
+            {
+                try
+                {
+                    var survey = JsonSerializer.Deserialize<DecisionSurvey>(t.SurveyJson!);
+                    var answers = JsonSerializer.Deserialize<Dictionary<string, string>>(submit.SurveyAnswersJson!);
+                    if (survey is not null && answers is { Count: > 0 })
+                    {
+                        var typeByCode = survey.Questions.ToDictionary(q => q.Code, q => q.Type, StringComparer.OrdinalIgnoreCase);
+                        var number = await _db.TaskItems.AsNoTracking()
+                            .Where(x => x.Id == tid).Select(x => x.Number).FirstOrDefaultAsync(cancellationToken);
+                        var data = new Dictionary<string, object>();
+                        foreach (var kv in answers)
+                        {
+                            if (string.IsNullOrWhiteSpace(kv.Value)) { continue; }
+                            var qtype = typeByCode.TryGetValue(kv.Key, out var ty) ? ty : "text";
+                            data[kv.Key] = new { value = kv.Value, type = qtype };
+                        }
+                        // Guard: si el formulario ya no existe, se omite (no rompe la decision ya tomada por la FK).
+                        if (data.Count > 0
+                            && await _db.FormDefinitions.AnyAsync(f => f.Id == survey.FormId, cancellationToken))
+                        {
+                            _db.FormResponses.Add(new FormResponse
+                            {
+                                TenantId = t.TenantId,
+                                DefinitionId = survey.FormId,
+                                Reference = number,
+                                Status = FormResponseStatus.Submitted,
+                                Data = JsonSerializer.Serialize(data)
+                            });
+                        }
+                    }
+                }
+                catch (JsonException) { /* encuesta corrupta: no bloquea la decision */ }
+            }
         }
 
         // 3) Marcar usado e invalidar los enlaces hermanos de esta misma compuerta/paso.

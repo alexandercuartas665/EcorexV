@@ -15,7 +15,9 @@ public interface IWorkflowDecisionLinkService
     /// existe para (paso, salida); si no, lo crea. Devuelve null si no aplica (nodo no compuerta, sin URL
     /// base, etc.). Corre con el tenant ya fijado (contexto del motor).</summary>
     Task<string?> EnsureLinkAsync(Guid stepId, Guid targetNodeId, WorkflowDecisionCapture capture,
-        bool observationRequired, string? buttonLabel, int? expiryHours, CancellationToken cancellationToken = default);
+        bool observationRequired, string? buttonLabel, int? expiryHours,
+        // Ola 2/3: footer HTML ya resuelto (tokens sustituidos) y JSON de encuesta a congelar en el token.
+        string? footerHtml = null, string? surveyJson = null, CancellationToken cancellationToken = default);
 
     /// <summary>Valida un token en claro (existe, no usado, no revocado, no expirado y el paso sigue vigente).
     /// NO requiere tenant. Resultado neutro si invalido.</summary>
@@ -38,13 +40,19 @@ public sealed record DecisionTokenValidation(
     string? ActivityNumber = null,
     string? ContactName = null,
     // Nombre del tenant (empresa) para el encabezado de la pagina de decision (subtitulo tipo "TEST SISTEMAS").
-    string? CompanyName = null);
+    string? CompanyName = null,
+    // Ola 2: footer HTML ya resuelto que la pagina pinta al pie. Null = sin footer.
+    string? FooterHtml = null,
+    // Ola 3: JSON de la encuesta (preguntas) que la pagina renderiza. Null = sin encuesta.
+    string? SurveyJson = null);
 
 /// <summary>Datos que aporta el cliente al enviar. La firma ya viene guardada como archivo (SignatureUrl+Size);
 /// la observacion es texto libre.</summary>
 public sealed record DecisionSubmit(
     string? SignatureUrl = null,
     long SignatureSize = 0,
-    string? Observation = null);
+    string? Observation = null,
+    // Ola 3: respuestas de la encuesta como JSON { fieldCode: valorTexto }. Aterrizan como FormResponse.
+    string? SurveyAnswersJson = null);
 
 public sealed record DecisionApplyResult(bool Ok, string? Error = null);

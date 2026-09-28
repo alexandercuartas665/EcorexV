@@ -18,7 +18,13 @@ public sealed record NotifyDecisionLink(
     WorkflowDecisionCapture Capture = WorkflowDecisionCapture.None,
     bool ObservationRequired = false,
     string? ButtonLabel = null,
-    int? ExpiryHours = null);
+    int? ExpiryHours = null,
+    // Ola 2: HTML del pie de la pagina de decision, con tokens ({tarea.x}/{form.x}/{sistema.x}). Se resuelve
+    // al ARMARSE la notificacion (los tokens quedan sustituidos) y se guarda en el token; la pagina lo pinta.
+    string? FooterHtml = null,
+    // Ola 3: formulario REPORTABLE (FormDefinition) que se usa como encuesta. La pagina muestra sus preguntas
+    // y las respuestas aterrizan como FormResponse anclado a la tarea. Null = sin encuesta.
+    Guid? SurveyFormDefId = null);
 
 /// <summary>A quien se dirige una regla de notificacion de nodo. Para grupo/Telegram el destino va en la
 /// propia regla (jid/chatId), asi que este campo solo aplica a Correo y WhatsApp (plantilla).</summary>

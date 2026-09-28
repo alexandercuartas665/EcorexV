@@ -715,6 +715,21 @@ else
                                                 Observacion obligatoria
                                             </label>
                                         }
+                                        @* Ola 2: footer HTML de la pagina de decision (datos de pago, etc.). Admite tokens; se
+                                           resuelven y congelan al ARMARSE la notificacion. *@
+                                        <textarea class="fe-input sm" style="width:100%;margin-top:6px;" rows="3"
+                                                  placeholder="Footer HTML (opcional): p.ej. datos de pago. Admite {tarea.x} / {form.x} / {sistema.x}"
+                                                  @bind="d.FooterHtml"></textarea>
+                                        @* Ola 3: encuesta = un formulario REPORTABLE. La pagina muestra sus preguntas y las
+                                           respuestas aterrizan como respuesta del formulario anclada a la tarea (reportable). *@
+                                        <select class="fe-input sm" style="width:100%;margin-top:6px;"
+                                                @onchange="@(e => d.SurveyFormDefId = Guid.TryParse(e.Value?.ToString(), out var sg) ? sg : (Guid?)null)">
+                                            <option value="" selected="@(d.SurveyFormDefId is null)">Sin encuesta</option>
+                                            @foreach (var f in _forms)
+                                            {
+                                                <option value="@f.Id" selected="@(d.SurveyFormDefId == f.Id)">Encuesta: @f.Code - @f.Title</option>
+                                            }
+                                        </select>
                                     </div>
                                 }
                                 <button class="fe-btn sm" @onclick="@(() => r.Enlaces.Add(new DecisionLinkRow()))">+ Agregar enlace</button>
@@ -2030,6 +2045,8 @@ else
         public bool ObservationRequired { get; set; }
         public string? ButtonLabel { get; set; }
         public int? ExpiryHours { get; set; }
+        public string? FooterHtml { get; set; }        // Ola 2: HTML del pie de la pagina de decision.
+        public Guid? SurveyFormDefId { get; set; }      // Ola 3: formulario reportable usado como encuesta.
     }
 
     // Salidas (edges) del nodo de la compuerta actualmente en el modal de notificacion, para el desplegable.
@@ -2073,7 +2090,9 @@ else
                 Capture = d.Capture,
                 ObservationRequired = d.ObservationRequired,
                 ButtonLabel = d.ButtonLabel,
-                ExpiryHours = d.ExpiryHours
+                ExpiryHours = d.ExpiryHours,
+                FooterHtml = d.FooterHtml,
+                SurveyFormDefId = d.SurveyFormDefId
             }).ToList()
         }).ToList();
         if (!_notifyDataLoaded)
@@ -2147,7 +2166,8 @@ else
             (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
                 ? r.Enlaces.Where(x => !string.IsNullOrWhiteSpace(x.Variable) && Guid.TryParse(x.TargetNodeId, out _))
                     .Select(x => new NotifyDecisionLink(x.Variable.Trim(), Guid.Parse(x.TargetNodeId!), x.Capture,
-                        x.ObservationRequired, string.IsNullOrWhiteSpace(x.ButtonLabel) ? null : x.ButtonLabel!.Trim(), x.ExpiryHours))
+                        x.ObservationRequired, string.IsNullOrWhiteSpace(x.ButtonLabel) ? null : x.ButtonLabel!.Trim(), x.ExpiryHours,
+                        string.IsNullOrWhiteSpace(x.FooterHtml) ? null : x.FooterHtml!.Trim(), x.SurveyFormDefId))
                     .ToList() is { Count: > 0 } el ? el : null
                 : null)).ToList());
 

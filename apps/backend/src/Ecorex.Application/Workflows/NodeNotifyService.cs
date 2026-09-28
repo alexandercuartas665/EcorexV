@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Notifications;
+using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -96,8 +98,13 @@ public sealed class NodeNotifyService : INodeNotifyService
             var byLabel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var d in rule.EnlacesDecision)
             {
+                // Ola 2: el footer se resuelve AQUI (los tokens ya estan calculados) y viaja ya sustituido
+                // al token, para que la pagina lo pinte tal cual. Ola 3: surveyJson se arma del formulario.
+                var footerResolved = string.IsNullOrWhiteSpace(d.FooterHtml)
+                    ? null : _tokens.Render(d.FooterHtml, tokens);
+                var surveyJson = await BuildSurveyJsonAsync(d.SurveyFormDefId, ct);
                 var url = await _decisionLinks.EnsureLinkAsync(stepId, d.TargetNodeId, d.Capture,
-                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, ct);
+                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, footerResolved, surveyJson, ct);
                 if (string.IsNullOrWhiteSpace(url)) { continue; }
                 if (!string.IsNullOrWhiteSpace(d.Variable)) { copy[d.Variable.Trim()] = url!; }
                 if (!string.IsNullOrWhiteSpace(d.ButtonLabel)) { byLabel[d.ButtonLabel!.Trim()] = url!; }
@@ -433,6 +440,83 @@ public sealed class NodeNotifyService : INodeNotifyService
     {
         if (string.IsNullOrWhiteSpace(link)) { return body; }
         return string.IsNullOrWhiteSpace(body) ? link! : body + "\n\n" + link;
+    }
+
+    // Ola 3: arma el JSON de la encuesta (preguntas del formulario reportable elegido) para congelarlo en el
+    // token de decision. Devuelve null si no hay formulario o no tiene preguntas capturables.
+    private async Task<string?> BuildSurveyJsonAsync(Guid? surveyFormDefId, CancellationToken ct)
+    {
+        if (surveyFormDefId is not Guid formId) { return null; }
+        var def = await _db.FormDefinitions.AsNoTracking()
+            .Where(f => f.Id == formId).Select(f => new { f.Title }).FirstOrDefaultAsync(ct);
+        if (def is null) { return null; }
+
+        var rows = await _db.FormQuestions.AsNoTracking()
+            .Where(q => q.DefinitionId == formId && !q.IsHidden)
+            .OrderBy(q => q.SortOrder)
+            .Select(q => new { q.FieldCode, q.Label, q.ControlType, q.Required, q.OptionsJson })
+            .ToListAsync(ct);
+
+        var questions = new List<DecisionSurveyQuestion>();
+        foreach (var q in rows)
+        {
+            var type = SurveyTypeOf(q.ControlType);
+            if (type is null) { continue; } // controles de maquetacion (heading/divider/etc.) no se preguntan.
+            if (string.IsNullOrWhiteSpace(q.FieldCode)) { continue; }
+            var options = (type is "select" or "radio" or "multicheck") ? ParseOptionLabels(q.OptionsJson) : null;
+            questions.Add(new DecisionSurveyQuestion(q.FieldCode, q.Label ?? q.FieldCode, type, q.Required, options));
+        }
+        if (questions.Count == 0) { return null; }
+
+        var survey = new DecisionSurvey(formId, def.Title, questions);
+        return JsonSerializer.Serialize(survey);
+    }
+
+    // Mapea el control del formulario al tipo SIMPLE que pinta la pagina de decision. Null = no se pregunta.
+    private static string? SurveyTypeOf(FormControlType c) => c switch
+    {
+        FormControlType.Text or FormControlType.Barcode => "text",
+        FormControlType.TextArea or FormControlType.Paragraph => "textarea",
+        FormControlType.Select => "select",
+        FormControlType.Radio => "radio",
+        FormControlType.MultiCheck => "multicheck",
+        FormControlType.Toggle => "toggle",
+        FormControlType.Number => "number",
+        FormControlType.Date or FormControlType.DateTime => "date",
+        FormControlType.Time => "time",
+        _ => null,
+    };
+
+    // Extrae las ETIQUETAS de las opciones del OptionsJson del formulario (tolera arreglo de strings o de
+    // objetos { value, label } / { valor, etiqueta }). Best-effort: si no parsea, devuelve null.
+    private static IReadOnlyList<string>? ParseOptionLabels(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(optionsJson);
+            var root = doc.RootElement;
+            var arr = root.ValueKind == JsonValueKind.Array ? root
+                : (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array ? o : default);
+            if (arr.ValueKind != JsonValueKind.Array) { return null; }
+            var list = new List<string>();
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String) { var s = el.GetString(); if (!string.IsNullOrWhiteSpace(s)) { list.Add(s!); } }
+                else if (el.ValueKind == JsonValueKind.Object)
+                {
+                    string? label = null;
+                    foreach (var key in new[] { "label", "etiqueta", "text", "texto", "value", "valor" })
+                    {
+                        if (el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString()))
+                        { label = v.GetString(); break; }
+                    }
+                    if (!string.IsNullOrWhiteSpace(label)) { list.Add(label!); }
+                }
+            }
+            return list.Count == 0 ? null : list;
+        }
+        catch (JsonException) { return null; }
     }
 
     // Normaliza el nombre de una variable de plantilla igual que BuildTemplateParams (quita acentos) para que

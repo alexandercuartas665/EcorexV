@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Tablero: columnas mas anchas + scroll horizontal - rama feat/tablero-scroll-columnas
+
+- El usuario reporto (con captura) que en la vista Tablero de una actividad las columnas se veian muy
+  ajustadas cuando el tablero tenia 5+ estados/columnas. La vista usaba
+  grid-template-columns: repeat(N, minmax(0,1fr)) (ActivityBoardDetail.razor, style inline) -> las columnas se
+  comprimian hasta caber todas en el ancho disponible.
+- Fix (2 lineas): (a) inline -> repeat(N, minmax(300px,1fr)); (b) .ab-kanban en app.css gana overflow-x:auto.
+  Resultado: cada columna >=300px, se estiran a 1fr cuando caben pocas y aparece scroll horizontal cuando son
+  muchas. La media query mobile ya hacia scroll con snap por 82vw (sin tocar).
+- Validado con viewport real 1400x900 en el panel: gridTemplate="300px x5", firstColW=300, overflowX=auto,
+  scrollWidth 1624 > clientWidth 985 -> scroll horizontal OK. Merge a tronco + espejo main. Sin migracion.
+- Siguiente: entra en el proximo deploy (lo corre el usuario); Ctrl+F5 tras desplegar por el cache-bust del CSS.
+
 ## 2026-09-29 - Copiar actividad: arrastrar los DATOS de los formularios diligenciados - rama feat/copiar-formularios
 
 - El usuario noto que la copia no traia los datos de los formularios adjuntos (los forms se enlazan a la tarea

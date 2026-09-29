@@ -204,7 +204,8 @@
             _editorNeedsInit = false;
             _editor ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
-            await _editor.InvokeAsync<bool>("init", EditorId, _editorHtml);
+            // letter: el area de edicion se ve como una HOJA tipo carta (papel blanco centrado).
+            await _editor.InvokeAsync<bool>("init", EditorId, _editorHtml, new { letter = true });
         }
     }
 

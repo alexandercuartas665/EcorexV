@@ -19,8 +19,9 @@
 .ttd-pick { display: block; width: 100%; text-align: left; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
 .ttd-pick:hover { border-color: var(--brand, #6d28d9); color: var(--brand, #6d28d9); }
 
-/* Editor */
-.ttd-editor-dialog { max-width: 900px; width: 94vw; }
+/* Editor: mas grande para redactar comodo un documento tipo carta (papel blanco centrado). */
+.ttd-editor-dialog { max-width: 1080px; width: 96vw; }
+.ttd-editor-dialog .modal-body { max-height: 82vh; overflow: auto; }
 
 /* Versiones */
 .ttd-vlist { display: flex; flex-direction: column; gap: 8px; }

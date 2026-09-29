@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Editor de plantillas: papel BLANCO siempre + modal tipo carta en el uso - rama feat/plantillas-editor-carta
+
+- Pedido: el editor TinyMCE (interop ecorex-doc-editor.js) se veia oscuro en modo oscuro; que sea BLANCO tanto
+  en el modulo de CREACION (PlantillasDocumentos) como en el de USO (TaskTemplateDocs, redactar el documento de
+  la tarea); y en el de uso, un modal MAS GRANDE que represente bien un diseno tipo CARTA.
+- ecorex-doc-editor.js: init(id, html, opts) ahora fuerza el editor SIEMPRE en claro (skin='oxide',
+  content_css='default', body background #fff) ignorando el modo oscuro de la app. Nueva opcion opts.letter:
+  pinta el <body> como una HOJA tipo carta (papel blanco max-width 720px centrado, margenes de documento,
+  sombra) sobre un "escritorio" gris, y sube la altura (640 vs 460).
+- TaskTemplateDocs (uso): pasa new { letter = true } al init; .ttd-editor-dialog agrandado (max-width 900->1080px,
+  width 96vw) + modal-body con max-height 82vh y scroll. PlantillasDocumentos (creacion) queda en blanco simple.
+- Validado en vivo (Chrome, ecorex_dev, AGRO): el editor de creacion se ve blanco (antes seguia el tema).
+  Build SuperAdmin verde. SIN merge, SIN deploy. (Cache-bust del JS por ?v=AppVersion; recordar bump al desplegar.)
+
 ## 2026-09-28 - v0.16.161: DEPLOY a prod (tableros restringidos + fixes de contactos + notas de voz Evolution)
 
 - Bump 0.16.160 -> 0.16.161. Este release ARRASTRA lo acumulado en tronco desde v0.16.160: tableros de

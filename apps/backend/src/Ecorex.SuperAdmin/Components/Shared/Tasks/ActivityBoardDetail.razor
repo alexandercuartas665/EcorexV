@@ -1667,11 +1667,30 @@
                         .GroupBy(t => t.Id).Select(g => g.First()).OrderBy(t => t.Name).ToList();
                 }
                 _listCfg = TaskListViewConfig.TryParse(_detail!.ListViewConfigJson);
-                _boardFields = await FieldSvc.ListByBoardAsync(BoardId);
-                BuildCardCustomCache();
-                await EnsureListLabelsAsync();
-                await EnsureFormValuesAsync();
-                await EnsureDetailAsync();
+                // Post-carga (campos + etiquetas + valores de formulario) TAMBIEN en scope EF
+                // AISLADO: este ReloadAsync lo puede relanzar el hub TaskChanged (un agente que
+                // escribe en el tablero, u otra sesion) mientras el usuario tiene una consulta en
+                // vuelo sobre el DbContext del circuito -> "A second operation was started on this
+                // context" y se cae el circuito. Con scope propio nunca tocamos el DbContext del circuito.
+                if (Guid.TryParse(_tenantId, out var tgPost))
+                {
+                    using var ambientPost = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tgPost, await ActorAsync());
+                    await using var scopePost = ScopeFactory.CreateAsyncScope();
+                    var sp = scopePost.ServiceProvider;
+                    _boardFields = await sp.GetRequiredService<ITaskFieldService>().ListByBoardAsync(BoardId);
+                    BuildCardCustomCache();
+                    await EnsureListLabelsAsync(sp);
+                    await EnsureFormValuesAsync(sp);
+                    await EnsureDetailAsync(sp);
+                }
+                else
+                {
+                    _boardFields = await FieldSvc.ListByBoardAsync(BoardId);
+                    BuildCardCustomCache();
+                    await EnsureListLabelsAsync();
+                    await EnsureFormValuesAsync();
+                    await EnsureDetailAsync();
+                }
             }
 }
         finally
@@ -2552,8 +2571,10 @@
             : raw;
 
     // Resuelve las etiquetas de las columnas de lista tipo lookup/directorio (id -> texto), en lote.
-    private async Task EnsureListLabelsAsync()
+    private async Task EnsureListLabelsAsync(IServiceProvider? sp = null)
     {
+        var lookupSvc = sp?.GetRequiredService<IDataLookupService>() ?? LookupSvc;
+        var formLookupSvc = sp?.GetRequiredService<IFormLookupService>() ?? FormLookupSvc;
         _listLabels.Clear();
         foreach (var col in VisibleListColumns())
         {
@@ -2572,14 +2593,14 @@
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
             if (f.FieldType == TerceroFieldType.Lookup && DataLookupConfig.TryParse(f.Options) is { } cfg)
             {
-                var rows = await LookupSvc.ResolveAsync(cfg.TableId, ids, cfg.DisplayColumnId);
+                var rows = await lookupSvc.ResolveAsync(cfg.TableId, ids, cfg.DisplayColumnId);
                 foreach (var r in rows) { map[r.RowId.ToString()] = r.Label; }
             }
             else if (f.FieldType == TerceroFieldType.DirectoryLookup)
             {
                 foreach (var id in ids)
                 {
-                    var item = await FormLookupSvc.ResolveAsync(FormSourceKind.Tercero, string.Empty, id.ToString(), Array.Empty<string>());
+                    var item = await formLookupSvc.ResolveAsync(FormSourceKind.Tercero, string.Empty, id.ToString(), Array.Empty<string>());
                     if (item is not null) { map[id.ToString()] = item.Display; }
                 }
             }
@@ -2806,19 +2827,23 @@
 
     private bool HasDetail => _listCfg?.Detail is { } d && d.FormDefId != Guid.Empty && !string.IsNullOrWhiteSpace(d.GridFieldCode);
 
-    private async Task EnsureDetailAsync()
+    private async Task EnsureDetailAsync(IServiceProvider? sp = null)
     {
+        var formResponsesSvc = sp?.GetRequiredService<IFormResponseService>() ?? FormResponsesSvc;
         _detailRows.Clear();
         if (_listCfg?.Detail is not { } det || det.FormDefId == Guid.Empty || string.IsNullOrWhiteSpace(det.GridFieldCode)) { return; }
-        var rows = await FormResponsesSvc.GetBoardTaskGridRowsAsync(BoardId, det.FormDefId, det.GridFieldCode);
+        var rows = await formResponsesSvc.GetBoardTaskGridRowsAsync(BoardId, det.FormDefId, det.GridFieldCode);
         foreach (var r in rows)
         {
             _detailRows[r.TaskItemId] = r.Rows.Select(x => new Dictionary<string, string?>(x, StringComparer.Ordinal)).ToList();
         }
     }
 
-    private async Task EnsureFormValuesAsync()
+    private async Task EnsureFormValuesAsync(IServiceProvider? sp = null)
     {
+        var formResponsesSvc = sp?.GetRequiredService<IFormResponseService>() ?? FormResponsesSvc;
+        var formDefSvc = sp?.GetRequiredService<IFormDefinitionService>() ?? FormDefSvc;
+        var formLookupSvc = sp?.GetRequiredService<IFormLookupService>() ?? FormLookupSvc;
         _formValues.Clear();
         _formFieldMeta.Clear();
         _formLookupLabels.Clear();
@@ -2826,7 +2851,7 @@
             .Select(c => ParseFormKey(c.Key)?.DefId)
             .Where(g => g is not null).Select(g => g!.Value).Distinct().ToList();
         if (defIds.Count == 0) { return; }
-        var rows = await FormResponsesSvc.GetBoardTaskFormValuesAsync(BoardId, defIds);
+        var rows = await formResponsesSvc.GetBoardTaskFormValuesAsync(BoardId, defIds);
         foreach (var r in rows)
         {
             _formValues[(r.TaskItemId, r.DefinitionId)] = ParseFormData(r.Data);
@@ -2835,7 +2860,7 @@
         // Meta de los campos (formato #4 + lookup #3): una sola lectura por definicion usada en columnas.
         foreach (var defId in defIds)
         {
-            var def = await FormDefSvc.GetAsync(defId);
+            var def = await formDefSvc.GetAsync(defId);
             if (def?.Questions is null) { continue; }
             foreach (var q in def.Questions)
             {
@@ -2863,7 +2888,7 @@
             {
                 try
                 {
-                    var item = await FormLookupSvc.ResolveAsync(meta.SourceKind, meta.SourceRef ?? "", val!, fields);
+                    var item = await formLookupSvc.ResolveAsync(meta.SourceKind, meta.SourceRef ?? "", val!, fields);
                     if (item is not null && !string.IsNullOrWhiteSpace(item.Display))
                     {
                         _formLookupLabels[(defId, code, val!)] = item.Display;

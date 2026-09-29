@@ -282,19 +282,9 @@
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => _confirmClose = true)" disabled="@_busy">Cerrar</button>
                     }
                 }
-                @* Copiar la actividad: crea una NUEVA que nace en el inicio del flujo (sin arrastrar el avance). *@
-                @if (_confirmCopy)
-                {
-                    <span class="tk-confirm">
-                        Copiar esta actividad? Nace nueva en el inicio del flujo.
-                        <button class="btn btn-sm btn-outline-primary" @onclick="CopyAsync" disabled="@_busy">Si, copiar</button>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _confirmCopy = false)">No</button>
-                    </span>
-                }
-                else
-                {
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _confirmCopy = true)" disabled="@_busy" title="Crea una copia como actividad nueva en el punto inicial del flujo">Copiar</button>
-                }
+                @* Copiar la actividad: crea una NUEVA que nace en el inicio del flujo (sin arrastrar el avance).
+                   Un solo clic: es una accion NO destructiva y reversible (la copia se puede borrar). *@
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CopyAsync" disabled="@_busy" title="Crea una copia como actividad nueva en el punto inicial del flujo">@(_busy ? "Copiando..." : "Copiar")</button>
                 @* Archivado = visibilidad (no transicion de estado): permitido incluso en Closed. *@
                 @if (item.IsArchived)
                 {
@@ -1708,7 +1698,6 @@
     private DateTime? _editStart;
     private bool _confirmClose;
     private bool _confirmArchive;
-    private bool _confirmCopy;
     private string? _copyNotice;
     private Guid? _lastCopyId;
     private string? _conflict;
@@ -3261,7 +3250,6 @@
     // copia salga en "Copias generadas") y refresca el tablero (la copia es una tarjeta nueva).
     private async Task CopyAsync()
     {
-        _confirmCopy = false;
         if (_detail is null) { return; }
         _busy = true;
         try

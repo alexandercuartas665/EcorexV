@@ -36,7 +36,9 @@ public sealed record ProspectoDto(
     // OrigenUrl (arriba) es la ficha del lugar en Maps (maps_url); SitioWeb es el sitio propio del negocio.
     string? Direccion = null,
     string? SitioWeb = null,
-    string? FraseBusqueda = null);
+    string? FraseBusqueda = null,
+    // Resumen del perfil (persona: headline/about; empresa: que hace). Va a la ficha Base como "perfil".
+    string? Perfil = null);
 
 /// <summary>Columna/estado configurable de la Bolsa de contactos (kanban de terceros).</summary>
 public sealed record BolsaColumnaDto(

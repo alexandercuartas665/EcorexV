@@ -14,6 +14,25 @@
   migracion (no hay indice unico en (TenantId, DefinitionId, Reference)).
 - Build SuperAdmin verde. Siguiente: validar en vivo (copiar una tarea con formularios y ver que la copia trae
   los datos) y desplegar.
+## 2026-09-29 - Cargador de contactos: trigger en background + campo "perfil" - rama feat/contactos-trigger-perfil
+
+- Hand-off de la sesion de pruebas del Cargador de contactos (000740). Dos ajustes.
+- Ajuste 1 (robustez del trigger): el boton "Ejecutar" de ContactSearchConfig ya NO corre en el circuito
+  Blazor (antes await Runner.RunAsync(id), moria a mitad en corridas multi-empresa). Ahora dispara en
+  BACKGROUND con su propio scope (IServiceScopeFactory.CreateAsyncScope) + AmbientTenantContext.Begin(tenant)
+  + CancellationToken.None, igual que el endpoint /api/mgmt/contact-searches/{id}/run y el ScheduleWorker.
+  El boton responde de una ("Busqueda ... iniciada en segundo plano"); el avance se ve por LastRunAt/
+  ContactSearchRuns/pestana Prospectos.
+- Ajuste 2 (campo "perfil" = resumen): ProspectoScrapeado.Perfil (string?, migracion DUAL AddProspectoPerfil,
+  varchar(1000)/nvarchar(1000)). ProspectoSearchRowSink captura Pick(row,"perfil","resumen","about",
+  "descripcion","headline","bio"); se quito "perfil" de las claves de OrigenUrl (ya no es la URL). Las guias
+  (Maps + LinkedIn + enrich LinkedIn) piden la clave "perfil" = resumen 1-2 frases. ProspectoDto.Perfil +
+  proyeccion. BuildBaseFichaJson -> base["perfil"]; TerceroModal.OpenFromProspectoAsync nuevo param perfil;
+  GestorContactos pasa p.Perfil; campo "perfil" (label "Perfil") en la ficha Base 000232 (TerceroFieldService
+  Defaults; EnsureDefaultsAsync lo backfillea a tenants existentes, como maps_url/frase_busqueda).
+- Confirmaciones para la sesion de pruebas: (a) el trigger YA NO corre en el circuito (Task.Run + scope propio);
+  (b) la migracion quedo DUAL (PG + SQL Server), solo la columna perfil, sin drift. Build verde.
+- Siguiente: deploy (lo corre el usuario).
 
 
 ## 2026-09-29 - Plantillas: token {sistema.fechalarga} + TinyMCE conserva <style> del membrete - rama feat/plantilla-fechalarga-style

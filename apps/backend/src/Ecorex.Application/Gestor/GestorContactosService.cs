@@ -79,7 +79,7 @@ public sealed class GestorContactosService : IGestorContactosService
             p.Id, p.Fuente, p.NombreCompleto, p.Cargo, p.Empresa, p.Ciudad, p.Metrica, p.Badge,
             p.Telefono, p.Correo, p.TerceroId, p.TerceroId != null, p.FechaCaptura,
             p.ImagenUrl, p.OrigenUrl, p.EmpresaProspectoId,
-            p.Direccion, p.SitioWeb, p.FraseBusqueda)).ToList();
+            p.Direccion, p.SitioWeb, p.FraseBusqueda, p.Perfil)).ToList();
     }
 
     public async Task<TerceroResult<Guid>> PromoverProspectoAsync(
@@ -993,6 +993,8 @@ public sealed class GestorContactosService : IGestorContactosService
         // OrigenUrl = la ficha del lugar en Maps (distinta del sitio web propio).
         if (!string.IsNullOrWhiteSpace(p.OrigenUrl)) { baseFicha["maps_url"] = p.OrigenUrl.Trim(); }
         if (!string.IsNullOrWhiteSpace(p.FraseBusqueda)) { baseFicha["frase_busqueda"] = p.FraseBusqueda.Trim(); }
+        // Resumen del perfil (headline/about de la persona, o que hace el negocio).
+        if (!string.IsNullOrWhiteSpace(p.Perfil)) { baseFicha["perfil"] = p.Perfil.Trim(); }
         return baseFicha.Count > 0
             ? JsonSerializer.Serialize(new Dictionary<string, Dictionary<string, string?>> { ["base"] = baseFicha })
             : null;

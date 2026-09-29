@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Evolution: ingerir DOCUMENTOS (PDF) entrantes - rama feat/evolution-document
+
+- Hand-off de la sesion de diseno de agentes. El parser de Evolution ya manejaba imagen/audio pero NO
+  documentMessage: los PDF (facturas EmCali, etc.) caian en "(mensaje no soportado)". Mismo patron que audio.
+- EvolutionWebhookParser: nuevo TryGetDocumentMessage (documentMessage y la envoltura
+  documentWithCaptionMessage con caption), ExtractDocFileName (fileName|title), body fallback "(documento)"
+  o el nombre del archivo, ExtractText devuelve el caption del documento si existe, MessageType="document"
+  y MediaFileName=nombre original en el IngestMessageRequest.
+- Webhook /webhooks/evolution: la descarga ahora tambien corre para MessageType=="document"; baja la media
+  con FetchInboundMediaAsync, elige extension por el nombre original (o mime; pdf por defecto) y fija
+  MediaType=Document + MediaMimeType + MediaUrl (MediaFileName se conserva del parser). Best-effort: si falla
+  la descarga se ingiere como texto "(documento)" sin romper. Multi-tenant intacto (AmbientTenantContext).
+- Con esto el PDF entra como Document con su nombre -> AgentConversationService lo LEE nativo (Gemini) ->
+  AttachConversationMediaAsync lo adjunta a la tarea al cerrar. Sin migracion.
+- Tests nuevos (Ecorex.SuperAdmin.Tests/EvolutionWebhookParserDocumentTests): 4/4 verdes (documento directo,
+  envuelto con caption, sin fileName -> "(documento)", regresion de texto). Build Ecorex.sln verde.
+- Siguiente: E2E real con un PDF (factura) por la linea de EPRING (lo corre la sesion de agentes). Sin deploy.
+
+
 ## 2026-09-28 - Plantillas de documento: membrete de empresa por grupo + PDF por documento - rama feat/plantillas-pdf-membrete
 
 - Pedido: "las plantillas impriman un PDF y deben tener headers de la empresa". Decisiones del usuario:

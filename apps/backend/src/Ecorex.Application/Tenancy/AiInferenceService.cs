@@ -172,6 +172,27 @@ public sealed class AiInferenceService : IAiInferenceService
             catch { /* best-effort: la transcripcion nunca debe romper la respuesta */ }
         }
 
+        // Documento PDF entrante (factura, etc.): el modelo principal ya recibe el PDF (AiInlineDocument) y
+        // rutea en el turno, pero el EXTRACTOR de cache lee solo TEXTO. Igual que la imagen (Fix B) y el audio,
+        // se LEE el PDF y se anexa al ultimo turno como "[Lectura automatica del documento adjunto]\n<campos>"
+        // para que el extractor capture el valor (factura_costoservicioenergia, etc.). Solo PDF: los Excel/CSV
+        // se extraen a texto aguas arriba (AgentConversationService), asi que no se re-procesan aqui.
+        if (!string.IsNullOrWhiteSpace(docBase64)
+            && (docMime?.Contains("pdf", StringComparison.OrdinalIgnoreCase) ?? false)
+            && work.Count > 0
+            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var lectura = await ReadDocumentAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, docBase64!, docMime, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(lectura))
+                {
+                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n[Lectura automatica del documento adjunto]\n" + lectura!.Trim() };
+                }
+            }
+            catch { /* best-effort: la lectura del documento nunca debe romper la respuesta */ }
+        }
+
         var systemPrompt = await BuildSystemPrompt(agentId, systemPromptOverride ?? agent.SystemPrompt, resources, cacheFields, cacheValues, work, autonomous, cancellationToken);
 
         // Log de prompts: registramos cada llamada al LLM con su titulo y fecha/hora.
@@ -324,6 +345,36 @@ markdown y sin agregar nada. Si no se entiende nada, devuelve una cadena vacia."
         {
             new(Text: "Transcribe la nota de voz."),
             new(AudioBase64: audioBase64, AudioMime: mime)
+        };
+        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
+        return r.Ok ? r.Text?.Trim() : null;
+    }
+
+    /// <summary>
+    /// Lee un DOCUMENTO PDF entrante (factura, etc.) y devuelve el mismo bloque de campos que
+    /// <see cref="ReadImageAsync"/> (para que el extractor de cache lo mapee igual). Gemini y Claude leen
+    /// PDF nativo; otros proveedores devuelven null (CompleteVisionAsync no los soporta). Best-effort: nunca lanza.
+    /// </summary>
+    private async Task<string?> ReadDocumentAsync(AiProvider provider, string apiKey, string? baseUrl,
+        string model, string docBase64, string? docMime, CancellationToken ct)
+    {
+        // Solo Gemini/Claude aceptan PDF nativo; para el resto ni intentamos la llamada.
+        if (provider != AiProvider.Gemini && provider != AiProvider.Claude) { return null; }
+        const string sys = @"Eres un extractor. Lees UN documento PDF que envio un cliente por WhatsApp (normalmente
+una factura de energia) y devuelves SOLO un bloque de texto plano con estos campos (una linea por campo). Si un
+campo no aplica o no se lee, pon NO_LEGIBLE. No agregues nada mas, sin markdown.
+TIPO_IMAGEN: (FACTURA_ENERGIA | OTRO)
+COMERCIALIZADORA:
+VALOR_TOTAL_COP: (solo digitos, el valor total a pagar del mes)
+CONSUMO_KWH: (solo digitos)
+ESTRATO:
+PERIODO_FACTURADO:
+CIUDAD:";
+        var mime = string.IsNullOrWhiteSpace(docMime) ? "application/pdf" : docMime!;
+        var content = new List<AiVisionPart>
+        {
+            new(Text: "Lee el documento y devuelve el bloque de campos."),
+            new(DocBase64: docBase64, DocMime: mime)
         };
         var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
         return r.Ok ? r.Text?.Trim() : null;

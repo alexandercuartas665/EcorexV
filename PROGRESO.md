@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Persistir el valor de la factura cuando llega como PDF (extractor) - rama feat/pdf-persistir-valor
+
+- Hand-off de la sesion de agentes. El PDF ya se LEE y rutea (el modelo principal lo recibe por
+  AiInlineDocument), pero el VALOR no se persiste al cache: ExtractAndStoreCacheUpdatesAsync lee solo TEXTO.
+  Mismo hueco que las imagenes antes de Fix B. Sin migracion.
+- AiInferenceService.RunCoreAsync: bloque nuevo para PDF (tras imagen/audio, best-effort, guard docMime=pdf):
+  ReadDocumentAsync lee la factura y anexa "[Lectura automatica del documento adjunto]
+<campos>" a work[^1]
+  -> el extractor captura factura_costoservicioenergia (mismos campos que ReadImageAsync). Excel/CSV no se
+  reprocesan (se extraen a texto aguas arriba).
+- Soporte de PDF en la llamada de vision: AiVisionPart + DocBase64/DocMime; GeminiVision emite inlineData
+  (application/pdf) y ClaudeVision un bloque type=document. Otros proveedores devuelven vacio.
+- Build SuperAdmin verde. Aplica tanto a PDFs reales (Evolution, ya en tronco 52569fe6) como al emulador.
+- Siguiente: validar por emulador (ai_agent_cache_values con factura_costoservicioenergia=650000) y desplegar.
+
+
 ## 2026-09-29 - Evolution: ingerir DOCUMENTOS (PDF) entrantes (MERGEADO a trunk)
 
 - Hand-off de la sesion de diseno de agentes. El parser de Evolution ya manejaba imagen/audio pero NO

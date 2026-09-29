@@ -300,6 +300,9 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var turnIn = 0;
         var turnOut = 0;
         var turnCached = 0;
+        // El modelo (Gemini flash sobre todo) a veces "no ve" el adjunto en el primer turno y PIDE el archivo
+        // aunque ya venga. Se le empuja UNA vez reenviando el archivo antes de darlo por perdido.
+        var attachmentReRequested = false;
 
         for (var round = 0; round < MaxRounds; round++)
         {
@@ -342,6 +345,18 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             if (completion.ToolCalls is null || completion.ToolCalls.Count == 0)
             {
                 await AddMessageAsync(conv, FormBuilderMessageRole.Assistant, completion.Text, null, cancellationToken);
+
+                // MITIGACION del "flaky" de vision: si el turno trae un adjunto (imagen/PDF) que TODAVIA se puede
+                // reenviar y el agente PIDE el archivo (no lo "vio"), se le empuja UNA vez reenviando el adjunto,
+                // en vez de dejar la conversacion pidiendo algo que el usuario ya subio.
+                if (!attachmentReRequested && (images is { Count: > 0 } || docs is { Count: > 0 })
+                    && AsksForAttachment(completion.Text))
+                {
+                    attachmentReRequested = true;
+                    transientNudge = "El archivo (Excel/PDF/imagen) YA esta adjunto en ESTE mismo mensaje. Leelo y usa su " +
+                        "contenido para armar o editar el formulario; NO vuelvas a pedir que lo adjunte.";
+                    continue;
+                }
                 // Si el agente NARRO una accion futura ("voy a agregar...") pero no emitio nada, empujalo UNA vez a
                 // ejecutar en vez de terminar el turno a medio construir.
                 if (!autoNudged && StoppedMidAction(completion.Text))
@@ -454,6 +469,22 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     {
         try { await _usage.RecordAsync(null, provider, model, inputTokens, outputTokens, "form-builder", true, ct); }
         catch { /* la telemetria de consumo no debe frenar el chat */ }
+    }
+
+    // El agente PIDE que le adjunten el archivo (aunque ya venga adjunto): "adjuntame", "sube el archivo",
+    // "no veo/recibi el archivo", "comparte/envia el/la <archivo>". Conservadora: solo dispara con senales claras.
+    internal static bool AsksForAttachment(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = text.ToLowerInvariant();
+        var pideAccion = t.Contains("adjunt") || t.Contains("sube ") || t.Contains("subir ")
+            || t.Contains("comparte") || t.Contains("compartir") || t.Contains("proporciona")
+            || t.Contains("no veo") || t.Contains("no recib") || t.Contains("no me lleg")
+            || t.Contains("enviame") || t.Contains("envieme") || t.Contains("necesito que me");
+        if (!pideAccion) { return false; }
+        // ...y menciona un archivo/documento (evita falsos positivos como "adjunta una firma").
+        return t.Contains("archivo") || t.Contains("documento") || t.Contains("imagen") || t.Contains("foto")
+            || t.Contains("pdf") || t.Contains("excel") || t.Contains("ficha") || t.Contains("el file");
     }
 
     // El texto es una PREGUNTA al usuario (espera respuesta) -> no es un cierre, no se fuerza la verificacion.

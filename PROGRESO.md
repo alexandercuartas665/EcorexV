@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Plantillas de documento: membrete de empresa por grupo + PDF por documento - rama feat/plantillas-pdf-membrete
+
+- Pedido: "las plantillas impriman un PDF y deben tener headers de la empresa". Decisiones del usuario:
+  (1) el membrete sale POR GRUPO de plantillas (cada grupo su encabezado); (2) membrete automatico +
+  boton PDF por documento en la pestana Documentos de la tarea. ADR-0118.
+- Tokens {empresa.*} nuevos en NotifyTokenResolver (razon social, nombre comercial, sigla, NIT+DV,
+  direccion, ciudad, departamento, pais, telefono, email, web, representante legal, {empresa.logo} como
+  data URI) desde la Entidad principal (IsPrincipal, activa). Anadidos tambien a la paleta de tokens del editor.
+- DocumentTemplateGroup.HeaderHtml: membrete HTML por grupo. Editor dedicado (modal "Membrete" en
+  /plantillas-documentos, TinyMCE tipo carta + paleta de tokens). Servicio SetGroupHeaderHtmlAsync (solo
+  toca el membrete). Badge verde "Membrete" en la tarjeta del grupo cuando esta configurado.
+- Documento.MembreteHtml: al redactar (GuardarNuevo con grupoId) se resuelve el membrete del grupo con los
+  tokens de la tarea y se CONGELA en el documento (como el footer de la pagina de decision).
+- PDF: endpoint GET /plantillas-doc/documento/{id}/pdf (AllowAnonymous, acotado por id+TenantId como
+  /cotizacion y /formularios/plantilla). Arma membrete + cuerpo en A4 y usa IQuotePdfRenderer.RenderHtmlToPdfAsync
+  (HTML crudo, logo como data URI). Boton "PDF" por documento en TaskTemplateDocs.
+- Migracion DUAL AddPlantillaMembrete (PG text / SQL Server nvarchar(max)): document_template_groups.header_html
+  y documentos.membrete_html. Sin drift (solo 2 columnas). Build Ecorex.sln verde (0 errores).
+- Siguiente: validar en vivo (Chrome, AGRO) el flujo membrete->redactar->PDF; luego merge a tronco (sin deploy).
+
 ## 2026-09-28 - Editor de plantillas: papel BLANCO siempre + modal tipo carta en el uso - rama feat/plantillas-editor-carta
 
 - Pedido: el editor TinyMCE (interop ecorex-doc-editor.js) se veia oscuro en modo oscuro; que sea BLANCO tanto

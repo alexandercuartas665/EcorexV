@@ -2483,6 +2483,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(500);
+            b.Property(x => x.HeaderHtml).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
         });
@@ -3049,6 +3050,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Titulo).HasMaxLength(300).IsRequired();
             b.Property(x => x.Descripcion).HasMaxLength(2000);
             b.Property(x => x.NombreArchivoOriginal).HasMaxLength(255).IsRequired();
+            b.Property(x => x.MembreteHtml).HasColumnType(longTextColumnType);
             // Restrict: una categoria/carpeta con documentos se desactiva, no se borra.
             b.HasOne(x => x.Categoria).WithMany()
                 .HasForeignKey(x => x.CategoriaId).OnDelete(DeleteBehavior.Restrict);

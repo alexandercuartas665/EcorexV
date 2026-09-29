@@ -25,6 +25,7 @@
 .pd-tactions { display: flex; gap: 6px; flex: none; }
 
 .pd-badge { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 1px 8px; border-radius: 999px; background: var(--t-slate-bg); color: var(--t-slate); }
+.pd-badge.pd-on { background: var(--t-green-bg); color: var(--t-green); margin-left: 6px; }
 
 .btn-xs { font-size: 11px; padding: 2px 8px; line-height: 1.5; border-radius: 8px; }
 

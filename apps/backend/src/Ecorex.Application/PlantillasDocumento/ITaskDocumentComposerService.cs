@@ -33,9 +33,19 @@ public interface ITaskDocumentComposerService
     Task<TaskCoreResult<string>> GetVersionHtmlAsync(
         Guid documentoId, Guid? versionId = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Crea el documento (version 1) desde el HTML redactado. Devuelve el id del documento.</summary>
+    /// <summary>Crea el documento (version 1) desde el HTML redactado. Devuelve el id del documento.
+    /// Si <paramref name="grupoId"/> tiene membrete, se resuelve con los tokens de la tarea y se CONGELA
+    /// en el documento (se antepondra al generar el PDF).</summary>
     Task<TaskCoreResult<Guid>> GuardarNuevoAsync(
-        Guid taskId, string titulo, string html, CancellationToken cancellationToken = default);
+        Guid taskId, string titulo, string html, Guid? grupoId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Arma el HTML imprimible de un documento (membrete congelado + cuerpo de la version) como pagina
+    /// standalone lista para renderizar a PDF. Devuelve tambien un nombre de archivo amigable. Se acota
+    /// al TenantId del propio documento (via su id): pensado para un endpoint sin contexto de tenant.
+    /// </summary>
+    Task<TaskCoreResult<TaskDocumentoPrintDto>> BuildPrintHtmlAsync(
+        Guid documentoId, Guid? versionId = null, CancellationToken cancellationToken = default);
 
     /// <summary>Agrega una version nueva a un documento existente y la deja vigente.</summary>
     Task<TaskCoreResult<Guid>> GuardarNuevaVersionAsync(

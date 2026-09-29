@@ -21,6 +21,14 @@ public class DocumentTemplateGroup : TenantEntity
     /// <summary>Orden de aparicion.</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// Membrete (encabezado) de la empresa para este grupo, como HTML con tokens {empresa.*}
+    /// (logo, razon social, NIT, direccion...). Al redactar un documento de este grupo, este
+    /// membrete se RESUELVE y se CONGELA en <see cref="Documento.MembreteHtml"/> del documento, y
+    /// se antepone automaticamente al imprimir el PDF. Null = sin membrete (PDF sin encabezado).
+    /// </summary>
+    public string? HeaderHtml { get; set; }
+
     /// <summary>Plantillas de este grupo.</summary>
     public ICollection<DocumentTemplate> Templates { get; set; } = new List<DocumentTemplate>();
 }

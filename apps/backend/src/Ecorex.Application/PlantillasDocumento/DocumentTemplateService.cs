@@ -42,7 +42,7 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         {
             byGroup.TryGetValue(g.Id, out var k);
             return new DocumentTemplateGroupDto(
-                g.Id, g.Name, g.Description, g.IsActive, g.SortOrder, k?.Activas ?? 0, k?.Total ?? 0);
+                g.Id, g.Name, g.Description, g.IsActive, g.SortOrder, k?.Activas ?? 0, k?.Total ?? 0, g.HeaderHtml);
         }).ToList();
     }
 
@@ -112,7 +112,7 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         var total = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId, cancellationToken);
         var activas = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId && t.IsActive, cancellationToken);
         return TaskCoreResult<DocumentTemplateGroupDto>.Ok(new DocumentTemplateGroupDto(
-            entity.Id, entity.Name, entity.Description, entity.IsActive, entity.SortOrder, activas, total));
+            entity.Id, entity.Name, entity.Description, entity.IsActive, entity.SortOrder, activas, total, entity.HeaderHtml));
     }
 
     public async Task<TaskCoreResult<DocumentTemplateGroupDto>> SetGroupActiveAsync(
@@ -134,7 +134,23 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         var total = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId, cancellationToken);
         var activas = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId && t.IsActive, cancellationToken);
         return TaskCoreResult<DocumentTemplateGroupDto>.Ok(new DocumentTemplateGroupDto(
-            entity.Id, entity.Name, entity.Description, entity.IsActive, entity.SortOrder, activas, total));
+            entity.Id, entity.Name, entity.Description, entity.IsActive, entity.SortOrder, activas, total, entity.HeaderHtml));
+    }
+
+    public async Task<TaskCoreResult<DocumentTemplateGroupDto>> SetGroupHeaderHtmlAsync(
+        Guid groupId, string? headerHtml, CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.DocumentTemplateGroups.FirstOrDefaultAsync(g => g.Id == groupId, cancellationToken);
+        if (entity is null)
+        {
+            return TaskCoreResult<DocumentTemplateGroupDto>.NotFound("El grupo no existe.");
+        }
+        entity.HeaderHtml = string.IsNullOrWhiteSpace(headerHtml) ? null : headerHtml;
+        await _db.SaveChangesAsync(cancellationToken);
+        var total = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId, cancellationToken);
+        var activas = await _db.DocumentTemplates.CountAsync(t => t.GroupId == groupId && t.IsActive, cancellationToken);
+        return TaskCoreResult<DocumentTemplateGroupDto>.Ok(new DocumentTemplateGroupDto(
+            entity.Id, entity.Name, entity.Description, entity.IsActive, entity.SortOrder, activas, total, entity.HeaderHtml));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteGroupAsync(
@@ -306,6 +322,17 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         new("{tarea.celular}", "Celular del contacto", "Tarea"),
         new("{tarea.documento}", "Documento/identificacion del contacto", "Tarea"),
         new("{tarea.nit}", "NIT del contacto", "Tarea"),
+        // Empresa (Entidad principal del tenant): utiles sobre todo en el MEMBRETE del grupo.
+        new("{empresa.razonsocial}", "Razon social / nombre de la empresa", "Empresa"),
+        new("{empresa.nombrecomercial}", "Nombre comercial", "Empresa"),
+        new("{empresa.sigla}", "Sigla", "Empresa"),
+        new("{empresa.nit}", "NIT / Tax ID (con DV si existe)", "Empresa"),
+        new("{empresa.direccion}", "Direccion", "Empresa"),
+        new("{empresa.ciudad}", "Ciudad", "Empresa"),
+        new("{empresa.telefono}", "Telefono", "Empresa"),
+        new("{empresa.email}", "Correo", "Empresa"),
+        new("{empresa.web}", "Sitio web", "Empresa"),
+        new("{empresa.logo}", "Logo (usar como <img src=\"{empresa.logo}\">)", "Empresa"),
         new("{sistema.fecha}", "Fecha actual (zona del tenant)", "Sistema"),
         new("{sistema.hora}", "Hora actual", "Sistema"),
         new("{sistema.fechahora}", "Fecha y hora actual", "Sistema"),

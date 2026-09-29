@@ -61,6 +61,42 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
         Put("documento", task.RequesterDocument);
         Put("nit", task.RequesterDocument);
 
+        // Empresa: datos de la Entidad PRINCIPAL del tenant (membrete de documentos, {empresa.*}).
+        // Solo con prefijo (no bare): evita colisionar con variables de tarea/formulario.
+        var empresa = await _db.Entidades.AsNoTracking()
+            .Where(e => e.IsActive && !e.IsArchived)
+            .OrderByDescending(e => e.IsPrincipal).ThenBy(e => e.SortOrder).ThenBy(e => e.Codigo)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (empresa is not null)
+        {
+            void PutEmp(string key, string? value) => map["empresa." + key] = value ?? string.Empty;
+            var nit = empresa.TaxId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(empresa.TaxIdDv)) { nit = nit + "-" + empresa.TaxIdDv; }
+            PutEmp("razonsocial", empresa.Nombre);
+            PutEmp("nombre", empresa.Nombre);
+            PutEmp("nombrecomercial", empresa.NombreComercial);
+            PutEmp("sigla", empresa.Sigla);
+            PutEmp("nit", nit);
+            PutEmp("taxid", empresa.TaxId);
+            PutEmp("direccion", empresa.Direccion);
+            PutEmp("ciudad", empresa.Ciudad);
+            PutEmp("departamento", empresa.Departamento);
+            PutEmp("pais", empresa.Pais);
+            PutEmp("telefono", empresa.Telefono);
+            PutEmp("email", empresa.Email);
+            PutEmp("correo", empresa.Email);
+            PutEmp("web", empresa.Web);
+            PutEmp("representantelegal", empresa.RepresentanteLegal);
+            // Logo listo para <img src="{empresa.logo}">: si ya es data URI se usa tal cual; si es base64
+            // "pelado" se le antepone el prefijo PNG. Vacio si el tenant no cargo logo.
+            var logo = empresa.LogoBase64;
+            if (!string.IsNullOrWhiteSpace(logo) && !logo.TrimStart().StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                logo = "data:image/png;base64," + logo.Trim();
+            }
+            PutEmp("logo", logo);
+        }
+
         // Tercero del Directorio (000232) enlazado a la tarea: tokens {tercero.*} y alias {directorio.*}
         // (ADR-0114 Ola 3). Columnas + campos dinamicos de las fichas (jsonb) -> p.ej. {directorio.direccion}.
         if (task.TerceroId is Guid terceroId)

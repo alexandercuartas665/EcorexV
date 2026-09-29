@@ -1396,6 +1396,23 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
     return Results.File(bytes, "image/png", $"{(string.IsNullOrWhiteSpace(name) ? $"documento-{responseId}" : name)}.png");
 }).AllowAnonymous();
 
+// ---- PDF de un DOCUMENTO de tarea (boton "PDF" de la pestana Documentos) ----
+// Antepone el MEMBRETE congelado del documento a la version pedida (o la vigente) y renderiza el HTML
+// crudo a PDF (sin navegar a una URL: el logo va como data URI embebido). AllowAnonymous como los otros
+// PDF: el servicio acota por el id (y su TenantId) del propio documento, no por el contexto de tenant.
+app.MapGet("/plantillas-doc/documento/{documentoId:guid}/pdf", async (
+    Guid documentoId,
+    [FromQuery] Guid? version,
+    Ecorex.Application.PlantillasDocumento.ITaskDocumentComposerService composer,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    var res = await composer.BuildPrintHtmlAsync(documentoId, version, ct);
+    if (!res.IsOk || res.Value is null) { return Results.NotFound(); }
+    var bytes = await pdf.RenderHtmlToPdfAsync(res.Value.Html, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"{res.Value.FileName}.pdf");
+}).AllowAnonymous();
+
 // Descarga del comprobante de pago (PDF). Solo pagos aprobados; el usuario de agencia solo
 // puede descargar comprobantes de su propio tenant; el operador de plataforma puede cualquiera.
 app.MapGet("/comprobante/{paymentId:guid}", async (

@@ -3749,6 +3749,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("description");
 
+                    b.Property<string>("HeaderHtml")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("header_html");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
@@ -3829,6 +3833,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("estado");
+
+                    b.Property<string>("MembreteHtml")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("membrete_html");
 
                     b.Property<string>("NombreArchivoOriginal")
                         .IsRequired()

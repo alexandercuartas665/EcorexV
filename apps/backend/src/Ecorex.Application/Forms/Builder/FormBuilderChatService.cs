@@ -299,6 +299,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         // Contador de tokens del TURNO (suma de todas las vueltas al modelo): para el contador en vivo del panel.
         var turnIn = 0;
         var turnOut = 0;
+        var turnCached = 0;
 
         for (var round = 0; round < MaxRounds; round++)
         {
@@ -334,6 +335,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             // AiUsageLog (source "form-builder") para el dashboard de consumo/cupos, igual que los demas agentes.
             turnIn += completion.InputTokens;
             turnOut += completion.OutputTokens;
+            turnCached += completion.CachedInputTokens;
             await SafeRecordUsageAsync(provider, model, completion.InputTokens, completion.OutputTokens, cancellationToken);
 
             // Turno solo texto, sin herramientas.
@@ -372,7 +374,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
                     Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false,
-                    turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut));
+                    turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut, turnCached), turnCached);
             }
 
             // Hay tool-calls. Si TODAS son de solo lectura, se ejecutan sin gate y se sigue el bucle.
@@ -415,7 +417,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 proposals.Add(new FormBuilderProposalDto(m.Id, tc.Name, tc.ArgumentsJson));
             }
             return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals,
-                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut));
+                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut, turnCached), turnCached);
         }
 
         return FormBuilderTurnResult.Fail(conv.Id, "El asistente hizo demasiadas consultas seguidas. Intenta de nuevo o precisa la instruccion.");

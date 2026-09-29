@@ -84,9 +84,17 @@ public static class AiCostEstimator
 
     /// <summary>Costo estimado usando la tarifa del MODELO (si se conoce) o la del proveedor.</summary>
     public static decimal Estimate(AiProvider provider, string? model, int inputTokens, int outputTokens)
+        => Estimate(provider, model, inputTokens, outputTokens, 0);
+
+    /// <summary>Costo estimado descontando los tokens de entrada servidos desde CACHE (se facturan ~25% de la
+    /// tarifa de entrada; factor tipico de Gemini, aproximado). cachedInputTokens se acota a [0, inputTokens].</summary>
+    public static decimal Estimate(AiProvider provider, string? model, int inputTokens, int outputTokens, int cachedInputTokens)
     {
         var r = RatesFor(provider, model);
-        return Math.Round((inputTokens * r.In + outputTokens * r.Out) / 1_000_000m, 6);
+        var cached = Math.Clamp(cachedInputTokens, 0, inputTokens);
+        var fresh = inputTokens - cached;
+        var cost = (fresh * r.In + cached * r.In * 0.25m + outputTokens * r.Out) / 1_000_000m;
+        return Math.Round(cost, 6);
     }
 
     /// <summary>Compat: costo por proveedor (sin modelo) -> usa la tarifa de gama alta del proveedor.</summary>

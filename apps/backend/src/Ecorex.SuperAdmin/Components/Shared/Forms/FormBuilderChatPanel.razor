@@ -56,8 +56,8 @@
 
     @if (_tokIn > 0 || _tokOut > 0)
     {
-        <div class="fbc-usage" title="Consumo de este chat (entrada + salida). El costo es estimado.">
-            <span>Consumo: <strong>@Fmt(_tokIn + _tokOut) tokens</strong> (@Fmt(_tokIn) in / @Fmt(_tokOut) out)</span>
+        <div class="fbc-usage" title="Consumo de este chat (entrada + salida). En cache = prefijo repetido (arnes + herramientas) servido mas barato. El costo es estimado.">
+            <span>Consumo: <strong>@Fmt(_tokIn + _tokOut) tokens</strong> (@Fmt(_tokIn) in / @Fmt(_tokOut) out@(_tokCached > 0 ? $"; {Fmt(_tokCached)} en cache" : ""))</span>
             <span>~$@_costUsd.ToString("0.0000")</span>
         </div>
     }
@@ -97,6 +97,7 @@
     // Contador de consumo de ESTE chat (acumulado en la sesion del panel): tokens y costo estimado.
     private int _tokIn;
     private int _tokOut;
+    private int _tokCached;
     private decimal _costUsd;
 
     protected override async Task OnInitializedAsync() => await EnsureStartedAsync();
@@ -195,6 +196,7 @@
         // Acumula el consumo del turno (0 si no hubo llamada al modelo) para el contador en vivo.
         _tokIn += r.TurnInputTokens;
         _tokOut += r.TurnOutputTokens;
+        _tokCached += r.TurnCachedInputTokens;
         _costUsd += r.TurnCostUsd;
         if (!r.Ok)
         {

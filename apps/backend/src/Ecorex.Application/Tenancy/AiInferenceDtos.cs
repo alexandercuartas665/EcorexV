@@ -58,9 +58,11 @@ public sealed record AiInlineAudio(string Base64, string Mime);
 /// con inlineData); otros proveedores lo ignoran. Los Excel se convierten a texto ANTES de llegar aqui.</summary>
 public sealed record AiInlineDocument(string Base64, string Mime, string? FileName = null);
 
-/// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.</summary>
+/// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.
+/// <paramref name="CachedInputTokens"/> son los tokens de entrada que el proveedor sirvio DESDE CACHE (prefijo
+/// repetido: system prompt + tools) y factura mas barato; 0 si no hubo cache o el proveedor no lo reporta.</summary>
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,
-    IReadOnlyList<AiToolCall> ToolCalls);
+    IReadOnlyList<AiToolCall> ToolCalls, int CachedInputTokens = 0);
 
 /// <summary>Parte de un prompt MULTIMODAL: texto O imagen (base64 + mime). Para clasificacion por vision.</summary>
 public sealed record AiVisionPart(string? Text = null, string? ImageBase64 = null, string? ImageMime = null, string? AudioBase64 = null, string? AudioMime = null);

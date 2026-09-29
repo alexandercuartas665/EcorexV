@@ -25,7 +25,9 @@ public sealed record FormBuilderTurnResult(
     // estimado en USD. Sirve para el contador en vivo del panel (no ir a ciegas). 0 en turnos sin llamada al modelo.
     int TurnInputTokens = 0,
     int TurnOutputTokens = 0,
-    decimal TurnCostUsd = 0m)
+    decimal TurnCostUsd = 0m,
+    // De los TurnInputTokens, cuantos se sirvieron desde CACHE (prefijo repetido: arnes + tools).
+    int TurnCachedInputTokens = 0)
 {
     public static FormBuilderTurnResult Fail(Guid conversationId, string error)
         => new(false, error, conversationId, null, null, Array.Empty<FormBuilderProposalDto>(), false);

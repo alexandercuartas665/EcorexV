@@ -30,11 +30,12 @@ public interface ITaskItemService
     /// <summary>
     /// COPIA una actividad como una tarea NUEVA. La copia hereda el "molde" (titulo "Copia de ...",
     /// concepto/flujo, contacto/solicitante, tercero, prioridad, proyecto/hito, Empresa/Area,
-    /// descripcion, color, etiquetas y checklist SIN marcar) pero NO arrastra el avance: nace en el
-    /// PUNTO INICIAL del flujo (CreateAsync -> StartInstanceAsync) y en la columna de inicio del
-    /// tablero del concepto, sin asignado, formularios, worklog, comentarios ni historial. Queda
-    /// ligada al origen por <see cref="Domain.Entities.TaskItem.SourceTaskId"/> (la origen la lista
-    /// como "copia generada"). Devuelve el detalle de la copia.
+    /// descripcion, color, etiquetas, checklist SIN marcar y los DATOS de los formularios diligenciados
+    /// -re-apuntados al numero de la copia, como borrador-) pero NO arrastra el avance del flujo: nace en
+    /// el PUNTO INICIAL del flujo (CreateAsync -> StartInstanceAsync) y en el tablero de la actividad
+    /// origen (su primera columna), sin asignado, worklog, comentarios ni historial. Queda ligada al
+    /// origen por <see cref="Domain.Entities.TaskItem.SourceTaskId"/> (la origen la lista como "copia
+    /// generada"). Devuelve el detalle de la copia.
     /// </summary>
     Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 

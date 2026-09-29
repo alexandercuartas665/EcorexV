@@ -334,6 +334,7 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         new("{empresa.web}", "Sitio web", "Empresa"),
         new("{empresa.logo}", "Logo (usar como <img src=\"{empresa.logo}\">)", "Empresa"),
         new("{sistema.fecha}", "Fecha actual (zona del tenant)", "Sistema"),
+        new("{sistema.fechalarga}", "Fecha en letras (10 de septiembre de 2026)", "Sistema"),
         new("{sistema.hora}", "Hora actual", "Sistema"),
         new("{sistema.fechahora}", "Fecha y hora actual", "Sistema"),
         new("{form.CODIGO}", "Respuesta del formulario por codigo de campo", "Formulario"),

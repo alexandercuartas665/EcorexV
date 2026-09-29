@@ -14,6 +14,13 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
     // Zona del tenant (America/Bogota = UTC-5, sin horario de verano) mientras el Tenant no guarde la suya.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
+    // Meses en espanol para {sistema.fechalarga} (sin depender de la cultura del contenedor).
+    private static readonly string[] MesesEs =
+    {
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    };
+
     // {ns.clave}: dos segmentos alfanumericos, insensible a espacios. Ej: {tarea.contacto}, {form.total}.
     private static readonly Regex TokenRegex = new(@"\{\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\}", RegexOptions.Compiled);
 
@@ -43,6 +50,9 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
             if (!map.ContainsKey(key)) { map[key] = value; }
         }
         PutSys("fecha", now.ToString("yyyy-MM-dd"));
+        // Fecha en letras (es-CO), p.ej. "10 de septiembre de 2026": las cartas comerciales la piden escrita.
+        // Meses hardcodeados para no depender de que la cultura es-CO exista en el contenedor (InvariantGlobalization).
+        PutSys("fechalarga", $"{now.Day} de {MesesEs[now.Month - 1]} de {now.Year}");
         PutSys("hora", now.ToString("HH:mm"));
         PutSys("fechahora", now.ToString("yyyy-MM-dd HH:mm"));
 

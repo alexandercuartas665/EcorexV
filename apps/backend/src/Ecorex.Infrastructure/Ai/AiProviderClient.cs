@@ -368,13 +368,18 @@ public sealed class AiProviderClient : IAiProviderClient
             }
         }
 
-        var (inTok, outTok) = (0, 0);
+        var (inTok, outTok, cachedTok) = (0, 0, 0);
         if (doc.RootElement.TryGetProperty("usage", out var u))
         {
             inTok = u.TryGetProperty("prompt_tokens", out var p) ? p.GetInt32() : 0;
             outTok = u.TryGetProperty("completion_tokens", out var c) ? c.GetInt32() : 0;
+            // Tokens del prompt servidos desde cache (OpenAI/Gemini-compat: usage.prompt_tokens_details.cached_tokens).
+            if (u.TryGetProperty("prompt_tokens_details", out var pd) && pd.ValueKind == JsonValueKind.Object)
+            {
+                cachedTok = pd.TryGetProperty("cached_tokens", out var ctok) ? ctok.GetInt32() : 0;
+            }
         }
-        return new AiCompletion(true, text, null, inTok, outTok, calls);
+        return new AiCompletion(true, text, null, inTok, outTok, calls, cachedTok);
     }
 
     // Gemini por su endpoint NATIVO (generateContent) con function calling. Se usa cuando el turno trae un
@@ -471,13 +476,15 @@ public sealed class AiProviderClient : IAiProviderClient
             }
         }
 
-        var (inTok, outTok) = (0, 0);
+        var (inTok, outTok, cachedTok) = (0, 0, 0);
         if (doc.RootElement.TryGetProperty("usageMetadata", out var um))
         {
             inTok = um.TryGetProperty("promptTokenCount", out var p) ? p.GetInt32() : 0;
             outTok = um.TryGetProperty("candidatesTokenCount", out var c) ? c.GetInt32() : 0;
+            // Caching implicito/explicito de Gemini: tokens del prompt servidos desde cache (mas baratos).
+            cachedTok = um.TryGetProperty("cachedContentTokenCount", out var cc) ? cc.GetInt32() : 0;
         }
-        return new AiCompletion(true, text, null, inTok, outTok, calls);
+        return new AiCompletion(true, text, null, inTok, outTok, calls, cachedTok);
     }
 
     // El functionResponse de Gemini exige un OBJETO. Si el resultado de la herramienta ya es un objeto JSON,

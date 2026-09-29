@@ -23,4 +23,9 @@ public class AiProviderConfig : BaseEntity
 
     /// <summary>Si esta habilitado para que las agencias lo usen en sus agentes.</summary>
     public bool IsEnabled { get; set; }
+
+    /// <summary>Marca este proveedor como el que usa el ASISTENTE DE CREACION DE FORMULARIOS ("IA gestion de
+    /// formularios"). Solo UNO deberia tenerlo activo; el servicio lo garantiza al guardar (lo apaga en los
+    /// demas). Si ninguno lo tiene, el asistente cae a Gemini por defecto. Requiere IsEnabled + API key.</summary>
+    public bool UseForFormBuilder { get; set; }
 }

@@ -15004,3 +15004,34 @@ disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-
   "label" -> el header salia con el id. FIX aditivo: ParseColumns cae a "name" si falta "label" (label gana) +
   NormalizeOptionsJson canonicaliza al guardar; aplica a forms ya guardados. 2 tests. Suite 1050/1050. Validado
   en vivo (4 tablas con encabezados correctos: "Tipo de Material", "% Avance"...). Sin deploy a prod.
+
+## 2026-09-29 - form-builder-chat: proveedor por config + contador de tokens + ronda "rompe-huevos" (cierre)
+
+- Agentes: Claude (Opus 4.8) en el worktree form-builder-chat. Trabajo sobre BD local (copia de prod, 5442).
+- **Proveedor por configuracion (el "chulo").** Se quito el hardcodeo de la IA del asistente de formularios:
+  AiProviderConfig.UseForFormBuilder + checkbox "IA gestion de formularios" en /servidores-ia (single-select,
+  fallback Gemini). FormBuilderChatService resuelve el proveedor marcado y su modelo (FormBuilderModelFor).
+  Migracion dual AddAiProviderFormBuilderFlag (aplicada en local). Verificado con Super Admin.
+- **Contador de tokens POR MODELO.** AiCostEstimator.Estimate(provider, model, in, out, cached) con tarifas por
+  modelo y 25% de descuento por cache; barra "Consumo: X tokens (in/out; N en cache) ~$Y" en el panel. Parseo de
+  tokens cacheados (GeminiNative cachedContentTokenCount; OpenAI-compat prompt_tokens_details.cached_tokens).
+  MEDIDO: el caching implicito de Gemini NO se dispara (0 cacheados); el piso real por turno es el arnes+tools
+  (~13-28k in). Caching explicito: CANCELADO por el usuario.
+- **Mitigacion flaky de vision** (imagen/PDF): si el turno trae adjunto y el agente PIDE el archivo aunque ya
+  venga, se reenvia UNA vez (AsksForAttachment + attachmentReRequested). Validado con PDF e imagen.
+- **Ronda "rompe-huevos" (seguridad/robustez del agente), cerrada 2026-09-29:**
+  - Overreach, inyeccion directa, inyeccion via adjunto (HTML con "instruccion de sistema"), fabricacion de
+    fuentes de lookup: DEFENDIDOS (el agente no obedece, pide/propone bajo el gate humano).
+  - field_code con caracteres raros / SQLi ('); DROP TABLE...): DEFENDIDO en 2 capas -> FieldCodeRegex del
+    servicio rechaza + queries parametrizadas. Verificado en BD: tabla viva, 0 codes maliciosos, 0 persistido.
+  - Escala absurda (500 campos/50 tablas): DEFENDIDO -> sin crash ni corrupcion (0 forms/campos creados); la
+    llamada al modelo esta acotada (HttpClient 60s + CTS AiCallTimeout 90s) con error amable al vencer, MaxRounds=8
+    corta el bucle, y el gate humano convierte todo en propuestas. Borde inherente a Blazor Server: si el circuito
+    cae en la espera larga, el turno se abandona en silencio (linea 324, when !ct externo) sin UI donde avisar.
+  - HUECOS hallados y CERRADOS (coherencia de formulas): funciones inventadas (ROUND/SQRT/LN...) -> verify_form
+    con FormExpressionEvaluator.UnknownFunctions + nota de arnes; dependencias CIRCULARES de calc (a=f(b), b=f(a))
+    -> verify_form con CalcReachesSelf (DFS) + nota de arnes.
+- Pruebas: se fijaron 2 tests de degradacion por escala (timeout amable + tope de rondas; FakeAi.EnqueueThrow).
+  Suite Application.Tests 1081/1081; build de la solucion verde. Commit 5738540c en worktree-form-builder-chat.
+- Siguiente: nada pendiente de la ronda. El asistente sigue MERGEADO al tronco pero SIN desplegar (migraciones sin
+  aplicar en prod). Bloqueos: ninguno. Deploy: a la senal del usuario (se pide OK explicito por version).

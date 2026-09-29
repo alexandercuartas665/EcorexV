@@ -1371,6 +1371,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<bool>("UseForFormBuilder")
+                        .HasColumnType("bit")
+                        .HasColumnName("use_for_form_builder");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_provider_configs");
 

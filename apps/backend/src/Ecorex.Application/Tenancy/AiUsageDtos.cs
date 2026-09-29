@@ -40,9 +40,13 @@ public interface IAiUsageService
     public const string MonthlyTokenLimitKey = "max_ai_tokens_monthly";
 }
 
-/// <summary>Tarifas aproximadas (USD por 1M tokens) para estimar costo. Editable por proveedor.</summary>
+/// <summary>Tarifas aproximadas (USD por 1M tokens) para estimar costo. Resuelve POR MODELO cuando lo conoce
+/// (asi Gemini flash no se cobra como pro), y cae a la tarifa por proveedor si el modelo es desconocido.
+/// Nota: las tarifas de Claude vienen del catalogo oficial; las de Gemini/OpenAI/DeepSeek son publicas
+/// aproximadas y conviene revisarlas si el precio cambia.</summary>
 public static class AiCostEstimator
 {
+    // Fallback por proveedor (gama alta) cuando no se conoce el modelo exacto.
     private static readonly Dictionary<AiProvider, (decimal In, decimal Out)> RatesPerMillion = new()
     {
         [AiProvider.Claude] = (3m, 15m),
@@ -51,9 +55,49 @@ public static class AiCostEstimator
         [AiProvider.DeepSeek] = (0.27m, 1.10m)
     };
 
-    public static decimal Estimate(AiProvider provider, int inputTokens, int outputTokens)
+    // Tarifa (In, Out) por 1M tokens segun el MODELO. Se evalua de lo mas especifico a lo mas general.
+    private static (decimal In, decimal Out) RatesFor(AiProvider provider, string? model)
     {
-        if (!RatesPerMillion.TryGetValue(provider, out var r)) { return 0m; }
-        return Math.Round((inputTokens * r.In + outputTokens * r.Out) / 1_000_000m, 6);
+        var m = (model ?? string.Empty).Trim().ToLowerInvariant();
+        if (m.Length > 0)
+        {
+            // Google Gemini
+            if (m.Contains("gemini-2.0-flash") || m.Contains("2.0-flash")) { return (0.10m, 0.40m); }
+            if (m.Contains("gemini") && m.Contains("flash")) { return (0.30m, 2.50m); }   // 2.5-flash
+            if (m.Contains("gemini")) { return (1.25m, 10m); }                            // 2.5-pro / otros
+            // OpenAI
+            if (m.Contains("gpt-6-luna")) { return (0.10m, 0.50m); }
+            if (m.Contains("4o-mini") || m.Contains("gpt-4o-mini")) { return (0.15m, 0.60m); }
+            if (m.Contains("gpt-4o")) { return (2.50m, 10m); }
+            // Anthropic Claude (tarifas del catalogo oficial)
+            if (m.Contains("haiku")) { return (1m, 5m); }
+            if (m.Contains("sonnet")) { return (2m, 10m); }
+            if (m.Contains("opus-5-5")) { return (4m, 20m); }
+            if (m.Contains("opus")) { return (5m, 25m); }
+            if (m.Contains("fable") || m.Contains("mythos")) { return (10m, 50m); }
+            // DeepSeek
+            if (m.Contains("deepseek-reasoner")) { return (0.55m, 2.19m); }
+            if (m.Contains("deepseek")) { return (0.27m, 1.10m); }
+        }
+        return RatesPerMillion.TryGetValue(provider, out var r) ? r : (0m, 0m);
     }
+
+    /// <summary>Costo estimado usando la tarifa del MODELO (si se conoce) o la del proveedor.</summary>
+    public static decimal Estimate(AiProvider provider, string? model, int inputTokens, int outputTokens)
+        => Estimate(provider, model, inputTokens, outputTokens, 0);
+
+    /// <summary>Costo estimado descontando los tokens de entrada servidos desde CACHE (se facturan ~25% de la
+    /// tarifa de entrada; factor tipico de Gemini, aproximado). cachedInputTokens se acota a [0, inputTokens].</summary>
+    public static decimal Estimate(AiProvider provider, string? model, int inputTokens, int outputTokens, int cachedInputTokens)
+    {
+        var r = RatesFor(provider, model);
+        var cached = Math.Clamp(cachedInputTokens, 0, inputTokens);
+        var fresh = inputTokens - cached;
+        var cost = (fresh * r.In + cached * r.In * 0.25m + outputTokens * r.Out) / 1_000_000m;
+        return Math.Round(cost, 6);
+    }
+
+    /// <summary>Compat: costo por proveedor (sin modelo) -> usa la tarifa de gama alta del proveedor.</summary>
+    public static decimal Estimate(AiProvider provider, int inputTokens, int outputTokens)
+        => Estimate(provider, null, inputTokens, outputTokens);
 }

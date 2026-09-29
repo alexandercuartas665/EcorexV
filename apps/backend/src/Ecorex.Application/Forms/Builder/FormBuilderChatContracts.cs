@@ -20,7 +20,14 @@ public sealed record FormBuilderTurnResult(
     Guid? FormDefinitionId,
     string? AssistantText,
     IReadOnlyList<FormBuilderProposalDto> Proposals,
-    bool AwaitingConfirmation)
+    bool AwaitingConfirmation,
+    // Contador de consumo de ESTE turno (suma de las vueltas al modelo): tokens de entrada/salida y costo
+    // estimado en USD. Sirve para el contador en vivo del panel (no ir a ciegas). 0 en turnos sin llamada al modelo.
+    int TurnInputTokens = 0,
+    int TurnOutputTokens = 0,
+    decimal TurnCostUsd = 0m,
+    // De los TurnInputTokens, cuantos se sirvieron desde CACHE (prefijo repetido: arnes + tools).
+    int TurnCachedInputTokens = 0)
 {
     public static FormBuilderTurnResult Fail(Guid conversationId, string error)
         => new(false, error, conversationId, null, null, Array.Empty<FormBuilderProposalDto>(), false);
@@ -52,8 +59,12 @@ public interface IFormBuilderChatStore
 
     Task SaveMessageAsync(FormBuilderMessage message, CancellationToken cancellationToken = default);
 
-    /// <summary>Cuenta global del proveedor de IA (Gemini) o null si no existe. La key va cifrada.</summary>
+    /// <summary>Cuenta global de un proveedor de IA o null si no existe. La key va cifrada.</summary>
     Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default);
+
+    /// <summary>Proveedor marcado como "IA gestion de formularios" (habilitado y con key) en el Super Admin,
+    /// o null si ninguno lo esta (el servicio cae a Gemini). Config-driven, reemplaza el proveedor hardcoded.</summary>
+    Task<AiProvider?> GetFormBuilderProviderAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Titulo del formulario (para el titulo de la conversacion / modo edicion); null si no existe.</summary>
     Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default);

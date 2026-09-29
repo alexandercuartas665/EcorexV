@@ -22,12 +22,23 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private readonly IFormAuthoringToolset _toolset;
     private readonly IFormBuilderChatStore _store;
     private readonly IFormSnapshotService _snapshots;
+    private readonly IAiUsageService _usage;
 
-    // Proveedor fijo para esta funcion (decision de producto): Gemini (fuerte en tool-use + vision + PDF nativo).
-    private const AiProvider Provider = AiProvider.Gemini;
-    // Modelo por defecto de la funcion: FLASH (respuesta rapida en un chat con muchas herramientas; pro es
-    // demasiado lento para el ida y vuelta interactivo). Es un modelo valido de Gemini en el catalogo.
-    private const string FeatureModel = "gemini-2.5-flash";
+    // Proveedor por DEFECTO si el Super Admin no marco ninguno como "IA gestion de formularios": Gemini (fuerte
+    // en tool-use + vision + PDF nativo). El proveedor real se resuelve por config (GetFormBuilderProviderAsync).
+    private const AiProvider DefaultProvider = AiProvider.Gemini;
+
+    // Modelo del asistente por proveedor: uno RAPIDO/tool-capable (el chat va muchas vueltas; los modelos "pro"
+    // o de razonamiento son lentos o no soportan function-calling). Independiente del modelo que el proveedor
+    // tenga configurado para otros agentes. deepseek-reasoner NO sirve (sin tools) -> se usa deepseek-chat.
+    private static string FormBuilderModelFor(AiProvider provider) => provider switch
+    {
+        AiProvider.Gemini => "gemini-2.5-flash",
+        AiProvider.DeepSeek => "deepseek-chat",
+        AiProvider.ChatGpt => "gpt-4o-mini",
+        AiProvider.Claude => "claude-haiku-4-5",
+        _ => AiProviderCatalog.For(provider).DefaultModel,
+    };
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
     // Cuantas veces, por turno, el sistema FUERZA verify_form al cierre y reinyecta los errores para que el
@@ -43,24 +54,28 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     public FormBuilderChatService(
         ISecretProtector secrets, IAiProviderClient ai,
         IFormAuthoringToolset toolset, IFormBuilderChatStore store,
-        IFormSnapshotService snapshots)
+        IFormSnapshotService snapshots, IAiUsageService usage)
     {
         _secrets = secrets;
         _ai = ai;
         _toolset = toolset;
         _store = store;
         _snapshots = snapshots;
+        _usage = usage;
     }
 
     public async Task<FormBuilderStartResult> StartAsync(Guid? formDefinitionId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
     {
-        // Valida que el proveedor este habilitado antes de crear la conversacion.
-        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        // Proveedor CONFIG-DRIVEN: el que el Super Admin marco como "IA gestion de formularios" (Servidores de
+        // IA); si ninguno, cae a Gemini. La conversacion GUARDA el proveedor/modelo resueltos, para que un
+        // cambio de config no rompa una conversacion ya empezada.
+        var provider = await _store.GetFormBuilderProviderAsync(cancellationToken) ?? DefaultProvider;
+        var cfg = await _store.ResolveProviderAsync(provider, cancellationToken);
         if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
-            return new FormBuilderStartResult(false, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.", Guid.Empty, null);
+            return new FormBuilderStartResult(false, $"El proveedor de IA para gestion de formularios ({provider}) no esta habilitado en la plataforma. Configuralo en Servidores de IA.", Guid.Empty, null);
         }
-        var model = FeatureModel;
+        var model = FormBuilderModelFor(provider);
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
@@ -69,7 +84,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             if (!string.IsNullOrWhiteSpace(t)) { title = t!; }
         }
 
-        var conv = await _store.CreateConversationAsync(formDefinitionId, Provider, model, title, actorTenantUserId, cancellationToken);
+        var conv = await _store.CreateConversationAsync(formDefinitionId, provider, model, title, actorTenantUserId, cancellationToken);
         return new FormBuilderStartResult(true, null, conv.Id, conv.FormDefinitionId);
     }
 
@@ -251,17 +266,20 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     // ===== Nucleo: bucle del agente con GATE humano =====
     private async Task<FormBuilderTurnResult> RunAgentAsync(FormBuilderConversation conv, IReadOnlyList<AiInlineImage>? images, IReadOnlyList<AiInlineDocument>? docs, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        // La conversacion recuerda con QUE proveedor arranco (config-driven al iniciar); se respeta aunque el
+        // Super Admin cambie el marcado despues, para no romper una conversacion a medias.
+        var provider = conv.Provider;
+        var cfg = await _store.ResolveProviderAsync(provider, cancellationToken);
         if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
-            return FormBuilderTurnResult.Fail(conv.Id, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.");
+            return FormBuilderTurnResult.Fail(conv.Id, $"El proveedor de IA {provider} no esta habilitado en la plataforma. Revisa Servidores de IA.");
         }
         string apiKey;
         try { apiKey = _secrets.Unprotect(cfg.ApiKeyEncrypted!); }
         catch { return FormBuilderTurnResult.Fail(conv.Id, "La API key del proveedor esta cifrada con una version anterior. Vuelve a guardarla en Servidores de IA."); }
 
-        var meta = AiProviderCatalog.For(Provider);
-        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FeatureModel;
+        var meta = AiProviderCatalog.For(provider);
+        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FormBuilderModelFor(provider);
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
         var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
@@ -278,6 +296,13 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var autoNudged = false;
         // Cuantas veces ya se forzo verify_form al cierre en este turno (tope MaxForcedVerify).
         var forcedVerifyRuns = 0;
+        // Contador de tokens del TURNO (suma de todas las vueltas al modelo): para el contador en vivo del panel.
+        var turnIn = 0;
+        var turnOut = 0;
+        var turnCached = 0;
+        // El modelo (Gemini flash sobre todo) a veces "no ve" el adjunto en el primer turno y PIDE el archivo
+        // aunque ya venga. Se le empuja UNA vez reenviando el archivo antes de darlo por perdido.
+        var attachmentReRequested = false;
 
         for (var round = 0; round < MaxRounds; round++)
         {
@@ -294,7 +319,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutCts.CancelAfter(AiCallTimeout);
-                completion = await _ai.CompleteWithToolsAsync(Provider, apiKey, baseUrl, model, systemPrompt, messages, tools, timeoutCts.Token);
+                completion = await _ai.CompleteWithToolsAsync(provider, apiKey, baseUrl, model, systemPrompt, messages, tools, timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -309,10 +334,29 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 return FormBuilderTurnResult.Fail(conv.Id, completion.Error ?? "La IA no respondio.");
             }
 
+            // Contador de tokens: cada vuelta al modelo cuenta. Se acumula para el turno y se REGISTRA en
+            // AiUsageLog (source "form-builder") para el dashboard de consumo/cupos, igual que los demas agentes.
+            turnIn += completion.InputTokens;
+            turnOut += completion.OutputTokens;
+            turnCached += completion.CachedInputTokens;
+            await SafeRecordUsageAsync(provider, model, completion.InputTokens, completion.OutputTokens, cancellationToken);
+
             // Turno solo texto, sin herramientas.
             if (completion.ToolCalls is null || completion.ToolCalls.Count == 0)
             {
                 await AddMessageAsync(conv, FormBuilderMessageRole.Assistant, completion.Text, null, cancellationToken);
+
+                // MITIGACION del "flaky" de vision: si el turno trae un adjunto (imagen/PDF) que TODAVIA se puede
+                // reenviar y el agente PIDE el archivo (no lo "vio"), se le empuja UNA vez reenviando el adjunto,
+                // en vez de dejar la conversacion pidiendo algo que el usuario ya subio.
+                if (!attachmentReRequested && (images is { Count: > 0 } || docs is { Count: > 0 })
+                    && AsksForAttachment(completion.Text))
+                {
+                    attachmentReRequested = true;
+                    transientNudge = "El archivo (Excel/PDF/imagen) YA esta adjunto en ESTE mismo mensaje. Leelo y usa su " +
+                        "contenido para armar o editar el formulario; NO vuelvas a pedir que lo adjunte.";
+                    continue;
+                }
                 // Si el agente NARRO una accion futura ("voy a agregar...") pero no emitio nada, empujalo UNA vez a
                 // ejecutar en vez de terminar el turno a medio construir.
                 if (!autoNudged && StoppedMidAction(completion.Text))
@@ -344,7 +388,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                     }
                 }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
-                    Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false);
+                    Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false,
+                    turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut, turnCached), turnCached);
             }
 
             // Hay tool-calls. Si TODAS son de solo lectura, se ejecutan sin gate y se sigue el bucle.
@@ -386,7 +431,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 var m = await AddProposalAsync(conv, tc, FormBuilderProposalState.Pending, null, cancellationToken);
                 proposals.Add(new FormBuilderProposalDto(m.Id, tc.Name, tc.ArgumentsJson));
             }
-            return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals, AwaitingConfirmation: true);
+            return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals,
+                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut, turnCached), turnCached);
         }
 
         return FormBuilderTurnResult.Fail(conv.Id, "El asistente hizo demasiadas consultas seguidas. Intenta de nuevo o precisa la instruccion.");
@@ -415,6 +461,30 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             || t.Contains("ahora agregare") || t.Contains("ahora agregaré") || t.Contains("ahora creare")
             || t.Contains("ahora anadire") || t.Contains("ahora añadiré") || t.Contains("aqui estan las llamadas")
             || t.Contains("aqui te presento las llamadas") || t.Contains("aquí te presento las llamadas");
+    }
+
+    // Registra el consumo del asistente en AiUsageLog (source "form-builder"). Best-effort: un fallo del
+    // registro NUNCA rompe la conversacion (el consumo es telemetria, no bloquea al usuario).
+    private async Task SafeRecordUsageAsync(AiProvider provider, string model, int inputTokens, int outputTokens, CancellationToken ct)
+    {
+        try { await _usage.RecordAsync(null, provider, model, inputTokens, outputTokens, "form-builder", true, ct); }
+        catch { /* la telemetria de consumo no debe frenar el chat */ }
+    }
+
+    // El agente PIDE que le adjunten el archivo (aunque ya venga adjunto): "adjuntame", "sube el archivo",
+    // "no veo/recibi el archivo", "comparte/envia el/la <archivo>". Conservadora: solo dispara con senales claras.
+    internal static bool AsksForAttachment(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = text.ToLowerInvariant();
+        var pideAccion = t.Contains("adjunt") || t.Contains("sube ") || t.Contains("subir ")
+            || t.Contains("comparte") || t.Contains("compartir") || t.Contains("proporciona")
+            || t.Contains("no veo") || t.Contains("no recib") || t.Contains("no me lleg")
+            || t.Contains("enviame") || t.Contains("envieme") || t.Contains("necesito que me");
+        if (!pideAccion) { return false; }
+        // ...y menciona un archivo/documento (evita falsos positivos como "adjunta una firma").
+        return t.Contains("archivo") || t.Contains("documento") || t.Contains("imagen") || t.Contains("foto")
+            || t.Contains("pdf") || t.Contains("excel") || t.Contains("ficha") || t.Contains("el file");
     }
 
     // El texto es una PREGUNTA al usuario (espera respuesta) -> no es un cierre, no se fuerza la verificacion.

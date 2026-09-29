@@ -21,6 +21,9 @@
 
 .fbc-error { margin:0 12px 8px; padding:6px 9px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; font-size:12px; flex:0 0 auto; }
 
+.fbc-usage { display:flex; justify-content:space-between; gap:8px; padding:4px 12px; margin:0 0 2px; font-size:10.5px; color:var(--ink-3, #6b7280); border-top:1px solid var(--surface-3, #eef0f3); flex:0 0 auto; }
+.fbc-usage strong { color:var(--ink-1, #111827); font-weight:600; }
+
 .fbc-chips { display:flex; flex-wrap:wrap; gap:5px; padding:0 12px 6px; flex:0 0 auto; }
 .fbc-chip { background:var(--surface-3, #f3f4f6); border-radius:12px; padding:2px 8px; font-size:11px; display:inline-flex; align-items:center; gap:4px; }
 .fbc-chip button { border:0; background:transparent; cursor:pointer; font-size:13px; line-height:1; color:var(--ink-3, #6b7280); }

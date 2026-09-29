@@ -50,6 +50,18 @@ public sealed class AiServerConfigService : IAiServerConfigService
         config.BaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
         config.IsEnabled = request.IsEnabled && config.ApiKeyEncrypted is not null;
 
+        // "IA gestion de formularios": solo un proveedor puede serlo, y debe estar habilitado (con key). Al
+        // marcarlo aqui se apaga en los demas (single-select); no se puede marcar uno deshabilitado.
+        var wantsFormBuilder = request.UseForFormBuilder && config.IsEnabled;
+        config.UseForFormBuilder = wantsFormBuilder;
+        if (wantsFormBuilder)
+        {
+            var others = await _db.AiProviderConfigs
+                .Where(c => c.Provider != request.Provider && c.UseForFormBuilder)
+                .ToListAsync(cancellationToken);
+            foreach (var o in others) { o.UseForFormBuilder = false; }
+        }
+
         // Auditoria SIN la API key.
         _audit.Write(actorUserId, isNew ? "ai.provider.create" : "ai.provider.update",
             nameof(AiProviderConfig), config.Id,
@@ -87,7 +99,8 @@ public sealed class AiServerConfigService : IAiServerConfigService
             c?.ApiKeyEncrypted is not null,
             c?.IsEnabled ?? false,
             meta.DefaultModel,
-            meta.Models);
+            meta.Models,
+            c?.UseForFormBuilder ?? false);
     }
 
     private string Mask(string encrypted)

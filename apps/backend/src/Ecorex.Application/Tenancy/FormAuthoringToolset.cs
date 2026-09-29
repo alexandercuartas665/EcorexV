@@ -1011,6 +1011,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                             "Referencia el field_code exacto de otro campo del encabezado."));
                     }
                 }
+                // Funciones inventadas (SQRT/LN/ROUND/SIN...): el motor solo entiende SI/REDONDEAR/MIN/MAX.
+                foreach (var fn in FormExpressionEvaluator.UnknownFunctions(q.CalcExpression))
+                {
+                    issues.Add(new("error", $"campo '{q.FieldCode}'",
+                        $"su calc usa la funcion '{fn}' que el motor NO soporta (romperia en silencio)",
+                        "Solo existen SI, REDONDEAR, REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX. Reescribe la formula con esas, o si el usuario pidio raiz/log/etc. dile que no esta disponible."));
+                }
             }
 
             // 3) Lookup sin fuente (DataContainer/Item/ExternalDataset requieren source_ref; Tercero no).
@@ -1066,6 +1073,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                                     "Referencia una columna existente {col} o el encabezado {#campo}."));
                             }
                         }
+                        // Funciones inventadas en el calc de la columna.
+                        foreach (var fn in FormExpressionEvaluator.UnknownFunctions(c.Calc))
+                        {
+                            issues.Add(new("error", $"tabla '{q.FieldCode}', columna '{c.Id}'",
+                                $"su calc usa la funcion '{fn}' que el motor NO soporta (romperia en silencio)",
+                                "Solo existen SI, REDONDEAR, REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX."));
+                        }
                     }
                     // 5b) columna con agregado: con rollup lo cotejamos contra el encabezado; sin rollup, avisa.
                     if (c.Agg != FormAggregate.None)
@@ -1108,7 +1122,43 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "Fija identity_source_field_code a un field_code existente (el que porta el numero de negocio)."));
         }
 
+        // 8) Dependencias CIRCULARES de calc entre campos del encabezado (a=f(b), b=f(a), o un campo que se
+        //    referencia a si mismo): el motor nunca las resuelve (quedan vacias). El calc de un campo solo
+        //    depende de OTROS campos del encabezado ({codigo} sin '#' ni punto).
+        var calcDeps = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in d.Questions)
+        {
+            if (q.ControlType == FormControlType.GridDetail || string.IsNullOrWhiteSpace(q.CalcExpression)) { continue; }
+            var ds = Refs(q.CalcExpression!)
+                .Where(r => !r.StartsWith('#') && !r.Contains('.') && headerCodes.Contains(r))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (ds.Count > 0) { calcDeps[q.FieldCode] = ds; }
+        }
+        foreach (var start in calcDeps.Keys)
+        {
+            if (!CalcReachesSelf(start, calcDeps)) { continue; }
+            issues.Add(new("error", $"campo '{start}'",
+                "su calc forma una dependencia CIRCULAR (se referencia a si mismo, directa o indirectamente); el motor nunca lo resuelve",
+                "Rompe el ciclo: un campo calculado no puede depender (via otros calc) de si mismo. Redefine la formula."));
+        }
+
         return issues;
+    }
+
+    // true si, siguiendo las dependencias de calc, <paramref name="start"/> se alcanza a si mismo (ciclo o
+    // auto-referencia). DFS iterativo sobre el grafo de dependencias entre campos.
+    private static bool CalcReachesSelf(string start, IReadOnlyDictionary<string, List<string>> deps)
+    {
+        var stack = new Stack<string>(deps.TryGetValue(start, out var d0) ? d0 : Enumerable.Empty<string>());
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (stack.Count > 0)
+        {
+            var n = stack.Pop();
+            if (string.Equals(n, start, StringComparison.OrdinalIgnoreCase)) { return true; }
+            if (!seen.Add(n)) { continue; }
+            if (deps.TryGetValue(n, out var next)) { foreach (var m in next) { stack.Push(m); } }
+        }
+        return false;
     }
 
     // Extrae los codigos referenciados {codigo} o {#codigo} de una expresion calc (sin las llaves). Las

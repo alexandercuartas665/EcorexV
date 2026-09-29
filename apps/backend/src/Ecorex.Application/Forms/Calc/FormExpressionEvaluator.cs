@@ -23,6 +23,29 @@ public static class FormExpressionEvaluator
     /// </summary>
     public const char HeaderPrefix = '#';
 
+    /// <summary>Lista CERRADA de funciones que el motor entiende. Fuente unica para validar formulas
+    /// (verify_form) y evitar que el agente invente funciones (SQRT/LN/ROUND/SIN...) que romperian en silencio.</summary>
+    public static readonly IReadOnlySet<string> KnownFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "SI", "REDONDEAR", "REDONDEAR.SUPERIOR", "REDONDEAR.INFERIOR", "MIN", "MAX"
+    };
+
+    /// <summary>Nombres de funcion usados en <paramref name="expression"/> que NO estan en la allow-list (un
+    /// identificador seguido de '(' es una llamada a funcion; las refs a campo van en {llaves}, no cuentan).
+    /// Vacio si la formula solo usa funciones validas. Sirve para cazar SQRT/LN/ROUND/etc. inventadas.</summary>
+    public static IReadOnlyList<string> UnknownFunctions(string? expression)
+    {
+        if (string.IsNullOrWhiteSpace(expression)) { return System.Array.Empty<string>(); }
+        var bad = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in
+            System.Text.RegularExpressions.Regex.Matches(expression, @"([A-Za-z_][A-Za-z0-9_.]*)\s*\("))
+        {
+            var name = m.Groups[1].Value;
+            if (!KnownFunctions.Contains(name) && !bad.Contains(name, StringComparer.OrdinalIgnoreCase)) { bad.Add(name); }
+        }
+        return bad;
+    }
+
     /// <summary>
     /// Evalua <paramref name="expression"/> resolviendo cada <c>{codigo}</c> con
     /// <paramref name="values"/> y cada <c>{#codigo}</c> con <paramref name="headerValues"/>

@@ -152,6 +152,66 @@ public class FormVerifyGoldenTests
         Assert.True(HasError(issues, "precio")); // 'precio' no es columna
     }
 
+    // Dependencia circular entre campos (a=f(b), b=f(a)): el motor nunca la resuelve -> error.
+    [Fact]
+    public void Calc_circular_entre_dos_campos_es_error()
+    {
+        var a = Field("a", FormControlType.Number, calc: "{b}+1");
+        var b = Field("b", FormControlType.Number, calc: "{a}*2");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { a, b }));
+        Assert.Contains(issues, i => i.Severity == "error" && i.Problem.Contains("CIRCULAR", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Un campo que se referencia a si mismo -> error.
+    [Fact]
+    public void Calc_auto_referente_es_error()
+    {
+        var total = Field("total", FormControlType.Number, calc: "{total}+{iva}");
+        var iva = Field("iva", FormControlType.Number);
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { total, iva }));
+        Assert.True(HasError(issues, "CIRCULAR"));
+    }
+
+    // Cadena normal de calc (sin ciclo): no reporta.
+    [Fact]
+    public void Cadena_de_calc_sin_ciclo_no_reporta()
+    {
+        var subtotal = Field("subtotal", FormControlType.Number);
+        var iva = Field("iva", FormControlType.Number, calc: "{subtotal}*0.19");
+        var total = Field("total", FormControlType.Number, calc: "{subtotal}+{iva}");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { subtotal, iva, total }));
+        Assert.DoesNotContain(issues, i => i.Severity == "error");
+    }
+
+    // Cebo de alucinacion: el agente inventa funciones que el motor NO soporta (SQRT/LN/ROUND). Deben caer
+    // como error (romperian en silencio) tanto en un campo como en una columna de grilla.
+    [Fact]
+    public void Funcion_inventada_en_calc_de_campo_es_error()
+    {
+        var subtotal = Field("subtotal", FormControlType.Number);
+        var total = Field("total", FormControlType.Number, calc: "ROUND(SQRT({subtotal}),2)");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { subtotal, total }));
+        Assert.True(HasError(issues, "SQRT") || HasError(issues, "ROUND") || HasError(issues, "no soporta"));
+    }
+
+    [Fact]
+    public void Funcion_inventada_en_columna_es_error()
+    {
+        var grid = Field("items", FormControlType.GridDetail, options:
+            "[{\"id\":\"x\",\"label\":\"X\",\"type\":\"text\"},{\"id\":\"y\",\"label\":\"Y\",\"type\":\"calc\",\"calc\":\"LN({x})\"}]");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { grid }));
+        Assert.True(HasError(issues, "LN") || HasError(issues, "no soporta"));
+    }
+
+    [Fact]
+    public void Formula_con_funciones_validas_no_reporta()
+    {
+        var a = Field("a", FormControlType.Number);
+        var b = Field("b", FormControlType.Number, calc: "SI({a}>0; REDONDEAR({a}*0.19); MAX({a}; 0))");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { a, b }));
+        Assert.DoesNotContain(issues, i => i.Severity == "error");
+    }
+
     // REGRESION del brief en vivo: el agente escribio la columna en camelCase (calcExpression/aggregate/
     // controlType) y apunto el rollup a un campo inexistente. Antes verify_form quedaba ciego (ParseColumns
     // no leia esas claves -> Agg=None). Ahora, con la tolerancia de alias, debe DETECTAR el rollup colgante.
@@ -207,6 +267,16 @@ public class FormGridColumnAliasTests
         var cols = FormGridCalculator.ParseColumns(
             "[{\"id\":\"c\",\"label\":\"Bueno\",\"name\":\"Malo\"}]");
         Assert.Equal("Bueno", Assert.Single(cols).Label);
+    }
+
+    [Fact]
+    public void UnknownFunctions_detecta_inventadas_y_acepta_validas()
+    {
+        Assert.Contains("SQRT", FormExpressionEvaluator.UnknownFunctions("ROUND(SQRT({a}),2)"));
+        Assert.Contains("ROUND", FormExpressionEvaluator.UnknownFunctions("ROUND(SQRT({a}),2)"));
+        Assert.Empty(FormExpressionEvaluator.UnknownFunctions("SI({a}>0; REDONDEAR({a}); MIN({a};{b}))"));
+        Assert.Empty(FormExpressionEvaluator.UnknownFunctions("REDONDEAR.SUPERIOR({a};100)"));
+        Assert.Empty(FormExpressionEvaluator.UnknownFunctions("{cantidad}*{precio}*(1-{dcto}/100)"));
     }
 
     // Una grilla en camelCase debe rollupear igual: total_item = cantidad*precio, sumado a subtotal.

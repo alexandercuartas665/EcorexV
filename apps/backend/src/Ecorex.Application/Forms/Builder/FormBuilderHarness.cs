@@ -126,6 +126,13 @@ FORMULAS (calc / calc_expression; funciones y ejemplos en describe_components.ca
 - NO existe resolve()/vlookup()/lookup() como funcion. Un VLOOKUP multi-clave es una COLUMNA type:resolve de una
   GRILLA (las claves viven en una fila). A nivel de campo suelto no hay soporte: modelalo como grilla o AVISA;
   nunca lo finjas con un calc.
+- El motor SOLO tiene estas funciones: SI, REDONDEAR, REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX. NO
+  existen SQRT/RAIZ, LN/LOG, SIN/COS, POW, PROMEDIO, SUMA(...) ni ninguna otra. Si el usuario pide raiz, logaritmo,
+  seno, potencia, etc., DILE que el motor no las soporta (no las inventes): un calc con una funcion inexistente
+  se guarda ROTO (devuelve vacio). Para promediar/sumar una columna usa agg=Avg/Sum + rollup, no una funcion.
+- NADA de dependencias CIRCULARES: un campo calculado no puede depender (via su calc, directa o indirectamente)
+  de si mismo (a=f(b) y b=f(a), o total=f(total)). El motor no lo resuelve (queda vacio). Si el usuario lo pide
+  asi, AVISALE y propon romper el ciclo; no lo construyas.
 
 PLANTILLA DE IMPRESION (si la piden). Marcadores en describe_components.template_markers. Reglas que MAS se rompen:
 - Primero get_form y usa los field_code y los ids de columna EXACTOS (no inventes ni uses ""<algo>_grid"").

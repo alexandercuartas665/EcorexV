@@ -87,6 +87,12 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
         return cfg is null ? null : new FormBuilderProviderInfo(cfg.IsEnabled, cfg.ApiKeyEncrypted, cfg.Model, cfg.BaseUrl);
     }
 
+    public async Task<AiProvider?> GetFormBuilderProviderAsync(CancellationToken cancellationToken = default)
+        => await _db.AiProviderConfigs.AsNoTracking()
+            .Where(c => c.UseForFormBuilder && c.IsEnabled && c.ApiKeyEncrypted != null)
+            .Select(c => (AiProvider?)c.Provider)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
         => await _db.FormDefinitions.AsNoTracking().Where(d => d.Id == formDefinitionId).Select(d => d.Title).FirstOrDefaultAsync(cancellationToken);
 

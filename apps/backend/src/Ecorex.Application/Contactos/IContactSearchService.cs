@@ -14,7 +14,9 @@ public sealed record ContactSearchDto(
     string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
     IReadOnlyList<ContactSearchScheduleSlot> Schedules, DateTimeOffset? LastRunAt, bool IsActive,
     // Enriquecimiento Maps -> LinkedIn (solo Maps): tras las empresas, trae personas de LinkedIn.
-    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5);
+    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5,
+    // Enriquecimiento Maps -> sitio web/correo (solo Maps): abre la ficha de cada empresa para el sitio web/correo.
+    bool EnrichWebCorreo = false, int EnrichWebMax = 20);
 
 /// <summary>Alta/edicion de una busqueda configurada.</summary>
 public sealed record SaveContactSearchRequest(
@@ -22,7 +24,8 @@ public sealed record SaveContactSearchRequest(
     string? Country, string? Region, string? City, string ExtractionPrompt,
     string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
     IReadOnlyList<ContactSearchScheduleSlot> Schedules, bool IsActive,
-    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5);
+    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5,
+    bool EnrichWebCorreo = false, int EnrichWebMax = 20);
 
 /// <summary>
 /// CRUD de las busquedas de contactos configuradas por tenant. La EJECUCION (disparar el agente

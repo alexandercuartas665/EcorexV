@@ -81,4 +81,14 @@ public class ContactSearchDefinition : TenantEntity
 
     /// <summary>Maximo de personas de LinkedIn a traer por empresa en el enriquecimiento (defensa).</summary>
     public int EnrichMaxPorEmpresa { get; set; } = 5;
+
+    /// <summary>Enriquecimiento Maps -> sitio web/correo: tras encontrar las EMPRESAS en Maps (la lista NO
+    /// expone web ni correo), por cada una abre su ficha de Maps para leer el SITIO WEB y, si lo hay,
+    /// intenta el CORREO en el sitio. Actualiza el prospecto (no crea filas). Solo aplica cuando
+    /// <see cref="SourceType"/> es Maps. Es opt-in porque suma N navegaciones por corrida.</summary>
+    public bool EnrichWebCorreo { get; set; }
+
+    /// <summary>Maximo de fichas de Maps a abrir para enriquecer web/correo por corrida (defensa de
+    /// tiempo/costo). 0 = usar un tope interno por defecto.</summary>
+    public int EnrichWebMax { get; set; } = 20;
 }

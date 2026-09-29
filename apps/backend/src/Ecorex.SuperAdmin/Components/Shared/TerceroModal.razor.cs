@@ -759,8 +759,10 @@ public partial class TerceroModal
             IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),
             Sector: _mTipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
             Cargo: _mTipo == TerceroTipo.Persona ? Blank(_mCargo) : null,
-            Email: _mTipo == TerceroTipo.Persona ? Blank(_mEmail) : null,
-            Telefono: _mTipo == TerceroTipo.Persona ? Blank(_mTelefono) : null,
+            // Correo/Telefono aplican a ambos tipos (una Empresa tiene su telefono/correo de negocio; antes se
+            // perdian en Empresa y el preview del prospecto no los mostraba).
+            Email: Blank(_mEmail),
+            Telefono: Blank(_mTelefono),
             // Persona: conserva/asigna su empresa (el servicio lo ignora para tipo Empresa). Antes iba
             // null y editar una persona la desvinculaba de su empresa.
             EmpresaId: _empresaId,

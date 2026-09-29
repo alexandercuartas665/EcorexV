@@ -59,11 +59,13 @@ public sealed class AiProviderClient : IAiProviderClient
     {
         var url = $"{Base(baseUrl, "https://generativelanguage.googleapis.com")}/v1beta/models/{model}:generateContent?key={apiKey}";
         var parts = content.Select(p =>
-            p.AudioBase64 is not null
-                ? (object)new { inlineData = new { mimeType = p.AudioMime ?? "audio/ogg", data = p.AudioBase64 } }
-                : p.ImageBase64 is not null
-                    ? (object)new { inlineData = new { mimeType = p.ImageMime ?? "image/jpeg", data = p.ImageBase64 } }
-                    : new { text = p.Text ?? "" }).ToArray();
+            p.DocBase64 is not null
+                ? (object)new { inlineData = new { mimeType = p.DocMime ?? "application/pdf", data = p.DocBase64 } }
+                : p.AudioBase64 is not null
+                    ? (object)new { inlineData = new { mimeType = p.AudioMime ?? "audio/ogg", data = p.AudioBase64 } }
+                    : p.ImageBase64 is not null
+                        ? (object)new { inlineData = new { mimeType = p.ImageMime ?? "image/jpeg", data = p.ImageBase64 } }
+                        : new { text = p.Text ?? "" }).ToArray();
         var body = new
         {
             systemInstruction = string.IsNullOrWhiteSpace(systemPrompt) ? null : new { parts = new[] { new { text = systemPrompt } } },
@@ -89,9 +91,11 @@ public sealed class AiProviderClient : IAiProviderClient
         IReadOnlyList<AiVisionPart> content, CancellationToken ct)
     {
         var url = $"{Base(baseUrl, "https://api.anthropic.com")}/v1/messages";
-        var blocks = content.Select(p => p.ImageBase64 is not null
-            ? (object)new { type = "image", source = new { type = "base64", media_type = p.ImageMime ?? "image/jpeg", data = p.ImageBase64 } }
-            : new { type = "text", text = p.Text ?? "" }).ToArray();
+        var blocks = content.Select(p => p.DocBase64 is not null
+            ? (object)new { type = "document", source = new { type = "base64", media_type = p.DocMime ?? "application/pdf", data = p.DocBase64 } }
+            : p.ImageBase64 is not null
+                ? (object)new { type = "image", source = new { type = "base64", media_type = p.ImageMime ?? "image/jpeg", data = p.ImageBase64 } }
+                : new { type = "text", text = p.Text ?? "" }).ToArray();
         var body = new
         {
             model,

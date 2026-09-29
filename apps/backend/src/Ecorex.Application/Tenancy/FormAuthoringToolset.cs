@@ -1011,6 +1011,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                             "Referencia el field_code exacto de otro campo del encabezado."));
                     }
                 }
+                // Funciones inventadas (SQRT/LN/ROUND/SIN...): el motor solo entiende SI/REDONDEAR/MIN/MAX.
+                foreach (var fn in FormExpressionEvaluator.UnknownFunctions(q.CalcExpression))
+                {
+                    issues.Add(new("error", $"campo '{q.FieldCode}'",
+                        $"su calc usa la funcion '{fn}' que el motor NO soporta (romperia en silencio)",
+                        "Solo existen SI, REDONDEAR, REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX. Reescribe la formula con esas, o si el usuario pidio raiz/log/etc. dile que no esta disponible."));
+                }
             }
 
             // 3) Lookup sin fuente (DataContainer/Item/ExternalDataset requieren source_ref; Tercero no).
@@ -1065,6 +1072,13 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                                     $"su calc referencia {{{r}}} que no es una columna de la tabla",
                                     "Referencia una columna existente {col} o el encabezado {#campo}."));
                             }
+                        }
+                        // Funciones inventadas en el calc de la columna.
+                        foreach (var fn in FormExpressionEvaluator.UnknownFunctions(c.Calc))
+                        {
+                            issues.Add(new("error", $"tabla '{q.FieldCode}', columna '{c.Id}'",
+                                $"su calc usa la funcion '{fn}' que el motor NO soporta (romperia en silencio)",
+                                "Solo existen SI, REDONDEAR, REDONDEAR.SUPERIOR, REDONDEAR.INFERIOR, MIN, MAX."));
                         }
                     }
                     // 5b) columna con agregado: con rollup lo cotejamos contra el encabezado; sin rollup, avisa.

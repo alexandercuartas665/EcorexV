@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - v0.16.163 DESPLEGADO a prod (copiar actividad + membrete/PDF + contactos)
+
+- Feature "Copiar actividad" (ITaskItemService.CopyAsync): copia un TaskItem como tarea NUEVA que nace en
+  el INICIO del flujo (reusa CreateAsync -> StartInstanceAsync), hereda molde (titulo "Copia de ...",
+  concepto, contacto, tercero, prioridad, proyecto, Empresa/Area, descripcion, color, etiquetas, checklist
+  sin marcar), NO arrastra avance/asignado/fechas. SourceTaskId liga origen<->copia; el detalle muestra
+  "Copias generadas" y chip "Copia de {origen}". Ajustes tras pruebas del usuario: (1) UN solo clic (sin
+  confirmacion en 2 pasos); (2) la copia cae en el MISMO tablero de la original (su primera columna), no en
+  el del concepto (antes "desaparecia" a otro tablero). Sin migracion (SourceTaskId ya existia).
+- Deploy v0.16.163 (deploy-prod.ps1 -Version 0.16.163 -Branch fase-0/clon-backbone, build-from-git). OK
+  explicito del usuario. Aterrizo verde: app2 sirve v0.16.163. Arrastro a prod TAMBIEN lo acumulado sin
+  desplegar de v0.16.162: membrete de empresa por grupo + PDF por documento (ADR-0118, migracion
+  AddPlantillaMembrete) y contactos (telefono en preview Empresa + enrich web/correo, AddContactSearchEnrichWeb).
+  Ambas migraciones aplicadas al arrancar.
+- Con el membrete ya en prod, queda habilitado crear plantillas de documento CON header (sesion de plantillas).
+- Pendiente aparte (rama, sin merge): feat/evolution-document (ingerir PDF por Evolution).
+
+
 ## 2026-09-28 - Plantillas de documento: membrete de empresa por grupo + PDF por documento - rama feat/plantillas-pdf-membrete
 
 - Pedido: "las plantillas impriman un PDF y deben tener headers de la empresa". Decisiones del usuario:

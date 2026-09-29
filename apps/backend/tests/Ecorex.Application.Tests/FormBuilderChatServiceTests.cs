@@ -238,7 +238,18 @@ public class FormBuilderChatServiceTests
     private static IFormBuilderChatService NewService(FakeAi ai, FakeToolset toolset, out FakeStore store)
     {
         store = new FakeStore();
-        return new FormBuilderChatService(new IdentitySecrets(), ai, toolset, store, new FakeSnapshots());
+        return new FormBuilderChatService(new IdentitySecrets(), ai, toolset, store, new FakeSnapshots(), new FakeUsage());
+    }
+
+    // Telemetria de consumo: no-op en las pruebas.
+    private sealed class FakeUsage : Ecorex.Application.Tenancy.IAiUsageService
+    {
+        public Task RecordAsync(Guid? agentId, AiProvider provider, string model, int inputTokens, int outputTokens, string source, bool success, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public Task<Ecorex.Application.Tenancy.AiUsageSummaryDto> GetSummaryAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new Ecorex.Application.Tenancy.AiUsageSummaryDto(0, 0, 0, 0, 0m, System.Array.Empty<Ecorex.Application.Tenancy.AgentUsageDto>()));
+        public Task<Ecorex.Application.Tenancy.AiQuotaDto> GetQuotaAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new Ecorex.Application.Tenancy.AiQuotaDto(0, 0, false));
     }
 
     // ===== Fakes =====

@@ -20,7 +20,12 @@ public sealed record FormBuilderTurnResult(
     Guid? FormDefinitionId,
     string? AssistantText,
     IReadOnlyList<FormBuilderProposalDto> Proposals,
-    bool AwaitingConfirmation)
+    bool AwaitingConfirmation,
+    // Contador de consumo de ESTE turno (suma de las vueltas al modelo): tokens de entrada/salida y costo
+    // estimado en USD. Sirve para el contador en vivo del panel (no ir a ciegas). 0 en turnos sin llamada al modelo.
+    int TurnInputTokens = 0,
+    int TurnOutputTokens = 0,
+    decimal TurnCostUsd = 0m)
 {
     public static FormBuilderTurnResult Fail(Guid conversationId, string error)
         => new(false, error, conversationId, null, null, Array.Empty<FormBuilderProposalDto>(), false);

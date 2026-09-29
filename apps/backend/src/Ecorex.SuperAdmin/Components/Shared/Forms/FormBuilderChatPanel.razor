@@ -54,6 +54,14 @@
         </div>
     }
 
+    @if (_tokIn > 0 || _tokOut > 0)
+    {
+        <div class="fbc-usage" title="Consumo de este chat (entrada + salida). El costo es estimado.">
+            <span>Consumo: <strong>@Fmt(_tokIn + _tokOut) tokens</strong> (@Fmt(_tokIn) in / @Fmt(_tokOut) out)</span>
+            <span>~$@_costUsd.ToString("0.0000")</span>
+        </div>
+    }
+
     <div class="fbc-input">
         <label class="fbc-attach" title="Adjuntar Excel / PDF / imagen / HTML">
             <InputFile OnChange="OnAttachAsync" accept=".xlsx,.xls,.csv,application/pdf,image/*,text/html,.html,.htm,.txt" style="display:none;" />
@@ -86,6 +94,10 @@
     private bool _awaiting;
     private bool _started;
     private string? _error;
+    // Contador de consumo de ESTE chat (acumulado en la sesion del panel): tokens y costo estimado.
+    private int _tokIn;
+    private int _tokOut;
+    private decimal _costUsd;
 
     protected override async Task OnInitializedAsync() => await EnsureStartedAsync();
 
@@ -175,8 +187,15 @@
         Apply(r);
     }
 
+    // Formatea un conteo de tokens compacto (1234 -> "1.2k").
+    private static string Fmt(int n) => n >= 1000 ? (n / 1000d).ToString("0.0") + "k" : n.ToString();
+
     private void Apply(FormBuilderTurnResult r)
     {
+        // Acumula el consumo del turno (0 si no hubo llamada al modelo) para el contador en vivo.
+        _tokIn += r.TurnInputTokens;
+        _tokOut += r.TurnOutputTokens;
+        _costUsd += r.TurnCostUsd;
         if (!r.Ok)
         {
             _error = r.Error;

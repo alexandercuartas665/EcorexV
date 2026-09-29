@@ -22,6 +22,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private readonly IFormAuthoringToolset _toolset;
     private readonly IFormBuilderChatStore _store;
     private readonly IFormSnapshotService _snapshots;
+    private readonly IAiUsageService _usage;
 
     // Proveedor por DEFECTO si el Super Admin no marco ninguno como "IA gestion de formularios": Gemini (fuerte
     // en tool-use + vision + PDF nativo). El proveedor real se resuelve por config (GetFormBuilderProviderAsync).
@@ -53,13 +54,14 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     public FormBuilderChatService(
         ISecretProtector secrets, IAiProviderClient ai,
         IFormAuthoringToolset toolset, IFormBuilderChatStore store,
-        IFormSnapshotService snapshots)
+        IFormSnapshotService snapshots, IAiUsageService usage)
     {
         _secrets = secrets;
         _ai = ai;
         _toolset = toolset;
         _store = store;
         _snapshots = snapshots;
+        _usage = usage;
     }
 
     public async Task<FormBuilderStartResult> StartAsync(Guid? formDefinitionId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
@@ -294,6 +296,9 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var autoNudged = false;
         // Cuantas veces ya se forzo verify_form al cierre en este turno (tope MaxForcedVerify).
         var forcedVerifyRuns = 0;
+        // Contador de tokens del TURNO (suma de todas las vueltas al modelo): para el contador en vivo del panel.
+        var turnIn = 0;
+        var turnOut = 0;
 
         for (var round = 0; round < MaxRounds; round++)
         {
@@ -324,6 +329,12 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             {
                 return FormBuilderTurnResult.Fail(conv.Id, completion.Error ?? "La IA no respondio.");
             }
+
+            // Contador de tokens: cada vuelta al modelo cuenta. Se acumula para el turno y se REGISTRA en
+            // AiUsageLog (source "form-builder") para el dashboard de consumo/cupos, igual que los demas agentes.
+            turnIn += completion.InputTokens;
+            turnOut += completion.OutputTokens;
+            await SafeRecordUsageAsync(provider, model, completion.InputTokens, completion.OutputTokens, cancellationToken);
 
             // Turno solo texto, sin herramientas.
             if (completion.ToolCalls is null || completion.ToolCalls.Count == 0)
@@ -360,7 +371,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                     }
                 }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
-                    Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false);
+                    Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false,
+                    turnIn, turnOut, AiCostEstimator.Estimate(provider, turnIn, turnOut));
             }
 
             // Hay tool-calls. Si TODAS son de solo lectura, se ejecutan sin gate y se sigue el bucle.
@@ -402,7 +414,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 var m = await AddProposalAsync(conv, tc, FormBuilderProposalState.Pending, null, cancellationToken);
                 proposals.Add(new FormBuilderProposalDto(m.Id, tc.Name, tc.ArgumentsJson));
             }
-            return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals, AwaitingConfirmation: true);
+            return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals,
+                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, turnIn, turnOut));
         }
 
         return FormBuilderTurnResult.Fail(conv.Id, "El asistente hizo demasiadas consultas seguidas. Intenta de nuevo o precisa la instruccion.");
@@ -431,6 +444,14 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             || t.Contains("ahora agregare") || t.Contains("ahora agregaré") || t.Contains("ahora creare")
             || t.Contains("ahora anadire") || t.Contains("ahora añadiré") || t.Contains("aqui estan las llamadas")
             || t.Contains("aqui te presento las llamadas") || t.Contains("aquí te presento las llamadas");
+    }
+
+    // Registra el consumo del asistente en AiUsageLog (source "form-builder"). Best-effort: un fallo del
+    // registro NUNCA rompe la conversacion (el consumo es telemetria, no bloquea al usuario).
+    private async Task SafeRecordUsageAsync(AiProvider provider, string model, int inputTokens, int outputTokens, CancellationToken ct)
+    {
+        try { await _usage.RecordAsync(null, provider, model, inputTokens, outputTokens, "form-builder", true, ct); }
+        catch { /* la telemetria de consumo no debe frenar el chat */ }
     }
 
     // El texto es una PREGUNTA al usuario (espera respuesta) -> no es un cierre, no se fuerza la verificacion.

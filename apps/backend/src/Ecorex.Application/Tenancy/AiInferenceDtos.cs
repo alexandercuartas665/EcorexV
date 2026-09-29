@@ -63,7 +63,7 @@ public sealed record AiCompletion(bool Ok, string? Text, string? Error, int Inpu
     IReadOnlyList<AiToolCall> ToolCalls);
 
 /// <summary>Parte de un prompt MULTIMODAL: texto O imagen (base64 + mime). Para clasificacion por vision.</summary>
-public sealed record AiVisionPart(string? Text = null, string? ImageBase64 = null, string? ImageMime = null);
+public sealed record AiVisionPart(string? Text = null, string? ImageBase64 = null, string? ImageMime = null, string? AudioBase64 = null, string? AudioMime = null);
 
 /// <summary>
 /// Cliente HTTP que habla con cada proveedor de IA (Gemini, OpenAI/ChatGPT, DeepSeek, Claude).
@@ -128,8 +128,10 @@ public interface IAiInferenceService
     /// </summary>
     /// <param name="imageBase64">Imagen ENTRANTE (base64) del ultimo turno del cliente, para que el modelo la VEA.</param>
     /// <param name="docBase64">Documento ENTRANTE (base64, p.ej. PDF) del ultimo turno del cliente, para que el modelo lo LEA (ruta nativa Gemini).</param>
+    /// <param name="audioBase64">Nota de voz ENTRANTE (base64) del ultimo turno del cliente; el modelo la OYE y ademas se transcribe al texto (ruta Gemini).</param>
     Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
         string? imageBase64 = null, string? imageMime = null,
         string? docBase64 = null, string? docMime = null, string? docFileName = null,
+        string? audioBase64 = null, string? audioMime = null,
         CancellationToken cancellationToken = default);
 }

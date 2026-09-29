@@ -16,6 +16,26 @@
   ficha base -> preview y guardado coinciden.
 - Sin migracion (columnas ya existen). Archivos: GestorDtos.cs, GestorContactosService.cs, GestorContactos.razor,
   TerceroModal.razor.cs. Build solucion verde. SIN merge, SIN deploy.
+## 2026-09-28 - Notas de voz de Evolution: ingerir, guardar en la tarea y transcribir - rama feat/evolution-audio
+
+- Sintoma: en EPRING (Evolution/Baileys) las notas de voz entraban como "(mensaje no soportado)" sin media; el
+  agente respondia "no puedo procesar audio" (y en ingles). Causa: EvolutionWebhookParser solo reconocia
+  imageMessage; para audioMessage caia en el placeholder y el webhook nunca descargaba la media. (El drift a
+  ingles ya lo mitigo la otra sesion por prompt en prod.)
+- Parte 1 (ingesta -> queda guardado en la tarea): EvolutionWebhookParser detecta audioMessage (nota de voz o
+  audio normal), body "(nota de voz)", MessageType="audio". Webhook /webhooks/evolution descarga la media
+  tambien para audio, elige extension por mime (.ogg/.mp3/.m4a/.wav), fija MediaType=Audio + url en /uploads/chat.
+  ChatIngestService ya respeta MediaType; AttachConversationMediaAsync adjunta el audio a la tarea sin filtrar
+  por tipo (verificado) -> cierra "guardar los audios". Sin tocar TasksToolset.
+- Parte 2 (que el agente lo ENTIENDA): AiVisionPart +AudioBase64/AudioMime; GeminiVision emite el inlineData de
+  audio. RespondAsync expone audioBase64/audioMime y los reenvia; RunCoreAsync agrega ReadAudioAsync (solo
+  Gemini) e inyecta "Transcripcion del audio: ..." al ultimo turno (lo ven el modelo principal Y el extractor de
+  cache), calzando con la seccion NOTA DE VOZ del prompt sin cambios de prompt. AgentConversationService: rama
+  MediaType.Audio que lee el base64 y lo pasa. El modelo principal ademas OYE el audio (AiInlineAudio ya existia).
+- Best-effort en descarga y transcripcion: si algo falla, no rompe ingesta ni envio; el audio queda guardado y
+  el agente usa su fallback en espanol. Sin migracion (AiVisionPart es record en memoria). Multi-tenant intacto.
+- Archivos: EvolutionWebhookParser.cs, Program.cs (webhook), AiInferenceDtos.cs, AiInferenceService.cs,
+  AiProviderClient.cs (GeminiVision), AgentConversationService.cs. Build solucion verde. SIN merge, SIN deploy.
 
 ## 2026-09-28 - Tableros de actividades restringidos por usuario (ADR-0117) - rama feat/tableros-restringidos-wip
 

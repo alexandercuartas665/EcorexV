@@ -402,6 +402,74 @@ public sealed class TaskItemService : ITaskItemService
         return TaskCoreResult<TaskItemDetailDto>.Ok((await LoadDetailFreshAsync(task.Id, cancellationToken))!);
     }
 
+    public async Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var src = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == sourceTaskId, cancellationToken);
+        if (src is null) { return TaskCoreResult<TaskItemDetailDto>.NotFound("La actividad a copiar no existe."); }
+
+        // Etiquetas y checklist (texto, sin marcar) de la actividad ORIGEN: la copia los replica.
+        var tagIds = await _db.TaskItemTagAssignments.AsNoTracking()
+            .Where(a => a.TaskItemId == sourceTaskId).Select(a => a.TagId).ToListAsync(cancellationToken);
+        var sourceChecklist = await _db.TaskItemChecklistItems.AsNoTracking()
+            .Where(i => i.TaskItemId == sourceTaskId)
+            .OrderBy(i => i.SortOrder).ThenBy(i => i.CreatedAt)
+            .Select(i => i.Text).ToListAsync(cancellationToken);
+
+        var copyTitle = "Copia de " + (src.Title ?? string.Empty);
+        if (copyTitle.Length > 300) { copyTitle = copyTitle[..300]; }
+
+        // La copia nace como una tarea NUEVA con el mismo "molde": CreateAsync arranca el flujo en su
+        // nodo inicial y la ubica en la columna de inicio del tablero del concepto (BoardId/ColumnId nulos).
+        // NO se copia asignado ni fechas (avance/planeacion de la original); si el flujo inicial asigna,
+        // lo hara al arrancar.
+        var request = new CreateTaskItemRequest(
+            Title: copyTitle,
+            ActivityTypeId: src.ActivityTypeId,
+            Description: src.Description,
+            Priority: src.Priority,
+            RequesterName: src.RequesterName,
+            RequesterEmail: src.RequesterEmail,
+            RequesterPhone: src.RequesterPhone,
+            RequesterDocument: src.RequesterDocument,
+            CcEmails: DeserializeCcEmails(src.CcEmails),
+            ProjectId: src.ProjectId,
+            Color: src.Color,
+            TagIds: tagIds.Count > 0 ? tagIds : null,
+            SubcategoriaId: src.SubcategoriaId,
+            EntidadId: src.EntidadId,
+            TerceroId: src.TerceroId,
+            MilestoneId: src.MilestoneId,
+            SourceTaskId: sourceTaskId);
+
+        var created = await CreateAsync(request, actorUserId, actorName, cancellationToken);
+        if (!created.IsOk || created.Value is null) { return created; }
+        var newId = created.Value.Item.Id;
+
+        // Checklist COPIA FIEL del origen (sin marcar): CreateAsync sembro el del concepto; se reemplaza por
+        // el de la actividad origen para reflejar sus items reales (agregados/quitados). Si el origen no tiene
+        // checklist, la copia queda sin checklist.
+        var seeded = await _db.TaskItemChecklistItems.Where(i => i.TaskItemId == newId).ToListAsync(cancellationToken);
+        _db.TaskItemChecklistItems.RemoveRange(seeded);
+        var order = 0;
+        foreach (var text in sourceChecklist)
+        {
+            _db.TaskItemChecklistItems.Add(new TaskItemChecklistItem
+            {
+                TenantId = src.TenantId,
+                TaskItemId = newId,
+                Text = text.Length <= 500 ? text : text[..500],
+                SortOrder = order++
+            });
+        }
+        // Rastro en la actividad ORIGEN: dejo constancia de que genero una copia.
+        _db.TaskItemActivities.Add(BuildActivity(src.TenantId, sourceTaskId, actorUserId, actorName,
+            TaskActivityType.Action, $"copio la actividad a {created.Value.Item.Number}"));
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var detail = await GetDetailAsync(newId, cancellationToken);
+        return detail is null ? created : TaskCoreResult<TaskItemDetailDto>.Ok(detail);
+    }
+
     public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
     {
         var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
@@ -1466,11 +1534,22 @@ public sealed class TaskItemService : ITaskItemService
             .OrderBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
         var subtasks = await ToSummariesAsync(subs, cancellationToken);
+        // Copias generadas desde esta actividad (SourceTaskId == esta), mas antiguas primero.
+        var copyEntities = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.SourceTaskId == taskId && !t.IsArchived)
+            .OrderBy(t => t.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var copies = await ToSummariesAsync(copyEntities, cancellationToken);
+        // Backlink: si esta actividad ES una copia, numero de la actividad origen.
+        var sourceNumber = task.SourceTaskId is Guid srcId
+            ? await _db.TaskItems.AsNoTracking().Where(t => t.Id == srcId)
+                .Select(t => t.Number).FirstOrDefaultAsync(cancellationToken)
+            : null;
 
         return new TaskItemDetailDto(summary, task.Description,
             task.RequesterName, task.RequesterEmail, task.RequesterPhone, task.RequesterDocument,
             DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
-            checklist, assignees, task.CustomFieldsJson, subtasks);
+            checklist, assignees, task.CustomFieldsJson, subtasks, copies, task.SourceTaskId, sourceNumber);
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(

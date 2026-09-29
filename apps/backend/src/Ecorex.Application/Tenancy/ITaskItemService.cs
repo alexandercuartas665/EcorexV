@@ -28,6 +28,17 @@ public interface ITaskItemService
     Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// COPIA una actividad como una tarea NUEVA. La copia hereda el "molde" (titulo "Copia de ...",
+    /// concepto/flujo, contacto/solicitante, tercero, prioridad, proyecto/hito, Empresa/Area,
+    /// descripcion, color, etiquetas y checklist SIN marcar) pero NO arrastra el avance: nace en el
+    /// PUNTO INICIAL del flujo (CreateAsync -> StartInstanceAsync) y en la columna de inicio del
+    /// tablero del concepto, sin asignado, formularios, worklog, comentarios ni historial. Queda
+    /// ligada al origen por <see cref="Domain.Entities.TaskItem.SourceTaskId"/> (la origen la lista
+    /// como "copia generada"). Devuelve el detalle de la copia.
+    /// </summary>
+    Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Guarda los valores de los campos personalizados del tablero (ADR-0065), serializados como
     /// dict FieldKey -&gt; valor. Editable mientras la tarea no este Cerrada. Registra actividad solo
     /// si el JSON cambia. Devuelve NotFound/Invalid(cerrada) segun corresponda.

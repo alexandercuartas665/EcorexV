@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Fix: reload del tablero mataba el circuito Blazor (concurrencia DbContext) - v0.16.166
+
+- Sintoma que el usuario veia como "red mala del PC del cliente": en el tablero (ej. "AGENTE COMERCIAL IA")
+  la consola mostraba "unhandled exception on the current circuit, so this circuit will be terminated" y luego
+  "Connection disconnected". NO era la red: era una excepcion del servidor que termina el circuito; SignalR se
+  desconecta como CONSECUENCIA (si fuera red se veria "Attempting to reconnect", no "unhandled exception").
+- Causa raiz (ActivityBoardDetail.razor): el handler SignalR TaskChanged relanza ReloadAsync. ReloadAsync
+  aislaba en scope propio solo la consulta principal (GetBoardDetailAsync), pero el bloque POST-carga
+  (FieldSvc.ListByBoardAsync + EnsureListLabelsAsync/EnsureFormValuesAsync/EnsureDetailAsync) corria sobre el
+  DbContext del CIRCUITO. En tableros de agente (escriben tareas seguido) TaskChanged salta frecuente; si el
+  usuario tenia una consulta en vuelo (abrir detalle, filtrar) a la vez -> "A second operation was started on
+  this context instance" -> el circuito se cae. El _reloadLock solo serializaba reloads entre si, no contra
+  acciones del usuario.
+- Fix: TODO el I/O de EF del reload usa scope propio (ScopeFactory.CreateAsyncScope + AmbientTenantContext).
+  Los 3 helpers Ensure* aceptan un IServiceProvider opcional y resuelven sus servicios de ese scope (fallback al
+  circuito si se llaman sin scope). Nunca se toca el DbContext del circuito durante el reload. Build verde, sin
+  migracion. Merge a tronco + espejo main (v0.16.166).
+- Nota: la excepcion exacta de prod no se capturo (el contenedor viejo 0.16.164 se reemplazo en el deploy de las
+  17:31); diagnostico por evidencia de codigo (los comentarios del propio archivo ya reconocian este modo de
+  fallo y solo lo cubrian a medias). Cuando recurra en prod, docker logs ecorex-app | grep "Unhandled exception
+  in circuit" mostrara el stack para confirmar.
+- Siguiente: deploy v0.16.166 (pedir OK al usuario); tras desplegar, validar en el board de agente que ya no cae
+  el circuito con el agente escribiendo.
+
 ## 2026-09-29 - Tablero: columnas mas anchas + scroll horizontal - rama feat/tablero-scroll-columnas
 
 - El usuario reporto (con captura) que en la vista Tablero de una actividad las columnas se veian muy

@@ -11,14 +11,18 @@ public sealed record AiProviderDto(
     bool HasApiKey,
     bool IsEnabled,
     string DefaultModel,
-    IReadOnlyList<string> SuggestedModels);
+    IReadOnlyList<string> SuggestedModels,
+    // Este proveedor es el que usa el asistente de creacion de formularios ("IA gestion de formularios").
+    bool UseForFormBuilder = false);
 
 public sealed record SaveAiProviderRequest(
     AiProvider Provider,
     string? ApiKey,
     string? Model,
     string? BaseUrl,
-    bool IsEnabled);
+    bool IsEnabled,
+    // Marca este proveedor como el del asistente de formularios (el servicio lo apaga en los demas).
+    bool UseForFormBuilder = false);
 
 /// <summary>Proveedor disponible para que una agencia lo use en sus agentes (sin datos sensibles).
 /// <paramref name="ConfigId"/> es el Id de la fila del Super Admin: sirve como referencia estable cuando

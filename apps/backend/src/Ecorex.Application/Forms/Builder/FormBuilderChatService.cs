@@ -23,11 +23,21 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     private readonly IFormBuilderChatStore _store;
     private readonly IFormSnapshotService _snapshots;
 
-    // Proveedor fijo para esta funcion (decision de producto): Gemini (fuerte en tool-use + vision + PDF nativo).
-    private const AiProvider Provider = AiProvider.Gemini;
-    // Modelo por defecto de la funcion: FLASH (respuesta rapida en un chat con muchas herramientas; pro es
-    // demasiado lento para el ida y vuelta interactivo). Es un modelo valido de Gemini en el catalogo.
-    private const string FeatureModel = "gemini-2.5-flash";
+    // Proveedor por DEFECTO si el Super Admin no marco ninguno como "IA gestion de formularios": Gemini (fuerte
+    // en tool-use + vision + PDF nativo). El proveedor real se resuelve por config (GetFormBuilderProviderAsync).
+    private const AiProvider DefaultProvider = AiProvider.Gemini;
+
+    // Modelo del asistente por proveedor: uno RAPIDO/tool-capable (el chat va muchas vueltas; los modelos "pro"
+    // o de razonamiento son lentos o no soportan function-calling). Independiente del modelo que el proveedor
+    // tenga configurado para otros agentes. deepseek-reasoner NO sirve (sin tools) -> se usa deepseek-chat.
+    private static string FormBuilderModelFor(AiProvider provider) => provider switch
+    {
+        AiProvider.Gemini => "gemini-2.5-flash",
+        AiProvider.DeepSeek => "deepseek-chat",
+        AiProvider.ChatGpt => "gpt-4o-mini",
+        AiProvider.Claude => "claude-haiku-4-5",
+        _ => AiProviderCatalog.For(provider).DefaultModel,
+    };
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
     // Cuantas veces, por turno, el sistema FUERZA verify_form al cierre y reinyecta los errores para que el
@@ -54,13 +64,16 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
 
     public async Task<FormBuilderStartResult> StartAsync(Guid? formDefinitionId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
     {
-        // Valida que el proveedor este habilitado antes de crear la conversacion.
-        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        // Proveedor CONFIG-DRIVEN: el que el Super Admin marco como "IA gestion de formularios" (Servidores de
+        // IA); si ninguno, cae a Gemini. La conversacion GUARDA el proveedor/modelo resueltos, para que un
+        // cambio de config no rompa una conversacion ya empezada.
+        var provider = await _store.GetFormBuilderProviderAsync(cancellationToken) ?? DefaultProvider;
+        var cfg = await _store.ResolveProviderAsync(provider, cancellationToken);
         if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
-            return new FormBuilderStartResult(false, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.", Guid.Empty, null);
+            return new FormBuilderStartResult(false, $"El proveedor de IA para gestion de formularios ({provider}) no esta habilitado en la plataforma. Configuralo en Servidores de IA.", Guid.Empty, null);
         }
-        var model = FeatureModel;
+        var model = FormBuilderModelFor(provider);
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
@@ -69,7 +82,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             if (!string.IsNullOrWhiteSpace(t)) { title = t!; }
         }
 
-        var conv = await _store.CreateConversationAsync(formDefinitionId, Provider, model, title, actorTenantUserId, cancellationToken);
+        var conv = await _store.CreateConversationAsync(formDefinitionId, provider, model, title, actorTenantUserId, cancellationToken);
         return new FormBuilderStartResult(true, null, conv.Id, conv.FormDefinitionId);
     }
 
@@ -251,17 +264,20 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
     // ===== Nucleo: bucle del agente con GATE humano =====
     private async Task<FormBuilderTurnResult> RunAgentAsync(FormBuilderConversation conv, IReadOnlyList<AiInlineImage>? images, IReadOnlyList<AiInlineDocument>? docs, Guid actorUserId, CancellationToken cancellationToken)
     {
-        var cfg = await _store.ResolveProviderAsync(Provider, cancellationToken);
+        // La conversacion recuerda con QUE proveedor arranco (config-driven al iniciar); se respeta aunque el
+        // Super Admin cambie el marcado despues, para no romper una conversacion a medias.
+        var provider = conv.Provider;
+        var cfg = await _store.ResolveProviderAsync(provider, cancellationToken);
         if (cfg is null || !cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ApiKeyEncrypted))
         {
-            return FormBuilderTurnResult.Fail(conv.Id, $"El proveedor de IA {Provider} no esta habilitado en la plataforma.");
+            return FormBuilderTurnResult.Fail(conv.Id, $"El proveedor de IA {provider} no esta habilitado en la plataforma. Revisa Servidores de IA.");
         }
         string apiKey;
         try { apiKey = _secrets.Unprotect(cfg.ApiKeyEncrypted!); }
         catch { return FormBuilderTurnResult.Fail(conv.Id, "La API key del proveedor esta cifrada con una version anterior. Vuelve a guardarla en Servidores de IA."); }
 
-        var meta = AiProviderCatalog.For(Provider);
-        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FeatureModel;
+        var meta = AiProviderCatalog.For(provider);
+        var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FormBuilderModelFor(provider);
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
         var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
@@ -294,7 +310,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutCts.CancelAfter(AiCallTimeout);
-                completion = await _ai.CompleteWithToolsAsync(Provider, apiKey, baseUrl, model, systemPrompt, messages, tools, timeoutCts.Token);
+                completion = await _ai.CompleteWithToolsAsync(provider, apiKey, baseUrl, model, systemPrompt, messages, tools, timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

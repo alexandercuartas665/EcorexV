@@ -367,6 +367,10 @@ public class FormBuilderChatServiceTests
         public Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default)
             => Task.FromResult<FormBuilderProviderInfo?>(new FormBuilderProviderInfo(true, "enc-key", "gemini-2.5-pro", null));
 
+        // Ninguno marcado -> el servicio cae al proveedor por defecto (Gemini), que ResolveProviderAsync habilita.
+        public Task<AiProvider?> GetFormBuilderProviderAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<AiProvider?>(null);
+
         public Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
             => Task.FromResult<string?>("Formulario de prueba");
 

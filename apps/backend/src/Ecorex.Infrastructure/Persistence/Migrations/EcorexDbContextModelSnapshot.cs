@@ -1371,6 +1371,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<bool>("UseForFormBuilder")
+                        .HasColumnType("boolean")
+                        .HasColumnName("use_for_form_builder");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_provider_configs");
 

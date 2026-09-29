@@ -52,8 +52,12 @@ public interface IFormBuilderChatStore
 
     Task SaveMessageAsync(FormBuilderMessage message, CancellationToken cancellationToken = default);
 
-    /// <summary>Cuenta global del proveedor de IA (Gemini) o null si no existe. La key va cifrada.</summary>
+    /// <summary>Cuenta global de un proveedor de IA o null si no existe. La key va cifrada.</summary>
     Task<FormBuilderProviderInfo?> ResolveProviderAsync(AiProvider provider, CancellationToken cancellationToken = default);
+
+    /// <summary>Proveedor marcado como "IA gestion de formularios" (habilitado y con key) en el Super Admin,
+    /// o null si ninguno lo esta (el servicio cae a Gemini). Config-driven, reemplaza el proveedor hardcoded.</summary>
+    Task<AiProvider?> GetFormBuilderProviderAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Titulo del formulario (para el titulo de la conversacion / modo edicion); null si no existe.</summary>
     Task<string?> GetFormTitleAsync(Guid formDefinitionId, CancellationToken cancellationToken = default);

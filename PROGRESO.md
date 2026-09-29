@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Cargador de contactos: telefono en el preview + enriquecer web/correo (Maps) - rama feat/contactos-telefono-enrich
+
+- Hand-off de la sesion de pruebas del Cargador de contactos (000740). Dos ajustes, en rama, sin deploy.
+- Ajuste 1 (sin migracion): el preview "Ver contacto" (variante EMPRESA del directorio modular) no mostraba
+  Correo/Telefono aunque OpenFromProspectoAsync ya poblaba _mEmail/_mTelefono. Se agregaron los inputs Correo y
+  Telefono a la rama Empresa de TerceroModal.razor; y en TerceroModal.razor.cs el SaveTerceroRequest ahora
+  persiste Email/Telefono para AMBOS tipos (antes se perdian en Empresa). TerceroService ya los guarda sin
+  gating (ApplyRequest). Verificar: el preview de un negocio muestra su telefono e Incorporar lo conserva.
+- Ajuste 2 (con migracion dual): flag EnrichWebCorreo (+ tope EnrichWebMax=20) en ContactSearchDefinition. La
+  lista de Maps no trae web ni correo; nueva ETAPA 3 en ContactSearchRunner.RunAsync (solo Maps, opt-in): por
+  cada empresa SIN sitio web abre su ficha de Maps (OrigenUrl, o busca por nombre+geo) y saca sitio_web; si hay
+  sitio, navega e intenta el correo (mailto/contacto). ACTUALIZA el prospecto (no crea filas) via un sink nuevo
+  ProspectoWebEnrichSink (rellena solo lo que falta, recalcula Badge, tenant-safe por id). Sin tope diario (Maps
+  no penaliza); acotado por EnrichWebMax. Checkbox "Enriquecer web/correo" en el configurador (junto al de
+  LinkedIn, solo fuente Maps). DTO/serv/UI cableados. Migracion dual AddContactSearchEnrichWeb (bool + int).
+- Build Ecorex.sln verde (0 errores). Siguiente: validar E2E (correr una busqueda Maps con EnrichWebCorreo on;
+  revisar telefono visible en el preview + sitio_web/correo poblados). Sin merge, sin deploy.
+
 ## 2026-09-28 - Editor de plantillas: papel BLANCO siempre + modal tipo carta en el uso - rama feat/plantillas-editor-carta
 
 - Pedido: el editor TinyMCE (interop ecorex-doc-editor.js) se veia oscuro en modo oscuro; que sea BLANCO tanto

@@ -2213,6 +2213,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("enrich_max_por_empresa");
 
+                    b.Property<bool>("EnrichWebCorreo")
+                        .HasColumnType("bit")
+                        .HasColumnName("enrich_web_correo");
+
+                    b.Property<int>("EnrichWebMax")
+                        .HasColumnType("int")
+                        .HasColumnName("enrich_web_max");
+
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
                         .HasMaxLength(4000)

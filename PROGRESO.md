@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Plantillas: token {sistema.fechalarga} + TinyMCE conserva <style> del membrete - rama feat/plantilla-fechalarga-style
+
+- Hand-off de la sesion de plantillas (config). Dos cambios de codigo, sin migracion.
+- 1) {sistema.fechalarga} en NotifyTokenResolver: fecha en letras es-CO "10 de septiembre de 2026" (zona del
+  tenant, meses hardcodeados para no depender de la cultura del contenedor). Anadido a la paleta de tokens
+  de /plantillas-documentos (DocumentTemplateService.GetTokenCatalog).
+- 2) ecorex-doc-editor.js init: TinyMCE 7.6.1 eliminaba el bloque <style> al guardar; el membrete depende de
+  el (@page{margin}, encabezado/pie con position:fixed, box-decoration-break:clone del PDF). Fix:
+  valid_children:'+body[style]' + extended_valid_elements:'style[type|media]' (conserva el <style> al
+  getContent). Ademas, SOLO en la vista del editor de carta se neutraliza position:fixed (content_style) para
+  que el encabezado/pie no queden encima del texto al redactar; no altera el HTML guardado ni el PDF.
+- Build SuperAdmin verde. Cache-bust del JS por ?v=AppVersion -> al desplegar se bumpea la version y recarga.
+- Siguiente: merge + deploy (lo espera la sesion de plantillas para cerrar en prod). Validacion viva del
+  <style> y del PDF (encabezado/pie repetidos) la hace la sesion de plantillas.
+
+
 ## 2026-09-29 - Evolution: ingerir DOCUMENTOS (PDF) entrantes (MERGEADO a trunk)
 
 - Hand-off de la sesion de diseno de agentes. El parser de Evolution ya manejaba imagen/audio pero NO

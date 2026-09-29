@@ -45,6 +45,10 @@ export async function init(id, initialHtml, opts) {
         ? 'html{background:#e9e9ee}'
         + 'body{' + baseBody + ';max-width:720px;margin:26px auto;padding:90px 80px;'
         + 'min-height:960px;box-shadow:0 1px 12px rgba(0,0,0,.18);border-radius:2px}'
+        // Solo en la VISTA del editor: el encabezado/pie del membrete usan position:fixed (para repetirse
+        // en cada pagina del PDF), pero dentro del editor quedarian encima del texto y estorban al redactar.
+        // Se neutraliza SOLO aqui (no altera el HTML que devuelve getContent ni el PDF).
+        + '[style*="position:fixed"],[style*="position: fixed"]{position:static!important}'
         : 'body{' + baseBody + ';padding:10px}';
     await window.tinymce.init({
         selector: '#' + id,
@@ -62,6 +66,11 @@ export async function init(id, initialHtml, opts) {
         skin: 'oxide',
         content_css: 'default',
         content_style: contentStyle,
+        // Conservar el bloque <style> del membrete: TinyMCE 7 lo elimina por defecto, y el PDF depende de el
+        // (@page{margin}, encabezado/pie con position:fixed, main.doc-body{box-decoration-break:clone}). Con
+        // esto, guardar el membrete desde la UI devuelve el mismo HTML con su <style>.
+        valid_children: '+body[style]',
+        extended_valid_elements: 'style[type|media]',
     });
     const ed = window.tinymce.get(id);
     if (ed && typeof initialHtml === 'string') { ed.setContent(initialHtml); }

@@ -152,6 +152,37 @@ public class FormVerifyGoldenTests
         Assert.True(HasError(issues, "precio")); // 'precio' no es columna
     }
 
+    // Dependencia circular entre campos (a=f(b), b=f(a)): el motor nunca la resuelve -> error.
+    [Fact]
+    public void Calc_circular_entre_dos_campos_es_error()
+    {
+        var a = Field("a", FormControlType.Number, calc: "{b}+1");
+        var b = Field("b", FormControlType.Number, calc: "{a}*2");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { a, b }));
+        Assert.Contains(issues, i => i.Severity == "error" && i.Problem.Contains("CIRCULAR", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Un campo que se referencia a si mismo -> error.
+    [Fact]
+    public void Calc_auto_referente_es_error()
+    {
+        var total = Field("total", FormControlType.Number, calc: "{total}+{iva}");
+        var iva = Field("iva", FormControlType.Number);
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { total, iva }));
+        Assert.True(HasError(issues, "CIRCULAR"));
+    }
+
+    // Cadena normal de calc (sin ciclo): no reporta.
+    [Fact]
+    public void Cadena_de_calc_sin_ciclo_no_reporta()
+    {
+        var subtotal = Field("subtotal", FormControlType.Number);
+        var iva = Field("iva", FormControlType.Number, calc: "{subtotal}*0.19");
+        var total = Field("total", FormControlType.Number, calc: "{subtotal}+{iva}");
+        var issues = FormAuthoringToolset.VerifyForm(Def(new[] { subtotal, iva, total }));
+        Assert.DoesNotContain(issues, i => i.Severity == "error");
+    }
+
     // Cebo de alucinacion: el agente inventa funciones que el motor NO soporta (SQRT/LN/ROUND). Deben caer
     // como error (romperian en silencio) tanto en un campo como en una columna de grilla.
     [Fact]

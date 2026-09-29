@@ -30,7 +30,7 @@ public sealed class AiUsageService : IAiUsageService
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
             TotalTokens = total,
-            EstimatedCostUsd = AiCostEstimator.Estimate(provider, inputTokens, outputTokens),
+            EstimatedCostUsd = AiCostEstimator.Estimate(provider, model, inputTokens, outputTokens),
             Source = string.IsNullOrWhiteSpace(source) ? "chat" : source,
             Success = success
         };

@@ -372,7 +372,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 }
                 return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text,
                     Array.Empty<FormBuilderProposalDto>(), AwaitingConfirmation: false,
-                    turnIn, turnOut, AiCostEstimator.Estimate(provider, turnIn, turnOut));
+                    turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut));
             }
 
             // Hay tool-calls. Si TODAS son de solo lectura, se ejecutan sin gate y se sigue el bucle.
@@ -415,7 +415,7 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
                 proposals.Add(new FormBuilderProposalDto(m.Id, tc.Name, tc.ArgumentsJson));
             }
             return new FormBuilderTurnResult(true, null, conv.Id, conv.FormDefinitionId, completion.Text, proposals,
-                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, turnIn, turnOut));
+                AwaitingConfirmation: true, turnIn, turnOut, AiCostEstimator.Estimate(provider, model, turnIn, turnOut));
         }
 
         return FormBuilderTurnResult.Fail(conv.Id, "El asistente hizo demasiadas consultas seguidas. Intenta de nuevo o precisa la instruccion.");

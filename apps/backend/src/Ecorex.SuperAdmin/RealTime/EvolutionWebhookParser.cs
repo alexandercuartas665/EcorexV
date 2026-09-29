@@ -64,8 +64,18 @@ public static class EvolutionWebhookParser
         var name2 = data.TryGetProperty("pushName", out var pn) && pn.ValueKind == JsonValueKind.String ? pn.GetString() : null;
         var isImage = IsImageMessage(data);
         var isAudio = IsAudioMessage(data);
+        var isDocument = TryGetDocumentMessage(data, out var documentMessage);
+        // Nombre ORIGINAL del archivo (documentMessage.fileName o .title): se usa como MediaFileName para que el
+        // adjunto de la tarea sea legible y el TurnText muestre "[archivo adjunto: Factura...pdf]".
+        var docFileName = isDocument ? ExtractDocFileName(documentMessage) : null;
         var body = ExtractText(data);
-        if (string.IsNullOrWhiteSpace(body)) { body = isImage ? "(imagen)" : isAudio ? "(nota de voz)" : "(mensaje no soportado)"; }
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            body = isImage ? "(imagen)"
+                : isAudio ? "(nota de voz)"
+                : isDocument ? (docFileName ?? "(documento)")
+                : "(mensaje no soportado)";
+        }
 
         DateTimeOffset? sentAt = null;
         if (data.TryGetProperty("messageTimestamp", out var ts) && ts.ValueKind == JsonValueKind.Number && ts.TryGetInt64(out var secs))
@@ -73,12 +83,13 @@ public static class EvolutionWebhookParser
             sentAt = DateTimeOffset.FromUnixTimeSeconds(secs);
         }
 
-        // Para imagenes/audio marcamos el MessageType: el webhook descargara la media por el id del mensaje
-        // (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla/transcribirla.
-        var messageType = isImage ? "image" : isAudio ? "audio" : "text";
+        // Para imagen/audio/documento marcamos el MessageType: el webhook descargara la media por el id del
+        // mensaje (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla
+        // (el documento lo LEE Gemini nativo; el audio se transcribe).
+        var messageType = isImage ? "image" : isAudio ? "audio" : isDocument ? "document" : "text";
         return new ParsedInbound(tenantId.Value,
             new IngestMessageRequest(phone, name2, externalId, body!, messageType, sentAt, lineId,
-                RemoteJid: jid));
+                RemoteJid: jid, MediaFileName: isDocument ? docFileName : null));
     }
 
     private static bool IsImageMessage(JsonElement data) =>
@@ -91,6 +102,38 @@ public static class EvolutionWebhookParser
         data.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object
         && msg.TryGetProperty("audioMessage", out var am) && am.ValueKind == JsonValueKind.Object;
 
+    // Documento (PDF/Excel/CSV...). WhatsApp lo envia como documentMessage directo, o envuelto en
+    // documentWithCaptionMessage (cuando trae texto): se resuelve el documentMessage en ambos casos.
+    private static bool TryGetDocumentMessage(JsonElement data, out JsonElement documentMessage)
+    {
+        documentMessage = default;
+        if (!data.TryGetProperty("message", out var msg) || msg.ValueKind != JsonValueKind.Object) { return false; }
+        if (msg.TryGetProperty("documentMessage", out var dm) && dm.ValueKind == JsonValueKind.Object)
+        {
+            documentMessage = dm;
+            return true;
+        }
+        // Envoltura con caption: message.documentWithCaptionMessage.message.documentMessage
+        if (msg.TryGetProperty("documentWithCaptionMessage", out var wrap) && wrap.ValueKind == JsonValueKind.Object
+            && wrap.TryGetProperty("message", out var inner) && inner.ValueKind == JsonValueKind.Object
+            && inner.TryGetProperty("documentMessage", out var dm2) && dm2.ValueKind == JsonValueKind.Object)
+        {
+            documentMessage = dm2;
+            return true;
+        }
+        return false;
+    }
+
+    // Nombre original del archivo: fileName y, si falta, title.
+    private static string? ExtractDocFileName(JsonElement documentMessage)
+    {
+        if (documentMessage.TryGetProperty("fileName", out var fn) && fn.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(fn.GetString())) { return fn.GetString(); }
+        if (documentMessage.TryGetProperty("title", out var ti) && ti.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(ti.GetString())) { return ti.GetString(); }
+        return null;
+    }
+
     private static string? ExtractText(JsonElement data)
     {
         if (!data.TryGetProperty("message", out var msg) || msg.ValueKind != JsonValueKind.Object) { return null; }
@@ -100,6 +143,13 @@ public static class EvolutionWebhookParser
         if (msg.TryGetProperty("imageMessage", out var im) && im.ValueKind == JsonValueKind.Object)
         {
             return im.TryGetProperty("caption", out var cap) && cap.ValueKind == JsonValueKind.String ? cap.GetString() : "(imagen)";
+        }
+        // Documento con texto del usuario: se devuelve el caption; sin caption -> null (el fallback usa el fileName).
+        if (TryGetDocumentMessage(data, out var docMsg)
+            && docMsg.TryGetProperty("caption", out var dcap) && dcap.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(dcap.GetString()))
+        {
+            return dcap.GetString();
         }
         return null;
     }

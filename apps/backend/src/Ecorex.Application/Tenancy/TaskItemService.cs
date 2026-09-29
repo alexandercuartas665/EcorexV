@@ -439,6 +439,10 @@ public sealed class TaskItemService : ITaskItemService
             EntidadId: src.EntidadId,
             TerceroId: src.TerceroId,
             MilestoneId: src.MilestoneId,
+            // La copia cae en el MISMO tablero de la original (su PRIMERA columna, sin ColumnId): asi
+            // aparece junto a ella y no "desaparece" al tablero del concepto. Si la original no tiene
+            // tablero, CreateAsync deriva el del concepto (BoardId null).
+            BoardId: src.BoardId,
             SourceTaskId: sourceTaskId);
 
         var created = await CreateAsync(request, actorUserId, actorName, cancellationToken);

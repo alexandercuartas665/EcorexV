@@ -2536,7 +2536,7 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .ab-btn-task:hover { opacity: .9; }
 
 /* ---- Vista tablero (kanban por columnas del tablero) ---- */
-.ab-kanban { padding: 0 var(--pad, 30px) var(--pad, 30px); display: grid; gap: 16px; align-items: start; color: var(--ink); }
+.ab-kanban { padding: 0 var(--pad, 30px) var(--pad, 30px); display: grid; gap: 16px; align-items: start; color: var(--ink); overflow-x: auto; }
 .ab-col-head { display: flex; align-items: center; gap: 9px; padding: 2px 4px 14px; }
 .ab-col-name { font-weight: 700; font-size: 14px; letter-spacing: -.01em; }
 .ab-col-count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 11.5px; font-weight: 700; display: grid; place-items: center; }

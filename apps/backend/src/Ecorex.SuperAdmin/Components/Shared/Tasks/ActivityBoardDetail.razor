@@ -217,7 +217,7 @@
     @* ---- VISTA TABLERO (kanban por columnas del tablero) ---- *@
     @if (_view == "tablero")
     {
-        <div class="ab-kanban" style="grid-template-columns:repeat(@_detail.Columns.Count,minmax(0,1fr))">
+        <div class="ab-kanban" style="grid-template-columns:repeat(@_detail.Columns.Count,minmax(300px,1fr))">
             @foreach (var (col, idx) in _detail.Columns.Select((c, i) => (c, i)))
             {
                 var column = col;

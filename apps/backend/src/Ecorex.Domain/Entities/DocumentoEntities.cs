@@ -118,6 +118,15 @@ public class Documento : TenantEntity
     /// <summary>Usuario del tenant que lo subio.</summary>
     public Guid SubidoPorUsuarioId { get; set; }
 
+    /// <summary>
+    /// Membrete (encabezado de empresa) CONGELADO al redactar el documento desde una plantilla de
+    /// grupo (<see cref="DocumentTemplateGroup.HeaderHtml"/> ya resuelto con los tokens de la tarea).
+    /// Se antepone al cuerpo del documento al generar el PDF (boton "PDF"). Null = documento sin
+    /// membrete (PDF del cuerpo tal cual). Se congela como el footer de la pagina de decision: el
+    /// documento conserva el encabezado tal como estaba al redactarlo, aunque el grupo cambie luego.
+    /// </summary>
+    public string? MembreteHtml { get; set; }
+
     public ICollection<DocumentoVersion> Versiones { get; set; } = new List<DocumentoVersion>();
     public ICollection<DocumentoEtiqueta> Etiquetas { get; set; } = new List<DocumentoEtiqueta>();
 }

@@ -14,6 +14,13 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
     // Zona del tenant (America/Bogota = UTC-5, sin horario de verano) mientras el Tenant no guarde la suya.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
+    // Meses en espanol para {sistema.fechalarga} (sin depender de la cultura del contenedor).
+    private static readonly string[] MesesEs =
+    {
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    };
+
     // {ns.clave}: dos segmentos alfanumericos, insensible a espacios. Ej: {tarea.contacto}, {form.total}.
     private static readonly Regex TokenRegex = new(@"\{\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\}", RegexOptions.Compiled);
 
@@ -43,6 +50,9 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
             if (!map.ContainsKey(key)) { map[key] = value; }
         }
         PutSys("fecha", now.ToString("yyyy-MM-dd"));
+        // Fecha en letras (es-CO), p.ej. "10 de septiembre de 2026": las cartas comerciales la piden escrita.
+        // Meses hardcodeados para no depender de que la cultura es-CO exista en el contenedor (InvariantGlobalization).
+        PutSys("fechalarga", $"{now.Day} de {MesesEs[now.Month - 1]} de {now.Year}");
         PutSys("hora", now.ToString("HH:mm"));
         PutSys("fechahora", now.ToString("yyyy-MM-dd HH:mm"));
 
@@ -60,6 +70,42 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
         Put("celular", task.RequesterPhone);
         Put("documento", task.RequesterDocument);
         Put("nit", task.RequesterDocument);
+
+        // Empresa: datos de la Entidad PRINCIPAL del tenant (membrete de documentos, {empresa.*}).
+        // Solo con prefijo (no bare): evita colisionar con variables de tarea/formulario.
+        var empresa = await _db.Entidades.AsNoTracking()
+            .Where(e => e.IsActive && !e.IsArchived)
+            .OrderByDescending(e => e.IsPrincipal).ThenBy(e => e.SortOrder).ThenBy(e => e.Codigo)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (empresa is not null)
+        {
+            void PutEmp(string key, string? value) => map["empresa." + key] = value ?? string.Empty;
+            var nit = empresa.TaxId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(empresa.TaxIdDv)) { nit = nit + "-" + empresa.TaxIdDv; }
+            PutEmp("razonsocial", empresa.Nombre);
+            PutEmp("nombre", empresa.Nombre);
+            PutEmp("nombrecomercial", empresa.NombreComercial);
+            PutEmp("sigla", empresa.Sigla);
+            PutEmp("nit", nit);
+            PutEmp("taxid", empresa.TaxId);
+            PutEmp("direccion", empresa.Direccion);
+            PutEmp("ciudad", empresa.Ciudad);
+            PutEmp("departamento", empresa.Departamento);
+            PutEmp("pais", empresa.Pais);
+            PutEmp("telefono", empresa.Telefono);
+            PutEmp("email", empresa.Email);
+            PutEmp("correo", empresa.Email);
+            PutEmp("web", empresa.Web);
+            PutEmp("representantelegal", empresa.RepresentanteLegal);
+            // Logo listo para <img src="{empresa.logo}">: si ya es data URI se usa tal cual; si es base64
+            // "pelado" se le antepone el prefijo PNG. Vacio si el tenant no cargo logo.
+            var logo = empresa.LogoBase64;
+            if (!string.IsNullOrWhiteSpace(logo) && !logo.TrimStart().StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                logo = "data:image/png;base64," + logo.Trim();
+            }
+            PutEmp("logo", logo);
+        }
 
         // Tercero del Directorio (000232) enlazado a la tarea: tokens {tercero.*} y alias {directorio.*}
         // (ADR-0114 Ola 3). Columnas + campos dinamicos de las fichas (jsonb) -> p.ej. {directorio.direccion}.

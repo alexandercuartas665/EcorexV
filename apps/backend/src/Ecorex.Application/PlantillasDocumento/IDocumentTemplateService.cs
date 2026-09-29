@@ -25,6 +25,11 @@ public interface IDocumentTemplateService
     Task<TaskCoreResult<DocumentTemplateGroupDto>> SetGroupActiveAsync(
         Guid groupId, bool active, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija (o limpia con null/vacio) el membrete de empresa del grupo (HTML con tokens
+    /// {empresa.*}). Solo toca el membrete: no altera nombre/descripcion del grupo.</summary>
+    Task<TaskCoreResult<DocumentTemplateGroupDto>> SetGroupHeaderHtmlAsync(
+        Guid groupId, string? headerHtml, CancellationToken cancellationToken = default);
+
     Task<TaskCoreResult<bool>> DeleteGroupAsync(
         Guid groupId, CancellationToken cancellationToken = default);
 

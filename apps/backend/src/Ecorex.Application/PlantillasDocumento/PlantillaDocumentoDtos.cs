@@ -11,7 +11,8 @@ public sealed record DocumentTemplateGroupDto(
     bool IsActive,
     int SortOrder,
     int TemplatesActivas,
-    int TemplatesTotales);
+    int TemplatesTotales,
+    string? HeaderHtml = null);
 
 /// <summary>Plantilla de documento (HTML con tokens {ns.clave}).</summary>
 public sealed record DocumentTemplateDto(

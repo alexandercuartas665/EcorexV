@@ -3,6 +3,7 @@ using System;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    partial class EcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929033308_AddPlantillaMembrete")]
+    partial class AddPlantillaMembrete
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2212,14 +2215,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<int>("EnrichMaxPorEmpresa")
                         .HasColumnType("integer")
                         .HasColumnName("enrich_max_por_empresa");
-
-                    b.Property<bool>("EnrichWebCorreo")
-                        .HasColumnType("boolean")
-                        .HasColumnName("enrich_web_correo");
-
-                    b.Property<int>("EnrichWebMax")
-                        .HasColumnType("integer")
-                        .HasColumnName("enrich_web_max");
 
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
@@ -9449,11 +9444,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("OrigenUrl")
                         .HasColumnType("text")
                         .HasColumnName("origen_url");
-
-                    b.Property<string>("Perfil")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("perfil");
 
                     b.Property<string>("SitioWeb")
                         .HasColumnType("text")

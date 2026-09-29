@@ -153,6 +153,32 @@ public sealed class ContactSearchRunner : IContactSearchRunner
             }
         }
 
+        // ETAPA 3 (enriquecimiento Maps -> sitio web/correo): la lista de Maps NO trae web ni correo. Por cada
+        // EMPRESA sin sitio web, abre su ficha de Maps (OrigenUrl) para leer el sitio web y, si lo hay, intenta
+        // el correo en el sitio; ACTUALIZA el prospecto (no crea filas). Opt-in porque suma N navegaciones.
+        // Maps/Web no tienen tope diario; se acota por EnrichWebMax. No falla la corrida Maps si algo sale mal.
+        if (def.EnrichWebCorreo && def.SourceType == ContactSearchSource.Maps && outcome.Ok)
+        {
+            var webCap = def.EnrichWebMax <= 0 ? 20 : def.EnrichWebMax;
+            var opened = 0;
+            foreach (var target in sink.CreatedForWebEnrich)
+            {
+                if (ct.IsCancellationRequested || opened >= webCap) { break; }
+                if (target.HasWeb) { continue; } // ya tiene sitio web: no gasta una navegacion.
+                opened++;
+                var webSink = new ProspectoWebEnrichSink(_db, tenantId, target.Id);
+                var webCtx = new AiStepContext(
+                    def.ClientId!, tenantId,
+                    BuildWebEnrichInstruction(agent, target.Name, target.OrigenUrl, def.City, def.Region, def.Country),
+                    Guid.Empty, BrowserToolsForSearch,
+                    MaxSteps: 12, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null,
+                    SinkOverride: webSink, SessionKey: null,
+                    // La ficha de Maps no necesita scroll largo (no es un listado): pocas rondas bastan.
+                    ExtractScrollRounds: 4);
+                await _orchestrator.RunAsync(webCtx, ct);
+            }
+        }
+
         return new(outcome.Ok, totalCreated, outcome.Ok ? null : outcome.Error);
     }
 
@@ -178,10 +204,40 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.AppendLine($"NAVEGA directamente a {url} (NO uses Google ni site:linkedin.com). Haz scroll para cargar mas resultados.");
         sb.AppendLine($"Captura como maximo {max} personas y detente al llegar a ese numero.");
         sb.AppendLine("El contenido trae PERSONAS con enlaces de perfil (/in/). Guarda UNA fila por persona con "
-            + "nombre, cargo (el headline tras el nombre) y url = la URL del perfil (/in/...). No inventes telefono "
-            + "ni correo si no aparecen.");
+            + "nombre, cargo (el headline tras el nombre), url = la URL del perfil (/in/...) y perfil = un resumen "
+            + "de 1-2 frases del headline/about de la persona (que hace, area). No inventes telefono ni correo si "
+            + "no aparecen.");
         sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos con las claves "
-            + "nombre, cargo y url (el perfil /in/).");
+            + "nombre, cargo, url (el perfil /in/) y perfil (el resumen).");
+        return sb.ToString();
+    }
+
+    /// <summary>Instruccion de la etapa 3: abrir la ficha de Maps de UNA empresa y sacar sitio web (y correo
+    /// si el sitio lo expone). Devuelve UNA sola fila con sitio_web y correo.</summary>
+    private static string BuildWebEnrichInstruction(
+        AiAgent agent, string empresa, string? origenUrl, string? city, string? region, string? country)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(agent.SystemPrompt)) { sb.AppendLine(agent.SystemPrompt).AppendLine(); }
+        sb.AppendLine($"Busca el SITIO WEB y el CORREO de la empresa \"{empresa}\".");
+        if (!string.IsNullOrWhiteSpace(origenUrl))
+        {
+            sb.AppendLine($"NAVEGA a la ficha de Google Maps de la empresa: {origenUrl}");
+        }
+        else
+        {
+            var geo = new[] { city, region, country }
+                .Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!.Trim());
+            var q = string.Join(" ", new[] { empresa }.Concat(geo));
+            var url = $"https://www.google.com/maps/search/{Uri.EscapeDataString(q)}";
+            sb.AppendLine($"NAVEGA a {url} y abre la ficha del primer resultado que coincida con la empresa.");
+        }
+        sb.AppendLine("En la ficha, busca el boton/enlace 'Sitio web' (Website) y toma su URL http/https = sitio_web. "
+            + "Si NO hay sitio web, deja sitio_web vacio.");
+        sb.AppendLine("Si hay sitio web, NAVEGA a ese sitio y busca un correo de contacto (enlaces mailto: o la pagina "
+            + "'Contacto'/'Contact'). Toma el primero valido = correo. Si no hay, deja correo vacio. NO inventes datos.");
+        sb.Append("Cuando termines, llama a 'guardar_filas' con UN solo objeto con las claves sitio_web y correo "
+            + "(vacios si no los hallaste).");
         return sb.ToString();
     }
 
@@ -227,13 +283,14 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 + "Guarda UNA sola fila por negocio con nombre = el NOMBRE DEL NEGOCIO (es la empresa; puedes repetirlo "
                 + "en 'empresa'). NO inventes una persona: NO crees un segundo registro ni un 'Contacto de <negocio>', y "
                 + "NO rellenes cargo/nombre de persona (Maps no trae personas). Las PERSONAS salen unicamente del "
-                + "enriquecimiento en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas) e "
-                + "imagen si aparecen.",
+                + "enriquecimiento en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas), "
+                + "imagen y perfil (una descripcion corta de que hace el negocio / su rubro) si aparecen.",
             ContactSearchSource.LinkedIn =>
                 $"Estas logueado en LinkedIn. NAVEGA directamente a {lkUrl} (NO uses Google ni site:linkedin.com). "
                 + "Haz scroll para cargar mas resultados. El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y enlaces "
-                + "de perfil (/in/): guarda UNA fila por persona con nombre, cargo (el headline tras el nombre) y "
-                + "url = la URL del perfil (/in/...). No inventes telefono ni correo si no aparecen.",
+                + "de perfil (/in/): guarda UNA fila por persona con nombre, cargo (el headline tras el nombre), "
+                + "url = la URL del perfil (/in/...) y perfil = un resumen de 1-2 frases del headline/about. No inventes "
+                + "telefono ni correo si no aparecen.",
             ContactSearchSource.Facebook or ContactSearchSource.Instagram =>
                 "Es la pagina/perfil de UN negocio (no una lista). Guarda UNA sola fila con: nombre del negocio, empresa, "
                 + "sitio web y seguidores en 'metrica', y url = la URL del perfil/pagina. Ignora el texto de los posts "
@@ -245,8 +302,9 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica, ");
         sb.Append("direccion (direccion completa del negocio, de la ficha del lugar), ");
         sb.Append("sitio_web (URL del sitio web PROPIO del negocio, si aparece el enlace 'Sitio web'), ");
-        sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece) y ");
-        sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas). ");
+        sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece), ");
+        sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas) y ");
+        sb.Append("perfil (resumen de 1-2 frases: si es una PERSONA, del headline/about; si es un NEGOCIO, que hace/rubro). ");
         sb.Append("Guarda solo contactos reales con al menos un nombre.");
         return sb.ToString();
     }
@@ -293,6 +351,14 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
         _created.Where(e => !string.IsNullOrWhiteSpace(e.NombreCompleto))
             .GroupBy(e => e.NombreCompleto, StringComparer.OrdinalIgnoreCase)
             .Select(g => (g.First().Id, g.Key))
+            .ToList();
+
+    /// <summary>Empresas creadas para el enriquecimiento Maps -> sitio web/correo: (Id, Nombre, ficha de
+    /// Maps, si ya trae sitio web). El runner abre la ficha (OrigenUrl) de las que NO tienen web y actualiza
+    /// el prospecto con sitio web/correo. Leer DESPUES del run (Ids ya poblados por SaveChanges).</summary>
+    public IReadOnlyList<(Guid Id, string Name, string? OrigenUrl, bool HasWeb)> CreatedForWebEnrich =>
+        _created.Where(e => !string.IsNullOrWhiteSpace(e.NombreCompleto))
+            .Select(e => (e.Id, e.NombreCompleto, e.OrigenUrl, !string.IsNullOrWhiteSpace(e.SitioWeb)))
             .ToList();
 
     public ProspectoSearchRowSink(IApplicationDbContext db, Guid tenantId, string fuente,
@@ -347,6 +413,8 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 Fuente = _fuente,
                 NombreCompleto = nombre.Trim(),
                 Cargo = Pick(row, "cargo", "title", "puesto", "rol"),
+                // Resumen del perfil (1-2 frases): persona LinkedIn -> headline/about; empresa Maps -> que hace.
+                Perfil = Pick(row, "perfil", "resumen", "about", "descripcion", "headline", "bio"),
                 Empresa = empresa,
                 Ciudad = Pick(row, "ciudad", "city", "localidad", "municipio"),
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
@@ -359,7 +427,8 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 ImagenUrl = SafeHttpUrl(Pick(row, "imagen_url", "imagen", "foto", "image", "photo", "avatar", "logo")),
                 // Sitio web PROPIO del negocio (distinto de OrigenUrl = ficha en Maps).
                 SitioWeb = sitioWeb,
-                OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
+                // "perfil" YA NO va aqui: ahora es el resumen del perfil (columna Perfil), no la URL.
+                OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url")),
                 // Frase efectiva con que se encontro (o "LinkedIn: <empresa>" en el enriquecimiento).
                 FraseBusqueda = _frase,
                 // Amarre FUERTE (self-FK) a la empresa-prospecto en el enriquecimiento LinkedIn.
@@ -382,7 +451,7 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
     /// web), sin depender de que el modelo la ponga (rubro acordado con el usuario):
     ///   Hot = rating &gt;= 4.5 y resenas &gt;= 20; Calificado = tiene sitio web o rating &gt;= 4.0; Nuevo = el resto.
     /// </summary>
-    private static string ComputeBadge(string? metrica, string? sitioWeb)
+    internal static string ComputeBadge(string? metrica, string? sitioWeb)
     {
         var (rating, reviews) = ParseMetrica(metrica);
         if (rating >= 4.5 && reviews >= 20) { return "Hot"; }
@@ -411,7 +480,7 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
         return (rating, reviews);
     }
 
-    private static string? Pick(IReadOnlyDictionary<string, string?> row, params string[] keys)
+    internal static string? Pick(IReadOnlyDictionary<string, string?> row, params string[] keys)
     {
         foreach (var k in keys)
         {
@@ -429,12 +498,79 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
     /// <summary>Devuelve la URL SOLO si es http/https absoluta; si no, null. Control de seguridad: los
     /// datos scrapeados NO deben aterrizar URLs javascript:/data:/relativas que luego se rendericen como
     /// imagen o enlace en la Bolsa.</summary>
-    private static string? SafeHttpUrl(string? value)
+    internal static string? SafeHttpUrl(string? value)
     {
         var v = value?.Trim();
         if (string.IsNullOrEmpty(v)) { return null; }
         return Uri.TryCreate(v, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
             ? v : null;
+    }
+}
+
+/// <summary>
+/// Sumidero de UNA fila para el enriquecimiento Maps -> sitio web/correo (etapa 3): en vez de crear un
+/// prospecto, ACTUALIZA el prospecto-empresa indicado (<see cref="_prospectoId"/>) con el sitio web y/o
+/// correo que el agente saco de la ficha de Maps (y del sitio, si lo hay). Solo escribe lo que falta (no
+/// pisa un dato ya presente) y recalcula el Badge. Tenant-safe: carga el prospecto por id bajo el filtro
+/// global (solo alcanza el del tenant activo).
+/// </summary>
+public sealed class ProspectoWebEnrichSink : IScrapeRowSink
+{
+    private readonly IApplicationDbContext _db;
+    private readonly Guid _tenantId;
+    private readonly Guid _prospectoId;
+    private bool _done; // una sola actualizacion por corrida de ficha (la primera fila con datos).
+
+    public ProspectoWebEnrichSink(IApplicationDbContext db, Guid tenantId, Guid prospectoId)
+    {
+        _db = db;
+        _tenantId = tenantId;
+        _prospectoId = prospectoId;
+    }
+
+    public async Task<(int Inserted, int Updated, int Deleted)> IngestAsync(
+        Guid containerId, Guid tenantId, string? mappingJson,
+        IReadOnlyList<IReadOnlyDictionary<string, string?>> rows, CancellationToken ct = default)
+    {
+        if (_done) { return (0, 0, 0); }
+        foreach (var row in rows)
+        {
+            var sitioWeb = ProspectoSearchRowSink.SafeHttpUrl(
+                ProspectoSearchRowSink.Pick(row, "sitio_web", "website", "web", "sitio", "pagina", "url_web", "url"));
+            var correo = CleanEmail(
+                ProspectoSearchRowSink.Pick(row, "correo", "email", "mail", "e-mail"));
+            if (sitioWeb is null && correo is null) { continue; } // fila vacia: sigue buscando en las siguientes.
+
+            var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == _prospectoId, ct);
+            if (p is null) { _done = true; return (0, 0, 0); }
+
+            var changed = false;
+            // No pisa un dato ya presente: solo rellena lo que falta.
+            if (sitioWeb is not null && string.IsNullOrWhiteSpace(p.SitioWeb)) { p.SitioWeb = sitioWeb; changed = true; }
+            if (correo is not null && string.IsNullOrWhiteSpace(p.Correo)) { p.Correo = correo; changed = true; }
+            if (changed)
+            {
+                // El sitio web influye en la etiqueta de lead: recalcula el Badge con la metrica existente.
+                p.Badge = ProspectoSearchRowSink.ComputeBadge(p.Metrica, p.SitioWeb);
+                await _db.SaveChangesAsync(ct);
+            }
+            _done = true;
+            return (0, changed ? 1 : 0, 0);
+        }
+        return (0, 0, 0);
+    }
+
+    /// <summary>Devuelve un correo si el texto parece un email (una @ y un punto en el dominio); si no, null.
+    /// Tolera un valor con prefijo "mailto:".</summary>
+    private static string? CleanEmail(string? value)
+    {
+        var v = value?.Trim();
+        if (string.IsNullOrEmpty(v)) { return null; }
+        if (v.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) { v = v[7..].Trim(); }
+        var at = v.IndexOf('@');
+        if (at <= 0 || at == v.Length - 1) { return null; }
+        var dom = v[(at + 1)..];
+        return dom.Contains('.') && !v.Contains(' ') ? v : null;
     }
 }

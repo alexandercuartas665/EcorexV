@@ -12,6 +12,9 @@ public sealed record TaskDocumentoDto(
     string? UrlActual,
     DateTimeOffset ActualizadoAt);
 
+/// <summary>HTML imprimible (membrete + cuerpo) de un documento de tarea y su nombre de archivo (sin .pdf).</summary>
+public sealed record TaskDocumentoPrintDto(string Html, string FileName);
+
 /// <summary>Una version del documento de la tarea, para el historial (activar version).</summary>
 public sealed record TaskDocumentoVersionDto(
     Guid Id,

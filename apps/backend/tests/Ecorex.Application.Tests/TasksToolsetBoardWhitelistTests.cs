@@ -83,6 +83,7 @@ public class TasksToolsetBoardWhitelistTests
         // El toolset solo llama CreateAsync; el resto de la interfaz no se usa en estas pruebas.
         public Task<TaskCoreResult<TaskItemDetailDto>> CreateSubtaskAsync(Guid parentId, string title, Guid? assigneeTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();

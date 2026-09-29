@@ -2,6 +2,158 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Copiar actividad: arrastrar los DATOS de los formularios diligenciados - rama feat/copiar-formularios
+
+- El usuario noto que la copia no traia los datos de los formularios adjuntos (los forms se enlazan a la tarea
+  por Reference == numero / numero-N, y la copia tiene numero nuevo). Antes se decidio "no copiar el avance"
+  e incluia los formularios; se corrige: la copia SI arrastra los datos.
+- CopyAsync (TaskItemService): tras crear la copia, consulta los FormResponse activos del origen (Reference ==
+  srcNumber o srcNumber-N) y los crea de nuevo re-apuntando el Reference al numero de la copia, conservando el
+  sufijo "-N" de los subformularios, con su Data, como BORRADOR (Status=Draft) y sin consecutivo de registro ni
+  estado de envio (no duplica consecutivos ni dispara reglas on-submit). Todo en el mismo SaveChanges. Sin
+  migracion (no hay indice unico en (TenantId, DefinitionId, Reference)).
+- Build SuperAdmin verde. Siguiente: validar en vivo (copiar una tarea con formularios y ver que la copia trae
+  los datos) y desplegar.
+## 2026-09-29 - Cargador de contactos: trigger en background + campo "perfil" - rama feat/contactos-trigger-perfil
+
+- Hand-off de la sesion de pruebas del Cargador de contactos (000740). Dos ajustes.
+- Ajuste 1 (robustez del trigger): el boton "Ejecutar" de ContactSearchConfig ya NO corre en el circuito
+  Blazor (antes await Runner.RunAsync(id), moria a mitad en corridas multi-empresa). Ahora dispara en
+  BACKGROUND con su propio scope (IServiceScopeFactory.CreateAsyncScope) + AmbientTenantContext.Begin(tenant)
+  + CancellationToken.None, igual que el endpoint /api/mgmt/contact-searches/{id}/run y el ScheduleWorker.
+  El boton responde de una ("Busqueda ... iniciada en segundo plano"); el avance se ve por LastRunAt/
+  ContactSearchRuns/pestana Prospectos.
+- Ajuste 2 (campo "perfil" = resumen): ProspectoScrapeado.Perfil (string?, migracion DUAL AddProspectoPerfil,
+  varchar(1000)/nvarchar(1000)). ProspectoSearchRowSink captura Pick(row,"perfil","resumen","about",
+  "descripcion","headline","bio"); se quito "perfil" de las claves de OrigenUrl (ya no es la URL). Las guias
+  (Maps + LinkedIn + enrich LinkedIn) piden la clave "perfil" = resumen 1-2 frases. ProspectoDto.Perfil +
+  proyeccion. BuildBaseFichaJson -> base["perfil"]; TerceroModal.OpenFromProspectoAsync nuevo param perfil;
+  GestorContactos pasa p.Perfil; campo "perfil" (label "Perfil") en la ficha Base 000232 (TerceroFieldService
+  Defaults; EnsureDefaultsAsync lo backfillea a tenants existentes, como maps_url/frase_busqueda).
+- Confirmaciones para la sesion de pruebas: (a) el trigger YA NO corre en el circuito (Task.Run + scope propio);
+  (b) la migracion quedo DUAL (PG + SQL Server), solo la columna perfil, sin drift. Build verde.
+- Siguiente: deploy (lo corre el usuario).
+
+
+## 2026-09-29 - Plantillas: token {sistema.fechalarga} + TinyMCE conserva <style> del membrete - rama feat/plantilla-fechalarga-style
+
+- Hand-off de la sesion de plantillas (config). Dos cambios de codigo, sin migracion.
+- 1) {sistema.fechalarga} en NotifyTokenResolver: fecha en letras es-CO "10 de septiembre de 2026" (zona del
+  tenant, meses hardcodeados para no depender de la cultura del contenedor). Anadido a la paleta de tokens
+  de /plantillas-documentos (DocumentTemplateService.GetTokenCatalog).
+- 2) ecorex-doc-editor.js init: TinyMCE 7.6.1 eliminaba el bloque <style> al guardar; el membrete depende de
+  el (@page{margin}, encabezado/pie con position:fixed, box-decoration-break:clone del PDF). Fix:
+  valid_children:'+body[style]' + extended_valid_elements:'style[type|media]' (conserva el <style> al
+  getContent). Ademas, SOLO en la vista del editor de carta se neutraliza position:fixed (content_style) para
+  que el encabezado/pie no queden encima del texto al redactar; no altera el HTML guardado ni el PDF.
+- Build SuperAdmin verde. Cache-bust del JS por ?v=AppVersion -> al desplegar se bumpea la version y recarga.
+- Siguiente: merge + deploy (lo espera la sesion de plantillas para cerrar en prod). Validacion viva del
+  <style> y del PDF (encabezado/pie repetidos) la hace la sesion de plantillas.
+## 2026-09-29 - Persistir el valor de la factura cuando llega como PDF (extractor) - rama feat/pdf-persistir-valor
+
+- Hand-off de la sesion de agentes. El PDF ya se LEE y rutea (el modelo principal lo recibe por
+  AiInlineDocument), pero el VALOR no se persiste al cache: ExtractAndStoreCacheUpdatesAsync lee solo TEXTO.
+  Mismo hueco que las imagenes antes de Fix B. Sin migracion.
+- AiInferenceService.RunCoreAsync: bloque nuevo para PDF (tras imagen/audio, best-effort, guard docMime=pdf):
+  ReadDocumentAsync lee la factura y anexa "[Lectura automatica del documento adjunto]
+<campos>" a work[^1]
+  -> el extractor captura factura_costoservicioenergia (mismos campos que ReadImageAsync). Excel/CSV no se
+  reprocesan (se extraen a texto aguas arriba).
+- Soporte de PDF en la llamada de vision: AiVisionPart + DocBase64/DocMime; GeminiVision emite inlineData
+  (application/pdf) y ClaudeVision un bloque type=document. Otros proveedores devuelven vacio.
+- Build SuperAdmin verde. Aplica tanto a PDFs reales (Evolution, ya en tronco 52569fe6) como al emulador.
+- Siguiente: validar por emulador (ai_agent_cache_values con factura_costoservicioenergia=650000) y desplegar.
+
+
+## 2026-09-29 - Evolution: ingerir DOCUMENTOS (PDF) entrantes (MERGEADO a trunk)
+
+- Hand-off de la sesion de diseno de agentes. El parser de Evolution ya manejaba imagen/audio pero NO
+  documentMessage: los PDF (facturas EmCali, etc.) caian en "(mensaje no soportado)". Mismo patron que audio.
+- EvolutionWebhookParser: nuevo TryGetDocumentMessage (documentMessage y la envoltura
+  documentWithCaptionMessage con caption), ExtractDocFileName (fileName|title), body fallback "(documento)"
+  o el nombre del archivo, ExtractText devuelve el caption del documento si existe, MessageType="document"
+  y MediaFileName=nombre original en el IngestMessageRequest.
+- Webhook /webhooks/evolution: la descarga ahora tambien corre para MessageType=="document"; baja la media
+  con FetchInboundMediaAsync, elige extension por el nombre original (o mime; pdf por defecto) y fija
+  MediaType=Document + MediaMimeType + MediaUrl (MediaFileName se conserva del parser). Best-effort: si falla
+  la descarga se ingiere como texto "(documento)" sin romper. Multi-tenant intacto (AmbientTenantContext).
+- Con esto el PDF entra como Document con su nombre -> AgentConversationService lo LEE nativo (Gemini) ->
+  AttachConversationMediaAsync lo adjunta a la tarea al cerrar. Sin migracion.
+- Tests nuevos (Ecorex.SuperAdmin.Tests/EvolutionWebhookParserDocumentTests): 4/4 verdes (documento directo,
+  envuelto con caption, sin fileName -> "(documento)", regresion de texto). Build Ecorex.sln verde.
+- Mergeado a trunk (fase-0/clon-backbone) desde la sesion de agentes. Pendiente: deploy (con OK del usuario)
+  y E2E real con un PDF por la linea de EPRING.
+
+## 2026-09-29 - v0.16.163 DESPLEGADO a prod (copiar actividad + membrete/PDF + contactos)
+
+- Feature "Copiar actividad" (ITaskItemService.CopyAsync): copia un TaskItem como tarea NUEVA que nace en
+  el INICIO del flujo (reusa CreateAsync -> StartInstanceAsync), hereda molde (titulo "Copia de ...",
+  concepto, contacto, tercero, prioridad, proyecto, Empresa/Area, descripcion, color, etiquetas, checklist
+  sin marcar), NO arrastra avance/asignado/fechas. SourceTaskId liga origen<->copia; el detalle muestra
+  "Copias generadas" y chip "Copia de {origen}". Ajustes tras pruebas del usuario: (1) UN solo clic (sin
+  confirmacion en 2 pasos); (2) la copia cae en el MISMO tablero de la original (su primera columna), no en
+  el del concepto (antes "desaparecia" a otro tablero). Sin migracion (SourceTaskId ya existia).
+- Deploy v0.16.163 (deploy-prod.ps1 -Version 0.16.163 -Branch fase-0/clon-backbone, build-from-git). OK
+  explicito del usuario. Aterrizo verde: app2 sirve v0.16.163. Arrastro a prod TAMBIEN lo acumulado sin
+  desplegar de v0.16.162: membrete de empresa por grupo + PDF por documento (ADR-0118, migracion
+  AddPlantillaMembrete) y contactos (telefono en preview Empresa + enrich web/correo, AddContactSearchEnrichWeb).
+  Ambas migraciones aplicadas al arrancar.
+- Con el membrete ya en prod, queda habilitado crear plantillas de documento CON header (sesion de plantillas).
+- Pendiente aparte (rama, sin merge): feat/evolution-document (ingerir PDF por Evolution).
+
+
+
+## 2026-09-28 - Plantillas de documento: membrete de empresa por grupo + PDF por documento - rama feat/plantillas-pdf-membrete
+
+- Pedido: "las plantillas impriman un PDF y deben tener headers de la empresa". Decisiones del usuario:
+  (1) el membrete sale POR GRUPO de plantillas (cada grupo su encabezado); (2) membrete automatico +
+  boton PDF por documento en la pestana Documentos de la tarea. ADR-0118.
+- Tokens {empresa.*} nuevos en NotifyTokenResolver (razon social, nombre comercial, sigla, NIT+DV,
+  direccion, ciudad, departamento, pais, telefono, email, web, representante legal, {empresa.logo} como
+  data URI) desde la Entidad principal (IsPrincipal, activa). Anadidos tambien a la paleta de tokens del editor.
+- DocumentTemplateGroup.HeaderHtml: membrete HTML por grupo. Editor dedicado (modal "Membrete" en
+  /plantillas-documentos, TinyMCE tipo carta + paleta de tokens). Servicio SetGroupHeaderHtmlAsync (solo
+  toca el membrete). Badge verde "Membrete" en la tarjeta del grupo cuando esta configurado.
+- Documento.MembreteHtml: al redactar (GuardarNuevo con grupoId) se resuelve el membrete del grupo con los
+  tokens de la tarea y se CONGELA en el documento (como el footer de la pagina de decision).
+- PDF: endpoint GET /plantillas-doc/documento/{id}/pdf (AllowAnonymous, acotado por id+TenantId como
+  /cotizacion y /formularios/plantilla). Arma membrete + cuerpo en A4 y usa IQuotePdfRenderer.RenderHtmlToPdfAsync
+  (HTML crudo, logo como data URI). Boton "PDF" por documento en TaskTemplateDocs.
+- Migracion DUAL AddPlantillaMembrete (PG text / SQL Server nvarchar(max)): document_template_groups.header_html
+  y documentos.membrete_html. Sin drift (solo 2 columnas). Build Ecorex.sln verde (0 errores).
+- Siguiente: validar en vivo (Chrome, AGRO) el flujo membrete->redactar->PDF; luego merge a tronco (sin deploy).
+## 2026-09-28 - Cargador de contactos: telefono en el preview + enriquecer web/correo (Maps) - rama feat/contactos-telefono-enrich
+
+- Hand-off de la sesion de pruebas del Cargador de contactos (000740). Dos ajustes, en rama, sin deploy.
+- Ajuste 1 (sin migracion): el preview "Ver contacto" (variante EMPRESA del directorio modular) no mostraba
+  Correo/Telefono aunque OpenFromProspectoAsync ya poblaba _mEmail/_mTelefono. Se agregaron los inputs Correo y
+  Telefono a la rama Empresa de TerceroModal.razor; y en TerceroModal.razor.cs el SaveTerceroRequest ahora
+  persiste Email/Telefono para AMBOS tipos (antes se perdian en Empresa). TerceroService ya los guarda sin
+  gating (ApplyRequest). Verificar: el preview de un negocio muestra su telefono e Incorporar lo conserva.
+- Ajuste 2 (con migracion dual): flag EnrichWebCorreo (+ tope EnrichWebMax=20) en ContactSearchDefinition. La
+  lista de Maps no trae web ni correo; nueva ETAPA 3 en ContactSearchRunner.RunAsync (solo Maps, opt-in): por
+  cada empresa SIN sitio web abre su ficha de Maps (OrigenUrl, o busca por nombre+geo) y saca sitio_web; si hay
+  sitio, navega e intenta el correo (mailto/contacto). ACTUALIZA el prospecto (no crea filas) via un sink nuevo
+  ProspectoWebEnrichSink (rellena solo lo que falta, recalcula Badge, tenant-safe por id). Sin tope diario (Maps
+  no penaliza); acotado por EnrichWebMax. Checkbox "Enriquecer web/correo" en el configurador (junto al de
+  LinkedIn, solo fuente Maps). DTO/serv/UI cableados. Migracion dual AddContactSearchEnrichWeb (bool + int).
+- Build Ecorex.sln verde (0 errores). Siguiente: validar E2E (correr una busqueda Maps con EnrichWebCorreo on;
+  revisar telefono visible en el preview + sitio_web/correo poblados). Sin merge, sin deploy.
+
+## 2026-09-28 - Editor de plantillas: papel BLANCO siempre + modal tipo carta en el uso - rama feat/plantillas-editor-carta
+
+- Pedido: el editor TinyMCE (interop ecorex-doc-editor.js) se veia oscuro en modo oscuro; que sea BLANCO tanto
+  en el modulo de CREACION (PlantillasDocumentos) como en el de USO (TaskTemplateDocs, redactar el documento de
+  la tarea); y en el de uso, un modal MAS GRANDE que represente bien un diseno tipo CARTA.
+- ecorex-doc-editor.js: init(id, html, opts) ahora fuerza el editor SIEMPRE en claro (skin='oxide',
+  content_css='default', body background #fff) ignorando el modo oscuro de la app. Nueva opcion opts.letter:
+  pinta el <body> como una HOJA tipo carta (papel blanco max-width 720px centrado, margenes de documento,
+  sombra) sobre un "escritorio" gris, y sube la altura (640 vs 460).
+- TaskTemplateDocs (uso): pasa new { letter = true } al init; .ttd-editor-dialog agrandado (max-width 900->1080px,
+  width 96vw) + modal-body con max-height 82vh y scroll. PlantillasDocumentos (creacion) queda en blanco simple.
+- Validado en vivo (Chrome, ecorex_dev, AGRO): el editor de creacion se ve blanco (antes seguia el tema).
+  Build SuperAdmin verde. SIN merge, SIN deploy. (Cache-bust del JS por ?v=AppVersion; recordar bump al desplegar.)
+
 ## 2026-09-28 - v0.16.161: DEPLOY a prod (tableros restringidos + fixes de contactos + notas de voz Evolution)
 
 - Bump 0.16.160 -> 0.16.161. Este release ARRASTRA lo acumulado en tronco desde v0.16.160: tableros de

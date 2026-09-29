@@ -45,6 +45,7 @@
                         {
                             <button class="btn btn-xs btn-outline-secondary" @onclick="() => VerAsync(dd.UrlActual!)">Ver</button>
                         }
+                        <button class="btn btn-xs btn-outline-secondary" @onclick="() => PdfAsync(dd)">PDF</button>
                         <button class="btn btn-xs btn-outline-secondary" @onclick="() => OpenEditAsync(dd)" disabled="@_busy">Editar</button>
                         <button class="btn btn-xs btn-outline-secondary" @onclick="() => OpenVersionesAsync(dd)" disabled="@_busy">Versiones (@dd.NumeroVersiones)</button>
                         <button class="btn btn-xs btn-outline-secondary" @onclick="() => EliminarAsync(dd)" disabled="@_busy">Eliminar</button>
@@ -177,6 +178,7 @@
     private bool _editorOpen;
     private bool _editorNeedsInit;
     private Guid? _editingDocId;
+    private Guid? _pickedGroupId;
     private string _editorTitulo = "";
     private string _editorHtml = "";
     private string _editorNotas = "";
@@ -204,13 +206,18 @@
             _editorNeedsInit = false;
             _editor ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
-            await _editor.InvokeAsync<bool>("init", EditorId, _editorHtml);
+            // letter: el area de edicion se ve como una HOJA tipo carta (papel blanco centrado).
+            await _editor.InvokeAsync<bool>("init", EditorId, _editorHtml, new { letter = true });
         }
     }
 
     private async Task ReloadDocsAsync() => _docs = (await Composer.ListDocumentosAsync(TaskId)).ToList();
 
     private async Task VerAsync(string url) => await JS.InvokeVoidAsync("open", url, "_blank");
+
+    // Abre el PDF (membrete de empresa + cuerpo) en una pestana nueva; el navegador lo descarga/muestra.
+    private async Task PdfAsync(TaskDocumentoDto d)
+        => await JS.InvokeVoidAsync("open", $"/plantillas-doc/documento/{d.Id}/pdf", "_blank");
 
     // ---- Redactar (nuevo) ----
     private void OpenPicker()
@@ -228,6 +235,7 @@
             var res = await Composer.RenderPlantillaAsync(TaskId, t.Id);
             if (!res.IsOk) { _error = res.Error; _pickerOpen = false; return; }
             _editingDocId = null;
+            _pickedGroupId = t.GroupId;
             _editorTitulo = t.Name;
             _editorNotas = "";
             _editorHtml = res.Value ?? "";
@@ -279,7 +287,7 @@
             }
             else
             {
-                var res = await Composer.GuardarNuevoAsync(TaskId, _editorTitulo.Trim(), html);
+                var res = await Composer.GuardarNuevoAsync(TaskId, _editorTitulo.Trim(), html, _pickedGroupId);
                 if (!res.IsOk) { _modalError = res.Error; return; }
             }
             await DestroyEditorAsync();

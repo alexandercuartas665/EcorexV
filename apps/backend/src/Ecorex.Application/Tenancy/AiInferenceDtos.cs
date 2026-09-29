@@ -62,8 +62,9 @@ public sealed record AiInlineDocument(string Base64, string Mime, string? FileNa
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,
     IReadOnlyList<AiToolCall> ToolCalls);
 
-/// <summary>Parte de un prompt MULTIMODAL: texto O imagen (base64 + mime). Para clasificacion por vision.</summary>
-public sealed record AiVisionPart(string? Text = null, string? ImageBase64 = null, string? ImageMime = null, string? AudioBase64 = null, string? AudioMime = null);
+/// <summary>Parte de un prompt MULTIMODAL: texto O imagen O audio O documento (PDF), cada uno base64 + mime.
+/// Para clasificacion/lectura por vision (Gemini y Claude aceptan PDF nativo).</summary>
+public sealed record AiVisionPart(string? Text = null, string? ImageBase64 = null, string? ImageMime = null, string? AudioBase64 = null, string? AudioMime = null, string? DocBase64 = null, string? DocMime = null);
 
 /// <summary>
 /// Cliente HTTP que habla con cada proveedor de IA (Gemini, OpenAI/ChatGPT, DeepSeek, Claude).

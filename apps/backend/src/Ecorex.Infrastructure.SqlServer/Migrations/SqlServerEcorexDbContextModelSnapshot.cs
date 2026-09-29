@@ -2213,6 +2213,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("enrich_max_por_empresa");
 
+                    b.Property<bool>("EnrichWebCorreo")
+                        .HasColumnType("bit")
+                        .HasColumnName("enrich_web_correo");
+
+                    b.Property<int>("EnrichWebMax")
+                        .HasColumnType("int")
+                        .HasColumnName("enrich_web_max");
+
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -3749,6 +3757,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("description");
 
+                    b.Property<string>("HeaderHtml")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("header_html");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
@@ -3829,6 +3841,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("estado");
+
+                    b.Property<string>("MembreteHtml")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("membrete_html");
 
                     b.Property<string>("NombreArchivoOriginal")
                         .IsRequired()
@@ -9436,6 +9452,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("OrigenUrl")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("origen_url");
+
+                    b.Property<string>("Perfil")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("perfil");
 
                     b.Property<string>("SitioWeb")
                         .HasColumnType("nvarchar(max)")

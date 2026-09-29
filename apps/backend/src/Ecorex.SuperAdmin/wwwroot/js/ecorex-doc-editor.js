@@ -28,17 +28,32 @@ function ensureTinyLoaded() {
 }
 
 // Inicializa el editor sobre el textarea #id con el HTML inicial dado.
-export async function init(id, initialHtml) {
+// opts (opcional): { letter: true } muestra el area de edicion como una HOJA tipo carta
+// (papel blanco centrado sobre un fondo gris) y mas alta; sin opts es el editor normal.
+// El documento SIEMPRE se ve BLANCO (papel), sin importar el tema oscuro de la app.
+export async function init(id, initialHtml, opts) {
     await ensureTinyLoaded();
     // Si ya habia un editor sobre ese id, se elimina antes de recrear.
     destroy(id);
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark'
-        || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-            && document.documentElement.getAttribute('data-theme') !== 'light');
+    opts = opts || {};
+    const letter = opts.letter === true;
+    // Cuerpo del documento: papel blanco con texto oscuro (fijo, ignora el modo oscuro).
+    const baseBody = 'font-family:Arial,Helvetica,sans-serif;font-size:12pt;color:#111;background:#ffffff';
+    // En modo carta el <body> se pinta como una hoja centrada con margenes de documento, sobre
+    // un "escritorio" gris; sin carta es el cuerpo blanco simple.
+    const contentStyle = letter
+        ? 'html{background:#e9e9ee}'
+        + 'body{' + baseBody + ';max-width:720px;margin:26px auto;padding:90px 80px;'
+        + 'min-height:960px;box-shadow:0 1px 12px rgba(0,0,0,.18);border-radius:2px}'
+        // Solo en la VISTA del editor: el encabezado/pie del membrete usan position:fixed (para repetirse
+        // en cada pagina del PDF), pero dentro del editor quedarian encima del texto y estorban al redactar.
+        // Se neutraliza SOLO aqui (no altera el HTML que devuelve getContent ni el PDF).
+        + '[style*="position:fixed"],[style*="position: fixed"]{position:static!important}'
+        : 'body{' + baseBody + ';padding:10px}';
     await window.tinymce.init({
         selector: '#' + id,
         license_key: 'gpl',
-        height: 460,
+        height: letter ? 640 : 460,
         menubar: false,
         branding: false,
         promotion: false,
@@ -47,9 +62,15 @@ export async function init(id, initialHtml) {
         toolbar: 'undo redo | blocks | bold italic underline forecolor | '
             + 'alignleft aligncenter alignright | bullist numlist | '
             + 'table link pagebreak | removeformat code',
-        skin: dark ? 'oxide-dark' : 'oxide',
-        content_css: dark ? 'dark' : 'default',
-        content_style: 'body{font-family:Arial,Helvetica,sans-serif;font-size:12pt;color:#111}',
+        // Editor SIEMPRE en claro (papel blanco), aunque la app este en modo oscuro.
+        skin: 'oxide',
+        content_css: 'default',
+        content_style: contentStyle,
+        // Conservar el bloque <style> del membrete: TinyMCE 7 lo elimina por defecto, y el PDF depende de el
+        // (@page{margin}, encabezado/pie con position:fixed, main.doc-body{box-decoration-break:clone}). Con
+        // esto, guardar el membrete desde la UI devuelve el mismo HTML con su <style>.
+        valid_children: '+body[style]',
+        extended_valid_elements: 'style[type|media]',
     });
     const ed = window.tinymce.get(id);
     if (ed && typeof initialHtml === 'string') { ed.setContent(initialHtml); }

@@ -317,7 +317,8 @@ public partial class TerceroModal
         Guid prospectoId, string nombre, bool esEmpresa, string? fuente = null,
         string? cargo = null, string? empresa = null, string? ciudad = null,
         string? email = null, string? telefono = null, string? imagenUrl = null,
-        string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null)
+        string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null,
+        string? perfil = null)
     {
         await OpenCreate();
         _prospectoId = prospectoId;
@@ -340,6 +341,7 @@ public partial class TerceroModal
         if (!string.IsNullOrWhiteSpace(sitioWeb)) { baseFicha["sitio_web"] = sitioWeb.Trim(); }
         if (!string.IsNullOrWhiteSpace(origenUrl)) { baseFicha["maps_url"] = origenUrl.Trim(); }
         if (!string.IsNullOrWhiteSpace(fraseBusqueda)) { baseFicha["frase_busqueda"] = fraseBusqueda.Trim(); }
+        if (!string.IsNullOrWhiteSpace(perfil)) { baseFicha["perfil"] = perfil.Trim(); }
         if (baseFicha.Count > 0)
         {
             _fichaValues["base"] = baseFicha;
@@ -759,8 +761,10 @@ public partial class TerceroModal
             IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),
             Sector: _mTipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
             Cargo: _mTipo == TerceroTipo.Persona ? Blank(_mCargo) : null,
-            Email: _mTipo == TerceroTipo.Persona ? Blank(_mEmail) : null,
-            Telefono: _mTipo == TerceroTipo.Persona ? Blank(_mTelefono) : null,
+            // Correo/Telefono aplican a ambos tipos (una Empresa tiene su telefono/correo de negocio; antes se
+            // perdian en Empresa y el preview del prospecto no los mostraba).
+            Email: Blank(_mEmail),
+            Telefono: Blank(_mTelefono),
             // Persona: conserva/asigna su empresa (el servicio lo ignora para tipo Empresa). Antes iba
             // null y editar una persona la desvinculaba de su empresa.
             EmpresaId: _empresaId,

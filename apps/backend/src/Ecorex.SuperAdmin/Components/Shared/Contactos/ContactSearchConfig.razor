@@ -7,12 +7,16 @@
    ============================================================ *@
 @using Ecorex.Application.Contactos
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Common
 @using Ecorex.Application.Agents
 @using Ecorex.Domain.Enums
+@using Microsoft.Extensions.DependencyInjection
 @inject IContactSearchService SearchSvc
 @inject IAiAgentService AiAgentSvc
 @inject IAgentClientService ClientSvc
 @inject Ecorex.SuperAdmin.Agents.IContactSearchRunner Runner
+@inject ITenantContext Tenant
+@inject IServiceScopeFactory ScopeFactory
 
 @if (_open)
 {
@@ -129,6 +133,20 @@
                                                         </label>
                                                     }
                                                 </div>
+                                                @* Enriquecimiento Maps -> sitio web/correo: la lista de Maps no trae web ni correo; por
+                                                   cada empresa abre su ficha para leer el sitio web y, si lo hay, intenta el correo. *@
+                                                <div class="cs-enrich">
+                                                    <label class="cs-enrich-chk">
+                                                        <input type="checkbox" @bind="row.EnrichWebCorreo" />
+                                                        Enriquecer web/correo (abre cada ficha de Maps para el sitio web y el correo)
+                                                    </label>
+                                                    @if (row.EnrichWebCorreo)
+                                                    {
+                                                        <label class="cs-enrich-max">Fichas a abrir
+                                                            <input class="cs-in cs-num" type="number" min="1" max="100" step="1" @bind="row.EnrichWebMax" />
+                                                        </label>
+                                                    }
+                                                </div>
                                             }
                                             <label>Sub-busqueda (opcional)<input class="form-control" @bind="row.SubQuery" placeholder="refinamiento sobre cada resultado (ej. abrir la ficha y sacar el telefono)" /></label>
                                             <label>Prompt de extraccion (que datos debe tomar el agente) *<textarea class="form-control" rows="3" @bind="row.Prompt" placeholder="Ej: extrae de cada resultado el nombre del negocio, telefono, direccion, correo y ciudad."></textarea></label>
@@ -214,6 +232,8 @@
         public int MaxContacts = 30;
         public bool EnrichLinkedIn;      // Maps -> LinkedIn: tras las empresas, trae personas de LinkedIn.
         public int EnrichMax = 5;        // personas por empresa en el enriquecimiento.
+        public bool EnrichWebCorreo;     // Maps -> sitio web/correo: abre la ficha de cada empresa.
+        public int EnrichWebMax = 20;    // fichas a abrir para el enriquecimiento web/correo.
         public List<SlotEdit> Schedules = new();  // varias programaciones; vacio = Manual
         public bool Active = true;
         public DateTimeOffset? LastRunAt;
@@ -262,6 +282,7 @@
         AgentId = s.ClassifierAiAgentId?.ToString() ?? "",
         MaxContacts = s.MaxContacts,
         EnrichLinkedIn = s.EnrichLinkedIn, EnrichMax = s.EnrichMaxPorEmpresa,
+        EnrichWebCorreo = s.EnrichWebCorreo, EnrichWebMax = s.EnrichWebMax,
         Schedules = s.Schedules.Select(sl => new SlotEdit
         {
             Frequency = sl.Frequency == ContactSearchSchedule.Manual ? ContactSearchSchedule.Diaria : sl.Frequency,
@@ -291,7 +312,7 @@
             var req = new SaveContactSearchRequest(r.Id, r.Name, r.Source,
                 Nz(r.Query), Nz(r.SubQuery), Nz(r.Country), Nz(r.Region), Nz(r.City),
                 r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, slots, r.Active,
-                r.EnrichLinkedIn, r.EnrichMax);
+                r.EnrichLinkedIn, r.EnrichMax, r.EnrichWebCorreo, r.EnrichWebMax);
             var err = await SearchSvc.SaveAsync(req);
             if (err is not null) { r.Error = err; r.Expanded = true; return; }
             await LoadRowsAsync();
@@ -310,18 +331,31 @@
     private async Task RunAsync(Row r)
     {
         if (r.Id is not Guid id) { return; }
-        _busy = true; _runningId = id; _runMsg = null;
-        try
+        if (Tenant.TenantId is not Guid tenantId) { _runError = true; _runMsg = "No hay tenant activo."; return; }
+        _runMsg = null; _runError = false; _runningId = null;
+
+        // Dispara la corrida en BACKGROUND, con su PROPIO scope + AmbientTenantContext + CancellationToken.None
+        // (fuera del circuito Blazor), igual que el endpoint /api/mgmt/contact-searches/{id}/run y el
+        // ContactSearchScheduleWorker. Antes se hacia await Runner.RunAsync(id) en el circuito: una corrida
+        // multi-empresa (Maps + LinkedIn por empresa + enrich web/correo) moria a mitad si el usuario navegaba
+        // o el circuito se reciclaba, dejando datos parciales. Ahora el boton responde de una y el avance se ve
+        // por refresco (LastRunAt / ContactSearchRuns / la pestana "Prospectos scrapeados").
+        _ = Task.Run(async () =>
         {
-            var res = await Runner.RunAsync(id);
-            _runError = !res.Ok;
-            _runMsg = res.Ok
-                ? $"Busqueda '{r.Name}': {res.Created} prospecto(s) creado(s). Revisalos en 'Prospectos scrapeados'."
-                : $"Busqueda '{r.Name}': {res.Error}";
-            await LoadRowsAsync();
-        }
-        catch (Exception ex) { _runError = true; _runMsg = $"Error al ejecutar: {ex.Message}"; }
-        finally { _busy = false; _runningId = null; }
+            try
+            {
+                await using var bgScope = ScopeFactory.CreateAsyncScope();
+                using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId))
+                {
+                    var runner = bgScope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Agents.IContactSearchRunner>();
+                    await runner.RunAsync(id, CancellationToken.None);
+                }
+            }
+            catch { /* la corrida en background no debe tumbar el proceso; el runner registra su estado */ }
+        });
+
+        _runMsg = $"Busqueda '{r.Name}': iniciada en segundo plano. El avance aparece en 'Prospectos scrapeados' (refresca en unos momentos).";
+        await LoadRowsAsync();
     }
 
     private static string? Nz(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

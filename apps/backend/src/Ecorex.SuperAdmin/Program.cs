@@ -1396,6 +1396,23 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
     return Results.File(bytes, "image/png", $"{(string.IsNullOrWhiteSpace(name) ? $"documento-{responseId}" : name)}.png");
 }).AllowAnonymous();
 
+// ---- PDF de un DOCUMENTO de tarea (boton "PDF" de la pestana Documentos) ----
+// Antepone el MEMBRETE congelado del documento a la version pedida (o la vigente) y renderiza el HTML
+// crudo a PDF (sin navegar a una URL: el logo va como data URI embebido). AllowAnonymous como los otros
+// PDF: el servicio acota por el id (y su TenantId) del propio documento, no por el contexto de tenant.
+app.MapGet("/plantillas-doc/documento/{documentoId:guid}/pdf", async (
+    Guid documentoId,
+    [FromQuery] Guid? version,
+    Ecorex.Application.PlantillasDocumento.ITaskDocumentComposerService composer,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    var res = await composer.BuildPrintHtmlAsync(documentoId, version, ct);
+    if (!res.IsOk || res.Value is null) { return Results.NotFound(); }
+    var bytes = await pdf.RenderHtmlToPdfAsync(res.Value.Html, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"{res.Value.FileName}.pdf");
+}).AllowAnonymous();
+
 // Descarga del comprobante de pago (PDF). Solo pagos aprobados; el usuario de agencia solo
 // puede descargar comprobantes de su propio tenant; el operador de plataforma puede cualquiera.
 app.MapGet("/comprobante/{paymentId:guid}", async (
@@ -1469,9 +1486,10 @@ app.MapPost("/webhooks/evolution", async (
     var payload = parsed.Payload;
     // Media entrante (imagen o nota de voz): descargamos la media (por el id del mensaje) y la guardamos como
     // adjunto, para que el agente/consola puedan verla y, en el caso del audio, transcribirla. Fijamos el tenant.
-    if ((payload.MessageType == "image" || payload.MessageType == "audio") && payload.WhatsAppLineId is Guid lid)
+    if ((payload.MessageType == "image" || payload.MessageType == "audio" || payload.MessageType == "document") && payload.WhatsAppLineId is Guid lid)
     {
         var isAudio = payload.MessageType == "audio";
+        var isDocument = payload.MessageType == "document";
         using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(parsed.TenantId))
         {
             try
@@ -1481,10 +1499,23 @@ app.MapPost("/webhooks/evolution", async (
                 {
                     var bytes = Convert.FromBase64String(media.Base64!);
                     var mime = string.IsNullOrWhiteSpace(media.Mime)
-                        ? (isAudio ? "audio/ogg" : "image/jpeg")
+                        ? (isAudio ? "audio/ogg" : isDocument ? "application/pdf" : "image/jpeg")
                         : media.Mime!;
                     string ext;
-                    if (isAudio)
+                    if (isDocument)
+                    {
+                        // Documento: se respeta la extension del nombre ORIGINAL si vino (Factura_...pdf); si no,
+                        // se deduce por mime (pdf por defecto para las facturas de EmCali y similares).
+                        var fromName = string.IsNullOrWhiteSpace(payload.MediaFileName)
+                            ? null : System.IO.Path.GetExtension(payload.MediaFileName);
+                        ext = !string.IsNullOrWhiteSpace(fromName) ? fromName!
+                            : mime.Contains("pdf") ? ".pdf"
+                            : mime.Contains("spreadsheet") || mime.Contains("excel") ? ".xlsx"
+                            : mime.Contains("csv") ? ".csv"
+                            : (mime.Contains("word") || mime.Contains("officedocument.wordprocessing")) ? ".docx"
+                            : ".bin";
+                    }
+                    else if (isAudio)
                     {
                         // Notas de voz de WhatsApp: audio/ogg; codecs=opus. Fallback .ogg; otros formatos por mime.
                         ext = mime.Contains("mpeg") || mime.Contains("mp3") ? ".mp3"
@@ -1502,15 +1533,19 @@ app.MapPost("/webhooks/evolution", async (
                     await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
                     payload = payload with
                     {
-                        MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio : Ecorex.Domain.Enums.MessageMediaType.Image,
+                        MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio
+                            : isDocument ? Ecorex.Domain.Enums.MessageMediaType.Document
+                            : Ecorex.Domain.Enums.MessageMediaType.Image,
                         MediaUrl = $"/uploads/chat/{fname}",
                         MediaMimeType = mime
+                        // MediaFileName (nombre original) se conserva del parser para el adjunto de la tarea.
                     };
                 }
             }
             catch (Exception ex)
             {
-                // No romper la ingesta: se ingiere como texto "(imagen)"/"(nota de voz)", pero dejamos registro para diagnosticar.
+                // No romper la ingesta: se ingiere como texto "(imagen)"/"(nota de voz)"/"(documento)", pero
+                // dejamos registro para diagnosticar.
                 log.LogWarning(ex, "Webhook Evolution: no se pudo descargar la media entrante del mensaje {Id}; se ingiere como texto.", payload.ExternalMessageId);
             }
         }

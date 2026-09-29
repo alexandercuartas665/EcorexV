@@ -54,6 +54,10 @@ else
                             {
                                 <span class="pd-badge pd-off">Inactivo</span>
                             }
+                            @if (!string.IsNullOrWhiteSpace(gg.HeaderHtml))
+                            {
+                                <span class="pd-badge pd-on" title="Este grupo tiene membrete de empresa">Membrete</span>
+                            }
                         </div>
                         <div class="pd-gcount">@gg.TemplatesActivas / @gg.TemplatesTotales</div>
                     </div>
@@ -63,6 +67,7 @@ else
                     }
                     <div class="pd-gactions">
                         <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenEditGroup(gg)">Editar</button>
+                        <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenMembreteAsync(gg)" disabled="@_busy">Membrete</button>
                         <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => ToggleGroupAsync(gg)" disabled="@_busy">@(gg.IsActive ? "Desactivar" : "Activar")</button>
                         <button class="btn btn-xs btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => DeleteGroupAsync(gg)" disabled="@_busy">Eliminar</button>
                     </div>
@@ -149,6 +154,49 @@ else
     </div>
 }
 
+@* ===== Modal: membrete del grupo (encabezado de empresa) ===== *@
+@if (_membreteOpen)
+{
+    <div class="modal-overlay" @onclick="CloseMembreteModal">
+        <div class="modal-dialog pd-editor-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Membrete &middot; @_membreteGroupName</h3>
+                <button class="modal-close" @onclick="CloseMembreteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="margin-top:0">Encabezado de empresa que se antepone automaticamente al PDF de los documentos de este grupo. Usa tokens <b>{empresa.*}</b> (logo, razon social, NIT...). Se resuelve y se congela en cada documento al redactarlo.</p>
+                <div class="pd-editor-grid">
+                    <div class="pd-editor-main">
+                        <label class="form-label">Contenido del membrete</label>
+                        <textarea id="@MembreteEditorId" class="form-control">@_mHtml</textarea>
+                    </div>
+                    <div class="pd-tokens">
+                        <div class="pd-tokens-lbl">TOKENS</div>
+                        <p class="pd-tokens-help">Clic para insertar en el cursor.</p>
+                        @foreach (var grp in _tokens.GroupBy(x => x.Grupo))
+                        {
+                            <div class="pd-token-group">@grp.Key</div>
+                            @foreach (var tk in grp)
+                            {
+                                var tok = tk;
+                                <button type="button" class="pd-token" title="@tok.Descripcion" @onclick="() => InsertMembreteTokenAsync(tok.Token)">@tok.Token</button>
+                            }
+                        }
+                    </div>
+                </div>
+                @if (_modalError is not null)
+                {
+                    <div class="text-danger small">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseMembreteModal">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveMembreteAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Modal: plantilla (editor TinyMCE) ===== *@
 @if (_tplOpen)
 {
@@ -197,6 +245,7 @@ else
 
 @code {
     private const string EditorId = "pd-doc-editor";
+    private const string MembreteEditorId = "pd-membrete-editor";
 
     private bool _loading = true;
     private bool _busy;
@@ -221,6 +270,13 @@ else
     private string _tHtml = "";
     private bool _editorNeedsInit;
 
+    // Modal membrete (encabezado de empresa del grupo)
+    private bool _membreteOpen;
+    private Guid? _membreteGroupId;
+    private string _membreteGroupName = "";
+    private string _mHtml = "";
+    private bool _membreteNeedsInit;
+
     private string? _modalError;
     private IJSObjectReference? _editor;
 
@@ -239,6 +295,14 @@ else
             _editor ??= await JS.InvokeAsync<IJSObjectReference>(
                 "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
             await _editor.InvokeAsync<bool>("init", EditorId, _tHtml);
+        }
+        if (_membreteNeedsInit && _membreteOpen)
+        {
+            _membreteNeedsInit = false;
+            _editor ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", $"./js/ecorex-doc-editor.js?v={AppVersion.Current}");
+            // letter: el membrete se edita sobre una hoja tipo carta (papel blanco centrado).
+            await _editor.InvokeAsync<bool>("init", MembreteEditorId, _mHtml, new { letter = true });
         }
     }
 
@@ -332,6 +396,60 @@ else
             await ReloadGroupsAsync();
         }
         finally { _busy = false; }
+    }
+
+    // ---- Membrete del grupo ----
+
+    private void OpenMembreteAsync(DocumentTemplateGroupDto g)
+    {
+        _modalError = null;
+        _membreteGroupId = g.Id;
+        _membreteGroupName = g.Name;
+        _mHtml = g.HeaderHtml ?? "";
+        _membreteOpen = true;
+        _membreteNeedsInit = true;
+    }
+
+    private async Task InsertMembreteTokenAsync(string token)
+    {
+        if (_editor is not null)
+        {
+            await _editor.InvokeVoidAsync("insertToken", MembreteEditorId, token);
+        }
+    }
+
+    private async Task SaveMembreteAsync()
+    {
+        if (_membreteGroupId is not Guid gid) { return; }
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var html = _editor is not null
+                ? await _editor.InvokeAsync<string>("getContent", MembreteEditorId)
+                : _mHtml;
+            var res = await Svc.SetGroupHeaderHtmlAsync(gid, html);
+            if (!res.IsOk) { _modalError = res.Error; return; }
+            await DestroyMembreteEditorAsync();
+            _membreteOpen = false;
+            await ReloadGroupsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CloseMembreteModal()
+    {
+        await DestroyMembreteEditorAsync();
+        _membreteOpen = false;
+    }
+
+    private async Task DestroyMembreteEditorAsync()
+    {
+        if (_editor is not null)
+        {
+            try { await _editor.InvokeVoidAsync("destroy", MembreteEditorId); }
+            catch { /* el circuito puede estar cerrandose */ }
+        }
     }
 
     // ---- Plantillas ----

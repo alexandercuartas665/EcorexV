@@ -57,7 +57,12 @@ public sealed record TaskItemDetailDto(
     // serializado). Null = la tarea no tiene ningun valor capturado todavia.
     string? CustomFieldsJson = null,
     // Subtareas (tareas hijas) de esta tarea, para la seccion "Subtareas" del detalle.
-    IReadOnlyList<TaskItemSummaryDto>? Subtasks = null);
+    IReadOnlyList<TaskItemSummaryDto>? Subtasks = null,
+    // Copias generadas desde esta actividad (tareas con SourceTaskId == esta): la actividad "padre"
+    // muestra las copias que produjo. Cada copia nace nueva en el inicio de su flujo.
+    IReadOnlyList<TaskItemSummaryDto>? Copies = null,
+    // Si esta actividad es a su vez una copia, origen del que se copio (para el backlink "Copia de ...").
+    Guid? SourceTaskId = null, string? SourceTaskNumber = null);
 
 public sealed record CreateTaskItemRequest(
     string Title, Guid? ActivityTypeId, string? Description = null,

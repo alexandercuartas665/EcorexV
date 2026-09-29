@@ -145,11 +145,58 @@ public sealed class TaskDocumentComposerService : ITaskDocumentComposerService
         return TaskCoreResult<string>.Ok(Encoding.UTF8.GetString(bytes));
     }
 
-    public async Task<TaskCoreResult<Guid>> GuardarNuevoAsync(
-        Guid taskId, string titulo, string html, CancellationToken cancellationToken = default)
+    public async Task<TaskCoreResult<TaskDocumentoPrintDto>> BuildPrintHtmlAsync(
+        Guid documentoId, Guid? versionId = null, CancellationToken cancellationToken = default)
     {
-        var task = await _db.TaskItems.AsNoTracking()
-            .Where(t => t.Id == taskId).Select(t => new { t.Id, t.Number }).FirstOrDefaultAsync(cancellationToken);
+        // Endpoint SIN contexto de tenant: se ignora el filtro global y se acota por el id del documento
+        // (que trae su propio TenantId). Solo se leen ese documento y su version.
+        var doc = await _db.Documentos.AsNoTracking().IgnoreQueryFilters()
+            .FirstOrDefaultAsync(d => d.Id == documentoId && d.Activo, cancellationToken);
+        if (doc is null) { return TaskCoreResult<TaskDocumentoPrintDto>.NotFound("El documento no existe."); }
+
+        var targetId = versionId ?? doc.VersionActualId;
+        if (targetId is not Guid vid) { return TaskCoreResult<TaskDocumentoPrintDto>.NotFound("El documento no tiene version."); }
+
+        var version = await _db.DocumentoVersiones.AsNoTracking().IgnoreQueryFilters()
+            .FirstOrDefaultAsync(v => v.Id == vid && v.DocumentoId == documentoId, cancellationToken);
+        if (version is null) { return TaskCoreResult<TaskDocumentoPrintDto>.NotFound("La version no existe."); }
+
+        var bytes = await _files.ReadAsync(version.UrlStorage, cancellationToken);
+        if (bytes is null) { return TaskCoreResult<TaskDocumentoPrintDto>.Invalid("El archivo de la version no esta disponible."); }
+        var body = Encoding.UTF8.GetString(bytes);
+
+        var html = BuildPrintableDocument(doc.MembreteHtml, body, doc.Titulo);
+        var fileName = Slug(doc.Titulo);
+        return TaskCoreResult<TaskDocumentoPrintDto>.Ok(new TaskDocumentoPrintDto(html, fileName));
+    }
+
+    /// <summary>Envuelve membrete (opcional) + cuerpo en una pagina HTML A4 lista para el motor headless.</summary>
+    private static string BuildPrintableDocument(string? membreteHtml, string body, string titulo)
+    {
+        var membrete = string.IsNullOrWhiteSpace(membreteHtml)
+            ? ""
+            : $"<header class=\"doc-membrete\">{membreteHtml}</header>";
+        var title = System.Net.WebUtility.HtmlEncode(titulo ?? "documento");
+        return "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+            + $"<title>{title}</title><style>"
+            + "*{box-sizing:border-box}"
+            + "html,body{margin:0;padding:0;background:#fff;color:#111;"
+            + "font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.45}"
+            + ".doc-membrete{margin:0 0 18px;padding:0 0 12px;border-bottom:1px solid #ddd}"
+            + ".doc-membrete img{max-height:110px}"
+            + ".doc-body{white-space:normal}"
+            + "table{border-collapse:collapse}"
+            + "img{max-width:100%}"
+            + "</style></head><body>"
+            + membrete
+            + $"<main class=\"doc-body\">{body}</main>"
+            + "</body></html>";
+    }
+
+    public async Task<TaskCoreResult<Guid>> GuardarNuevoAsync(
+        Guid taskId, string titulo, string html, Guid? grupoId = null, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
         if (task is null) { return TaskCoreResult<Guid>.NotFound("La tarea no existe."); }
 
         var name = (titulo ?? "").Trim();
@@ -157,6 +204,9 @@ public sealed class TaskDocumentComposerService : ITaskDocumentComposerService
 
         var categoriaId = await EnsureCategoriaTareasAsync(cancellationToken);
         if (categoriaId is not Guid catId) { return TaskCoreResult<Guid>.Invalid("No hay tenant activo."); }
+
+        // Membrete del grupo: se resuelve con los tokens de la tarea y se CONGELA en el documento.
+        var membrete = await ResolveMembreteAsync(task, grupoId, cancellationToken);
 
         var bytes = Encoding.UTF8.GetBytes(html ?? "");
         var fileName = $"{task.Number}-{Slug(name)}.html";
@@ -173,9 +223,34 @@ public sealed class TaskDocumentComposerService : ITaskDocumentComposerService
             Origen: OrigenDocumento.Tarea,
             OrigenEntidadId: task.Id), cancellationToken);
 
-        return res.IsOk
-            ? TaskCoreResult<Guid>.Ok(res.Id ?? Guid.Empty)
-            : TaskCoreResult<Guid>.Invalid(res.Error ?? "No se pudo guardar el documento.");
+        if (!res.IsOk) { return TaskCoreResult<Guid>.Invalid(res.Error ?? "No se pudo guardar el documento."); }
+
+        // Congela el membrete en el documento recien creado (segunda escritura, mismo tenant).
+        if (membrete is not null && res.Id is Guid newId)
+        {
+            var doc = await _db.Documentos.FirstOrDefaultAsync(d => d.Id == newId, cancellationToken);
+            if (doc is not null)
+            {
+                doc.MembreteHtml = membrete;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return TaskCoreResult<Guid>.Ok(res.Id ?? Guid.Empty);
+    }
+
+    /// <summary>Resuelve el membrete del grupo con los tokens de la tarea. Null si no hay grupo o no
+    /// tiene membrete (o queda vacio tras resolver).</summary>
+    private async Task<string?> ResolveMembreteAsync(
+        Domain.Entities.TaskItem task, Guid? grupoId, CancellationToken cancellationToken)
+    {
+        if (grupoId is not Guid gid) { return null; }
+        var header = await _db.DocumentTemplateGroups.AsNoTracking()
+            .Where(g => g.Id == gid).Select(g => g.HeaderHtml).FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(header)) { return null; }
+        var tokens = await _tokens.BuildAsync(task, cancellationToken);
+        var resolved = _tokens.Render(header, tokens);
+        return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
     }
 
     public async Task<TaskCoreResult<Guid>> GuardarNuevaVersionAsync(

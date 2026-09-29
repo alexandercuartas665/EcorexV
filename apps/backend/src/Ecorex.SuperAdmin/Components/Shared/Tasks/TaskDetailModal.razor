@@ -46,6 +46,11 @@
                         {
                             <span class="tk-status st-closed" style="margin-left:8px;">Archivada</span>
                         }
+                        @if (_detail.SourceTaskId is Guid copyOf)
+                        {
+                            <button type="button" class="tk-status st-info" style="margin-left:8px;cursor:pointer;border:0;"
+                                    title="Abrir la actividad original" @onclick="@(() => OpenSubtaskAsync(copyOf))">Copia de @(_detail.SourceTaskNumber ?? "origen")</button>
+                        }
                     </div>
                     @if (_editingTitle && !readOnly)
                     {
@@ -82,6 +87,14 @@
                 <div class="tk-conflict tk-action-error">
                     <span>@_actionError</span>
                     <button class="tk-conflict-x" @onclick="@(() => _actionError = null)">&times;</button>
+                </div>
+            }
+            @if (_copyNotice is not null)
+            {
+                <div class="tk-conflict" style="background:var(--t-green-bg, #e7f6ec);color:var(--t-green, #1a7f37);border-color:var(--t-green, #1a7f37);display:flex;align-items:center;gap:10px;">
+                    <span style="flex:1;">@_copyNotice</span>
+                    <button class="btn btn-xs btn-outline-secondary" @onclick="OpenLastCopyAsync" disabled="@_busy">Abrir copia</button>
+                    <button class="tk-conflict-x" @onclick="@(() => _copyNotice = null)">&times;</button>
                 </div>
             }
             @if (_reloadError is not null && _detail is not null)
@@ -269,6 +282,9 @@
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => _confirmClose = true)" disabled="@_busy">Cerrar</button>
                     }
                 }
+                @* Copiar la actividad: crea una NUEVA que nace en el inicio del flujo (sin arrastrar el avance).
+                   Un solo clic: es una accion NO destructiva y reversible (la copia se puede borrar). *@
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CopyAsync" disabled="@_busy" title="Crea una copia como actividad nueva en el punto inicial del flujo">@(_busy ? "Copiando..." : "Copiar")</button>
                 @* Archivado = visibilidad (no transicion de estado): permitido incluso en Closed. *@
                 @if (item.IsArchived)
                 {
@@ -747,6 +763,28 @@
                             }
                         </div>
                     </div>
+                    @* Copias generadas: actividades NUEVAS creadas con "Copiar" desde esta (SourceTaskId).
+                       Cada una nacio en el inicio de su flujo. Clic para abrirla en este mismo modal. *@
+                    @if ((_detail.Copies?.Count ?? 0) > 0)
+                    {
+                        <div class="tk-card tk-subtasks">
+                            <div class="tk-card-head">
+                                <h3>Copias generadas</h3>
+                                <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@(_detail.Copies!.Count)</strong></span>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:8px;">
+                                @foreach (var cp in _detail.Copies!)
+                                {
+                                    var copy = cp;
+                                    <div class="tk-subtask-row" @onclick="@(() => OpenSubtaskAsync(copy.Id))" title="Abrir copia @copy.Number">
+                                        <span class="tk-status @TaskUi.StatusClass(copy.Status)">@TaskUi.StatusLabel(copy.Status)</span>
+                                        <span class="tk-subtask-num">@copy.Number</span>
+                                        <span class="tk-subtask-title">@copy.Title</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
                     @* Lista de chequeo: MOVIDA al rail (2a columna, debajo del Resumen) por peticion del usuario. *@
                 </div>
 
@@ -1660,6 +1698,8 @@
     private DateTime? _editStart;
     private bool _confirmClose;
     private bool _confirmArchive;
+    private string? _copyNotice;
+    private Guid? _lastCopyId;
     private string? _conflict;
     private string? _actionError;
     private string? _reloadError;
@@ -3203,6 +3243,39 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    // Copia la actividad como una NUEVA que nace en el inicio del flujo. Recarga la ORIGEN (para que la
+    // copia salga en "Copias generadas") y refresca el tablero (la copia es una tarjeta nueva).
+    private async Task CopyAsync()
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var sourceId = _detail.Item.Id;
+            var result = await TasksSvc.CopyAsync(sourceId, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk || result.Value is null)
+            {
+                _actionError = result.Error ?? "No se pudo copiar la actividad.";
+                return;
+            }
+            _lastCopyId = result.Value.Item.Id;
+            _copyNotice = $"Copia creada: {result.Value.Item.Number}.";
+            await ReloadAsync(sourceId);
+            await NotifyChangedAsync(_lastCopyId.Value, result.Value.Item.Status);
+        }
+        finally { _busy = false; }
+    }
+
+    // Abre la ultima copia creada en este mismo modal.
+    private async Task OpenLastCopyAsync()
+    {
+        if (_lastCopyId is Guid id)
+        {
+            _copyNotice = null;
+            await ReloadAsync(id);
         }
     }
 

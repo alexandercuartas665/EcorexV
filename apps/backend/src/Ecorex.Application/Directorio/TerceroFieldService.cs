@@ -40,7 +40,8 @@ public sealed class TerceroFieldService : ITerceroFieldService
             ("sitio_web", "Sitio web", TerceroFieldType.Text, null),
             ("correo", "Correo", TerceroFieldType.Text, null),
             ("maps_url", "URL Google Maps", TerceroFieldType.Text, null),
-            ("frase_busqueda", "Frase de busqueda", TerceroFieldType.Text, null)
+            ("frase_busqueda", "Frase de busqueda", TerceroFieldType.Text, null),
+            ("perfil", "Perfil", TerceroFieldType.Text, null)
         ]),
         ("fiscal",
         [

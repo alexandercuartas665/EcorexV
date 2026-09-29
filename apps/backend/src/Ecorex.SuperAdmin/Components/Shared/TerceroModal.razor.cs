@@ -317,7 +317,8 @@ public partial class TerceroModal
         Guid prospectoId, string nombre, bool esEmpresa, string? fuente = null,
         string? cargo = null, string? empresa = null, string? ciudad = null,
         string? email = null, string? telefono = null, string? imagenUrl = null,
-        string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null)
+        string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null,
+        string? perfil = null)
     {
         await OpenCreate();
         _prospectoId = prospectoId;
@@ -340,6 +341,7 @@ public partial class TerceroModal
         if (!string.IsNullOrWhiteSpace(sitioWeb)) { baseFicha["sitio_web"] = sitioWeb.Trim(); }
         if (!string.IsNullOrWhiteSpace(origenUrl)) { baseFicha["maps_url"] = origenUrl.Trim(); }
         if (!string.IsNullOrWhiteSpace(fraseBusqueda)) { baseFicha["frase_busqueda"] = fraseBusqueda.Trim(); }
+        if (!string.IsNullOrWhiteSpace(perfil)) { baseFicha["perfil"] = perfil.Trim(); }
         if (baseFicha.Count > 0)
         {
             _fichaValues["base"] = baseFicha;

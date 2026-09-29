@@ -9453,6 +9453,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("origen_url");
 
+                    b.Property<string>("Perfil")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("perfil");
+
                     b.Property<string>("SitioWeb")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("sitio_web");

@@ -19,6 +19,11 @@ public class ProspectoScrapeado : TenantEntity
     public string? Empresa { get; set; }
     public string? Ciudad { get; set; }
 
+    /// <summary>Resumen del perfil del contacto (1-2 frases): para una PERSONA de LinkedIn sale del
+    /// headline/about; para una EMPRESA de Maps, una descripcion corta del negocio. Al promover se copia a la
+    /// ficha Base (campo "perfil").</summary>
+    public string? Perfil { get; set; }
+
     /// <summary>Metrica de la fuente (ej. "2.340 conexiones" o "4.9 estrellas - 89 resenas").</summary>
     public string? Metrica { get; set; }
 

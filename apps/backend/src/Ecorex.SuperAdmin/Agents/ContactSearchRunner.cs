@@ -204,10 +204,11 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.AppendLine($"NAVEGA directamente a {url} (NO uses Google ni site:linkedin.com). Haz scroll para cargar mas resultados.");
         sb.AppendLine($"Captura como maximo {max} personas y detente al llegar a ese numero.");
         sb.AppendLine("El contenido trae PERSONAS con enlaces de perfil (/in/). Guarda UNA fila por persona con "
-            + "nombre, cargo (el headline tras el nombre) y url = la URL del perfil (/in/...). No inventes telefono "
-            + "ni correo si no aparecen.");
+            + "nombre, cargo (el headline tras el nombre), url = la URL del perfil (/in/...) y perfil = un resumen "
+            + "de 1-2 frases del headline/about de la persona (que hace, area). No inventes telefono ni correo si "
+            + "no aparecen.");
         sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos con las claves "
-            + "nombre, cargo y url (el perfil /in/).");
+            + "nombre, cargo, url (el perfil /in/) y perfil (el resumen).");
         return sb.ToString();
     }
 
@@ -282,13 +283,14 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 + "Guarda UNA sola fila por negocio con nombre = el NOMBRE DEL NEGOCIO (es la empresa; puedes repetirlo "
                 + "en 'empresa'). NO inventes una persona: NO crees un segundo registro ni un 'Contacto de <negocio>', y "
                 + "NO rellenes cargo/nombre de persona (Maps no trae personas). Las PERSONAS salen unicamente del "
-                + "enriquecimiento en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas) e "
-                + "imagen si aparecen.",
+                + "enriquecimiento en LinkedIn. Captura direccion, telefono, sitio web, metrica (estrellas/resenas), "
+                + "imagen y perfil (una descripcion corta de que hace el negocio / su rubro) si aparecen.",
             ContactSearchSource.LinkedIn =>
                 $"Estas logueado en LinkedIn. NAVEGA directamente a {lkUrl} (NO uses Google ni site:linkedin.com). "
                 + "Haz scroll para cargar mas resultados. El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y enlaces "
-                + "de perfil (/in/): guarda UNA fila por persona con nombre, cargo (el headline tras el nombre) y "
-                + "url = la URL del perfil (/in/...). No inventes telefono ni correo si no aparecen.",
+                + "de perfil (/in/): guarda UNA fila por persona con nombre, cargo (el headline tras el nombre), "
+                + "url = la URL del perfil (/in/...) y perfil = un resumen de 1-2 frases del headline/about. No inventes "
+                + "telefono ni correo si no aparecen.",
             ContactSearchSource.Facebook or ContactSearchSource.Instagram =>
                 "Es la pagina/perfil de UN negocio (no una lista). Guarda UNA sola fila con: nombre del negocio, empresa, "
                 + "sitio web y seguidores en 'metrica', y url = la URL del perfil/pagina. Ignora el texto de los posts "
@@ -300,8 +302,9 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica, ");
         sb.Append("direccion (direccion completa del negocio, de la ficha del lugar), ");
         sb.Append("sitio_web (URL del sitio web PROPIO del negocio, si aparece el enlace 'Sitio web'), ");
-        sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece) y ");
-        sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas). ");
+        sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece), ");
+        sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas) y ");
+        sb.Append("perfil (resumen de 1-2 frases: si es una PERSONA, del headline/about; si es un NEGOCIO, que hace/rubro). ");
         sb.Append("Guarda solo contactos reales con al menos un nombre.");
         return sb.ToString();
     }
@@ -410,6 +413,8 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 Fuente = _fuente,
                 NombreCompleto = nombre.Trim(),
                 Cargo = Pick(row, "cargo", "title", "puesto", "rol"),
+                // Resumen del perfil (1-2 frases): persona LinkedIn -> headline/about; empresa Maps -> que hace.
+                Perfil = Pick(row, "perfil", "resumen", "about", "descripcion", "headline", "bio"),
                 Empresa = empresa,
                 Ciudad = Pick(row, "ciudad", "city", "localidad", "municipio"),
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
@@ -422,7 +427,8 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 ImagenUrl = SafeHttpUrl(Pick(row, "imagen_url", "imagen", "foto", "image", "photo", "avatar", "logo")),
                 // Sitio web PROPIO del negocio (distinto de OrigenUrl = ficha en Maps).
                 SitioWeb = sitioWeb,
-                OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
+                // "perfil" YA NO va aqui: ahora es el resumen del perfil (columna Perfil), no la URL.
+                OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url")),
                 // Frase efectiva con que se encontro (o "LinkedIn: <empresa>" en el enriquecimiento).
                 FraseBusqueda = _frase,
                 // Amarre FUERTE (self-FK) a la empresa-prospecto en el enriquecimiento LinkedIn.

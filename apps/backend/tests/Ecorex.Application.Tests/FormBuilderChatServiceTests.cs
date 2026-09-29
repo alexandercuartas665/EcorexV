@@ -125,6 +125,50 @@ public class FormBuilderChatServiceTests
         Assert.Contains(toolset.Executed, x => x.Tool == "verify_form");
     }
 
+    // ESCALA/ROBUSTEZ: una peticion absurda hace que la llamada al modelo tarde o no vuelva. La llamada esta
+    // acotada (HttpClient 60s + CTS de 90s por llamada); cuando vence, el servicio NO cuelga ni corrompe: captura
+    // la cancelacion (sin que el ct externo del circuito este cancelado) y devuelve un error AMABLE y accionable.
+    [Fact]
+    public async Task Si_la_llamada_al_modelo_expira_devuelve_error_amable_sin_ejecutar_nada()
+    {
+        var ai = new FakeAi();
+        // Simula el timeout de la llamada al proveedor: la tarea se cancela (como el HttpClient a los 60s),
+        // con el ct EXTERNO (el del circuito) SIN cancelar -> debe caer en el catch amable.
+        ai.EnqueueThrow(new OperationCanceledException());
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "crea 500 campos en 50 tablas ya", null, Guid.NewGuid());
+
+        Assert.False(r.Ok);
+        Assert.Contains("tardo demasiado", r.Error);   // mensaje amable, no una excepcion cruda
+        Assert.Empty(toolset.Executed);                // GATE: no se ejecuto nada
+    }
+
+    // ESCALA/ROBUSTEZ: si el modelo se enreda pidiendo lecturas una y otra vez (sin cerrar ni proponer), el bucle
+    // NO gira infinito: MaxRounds lo corta y devuelve un error claro pidiendo precisar la instruccion.
+    [Fact]
+    public async Task Demasiadas_lecturas_seguidas_cortan_el_bucle_con_error_claro()
+    {
+        var ai = new FakeAi();
+        // 10 turnos que solo piden una lectura (get_form es read-only) y nunca cierran ni proponen: supera MaxRounds.
+        for (var i = 0; i < 10; i++)
+        {
+            ai.Enqueue(new AiCompletion(true, null, null, 0, 0,
+                new[] { new AiToolCall("r" + i, "get_form", "{}") }));
+        }
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        var r = await svc.SendAsync(start.ConversationId, "revisa y revisa", null, Guid.NewGuid());
+
+        Assert.False(r.Ok);
+        Assert.Contains("demasiadas consultas", r.Error);
+        Assert.False(r.AwaitingConfirmation);          // no quedo nada esperando confirmacion
+    }
+
     [Fact]
     public async Task Escribir_con_propuesta_pendiente_la_descarta_y_atiende_el_mensaje()
     {
@@ -274,13 +318,23 @@ public class FormBuilderChatServiceTests
 
     private sealed class FakeAi : IAiProviderClient
     {
-        private readonly Queue<AiCompletion> _queue = new();
-        public void Enqueue(AiCompletion c) => _queue.Enqueue(c);
+        // Cada turno del modelo es una FUNCION: normalmente devuelve una AiCompletion, pero puede LANZAR
+        // (para simular un timeout/cancelacion de la llamada al proveedor).
+        private readonly Queue<Func<AiCompletion>> _queue = new();
+        public void Enqueue(AiCompletion c) => _queue.Enqueue(() => c);
+        public void EnqueueThrow(Exception ex) => _queue.Enqueue(() => throw ex);
 
         public Task<AiCompletion> CompleteWithToolsAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
             string systemPrompt, IReadOnlyList<AiToolMessage> messages, IReadOnlyList<AiToolSpec> tools, CancellationToken cancellationToken = default)
-            => Task.FromResult(_queue.Count > 0 ? _queue.Dequeue()
-                : new AiCompletion(true, "(sin mas respuestas)", null, 0, 0, Array.Empty<AiToolCall>()));
+        {
+            if (_queue.Count == 0)
+            {
+                return Task.FromResult(new AiCompletion(true, "(sin mas respuestas)", null, 0, 0, Array.Empty<AiToolCall>()));
+            }
+            var next = _queue.Dequeue();
+            try { return Task.FromResult(next()); }
+            catch (Exception ex) { return Task.FromException<AiCompletion>(ex); }
+        }
 
         public Task<AiChatResult> CompleteAsync(AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt, IReadOnlyList<AiChatTurn> turns, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

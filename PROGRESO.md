@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Copiar actividad: arrastrar los DATOS de los formularios diligenciados - rama feat/copiar-formularios
+
+- El usuario noto que la copia no traia los datos de los formularios adjuntos (los forms se enlazan a la tarea
+  por Reference == numero / numero-N, y la copia tiene numero nuevo). Antes se decidio "no copiar el avance"
+  e incluia los formularios; se corrige: la copia SI arrastra los datos.
+- CopyAsync (TaskItemService): tras crear la copia, consulta los FormResponse activos del origen (Reference ==
+  srcNumber o srcNumber-N) y los crea de nuevo re-apuntando el Reference al numero de la copia, conservando el
+  sufijo "-N" de los subformularios, con su Data, como BORRADOR (Status=Draft) y sin consecutivo de registro ni
+  estado de envio (no duplica consecutivos ni dispara reglas on-submit). Todo en el mismo SaveChanges. Sin
+  migracion (no hay indice unico en (TenantId, DefinitionId, Reference)).
+- Build SuperAdmin verde. Siguiente: validar en vivo (copiar una tarea con formularios y ver que la copia trae
+  los datos) y desplegar.
+
+
 ## 2026-09-29 - Plantillas: token {sistema.fechalarga} + TinyMCE conserva <style> del membrete - rama feat/plantilla-fechalarga-style
 
 - Hand-off de la sesion de plantillas (config). Dos cambios de codigo, sin migracion.

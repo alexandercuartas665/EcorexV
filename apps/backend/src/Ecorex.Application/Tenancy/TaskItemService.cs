@@ -465,6 +465,36 @@ public sealed class TaskItemService : ITaskItemService
                 SortOrder = order++
             });
         }
+        // Copiar los FORMULARIOS diligenciados del original: se enlazan a la tarea por Reference == numero
+        // (o numero-N en los subformularios). Como la copia tiene numero NUEVO, no ve los del original; se
+        // re-apuntan con sus DATOS al numero de la copia. Se crean como BORRADOR con los datos precargados
+        // (sin consecutivo de registro ni estado de envio): la copia trae la misma informacion, editable,
+        // sin duplicar consecutivos ni disparar reglas on-submit.
+        var srcNumber = src.Number;
+        var copyNumber = created.Value.Item.Number;
+        if (!string.IsNullOrEmpty(srcNumber) && !string.IsNullOrEmpty(copyNumber))
+        {
+            var srcPrefix = srcNumber + "-";
+            var srcForms = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.IsActive && (r.Reference == srcNumber
+                    || (r.Reference != null && r.Reference.StartsWith(srcPrefix))))
+                .ToListAsync(cancellationToken);
+            foreach (var f in srcForms)
+            {
+                // Re-apunta el Reference al numero de la copia conservando el sufijo "-N" de los subformularios.
+                var newRef = f.Reference == srcNumber ? copyNumber : copyNumber + f.Reference![srcNumber.Length..];
+                _db.FormResponses.Add(new FormResponse
+                {
+                    TenantId = f.TenantId,
+                    DefinitionId = f.DefinitionId,
+                    Reference = newRef,
+                    Data = f.Data,
+                    IsActive = true,
+                    Status = FormResponseStatus.Draft
+                });
+            }
+        }
+
         // Rastro en la actividad ORIGEN: dejo constancia de que genero una copia.
         _db.TaskItemActivities.Add(BuildActivity(src.TenantId, sourceTaskId, actorUserId, actorName,
             TaskActivityType.Action, $"copio la actividad a {created.Value.Item.Number}"));

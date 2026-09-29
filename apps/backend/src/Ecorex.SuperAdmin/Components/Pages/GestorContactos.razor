@@ -1238,7 +1238,8 @@
             || _prospectos.Any(x => x.EmpresaProspectoId == p.Id);
         await _terceroModal.OpenFromProspectoAsync(
             p.Id, p.NombreCompleto, esEmpresa, p.Fuente,
-            p.Cargo, p.Empresa, p.Ciudad, p.Correo, p.Telefono, p.ImagenUrl);
+            p.Cargo, p.Empresa, p.Ciudad, p.Correo, p.Telefono, p.ImagenUrl,
+            p.Direccion, p.SitioWeb, p.OrigenUrl, p.FraseBusqueda);
     }
 
     // Incorpora el prospecto al Directorio (desde el boton del modal grande): promueve (crea el Tercero rico

@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - Cargador de contactos: el preview "Ver contacto" mostraba la ficha Base vacia - rama feat/contactos-preview-ficha
+
+- Bug: el modal "Ver contacto" (preview de un prospecto, sin promover) mostraba la ficha Base vacia
+  (Direccion/Sitio web) aunque el prospecto SI tenia esos datos y la promocion los guardaba bien.
+- Causa: ProspectoDto no traia Direccion/SitioWeb/FraseBusqueda; ListProspectosAsync no los proyectaba;
+  OpenProspectoModalAsync no los pasaba a TerceroModal.OpenFromProspectoAsync, que ademas no poblaba la ficha
+  Base -> el preview quedaba vacio aunque el guardado (BuildBaseFichaJson) si los ponia.
+- Fix: (1) ProspectoDto += Direccion/SitioWeb/FraseBusqueda y se proyectan en ListProspectosAsync (la entidad
+  ProspectoScrapeado ya los trae). (2) OpenProspectoModalAsync los pasa; OpenFromProspectoAsync recibe
+  direccion/sitioWeb/origenUrl/fraseBusqueda. (3) OpenFromProspectoAsync puebla _fichaValues["base"] con el
+  MISMO mapeo que BuildBaseFichaJson (direccion, sitio_web, maps_url=OrigenUrl, frase_busqueda) y abre la
+  ficha base -> preview y guardado coinciden.
+- Sin migracion (columnas ya existen). Archivos: GestorDtos.cs, GestorContactosService.cs, GestorContactos.razor,
+  TerceroModal.razor.cs. Build solucion verde. SIN merge, SIN deploy.
+
 ## 2026-09-28 - Tableros de actividades restringidos por usuario (ADR-0117) - rama feat/tableros-restringidos-wip
 
 - Pedido: restringir un tablero a ciertos usuarios; si no define usuarios, disponible para TODOS. Decisiones del

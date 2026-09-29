@@ -31,7 +31,12 @@ public sealed record ProspectoDto(
     string? OrigenUrl = null,
     // Amarre FUERTE (enriquecimiento Maps->LinkedIn): empresa-prospecto a la que pertenece esta persona.
     // Null = es una empresa (o un prospecto suelto). Sirve para anidar personas bajo su empresa en la Bolsa.
-    Guid? EmpresaProspectoId = null);
+    Guid? EmpresaProspectoId = null,
+    // Ficha Base: se muestran en el preview "Ver contacto" y se guardan al promover (BuildBaseFichaJson).
+    // OrigenUrl (arriba) es la ficha del lugar en Maps (maps_url); SitioWeb es el sitio propio del negocio.
+    string? Direccion = null,
+    string? SitioWeb = null,
+    string? FraseBusqueda = null);
 
 /// <summary>Columna/estado configurable de la Bolsa de contactos (kanban de terceros).</summary>
 public sealed record BolsaColumnaDto(

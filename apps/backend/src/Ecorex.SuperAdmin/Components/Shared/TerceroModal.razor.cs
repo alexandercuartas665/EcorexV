@@ -316,7 +316,8 @@ public partial class TerceroModal
     public async Task OpenFromProspectoAsync(
         Guid prospectoId, string nombre, bool esEmpresa, string? fuente = null,
         string? cargo = null, string? empresa = null, string? ciudad = null,
-        string? email = null, string? telefono = null, string? imagenUrl = null)
+        string? email = null, string? telefono = null, string? imagenUrl = null,
+        string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null)
     {
         await OpenCreate();
         _prospectoId = prospectoId;
@@ -332,6 +333,18 @@ public partial class TerceroModal
         _mEmail = email?.Trim() ?? "";
         _mTelefono = telefono?.Trim() ?? "";
         _mImagenUrl = imagenUrl ?? "";
+        // Ficha BASE: se muestra en el preview lo MISMO que guardara BuildBaseFichaJson al promover, con el
+        // mismo mapeo de claves (direccion, sitio_web, maps_url=OrigenUrl de Maps, frase_busqueda).
+        var baseFicha = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(direccion)) { baseFicha["direccion"] = direccion.Trim(); }
+        if (!string.IsNullOrWhiteSpace(sitioWeb)) { baseFicha["sitio_web"] = sitioWeb.Trim(); }
+        if (!string.IsNullOrWhiteSpace(origenUrl)) { baseFicha["maps_url"] = origenUrl.Trim(); }
+        if (!string.IsNullOrWhiteSpace(fraseBusqueda)) { baseFicha["frase_busqueda"] = fraseBusqueda.Trim(); }
+        if (baseFicha.Count > 0)
+        {
+            _fichaValues["base"] = baseFicha;
+            _fichaOpen.Add("base");
+        }
         StateHasChanged();
     }
 

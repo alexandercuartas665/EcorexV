@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-28 - v0.16.161: DEPLOY a prod (tableros restringidos + fixes de contactos + notas de voz Evolution)
+
+- Bump 0.16.160 -> 0.16.161. Este release ARRASTRA lo acumulado en tronco desde v0.16.160: tableros de
+  actividades restringidos por usuario (ADR-0117), fix de la busqueda de contactos por agente (ya no fabrica),
+  fix del preview "Ver contacto" (ficha Base) y notas de voz de Evolution (ingesta + guardado en tarea +
+  transcripcion Gemini). Aplica la migracion AddBoardAllowedUsers (dual) al arrancar.
+- Deploy con deploy/deploy-prod.ps1 -Version 0.16.161 (build-from-git de fase-0/clon-backbone, backup previo,
+  auto-migra). OK explicito del usuario para ESTE deploy. Pendiente: E2E de la nota de voz real por EPRING.
+
 ## 2026-09-28 - Cargador de contactos: el preview "Ver contacto" mostraba la ficha Base vacia - rama feat/contactos-preview-ficha
 
 - Bug: el modal "Ver contacto" (preview de un prospecto, sin promover) mostraba la ficha Base vacia

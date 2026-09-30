@@ -11262,6 +11262,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("client_id");
 
+                    b.Property<string>("Codigo")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("codigo");
+
                     b.Property<Guid?>("ContainerId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("container_id");
@@ -11275,8 +11280,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnName("created_by");
 
                     b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
                         .HasColumnName("description");
 
                     b.Property<string>("LastResultSummary")

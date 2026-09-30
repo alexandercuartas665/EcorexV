@@ -21,6 +21,10 @@ public class ScrapeFlow : TenantEntity
     /// <summary>Nombre visible del flujo ("Precios competencia Homecenter").</summary>
     public string Name { get; set; } = null!;
 
+    /// <summary>Codigo de la extraccion (el B000x del legacy WEB_SCRAPING.CODIGO, p.ej. B0003=DIAN VENTAS).
+    /// Se conserva para trazabilidad/re-sync con el origen.</summary>
+    public string? Codigo { get; set; }
+
     public string? Description { get; set; }
 
     /// <summary>URL de arranque del flujo.</summary>

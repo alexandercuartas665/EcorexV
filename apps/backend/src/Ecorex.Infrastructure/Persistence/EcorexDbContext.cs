@@ -864,8 +864,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
         modelBuilder.Entity<ScrapeFlow>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Codigo).HasMaxLength(40);
             b.Property(x => x.StartUrl).HasMaxLength(1000).IsRequired();
-            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.Description).HasMaxLength(2000);
             b.Property(x => x.LastResultSummary).HasMaxLength(400);
             b.Property(x => x.PageVar).HasMaxLength(120);
             // NO ACTION: borrar el agente o el contenedor NO borra el flujo (queda sin destino/agente,

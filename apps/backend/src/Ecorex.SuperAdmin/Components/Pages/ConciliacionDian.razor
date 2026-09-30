@@ -1,0 +1,311 @@
+@page "/conciliacion-dian"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Domain.Enums
+@inject IConciliacionDianService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Conciliacion DIAN Compras - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </div>
+            <span>Automatizaciones</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Conciliacion DIAN Compras</h1>
+        <p class="page-sub" style="margin-bottom:0;">Cruza las facturas de compra reportadas a la DIAN contra los documentos internos del ERP, por documento mensual (CCD). Fase 1: datos dummy.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        @if (_docs.Count == 0)
+        {
+            <button class="btn btn-primary" @onclick="SeedDummyAsync" disabled="@_busy">Sembrar datos dummy</button>
+        }
+        <button class="btn btn-outline-secondary" @onclick="ToggleCrear" disabled="@_busy">+ Nuevo documento</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_msg))
+{
+    <div class="cd-msg">@_msg</div>
+}
+
+@if (_showCrear)
+{
+    <div class="cd-crear">
+        <span>Nuevo CCD:</span>
+        <label>Mes <input type="number" min="1" max="12" @bind="_nuevoMes" class="cd-in cd-num" /></label>
+        <label>Anio <input type="number" min="2000" max="2100" @bind="_nuevoAnio" class="cd-in cd-num" /></label>
+        <button class="btn btn-primary btn-sm" @onclick="CrearDocAsync" disabled="@_busy">Crear</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleCrear" disabled="@_busy">Cancelar</button>
+    </div>
+}
+
+@if (_docs.Count == 0)
+{
+    <div class="cd-empty">No hay documentos de conciliacion todavia. Usa "Sembrar datos dummy" para generar un CCD del mes con datos de prueba, o crea uno nuevo.</div>
+}
+else
+{
+    <div class="cd-doc-strip">
+        <label>Documento CCD:
+            <select class="cd-in" @onchange="OnDocChanged">
+                @foreach (var d in _docs)
+                {
+                    <option value="@d.Id" selected="@(d.Id == _selectedDocId)">@d.Consecutivo - @($"{d.Mes:00}/{d.Anio}") (@d.Estado)</option>
+                }
+            </select>
+        </label>
+        <span class="cd-doc-meta">Creado: @(_selectedDoc?.FechaCreacion.ToString("dd/MM/yyyy") ?? "-")</span>
+        <div style="flex:1"></div>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
+        <button class="btn btn-primary btn-sm" @onclick="ProcesarAsync" disabled="@_busy" title="Radica eventos RADIAN (MOCK en Fase 1)">Procesar seleccionados</button>
+    </div>
+
+    <div class="cd-filtros">
+        <label>Proveedor <input class="cd-in" @bind="_fProveedor" placeholder="nombre o NIT" /></label>
+        <label>Desde <input type="date" class="cd-in" @bind="_fDesde" /></label>
+        <label>Hasta <input type="date" class="cd-in" @bind="_fHasta" /></label>
+        <label>Doc desde <input class="cd-in cd-num" @bind="_fDocDesde" /></label>
+        <label>Doc hasta <input class="cd-in cd-num" @bind="_fDocHasta" /></label>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_busy">Aplicar filtro</button>
+        <button class="btn btn-link btn-sm" @onclick="LimpiarFiltro" disabled="@_busy">Limpiar</button>
+    </div>
+
+    <div class="cd-tabs">
+        @foreach (var t in _tabs)
+        {
+            <button class="cd-tab @(t.Estado == _activeTab ? "on" : "")" @onclick="() => SetTabAsync(t.Estado)">
+                @t.Label <span class="cd-badge">@(_counts.TryGetValue(t.Estado, out var c) ? c : 0)</span>
+            </button>
+        }
+    </div>
+
+    <div class="cd-grid-wrap">
+        <table class="cd-grid">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" @onchange="OnSelectAll" checked="@_allSelected" /></th>
+                    <th>Tipo DOC DIAN</th>
+                    <th>Fecha Emision</th>
+                    <th>Nombre Proveedor</th>
+                    <th>NIT</th>
+                    <th>Num Factura Prov.</th>
+                    <th>Num Factura SOLDARCO</th>
+                    <th>Orden Compra</th>
+                    <th class="num">Subtotal Bruto</th>
+                    <th class="num">Descuento</th>
+                    <th class="num">Subtotal Neto</th>
+                    <th class="num">IVA Desc.</th>
+                    <th class="num">Total antes Ret.</th>
+                    <th class="num">Retefuente</th>
+                    <th class="num">ICA</th>
+                    <th class="num">Total Factura</th>
+                    <th>Tipo Pago</th>
+                    <th>Plataforma</th>
+                    <th>Aprobada</th>
+                    <th>Ev.30</th>
+                    <th>Ev.32</th>
+                    <th>Ev.33</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_renglones.Count == 0)
+                {
+                    <tr><td colspan="22" class="cd-empty-row">Sin renglones en esta pestana (con el filtro actual).</td></tr>
+                }
+                @foreach (var r in _renglones)
+                {
+                    <tr>
+                        <td><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
+                        <td>@r.TipoDocDian</td>
+                        <td>@r.FechaEmision.ToString("dd/MM/yyyy")</td>
+                        <td>@r.NombreProveedor</td>
+                        <td>@r.NitProveedor</td>
+                        <td><span class="cd-pill info">@r.NumFacturaProveedor</span></td>
+                        <td>
+                            @if (r.NumFacturaSoldarco == "Inconsistencia!")
+                            {
+                                <span class="cd-pill danger">Inconsistencia!</span>
+                            }
+                            else if (!string.IsNullOrEmpty(r.NumFacturaSoldarco))
+                            {
+                                <span class="cd-pill primary">@r.NumFacturaSoldarco</span>
+                            }
+                            else { <span class="cd-muted">-</span> }
+                        </td>
+                        <td><input class="cd-in cd-oc" value="@r.OrdenCompraSoldarco" @onchange="e => OnOcChanged(r, e)" /></td>
+                        <td class="num">@Fmt(r.SubtotalBruto)</td>
+                        <td class="num">@Fmt(r.DescuentoComercial)</td>
+                        <td class="num">@Fmt(r.SubtotalNeto)</td>
+                        <td class="num">@Fmt(r.IvaDescontable)</td>
+                        <td class="num">@Fmt(r.TotalAntesRetenciones)</td>
+                        <td class="num">@Fmt(r.RetRetefuente)</td>
+                        <td class="num">@Fmt(r.RetIca)</td>
+                        <td class="num"><strong>@Fmt(r.TotalFactura)</strong></td>
+                        <td>@r.TipoPago</td>
+                        <td>@(r.PlataformaProveedor ? Si() : No())</td>
+                        <td><label class="cd-switch"><input type="checkbox" checked="@r.FacturaAprobada" @onchange="e => OnAprobadaChanged(r, e)" /><span></span></label></td>
+                        <td>@(r.Evento30 ? Check() : Dash())</td>
+                        <td>@(r.Evento32 ? Check() : Dash())</td>
+                        <td>@(r.Evento33 ? Check() : Dash())</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool _busy;
+    private string? _msg;
+
+    private List<ConciliacionDianDocumentoDto> _docs = new();
+    private Guid _selectedDocId;
+    private ConciliacionDianDocumentoDto? _selectedDoc => _docs.FirstOrDefault(d => d.Id == _selectedDocId);
+
+    private EstadoConciliacionDian _activeTab = EstadoConciliacionDian.Conciliar;
+    private List<ConciliacionDianRenglonDto> _renglones = new();
+    private Dictionary<EstadoConciliacionDian, int> _counts = new();
+    private bool _allSelected;
+
+    // Nuevo documento
+    private bool _showCrear;
+    private int _nuevoMes = DateTime.UtcNow.Month;
+    private int _nuevoAnio = DateTime.UtcNow.Year;
+
+    // Filtros
+    private string? _fProveedor;
+    private DateTime? _fDesde;
+    private DateTime? _fHasta;
+    private string? _fDocDesde;
+    private string? _fDocHasta;
+
+    private readonly (EstadoConciliacionDian Estado, string Label)[] _tabs =
+    {
+        (EstadoConciliacionDian.Conciliar, "Por Conciliar"),
+        (EstadoConciliacionDian.Conciliado, "Conciliados"),
+        (EstadoConciliacionDian.Buzon, "Documentos en Buzon"),
+        (EstadoConciliacionDian.Procesado, "Procesados"),
+    };
+
+    protected override async Task OnInitializedAsync() => await LoadDocsAsync();
+
+    private async Task LoadDocsAsync()
+    {
+        _docs = (await Svc.ListDocumentosAsync()).ToList();
+        if (_docs.Count > 0 && _selectedDocId == Guid.Empty) { _selectedDocId = _docs[0].Id; }
+        if (_docs.Count > 0) { await ReloadAsync(); }
+    }
+
+    private ConciliacionDianFiltro Filtro() => new(
+        string.IsNullOrWhiteSpace(_fProveedor) ? null : _fProveedor,
+        _fDesde is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null,
+        _fHasta is { } h ? new DateTimeOffset(h, TimeSpan.Zero) : null,
+        string.IsNullOrWhiteSpace(_fDocDesde) ? null : _fDocDesde,
+        string.IsNullOrWhiteSpace(_fDocHasta) ? null : _fDocHasta);
+
+    private async Task ReloadAsync()
+    {
+        if (_selectedDocId == Guid.Empty) { return; }
+        var f = Filtro();
+        _counts = new Dictionary<EstadoConciliacionDian, int>(await Svc.ContarPorEstadoAsync(_selectedDocId, f));
+        _renglones = (await Svc.ListRenglonesAsync(_selectedDocId, _activeTab, f)).ToList();
+        _allSelected = _renglones.Count > 0 && _renglones.All(r => r.Seleccionado);
+        StateHasChanged();
+    }
+
+    private async Task OnDocChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id)) { _selectedDocId = id; await ReloadAsync(); }
+    }
+
+    private async Task SetTabAsync(EstadoConciliacionDian estado) { _activeTab = estado; await ReloadAsync(); }
+
+    private void ToggleCrear() { _showCrear = !_showCrear; _msg = null; }
+    private async Task LimpiarFiltro() { _fProveedor = null; _fDesde = null; _fHasta = null; _fDocDesde = null; _fDocHasta = null; await ReloadAsync(); }
+
+    private async Task SeedDummyAsync()
+    {
+        _busy = true; _msg = null;
+        try { _msg = await Svc.SeedDummyAsync(); await LoadDocsAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task CrearDocAsync()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var (doc, err) = await Svc.CrearDocumentoAsync(_nuevoAnio, _nuevoMes);
+            if (err is not null) { _msg = err; return; }
+            _showCrear = false;
+            if (doc is not null) { _selectedDocId = doc.Id; }
+            await LoadDocsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ImportarAsync()
+    {
+        _busy = true; _msg = null;
+        try { var n = await Svc.ImportarDesdeBotAsync(_selectedDocId); _msg = n > 0 ? $"Importadas {n} facturas del bot DIAN." : "Sin facturas nuevas del bot para el periodo."; await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task CruzarAsync()
+    {
+        _busy = true; _msg = null;
+        try { var r = await Svc.CruzarAsync(_selectedDocId); _msg = $"Cruce: {r.Cruzadas} con documento ERP, {r.Inconsistencias} inconsistencia(s), {r.AutoAprobadas} auto-aprobadas."; await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task ProcesarAsync()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var r = await Svc.ProcesarEventosAsync(_selectedDocId, Array.Empty<Guid>());
+            _msg = $"Eventos (MOCK Fase 1): {r.FacturasProcesadas} factura(s), {r.EventosMarcados} evento(s) marcados"
+                 + (r.SinPlataforma > 0 ? $", {r.SinPlataforma} sin plataforma (omitidas)." : ".");
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task OnOcChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
+    {
+        await Svc.UpdateOrdenCompraAsync(r.Id, e.Value?.ToString() ?? "");
+    }
+
+    private async Task OnAprobadaChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
+    {
+        var val = e.Value is bool b && b;
+        await Svc.ToggleAprobadaAsync(r.Id, val);
+        await ReloadAsync(); // el estado (pestana) puede cambiar.
+    }
+
+    private async Task OnSelChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
+    {
+        var val = e.Value is bool b && b;
+        await Svc.SetSeleccionAsync(new[] { r.Id }, val);
+        await ReloadAsync();
+    }
+
+    private async Task OnSelectAll(ChangeEventArgs e)
+    {
+        var val = e.Value is bool b && b;
+        await Svc.SetSeleccionAsync(_renglones.Select(r => r.Id).ToList(), val);
+        await ReloadAsync();
+    }
+
+    private static string Fmt(decimal d) => d.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture);
+    private static MarkupString Si() => new("<span class=\"cd-pill ok\">Si</span>");
+    private static MarkupString No() => new("<span class=\"cd-muted\">No</span>");
+    private static MarkupString Check() => new("<span class=\"cd-ev ok\">&#10003;</span>");
+    private static MarkupString Dash() => new("<span class=\"cd-muted\">-</span>");
+}

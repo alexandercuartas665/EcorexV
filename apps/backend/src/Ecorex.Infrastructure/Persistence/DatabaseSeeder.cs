@@ -3020,6 +3020,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(auto.Id, "Formularios", "formularios", "000131");
         Item(auto.Id, "Power BI Service", "modulo/power-bi-service", "000788");
 
+        // ---- Seccion: Automatizaciones (slug automatizaciones) -- modulos de automatizacion operativa ----
+        var automz = Add(MenuNodeKind.Section, "Automatizaciones", null, "automatizaciones", iconKey: "automation");
+        Item(automz.Id, "Conciliacion DIAN Compras", "conciliacion-dian", "001679");
+
         // ---- Seccion: Sistema - Inventarios (slug inv) ----
         var inv = Add(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
         // Los cinco catalogos (bodegas 000556, grupos 000506, marcas 000502, subgrupos 000606
@@ -3157,6 +3161,75 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         }
 
         if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE del modulo "Conciliacion DIAN Compras": crea la seccion "Automatizaciones" y su
+    /// item en la vista de menu por defecto del tenant si aun no existen. Cubre tenants YA sembrados (los
+    /// nuevos ya lo traen via <see cref="EnsureDefaultMenuAsync"/>). No duplica.
+    /// </summary>
+    public async Task EnsureConciliacionDianMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // Vista por defecto del tenant.
+        var view = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId && v.IsDefault)
+            .OrderBy(v => v.SortOrder)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (view is null) { return; }
+
+        // Seccion "Automatizaciones" (slug automatizaciones): reusa la que exista o la crea.
+        var section = await _db.MenuNodes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(n => n.MenuViewId == view.Id
+                && n.Kind == MenuNodeKind.Section && n.Route == "automatizaciones", cancellationToken);
+        var changed = false;
+        if (section is null)
+        {
+            var maxSort = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == view.Id && n.ParentId == null)
+                .Select(n => (int?)n.SortOrder).MaxAsync(cancellationToken) ?? 0;
+            section = new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = view.Id,
+                ParentId = null,
+                Kind = MenuNodeKind.Section,
+                Name = "Automatizaciones",
+                IconKey = "automation",
+                Route = "automatizaciones",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxSort + 1
+            };
+            _db.MenuNodes.Add(section);
+            await _db.SaveChangesAsync(cancellationToken); // materializa el Id para el item hijo.
+            changed = true;
+        }
+
+        var itemExists = await _db.MenuNodes.IgnoreQueryFilters()
+            .AnyAsync(n => n.MenuViewId == view.Id && n.Route == "conciliacion-dian", cancellationToken);
+        if (!itemExists)
+        {
+            var maxChild = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.ParentId == section.Id)
+                .Select(n => (int?)n.SortOrder).MaxAsync(cancellationToken) ?? section.SortOrder;
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = view.Id,
+                ParentId = section.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Conciliacion DIAN Compras",
+                IconKey = null,
+                LegacyCode = "001679",
+                Route = "conciliacion-dian",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxChild + 1
+            });
+            changed = true;
+        }
+
+        if (changed) { await _db.SaveChangesAsync(cancellationToken); }
     }
 
     /// <summary>

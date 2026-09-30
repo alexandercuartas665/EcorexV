@@ -2109,6 +2109,479 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("conceptos_actividad", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianBotDummy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Cufe")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("cufe");
+
+                    b.Property<decimal>("DescuentoComercial")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("descuento_comercial");
+
+                    b.Property<DateTimeOffset>("FechaDoc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_doc");
+
+                    b.Property<string>("IdCompra")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("id_compra");
+
+                    b.Property<decimal>("Iva")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("iva");
+
+                    b.Property<string>("NitEmisor")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("nit_emisor");
+
+                    b.Property<string>("NombreEmisor")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)")
+                        .HasColumnName("nombre_emisor");
+
+                    b.Property<string>("PrefijoFolio")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("prefijo_folio");
+
+                    b.Property<string>("ProveedorTecnologico")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("proveedor_tecnologico");
+
+                    b.Property<decimal>("RetencionFuente")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("retencion_fuente");
+
+                    b.Property<decimal>("RetencionIca")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("retencion_ica");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("subtotal");
+
+                    b.Property<decimal>("SubtotalBruto")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("subtotal_bruto");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TipoDoc")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("tipo_doc");
+
+                    b.Property<string>("TipoPago")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("tipo_pago");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("total");
+
+                    b.Property<decimal>("TotalAntesRet")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("total_antes_ret");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_bot_dummies");
+
+                    b.HasIndex("TenantId", "Cufe")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_dian_bot_dummies_tenant_id_cufe");
+
+                    b.ToTable("conciliacion_dian_bot_dummies", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianDocumento", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Anio")
+                        .HasColumnType("int")
+                        .HasColumnName("anio");
+
+                    b.Property<string>("Consecutivo")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("consecutivo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("estado");
+
+                    b.Property<int>("Mes")
+                        .HasColumnType("int")
+                        .HasColumnName("mes");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_documentos");
+
+                    b.HasIndex("TenantId", "Consecutivo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_dian_documentos_tenant_id_consecutivo");
+
+                    b.HasIndex("TenantId", "Anio", "Mes")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_dian_documentos_tenant_id_anio_mes");
+
+                    b.ToTable("conciliacion_dian_documentos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianErpRefDummy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DocumentoInterno")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("documento_interno");
+
+                    b.Property<string>("Referencia")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("referencia");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_erp_ref_dummies");
+
+                    b.HasIndex("TenantId", "Referencia")
+                        .HasDatabaseName("ix_conciliacion_dian_erp_ref_dummies_tenant_id_referencia");
+
+                    b.ToTable("conciliacion_dian_erp_ref_dummies", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianNewtonDummy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Cufe")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("cufe");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("GuidPdf")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("guid_pdf");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_newton_dummies");
+
+                    b.HasIndex("TenantId", "Cufe")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_dian_newton_dummies_tenant_id_cufe");
+
+                    b.ToTable("conciliacion_dian_newton_dummies", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianRenglon", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Cufe")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("cufe");
+
+                    b.Property<decimal>("DescuentoComercial")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("descuento_comercial");
+
+                    b.Property<Guid>("DocumentoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("documento_id");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("int")
+                        .HasColumnName("estado");
+
+                    b.Property<bool>("Evento30")
+                        .HasColumnType("bit")
+                        .HasColumnName("evento30");
+
+                    b.Property<bool>("Evento31")
+                        .HasColumnType("bit")
+                        .HasColumnName("evento31");
+
+                    b.Property<bool>("Evento32")
+                        .HasColumnType("bit")
+                        .HasColumnName("evento32");
+
+                    b.Property<bool>("Evento33")
+                        .HasColumnType("bit")
+                        .HasColumnName("evento33");
+
+                    b.Property<bool>("Evento34")
+                        .HasColumnType("bit")
+                        .HasColumnName("evento34");
+
+                    b.Property<bool>("FacturaAprobada")
+                        .HasColumnType("bit")
+                        .HasColumnName("factura_aprobada");
+
+                    b.Property<DateTimeOffset>("FechaEmision")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_emision");
+
+                    b.Property<decimal>("IvaDescontable")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("iva_descontable");
+
+                    b.Property<string>("NitProveedor")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("nit_proveedor");
+
+                    b.Property<string>("NombreProveedor")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)")
+                        .HasColumnName("nombre_proveedor");
+
+                    b.Property<string>("NumFacturaProveedor")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("num_factura_proveedor");
+
+                    b.Property<string>("NumFacturaSoldarco")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("num_factura_soldarco");
+
+                    b.Property<string>("OrdenCompraSoldarco")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("orden_compra_soldarco");
+
+                    b.Property<bool>("PlataformaProveedor")
+                        .HasColumnType("bit")
+                        .HasColumnName("plataforma_proveedor");
+
+                    b.Property<decimal>("RetIca")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("ret_ica");
+
+                    b.Property<decimal>("RetRetefuente")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("ret_retefuente");
+
+                    b.Property<string>("RutEscaneado")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("rut_escaneado");
+
+                    b.Property<bool>("Seleccionado")
+                        .HasColumnType("bit")
+                        .HasColumnName("seleccionado");
+
+                    b.Property<decimal>("SubtotalBruto")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("subtotal_bruto");
+
+                    b.Property<decimal>("SubtotalNeto")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("subtotal_neto");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TipoDocDian")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("tipo_doc_dian");
+
+                    b.Property<string>("TipoPago")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("tipo_pago");
+
+                    b.Property<decimal>("TotalAntesRetenciones")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("total_antes_retenciones");
+
+                    b.Property<decimal>("TotalFactura")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("total_factura");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_renglones");
+
+                    b.HasIndex("DocumentoId")
+                        .HasDatabaseName("ix_conciliacion_dian_renglones_documento_id");
+
+                    b.HasIndex("TenantId", "DocumentoId", "Cufe")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_dian_renglones_tenant_id_documento_id_cufe");
+
+                    b.HasIndex("TenantId", "DocumentoId", "Estado")
+                        .HasDatabaseName("ix_conciliacion_dian_renglones_tenant_id_documento_id_estado");
+
+                    b.ToTable("conciliacion_dian_renglones", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactImportBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -16736,6 +17209,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Subcategoria");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianRenglon", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionDianDocumento", "Documento")
+                        .WithMany("Renglones")
+                        .HasForeignKey("DocumentoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_dian_renglones_conciliacion_dian_documentos_documento_id");
+
+                    b.Navigation("Documento");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.TerceroFiltro", "TerceroFiltro")
@@ -18760,6 +19245,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianDocumento", b =>
+                {
+                    b.Navigation("Renglones");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>

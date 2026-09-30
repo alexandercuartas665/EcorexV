@@ -273,6 +273,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<Cita> Citas => Set<Cita>();
     public DbSet<TerceroFiltro> TerceroFiltros => Set<TerceroFiltro>();
     public DbSet<ProspectoScrapeado> ProspectosScrapeados => Set<ProspectoScrapeado>();
+    // Conciliacion DIAN de compras (Automatizaciones). CCD (encabezado) + renglones + 3 fuentes dummy (Fase 1).
+    public DbSet<ConciliacionDianDocumento> ConciliacionDianDocumentos => Set<ConciliacionDianDocumento>();
+    public DbSet<ConciliacionDianRenglon> ConciliacionDianRenglones => Set<ConciliacionDianRenglon>();
+    public DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies => Set<ConciliacionDianBotDummy>();
+    public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
+    public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2599,6 +2605,79 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.EmpresaProspectoId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => x.EmpresaProspectoId);
             b.HasIndex(x => new { x.TenantId, x.Fuente });
+        });
+
+        // ---- Conciliacion DIAN de compras (modulo Automatizaciones) ----
+
+        modelBuilder.Entity<ConciliacionDianDocumento>(b =>
+        {
+            b.Property(x => x.Consecutivo).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Estado).HasMaxLength(20).IsRequired();
+            // Un documento CCD por tenant y periodo (reemplaza el unico por SUCURSAL+ANIO+MES del molde).
+            b.HasIndex(x => new { x.TenantId, x.Anio, x.Mes }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Consecutivo }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionDianRenglon>(b =>
+        {
+            b.Property(x => x.Estado).HasConversion<int>();
+            b.Property(x => x.Cufe).HasMaxLength(120).IsRequired();
+            b.Property(x => x.TipoDocDian).HasMaxLength(60);
+            b.Property(x => x.NombreProveedor).HasMaxLength(250);
+            b.Property(x => x.NitProveedor).HasMaxLength(40);
+            b.Property(x => x.NumFacturaProveedor).HasMaxLength(80);
+            b.Property(x => x.NumFacturaSoldarco).HasMaxLength(80);
+            b.Property(x => x.OrdenCompraSoldarco).HasMaxLength(80);
+            b.Property(x => x.TipoPago).HasMaxLength(60);
+            b.Property(x => x.RutEscaneado).HasMaxLength(200);
+            foreach (var money in new[] { nameof(ConciliacionDianRenglon.SubtotalBruto), nameof(ConciliacionDianRenglon.DescuentoComercial),
+                nameof(ConciliacionDianRenglon.SubtotalNeto), nameof(ConciliacionDianRenglon.IvaDescontable),
+                nameof(ConciliacionDianRenglon.TotalAntesRetenciones), nameof(ConciliacionDianRenglon.RetRetefuente),
+                nameof(ConciliacionDianRenglon.RetIca), nameof(ConciliacionDianRenglon.TotalFactura) })
+            {
+                b.Property(money).HasPrecision(18, 2);
+            }
+            // FK al CCD. Restrict: el borrado del encabezado lo maneja el servicio (evita cascada implicita).
+            b.HasOne(x => x.Documento).WithMany(d => d.Renglones)
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.Estado });
+            // Ingesta idempotente del bot: no duplicar la misma factura (CUFE) en el mismo documento.
+            b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.Cufe }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionDianBotDummy>(b =>
+        {
+            b.Property(x => x.Cufe).HasMaxLength(120).IsRequired();
+            b.Property(x => x.TipoDoc).HasMaxLength(60);
+            b.Property(x => x.NombreEmisor).HasMaxLength(250);
+            b.Property(x => x.NitEmisor).HasMaxLength(40);
+            b.Property(x => x.PrefijoFolio).HasMaxLength(80);
+            b.Property(x => x.IdCompra).HasMaxLength(80);
+            b.Property(x => x.TipoPago).HasMaxLength(60);
+            b.Property(x => x.ProveedorTecnologico).HasMaxLength(120);
+            foreach (var money in new[] { nameof(ConciliacionDianBotDummy.SubtotalBruto), nameof(ConciliacionDianBotDummy.DescuentoComercial),
+                nameof(ConciliacionDianBotDummy.Subtotal), nameof(ConciliacionDianBotDummy.Iva),
+                nameof(ConciliacionDianBotDummy.TotalAntesRet), nameof(ConciliacionDianBotDummy.RetencionFuente),
+                nameof(ConciliacionDianBotDummy.RetencionIca), nameof(ConciliacionDianBotDummy.Total) })
+            {
+                b.Property(money).HasPrecision(18, 2);
+            }
+            b.HasIndex(x => new { x.TenantId, x.Cufe }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionDianNewtonDummy>(b =>
+        {
+            b.Property(x => x.Cufe).HasMaxLength(120).IsRequired();
+            b.Property(x => x.GuidPdf).HasMaxLength(200);
+            b.Property(x => x.EventId).HasMaxLength(120);
+            b.HasIndex(x => new { x.TenantId, x.Cufe }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionDianErpRefDummy>(b =>
+        {
+            b.Property(x => x.Referencia).HasMaxLength(80).IsRequired();
+            b.Property(x => x.DocumentoInterno).HasMaxLength(80);
+            b.HasIndex(x => new { x.TenantId, x.Referencia });
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

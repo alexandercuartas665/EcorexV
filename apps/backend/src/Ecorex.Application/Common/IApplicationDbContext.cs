@@ -256,6 +256,13 @@ public interface IApplicationDbContext
     DbSet<TerceroFiltro> TerceroFiltros { get; }
     DbSet<ProspectoScrapeado> ProspectosScrapeados { get; }
 
+    // Conciliacion DIAN de compras (Automatizaciones): CCD + renglones + 3 fuentes dummy (Fase 1).
+    DbSet<ConciliacionDianDocumento> ConciliacionDianDocumentos { get; }
+    DbSet<ConciliacionDianRenglon> ConciliacionDianRenglones { get; }
+    DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies { get; }
+    DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies { get; }
+    DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies { get; }
+
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
     DbSet<ContactWorkflow> ContactWorkflows { get; }

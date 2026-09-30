@@ -421,8 +421,16 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             .Where(t => t.Estado != TerceroEstado.Inactivo)
             .Select(t => new
             {
-                t.Id, t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
-                t.Email, t.Telefono,
+                t.Id,
+                t.Nombre,
+                t.Ciudad,
+                t.Vendedor,
+                t.Sector,
+                t.Cargo,
+                t.Perfiles,
+                t.Estado,
+                t.Email,
+                t.Telefono,
                 EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null
             })
             .ToListAsync(cancellationToken);

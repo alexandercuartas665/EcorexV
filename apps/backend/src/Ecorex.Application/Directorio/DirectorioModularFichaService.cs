@@ -416,8 +416,19 @@ public sealed class DirectorioModularFichaService : IDirectorioModularFichaServi
             .OrderBy(t => t.Nombre)
             .Select(t => new
             {
-                t.Nombre, t.Tipo, t.Perfiles, t.Estado, t.IdTipo, t.IdValor,
-                t.Ciudad, t.Sector, t.Cargo, t.Email, t.Telefono, t.Vendedor, t.VendedorAsesorId
+                t.Nombre,
+                t.Tipo,
+                t.Perfiles,
+                t.Estado,
+                t.IdTipo,
+                t.IdValor,
+                t.Ciudad,
+                t.Sector,
+                t.Cargo,
+                t.Email,
+                t.Telefono,
+                t.Vendedor,
+                t.VendedorAsesorId
             })
             .ToListAsync(cancellationToken);
 

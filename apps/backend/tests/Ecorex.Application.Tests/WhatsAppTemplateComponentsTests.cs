@@ -67,8 +67,11 @@ public class WhatsAppTemplateComponentsTests
     {
         var t = new WhatsAppTemplate
         {
-            Name = "simple", Language = "es", Category = WhatsAppTemplateCategory.Marketing,
-            HeaderType = WhatsAppTemplateHeaderType.None, BodyText = "Texto sin variables."
+            Name = "simple",
+            Language = "es",
+            Category = WhatsAppTemplateCategory.Marketing,
+            HeaderType = WhatsAppTemplateHeaderType.None,
+            BodyText = "Texto sin variables."
         };
         var json = JsonSerializer.Serialize(WhatsAppTemplateComponents.Build(t));
         Assert.Contains("\"type\":\"BODY\"", json);
@@ -81,7 +84,9 @@ public class WhatsAppTemplateComponentsTests
     {
         var t = new WhatsAppTemplate
         {
-            Name = "aviso_img", Language = "es", Category = WhatsAppTemplateCategory.Utility,
+            Name = "aviso_img",
+            Language = "es",
+            Category = WhatsAppTemplateCategory.Utility,
             HeaderType = WhatsAppTemplateHeaderType.Image,
             HeaderMediaUrl = "https://cdn.example.com/banner.jpg",
             BodyText = "Tienes la tarea {{numero}}.",
@@ -100,8 +105,11 @@ public class WhatsAppTemplateComponentsTests
     {
         var t = new WhatsAppTemplate
         {
-            Name = "aviso_img2", Language = "es", Category = WhatsAppTemplateCategory.Utility,
-            HeaderType = WhatsAppTemplateHeaderType.Image, HeaderMediaUrl = null,
+            Name = "aviso_img2",
+            Language = "es",
+            Category = WhatsAppTemplateCategory.Utility,
+            HeaderType = WhatsAppTemplateHeaderType.Image,
+            HeaderMediaUrl = null,
             BodyText = "Cuerpo."
         };
         var json = JsonSerializer.Serialize(WhatsAppTemplateComponents.Build(t));
@@ -125,7 +133,9 @@ public class WhatsAppTemplateComponentsTests
         // example o YCloud rechaza con "component of type BODY is missing expected field(s) (example)".
         var t = new WhatsAppTemplate
         {
-            Name = "aviso_tarea", Language = "es", Category = WhatsAppTemplateCategory.Utility,
+            Name = "aviso_tarea",
+            Language = "es",
+            Category = WhatsAppTemplateCategory.Utility,
             BodyText = "Se registro la tarea {{numero}} - {{titulo}}. Abrela: {{enlace}}",
             VariablesJson = """[{"Token":"numero","Example":"T00042"},{"Token":"titulo","Example":"Cotizacion"},{"Token":"enlace","Example":"https://x/y"}]"""
         };

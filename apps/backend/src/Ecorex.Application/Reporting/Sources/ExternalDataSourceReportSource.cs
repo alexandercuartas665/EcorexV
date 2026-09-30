@@ -49,8 +49,15 @@ public sealed class ExternalDataSourceReportSource : IReportableSource
             .Where(s => s.OwnerTenantId == ctx.TenantId)
             .Select(s => new
             {
-                s.Id, s.Name, s.Provider, s.AllowWrite, s.IsEnabled, s.Description,
-                s.LastValidatedAt, s.CreatedAt, s.UpdatedAt
+                s.Id,
+                s.Name,
+                s.Provider,
+                s.AllowWrite,
+                s.IsEnabled,
+                s.Description,
+                s.LastValidatedAt,
+                s.CreatedAt,
+                s.UpdatedAt
             })
             .ToListAsync(ct);
 

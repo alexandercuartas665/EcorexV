@@ -64,7 +64,10 @@ public static class AgentMgmtEndpoints
                 var lMap = lineCounts.ToDictionary(x => x.Key, x => x.C);
                 return (object)tenants.Select(t => new
                 {
-                    t.Id, t.Name, t.Status, t.Kind,
+                    t.Id,
+                    t.Name,
+                    t.Status,
+                    t.Kind,
                     agents = aMap.TryGetValue(t.Id, out var a) ? a : 0,
                     lines = lMap.TryGetValue(t.Id, out var l) ? l : 0
                 }).ToList();
@@ -276,51 +279,51 @@ public static class AgentMgmtEndpoints
                 switch (method)
                 {
                     case "initialize":
-                    {
-                        var ver = JsonSerializer.Serialize(Ecorex.SuperAdmin.AppVersion.Current);
-                        var initResult = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{\"listChanged\":false}},"
-                            + "\"serverInfo\":{\"name\":\"ecorex-mgmt-agent-tools\",\"version\":" + ver + "}}";
-                        return Results.Content(McpEnvelope(idRaw, initResult), "application/json; charset=utf-8");
-                    }
+                        {
+                            var ver = JsonSerializer.Serialize(Ecorex.SuperAdmin.AppVersion.Current);
+                            var initResult = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{\"listChanged\":false}},"
+                                + "\"serverInfo\":{\"name\":\"ecorex-mgmt-agent-tools\",\"version\":" + ver + "}}";
+                            return Results.Content(McpEnvelope(idRaw, initResult), "application/json; charset=utf-8");
+                        }
 
                     case "tools/list":
-                    {
-                        var tools = toolsets.SelectMany(ts => ts.GetSpecs()).Select(s => new
                         {
-                            name = s.Name,
-                            description = s.Description,
-                            inputSchema = ParseSchema(s.ParametersJsonSchema)
-                        }).ToList();
-                        return Results.Content(McpEnvelope(idRaw, JsonSerializer.Serialize(new { tools }, Json)), "application/json; charset=utf-8");
-                    }
+                            var tools = toolsets.SelectMany(ts => ts.GetSpecs()).Select(s => new
+                            {
+                                name = s.Name,
+                                description = s.Description,
+                                inputSchema = ParseSchema(s.ParametersJsonSchema)
+                            }).ToList();
+                            return Results.Content(McpEnvelope(idRaw, JsonSerializer.Serialize(new { tools }, Json)), "application/json; charset=utf-8");
+                        }
 
                     case "tools/call":
-                    {
-                        if (!root.TryGetProperty("params", out var prms) || !prms.TryGetProperty("name", out var nEl) || nEl.ValueKind != JsonValueKind.String)
                         {
-                            return Results.Content(McpError(idRaw, -32602, "params.name es obligatorio"), "application/json; charset=utf-8");
-                        }
-                        var toolName = nEl.GetString()!;
-                        var argsJson = prms.TryGetProperty("arguments", out var aEl) && aEl.ValueKind == JsonValueKind.Object ? aEl.GetRawText() : "{}";
-                        var owner = toolsets.FirstOrDefault(ts => ts.GetSpecs().Any(s => string.Equals(s.Name, toolName, StringComparison.Ordinal)));
-                        if (owner is null)
-                        {
-                            return Results.Content(McpToolContent(idRaw, isError: true, $"Herramienta desconocida: {toolName}"), "application/json; charset=utf-8");
-                        }
+                            if (!root.TryGetProperty("params", out var prms) || !prms.TryGetProperty("name", out var nEl) || nEl.ValueKind != JsonValueKind.String)
+                            {
+                                return Results.Content(McpError(idRaw, -32602, "params.name es obligatorio"), "application/json; charset=utf-8");
+                            }
+                            var toolName = nEl.GetString()!;
+                            var argsJson = prms.TryGetProperty("arguments", out var aEl) && aEl.ValueKind == JsonValueKind.Object ? aEl.GetRawText() : "{}";
+                            var owner = toolsets.FirstOrDefault(ts => ts.GetSpecs().Any(s => string.Equals(s.Name, toolName, StringComparison.Ordinal)));
+                            if (owner is null)
+                            {
+                                return Results.Content(McpToolContent(idRaw, isError: true, $"Herramienta desconocida: {toolName}"), "application/json; charset=utf-8");
+                            }
 
-                        AgentToolResult tr;
-                        try { tr = await owner.ExecuteAsync(toolName, argsJson, SystemActor, autonomous: true, ct); }
-                        catch (Exception ex) { return Results.Content(McpToolContent(idRaw, isError: true, ex.Message), "application/json; charset=utf-8"); }
+                            AgentToolResult tr;
+                            try { tr = await owner.ExecuteAsync(toolName, argsJson, SystemActor, autonomous: true, ct); }
+                            catch (Exception ex) { return Results.Content(McpToolContent(idRaw, isError: true, ex.Message), "application/json; charset=utf-8"); }
 
-                        var readOnly = owner is IFormAuthoringToolset fa && fa.ReadOnlyTools.Contains(toolName);
-                        var errored = ResultIsError(tr.Json);
-                        if (!readOnly && !errored)
-                        {
-                            var svc = Resolve(sp);
-                            await AuditAsync(svc, tenantId, $"mgmt-api.mcp.{toolName}", "AgentTool", null, new { tool = toolName, args = Truncate(argsJson, 2000) }, ct);
+                            var readOnly = owner is IFormAuthoringToolset fa && fa.ReadOnlyTools.Contains(toolName);
+                            var errored = ResultIsError(tr.Json);
+                            if (!readOnly && !errored)
+                            {
+                                var svc = Resolve(sp);
+                                await AuditAsync(svc, tenantId, $"mgmt-api.mcp.{toolName}", "AgentTool", null, new { tool = toolName, args = Truncate(argsJson, 2000) }, ct);
+                            }
+                            return Results.Content(McpToolContent(idRaw, errored, tr.Json), "application/json; charset=utf-8");
                         }
-                        return Results.Content(McpToolContent(idRaw, errored, tr.Json), "application/json; charset=utf-8");
-                    }
 
                     case "ping":
                         return Results.Content(McpEnvelope(idRaw, "{}"), "application/json; charset=utf-8");
@@ -529,8 +532,18 @@ public static class AgentMgmtEndpoints
                 var defs = await svc.Db.ContactSearchDefinitions.AsNoTracking().OrderBy(d => d.Name).ToListAsync(c);
                 return (object)defs.Select(d => new
                 {
-                    d.Id, d.Name, source = d.SourceType.ToString(), d.Query, d.City, d.Region, d.Country,
-                    d.MaxContacts, d.ClientId, aiAgentId = d.ClassifierAiAgentId, active = d.IsActive, d.LastRunAt
+                    d.Id,
+                    d.Name,
+                    source = d.SourceType.ToString(),
+                    d.Query,
+                    d.City,
+                    d.Region,
+                    d.Country,
+                    d.MaxContacts,
+                    d.ClientId,
+                    aiAgentId = d.ClassifierAiAgentId,
+                    active = d.IsActive,
+                    d.LastRunAt
                 }).ToList();
             },
             result => Results.Json(result, Json)));

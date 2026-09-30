@@ -468,7 +468,12 @@ public static class ConfigApiEndpoints
                 foreach (var x in lastByClient) { if (!string.IsNullOrEmpty(x.ClientId)) { lastMap[x.ClientId] = x.Last; } }
                 var shaped = agents.Select(a => new
                 {
-                    a.Id, a.Name, a.Description, a.ClientId, a.HasSecret, a.IsActive,
+                    a.Id,
+                    a.Name,
+                    a.Description,
+                    a.ClientId,
+                    a.HasSecret,
+                    a.IsActive,
                     lastSeenAt = lastMap.TryGetValue(a.ClientId, out var l) ? (DateTimeOffset?)l : null
                 });
                 return Results.Json(shaped, Json);

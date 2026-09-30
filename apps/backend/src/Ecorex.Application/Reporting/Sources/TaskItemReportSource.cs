@@ -295,45 +295,45 @@ public sealed class TaskItemReportSource : IReportableSource
                 // Filtros por NOMBRE: se resuelve el conjunto de ids que casan y se filtra por id (WHERE IN).
                 // List.Contains lo traduce EF a IN en ambos motores; el NotEquals incluye los sin dato (null).
                 case "concepto":
-                {
-                    var ids = MatchIds(lk.Subcats.Select(kv => (kv.Key, kv.Value.Sub)), f);
-                    q = f.Operator == ReportFilterOperator.NotEquals
-                        ? q.Where(t => t.SubcategoriaId == null || !ids.Contains(t.SubcategoriaId.Value))
-                        : q.Where(t => t.SubcategoriaId != null && ids.Contains(t.SubcategoriaId.Value));
-                    break;
-                }
+                    {
+                        var ids = MatchIds(lk.Subcats.Select(kv => (kv.Key, kv.Value.Sub)), f);
+                        q = f.Operator == ReportFilterOperator.NotEquals
+                            ? q.Where(t => t.SubcategoriaId == null || !ids.Contains(t.SubcategoriaId.Value))
+                            : q.Where(t => t.SubcategoriaId != null && ids.Contains(t.SubcategoriaId.Value));
+                        break;
+                    }
                 case "categoria":
-                {
-                    var ids = MatchIds(lk.Subcats.Select(kv => (kv.Key, kv.Value.Cat)), f);
-                    q = f.Operator == ReportFilterOperator.NotEquals
-                        ? q.Where(t => t.SubcategoriaId == null || !ids.Contains(t.SubcategoriaId.Value))
-                        : q.Where(t => t.SubcategoriaId != null && ids.Contains(t.SubcategoriaId.Value));
-                    break;
-                }
+                    {
+                        var ids = MatchIds(lk.Subcats.Select(kv => (kv.Key, kv.Value.Cat)), f);
+                        q = f.Operator == ReportFilterOperator.NotEquals
+                            ? q.Where(t => t.SubcategoriaId == null || !ids.Contains(t.SubcategoriaId.Value))
+                            : q.Where(t => t.SubcategoriaId != null && ids.Contains(t.SubcategoriaId.Value));
+                        break;
+                    }
                 case "assigneename":
-                {
-                    var ids = MatchIds(lk.Users.Select(kv => (kv.Key, (string?)kv.Value)), f);
-                    q = f.Operator == ReportFilterOperator.NotEquals
-                        ? q.Where(t => t.AssigneeTenantUserId == null || !ids.Contains(t.AssigneeTenantUserId.Value))
-                        : q.Where(t => t.AssigneeTenantUserId != null && ids.Contains(t.AssigneeTenantUserId.Value));
-                    break;
-                }
+                    {
+                        var ids = MatchIds(lk.Users.Select(kv => (kv.Key, (string?)kv.Value)), f);
+                        q = f.Operator == ReportFilterOperator.NotEquals
+                            ? q.Where(t => t.AssigneeTenantUserId == null || !ids.Contains(t.AssigneeTenantUserId.Value))
+                            : q.Where(t => t.AssigneeTenantUserId != null && ids.Contains(t.AssigneeTenantUserId.Value));
+                        break;
+                    }
                 case "board":
-                {
-                    var ids = MatchIds(lk.Boards.Select(kv => (kv.Key, (string?)kv.Value)), f);
-                    q = f.Operator == ReportFilterOperator.NotEquals
-                        ? q.Where(t => t.BoardId == null || !ids.Contains(t.BoardId.Value))
-                        : q.Where(t => t.BoardId != null && ids.Contains(t.BoardId.Value));
-                    break;
-                }
+                    {
+                        var ids = MatchIds(lk.Boards.Select(kv => (kv.Key, (string?)kv.Value)), f);
+                        q = f.Operator == ReportFilterOperator.NotEquals
+                            ? q.Where(t => t.BoardId == null || !ids.Contains(t.BoardId.Value))
+                            : q.Where(t => t.BoardId != null && ids.Contains(t.BoardId.Value));
+                        break;
+                    }
                 case "stage":
-                {
-                    var ids = MatchIds(lk.Columns.Select(kv => (kv.Key, (string?)kv.Value)), f);
-                    q = f.Operator == ReportFilterOperator.NotEquals
-                        ? q.Where(t => t.ColumnId == null || !ids.Contains(t.ColumnId.Value))
-                        : q.Where(t => t.ColumnId != null && ids.Contains(t.ColumnId.Value));
-                    break;
-                }
+                    {
+                        var ids = MatchIds(lk.Columns.Select(kv => (kv.Key, (string?)kv.Value)), f);
+                        q = f.Operator == ReportFilterOperator.NotEquals
+                            ? q.Where(t => t.ColumnId == null || !ids.Contains(t.ColumnId.Value))
+                            : q.Where(t => t.ColumnId != null && ids.Contains(t.ColumnId.Value));
+                        break;
+                    }
                 default:
                     throw new ReportValidationException($"El campo '{f.FieldKey}' no admite filtro en la fuente 'Actividades'.");
             }

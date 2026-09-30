@@ -484,7 +484,12 @@ public sealed class RuleDocumentService : IRuleDocumentService
             .Where(l => l.DefinitionId == definitionId)
             .Join(_db.Rules.AsNoTracking(), l => l.RuleId, r => r.Id, (l, r) => new
             {
-                l.Id, l.RuleId, l.SortOrder, r.Name, r.ParamsJson, r.Status
+                l.Id,
+                l.RuleId,
+                l.SortOrder,
+                r.Name,
+                r.ParamsJson,
+                r.Status
             })
             .OrderBy(x => x.SortOrder)
             .ToListAsync(cancellationToken);

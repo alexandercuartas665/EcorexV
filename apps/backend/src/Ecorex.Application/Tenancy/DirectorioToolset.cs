@@ -107,8 +107,14 @@ public sealed class DirectorioToolset : IDirectorioToolset
                 .FirstOrDefaultAsync(ct);
             if (existente is not null)
             {
-                return Ok(new { ok = true, contacto_id = existente.Id, nombre = existente.Nombre, ya_existia = true,
-                    mensaje = $"El contacto '{existente.Nombre}' ya estaba registrado; no se duplico." });
+                return Ok(new
+                {
+                    ok = true,
+                    contacto_id = existente.Id,
+                    nombre = existente.Nombre,
+                    ya_existia = true,
+                    mensaje = $"El contacto '{existente.Nombre}' ya estaba registrado; no se duplico."
+                });
             }
         }
         // Idempotencia (b) por TELEFONO cuando NO viene identificacion: un cliente que vuelve por el MISMO
@@ -125,8 +131,14 @@ public sealed class DirectorioToolset : IDirectorioToolset
             var porTelefono = candidatos.FirstOrDefault(c => Last10(c.Telefono) == telefono10);
             if (porTelefono is not null)
             {
-                return Ok(new { ok = true, contacto_id = porTelefono.Id, nombre = porTelefono.Nombre, ya_existia = true,
-                    mensaje = $"El contacto '{porTelefono.Nombre}' ya estaba registrado con ese telefono; no se duplico." });
+                return Ok(new
+                {
+                    ok = true,
+                    contacto_id = porTelefono.Id,
+                    nombre = porTelefono.Nombre,
+                    ya_existia = true,
+                    mensaje = $"El contacto '{porTelefono.Nombre}' ya estaba registrado con ese telefono; no se duplico."
+                });
             }
         }
 

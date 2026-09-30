@@ -617,7 +617,12 @@ public sealed class ItemService : IItemService
             .OrderBy(i => i.Name)
             .Select(i => new
             {
-                i.Id, i.Name, i.Sku, i.Description, i.Specifications, i.Price,
+                i.Id,
+                i.Name,
+                i.Sku,
+                i.Description,
+                i.Specifications,
+                i.Price,
                 Brand = _db.Brands.Where(b => b.Id == i.BrandId).Select(b => b.Name).FirstOrDefault(),
                 Group = _db.ItemGroups.Where(g => g.Id == i.GroupId).Select(g => g.Name).FirstOrDefault(),
                 Subgroup = _db.ItemSubgroups.Where(s => s.Id == i.SubgroupId).Select(s => s.Name).FirstOrDefault(),

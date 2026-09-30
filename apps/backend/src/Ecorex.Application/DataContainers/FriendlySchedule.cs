@@ -31,34 +31,34 @@ public static class FriendlySchedule
                 return (ImportScheduleKind.Manual, null, null);
 
             case ScheduleRecurrence.EveryN:
-            {
-                var n = spec.EveryValue ?? 0;
-                if (n < 1) { throw new ArgumentException("El intervalo 'cada N' debe ser al menos 1."); }
-                var minutes = spec.EveryUnit == ScheduleEveryUnit.Hours ? checked(n * 60) : n;
-                return (ImportScheduleKind.Interval, minutes, null);
-            }
+                {
+                    var n = spec.EveryValue ?? 0;
+                    if (n < 1) { throw new ArgumentException("El intervalo 'cada N' debe ser al menos 1."); }
+                    var minutes = spec.EveryUnit == ScheduleEveryUnit.Hours ? checked(n * 60) : n;
+                    return (ImportScheduleKind.Interval, minutes, null);
+                }
 
             case ScheduleRecurrence.Daily:
-            {
-                var t = RequireTime(spec);
-                return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} * * *");
-            }
+                {
+                    var t = RequireTime(spec);
+                    return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} * * *");
+                }
 
             case ScheduleRecurrence.Weekly:
-            {
-                var t = RequireTime(spec);
-                var days = NormalizeDays(spec.DaysOfWeek);
-                if (days.Count == 0) { throw new ArgumentException("Elige al menos un dia de la semana."); }
-                return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} * * {string.Join(",", days)}");
-            }
+                {
+                    var t = RequireTime(spec);
+                    var days = NormalizeDays(spec.DaysOfWeek);
+                    if (days.Count == 0) { throw new ArgumentException("Elige al menos un dia de la semana."); }
+                    return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} * * {string.Join(",", days)}");
+                }
 
             case ScheduleRecurrence.Monthly:
-            {
-                var t = RequireTime(spec);
-                var dom = spec.DayOfMonth ?? 0;
-                if (dom is < 1 or > 31) { throw new ArgumentException("El dia del mes debe estar entre 1 y 31."); }
-                return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} {dom} * *");
-            }
+                {
+                    var t = RequireTime(spec);
+                    var dom = spec.DayOfMonth ?? 0;
+                    if (dom is < 1 or > 31) { throw new ArgumentException("El dia del mes debe estar entre 1 y 31."); }
+                    return (ImportScheduleKind.Cron, null, $"{t.Minute} {t.Hour} {dom} * *");
+                }
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(spec), spec.Recurrence, "Recurrencia no soportada.");
@@ -76,13 +76,13 @@ public static class FriendlySchedule
                 return new FriendlyScheduleSpec(ScheduleRecurrence.Manual);
 
             case ImportScheduleKind.Interval:
-            {
-                var n = intervalMinutes ?? 0;
-                if (n < 1) { return null; }
-                return n % 60 == 0
-                    ? new FriendlyScheduleSpec(ScheduleRecurrence.EveryN, EveryValue: n / 60, EveryUnit: ScheduleEveryUnit.Hours)
-                    : new FriendlyScheduleSpec(ScheduleRecurrence.EveryN, EveryValue: n, EveryUnit: ScheduleEveryUnit.Minutes);
-            }
+                {
+                    var n = intervalMinutes ?? 0;
+                    if (n < 1) { return null; }
+                    return n % 60 == 0
+                        ? new FriendlyScheduleSpec(ScheduleRecurrence.EveryN, EveryValue: n / 60, EveryUnit: ScheduleEveryUnit.Hours)
+                        : new FriendlyScheduleSpec(ScheduleRecurrence.EveryN, EveryValue: n, EveryUnit: ScheduleEveryUnit.Minutes);
+                }
 
             case ImportScheduleKind.Cron:
                 return ParseCron(cron);
@@ -102,26 +102,26 @@ public static class FriendlySchedule
                 return "Manual (solo cuando le des a 'Actualizar datos')";
 
             case ImportScheduleKind.Interval:
-            {
-                var n = intervalMinutes ?? 0;
-                if (n < 1) { return "Intervalo sin definir"; }
-                if (n % 60 == 0)
                 {
-                    var h = n / 60;
-                    return h == 1 ? "Cada hora" : $"Cada {h} horas";
+                    var n = intervalMinutes ?? 0;
+                    if (n < 1) { return "Intervalo sin definir"; }
+                    if (n % 60 == 0)
+                    {
+                        var h = n / 60;
+                        return h == 1 ? "Cada hora" : $"Cada {h} horas";
+                    }
+                    return n == 1 ? "Cada minuto" : $"Cada {n} minutos";
                 }
-                return n == 1 ? "Cada minuto" : $"Cada {n} minutos";
-            }
 
             case ImportScheduleKind.Cron:
-            {
-                var spec = ParseCron(cron);
-                if (spec is null)
                 {
-                    return string.IsNullOrWhiteSpace(cron) ? "Cron sin definir" : $"Segun expresion cron: {cron.Trim()}";
+                    var spec = ParseCron(cron);
+                    if (spec is null)
+                    {
+                        return string.IsNullOrWhiteSpace(cron) ? "Cron sin definir" : $"Segun expresion cron: {cron.Trim()}";
+                    }
+                    return DescribeSpec(spec);
                 }
-                return DescribeSpec(spec);
-            }
 
             default:
                 return "Horario desconocido";
@@ -136,30 +136,30 @@ public static class FriendlySchedule
             case ScheduleRecurrence.Manual:
                 return "Manual (solo cuando le des a 'Actualizar datos')";
             case ScheduleRecurrence.EveryN:
-            {
-                var n = spec.EveryValue ?? 0;
-                if (n < 1) { return "Intervalo sin definir"; }
-                return spec.EveryUnit == ScheduleEveryUnit.Hours
-                    ? (n == 1 ? "Cada hora" : $"Cada {n} horas")
-                    : (n == 1 ? "Cada minuto" : $"Cada {n} minutos");
-            }
+                {
+                    var n = spec.EveryValue ?? 0;
+                    if (n < 1) { return "Intervalo sin definir"; }
+                    return spec.EveryUnit == ScheduleEveryUnit.Hours
+                        ? (n == 1 ? "Cada hora" : $"Cada {n} horas")
+                        : (n == 1 ? "Cada minuto" : $"Cada {n} minutos");
+                }
             case ScheduleRecurrence.Daily:
                 return spec.Time is TimeOnly td ? $"Todos los dias a las {Hm(td)}" : "Diario (falta la hora)";
             case ScheduleRecurrence.Weekly:
-            {
-                if (spec.Time is not TimeOnly tw) { return "Semanal (falta la hora)"; }
-                var days = NormalizeDays(spec.DaysOfWeek);
-                if (days.Count == 0) { return "Semanal (falta elegir dias)"; }
-                if (days.Count == 7) { return $"Todos los dias a las {Hm(tw)}"; }
-                return $"Cada {JoinDays(days)} a las {Hm(tw)}";
-            }
+                {
+                    if (spec.Time is not TimeOnly tw) { return "Semanal (falta la hora)"; }
+                    var days = NormalizeDays(spec.DaysOfWeek);
+                    if (days.Count == 0) { return "Semanal (falta elegir dias)"; }
+                    if (days.Count == 7) { return $"Todos los dias a las {Hm(tw)}"; }
+                    return $"Cada {JoinDays(days)} a las {Hm(tw)}";
+                }
             case ScheduleRecurrence.Monthly:
-            {
-                if (spec.Time is not TimeOnly tm) { return "Mensual (falta la hora)"; }
-                var dom = spec.DayOfMonth ?? 0;
-                if (dom is < 1 or > 31) { return "Mensual (falta el dia)"; }
-                return $"El dia {dom} de cada mes a las {Hm(tm)}";
-            }
+                {
+                    if (spec.Time is not TimeOnly tm) { return "Mensual (falta la hora)"; }
+                    var dom = spec.DayOfMonth ?? 0;
+                    if (dom is < 1 or > 31) { return "Mensual (falta el dia)"; }
+                    return $"El dia {dom} de cada mes a las {Hm(tm)}";
+                }
             default:
                 return "Horario desconocido";
         }

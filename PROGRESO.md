@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-29 - Merge: form-builder-chat (endurecimiento) al tronco - SIN deploy
+
+- Unidos al tronco los 9 commits de la rama worktree-form-builder-chat (proveedor del asistente
+  config-driven "IA gestion de formularios" en /servidores-ia, contador de tokens, estimador de costo por
+  modelo, tokens en cache, mitigacion flaky de vision, verify_form: funciones inventadas + dependencias
+  circulares de calc, tests de degradacion). Merge real (no ff): b5ef211b.
+- Migracion EF (foco critico): la rama traia AddAiProviderFormBuilderFlag (columna bool use_for_form_builder
+  en ai_provider_configs) con timestamps 132844/133039, que quedaban ANTES de AddProspectoPerfil (204311/
+  204438) del tronco. Resolucion limpia (no aplicada en prod): borrada la de la rama y RE-GENERADA encima del
+  modelo mergeado -> queda al FINAL (PG 234518 / SqlServer 234734), Designer con todo (perfil +
+  use_for_form_builder). Commit 58c3218f. has-pending-model-changes = "No changes" en AMBOS contextos. Los
+  ModelSnapshot quedaron identicos al auto-merge de git (ya tenia ambas columnas). OJO gotcha: ef ... --no-build
+  lee el snapshot COMPILADO viejo -> falso "drift"; regenerar/validar SIN --no-build.
+- Gates: build Release verde (0 errores); Application.Tests 1081/1081; Domain.Tests 35/35.
+- dotnet format --verify-no-changes (gate del CI, TODA la solucion): FALLA por deuda WHITESPACE PRE-EXISTENTE
+  del tronco en 12 archivos NO tocados por este merge (AgentMgmtEndpoints, Barcode, ConfigApiEndpoints,
+  ContactWorkflowDispatcher, DirectorioModularFichaService, DirectorioToolset, ExternalDataSourceReportSource,
+  FriendlySchedule, ItemService, RuleDocumentService, TaskItemReportSource, WhatsAppTemplateComponentsTests).
+  Los archivos del merge (FormBuilder*/AiProvider*/AiUsage*) pasan limpios. NO se sanearon los 12 (deuda ajena +
+  riesgo de conflicto con otras sesiones); pendiente decidir un commit de saneo aparte. Se pushea directo a
+  tronco+main (no via PR), asi que el gate del CI no bloquea este push.
+- Deploy: lo corre el usuario. La migracion se auto-aplica al arrancar (dual).
+
 ## 2026-09-29 - Fix: reload del tablero mataba el circuito Blazor (concurrencia DbContext) - v0.16.166
 
 - Sintoma que el usuario veia como "red mala del PC del cliente": en el tablero (ej. "AGENTE COMERCIAL IA")

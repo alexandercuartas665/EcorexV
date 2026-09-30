@@ -520,3 +520,38 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-ciudad-opt:hover { background: var(--brand-soft); }
 .dg-ciudad-opt-name { font-size: 13.5px; font-weight: 600; }
 .dg-ciudad-opt-dep { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+
+/* ---- Campo Url (Directorio): mini-botones "Ir" / "Copiar" que nacen al hover ---- */
+.dg-url-field { position: relative; }
+.dg-url-field .dg-input { padding-right: 68px; }
+.dg-url-acts {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity .14s ease;
+    pointer-events: none;
+}
+.dg-url-field:hover .dg-url-acts,
+.dg-url-field:focus-within .dg-url-acts { opacity: 1; pointer-events: auto; }
+.dg-url-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    min-width: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.dg-url-btn:hover { background: var(--brand-soft); color: var(--ink); border-color: var(--ink-3); }
+.dg-url-btn svg { width: 15px; height: 15px; }
+.dg-url-copied { font-size: 11px; font-weight: 700; color: var(--t-green, var(--ink)); padding: 0 2px; }

@@ -92,6 +92,9 @@ public sealed class ContactSearchService : IContactSearchService
         // Enriquecimiento Maps -> sitio web/correo (solo efecto con fuente Maps; el runner lo ignora si no).
         entity.EnrichWebCorreo = request.EnrichWebCorreo;
         entity.EnrichWebMax = request.EnrichWebMax < 1 ? 1 : request.EnrichWebMax > 100 ? 100 : request.EnrichWebMax;
+        // Perfil LinkedIn detallado (opt-in; solo efecto con EnrichLinkedIn activo). Tope acotado anti-baneo.
+        entity.PerfilDetallado = request.PerfilDetallado;
+        entity.PerfilDetalladoMax = request.PerfilDetalladoMax < 1 ? 1 : request.PerfilDetalladoMax > 25 ? 25 : request.PerfilDetalladoMax;
 
         await _db.SaveChangesAsync(cancellationToken);
         return null;
@@ -158,5 +161,5 @@ public sealed class ContactSearchService : IContactSearchService
         x.Id, x.Name, x.SourceType, x.Query, x.SubQuery, x.Country, x.Region, x.City,
         x.ExtractionPrompt, x.ClientId, x.ClassifierAiAgentId, x.MaxContacts,
         ReadSlots(x), x.LastRunAt, x.IsActive, x.EnrichLinkedIn, x.EnrichMaxPorEmpresa,
-        x.EnrichWebCorreo, x.EnrichWebMax);
+        x.EnrichWebCorreo, x.EnrichWebMax, x.PerfilDetallado, x.PerfilDetalladoMax);
 }

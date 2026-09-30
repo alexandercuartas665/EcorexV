@@ -2249,6 +2249,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("PerfilDetallado")
+                        .HasColumnType("boolean")
+                        .HasColumnName("perfil_detallado");
+
+                    b.Property<int>("PerfilDetalladoMax")
+                        .HasColumnType("integer")
+                        .HasColumnName("perfil_detallado_max");
+
                     b.Property<string>("Query")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)")
@@ -9458,6 +9466,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("perfil");
+
+                    b.Property<string>("PerfilDetalle")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("perfil_detalle");
 
                     b.Property<string>("SitioWeb")
                         .HasColumnType("text")

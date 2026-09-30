@@ -91,4 +91,13 @@ public class ContactSearchDefinition : TenantEntity
     /// <summary>Maximo de fichas de Maps a abrir para enriquecer web/correo por corrida (defensa de
     /// tiempo/costo). 0 = usar un tope interno por defecto.</summary>
     public int EnrichWebMax { get; set; } = 20;
+
+    /// <summary>Perfil LinkedIn DETALLADO (opt-in): tras listar las personas de LinkedIn de cada empresa,
+    /// abre cada perfil /in/ y arma con la IA un resumen amplio (about + educacion + experiencia + headline)
+    /// que se guarda en <c>ProspectoScrapeado.PerfilDetalle</c>. Suma navegacion en LinkedIn: paceado
+    /// anti-baneo y acotado por <see cref="PerfilDetalladoMax"/>. Solo aplica con EnrichLinkedIn activo.</summary>
+    public bool PerfilDetallado { get; set; }
+
+    /// <summary>Maximo de perfiles /in/ a abrir para el perfil detallado por corrida (defensa anti-baneo).</summary>
+    public int PerfilDetalladoMax { get; set; } = 5;
 }

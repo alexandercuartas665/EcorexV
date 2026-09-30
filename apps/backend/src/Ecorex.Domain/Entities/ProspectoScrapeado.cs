@@ -24,6 +24,11 @@ public class ProspectoScrapeado : TenantEntity
     /// ficha Base (campo "perfil").</summary>
     public string? Perfil { get; set; }
 
+    /// <summary>Perfil LinkedIn DETALLADO (opt-in): resumen amplio del /in/ de la persona (about, educacion,
+    /// experiencia, headline). Se llena solo si la busqueda tiene PerfilDetallado activo. El <see cref="Perfil"/>
+    /// corto se deja para la tarjeta; este es el largo para la ficha base.</summary>
+    public string? PerfilDetalle { get; set; }
+
     /// <summary>Metrica de la fuente (ej. "2.340 conexiones" o "4.9 estrellas - 89 resenas").</summary>
     public string? Metrica { get; set; }
 

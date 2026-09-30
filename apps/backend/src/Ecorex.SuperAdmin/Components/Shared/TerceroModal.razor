@@ -29,6 +29,7 @@
 @inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadSvc
 @inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -430,6 +431,33 @@
                                                                                     @if (_calculated.TryGetValue(f.FieldKey, out var cv) && cv is null)
                                                                                     {
                                                                                         <div class="dg-calc-warn">No se puede calcular con los datos actuales.</div>
+                                                                                    }
+                                                                                    break;
+                                                                                case TerceroFieldType.Url:
+                                                                                    {
+                                                                                        var urlRaw = GetFicha(fc.FichaKey, f.FieldKey);
+                                                                                        var urlHref = SafeHttpUrl(urlRaw);
+                                                                                        <div class="dg-url-field">
+                                                                                            <input class="dg-input" type="url" value="@urlRaw" @onchange="e => SetFicha(fc.FichaKey, f.FieldKey, e.Value?.ToString())" />
+                                                                                            @if (urlHref is not null)
+                                                                                            {
+                                                                                                <div class="dg-url-acts">
+                                                                                                    <a class="dg-url-btn" href="@urlHref" target="_blank" rel="noopener noreferrer" title="Ir a la pagina">
+                                                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
+                                                                                                    </a>
+                                                                                                    <button type="button" class="dg-url-btn" title="Copiar URL" @onclick="() => CopyUrlAsync(urlHref)">
+                                                                                                        @if (_copiedUrl == urlHref)
+                                                                                                        {
+                                                                                                            <span class="dg-url-copied">Copiado</span>
+                                                                                                        }
+                                                                                                        else
+                                                                                                        {
+                                                                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                                                                                        }
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            }
+                                                                                        </div>
                                                                                     }
                                                                                     break;
                                                                                 default:

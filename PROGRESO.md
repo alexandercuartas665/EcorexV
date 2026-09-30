@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-30 - Contactos: enrich web por SERVIDOR + perfil LinkedIn detallado + tipo campo Url (Directorio) - SIN deploy
+
+- Hand-off de la sesion de pruebas del Cargador de contactos (000740) y Directorio. Tres mejoras.
+- Mejora A (opt-in bajo EnrichWebCorreo): correo + resumen de empresa ya NO dependen de que la Colmena entre
+  al sitio (allow-list on-prem lo bloquea). La Colmena solo lee sitio_web de la ficha de Maps; el SERVIDOR hace
+  GET del sitio propio reusando IScrapeFetcher/ScrapeHttpFetcher (guardas SSRF: solo http/https, bloquea
+  privadas/loopback/link-local/169.254.169.254, timeout+tope de bytes, redirecciones re-validadas por salto),
+  extrae correo (mailto:/pagina Contacto del MISMO host) y arma resumen con IA (CompleteAsync) -> Correo+Perfil
+  (solo lo que falta). ETAPA 3 reescrita: ahora tambien procesa empresas que YA traen web (van directo al fetch).
+  Runner inyecta IScrapeFetcher + IAiProviderClient + IAiProviderResolver.
+- Mejora B (opt-in, requiere EnrichLinkedIn): flags PerfilDetallado + PerfilDetalladoMax. ETAPA 2b abre cada
+  /in/ (allow-list ya lo permite), la IA resume about+educacion+experiencia+headline -> nuevo campo
+  ProspectoScrapeado.PerfilDetalle (ficha base; el perfil corto queda para la tarjeta). Pausa 4s entre perfiles,
+  respeta tope + cupo diario LinkedIn. No toca dedup ni amarre. Sink nuevo ProspectoProfileDetailSink;
+  ProspectoSearchRowSink expone CreatedPeople.
+- Mejora C (Directorio, cualquier campo): TerceroFieldType.Url. En TerceroModal el campo se captura como URL y
+  al hover muestra mini-botones "Ir a la pagina" (target=_blank rel=noopener, solo http/https via SafeHttpUrl
+  que bloquea javascript:/data:) y "Copiar URL" (portapapeles + "Copiado"). sitio_web/maps_url base pasan a Url
+  con backfill idempotente Text->Url en EnsureDefaultsAsync. Elegible en la config (Enum.GetValues, etiqueta
+  "Enlace web (URL)").
+- Migracion DUAL AddContactPerfilDetallado (perfil_detallado bool, perfil_detallado_max int, perfil_detalle
+  varchar/nvarchar(4000)). Build Release verde; Application.Tests 1081/1081; has-pending "No changes" en ambos;
+  dotnet format limpio. Merge a tronco + espejo main (feat/contactos-enrich-servidor-perfil-url).
+- Siguiente: deploy lo corre el usuario (migracion se auto-aplica al arrancar, dual). Validar E2E: correo/resumen
+  por servidor, perfil detallado en /in/, y los botones Url en la ficha del Directorio.
+
 ## 2026-09-29 - Merge: form-builder-chat (endurecimiento) al tronco - SIN deploy
 
 - Unidos al tronco los 9 commits de la rama worktree-form-builder-chat (proveedor del asistente

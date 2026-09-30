@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    [Migration("20260930155220_AddConciliacionDian")]
+    [Migration("20260930160935_AddConciliacionDian")]
     partial class AddConciliacionDian
     {
         /// <inheritdoc />
@@ -2411,6 +2411,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
+
+                    b.Property<bool>("AprobadaManual")
+                        .HasColumnType("bit")
+                        .HasColumnName("aprobada_manual");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")

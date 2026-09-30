@@ -126,6 +126,7 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     total_factura = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     tipo_pago = table.Column<string>(type: "character varying(60)", maxLength: 60, nullable: false),
                     factura_aprobada = table.Column<bool>(type: "boolean", nullable: false),
+                    aprobada_manual = table.Column<bool>(type: "boolean", nullable: false),
                     plataforma_proveedor = table.Column<bool>(type: "boolean", nullable: false),
                     rut_escaneado = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
                     evento30 = table.Column<bool>(type: "boolean", nullable: false),

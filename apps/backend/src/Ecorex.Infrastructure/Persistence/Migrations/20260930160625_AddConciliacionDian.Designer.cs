@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    [Migration("20260930154743_AddConciliacionDian")]
+    [Migration("20260930160625_AddConciliacionDian")]
     partial class AddConciliacionDian
     {
         /// <inheritdoc />
@@ -2411,6 +2411,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<bool>("AprobadaManual")
+                        .HasColumnType("boolean")
+                        .HasColumnName("aprobada_manual");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")

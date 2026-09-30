@@ -49,6 +49,10 @@ public sealed class ConciliacionDianRenglon : TenantEntity
     /// <summary>La factura fue aprobada (toggle). Auto = SI cuando cruzo limpio y nadie la habia tocado.</summary>
     public bool FacturaAprobada { get; set; }
 
+    /// <summary>El usuario movio el toggle de aprobacion a mano. Si es true, el cruce NO pisa su decision
+    /// (replica el "solo aprueba si FACTURA_APROBADA estaba vacio" del molde).</summary>
+    public bool AprobadaManual { get; set; }
+
     /// <summary>El proveedor esta en la plataforma tecnologica (NEWTON) con representacion grafica; requisito
     /// para radicar eventos RADIAN. Se recalcula en cada cruce contra la fuente NEWTON.</summary>
     public bool PlataformaProveedor { get; set; }

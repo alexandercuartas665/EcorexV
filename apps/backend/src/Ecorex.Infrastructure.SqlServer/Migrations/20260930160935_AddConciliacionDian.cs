@@ -126,6 +126,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     total_factura = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
                     tipo_pago = table.Column<string>(type: "nvarchar(60)", maxLength: 60, nullable: false),
                     factura_aprobada = table.Column<bool>(type: "bit", nullable: false),
+                    aprobada_manual = table.Column<bool>(type: "bit", nullable: false),
                     plataforma_proveedor = table.Column<bool>(type: "bit", nullable: false),
                     rut_escaneado = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
                     evento30 = table.Column<bool>(type: "bit", nullable: false),

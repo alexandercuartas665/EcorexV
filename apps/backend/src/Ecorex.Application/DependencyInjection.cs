@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.ILeadService, Tenancy.LeadService>();
         services.AddScoped<Tenancy.IContactLoaderService, Tenancy.ContactLoaderService>();
         services.AddScoped<Contactos.IContactSearchService, Contactos.ContactSearchService>();
+        services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionDianService, Automatizaciones.ConciliacionDian.ConciliacionDianService>();
         services.AddScoped<Tenancy.ITenantApiService, Tenancy.TenantApiService>();
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();

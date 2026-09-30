@@ -9,6 +9,7 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Agents
 @inject IScrapeFlowService FlowSvc
+@inject IOtpMailboxConfigService OtpSvc
 @inject IDataImportConfigService ConfigSvc
 @inject IBrowserRunService RunSvc
 @inject IAiServerConfigService AiSvc
@@ -292,8 +293,43 @@
                                     <div class="xd-prop"><label>Modelo (lo fija el Super Admin)</label>
                                         <input class="xd-input" value="@SelectedAiModel()" disabled /></div>
                                 }
+                                else if (_sKind == ScrapeStepKind.LeerCorreoOtp)
+                                {
+                                    <div class="xd-prop"><label>Buzon OTP</label>
+                                        @if (_buzones.Count == 0)
+                                        {
+                                            <div class="xd-hint">No hay buzones. Configura uno en Automatizaciones -&gt; Buzones OTP.</div>
+                                        }
+                                        else
+                                        {
+                                            <select class="xd-input" @bind="_sOtpMailbox">
+                                                <option value="">(elige un buzon)</option>
+                                                @foreach (var m in _buzones) { <option value="@m.Id">@m.Nombre (@m.Usuario)</option> }
+                                            </select>
+                                        }
+                                    </div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Remitente contiene (opcional)</label><input class="xd-input" placeholder="no-reply@@..." @bind="_sOtpFrom" /></div>
+                                        <div class="xd-prop"><label>Asunto contiene (opcional)</label><input class="xd-input" placeholder="codigo, verificacion" @bind="_sOtpSubject" /></div>
+                                    </div>
+                                    <div class="xd-prop"><label>Regex del token (grupo 1 si existe)</label><input class="xd-input" @bind="_sOtpRegex" /></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Variable destino (se inserta como &#123;&#123;NOMBRE&#125;&#125; en pasos siguientes)</label><input class="xd-input" placeholder="TOKEN" @bind="_sOtpVar" /></div>
+                                        <div class="xd-prop"><label>Timeout de espera (seg)</label><input class="xd-input" type="number" @bind="_sOtpTimeout" /></div>
+                                    </div>
+                                    <div class="xd-props-actions">
+                                        <button class="xd-btn" @onclick="ProbarOtpAsync" disabled="@(_busy || string.IsNullOrEmpty(_sOtpMailbox))">@(_busy ? "Leyendo..." : "Probar lectura")</button>
+                                    </div>
+                                    @if (_otpTest is not null)
+                                    {
+                                        <div class="xd-hint" style="margin-top:6px">
+                                            @if (_otpTest.Ok) { <span>Token leido: <strong>@_otpTest.Token</strong> (@_otpTest.MatchedSubject)</span> }
+                                            else { <span style="color:var(--danger,#b91c1c)">@_otpTest.Error</span> }
+                                        </div>
+                                    }
+                                }
 
-                                @if (_sKind != ScrapeStepKind.Ai)
+                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp)
                                 {
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
@@ -522,6 +558,16 @@
     private string _sWarnLabel = "";
     private ScrapeWarningAction _sWarnAction = ScrapeWarningAction.None;
 
+    // Paso "Leer token de correo" (LeerCorreoOtp): su config va serializada en MappingJson.
+    private List<OtpMailboxDto> _buzones = new();
+    private string _sOtpMailbox = "";
+    private string _sOtpFrom = "";
+    private string _sOtpSubject = "";
+    private string _sOtpRegex = @"\b(\d{4,8})\b";
+    private string _sOtpVar = "TOKEN";
+    private string _sOtpTimeout = "120";
+    private OtpReadResult? _otpTest;
+
     // Editor de variable
     private bool _showVarEditor;
     private string? _varError;
@@ -541,6 +587,7 @@
         _clients = await ConfigSvc.ListClientsAsync();
         _containers = await FlowSvc.ListContainersAsync();
         _aiProviders = await AiSvc.ListEnabledAsync();
+        _buzones = (await OtpSvc.ListAsync()).ToList();
         await ReloadFlowsAsync();
     }
 
@@ -760,6 +807,38 @@
         _sAiProviderId = s?.AiProviderId?.ToString() ?? "";
         _sWarnLabel = s?.WarningLabel ?? "";
         _sWarnAction = s?.WarningAction ?? ScrapeWarningAction.None;
+
+        // Paso "Leer token de correo": su config vive en MappingJson.
+        _otpTest = null;
+        _sOtpMailbox = ""; _sOtpFrom = ""; _sOtpSubject = ""; _sOtpRegex = @"\b(\d{4,8})\b"; _sOtpVar = "TOKEN"; _sOtpTimeout = "120";
+        if (s?.Kind == ScrapeStepKind.LeerCorreoOtp && !string.IsNullOrWhiteSpace(s.MappingJson))
+        {
+            try
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<OtpStepConfig>(s.MappingJson!);
+                if (cfg is not null)
+                {
+                    _sOtpMailbox = cfg.MailboxId?.ToString() ?? "";
+                    _sOtpFrom = cfg.From ?? "";
+                    _sOtpSubject = cfg.Subject ?? "";
+                    _sOtpRegex = string.IsNullOrWhiteSpace(cfg.Regex) ? _sOtpRegex : cfg.Regex!;
+                    _sOtpVar = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!;
+                    _sOtpTimeout = (cfg.TimeoutSeconds > 0 ? cfg.TimeoutSeconds : 120).ToString();
+                }
+            }
+            catch { /* json viejo/otra cosa: se deja el default */ }
+        }
+    }
+
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+
+    private async Task ProbarOtpAsync()
+    {
+        if (!Guid.TryParse(_sOtpMailbox, out var mbId)) { return; }
+        _busy = true; _otpTest = null;
+        try { _otpTest = await OtpSvc.ProbarAsync(mbId, _sOtpFrom, _sOtpSubject, _sOtpRegex, ParseInt(_sOtpTimeout) ?? 60, 15); }
+        catch (Exception ex) { _otpTest = new OtpReadResult(false, null, ex.Message); }
+        finally { _busy = false; }
     }
 
     private async Task SaveStepAsync()
@@ -772,10 +851,17 @@
             var order = _editingStepId is null ? _selected.Steps.Count : _selected.Steps.First(x => x.Id == _editingStepId).Order;
             var toolJson = string.IsNullOrWhiteSpace(_sToolAllow) ? null
                 : System.Text.Json.JsonSerializer.Serialize(_sToolAllow.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            // El paso "Leer token de correo" guarda su config en MappingJson.
+            var mappingJson = _sKind == ScrapeStepKind.LeerCorreoOtp
+                ? System.Text.Json.JsonSerializer.Serialize(new OtpStepConfig(
+                    ParseGuid(_sOtpMailbox), NullIfBlank(_sOtpFrom), NullIfBlank(_sOtpSubject),
+                    string.IsNullOrWhiteSpace(_sOtpRegex) ? @"\b(\d{4,8})\b" : _sOtpRegex.Trim(),
+                    string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120))
+                : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,
                 WaitMs: ParseInt(_sWaitMs), Url: NullIfBlank(_sUrl), Script: NullIfBlank(_sScript),
-                Selector: NullIfBlank(_sSelector), MappingJson: NullIfBlank(_sMappingJson),
+                Selector: NullIfBlank(_sSelector), MappingJson: mappingJson,
                 Instruction: NullIfBlank(_sInstruction), TargetContainerId: ParseGuid(_sTargetContainer),
                 ToolAllowListJson: toolJson, MaxSteps: ParseInt(_sMaxSteps), MaxSeconds: ParseInt(_sMaxSeconds),
                 AiProviderId: ParseGuid(_sAiProviderId), AiModel: null,
@@ -924,6 +1010,7 @@
         ScrapeStepKind.Tramite => "Tramite (legacy)",
         ScrapeStepKind.CerrarDron => "Cerrar dron (legacy)",
         ScrapeStepKind.Mouse => "Mouse (legacy)",
+        ScrapeStepKind.LeerCorreoOtp => "Leer token de correo",
         _ => k.ToString()
     };
 
@@ -957,6 +1044,7 @@
         ScrapeStepKind.Mouse => "Accion de mouse sobre el selector (legacy).",
         ScrapeStepKind.Screenshot => "Captura de pantalla.",
         ScrapeStepKind.Ai => $"Un agente de IA maneja el navegador (tope {s.MaxSteps?.ToString() ?? "-"} pasos / {s.MaxSeconds?.ToString() ?? "-"} s).",
+        ScrapeStepKind.LeerCorreoOtp => "Lee un OTP/token de un buzon por correo (IMAP) y lo pone en una variable del flujo.",
         _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };

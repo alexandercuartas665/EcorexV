@@ -3023,6 +3023,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // ---- Seccion: Automatizaciones (slug automatizaciones) -- modulos de automatizacion operativa ----
         var automz = Add(MenuNodeKind.Section, "Automatizaciones", null, "automatizaciones", iconKey: "automation");
         Item(automz.Id, "Conciliacion DIAN Compras", "conciliacion-dian", "001679");
+        Item(automz.Id, "Buzones OTP", "extraccion-buzones", "000731");
 
         // ---- Seccion: Sistema - Inventarios (slug inv) ----
         var inv = Add(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
@@ -3205,10 +3206,17 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             changed = true;
         }
 
-        var itemExists = await _db.MenuNodes.IgnoreQueryFilters()
-            .AnyAsync(n => n.MenuViewId == view.Id && n.Route == "conciliacion-dian", cancellationToken);
-        if (!itemExists)
+        // Items del grupo Automatizaciones (idempotente): se agregan los que falten.
+        var automzItems = new (string Name, string Route, string Legacy)[]
         {
+            ("Conciliacion DIAN Compras", "conciliacion-dian", "001679"),
+            ("Buzones OTP", "extraccion-buzones", "000731"),
+        };
+        foreach (var (name, route, legacy) in automzItems)
+        {
+            var itemExists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == view.Id && n.Route == route, cancellationToken);
+            if (itemExists) { continue; }
             var maxChild = await _db.MenuNodes.IgnoreQueryFilters()
                 .Where(n => n.ParentId == section.Id)
                 .Select(n => (int?)n.SortOrder).MaxAsync(cancellationToken) ?? section.SortOrder;
@@ -3218,15 +3226,16 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 MenuViewId = view.Id,
                 ParentId = section.Id,
                 Kind = MenuNodeKind.Item,
-                Name = "Conciliacion DIAN Compras",
+                Name = name,
                 IconKey = null,
-                LegacyCode = "001679",
-                Route = "conciliacion-dian",
+                LegacyCode = legacy,
+                Route = route,
                 State = MenuNodeState.Ready,
                 IsVisible = true,
                 SortOrder = maxChild + 1
             });
             changed = true;
+            await _db.SaveChangesAsync(cancellationToken);
         }
 
         if (changed) { await _db.SaveChangesAsync(cancellationToken); }

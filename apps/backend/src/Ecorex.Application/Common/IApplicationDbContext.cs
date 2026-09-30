@@ -256,6 +256,9 @@ public interface IApplicationDbContext
     DbSet<TerceroFiltro> TerceroFiltros { get; }
     DbSet<ProspectoScrapeado> ProspectosScrapeados { get; }
 
+    // Buzon OTP para leer tokens por correo (modulo Extraccion de datos).
+    DbSet<OtpMailboxConfig> OtpMailboxConfigs { get; }
+
     // Conciliacion DIAN de compras (Automatizaciones): CCD + renglones + 3 fuentes dummy (Fase 1).
     DbSet<ConciliacionDianDocumento> ConciliacionDianDocumentos { get; }
     DbSet<ConciliacionDianRenglon> ConciliacionDianRenglones { get; }

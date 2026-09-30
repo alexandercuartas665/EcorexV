@@ -82,6 +82,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
     public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
     public DbSet<ScrapeFlowRun> ScrapeFlowRuns => Set<ScrapeFlowRun>();
+    public DbSet<OtpMailboxConfig> OtpMailboxConfigs => Set<OtpMailboxConfig>();
     public DbSet<AgentActivityLog> AgentActivityLogs => Set<AgentActivityLog>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
@@ -861,6 +862,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
         });
 
         // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos", Ola 1).
+        modelBuilder.Entity<OtpMailboxConfig>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Proveedor).HasMaxLength(30).IsRequired();
+            b.Property(x => x.Host).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Usuario).HasMaxLength(200).IsRequired();
+            // PasswordCifrada sin maxlength (ciphertext).
+            b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
+        });
+
         modelBuilder.Entity<ScrapeFlow>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();

@@ -66,7 +66,12 @@ public enum ScrapeStepKind
     CerrarDron = 16,
 
     /// <summary>Legacy 'mouse': accion de mouse (como Click).</summary>
-    Mouse = 17
+    Mouse = 17,
+
+    /// <summary>Leer un OTP/token de un buzon por correo (IMAP, server-side) y ponerlo en una variable del
+    /// flujo. Para logins que mandan un codigo al correo. La config (buzon, remitente, asunto, regex,
+    /// variable, timeout) va en MappingJson del paso.</summary>
+    LeerCorreoOtp = 18
 }
 
 /// <summary>

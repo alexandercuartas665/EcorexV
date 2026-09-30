@@ -1,0 +1,200 @@
+@page "/extraccion-buzones"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Scraping
+@inject IOtpMailboxConfigService Svc
+
+<PageTitle>Buzones OTP - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            </div>
+            <span>Automatizaciones</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Buzones OTP</h1>
+        <p class="page-sub" style="margin-bottom:0;">Buzones que el sistema lee (IMAP) para extraer tokens/OTP que llegan por correo durante una extraccion. La clave (app-password) se guarda cifrada.</p>
+    </div>
+    <div><button class="btn btn-primary" @onclick="() => OpenEditor(null)" disabled="@_busy">+ Nuevo buzon</button></div>
+</div>
+
+@if (!string.IsNullOrEmpty(_msg)) { <div class="bz-msg @(_msgErr ? "err" : "")">@_msg</div> }
+
+<table class="bz-grid">
+    <thead><tr><th>Nombre</th><th>Proveedor</th><th>Host</th><th>Usuario</th><th>Clave</th><th>Activo</th><th>Ultima validacion</th><th></th></tr></thead>
+    <tbody>
+        @if (_list.Count == 0) { <tr><td colspan="8" class="bz-empty">Sin buzones. Crea uno para leer OTPs.</td></tr> }
+        @foreach (var b in _list)
+        {
+            <tr>
+                <td><strong>@b.Nombre</strong></td>
+                <td>@b.Proveedor</td>
+                <td>@b.Host:@b.Puerto</td>
+                <td>@b.Usuario</td>
+                <td>@(b.TienePassword ? "si" : "-")</td>
+                <td>@(b.Activo ? "si" : "no")</td>
+                <td>@(b.UltimaValidacion?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "nunca")</td>
+                <td style="white-space:nowrap">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenProbar(b)">Probar</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenEditor(b)">Editar</button>
+                    <button class="btn btn-link btn-sm" @onclick="() => DeleteAsync(b.Id)">Eliminar</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@if (_showEditor)
+{
+    <div class="bz-backdrop" @onclick="() => _showEditor = false">
+      <div class="bz-modal" @onclick:stopPropagation="true">
+        <div class="bz-modal-head"><strong>@(_eId is null ? "Nuevo buzon" : "Editar buzon")</strong>
+            <button class="btn btn-link btn-sm" @onclick="() => _showEditor = false">&times;</button></div>
+        <div class="bz-modal-body">
+            <label>Nombre<input class="form-control" @bind="_eNombre" placeholder="Buzon OTP Azure" /></label>
+            <label>Proveedor
+                <select class="form-control" @bind="_eProveedor" @bind:after="AplicarPreset">
+                    <option value="Microsoft">Microsoft / Office365</option>
+                    <option value="Gmail">Gmail</option>
+                    <option value="Imap">IMAP (manual)</option>
+                </select></label>
+            <div class="bz-two">
+                <label>Host IMAP<input class="form-control" @bind="_eHost" /></label>
+                <label>Puerto<input class="form-control" type="number" @bind="_ePuerto" /></label>
+            </div>
+            <label>Usuario / correo<input class="form-control" @bind="_eUsuario" /></label>
+            <label>App-password @(_eId is not null ? "(vacio = conservar la actual)" : "")<input class="form-control" type="password" @bind="_ePassword" autocomplete="new-password" /></label>
+            <div class="bz-two">
+                <label class="bz-chk"><input type="checkbox" @bind="_eSsl" /> Usar SSL</label>
+                <label class="bz-chk"><input type="checkbox" @bind="_eActivo" /> Activo</label>
+            </div>
+            @if (_editorErr is not null) { <div class="bz-msg err">@_editorErr</div> }
+            <div class="bz-actions">
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary" @onclick="() => _showEditor = false">Cancelar</button>
+            </div>
+        </div>
+      </div>
+    </div>
+}
+
+@if (_showProbar)
+{
+    <div class="bz-backdrop" @onclick="() => _showProbar = false">
+      <div class="bz-modal" @onclick:stopPropagation="true">
+        <div class="bz-modal-head"><strong>Probar lectura: @_probarNombre</strong>
+            <button class="btn btn-link btn-sm" @onclick="() => _showProbar = false">&times;</button></div>
+        <div class="bz-modal-body">
+            <p class="bz-hint">Busca un correo reciente que cumpla los filtros y extrae el token con la regex. Envia primero un OTP de prueba a ese buzon.</p>
+            <label>Remitente contiene (opcional)<input class="form-control" @bind="_pRemitente" placeholder="no-reply@@..." /></label>
+            <label>Asunto contiene (opcional)<input class="form-control" @bind="_pAsunto" placeholder="codigo, verificacion..." /></label>
+            <label>Regex del token (grupo 1 si existe)<input class="form-control" @bind="_pRegex" /></label>
+            <div class="bz-two">
+                <label>Ventana (min)<input class="form-control" type="number" @bind="_pVentana" /></label>
+                <label>Timeout (seg)<input class="form-control" type="number" @bind="_pTimeout" /></label>
+            </div>
+            <div class="bz-actions">
+                <button class="btn btn-primary" @onclick="ProbarAsync" disabled="@_busy">@(_busy ? "Leyendo..." : "Leer token")</button>
+                <button class="btn btn-outline-secondary" @onclick="() => _showProbar = false">Cerrar</button>
+            </div>
+            @if (_probarResult is not null)
+            {
+                <div class="bz-result @(_probarResult.Ok ? "ok" : "err")">
+                    @if (_probarResult.Ok)
+                    {
+                        <div><strong>Token:</strong> <code class="bz-token">@_probarResult.Token</code></div>
+                        <div class="bz-hint">Asunto: @_probarResult.MatchedSubject · @(_probarResult.MatchedAt?.ToLocalTime().ToString("dd/MM HH:mm"))</div>
+                    }
+                    else { <div>@_probarResult.Error</div> }
+                </div>
+            }
+        </div>
+      </div>
+    </div>
+}
+
+@code {
+    private bool _busy;
+    private string? _msg; private bool _msgErr;
+    private List<OtpMailboxDto> _list = new();
+
+    // editor
+    private bool _showEditor; private string? _editorErr;
+    private Guid? _eId;
+    private string _eNombre = ""; private string _eProveedor = "Microsoft";
+    private string _eHost = "outlook.office365.com"; private int _ePuerto = 993;
+    private string _eUsuario = ""; private string? _ePassword; private bool _eSsl = true; private bool _eActivo = true;
+
+    // probar
+    private bool _showProbar; private Guid _pId; private string _probarNombre = "";
+    private string? _pRemitente; private string? _pAsunto; private string _pRegex = @"\b(\d{4,8})\b";
+    private int _pVentana = 15; private int _pTimeout = 60;
+    private OtpReadResult? _probarResult;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _list = (await Svc.ListAsync()).ToList();
+
+    private void AplicarPreset()
+    {
+        (_eHost, _ePuerto, _eSsl) = _eProveedor switch
+        {
+            "Microsoft" => ("outlook.office365.com", 993, true),
+            "Gmail" => ("imap.gmail.com", 993, true),
+            _ => (_eHost, _ePuerto, _eSsl)
+        };
+    }
+
+    private void OpenEditor(OtpMailboxDto? b)
+    {
+        _editorErr = null;
+        _eId = b?.Id;
+        _eNombre = b?.Nombre ?? "";
+        _eProveedor = b?.Proveedor ?? "Microsoft";
+        _eHost = b?.Host ?? "outlook.office365.com";
+        _ePuerto = b?.Puerto ?? 993;
+        _eUsuario = b?.Usuario ?? "";
+        _ePassword = null;
+        _eSsl = b?.UsarSsl ?? true;
+        _eActivo = b?.Activo ?? true;
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true; _editorErr = null;
+        try
+        {
+            var (id, err) = await Svc.SaveAsync(new SaveOtpMailboxRequest(_eId, _eNombre, _eProveedor, _eHost, _ePuerto, _eSsl, _eUsuario, _ePassword, _eActivo));
+            if (err is not null) { _editorErr = err; return; }
+            _showEditor = false;
+            Flash("Buzon guardado.", false);
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try { await Svc.DeleteAsync(id); await LoadAsync(); Flash("Buzon eliminado.", false); }
+        finally { _busy = false; }
+    }
+
+    private void OpenProbar(OtpMailboxDto b)
+    {
+        _pId = b.Id; _probarNombre = b.Nombre; _probarResult = null; _showProbar = true;
+    }
+
+    private async Task ProbarAsync()
+    {
+        _busy = true; _probarResult = null;
+        try { _probarResult = await Svc.ProbarAsync(_pId, _pRemitente, _pAsunto, _pRegex, _pTimeout, _pVentana); }
+        catch (Exception ex) { _probarResult = new OtpReadResult(false, null, ex.Message); }
+        finally { _busy = false; }
+    }
+
+    private void Flash(string m, bool err) { _msg = m; _msgErr = err; }
+}

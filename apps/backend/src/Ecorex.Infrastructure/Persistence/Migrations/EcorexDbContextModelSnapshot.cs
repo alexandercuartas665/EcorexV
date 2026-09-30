@@ -9097,6 +9097,87 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("org_unit_members", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.OtpMailboxConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("host");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("nombre");
+
+                    b.Property<string>("PasswordCifrada")
+                        .HasColumnType("text")
+                        .HasColumnName("password_cifrada");
+
+                    b.Property<string>("Proveedor")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("proveedor");
+
+                    b.Property<int>("Puerto")
+                        .HasColumnType("integer")
+                        .HasColumnName("puerto");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UltimaValidacion")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ultima_validacion");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<bool>("UsarSsl")
+                        .HasColumnType("boolean")
+                        .HasColumnName("usar_ssl");
+
+                    b.Property<string>("Usuario")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("usuario");
+
+                    b.HasKey("Id")
+                        .HasName("pk_otp_mailbox_configs");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .IsUnique()
+                        .HasDatabaseName("ix_otp_mailbox_configs_tenant_id_nombre");
+
+                    b.ToTable("otp_mailbox_configs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.PasswordResetToken", b =>
                 {
                     b.Property<Guid>("Id")

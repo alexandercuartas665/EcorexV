@@ -263,6 +263,17 @@ public interface IApplicationDbContext
     DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies { get; }
     DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies { get; }
 
+    // Extraccion de datos (Automatizaciones): configurador de scraping/RPA (legacy WEB_SCRAPING*).
+    DbSet<ExtraccionDefinicion> ExtraccionDefiniciones { get; }
+    DbSet<ExtraccionPaso> ExtraccionPasos { get; }
+    DbSet<ExtraccionAccion> ExtraccionAcciones { get; }
+    DbSet<ExtraccionAdvertencia> ExtraccionAdvertencias { get; }
+    DbSet<ExtraccionCliente> ExtraccionClientes { get; }
+    DbSet<ExtraccionClienteVariable> ExtraccionClienteVariables { get; }
+    DbSet<ExtraccionApi> ExtraccionApis { get; }
+    DbSet<ExtraccionApiVariable> ExtraccionApiVariables { get; }
+    DbSet<ExtraccionSeguimiento> ExtraccionSeguimientos { get; }
+
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
     DbSet<ContactWorkflow> ContactWorkflows { get; }

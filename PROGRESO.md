@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-30 - Extraccion de datos: traer config legacy al modulo NATIVO ScrapeFlow (worktree conciliacion-dian)
+
+- Objetivo: traer las extracciones del legacy NEWFRONT_web_scraping (000730, WEB_SCRAPING* en M700_GEN/SOLDARCO)
+  al modulo "Extraccion de datos" del sistema nuevo.
+- HALLAZGO clave: ECOREX YA tiene ese modulo (ScrapeFlow/ScrapeStep/ScrapeVariable/ScrapeFlowRun + editor
+  /extraccion-datos + menu en "Infraestructura IA"), que colapso a proposito las 10 tablas legacy. Primero
+  arranque un modulo Extraccion* PARALELO por error -> se REVIRTIO por completo (commit revert 4f164ef6:
+  entidades/migracion/9 tablas/servicio/menu duplicado + datos dropeados). Conciliacion intacta.
+- Reencuadre al modelo nativo: +ScrapeFlow.Codigo (guarda el B000x) + migracion dual AddScrapeFlowCodigo
+  (commit 112252cb). ETL desde M700_GEN (sqlcmd->psql, hash MD5 deterministico para FKs, saltos de linea
+  codificados y restaurados): 3 flows (B0003 DIAN VENTAS 5 pasos, B0004 DRON GESTION COMPRAS DIAN 9,
+  B0005 DRON PLATAFORMAS INGENIOS 13), 27 steps (6 Navigate + 15 InjectScript + 6 Extract), 8 variables
+  (secretas, valor en BLANCO para re-ingresar - el cifrado legacy no es descifrable). Mapeo: paso R->Navigate,
+  accion RS->Extract/InjectScript segun TIPO; StartUrl=1er paso; legacyTipo/Contenedor guardados en mapping_json.
+- Validado en vivo (/extraccion-datos, SOLDARCO): las 3 configs aparecen y el editor carga pasos+scripts reales.
+- ALERTA seguridad: algunos SCRIPT del legacy traen credenciales HARDCODEADAS (usuario/clave) en el JS (no en
+  las variables). Vinieron tal cual. Pendiente: moverlas a ScrapeVariables {{VAR}} y re-ingresar.
+- Tambien en esta sesion: conciliacion-dian grilla +RUT/Ev.31/Ev.34 y subtitulo (commit bf7e3343).
+- Siguiente: (opc) editor completo ya EXISTE; refinar mapeo (contenedor destino real, credenciales a variables),
+  ETL repetible desde la conexion externa (Fase 2). Deploy: lo corre el usuario.
+
 ## 2026-09-30 - Contactos: enrich web por SERVIDOR + perfil LinkedIn detallado + tipo campo Url (Directorio) - SIN deploy
 
 - Hand-off de la sesion de pruebas del Cargador de contactos (000740) y Directorio. Tres mejoras.

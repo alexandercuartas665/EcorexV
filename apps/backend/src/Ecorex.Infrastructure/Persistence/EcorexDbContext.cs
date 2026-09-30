@@ -2588,6 +2588,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Telefono).HasMaxLength(80);
             b.Property(x => x.Correo).HasMaxLength(200);
             b.Property(x => x.Perfil).HasMaxLength(1000);
+            b.Property(x => x.PerfilDetalle).HasMaxLength(4000);
             b.Property(x => x.DataJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Tercero).WithMany()
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.SetNull);

@@ -37,9 +37,9 @@ public sealed class TerceroFieldService : ITerceroFieldService
         ("base",
         [
             ("direccion", "Direccion", TerceroFieldType.Text, null),
-            ("sitio_web", "Sitio web", TerceroFieldType.Text, null),
+            ("sitio_web", "Sitio web", TerceroFieldType.Url, null),
             ("correo", "Correo", TerceroFieldType.Text, null),
-            ("maps_url", "URL Google Maps", TerceroFieldType.Text, null),
+            ("maps_url", "URL Google Maps", TerceroFieldType.Url, null),
             ("frase_busqueda", "Frase de busqueda", TerceroFieldType.Text, null),
             ("perfil", "Perfil", TerceroFieldType.Text, null)
         ]),
@@ -144,6 +144,20 @@ public sealed class TerceroFieldService : ITerceroFieldService
         if (missing.Count > 0)
         {
             _db.TerceroFieldDefinitions.AddRange(missing);
+        }
+
+        // Promocion idempotente de sitio_web / maps_url (ficha Base) de Text -> Url, para que los tenants
+        // EXISTENTES estrenen los mini-botones "Ir"/"Copiar" (los campos ya estaban como Text). Solo toca
+        // los que siguen en Text: si el usuario les cambio el tipo a mano, no se pisa.
+        var toUrl = await _db.TerceroFieldDefinitions
+            .Where(f => f.FichaKey == "base"
+                        && (f.FieldKey == "sitio_web" || f.FieldKey == "maps_url")
+                        && f.FieldType == TerceroFieldType.Text)
+            .ToListAsync(cancellationToken);
+        foreach (var f in toUrl) { f.FieldType = TerceroFieldType.Url; }
+
+        if (missing.Count > 0 || toUrl.Count > 0)
+        {
             await _db.SaveChangesAsync(cancellationToken);
         }
     }

@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
+using Ecorex.Application.Scraping;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -37,12 +39,20 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IAiStepOrchestrator _orchestrator;
+    private readonly IScrapeFetcher _fetcher;              // GET acotado con guardas SSRF (etapa 3, sitio propio).
+    private readonly IAiProviderClient _aiClient;          // resumen de empresa a partir del HTML del sitio.
+    private readonly IAiProviderResolver _aiResolver;      // resuelve/descifra el proveedor elegido.
 
-    public ContactSearchRunner(IApplicationDbContext db, ITenantContext tenant, IAiStepOrchestrator orchestrator)
+    public ContactSearchRunner(
+        IApplicationDbContext db, ITenantContext tenant, IAiStepOrchestrator orchestrator,
+        IScrapeFetcher fetcher, IAiProviderClient aiClient, IAiProviderResolver aiResolver)
     {
         _db = db;
         _tenant = tenant;
         _orchestrator = orchestrator;
+        _fetcher = fetcher;
+        _aiClient = aiClient;
+        _aiResolver = aiResolver;
     }
 
     public async Task<ContactSearchRunResult> RunAsync(Guid searchId, CancellationToken ct = default)
@@ -115,6 +125,8 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         // LinkedIn (sesion logueada) y las agrega ligadas a esa empresa. Cada empresa = una corrida LinkedIn,
         // sujeta al tope 20/dia; al alcanzarlo se corta (NO falla la corrida Maps). Cada empresa es su propio
         // AiStepContext acotado (no un run gigante) para no chocar con los topes del orquestador.
+        // Personas creadas en LinkedIn (con su /in/) acumuladas entre empresas, para el perfil DETALLADO (etapa 2b).
+        var detailTargets = new List<(Guid Id, string Name, string InUrl)>();
         if (def.EnrichLinkedIn && def.SourceType == ContactSearchSource.Maps && outcome.Ok)
         {
             var perCompany = def.EnrichMaxPorEmpresa <= 0 ? 5 : def.EnrichMaxPorEmpresa;
@@ -150,6 +162,53 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 });
                 await _db.SaveChangesAsync(ct);
                 totalCreated += liOutcome.Inserted;
+                // Junta las personas de esta empresa (con /in/) para el perfil detallado (etapa 2b).
+                if (def.PerfilDetallado) { detailTargets.AddRange(liSink.CreatedPeople); }
+            }
+        }
+
+        // ETAPA 2b (perfil LinkedIn DETALLADO, opt-in): por cada persona creada abre su /in/, lee el perfil y la
+        // IA arma un resumen amplio (about + educacion + experiencia + headline) -> PerfilDetalle. Acotado por
+        // PerfilDetalladoMax y con PAUSA entre perfiles (anti-baneo). No crea filas ni toca el amarre/dedup; no
+        // falla la corrida si algo sale mal. Respeta el cupo diario de LinkedIn (si ya se agoto, no abre mas).
+        if (def.PerfilDetallado && def.EnrichLinkedIn && def.SourceType == ContactSearchSource.Maps
+            && outcome.Ok && detailTargets.Count > 0)
+        {
+            var detCap = def.PerfilDetalladoMax <= 0 ? 5 : def.PerfilDetalladoMax;
+            var done = 0;
+            foreach (var (personaId, personaNombre, inUrl) in detailTargets)
+            {
+                if (ct.IsCancellationRequested || done >= detCap) { break; }
+                var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+                var liToday = await _db.ContactSearchRuns
+                    .CountAsync(r => r.Source == "LinkedIn" && r.RunAt >= startOfDayUtc, ct);
+                if (liToday >= DailySocialCap) { break; } // cupo LinkedIn del dia agotado.
+
+                if (done > 0)
+                {
+                    // Pausa entre perfiles (anti-baneo): navegar muchos /in/ seguidos es sospechoso.
+                    try { await Task.Delay(TimeSpan.FromSeconds(4), ct); } catch (OperationCanceledException) { break; }
+                }
+                done++;
+                var detSink = new ProspectoProfileDetailSink(_db, tenantId, personaId);
+                var detCtx = new AiStepContext(
+                    def.ClientId!, tenantId, BuildProfileDetailInstruction(agent, personaNombre, inUrl),
+                    Guid.Empty, BrowserToolsForSearch,
+                    MaxSteps: 12, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null,
+                    SinkOverride: detSink, SessionKey: "linkedin",
+                    // Un perfil no es un listado: pocas rondas de scroll bastan para cargar about/experiencia.
+                    ExtractScrollRounds: 6);
+                await _orchestrator.RunAsync(detCtx, ct);
+                _db.ContactSearchRuns.Add(new ContactSearchRun
+                {
+                    TenantId = tenantId,
+                    DefinitionId = def.Id,
+                    Source = "LinkedIn",
+                    RunAt = DateTimeOffset.UtcNow,
+                    Ok = true,
+                    Inserted = 0,
+                });
+                await _db.SaveChangesAsync(ct);
             }
         }
 
@@ -160,26 +219,180 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         if (def.EnrichWebCorreo && def.SourceType == ContactSearchSource.Maps && outcome.Ok)
         {
             var webCap = def.EnrichWebMax <= 0 ? 20 : def.EnrichWebMax;
-            var opened = 0;
+            // Proveedor para el resumen de empresa (opcional): si no resuelve, se sigue con el correo (sin resumen).
+            var (aiChoice, _) = await _aiResolver.ResolveAsync(providerCfg.Id, ct);
+            var processed = 0;
             foreach (var target in sink.CreatedForWebEnrich)
             {
-                if (ct.IsCancellationRequested || opened >= webCap) { break; }
-                if (target.HasWeb) { continue; } // ya tiene sitio web: no gasta una navegacion.
-                opened++;
-                var webSink = new ProspectoWebEnrichSink(_db, tenantId, target.Id);
-                var webCtx = new AiStepContext(
-                    def.ClientId!, tenantId,
-                    BuildWebEnrichInstruction(agent, target.Name, target.OrigenUrl, def.City, def.Region, def.Country),
-                    Guid.Empty, BrowserToolsForSearch,
-                    MaxSteps: 12, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null,
-                    SinkOverride: webSink, SessionKey: null,
-                    // La ficha de Maps no necesita scroll largo (no es un listado): pocas rondas bastan.
-                    ExtractScrollRounds: 4);
-                await _orchestrator.RunAsync(webCtx, ct);
+                if (ct.IsCancellationRequested || processed >= webCap) { break; }
+                processed++;
+                // 1) Si NO trae sitio web, la Colmena lee la ficha de Maps (dominio permitido) para el sitio_web.
+                if (!target.HasWeb)
+                {
+                    var webSink = new ProspectoWebEnrichSink(_db, tenantId, target.Id);
+                    var webCtx = new AiStepContext(
+                        def.ClientId!, tenantId,
+                        BuildWebEnrichInstruction(agent, target.Name, target.OrigenUrl, def.City, def.Region, def.Country),
+                        Guid.Empty, BrowserToolsForSearch,
+                        MaxSteps: 12, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null,
+                        SinkOverride: webSink, SessionKey: null,
+                        // La ficha de Maps no necesita scroll largo (no es un listado): pocas rondas bastan.
+                        ExtractScrollRounds: 4);
+                    await _orchestrator.RunAsync(webCtx, ct);
+                }
+                // 2) Fetch del SERVIDOR (no la Colmena) sobre el sitio propio, con guardas anti-SSRF, para el
+                //    CORREO y un RESUMEN de la empresa. Respeta la allow-list de la Colmena por diseno (no la usa).
+                await EnrichCompanyFromWebsiteAsync(target.Id, aiChoice, ct);
             }
         }
 
         return new(outcome.Ok, totalCreated, outcome.Ok ? null : outcome.Error);
+    }
+
+    /// <summary>
+    /// Enriquecimiento por FETCH DEL SERVIDOR (no la Colmena): si el prospecto-empresa tiene sitio_web y le falta
+    /// correo o perfil, hace un GET acotado (IScrapeFetcher, guardas SSRF: solo http/https, bloquea privadas/
+    /// loopback/link-local/metadata, timeout + tope de bytes, redirecciones re-validadas) del sitio propio,
+    /// extrae un correo (mailto: o pagina de Contacto) y arma con la IA un resumen corto de la empresa. Solo
+    /// rellena lo que falta; nunca lanza (best-effort).
+    /// </summary>
+    private async Task EnrichCompanyFromWebsiteAsync(Guid prospectoId, AiProviderChoice? aiChoice, CancellationToken ct)
+    {
+        try
+        {
+            var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == prospectoId, ct);
+            if (p is null || string.IsNullOrWhiteSpace(p.SitioWeb)) { return; }
+            var needEmail = string.IsNullOrWhiteSpace(p.Correo);
+            var needPerfil = string.IsNullOrWhiteSpace(p.Perfil);
+            if (!needEmail && !needPerfil) { return; }
+
+            var res = await _fetcher.FetchAsync(p.SitioWeb!, ct);
+            if (!res.Ok || string.IsNullOrWhiteSpace(res.Body)) { return; }
+            var html = res.Body!;
+
+            var changed = false;
+
+            if (needEmail)
+            {
+                var email = ExtractEmailFromHtml(html);
+                if (email is null)
+                {
+                    // Reintenta en una pagina de Contacto del MISMO sitio (el guard SSRF re-valida el destino).
+                    var contactUrl = FindContactLink(html, p.SitioWeb!);
+                    if (contactUrl is not null)
+                    {
+                        var r2 = await _fetcher.FetchAsync(contactUrl, ct);
+                        if (r2.Ok && !string.IsNullOrWhiteSpace(r2.Body)) { email = ExtractEmailFromHtml(r2.Body!); }
+                    }
+                }
+                if (email is not null) { p.Correo = email; changed = true; }
+            }
+
+            if (needPerfil && aiChoice is not null)
+            {
+                var text = HtmlToText(html);
+                if (text.Length >= 80)
+                {
+                    var resumen = await SummarizeCompanyAsync(aiChoice, p.NombreCompleto, text, ct);
+                    if (!string.IsNullOrWhiteSpace(resumen))
+                    {
+                        var r = resumen!.Trim();
+                        if (r.Length > 1000) { r = r[..1000]; }
+                        p.Perfil = r;
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed)
+            {
+                p.Badge = ProspectoSearchRowSink.ComputeBadge(p.Metrica, p.SitioWeb);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* best-effort: un sitio caido/raro no debe tumbar la corrida ni el proceso. */ }
+    }
+
+    // Correo desde HTML: prioriza enlaces mailto: y, si no hay, un email en texto plano. Filtra placeholders y
+    // correos de librerias/servicios comunes (no son el de la empresa). Devuelve el primero razonable o null.
+    private static readonly Regex MailtoRx = new(@"mailto:([^""'?\s>]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex EmailRx = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", RegexOptions.Compiled);
+    private static readonly string[] EmailJunk =
+        { "example.com", "sentry", "wixpress", "domain.com", "email.com", "yourdomain", "sentry.io", "@2x", ".png", ".jpg", ".gif", ".webp" };
+
+    private static string? ExtractEmailFromHtml(string html)
+    {
+        foreach (Match m in MailtoRx.Matches(html))
+        {
+            var e = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+            if (IsPlausibleEmail(e)) { return e; }
+        }
+        foreach (Match m in EmailRx.Matches(html))
+        {
+            var e = m.Value.Trim();
+            if (IsPlausibleEmail(e)) { return e; }
+        }
+        return null;
+    }
+
+    private static bool IsPlausibleEmail(string e)
+    {
+        if (e.Length is < 6 or > 120 || e.Count(c => c == '@') != 1) { return false; }
+        var lower = e.ToLowerInvariant();
+        return !EmailJunk.Any(j => lower.Contains(j));
+    }
+
+    // Busca en el HTML un enlace a una pagina de "Contacto/Contact" del MISMO host (para reintentar el correo).
+    private static readonly Regex HrefRx = new(@"href\s*=\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static string? FindContactLink(string html, string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)) { return null; }
+        foreach (Match m in HrefRx.Matches(html))
+        {
+            var href = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+            if (href.Length == 0 || href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+                || href.StartsWith('#')) { continue; }
+            var low = href.ToLowerInvariant();
+            if (!low.Contains("contact") && !low.Contains("contacto")) { continue; }
+            if (!Uri.TryCreate(baseUri, href, out var abs)) { continue; }
+            if (abs.Scheme != Uri.UriSchemeHttp && abs.Scheme != Uri.UriSchemeHttps) { continue; }
+            if (!string.Equals(abs.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase)) { continue; } // mismo host
+            return abs.AbsoluteUri;
+        }
+        return null;
+    }
+
+    // HTML -> texto legible: quita script/style, tags y colapsa espacios; recorta a un tope para el prompt.
+    private static readonly Regex ScriptStyleRx = new(@"<(script|style)[^>]*>.*?</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex TagRx = new(@"<[^>]+>", RegexOptions.Compiled);
+    private static readonly Regex WsRx = new(@"\s+", RegexOptions.Compiled);
+
+    private static string HtmlToText(string html)
+    {
+        var s = ScriptStyleRx.Replace(html, " ");
+        s = TagRx.Replace(s, " ");
+        s = System.Net.WebUtility.HtmlDecode(s);
+        s = WsRx.Replace(s, " ").Trim();
+        return s.Length > 6000 ? s[..6000] : s;
+    }
+
+    private async Task<string?> SummarizeCompanyAsync(AiProviderChoice choice, string empresa, string siteText, CancellationToken ct)
+    {
+        const string system =
+            "Eres un asistente que resume la actividad de una empresa a partir del texto de su sitio web. "
+            + "Responde en espanol con UNA o DOS frases (max 60 palabras): que hace la empresa, su rubro y a quien "
+            + "sirve. No inventes datos que no esten en el texto. No incluyas URLs, telefonos ni saludos.";
+        var prompt = $"Empresa: {empresa}\n\nTexto del sitio web:\n{siteText}\n\nResumen (1-2 frases):";
+        var turns = new List<AiChatTurn> { new("user", prompt) };
+        try
+        {
+            var r = await _aiClient.CompleteAsync(choice.Provider, choice.ApiKey, choice.BaseUrl, choice.Model, system, turns, ct);
+            return r.Ok ? r.Text?.Trim() : null;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return null; }
     }
 
     /// <summary>Frase efectiva de la busqueda (terminos + geografia), p.ej. "centros medicos Bogota
@@ -234,10 +447,25 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         }
         sb.AppendLine("En la ficha, busca el boton/enlace 'Sitio web' (Website) y toma su URL http/https = sitio_web. "
             + "Si NO hay sitio web, deja sitio_web vacio.");
-        sb.AppendLine("Si hay sitio web, NAVEGA a ese sitio y busca un correo de contacto (enlaces mailto: o la pagina "
-            + "'Contacto'/'Contact'). Toma el primero valido = correo. Si no hay, deja correo vacio. NO inventes datos.");
+        sb.AppendLine("Si la ficha MISMA muestra un correo, tomalo = correo; NO navegues fuera de Google Maps para "
+            + "buscarlo (del sitio propio se encarga otro paso). Si no aparece, deja correo vacio. NO inventes datos.");
         sb.Append("Cuando termines, llama a 'guardar_filas' con UN solo objeto con las claves sitio_web y correo "
             + "(vacios si no los hallaste).");
+        return sb.ToString();
+    }
+
+    /// <summary>Instruccion del perfil DETALLADO (opt-in): abrir el /in/ de una persona y resumir su perfil
+    /// completo (about + educacion + experiencia + headline) en UNA fila con la clave perfil_detalle.</summary>
+    private static string BuildProfileDetailInstruction(AiAgent agent, string persona, string inUrl)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(agent.SystemPrompt)) { sb.AppendLine(agent.SystemPrompt).AppendLine(); }
+        sb.AppendLine($"Estas logueado en LinkedIn. NAVEGA al perfil de {persona}: {inUrl}");
+        sb.AppendLine("Lee el perfil con leer_html. Arma un RESUMEN AMPLIO (varias frases, en espanol) que incluya, "
+            + "si aparecen: el titular (headline), la seccion 'Acerca de' (about), la EDUCACION (estudios/instituciones) "
+            + "y la EXPERIENCIA (empresas y cargos previos, del mas reciente al mas antiguo). No inventes: si algo no "
+            + "aparece, omitelo.");
+        sb.Append("Cuando termines, llama a 'guardar_filas' con UN solo objeto con la clave perfil_detalle = ese resumen.");
         return sb.ToString();
     }
 
@@ -359,6 +587,16 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
     public IReadOnlyList<(Guid Id, string Name, string? OrigenUrl, bool HasWeb)> CreatedForWebEnrich =>
         _created.Where(e => !string.IsNullOrWhiteSpace(e.NombreCompleto))
             .Select(e => (e.Id, e.NombreCompleto, e.OrigenUrl, !string.IsNullOrWhiteSpace(e.SitioWeb)))
+            .ToList();
+
+    /// <summary>Personas creadas en esta corrida con URL de perfil (/in/): (Id, Nombre, URL del perfil).
+    /// Base del perfil DETALLADO (opt-in): el runner abre cada /in/ y resume about/educacion/experiencia.
+    /// Leer DESPUES del run (Ids ya poblados por SaveChanges).</summary>
+    public IReadOnlyList<(Guid Id, string Name, string InUrl)> CreatedPeople =>
+        _created.Where(e => !string.IsNullOrWhiteSpace(e.NombreCompleto)
+                            && !string.IsNullOrWhiteSpace(e.OrigenUrl)
+                            && e.OrigenUrl!.Contains("/in/", StringComparison.OrdinalIgnoreCase))
+            .Select(e => (e.Id, e.NombreCompleto, e.OrigenUrl!))
             .ToList();
 
     public ProspectoSearchRowSink(IApplicationDbContext db, Guid tenantId, string fuente,
@@ -572,5 +810,47 @@ public sealed class ProspectoWebEnrichSink : IScrapeRowSink
         if (at <= 0 || at == v.Length - 1) { return null; }
         var dom = v[(at + 1)..];
         return dom.Contains('.') && !v.Contains(' ') ? v : null;
+    }
+}
+
+/// <summary>
+/// Sumidero de UNA fila para el perfil LinkedIn DETALLADO (etapa 2b): ACTUALIZA el prospecto-persona
+/// indicado con el resumen amplio (about + educacion + experiencia + headline) que el agente saco del /in/.
+/// No pisa un PerfilDetalle ya presente. Tenant-safe por el filtro global (solo alcanza el del tenant activo).
+/// </summary>
+public sealed class ProspectoProfileDetailSink : IScrapeRowSink
+{
+    private readonly IApplicationDbContext _db;
+    private readonly Guid _prospectoId;
+    private bool _done; // una sola actualizacion por corrida (la primera fila con resumen).
+
+    public ProspectoProfileDetailSink(IApplicationDbContext db, Guid tenantId, Guid prospectoId)
+    {
+        _db = db;
+        _prospectoId = prospectoId;
+    }
+
+    public async Task<(int Inserted, int Updated, int Deleted)> IngestAsync(
+        Guid containerId, Guid tenantId, string? mappingJson,
+        IReadOnlyList<IReadOnlyDictionary<string, string?>> rows, CancellationToken ct = default)
+    {
+        if (_done) { return (0, 0, 0); }
+        foreach (var row in rows)
+        {
+            var detalle = ProspectoSearchRowSink.Pick(row, "perfil_detalle", "perfil_detallado", "detalle", "resumen_detallado", "resumen");
+            if (string.IsNullOrWhiteSpace(detalle)) { continue; }
+            var text = detalle.Trim();
+            if (text.Length > 4000) { text = text[..4000]; }
+
+            var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == _prospectoId, ct);
+            if (p is null) { _done = true; return (0, 0, 0); }
+
+            var changed = false;
+            if (string.IsNullOrWhiteSpace(p.PerfilDetalle)) { p.PerfilDetalle = text; changed = true; }
+            if (changed) { await _db.SaveChangesAsync(ct); }
+            _done = true;
+            return (0, changed ? 1 : 0, 0);
+        }
+        return (0, 0, 0);
     }
 }

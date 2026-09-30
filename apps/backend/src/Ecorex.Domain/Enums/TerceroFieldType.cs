@@ -78,5 +78,11 @@ public enum TerceroFieldType
     /// <summary>Lista de asesores/comerciales del tenant (catalogo 000074, IAsesorService). Alimenta un
     /// desplegable en vivo desde el modulo /asesores; se guarda el NOMBRE del asesor (texto plano). Es un
     /// tipo seleccionable en la config, no una fuente quemada.</summary>
-    Asesor
+    Asesor,
+
+    /// <summary>Enlace web: se captura como texto (la URL) y al pasar el puntero muestra dos mini-botones,
+    /// "Ir a la pagina" (abre en pestana nueva, solo http/https) y "Copiar URL". Sirve para cualquier campo
+    /// URL del Directorio (p.ej. sitio_web, maps_url). Se agrego al final para no correr los ordinales ya
+    /// persistidos de los demas tipos.</summary>
+    Url
 }

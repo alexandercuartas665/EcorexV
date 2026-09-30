@@ -194,8 +194,48 @@ public partial class TerceroModal
         TerceroFieldType.Currency => "number",
         TerceroFieldType.Date => "date",
         TerceroFieldType.Phone => "tel",
+        TerceroFieldType.Url => "url",
         _ => "text"
     };
+
+    // ---- Campo Url del Directorio: boton "Ir" + "Copiar" al hover ----
+    // Valor de la ultima URL copiada (para el feedback breve "Copiado" en el boton).
+    private string? _copiedUrl;
+
+    /// <summary>
+    /// Devuelve una URL http/https NAVEGABLE (o null si no es segura). Bloquea esquemas peligrosos
+    /// (javascript:, data:, ...): solo http/https. Si el valor no trae esquema, asume https://. Solo se
+    /// usa para el enlace del boton "Ir"; el valor guardado del campo no se altera.
+    /// </summary>
+    private static string? SafeHttpUrl(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return null; }
+        var s = raw.Trim();
+        var scheme = System.Text.RegularExpressions.Regex.Match(s, @"^([a-zA-Z][a-zA-Z0-9+.\-]*):");
+        if (scheme.Success)
+        {
+            var sc = scheme.Groups[1].Value.ToLowerInvariant();
+            if (sc != "http" && sc != "https") { return null; }   // javascript:/data:/mailto:... fuera
+        }
+        else
+        {
+            s = "https://" + s;   // dominio sin esquema -> https
+        }
+        return Uri.TryCreate(s, UriKind.Absolute, out var uri)
+               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? uri.AbsoluteUri
+            : null;
+    }
+
+    private async Task CopyUrlAsync(string url)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", url); } catch { /* portapapeles bloqueado */ }
+        _copiedUrl = url;
+        StateHasChanged();
+        await Task.Delay(1400);
+        _copiedUrl = null;
+        StateHasChanged();
+    }
 
     // ---- Autocomplete de Ciudad (catalogo global de municipios de Colombia) ----
     private async Task OnCiudadFocus()

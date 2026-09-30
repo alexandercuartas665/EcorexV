@@ -131,18 +131,30 @@
                                                         <label class="cs-enrich-max">Personas por empresa
                                                             <input class="cs-in cs-num" type="number" min="1" max="25" step="1" @bind="row.EnrichMax" />
                                                         </label>
+                                                        @* Perfil detallado: abre cada /in/ y resume about/educacion/experiencia (paceado anti-baneo). *@
+                                                        <label class="cs-enrich-chk">
+                                                            <input type="checkbox" @bind="row.PerfilDetallado" />
+                                                            Perfil detallado: abrir cada perfil y resumir experiencia, estudios y "acerca de" (mas lento, mas navegacion)
+                                                        </label>
+                                                        @if (row.PerfilDetallado)
+                                                        {
+                                                            <label class="cs-enrich-max">Perfiles a abrir
+                                                                <input class="cs-in cs-num" type="number" min="1" max="25" step="1" @bind="row.PerfilDetalladoMax" />
+                                                            </label>
+                                                        }
                                                     }
                                                 </div>
-                                                @* Enriquecimiento Maps -> sitio web/correo: la lista de Maps no trae web ni correo; por
-                                                   cada empresa abre su ficha para leer el sitio web y, si lo hay, intenta el correo. *@
+                                                @* Enriquecimiento Maps -> sitio web/correo: la Colmena lee el SITIO WEB de la ficha de Maps
+                                                   y luego el SERVIDOR (no la Colmena) visita ese sitio con guardas anti-SSRF para el correo y un
+                                                   resumen de la empresa. *@
                                                 <div class="cs-enrich">
                                                     <label class="cs-enrich-chk">
                                                         <input type="checkbox" @bind="row.EnrichWebCorreo" />
-                                                        Enriquecer web/correo (abre cada ficha de Maps para el sitio web y el correo)
+                                                        Enriquecer web/correo: leer el sitio web de la ficha de Maps y explorar ese sitio (desde el servidor) para el correo y un resumen de la empresa
                                                     </label>
                                                     @if (row.EnrichWebCorreo)
                                                     {
-                                                        <label class="cs-enrich-max">Fichas a abrir
+                                                        <label class="cs-enrich-max">Empresas a enriquecer
                                                             <input class="cs-in cs-num" type="number" min="1" max="100" step="1" @bind="row.EnrichWebMax" />
                                                         </label>
                                                     }
@@ -234,6 +246,8 @@
         public int EnrichMax = 5;        // personas por empresa en el enriquecimiento.
         public bool EnrichWebCorreo;     // Maps -> sitio web/correo: abre la ficha de cada empresa.
         public int EnrichWebMax = 20;    // fichas a abrir para el enriquecimiento web/correo.
+        public bool PerfilDetallado;     // LinkedIn: abrir cada /in/ y resumir el perfil (opt-in).
+        public int PerfilDetalladoMax = 5; // perfiles a abrir para el perfil detallado.
         public List<SlotEdit> Schedules = new();  // varias programaciones; vacio = Manual
         public bool Active = true;
         public DateTimeOffset? LastRunAt;
@@ -283,6 +297,7 @@
         MaxContacts = s.MaxContacts,
         EnrichLinkedIn = s.EnrichLinkedIn, EnrichMax = s.EnrichMaxPorEmpresa,
         EnrichWebCorreo = s.EnrichWebCorreo, EnrichWebMax = s.EnrichWebMax,
+        PerfilDetallado = s.PerfilDetallado, PerfilDetalladoMax = s.PerfilDetalladoMax,
         Schedules = s.Schedules.Select(sl => new SlotEdit
         {
             Frequency = sl.Frequency == ContactSearchSchedule.Manual ? ContactSearchSchedule.Diaria : sl.Frequency,
@@ -312,7 +327,8 @@
             var req = new SaveContactSearchRequest(r.Id, r.Name, r.Source,
                 Nz(r.Query), Nz(r.SubQuery), Nz(r.Country), Nz(r.Region), Nz(r.City),
                 r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, slots, r.Active,
-                r.EnrichLinkedIn, r.EnrichMax, r.EnrichWebCorreo, r.EnrichWebMax);
+                r.EnrichLinkedIn, r.EnrichMax, r.EnrichWebCorreo, r.EnrichWebMax,
+                r.PerfilDetallado, r.PerfilDetalladoMax);
             var err = await SearchSvc.SaveAsync(req);
             if (err is not null) { r.Error = err; r.Expanded = true; return; }
             await LoadRowsAsync();

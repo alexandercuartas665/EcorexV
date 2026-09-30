@@ -279,16 +279,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies => Set<ConciliacionDianBotDummy>();
     public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
-    // Extraccion de datos (Automatizaciones): configurador de scraping/RPA (legacy WEB_SCRAPING*).
-    public DbSet<ExtraccionDefinicion> ExtraccionDefiniciones => Set<ExtraccionDefinicion>();
-    public DbSet<ExtraccionPaso> ExtraccionPasos => Set<ExtraccionPaso>();
-    public DbSet<ExtraccionAccion> ExtraccionAcciones => Set<ExtraccionAccion>();
-    public DbSet<ExtraccionAdvertencia> ExtraccionAdvertencias => Set<ExtraccionAdvertencia>();
-    public DbSet<ExtraccionCliente> ExtraccionClientes => Set<ExtraccionCliente>();
-    public DbSet<ExtraccionClienteVariable> ExtraccionClienteVariables => Set<ExtraccionClienteVariable>();
-    public DbSet<ExtraccionApi> ExtraccionApis => Set<ExtraccionApi>();
-    public DbSet<ExtraccionApiVariable> ExtraccionApiVariables => Set<ExtraccionApiVariable>();
-    public DbSet<ExtraccionSeguimiento> ExtraccionSeguimientos => Set<ExtraccionSeguimiento>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2688,110 +2678,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Referencia).HasMaxLength(80).IsRequired();
             b.Property(x => x.DocumentoInterno).HasMaxLength(80);
             b.HasIndex(x => new { x.TenantId, x.Referencia });
-        });
-
-        // ---- Extraccion de datos (modulo Automatizaciones) ----
-
-        modelBuilder.Entity<ExtraccionDefinicion>(b =>
-        {
-            b.Property(x => x.Codigo).HasMaxLength(40).IsRequired();
-            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Descripcion).HasMaxLength(2000);
-            b.Property(x => x.Estado).HasMaxLength(20);
-            b.Property(x => x.Ciclo).HasMaxLength(40);
-            b.Property(x => x.Url).HasMaxLength(1000);
-            b.Property(x => x.Destino).HasMaxLength(1000);
-            b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
-        });
-
-        modelBuilder.Entity<ExtraccionPaso>(b =>
-        {
-            b.Property(x => x.NombrePaso).HasMaxLength(200);
-            b.Property(x => x.UrlPaso).HasMaxLength(2000);
-            b.Property(x => x.Tiempo).HasMaxLength(40);
-            b.Property(x => x.Inicia).HasMaxLength(40);
-            b.Property(x => x.Termina).HasMaxLength(40);
-            b.Property(x => x.Relevo).HasMaxLength(40);
-            // SqlExplora sin maxlength (texto largo).
-            b.HasOne(x => x.Definicion).WithMany(d => d.Pasos)
-                .HasForeignKey(x => x.DefinicionId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.DefinicionId, x.Orden });
-        });
-
-        modelBuilder.Entity<ExtraccionAccion>(b =>
-        {
-            b.Property(x => x.Tipo).HasMaxLength(40);
-            b.Property(x => x.ContenedorCodigo).HasMaxLength(40);
-            b.Property(x => x.Espera).HasMaxLength(40);
-            b.Property(x => x.Condicion).HasMaxLength(10);
-            b.Property(x => x.Valor).HasMaxLength(400);
-            b.Property(x => x.PaginaDesde).HasMaxLength(40);
-            b.Property(x => x.PaginaHasta).HasMaxLength(40);
-            b.Property(x => x.Variable).HasMaxLength(120);
-            b.Property(x => x.Operacion).HasMaxLength(60);
-            b.Property(x => x.ApiNombre).HasMaxLength(120);
-            // Script y SqlExplora sin maxlength (JS/SQL largos).
-            b.HasOne(x => x.Paso).WithMany(p => p.Acciones)
-                .HasForeignKey(x => x.PasoId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.PasoId, x.Orden });
-        });
-
-        modelBuilder.Entity<ExtraccionAdvertencia>(b =>
-        {
-            b.Property(x => x.Etiqueta).HasMaxLength(200);
-            b.Property(x => x.Accion).HasMaxLength(40);
-            b.HasOne(x => x.Paso).WithMany(p => p.Advertencias)
-                .HasForeignKey(x => x.PasoId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.PasoId });
-        });
-
-        modelBuilder.Entity<ExtraccionCliente>(b =>
-        {
-            b.Property(x => x.Nombre).HasMaxLength(200);
-            b.Property(x => x.Correo).HasMaxLength(200);
-            b.Property(x => x.Slack).HasMaxLength(200);
-            b.Property(x => x.Token).HasMaxLength(120);
-            b.Property(x => x.Estado).HasMaxLength(40);
-            b.Property(x => x.Referencia).HasMaxLength(200);
-            b.HasOne(x => x.Definicion).WithMany(d => d.Clientes)
-                .HasForeignKey(x => x.DefinicionId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.DefinicionId });
-        });
-
-        modelBuilder.Entity<ExtraccionClienteVariable>(b =>
-        {
-            b.Property(x => x.Nombre).HasMaxLength(120);
-            // ValorLegacyCifrado sin maxlength (ciphertext).
-            b.HasOne(x => x.Cliente).WithMany(c => c.Variables)
-                .HasForeignKey(x => x.ClienteId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.ClienteId });
-        });
-
-        modelBuilder.Entity<ExtraccionApi>(b =>
-        {
-            b.Property(x => x.Nombre).HasMaxLength(120);
-            // XmlConfig sin maxlength.
-            b.HasOne(x => x.Definicion).WithMany(d => d.Apis)
-                .HasForeignKey(x => x.DefinicionId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.DefinicionId });
-        });
-
-        modelBuilder.Entity<ExtraccionApiVariable>(b =>
-        {
-            b.Property(x => x.Nombre).HasMaxLength(120);
-            b.Property(x => x.Valor).HasMaxLength(2000);
-            b.HasOne(x => x.Api).WithMany(a => a.Variables)
-                .HasForeignKey(x => x.ApiId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.ApiId });
-        });
-
-        modelBuilder.Entity<ExtraccionSeguimiento>(b =>
-        {
-            b.Property(x => x.Seguimiento).HasMaxLength(200);
-            b.Property(x => x.Estado).HasMaxLength(40);
-            b.HasOne(x => x.Definicion).WithMany(d => d.Seguimientos)
-                .HasForeignKey(x => x.DefinicionId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(x => new { x.TenantId, x.DefinicionId });
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

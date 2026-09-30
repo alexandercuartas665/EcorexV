@@ -29,7 +29,44 @@ public enum ScrapeStepKind
 
     /// <summary>Paso de IA: un agente maneja el navegador por el MCP local segun una instruccion,
     /// acotado por allow-list de tools y topes de pasos/tiempo. NO es una accion tipada.</summary>
-    Ai = 6
+    Ai = 6,
+
+    // ---- Tipos heredados del legacy WEB_SCRAPING_RS.TIPO ("el dron"), para paridad. Se conservan como
+    // variantes seleccionables; en el runtime se comportan como Extract (los que producen datos) o
+    // InjectScript (los que solo ejecutan JS). Ints > 6 para no chocar con los nativos. ----
+
+    /// <summary>Legacy 'Tabla': el script devuelve filas que se ingieren (como Extract).</summary>
+    Tabla = 7,
+
+    /// <summary>Legacy 'TablaID': igual que Tabla identificando filas por id.</summary>
+    TablaID = 8,
+
+    /// <summary>Legacy 'Exploracion': explora/alimenta el paso (devuelve datos).</summary>
+    Exploracion = 9,
+
+    /// <summary>Legacy 'Ensamblado': invoca una Regla de negocio con el resultado.</summary>
+    Ensamblado = 10,
+
+    /// <summary>Legacy 'WeBresponse': captura la respuesta web.</summary>
+    WebResponse = 11,
+
+    /// <summary>Legacy 'EjecutarSQL': ejecuta un SQL de proceso.</summary>
+    EjecutarSql = 12,
+
+    /// <summary>Legacy 'Variable': el script fija una variable (como InjectScript).</summary>
+    Variable = 13,
+
+    /// <summary>Legacy 'Api': invoca una API configurada.</summary>
+    Api = 14,
+
+    /// <summary>Legacy 'tramite': paso de tramite.</summary>
+    Tramite = 15,
+
+    /// <summary>Legacy 'cerran dron': cierra el dron al terminar.</summary>
+    CerrarDron = 16,
+
+    /// <summary>Legacy 'mouse': accion de mouse (como Click).</summary>
+    Mouse = 17
 }
 
 /// <summary>

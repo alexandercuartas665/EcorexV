@@ -215,8 +215,13 @@
 
                         @if (_showStepEditor)
                         {
-                            <div class="xd-step-editor">
-                                <div class="xd-card-title" style="font-size:13px;margin-bottom:8px;">@(_editingStepId is null ? "Nuevo paso" : "Editar paso")</div>
+                            <div class="xd-modal-backdrop" @onclick="() => _showStepEditor = false">
+                              <div class="xd-modal" @onclick:stopPropagation="true">
+                                <div class="xd-modal-head">
+                                    <div class="xd-card-title" style="font-size:14px;">@(_editingStepId is null ? "Nuevo paso" : "Editar paso")</div>
+                                    <button class="xd-icon-btn" title="Cerrar" @onclick="() => _showStepEditor = false">&times;</button>
+                                </div>
+                                <div class="xd-modal-body">
                                 <div class="xd-prop">
                                     <label>Tipo de paso</label>
                                     <select class="xd-input" @bind="_sKind">
@@ -230,13 +235,13 @@
                                 {
                                     <div class="xd-prop"><label>URL (admite {{VAR}})</label><input class="xd-input" @bind="_sUrl" /></div>
                                 }
-                                else if (_sKind is ScrapeStepKind.InjectScript or ScrapeStepKind.Extract)
+                                else if (IsScriptKind(_sKind))
                                 {
                                     <div class="xd-prop"><label>Script JS (cuerpo de funcion: usa <code>return</code>; el servidor lo firma al ejecutar)</label>
                                         <textarea class="xd-input xd-code-input" rows="6"
                                             placeholder="return Array.from(document.querySelectorAll('.fila')).map(r => ({ CODIGO: r.dataset.id, NOMBRE: r.querySelector('.nombre').innerText }));"
                                             @bind="_sScript"></textarea></div>
-                                    @if (_sKind == ScrapeStepKind.Extract)
+                                    @if (IsExtractKind(_sKind))
                                     {
                                         <div class="xd-prop"><label>Mapeo campo -> columna (JSON, opcional)</label>
                                             <textarea class="xd-input xd-code-input" rows="3" placeholder='{"sku":"CODIGO","nombre":"NOMBRE"}' @bind="_sMappingJson"></textarea></div>
@@ -252,7 +257,7 @@
                                     <div class="xd-prop"><label>Selector a esperar (opcional)</label><input class="xd-input" @bind="_sSelector" /></div>
                                     <div class="xd-prop"><label>Espera (ms)</label><input class="xd-input" type="number" @bind="_sWaitMs" /></div>
                                 }
-                                else if (_sKind == ScrapeStepKind.Click)
+                                else if (IsClickKind(_sKind))
                                 {
                                     <div class="xd-prop"><label>Selector a clicar</label><input class="xd-input" @bind="_sSelector" /></div>
                                 }
@@ -307,6 +312,8 @@
                                     <button class="xd-btn primary" @onclick="SaveStepAsync" disabled="@_busy">Guardar paso</button>
                                     <button class="xd-btn" @onclick="() => _showStepEditor = false">Cancelar</button>
                                 </div>
+                                </div>
+                              </div>
                             </div>
                         }
                     </div>
@@ -905,26 +912,52 @@
         ScrapeStepKind.Wait => "Esperar",
         ScrapeStepKind.Click => "Clic",
         ScrapeStepKind.Screenshot => "Captura",
-        _ => "IA"
+        ScrapeStepKind.Ai => "IA",
+        ScrapeStepKind.Tabla => "Tabla (legacy)",
+        ScrapeStepKind.TablaID => "Tabla por ID (legacy)",
+        ScrapeStepKind.Exploracion => "Exploracion (legacy)",
+        ScrapeStepKind.Ensamblado => "Ensamblado/Regla (legacy)",
+        ScrapeStepKind.WebResponse => "Web response (legacy)",
+        ScrapeStepKind.EjecutarSql => "Ejecutar SQL (legacy)",
+        ScrapeStepKind.Variable => "Variable (legacy)",
+        ScrapeStepKind.Api => "API (legacy)",
+        ScrapeStepKind.Tramite => "Tramite (legacy)",
+        ScrapeStepKind.CerrarDron => "Cerrar dron (legacy)",
+        ScrapeStepKind.Mouse => "Mouse (legacy)",
+        _ => k.ToString()
     };
+
+    // Familias de comportamiento del paso (nativos + legacy):
+    // - Extract-like: el script devuelve filas que se ingieren (muestra mapeo + tabla destino).
+    private static bool IsExtractKind(ScrapeStepKind k) => k is ScrapeStepKind.Extract
+        or ScrapeStepKind.Tabla or ScrapeStepKind.TablaID or ScrapeStepKind.Exploracion or ScrapeStepKind.WebResponse;
+    // - Script-only: solo ejecuta JS (muestra solo el script).
+    private static bool IsScriptOnlyKind(ScrapeStepKind k) => k is ScrapeStepKind.InjectScript
+        or ScrapeStepKind.Variable or ScrapeStepKind.Ensamblado or ScrapeStepKind.EjecutarSql
+        or ScrapeStepKind.Api or ScrapeStepKind.Tramite or ScrapeStepKind.CerrarDron;
+    // - Cualquier paso con campo de script (extract-like o script-only).
+    private static bool IsScriptKind(ScrapeStepKind k) => IsExtractKind(k) || IsScriptOnlyKind(k);
+    // - Basado en selector (clic/mouse).
+    private static bool IsClickKind(ScrapeStepKind k) => k is ScrapeStepKind.Click or ScrapeStepKind.Mouse;
 
     private static string TagClass(ScrapeStepKind k) => k switch
     {
         ScrapeStepKind.Navigate => "nav",
         ScrapeStepKind.Wait => "wait",
         ScrapeStepKind.Ai => "ai",
-        ScrapeStepKind.Extract => "extract",
+        _ when IsExtractKind(k) => "extract",
         _ => "script"
     };
 
     private static string StepSummary(ScrapeStepDto s) => s.Kind switch
     {
         ScrapeStepKind.Navigate => "Va a la URL indicada.",
-        ScrapeStepKind.InjectScript => "Inyecta JavaScript (firmado por el servidor).",
-        ScrapeStepKind.Extract => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         ScrapeStepKind.Wait => s.WaitMs is int ms ? $"Espera {ms} ms." : "Espera a que aparezca el selector.",
         ScrapeStepKind.Click => "Hace clic sobre el selector.",
+        ScrapeStepKind.Mouse => "Accion de mouse sobre el selector (legacy).",
         ScrapeStepKind.Screenshot => "Captura de pantalla.",
-        _ => $"Un agente de IA maneja el navegador (tope {s.MaxSteps?.ToString() ?? "-"} pasos / {s.MaxSeconds?.ToString() ?? "-"} s)."
+        ScrapeStepKind.Ai => $"Un agente de IA maneja el navegador (tope {s.MaxSteps?.ToString() ?? "-"} pasos / {s.MaxSeconds?.ToString() ?? "-"} s).",
+        _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
+        _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };
 }

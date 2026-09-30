@@ -443,3 +443,38 @@
     .xd-layout { grid-template-columns: 1fr; }
     .xd-side { position: static; }
 }
+
+/* ---- Modal "Editar paso" ---- */
+.xd-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, .45);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    z-index: 1000;
+    overflow-y: auto;
+}
+.xd-modal {
+    width: 100%;
+    max-width: 640px;
+    background: var(--surface, #fff);
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, .25);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 80px);
+}
+.xd-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line, #f1f5f9);
+}
+.xd-modal-body {
+    padding: 16px 18px;
+    overflow-y: auto;
+}

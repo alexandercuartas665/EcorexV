@@ -73,14 +73,23 @@ public static class ScrapeFlowCompiler
                         break;
                     }
 
+                // Script-only: solo ejecuta JS. Nativo InjectScript + legacy 'Variable' (el dron fijaba una
+                // variable corriendo un script). Mismo comportamiento: Eval firmado, sin ingesta.
                 case ScrapeStepKind.InjectScript:
+                case ScrapeStepKind.Variable:
                     {
                         var js = Substitute(RequireScript(step, "Inyectar JS"), variables)!;
                         actions.Add(EvalSigned(js, correlationId, signingSecret, step));
                         break;
                     }
 
+                // Extract-like: el JS devuelve filas que se ingieren. Nativo Extract + legacy
+                // Tabla/TablaID/Exploracion/WeBresponse (todos producian datos del dron).
                 case ScrapeStepKind.Extract:
+                case ScrapeStepKind.Tabla:
+                case ScrapeStepKind.TablaID:
+                case ScrapeStepKind.Exploracion:
+                case ScrapeStepKind.WebResponse:
                     {
                         var js = Substitute(RequireScript(step, "Extraer"), variables)!;
                         var container = step.TargetContainerId ?? defaultContainer
@@ -110,7 +119,9 @@ public static class ScrapeFlowCompiler
                         break;
                     }
 
+                // Click por selector. Nativo Click + legacy 'mouse'.
                 case ScrapeStepKind.Click:
+                case ScrapeStepKind.Mouse:
                     {
                         if (string.IsNullOrWhiteSpace(step.Selector))
                         {
@@ -132,6 +143,23 @@ public static class ScrapeFlowCompiler
                     // bucle agente<->navegador por el MCP local. Aqui NO se compila; se rechaza claro.
                     throw new ScrapeCompileException(
                         $"El paso '{step.Name}' es de IA; su ejecucion llega en una ola posterior (Ola 4).");
+
+                case ScrapeStepKind.LeerCorreoOtp:
+                    // El OTP no es una accion de navegador: lo resuelve el runtime leyendo el correo por IMAP
+                    // (IBrowserRunService.RunStepNowAsync lo intercepta antes de compilar). No deberia llegar aqui.
+                    throw new ScrapeCompileException(
+                        $"El paso '{step.Name}' (Leer token de correo) no se ejecuta en el navegador; lo resuelve el runtime del flujo.");
+
+                // Legacy que NO son acciones de navegador (invocan reglas/SQL/APIs del servidor o cierran el
+                // dron): aun no se ejecutan por esta via. Mensaje claro para que el operador los salte en el
+                // paso a paso en vez de un "tipo no soportado" opaco.
+                case ScrapeStepKind.Ensamblado:
+                case ScrapeStepKind.EjecutarSql:
+                case ScrapeStepKind.Api:
+                case ScrapeStepKind.Tramite:
+                case ScrapeStepKind.CerrarDron:
+                    throw new ScrapeCompileException(
+                        $"El paso '{step.Name}' es de tipo {step.Kind} (legacy) y aun no se ejecuta por el navegador.");
 
                 default:
                     throw new ScrapeCompileException($"Tipo de paso no soportado: {step.Kind}.");

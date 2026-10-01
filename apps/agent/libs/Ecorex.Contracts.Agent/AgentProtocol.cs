@@ -318,6 +318,12 @@ public enum BrowserActionKind
     // OJO COMPAT: va al FINAL a proposito; el enum viaja numerico por el hub, asi que un agente viejo
     // (<1.6.0) recibe un valor desconocido y cae en el 'default' del switch (Fail), sin romper la orden.
     ExtractReadable,
+
+    // Cierra la SESION VIVA del perfil (SessionKey) abierta por el modo paso a paso: el agente cierra la
+    // ventana/WebView2 que mantenia abierta entre ordenes y la saca de su cache. No navega ni inyecta.
+    // Va al FINAL por COMPAT (enum numerico por el hub): un agente viejo cae en el 'default' (Fail) y la
+    // orden de cierre falla sin consecuencias (no hay sesion viva que cerrar en un agente que no la soporta).
+    CloseSession,
 }
 
 /// <summary>
@@ -348,7 +354,13 @@ public sealed record BrowserRequestMsg(
     // login entre ordenes -> permite scraping LOGUEADO. Null = sesion EFIMERA (comportamiento historico:
     // carpeta unica que se borra al terminar). Va al FINAL (opcional) a proposito por COMPAT: un backend
     // viejo no lo envia, y un agente viejo (<1.7.0) ignora el campo y cae al modo efimero de siempre.
-    string? SessionKey = null);
+    string? SessionKey = null,
+    // SESION VIVA (modo paso a paso): con SessionKey + KeepAlive, el agente MANTIENE la ventana/WebView2
+    // ABIERTA al terminar la orden (reusa la MISMA pagina en la siguiente), en vez de cerrarla. Asi se
+    // pueden encadenar pasos sobre el estado real de la pagina (login -> OTP -> continuar). Se libera con
+    // una orden que traiga una accion CloseSession (o por inactividad en el agente). Va al FINAL por COMPAT:
+    // un backend viejo no lo envia y un agente viejo lo ignora (cierra como siempre).
+    bool KeepAlive = false);
 
 /// <summary>Resultado de una accion individual del navegador.</summary>
 public sealed record BrowserActionResult(

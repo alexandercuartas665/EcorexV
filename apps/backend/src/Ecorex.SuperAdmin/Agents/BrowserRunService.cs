@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
+using Ecorex.Application.Scraping;
 using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -12,6 +14,13 @@ namespace Ecorex.SuperAdmin.Agents;
 /// <summary>Lo que devuelve "Ejecutar ahora": si se despacho, a que corrida corresponde, y si quedo
 /// esperando al agente o fallo antes de salir.</summary>
 public sealed record BrowserRunResult(bool Dispatched, Guid? RunId, string? CorrelationId, bool Offline, string? Error);
+
+/// <summary>Resultado SINCRONO de ejecutar UN paso en modo "paso a paso" (sesion viva): si salio bien, si
+/// el agente estaba offline, el error, una captura de la pagina (base64 PNG), el valor devuelto por el paso
+/// (texto/JSON del Eval, o el token leido en un paso OTP), cuantas filas se ingirieron, y el resumen.</summary>
+public sealed record StepRunResult(
+    bool Ok, bool Offline, string? Error, string? ScreenshotBase64, string? Value,
+    int Inserted, int Updated, int Deleted, string? Detail);
 
 /// <summary>
 /// Runtime de los flujos de extraccion (modulo 000730, Olas 3-4). Ejecuta el flujo PASO A PASO en el
@@ -29,6 +38,16 @@ public sealed record BrowserRunResult(bool Dispatched, Guid? RunId, string? Corr
 public interface IBrowserRunService
 {
     Task<BrowserRunResult> RunFlowNowAsync(Guid flowId, Guid tenantId, ImportRunTrigger trigger, CancellationToken ct = default);
+
+    /// <summary>Ejecuta UN solo paso del flujo contra la SESION VIVA del agente (modo "paso a paso"), de forma
+    /// SINCRONA: despacha el paso con la clave de sesion del flujo (el agente mantiene el navegador abierto y
+    /// reusa la pagina del paso anterior), ingiere lo que extraiga, lo registra en la bitacora y devuelve el
+    /// resultado para pintarlo en la UI. Pensado para encadenar pasos a mano (login -> OTP -> continuar).</summary>
+    Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default);
+
+    /// <summary>Cierra la sesion viva del flujo en el agente (la ventana que el paso a paso mantenia abierta) y
+    /// olvida las variables de sesion (p.ej. el token OTP leido). Best-effort.</summary>
+    Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default);
 
     /// <summary>Cierra corridas que quedaron "Running" colgadas (p.ej. el servidor se reinicio a mitad).
     /// Lo llama el worker; los timeouts por accion los maneja el canal, esto es la red de seguridad.</summary>
@@ -48,6 +67,16 @@ public sealed class BrowserRunService(
     /// <summary>Una corrida Running mas vieja que esto se da por colgada (el canal ya habria fallado sus
     /// acciones; esto solo limpia lo que quedo tras un reinicio del proceso).</summary>
     private static readonly TimeSpan StaleRunAge = TimeSpan.FromMinutes(20);
+
+    /// <summary>Variables de SESION del modo paso a paso, por flujo: valores efimeros producidos durante el
+    /// stepping (p.ej. el token que leyo un paso OTP) que se superponen a las variables del flujo para los
+    /// pasos siguientes, SIN persistirlos en BD. Se limpian al cerrar la sesion. Singleton -> estado vivo
+    /// entre llamadas (cada paso es una invocacion aparte).</summary>
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, string>> _stepSessionVars = new();
+
+    /// <summary>Clave de sesion viva del navegador para el stepping de un flujo (el agente reusa el mismo
+    /// perfil/ventana entre pasos). Estable por flujo.</summary>
+    private static string StepSessionKeyFor(Guid flowId) => $"stepflow-{flowId:N}";
 
     public async Task<BrowserRunResult> RunFlowNowAsync(Guid flowId, Guid tenantId, ImportRunTrigger trigger,
         CancellationToken ct = default)
@@ -110,6 +139,246 @@ public sealed class BrowserRunService(
             return new BrowserRunResult(true, runId, runCorr, false, null);
         }
     }
+
+    // ---- Modo "paso a paso" (sesion viva): un paso a la vez, sincrono, sobre la MISMA ventana del agente ----
+
+    public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        using (AmbientTenantContext.Begin(tenantId))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
+
+            var flow = await db.ScrapeFlows.Include(f => f.Steps).Include(f => f.Variables)
+                .FirstOrDefaultAsync(f => f.Id == flowId, ct);
+            if (flow is null) { return Fail("El flujo no existe o no es de este tenant."); }
+            var step = flow.Steps.FirstOrDefault(s => s.Id == stepId);
+            if (step is null) { return Fail("El paso no existe en este flujo."); }
+
+            if (flow.ClientId is not Guid clientPk)
+            {
+                return Fail("El flujo no tiene un agente asignado.");
+            }
+            var client = await db.DataClients.FirstOrDefaultAsync(c => c.Id == clientPk && c.IsActive, ct);
+            if (client is null) { return Fail("El agente asignado no existe o esta inactivo."); }
+            if (!registry.IsOnline(client.ClientId))
+            {
+                return new StepRunResult(false, true, "El agente asignado no esta en linea.", null, null, 0, 0, 0, null);
+            }
+
+            string? secret = null;
+            if (client.ClientSecretEncrypted is not null)
+            {
+                try { secret = protector.Unprotect(client.ClientSecretEncrypted); } catch { /* ilegible */ }
+            }
+
+            // Variables del flujo + las de sesion (overlay efimero: p.ej. el token que leyo un paso OTP antes).
+            var vars = DecryptVariables(flow.Variables, protector);
+            if (_stepSessionVars.TryGetValue(flowId, out var session))
+            {
+                foreach (var (k, v) in session) { vars[k] = v; }
+            }
+
+            // Paso "Leer token de correo": NO va al navegador. Lee el OTP por IMAP y lo deja como variable de
+            // sesion para que los pasos siguientes lo sustituyan como {{NOMBRE}}.
+            if (step.Kind == ScrapeStepKind.LeerCorreoOtp)
+            {
+                return await RunOtpStepAsync(scope, db, flowId, tenantId, step, ct);
+            }
+
+            if (step.Kind == ScrapeStepKind.Ai)
+            {
+                return Fail("El paso de IA no se ejecuta en modo paso a paso; usa \"Ejecutar ahora\".");
+            }
+
+            var sessionKey = StepSessionKeyFor(flowId);
+            var corr = NewCorr();
+            CompiledFlow compiled;
+            try
+            {
+                compiled = ScrapeFlowCompiler.CompileSteps(new[] { step }, flow.ContainerId, vars, corr, secret);
+            }
+            catch (ScrapeCompileException ex) { return Fail(ex.Message); }
+
+            // Siempre se agrega una captura al final para VER en que quedo la pagina tras el paso (no afecta
+            // los indices de los ExtractBinding, que apuntan a las acciones compiladas, antes de esta).
+            var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
+            if (compiled.Actions.Count == 0)
+            {
+                return Fail("El paso no produjo ninguna accion de navegador.");
+            }
+
+            var ingest = scope.ServiceProvider.GetRequiredService<IRowIngestService>();
+            var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+            var started = DateTimeOffset.UtcNow;
+            int ins = 0, upd = 0, del = 0;
+            try
+            {
+                var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
+                var result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
+
+                var screenshot = result.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
+                var firstErr = FirstError(result);
+
+                if (!result.Ok)
+                {
+                    await activity.RecordAsync(new AgentActivityEntry(
+                        tenantId, client.ClientId, null, AgentActivityKind.Browser, corr,
+                        $"Paso a paso: {flow.Name} / {step.Name}", false, started, DateTimeOffset.UtcNow, firstErr));
+                    await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, firstErr, ct);
+                    return new StepRunResult(false, false, firstErr ?? "El navegador reporto un error.",
+                        screenshot, null, 0, 0, 0, firstErr);
+                }
+
+                // Ingesta de los pasos Extract (si este paso extraia filas).
+                foreach (var bind in compiled.Extracts)
+                {
+                    var res = result.Results.FirstOrDefault(r => r.Index == bind.ActionIndex);
+                    if (res is null || !res.Ok)
+                    {
+                        var msg = $"La extraccion no devolvio datos: {res?.Error ?? "sin resultado"}.";
+                        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, msg, ct);
+                        return new StepRunResult(false, false, msg, screenshot, null, 0, 0, 0, msg);
+                    }
+                    var rows = ScrapeRowIngest.ParseRows(res.Value);
+                    var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, ct);
+                    ins += i; upd += u; del += d;
+                }
+
+                // Valor visible: lo que devolvio el paso (Eval/Html/ExtractReadable), recortado para la UI.
+                var value = result.Results
+                    .Where(r => r.Kind != BrowserActionKind.Screenshot && !string.IsNullOrEmpty(r.Value))
+                    .Select(r => r.Value).FirstOrDefault();
+                var detail = ins > 0 ? $"{ins} filas" : "Paso ejecutado";
+
+                await activity.RecordAsync(new AgentActivityEntry(
+                    tenantId, client.ClientId, null, AgentActivityKind.Browser, corr,
+                    $"Paso a paso: {flow.Name} / {step.Name}", true, started, DateTimeOffset.UtcNow, detail));
+                await RecordStepRunAsync(db, flowId, step.Name, true, ins, upd, del, detail, ct);
+                return new StepRunResult(true, false, null, screenshot, Shorten(value, 4000), ins, upd, del, detail);
+            }
+            catch (TimeoutException ex)
+            {
+                await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, ex.Message, ct);
+                return Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, ex.Message, ct);
+                log.LogError(ex, "[NAV-STEP] fallo el paso {Step} del flujo {Flow}", stepId, flowId);
+                return Fail(ex.Message);
+            }
+        }
+
+        static StepRunResult Fail(string error) => new(false, false, error, null, null, 0, 0, 0, error);
+    }
+
+    /// <summary>Paso "Leer token de correo" dentro del paso a paso: lee el OTP por IMAP y lo guarda como
+    /// variable de sesion del flujo (no persiste en BD). Registra el paso en la bitacora.</summary>
+    private async Task<StepRunResult> RunOtpStepAsync(IServiceScope scope, IApplicationDbContext db, Guid flowId,
+        Guid tenantId, ScrapeStep step, CancellationToken ct)
+    {
+        OtpStepConfig? cfg = null;
+        if (!string.IsNullOrWhiteSpace(step.MappingJson))
+        {
+            try { cfg = JsonSerializer.Deserialize<OtpStepConfig>(step.MappingJson!); } catch { /* json viejo */ }
+        }
+        if (cfg?.MailboxId is not Guid mailboxId)
+        {
+            var msg = "El paso OTP no tiene un buzon configurado.";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, msg, ct);
+            return new StepRunResult(false, false, msg, null, null, 0, 0, 0, msg);
+        }
+
+        var otp = scope.ServiceProvider.GetRequiredService<IOtpMailboxConfigService>();
+        var regex = string.IsNullOrWhiteSpace(cfg.Regex) ? @"\b(\d{4,8})\b" : cfg.Regex!;
+        var timeout = cfg.TimeoutSeconds > 0 ? cfg.TimeoutSeconds : 120;
+        // Acota a correos recientes (el login acaba de dispararse en el paso anterior).
+        var since = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10);
+        var started = DateTimeOffset.UtcNow;
+        OtpReadResult read;
+        try { read = await otp.LeerTokenAsync(mailboxId, cfg.From, cfg.Subject, regex, timeout, since, ct); }
+        catch (Exception ex) { read = new OtpReadResult(false, null, ex.Message); }
+
+        if (!read.Ok || string.IsNullOrEmpty(read.Token))
+        {
+            var msg = read.Error ?? "No se encontro el token en el correo.";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, msg, ct);
+            return new StepRunResult(false, false, msg, null, null, 0, 0, 0, msg);
+        }
+
+        var varName = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!.Trim();
+        var session = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
+        session[varName] = read.Token!;
+
+        var detail = $"Token leido en {{{{{varName}}}}}: {read.Token}";
+        await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, detail, ct);
+        return new StepRunResult(true, false, null, null, read.Token, 0, 0, 0, detail);
+    }
+
+    public async Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default)
+    {
+        _stepSessionVars.TryRemove(flowId, out _);
+        using var scope = scopeFactory.CreateScope();
+        using (AmbientTenantContext.Begin(tenantId))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var flow = await db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == flowId, ct);
+            if (flow?.ClientId is not Guid clientPk) { return new StepRunResult(true, false, null, null, null, 0, 0, 0, "Sin agente."); }
+            var client = await db.DataClients.FirstOrDefaultAsync(c => c.Id == clientPk && c.IsActive, ct);
+            if (client is null || !registry.IsOnline(client.ClientId))
+            {
+                return new StepRunResult(true, false, null, null, null, 0, 0, 0, "Sesion local limpiada (agente offline).");
+            }
+            try
+            {
+                var corr = NewCorr();
+                var req = new BrowserRequestMsg(corr, tenantId.ToString(),
+                    new[] { new BrowserAction(BrowserActionKind.CloseSession) }, SessionKey: StepSessionKeyFor(flowId), KeepAlive: false);
+                await channel.ExecuteAsync(client.ClientId, req, TimeSpan.FromSeconds(20), ct);
+            }
+            catch (Exception ex) { log.LogWarning(ex, "[NAV-STEP] no se pudo cerrar la sesion viva del flujo {Flow}", flowId); }
+            return new StepRunResult(true, false, null, null, null, 0, 0, 0, "Navegador cerrado.");
+        }
+    }
+
+    /// <summary>Registra UNA corrida de un paso manual en la bitacora del flujo (ScrapeFlowRun). A diferencia
+    /// del cierre de una corrida completa, un fallo aqui NO marca el flujo "con errores" (es depuracion): solo
+    /// deja la traza y actualiza el "ultima corrida".</summary>
+    private async Task RecordStepRunAsync(IApplicationDbContext db, Guid flowId, string stepName, bool ok,
+        int inserted, int updated, int deleted, string? detail, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow();
+        var text = $"Paso: {stepName}" + (string.IsNullOrWhiteSpace(detail) ? "" : $" - {detail}");
+        db.ScrapeFlowRuns.Add(new ScrapeFlowRun
+        {
+            FlowId = flowId,
+            FiredAt = now,
+            FinishedAt = now,
+            Trigger = ImportRunTrigger.Manual,
+            Result = ok ? ImportRunResult.Ok : ImportRunResult.Error,
+            CorrelationId = NewCorr(),
+            StepCount = 1,
+            Inserted = inserted,
+            Updated = updated,
+            Deleted = deleted,
+            Detail = text.Length <= 600 ? text : text[..597] + "...",
+        });
+        var flow = await db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == flowId, ct);
+        if (flow is not null)
+        {
+            flow.LastRunAt = now;
+            flow.LastResultSummary = text.Length <= 600 ? text : text[..597] + "...";
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Config del paso "Leer token de correo", serializada en ScrapeStep.MappingJson (misma forma
+    /// que la que arma la UI de Extraccion de datos).</summary>
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+
+    private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
 
     /// <summary>Ejecuta el flujo paso a paso, en su propio scope. Deterministas por tramos (canal),
     /// pasos de IA por el orquestador. Cierra la corrida al terminar, pase lo que pase.</summary>

@@ -48,6 +48,78 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
     private static SemaphoreSlim ProfileGate(string sessionKey)
         => _profileGates.GetOrAdd(SanitizeSessionKey(sessionKey), _ => new SemaphoreSlim(1, 1));
 
+    // SESIONES VIVAS (modo paso a paso, ADR-0045 Ola 4): con SessionKey + KeepAlive la ventana/WebView2 NO
+    // se cierra al terminar la orden; se CACHEA por clave de perfil y se REUSA en la siguiente orden, para
+    // encadenar pasos sobre el estado real de la pagina (login -> OTP -> continuar). Se libera con una orden
+    // CloseSession o por inactividad. El acceso se serializa por el mismo ProfileGate (una orden por clave a
+    // la vez), y todo pasa por el hilo de UI (ExecuteOnUiThreadAsync), asi que este dict se toca sin candado
+    // extra. Clave = SessionKey sanitizada (misma normalizacion que el perfil en disco).
+    private sealed class LiveSession
+    {
+        public required BrowserInstance Instance { get; init; }
+        public DateTimeOffset LastUsed { get; set; }
+    }
+
+    private static readonly ConcurrentDictionary<string, LiveSession> _liveSessions =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Una sesion viva ociosa mas que esto se cierra sola (no dejar ventanas colgadas si el operador
+    /// se va a mitad del paso a paso).</summary>
+    private static readonly TimeSpan LiveIdleTimeout = TimeSpan.FromMinutes(20);
+
+    private static bool TryGetLiveSession(string sessionKey, out BrowserInstance instance)
+    {
+        var key = SanitizeSessionKey(sessionKey);
+        if (_liveSessions.TryGetValue(key, out var ls) && !ls.Instance.Disposed)
+        {
+            ls.LastUsed = DateTimeOffset.UtcNow;
+            instance = ls.Instance;
+            return true;
+        }
+        // Entrada muerta (el operador cerro la ventana a mano): limpiala.
+        if (_liveSessions.TryRemove(key, out var dead)) { try { dead.Instance.Close(); } catch { /* ya cerrada */ } }
+        instance = null!;
+        return false;
+    }
+
+    private static void RegisterLiveSession(string sessionKey, BrowserInstance instance)
+    {
+        var key = SanitizeSessionKey(sessionKey);
+        if (_liveSessions.TryRemove(key, out var old) && !ReferenceEquals(old.Instance, instance))
+        {
+            try { old.Instance.Close(); } catch { /* ya cerrada */ }
+        }
+        _liveSessions[key] = new LiveSession { Instance = instance, LastUsed = DateTimeOffset.UtcNow };
+    }
+
+    private static void ForgetLiveSession(string sessionKey)
+        => _liveSessions.TryRemove(SanitizeSessionKey(sessionKey), out _);
+
+    private static void CloseLiveSession(string sessionKey)
+    {
+        if (_liveSessions.TryRemove(SanitizeSessionKey(sessionKey), out var ls))
+        {
+            try { ls.Instance.Close(); } catch { /* ya cerrada */ }
+        }
+    }
+
+    /// <summary>Cierra sesiones vivas OCIOSAS (y las muertas) salvo la que se va a usar ahora. Se llama al
+    /// entrar a cada orden (en el hilo de UI), asi que Close() corre donde debe.</summary>
+    private static void SweepIdleLiveSessions(string? exceptKey)
+    {
+        if (_liveSessions.IsEmpty) { return; }
+        var except = string.IsNullOrWhiteSpace(exceptKey) ? null : SanitizeSessionKey(exceptKey);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var kvp in _liveSessions)
+        {
+            if (except is not null && string.Equals(kvp.Key, except, StringComparison.OrdinalIgnoreCase)) { continue; }
+            if (kvp.Value.Instance.Disposed || now - kvp.Value.LastUsed > LiveIdleTimeout)
+            {
+                if (_liveSessions.TryRemove(kvp.Key, out var ls)) { try { ls.Instance.Close(); } catch { /* ya cerrada */ } }
+            }
+        }
+    }
+
     /// <summary>Normaliza una SessionKey a un nombre de carpeta seguro (<c>[a-z0-9_-]</c>); "default" si
     /// queda vacia. Misma normalizacion la usa el "modo login" de la GUI para apuntar al MISMO perfil.</summary>
     public static string SanitizeSessionKey(string sessionKey)
@@ -89,24 +161,54 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             return new BrowserResultMsg(req.CorrelationId, false, blocked, "Navegador no habilitado por el operador.");
         }
 
+        var hasSession = !string.IsNullOrWhiteSpace(req.SessionKey);
+        var keepAlive = hasSession && req.KeepAlive;
+
         // Con SessionKey (perfil persistente) se serializa por clave: una orden por perfil a la vez (WebView2
         // bloquea la carpeta). Sin SessionKey (efimero) no hay lock: cada orden tiene su carpeta unica.
-        var gate = string.IsNullOrWhiteSpace(req.SessionKey) ? null : ProfileGate(req.SessionKey!);
+        var gate = hasSession ? ProfileGate(req.SessionKey!) : null;
         if (gate is not null) { await gate.WaitAsync(); }
         try
         {
-            // Instancia para esta orden: PERSISTENTE si trae SessionKey (reusa login), EFIMERA si no. Se
-            // cierra pase lo que pase (finally); solo la efimera borra su carpeta.
-            BrowserInstance instance;
-            try { instance = await BrowserInstance.CreateAsync(req.CorrelationId, policy, req.SessionKey); }
-            catch (Exception ex)
+            // Orden de CIERRE de sesion viva (modo paso a paso): cierra la ventana cacheada del perfil, si la
+            // hay, y responde OK. No abre navegador. El servidor la manda con una sola accion CloseSession.
+            if (hasSession && req.Actions.Any(a => a.Kind == BrowserActionKind.CloseSession))
             {
-                var failed = req.Actions
-                    .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: $"No se pudo abrir el navegador: {ex.Message}"))
+                CloseLiveSession(req.SessionKey!);
+                var closed = req.Actions
+                    .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: true, Value: "sesion cerrada"))
                     .ToList();
-                return new BrowserResultMsg(req.CorrelationId, false, failed, "No se pudo abrir el navegador.");
+                return new BrowserResultMsg(req.CorrelationId, true, closed);
             }
 
+            // Barre sesiones vivas ociosas (otras) para no dejar ventanas colgadas si el operador se fue.
+            SweepIdleLiveSessions(req.SessionKey);
+
+            // Instancia para esta orden:
+            //   - SESION VIVA (SessionKey + KeepAlive): reusa la ventana cacheada del perfil si existe (misma
+            //     pagina que dejo el paso anterior); si no, la crea y la cachea. NO se cierra al terminar.
+            //   - Normal: PERSISTENTE si trae SessionKey (reusa login), EFIMERA si no. Se cierra al terminar
+            //     (finally); solo la efimera borra su carpeta.
+            BrowserInstance instance;
+            if (keepAlive && TryGetLiveSession(req.SessionKey!, out var live))
+            {
+                instance = live;
+            }
+            else
+            {
+                try { instance = await BrowserInstance.CreateAsync(req.CorrelationId, policy, req.SessionKey); }
+                catch (Exception ex)
+                {
+                    var failed = req.Actions
+                        .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: $"No se pudo abrir el navegador: {ex.Message}"))
+                        .ToList();
+                    return new BrowserResultMsg(req.CorrelationId, false, failed, "No se pudo abrir el navegador.");
+                }
+                if (keepAlive) { RegisterLiveSession(req.SessionKey!, instance); }
+            }
+
+            // La sesion viva NO se cierra al terminar (se reusa en la proxima orden); el resto si.
+            var closeAtEnd = !keepAlive;
             try
             {
                 var results = new List<BrowserActionResult>(req.Actions.Count);
@@ -117,6 +219,14 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                 for (var i = 0; i < req.Actions.Count; i++)
                 {
                     var action = req.Actions[i];
+                    if (action.Kind == BrowserActionKind.CloseSession)
+                    {
+                        // Cierre al final de una secuencia (no es el caso del paso a paso, pero por robustez):
+                        // se marca OK y se fuerza el cierre de la sesion viva tras ejecutar lo anterior.
+                        results.Add(new BrowserActionResult(i, action.Kind, Ok: true, Value: "sesion cerrada"));
+                        closeAtEnd = true;
+                        continue;
+                    }
                     if (aborted)
                     {
                         results.Add(new BrowserActionResult(i, action.Kind, Ok: false, Error: "omitida: el Navigate previo fallo"));
@@ -132,7 +242,11 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             }
             finally
             {
-                instance.Close();
+                if (closeAtEnd)
+                {
+                    instance.Close();
+                    if (keepAlive) { ForgetLiveSession(req.SessionKey!); }
+                }
             }
         }
         finally
@@ -155,6 +269,10 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         private readonly string _userDataDir;
         private readonly bool _persistent;
         private readonly List<DownloadRecord> _downloads = new();
+
+        /// <summary>True cuando la ventana/WebView2 ya no sirve (cerrada por <see cref="Close"/> o por el
+        /// operador a mano). El cache de sesiones vivas lo consulta para no reusar una instancia muerta.</summary>
+        public bool Disposed { get; private set; }
 
         private BrowserInstance(Window window, WpfWebView2 web, BrowserPolicy policy, string userDataDir, bool persistent)
         {
@@ -204,6 +322,9 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             }
 
             var instance = new BrowserInstance(window, web, policy, userData, persistent);
+            // Si el operador cierra la ventana a mano (sesion viva), marcar la instancia como muerta para que
+            // el cache no la reuse: la proxima orden creara una nueva.
+            window.Closed += (_, _) => instance.Disposed = true;
             var env = await CoreWebView2Environment.CreateAsync(null, userData, null);
             await web.EnsureCoreWebView2Async(env);
 
@@ -219,6 +340,7 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         /// el perfil PERSISTENTE (SessionKey) se conserva para que el login sobreviva a la orden.</summary>
         public void Close()
         {
+            Disposed = true;
             try { _web.Dispose(); } catch { /* ya cerrado */ }
             try { _window.Close(); } catch { /* ya cerrada */ }
             if (_persistent) { return; } // perfil logueado: NO se borra.
@@ -377,6 +499,11 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                     var json = JsonSerializer.Serialize(_downloads);
                     return await MaybeShot(index, a, json);
                 }
+
+                case BrowserActionKind.CloseSession:
+                    // El cierre de la sesion viva lo maneja el nivel de secuencia (ExecuteOnUiThreadAsync);
+                    // aqui es un no-op que responde OK para no ensuciar el resultado.
+                    return new BrowserActionResult(index, a.Kind, Ok: true, Value: "sesion cerrada");
 
                 default:
                     return Fail(index, a, "Accion no soportada.");

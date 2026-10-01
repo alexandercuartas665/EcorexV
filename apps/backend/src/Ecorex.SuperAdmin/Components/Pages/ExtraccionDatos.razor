@@ -59,7 +59,7 @@
                 }
                 @foreach (var f in FilteredFlows)
                 {
-                    <div class="xd-item @(_selected?.Id == f.Id && !_isNew ? "active" : "")" @onclick="() => SelectFlowAsync(f.Id)">
+                    <div class="xd-item @(_selected?.Id == f.Id && !_isNew ? "active" : "")" @onclick="() => PickFlowAsync(f.Id)">
                         <div class="xd-item-icon">@Initial(f.Name)</div>
                         <div class="xd-item-body">
                             <div class="xd-item-name" title="@f.Name">@f.Name</div>
@@ -184,6 +184,33 @@
                             <button class="xd-btn sm primary" @onclick="() => OpenStepEditor(null)">+ Agregar paso</button>
                         </div>
 
+                        @* ---- Paso a paso (sesion viva): inyecta un paso a la vez sobre la MISMA ventana del agente ---- *@
+                        @if (flow.Steps.Count > 0)
+                        {
+                            <div class="xd-stepper">
+                                <div class="xd-stepper-info">
+                                    <span class="xd-stepper-label">Paso a paso</span>
+                                    <span class="xd-stepper-next">
+                                        @if (_stepCursor < flow.Steps.Count)
+                                        { <text>Proximo: @(_stepCursor + 1). @flow.Steps.ElementAt(_stepCursor).Name</text> }
+                                        else
+                                        { <text>Fin del flujo</text> }
+                                    </span>
+                                </div>
+                                <div class="xd-stepper-actions">
+                                    <button class="xd-btn sm primary" @onclick="RunNextStepAsync"
+                                            disabled="@(_busy || _stepCursor >= flow.Steps.Count)">
+                                        @(_busy ? "Ejecutando..." : "Ejecutar siguiente ▶")
+                                    </button>
+                                    <button class="xd-btn sm" @onclick="ResetCursor" disabled="@(_busy || _stepCursor == 0)">Reiniciar</button>
+                                    <button class="xd-btn sm" @onclick="CloseLiveSessionAsync" disabled="@_busy" title="Cierra la ventana que el agente mantiene abierta">Cerrar navegador</button>
+                                </div>
+                            </div>
+                            <div class="xd-stepper-help">Cada paso se inyecta en el navegador del agente y la ventana <strong>queda abierta</strong>
+                                para el siguiente (login &rarr; OTP &rarr; continuar). Pulsa &#9654; en un paso para correr ese, o "Ejecutar siguiente"
+                                para avanzar en orden. Al terminar, "Cerrar navegador".</div>
+                        }
+
                         <div class="xd-steps">
                             @if (flow.Steps.Count == 0)
                             {
@@ -193,7 +220,7 @@
                             @foreach (var s in flow.Steps)
                             {
                                 var i = idx++;
-                                <div class="xd-step">
+                                <div class="xd-step @(i == _stepCursor ? "cursor" : "")">
                                     <div class="xd-step-num">@(i + 1)</div>
                                     <div class="xd-step-body">
                                         <h4>@s.Name <span class="xd-tag @TagClass(s.Kind)">@KindLabel(s.Kind)</span></h4>
@@ -205,6 +232,7 @@
                                         { <div class="xd-step-ai">"@s.Instruction"</div> }
                                     </div>
                                     <div class="xd-step-actions">
+                                        <button class="xd-icon-btn play" title="Ejecutar este paso (sesion viva)" disabled="@_busy" @onclick="() => RunStepAsync(s, i)">&#9654;</button>
                                         <button class="xd-icon-btn" title="Subir" disabled="@(i == 0)" @onclick="() => MoveStepAsync(i, -1)">&uarr;</button>
                                         <button class="xd-icon-btn" title="Bajar" disabled="@(i == flow.Steps.Count - 1)" @onclick="() => MoveStepAsync(i, 1)">&darr;</button>
                                         <button class="xd-icon-btn" title="Editar" @onclick="() => OpenStepEditor(s)">&#9998;</button>
@@ -213,6 +241,24 @@
                                 </div>
                             }
                         </div>
+
+                        @* ---- Resultado del ultimo paso ejecutado (paso a paso) ---- *@
+                        @if (_stepResult is not null)
+                        {
+                            <div class="xd-step-result @(_stepResult.Ok ? "ok" : "err")">
+                                <div class="xd-step-result-head">
+                                    <strong>@(_stepResult.Ok ? "✓ Paso OK" : "✕ Paso con error")</strong>
+                                    @if (!string.IsNullOrWhiteSpace(_stepResult.Detail)) { <span class="xd-step-result-detail">@_stepResult.Detail</span> }
+                                    <button class="xd-flash-x" @onclick="() => _stepResult = null" title="Cerrar">x</button>
+                                </div>
+                                @if (!_stepResult.Ok && !string.IsNullOrWhiteSpace(_stepResult.Error))
+                                { <div class="xd-step-result-err">@_stepResult.Error</div> }
+                                @if (!string.IsNullOrWhiteSpace(_stepResult.Value))
+                                { <pre class="xd-step-result-val">@_stepResult.Value</pre> }
+                                @if (!string.IsNullOrEmpty(_stepResult.ScreenshotBase64))
+                                { <img class="xd-step-shot" src="data:image/png;base64,@_stepResult.ScreenshotBase64" alt="Captura del paso" /> }
+                            </div>
+                        }
 
                         @if (_showStepEditor)
                         {
@@ -593,6 +639,13 @@
 
     private async Task ReloadFlowsAsync() => _flows = await FlowSvc.ListAsync();
 
+    // Elegir un flujo distinto desde el sidebar: reinicia el paso a paso (cursor + resultado) antes de cargar.
+    private async Task PickFlowAsync(Guid id)
+    {
+        if (_selected?.Id != id) { _stepCursor = 0; _stepResult = null; }
+        await SelectFlowAsync(id);
+    }
+
     private async Task SelectFlowAsync(Guid id)
     {
         _isNew = false;
@@ -660,6 +713,63 @@
             // Recarga la bitacora y el flujo (LastRunAt/estado pudieron cambiar).
             await SelectFlowAsync(_selected.Id);
             await ReloadFlowsAsync();
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
+
+    // ---- Paso a paso (sesion viva) ----
+
+    private int _stepCursor;
+    private StepRunResult? _stepResult;
+
+    private async Task RunStepAsync(ScrapeStepDto s, int index)
+    {
+        await ExecStepCore(s);
+        // El cursor avanza al siguiente del paso que se corrio (asi "Ejecutar siguiente" continua desde aqui).
+        _stepCursor = Math.Min(index + 1, _selected?.Steps.Count ?? index + 1);
+    }
+
+    private async Task RunNextStepAsync()
+    {
+        if (_selected is null || _stepCursor < 0 || _stepCursor >= _selected.Steps.Count) { return; }
+        var s = _selected.Steps.ElementAt(_stepCursor);
+        await ExecStepCore(s);
+        _stepCursor = Math.Min(_stepCursor + 1, _selected.Steps.Count);
+    }
+
+    private void ResetCursor() { _stepCursor = 0; _stepResult = null; }
+
+    private async Task ExecStepCore(ScrapeStepDto s)
+    {
+        if (_selected is null) { return; }
+        if (Tenant.TenantId is not Guid tenantId) { Flash("No se pudo resolver el tenant.", true); return; }
+        _busy = true; _stepResult = null;
+        var flowId = _selected.Id;
+        try
+        {
+            _stepResult = await RunSvc.RunStepNowAsync(flowId, s.Id, tenantId);
+            if (_stepResult.Offline) { Flash("El agente no esta en linea. Conectalo contra este servidor y reintenta.", true); }
+            else if (!_stepResult.Ok) { Flash(_stepResult.Error ?? "El paso fallo.", true); }
+            else { Flash($"Paso \"{s.Name}\": {_stepResult.Detail}"); }
+            // Refresca la bitacora/flujo (cada paso queda registrado), preservando el resultado y el cursor.
+            await SelectFlowAsync(flowId);
+            await ReloadFlowsAsync();
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
+
+    private async Task CloseLiveSessionAsync()
+    {
+        if (_selected is null) { return; }
+        if (Tenant.TenantId is not Guid tenantId) { return; }
+        _busy = true;
+        try
+        {
+            var r = await RunSvc.CloseStepSessionAsync(_selected.Id, tenantId);
+            Flash(r.Detail ?? "Navegador cerrado.");
+            _stepResult = null; _stepCursor = 0;
         }
         catch (Exception ex) { Flash(ex.Message, true); }
         finally { _busy = false; }

@@ -19,6 +19,39 @@ public class FormBuilderChatServiceTests
 {
     private static readonly Guid FormId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    // --- GOLDEN del ARNES (criterio de diseno). Hallado con el Formulario 350 DIAN: el agente armaba
+    // formularios correctos pero PLANOS (todo width 12, todo Number/Text, nunca CSS). Estos asserts fijan que
+    // la guia de diseno siga en el system prompt. ---
+    private static string Harness() =>
+        FormBuilderHarness.SystemPrompt("ACME", editingExisting: false, formId: "11111111-1111-1111-1111-111111111111");
+
+    [Fact]
+    public void Arnes_exige_densidad_por_defecto_no_todo_a_ancho_completo()
+    {
+        var p = Harness();
+        Assert.Contains("DENSIDAD POR DEFECTO", p);
+        Assert.Contains("NO tires todo a width 12", p);
+        Assert.Contains("lista de texto", p);   // aplica aunque pasen los campos como texto
+    }
+
+    [Fact]
+    public void Arnes_exige_elegir_el_control_por_significado()
+    {
+        var p = Harness();
+        Assert.Contains("ELIGE EL CONTROL POR SIGNIFICADO", p);
+        Assert.Contains("placeholder_text", p);
+    }
+
+    [Fact]
+    public void Arnes_anima_a_usar_custom_css_con_las_clases_reales()
+    {
+        var p = Harness();
+        Assert.Contains("ATREVETE CON set_custom_css", p);
+        Assert.Contains(".dfr-head", p);
+        Assert.Contains(".dfr-group-head", p);
+        Assert.Contains(".form-control", p);
+    }
+
     [Fact]
     public async Task Turno_con_accion_mutante_se_propone_y_no_se_ejecuta()
     {

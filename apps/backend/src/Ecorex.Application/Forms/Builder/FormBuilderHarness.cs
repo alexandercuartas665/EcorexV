@@ -184,8 +184,25 @@ DISENO / APARIENCIA DEL FORMULARIO.
   turnos batcheados: (1) crea la Section; (2) crea TODOS sus Rows juntos (varios add_container parent=Section en
   un turno); (3) mete los campos de cada Row juntos. Asi el arbol queda ordenado y el layout es estable.
 - Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
-- Solo si piden un detalle fino que set_theme no cubre, usa set_custom_css apuntando a las clases REALES del
-  renderer (dfr-seg-head, form-control, dfr-tabbar/.dfr-tab, dfr-formbtn); nunca .form-section/.btn-primary.
+- ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
+  RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en
+  celdas, banda de seccion oscura, campos tipo casilla, tipografia compacta) se logra con CSS. NO lo evites por
+  miedo: se guarda ACOTADO a este formulario (scope automatico), no se filtra a la pagina y es reversible. La
+  unica regla dura: usa las clases REALES del renderer (NO inventes selectores; .form-section/.btn-primary NO
+  existen). CATALOGO real que puedes estilizar:
+    * :scope = la raiz del formulario; define aqui tus variables de color y la tipografia base.
+    * .dfr-head = la cabecera; sus hijos son .dfr-eyebrow (rotulo), .dfr-title (titulo), .dfr-sub (descripcion).
+      Para una cabecera EN CELDAS tipo formato oficial: pon .dfr-head en display flex y agrega celdas con los
+      pseudo-elementos .dfr-head::before (content con el organismo, ej. DIAN) y .dfr-head::after (content con el
+      numero del formato, ej. 350), ocultando .dfr-eyebrow y .dfr-sub.
+    * .dfr-group-head y .dfr-segment-head = el titulo de cada Section/Segment (la BANDA de seccion): dale
+      background + color para la banda oscura tipica de estos formatos.
+    * .form-control = todos los inputs/selects/textareas (borde, alto, fondo). .dfr-heading = titulos Heading.
+    * .field-<field_code> = UN campo puntual por su field_code (ej. espaciar las letras del anio para efecto de
+      casillas). .dfr-meta = los metadatos (codigo/rev); ocultalo si estorba.
+  Flujo: get_form (para los field_code EXACTOS) -> set_custom_css con el bloque -> invita a probar en Vista previa.
+  Se vale ser GENEROSO: un buen formato oficial lleva 20-40 lineas de CSS, no 2. Mejor atreverse y ajustar que
+  entregar una lista de inputs grises.
 
 TABLA O CAMPOS SUELTOS (CLAVE, no te equivoques). Un grupo de datos que se REPITE por registro es UNA
 tabla (un solo GridDetail con esas columnas), NO muchos campos sueltos. Senales de tabla: una fila de

@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-01 - YCloud: capturar estado de entrega (failed/undelivered) -> nota visible en la conversacion - SIN deploy
+
+- Diagnostico (T00219 AGRO, flujo PROCESO COMERCIAL VENTA MOSTRADOR, nodo "Gestion del agente"): el WhatsApp
+  por YCloud NO llegaba al cliente. Verificado que NUESTRO lado esta bien: linea COMERCIAL_AGENTE YCloud
+  Connected, plantilla entrega_cotizacion_button_fin Approved (header Document), POST a api.ycloud.com -> HTTP
+  200 (aceptado), URL publica del PDF alcanzable (app2 /uploads 404 en inexistente, no 401), y se creo la nota
+  de contexto (solo si waOutcome.Ok). O sea: YCloud acepto, el fallo es aguas abajo (Meta) y era INVISIBLE
+  porque el webhook de ESTADO de YCloud se ignoraba ("Webhook YCloud IGNORADO").
+- Fix: YCloudWebhookParser.ParseStatuses() nuevo (lee eventos whatsapp.message.updated: from=negocio,
+  to=destinatario, status, error{code,message} u errors[], wabaId, wamid; tolerante). En el endpoint
+  /webhooks/ycloud, cuando no hay mensaje entrante, si hay estados failed/undelivered se resuelve la linea
+  (por YCloudPhoneNumberId==from o YCloudWabaId) + la conversacion (linea+telefono) y se deja un mensaje
+  saliente "Sistema (WhatsApp)": "El WhatsApp al cliente NO se entrego (estado YCloud: X). Motivo: <error Meta>".
+  Asi un "no llego" deja de ser invisible, con el codigo/motivo de Meta.
+- Sin migracion (reusa Conversation/Message). Build SuperAdmin Release verde; 5 tests nuevos del parser de
+  estados (YCloudWebhookParserStatusTests) OK; Application.Tests 1081/1081.
+- Siguiente: deploy (pedir OK; el webhook llega a PROD, asi que esto solo sirve desplegado). Tras desplegar,
+  re-disparar el nodo y ver en la conversacion del cliente el motivo real de Meta -> ahi sabremos por que no
+  entrega (num sin WhatsApp, documento, boton/parametro, opt-in, etc.).
+
 ## 2026-10-01 - Decision por link: etiqueta por salida + nota para el agente (SARA) - SIN deploy
 
 - Dos piezas sobre el link de decision del cliente (/d/{token}).

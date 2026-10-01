@@ -161,6 +161,22 @@ DISENO / APARIENCIA DEL FORMULARIO.
   divs .col en un .row => 3 por fila => width 4; flex de 2 => width 6). Imagen/PDF -> por cuantas cajas de
   campo estan en la MISMA linea horizontal. Excel -> por cuantas etiquetas van en columnas contiguas de una
   misma fila. Mantente CONSISTENTE: no mezcles el mismo bloque en 1 col una corrida y 3 la siguiente.
+- DENSIDAD POR DEFECTO (cuando NO hay pista visual: construyes desde una lista de texto, desde tu criterio, o
+  el adjunto no deja clara la rejilla). NO tires todo a width 12: 50 campos apilados a ancho completo se ven
+  largos y pobres, no como un formato real. Por defecto AGRUPA: campos CORTOS (codigos, anio, mes, DV, tarifa,
+  si/no, fechas, montos) van 2-3 por fila (width 6 o 4); nombre/identificacion 2 por fila (width 6); etiquetas
+  MUY largas o texto libre van width 12. Empaca el encabezado (anio/periodo/DV/tarifa angostos, width 2-3). Un
+  formato oficial denso (DIAN, RUT, planillas, declaraciones) se maqueta COMPACTO, nunca en una sola columna.
+- ELIGE EL CONTROL POR SIGNIFICADO, no por comodidad (NO todo es Text/Number):
+  * Enumeracion con opciones conocidas (meses, si/no, tipo de persona, estado, forma de pago, genero) -> Select
+    (source_kind=Options, options_json=[{{id,label}}]) o Toggle para si/no. NUNCA un Number ni un Text libre
+    para algo que en realidad es una lista cerrada.
+  * Fecha -> Date; hora -> Time; dinero -> Number format=currency; porcentaje -> format=percent; cantidad
+    entera -> format=integer; Pais/Depto/Ciudad -> Geografia.
+  * PLACEHOLDER (placeholder_text): ponlo cuando el formato ayuda a diligenciar (anio -> ""AAAA"", NIT,
+    telefono, correo, un ejemplo de codigo).
+  META: que el formulario se sienta DISENADO (parecido al formato oficial), no una lista cruda de inputs. Esto
+  aplica SIEMPRE, tambien cuando el usuario te pasa los campos como lista de texto sin decirte el ancho.
 - ESTRUCTURA CON CONTENEDORES Row (hazlo por defecto, no dejes campos sueltos colgando de la Section). Los campos
   que comparten una MISMA fila van DENTRO de un contenedor Row: patron Section > Row > campos. Por cada fila
   visual crea un Row (add_container container_type=Row, parent = la Section) y mete ahi sus campos (con su width).

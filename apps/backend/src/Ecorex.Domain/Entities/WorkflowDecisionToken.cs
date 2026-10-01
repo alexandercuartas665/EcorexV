@@ -55,6 +55,11 @@ public class WorkflowDecisionToken : TenantEntity
     /// aterrizan como FormResponse anclado a la tarea. Null = sin encuesta.</summary>
     public string? SurveyJson { get; set; }
 
+    /// <summary>Etiqueta (TaskItemTag) a AGREGAR a la tarea cuando el cliente responde por ESTA salida. Se
+    /// congela al emitir el enlace (como el footer/encuesta). Null = la salida no aplica etiqueta. Solo
+    /// agrega (no quita otras). Ver <see cref="TaskItemTagAssignment"/>.</summary>
+    public Guid? ApplyTagId { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>Marcado al resolver (un-solo-uso). Los hermanos se marcan Revoked al mismo tiempo.</summary>

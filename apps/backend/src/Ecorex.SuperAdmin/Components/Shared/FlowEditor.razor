@@ -18,6 +18,7 @@
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppTemplateService TemplatesSvc
 @inject IQuoteTemplateService QuoteTemplatesSvc
+@inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -679,6 +680,16 @@ else
                             </label>
                         }
 
+                        @if (r.Destino == NodeNotifyRecipient.ContactoTarea)
+                        {
+                            @* Nota INTERNA para el agente conversacional (SARA): NO se envia al cliente. Al enviar el
+                               mensaje al cliente (WhatsApp) se suma a la nota de contexto de su conversacion, para que
+                               el agente sepa que se gestiono si el cliente responde. *@
+                            <textarea class="fe-textarea" rows="2" style="margin-top:8px;"
+                                      placeholder="Nota para el agente (SARA), no se envia al cliente: que se esta gestionando. Ej: Se envio la cotizacion {tarea.numero} para aprobacion."
+                                      @bind="r.NotaAgente"></textarea>
+                        }
+
                         @if (notifyNode.NodeType == WorkflowNodeType.ExclusiveGateway
                              && (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
                              && NotifyGatewayExits(notifyNode).Count > 0)
@@ -728,6 +739,15 @@ else
                                             @foreach (var f in _forms)
                                             {
                                                 <option value="@f.Id" selected="@(d.SurveyFormDefId == f.Id)">Encuesta: @f.Code - @f.Title</option>
+                                            }
+                                        </select>
+                                        @* Etiqueta a AGREGAR a la tarea cuando el cliente responde por ESTA salida (no quita otras). *@
+                                        <select class="fe-input sm" style="width:100%;margin-top:6px;"
+                                                @onchange="@(e => d.ApplyTagId = Guid.TryParse(e.Value?.ToString(), out var tg) ? tg : (Guid?)null)">
+                                            <option value="" selected="@(d.ApplyTagId is null)">Sin etiqueta</option>
+                                            @foreach (var g in _tags)
+                                            {
+                                                <option value="@g.Id" selected="@(d.ApplyTagId == g.Id)">Etiqueta: @g.Name</option>
                                             }
                                         </select>
                                     </div>
@@ -871,6 +891,7 @@ else
     // que un guardado disparado por OTRO campo no pierda el texto que el usuario aun no ha confirmado (blur).
     private string? _agentExtraPromptDraft;
     private List<FormDefinitionListItemDto> _forms = [];
+    private List<Ecorex.Application.Tenancy.TaskItemTagDto> _tags = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
 
@@ -2035,6 +2056,8 @@ else
         public string? AdjuntarPdfTemplateId { get; set; }
         // Enlaces publicos de decision del cliente que esta regla emite (solo compuertas).
         public List<DecisionLinkRow> Enlaces { get; set; } = new();
+        // Nota interna para el agente conversacional (SARA): contexto de que se gestiono con el cliente.
+        public string? NotaAgente { get; set; }
     }
 
     // Un enlace de decision dentro de una regla: llena una variable con la URL /d/{token} de una salida.
@@ -2048,6 +2071,7 @@ else
         public int? ExpiryHours { get; set; }
         public string? FooterHtml { get; set; }        // Ola 2: HTML del pie de la pagina de decision.
         public Guid? SurveyFormDefId { get; set; }      // Ola 3: formulario reportable usado como encuesta.
+        public Guid? ApplyTagId { get; set; }           // Etiqueta a AGREGAR a la tarea al responder por esta salida.
     }
 
     // Salidas (edges) del nodo de la compuerta actualmente en el modal de notificacion, para el desplegable.
@@ -2084,6 +2108,7 @@ else
                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString(),
             AdjuntarPdfTemplateId = r.AdjuntarPdfTemplateId?.ToString(),
+            NotaAgente = r.NotaAgente,
             Enlaces = (r.EnlacesDecision ?? Array.Empty<NotifyDecisionLink>()).Select(d => new DecisionLinkRow
             {
                 Variable = d.Variable,
@@ -2093,7 +2118,8 @@ else
                 ButtonLabel = d.ButtonLabel,
                 ExpiryHours = d.ExpiryHours,
                 FooterHtml = d.FooterHtml,
-                SurveyFormDefId = d.SurveyFormDefId
+                SurveyFormDefId = d.SurveyFormDefId,
+                ApplyTagId = d.ApplyTagId
             }).ToList()
         }).ToList();
         if (!_notifyDataLoaded)
@@ -2108,6 +2134,11 @@ else
         if (_forms.Count == 0)
         {
             _forms = (await FormsSvc.ListAsync(includeArchived: false)).Where(f => f.Status == FormStatus.Active).ToList();
+        }
+        // Etiquetas del tenant para el selector "Etiqueta a aplicar" por salida de decision.
+        if (_tags.Count == 0)
+        {
+            _tags = (await TasksSvc.ListTagsAsync()).ToList();
         }
         _notifyModalOpen = true;
     }
@@ -2168,9 +2199,10 @@ else
                 ? r.Enlaces.Where(x => !string.IsNullOrWhiteSpace(x.Variable) && Guid.TryParse(x.TargetNodeId, out _))
                     .Select(x => new NotifyDecisionLink(x.Variable.Trim(), Guid.Parse(x.TargetNodeId!), x.Capture,
                         x.ObservationRequired, string.IsNullOrWhiteSpace(x.ButtonLabel) ? null : x.ButtonLabel!.Trim(), x.ExpiryHours,
-                        string.IsNullOrWhiteSpace(x.FooterHtml) ? null : x.FooterHtml!.Trim(), x.SurveyFormDefId))
+                        string.IsNullOrWhiteSpace(x.FooterHtml) ? null : x.FooterHtml!.Trim(), x.SurveyFormDefId, x.ApplyTagId))
                     .ToList() is { Count: > 0 } el ? el : null
-                : null)).ToList());
+                : null,
+            string.IsNullOrWhiteSpace(r.NotaAgente) ? null : r.NotaAgente.Trim())).ToList());
 
         await GuardAsync(async () =>
         {

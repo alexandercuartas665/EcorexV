@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-01 - Decision por link: etiqueta por salida + nota para el agente (SARA) - SIN deploy
+
+- Dos piezas sobre el link de decision del cliente (/d/{token}).
+- A) ETIQUETA POR SALIDA (self-serve): cada enlace de decision del nodo gateway puede llevar una etiqueta
+  (TaskItemTag) configurable en el disenador. Se congela en el token al emitir el enlace (como footer/encuesta)
+  y, cuando el cliente responde por ESA salida, se AGREGA a la tarea (no quita otras, idempotente). Cambios:
+  NotifyDecisionLink.ApplyTagId (NodeNotifyConfig), WorkflowDecisionToken.ApplyTagId (migracion dual
+  AddDecisionTokenApplyTag: apply_tag_id uuid/uniqueidentifier null), EnsureLinkAsync nuevo param applyTagId,
+  WorkflowDecisionLinkService.ApplyAsync inserta TaskItemTagAssignment (guard tagExists + dedupe), FlowEditor
+  selector "Etiqueta a aplicar" por enlace + DecisionLinkRow.ApplyTagId + load/save + lista _tags (ITaskItemService.ListTagsAsync).
+- B) NOTA PARA EL AGENTE (SARA): caja de texto "Nota para el agente" en la regla de notificacion (cuando el
+  destino es el CONTACTO/cliente). NO se envia al cliente. Al enviarse el mensaje de WhatsApp al cliente, el
+  texto se suma a la nota de contexto de su conversacion (reusa RecordContactShareObservationAsync, que ya deja
+  una nota "si el cliente responde, el agente sabe de que se trata") para que SARA tenga el contexto de que se
+  gestiono. Cambios: NodeNotifyRule.NotaAgente, NodeNotifyService pasa rule.NotaAgente a la nota de conversacion,
+  FlowEditor textarea + NotifyRuleRow.NotaAgente + load/save.
+- Observaciones de la decision -> bitacora de la tarea: YA funcionaba (WorkflowDecisionLinkService escribe la
+  observacion como TaskItemActivity). Formulario que llega -> ya cae en la tarea por Reference (sin cambios).
+- Gates: build Release verde; Application.Tests 1081/1081; has-pending "No changes" en ambos contextos.
+- Decisiones del usuario: etiqueta POR salida, solo AGREGA (no exclusiva); nota del agente va a la CONVERSACION
+  del cliente (SARA), no a la bitacora de la tarea.
+- Siguiente: validar E2E (configurar etiqueta+nota en un gateway, enviar al cliente, responder por el link y ver
+  etiqueta aplicada + nota en la conversacion); deploy lo corre el usuario (migracion dual al arrancar).
+
 ## 2026-09-30 - Contactos: enrich web por SERVIDOR + perfil LinkedIn detallado + tipo campo Url (Directorio) - SIN deploy
 
 - Hand-off de la sesion de pruebas del Cargador de contactos (000740) y Directorio. Tres mejoras.

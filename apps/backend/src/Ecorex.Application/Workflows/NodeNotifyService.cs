@@ -104,7 +104,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                     ? null : _tokens.Render(d.FooterHtml, tokens);
                 var surveyJson = await BuildSurveyJsonAsync(d.SurveyFormDefId, ct);
                 var url = await _decisionLinks.EnsureLinkAsync(stepId, d.TargetNodeId, d.Capture,
-                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, footerResolved, surveyJson, ct);
+                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, footerResolved, surveyJson, d.ApplyTagId, ct);
                 if (string.IsNullOrWhiteSpace(url)) { continue; }
                 if (!string.IsNullOrWhiteSpace(d.Variable)) { copy[d.Variable.Trim()] = url!; }
                 if (!string.IsNullOrWhiteSpace(d.ButtonLabel)) { byLabel[d.ButtonLabel!.Trim()] = url!; }
@@ -272,7 +272,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                     try
                     {
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, ct);
+                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, rule.NotaAgente, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -338,7 +338,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// </summary>
     private async Task RecordContactShareObservationAsync(
         Domain.Entities.TaskItem task, Guid lineId, string phone, bool hasDecisionLink,
-        Forms.QuoteDocument? cotDoc, CancellationToken ct)
+        Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -372,7 +372,10 @@ public sealed class NodeNotifyService : INodeNotifyService
         }
         sb.Append($", en el proceso {task.Number}");
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
-        sb.Append(". Si el cliente escribe, es en respuesta a esto.");
+        sb.Append('.');
+        // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
+        if (!string.IsNullOrWhiteSpace(notaAgente)) { sb.Append($" Contexto para el agente: {notaAgente.Trim()}"); }
+        sb.Append(" Si el cliente escribe, es en respuesta a esto.");
 
         _db.Messages.Add(new Domain.Entities.Message
         {

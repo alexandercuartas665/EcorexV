@@ -24,7 +24,10 @@ public sealed record NotifyDecisionLink(
     string? FooterHtml = null,
     // Ola 3: formulario REPORTABLE (FormDefinition) que se usa como encuesta. La pagina muestra sus preguntas
     // y las respuestas aterrizan como FormResponse anclado a la tarea. Null = sin encuesta.
-    Guid? SurveyFormDefId = null);
+    Guid? SurveyFormDefId = null,
+    // Etiqueta (TaskItemTag) a AGREGAR a la tarea cuando el cliente responde por ESTA salida. Se congela en el
+    // token al emitir el enlace. Null = esta salida no aplica etiqueta. Solo agrega (no quita otras).
+    Guid? ApplyTagId = null);
 
 /// <summary>A quien se dirige una regla de notificacion de nodo. Para grupo/Telegram el destino va en la
 /// propia regla (jid/chatId), asi que este campo solo aplica a Correo y WhatsApp (plantilla).</summary>
@@ -75,7 +78,11 @@ public sealed record NodeNotifyRule(
     Guid? AdjuntarPdfTemplateId = null,
     // Enlaces publicos de decision del cliente que ESTA regla emite (uno por salida de la compuerta). Cada
     // uno llena la variable indicada con la URL /d/{token}. Null/vacio = la regla no envia enlaces.
-    IReadOnlyList<NotifyDecisionLink>? EnlacesDecision = null);
+    IReadOnlyList<NotifyDecisionLink>? EnlacesDecision = null,
+    // Nota INTERNA para el agente conversacional (SARA): texto libre que explica que se gestiono con el
+    // cliente. NO se envia al cliente. Al enviar el mensaje al CONTACTO (cliente) se suma a la nota de
+    // contexto de su conversacion, para que el agente sepa de que se trata si el cliente responde. Null = sin nota.
+    string? NotaAgente = null);
 
 /// <summary>Reglas de notificacion de un nodo. Se serializa a <see cref="Domain.Entities.WorkflowNode.NotifyJson"/>.</summary>
 public sealed record NodeNotifyConfig(IReadOnlyList<NodeNotifyRule>? Reglas = null)

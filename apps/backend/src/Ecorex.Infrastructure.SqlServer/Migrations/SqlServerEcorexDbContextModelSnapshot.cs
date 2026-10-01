@@ -15464,6 +15464,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("ApplyTagId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("apply_tag_id");
+
                     b.Property<string>("ButtonLabel")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")

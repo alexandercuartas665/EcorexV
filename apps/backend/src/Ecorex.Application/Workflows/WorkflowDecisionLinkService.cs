@@ -25,7 +25,8 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
 
     public async Task<string?> EnsureLinkAsync(Guid stepId, Guid targetNodeId, WorkflowDecisionCapture capture,
         bool observationRequired, string? buttonLabel, int? expiryHours,
-        string? footerHtml = null, string? surveyJson = null, CancellationToken cancellationToken = default)
+        string? footerHtml = null, string? surveyJson = null,
+        Guid? applyTagId = null, CancellationToken cancellationToken = default)
     {
         var step = await _db.WorkflowStepHistories.AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == stepId, cancellationToken);
@@ -63,6 +64,7 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
             // Footer HTML ya resuelto (Ola 2) y encuesta (Ola 3) congelados al armar la notificacion.
             FooterHtml = string.IsNullOrWhiteSpace(footerHtml) ? null : footerHtml,
             SurveyJson = string.IsNullOrWhiteSpace(surveyJson) ? null : surveyJson,
+            ApplyTagId = applyTagId,
             ExpiresAt = now.AddHours(expiryHours is int h && h > 0 ? h : DefaultExpiryHours)
         });
         await _db.SaveChangesAsync(cancellationToken);
@@ -170,6 +172,24 @@ public sealed class WorkflowDecisionLinkService : IWorkflowDecisionLinkService
                 ActorName = actorName,
                 Text = text
             });
+
+            // Etiqueta por salida: si el enlace traia una etiqueta congelada, se AGREGA a la tarea (no quita
+            // otras), idempotente. Best-effort: no revierte la decision ya tomada (la etiqueta solo clasifica).
+            if (t.ApplyTagId is Guid applyTagId)
+            {
+                var tagExists = await _db.TaskItemTags.AnyAsync(g => g.Id == applyTagId, cancellationToken);
+                var alreadyTagged = await _db.TaskItemTagAssignments
+                    .AnyAsync(a => a.TaskItemId == tid && a.TagId == applyTagId, cancellationToken);
+                if (tagExists && !alreadyTagged)
+                {
+                    _db.TaskItemTagAssignments.Add(new TaskItemTagAssignment
+                    {
+                        TenantId = t.TenantId,
+                        TaskItemId = tid,
+                        TagId = applyTagId
+                    });
+                }
+            }
 
             // Encuesta (Ola 3): si el enlace traia encuesta y el cliente respondio, se guarda como FormResponse
             // anclado a la tarea (DefinitionId del form + Reference = numero) -> reportable. Best-effort: una

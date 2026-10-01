@@ -169,6 +169,37 @@ public class FormBuilderChatServiceTests
         Assert.False(r.AwaitingConfirmation);          // no quedo nada esperando confirmacion
     }
 
+    // ROBUSTEZ (hallado construyendo el Formulario 350 DIAN): cuando el modelo propone add_container + add_question
+    // en el MISMO lote, el add_question referencia un container_id ADIVINADO (el id real se asigna al ejecutar) y
+    // fallaba con "El contenedor no pertenece al formulario", perdiendo el campo. ConfirmAsync ahora autocura: tras
+    // crear el contenedor en el lote, reintenta el add_question fallido apuntando al id real.
+    [Fact]
+    public async Task Lote_con_contenedor_y_campo_juntos_autocura_el_container_id_adivinado()
+    {
+        var ai = new FakeAi();
+        const string guessed = "00000000-0000-0000-0000-0000000000aa"; // id inventado por el modelo (no existe)
+        ai.Enqueue(new AiCompletion(true, "Creo la seccion y su primer campo.", null, 0, 0,
+            new[]
+            {
+                new AiToolCall("c1", "add_container", "{\"container_type\":\"Section\",\"name\":\"Datos\"}"),
+                new AiToolCall("q1", "add_question", "{\"label\":\"1. Año\",\"control_type\":\"Number\",\"container_id\":\"" + guessed + "\"}"),
+            }));
+        ai.Enqueue(new AiCompletion(true, "Listo, cree la seccion y el campo.", null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        await svc.SendAsync(start.ConversationId, "crea la seccion con su campo", null, Guid.NewGuid());
+        var r = await svc.ConfirmAsync(start.ConversationId, Guid.NewGuid());
+
+        Assert.True(r.Ok);
+        var addQ = toolset.Executed.Where(x => x.Tool == "add_question").ToList();
+        Assert.Equal(2, addQ.Count);                                            // 1) fallo con id adivinado, 2) reintento
+        Assert.Contains(guessed, addQ[0].Args);                                 // primer intento: id adivinado
+        Assert.Contains(toolset.LastContainerId!.Value.ToString(), addQ[1].Args); // reintento: id REAL del contenedor
+        Assert.DoesNotContain(guessed, addQ[1].Args);
+    }
+
     [Fact]
     public async Task Escribir_con_propuesta_pendiente_la_descarta_y_atiende_el_mensaje()
     {
@@ -358,6 +389,8 @@ public class FormBuilderChatServiceTests
             new AiToolSpec("add_question", "crea campo", "{}"),
             new AiToolSpec("create_form", "crea formulario", "{}"),
         };
+        // Id real del ultimo contenedor creado (para validar que los add_question apunten a el).
+        public Guid? LastContainerId { get; private set; }
         public Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
         {
             Executed.Add((toolName, argumentsJson));
@@ -365,6 +398,31 @@ public class FormBuilderChatServiceTests
             if (string.Equals(toolName, "create_form", StringComparison.Ordinal))
             {
                 json = JsonSerializer.Serialize(new { id = Guid.NewGuid().ToString() });
+            }
+            else if (string.Equals(toolName, "add_container", StringComparison.Ordinal))
+            {
+                // Crea el contenedor y devuelve su id REAL (asignado al ejecutar, como en produccion).
+                var id = Guid.NewGuid();
+                LastContainerId = id;
+                json = JsonSerializer.Serialize(new { ok = true, container = new { id = id.ToString() } });
+            }
+            else if (string.Equals(toolName, "add_question", StringComparison.Ordinal))
+            {
+                // Si trae container_id, DEBE coincidir con un contenedor real; si no, "no pertenece al formulario".
+                string? cid = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(argumentsJson);
+                    if (d.RootElement.ValueKind == JsonValueKind.Object
+                        && d.RootElement.TryGetProperty("container_id", out var c) && c.ValueKind == JsonValueKind.String)
+                    {
+                        cid = c.GetString();
+                    }
+                }
+                catch { /* args invalidos -> se trata como sin container */ }
+                json = (string.IsNullOrWhiteSpace(cid) || cid == LastContainerId?.ToString())
+                    ? JsonSerializer.Serialize(new { ok = true })
+                    : JsonSerializer.Serialize(new { ok = false, status = "Invalid", error = "El contenedor no pertenece al formulario." });
             }
             else if (string.Equals(toolName, "verify_form", StringComparison.Ordinal))
             {

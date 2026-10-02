@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-01 - Subtareas con el MODAL COMPLETO (wizard con concepto/categorias) - SIN deploy
+
+- Pedido: al crear subtareas que abran el modal completo (wizard) con todas sus categorias, no el input
+  rapido de solo-titulo.
+- Hallazgo: CreateTaskItemRequest YA tiene ParentId y CreateAsync lo asigna (L256); CreateSubtaskAsync lo usa.
+  El wizard no lo pasaba (creaba tareas sueltas). Nota vieja del wizard (L657) decia "no hay donde guardar el
+  padre" -> ya no aplica.
+- TaskWizard.razor: OpenAsync nuevo param parentId -> _parentId (reset en ResetAll) -> CreateTaskItemRequest
+  ParentId=_parentId. Asi el wizard puede crear una tarea que cuelga de un padre.
+- TaskDetailModal.razor: se quito el input rapido (_newSubtaskText/AddSubtaskAsync) y se puso un boton
+  "+ Agregar subtarea" que abre <TaskWizard @ref=_subtaskWizard> con parentId=tarea actual; OnCreated recarga el
+  detalle (la subtarea aparece en "Subtareas"). El boton solo aparece si la tarea NO es ya subtarea
+  (_detail.Item.ParentId is null) -> respeta el nivel unico. La subtarea nace COMPLETA: concepto/flujo/encargado
+  propios + vinculo al padre (aparece en Subtareas del padre; puede caer en el tablero de su concepto).
+- CreateSubtaskAsync queda disponible (lo usan agentes/otros), solo cambia la UI del detalle.
+- Build SuperAdmin Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Validar: en una tarea padre, "+ Agregar subtarea" abre el wizard
+  completo y la subtarea creada aparece en Subtareas.
+
 ## 2026-10-01 - Fix: copiar actividad no copiaba los formularios (filtro IsActive) - SIN deploy
 
 - El usuario reporto que al copiar una actividad no se copiaban los formularios. Causa: el copiado de forms

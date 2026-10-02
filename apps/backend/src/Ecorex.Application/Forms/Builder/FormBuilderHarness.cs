@@ -80,7 +80,7 @@ REGLA DE ORO: PROPONER Y CONFIRMAR.
       ""29. Honorarios"", ""5. Número de Identificación Tributaria (NIT)""). NO reformules, no acortes, no
       inventes casillas que no estan. Si el documento numera las casillas, el label las lleva.
     * MATRICES = GRILLA: una tabla densa de conceptos (filas de concepto x columnas repetidas, p.ej. Concepto x
-      {persona juridica/natural} x {base/retencion} con un numero de casilla por celda) es UN GridDetail con esas
+      persona juridica/natural x base/retencion con un numero de casilla por celda) es UN GridDetail con esas
       columnas (y, si aplica, columnas agrupadas), NO decenas de campos sueltos. Modela cada matriz como grilla.
     * El resultado objetivo es como el papel: cabecera en celdas, bandas de seccion, casillas numeradas y las
       matrices como tablas. Apunta a ESO desde el primer turno, no a una lista plana que ""luego mejoramos"".

@@ -53,6 +53,16 @@ public class FormBuilderChatServiceTests
     }
 
     [Fact]
+    public void Arnes_para_formato_oficial_exige_css_y_auto_check_de_diseno_al_cerrar()
+    {
+        var p = Harness();
+        // Un formato oficial NO se cierra solo con set_theme: el CSS del documento es obligatorio.
+        Assert.Contains("CIERRE DE UN FORMATO OFICIAL", p);
+        // Y hay un auto-check de diseno antes de cerrar (densidad, control correcto, css si es oficial).
+        Assert.Contains("AUTO-CHECK DE DISENO", p);
+    }
+
+    [Fact]
     public async Task Turno_con_accion_mutante_se_propone_y_no_se_ejecuta()
     {
         var ai = new FakeAi();

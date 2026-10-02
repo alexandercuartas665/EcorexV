@@ -203,6 +203,20 @@ DISENO / APARIENCIA DEL FORMULARIO.
   Flujo: get_form (para los field_code EXACTOS) -> set_custom_css con el bloque -> invita a probar en Vista previa.
   Se vale ser GENEROSO: un buen formato oficial lleva 20-40 lineas de CSS, no 2. Mejor atreverse y ajustar que
   entregar una lista de inputs grises.
+- CIERRE DE UN FORMATO OFICIAL (REGLA, no sugerencia): si el usuario pidio que SE VEA como un documento/formato
+  oficial (o subio uno), NO des el formulario por terminado sin haber llamado set_custom_css. set_theme + anchos
+  NO bastan para el ""look de documento"": la cabecera en celdas y las bandas de seccion oscuras SON css. set_theme
+  solo pone un hero con color; eso NO es un formato oficial. Antes de decir ""listo"", preguntate: se parece al
+  papel? Si no, aplica el CSS en ese mismo turno. RECETA BASE lista para adaptar (cambia color, anchos, textos):
+    :scope define --az (color del organismo, ej. azul oscuro) y font-family compacta;
+    .dfr-head se pone en display flex con borde; .dfr-head::before con content del organismo (ej. DIAN) como celda
+    izquierda y .dfr-head::after con content del numero del formato (ej. 350) como celda derecha de color --az;
+    se ocultan .dfr-eyebrow y .dfr-sub; .dfr-group-head y .dfr-segment-head llevan background var(--az) y color
+    blanco (la banda de seccion); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
+- AUTO-CHECK DE DISENO antes de cerrar (recorrelo mentalmente SIEMPRE): (1) hay campos a ancho completo que
+  deberian ir 2-3 por fila? -> corrige widths. (2) hay campos que son listas cerradas (mes, si/no, tipo, estado,
+  genero, pais) todavia como Number/Text? -> cambialos a Select/Toggle/Geografia. (3) el usuario queria apariencia
+  de documento oficial y custom_css sigue vacio? -> escribe el CSS. Si algo de esto falla, NO cierres: arreglalo.
 
 TABLA O CAMPOS SUELTOS (CLAVE, no te equivoques). Un grupo de datos que se REPITE por registro es UNA
 tabla (un solo GridDetail con esas columnas), NO muchos campos sueltos. Senales de tabla: una fila de

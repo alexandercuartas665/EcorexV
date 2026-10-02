@@ -475,10 +475,19 @@ public sealed class TaskItemService : ITaskItemService
         if (!string.IsNullOrEmpty(srcNumber) && !string.IsNullOrEmpty(copyNumber))
         {
             var srcPrefix = srcNumber + "-";
-            var srcForms = await _db.FormResponses.AsNoTracking()
-                .Where(r => r.IsActive && (r.Reference == srcNumber
+            // Toma las respuestas ancladas al original (numero o numero-N), SIN exigir IsActive: IsActive es la
+            // marca OPCIONAL de "activo por defecto" (ADR-0065) y lo normal en los modulos (COT, etc.) es
+            // is_active=false, asi que filtrar por IsActive no copiaba NADA. Se excluyen las anuladas (VoidedAt).
+            var allForms = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.VoidedAt == null && (r.Reference == srcNumber
                     || (r.Reference != null && r.Reference.StartsWith(srcPrefix))))
                 .ToListAsync(cancellationToken);
+            // Una respuesta por (DefinitionId, Reference): prefiere la marcada activa y, si ninguna lo esta, la
+            // original/mas antigua (misma regla que usa la UI/PDF para elegir la respuesta de la tarea).
+            var srcForms = allForms
+                .GroupBy(r => (r.DefinitionId, r.Reference))
+                .Select(g => g.OrderByDescending(r => r.IsActive).ThenBy(r => r.CreatedAt).First())
+                .ToList();
             foreach (var f in srcForms)
             {
                 // Re-apunta el Reference al numero de la copia conservando el sufijo "-N" de los subformularios.

@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-01 - Fix: copiar actividad no copiaba los formularios (filtro IsActive) - SIN deploy
+
+- El usuario reporto que al copiar una actividad no se copiaban los formularios. Causa: el copiado de forms
+  en TaskItemService.CopyAsync (v0.16.165) filtraba `r.IsActive`, pero IsActive es la marca OPCIONAL "activo
+  por defecto" (ADR-0065) y lo NORMAL en los modulos (COT, etc.) es is_active=false (p.ej. en T00203 el COT
+  estaba is_active=false, 246/249 asi). Resultado: no copiaba ningun formulario.
+- Fix (~L478): toma las respuestas NO anuladas (VoidedAt==null) ancladas al numero/numero-N, agrupa por
+  (DefinitionId, Reference) y elige UNA por grupo con OrderByDescending(IsActive).ThenBy(CreatedAt) -prefiere
+  la activa, si no la original/mas antigua- (misma regla que la UI/PDF para elegir la respuesta de la tarea).
+  Se recrean como BORRADOR re-apuntando el Reference al numero de la copia (sin consecutivo ni on-submit).
+- Build Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Validar: copiar una tarea con COT y ver el form con sus datos en
+  la copia.
+
 ## 2026-10-01 - YCloud: capturar estado de entrega (failed/undelivered) -> nota visible en la conversacion - SIN deploy
 
 - Diagnostico (T00219 AGRO, flujo PROCESO COMERCIAL VENTA MOSTRADOR, nodo "Gestion del agente"): el WhatsApp

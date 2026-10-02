@@ -39,6 +39,23 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         AiProvider.Claude => "claude-haiku-4-5",
         _ => AiProviderCatalog.For(provider).DefaultModel,
     };
+
+    // Elige el modelo del asistente: el CONFIGURADO en Servidores de IA si es usable, si no el default rapido.
+    // Un modelo mas fuerte (gemini-2.5-pro) sube la fidelidad al leer formatos densos; uno rapido (flash) es mas
+    // agil para formularios simples. El usuario decide en la UI.
+    private static string ChooseFormBuilderModel(AiProvider provider, string? configuredModel)
+    {
+        var m = configuredModel?.Trim();
+        if (!string.IsNullOrWhiteSpace(m) && !IsNonToolModel(m!)) { return m!; }
+        return FormBuilderModelFor(provider);
+    }
+
+    // Modelos de RAZONAMIENTO sin function-calling: el asistente NO puede usarlos (todo su flujo son tools).
+    private static bool IsNonToolModel(string model)
+    {
+        var x = model.ToLowerInvariant();
+        return x.Contains("reasoner") || x.Contains("-thinking") || x.Contains("o1-") || x.EndsWith("-o1");
+    }
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
     // Cuantas veces, por turno, el sistema FUERZA verify_form al cierre y reinyecta los errores para que el
@@ -75,7 +92,11 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         {
             return new FormBuilderStartResult(false, $"El proveedor de IA para gestion de formularios ({provider}) no esta habilitado en la plataforma. Configuralo en Servidores de IA.", Guid.Empty, null);
         }
-        var model = FormBuilderModelFor(provider);
+        // MODELO: respeta el que el Super Admin configuro para el proveedor en Servidores de IA (asi puede elegir
+        // uno MAS FUERTE para vision densa, p.ej. gemini-2.5-pro, sin tocar codigo). Si no configuro ninguno,
+        // cae al default rapido por proveedor. Guard: ignora modelos de RAZONAMIENTO que no soportan
+        // function-calling (romperian el flujo de herramientas del asistente).
+        var model = ChooseFormBuilderModel(provider, cfg.Model);
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)

@@ -1881,22 +1881,19 @@ app.MapPost("/api/test/agent", async (
         catch { /* imagen invalida: seguimos solo con el texto */ }
     }
 
-    // Si llego un DOCUMENTO (PDF/Excel) o un AUDIO (nota de voz), lo guardamos en uploads/chat y lo ingerimos
-    // como mensaje ENTRANTE (Document o Audio segun el mime), para que la MISMA ruta real
-    // (AgentConversationService) lo lea/transcriba y lo mande al modelo, igual que WhatsApp real.
+    // Si llego un DOCUMENTO (PDF/Excel), lo guardamos en uploads/chat y lo ingerimos como mensaje ENTRANTE
+    // de tipo Document, para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo.
     if (!string.IsNullOrWhiteSpace(body.FileBase64))
     {
         try
         {
             var bytes = Convert.FromBase64String(body.FileBase64!);
             var mime = string.IsNullOrWhiteSpace(body.FileMime) ? "application/octet-stream" : body.FileMime!;
-            var isAudio = mime.StartsWith("audio", StringComparison.OrdinalIgnoreCase);
             var origName = string.IsNullOrWhiteSpace(body.FileName) ? "archivo" : body.FileName!.Trim();
             var ext = System.IO.Path.GetExtension(origName);
             if (string.IsNullOrWhiteSpace(ext))
             {
-                ext = isAudio ? ".ogg"
-                    : mime.Contains("pdf") ? ".pdf"
+                ext = mime.Contains("pdf") ? ".pdf"
                     : (mime.Contains("sheet") || mime.Contains("excel")) ? ".xlsx"
                     : mime.Contains("csv") ? ".csv" : ".bin";
             }
@@ -1910,9 +1907,9 @@ app.MapPost("/api/test/agent", async (
                 ConversationId = conv.Id,
                 Direction = Ecorex.Domain.Enums.MessageDirection.Inbound,
                 ExternalId = "emu-doc-" + Guid.NewGuid().ToString("N"),
-                Body = isAudio ? "(nota de voz)" : "",
-                MessageType = isAudio ? "audio" : "document",
-                MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio : Ecorex.Domain.Enums.MessageMediaType.Document,
+                Body = "",
+                MessageType = "document",
+                MediaType = Ecorex.Domain.Enums.MessageMediaType.Document,
                 MediaUrl = $"/uploads/chat/{fname}",
                 MediaMimeType = mime,
                 MediaFileName = origName,   // nombre ORIGINAL: el agente lo usa p.ej. en la columna 'archivo'

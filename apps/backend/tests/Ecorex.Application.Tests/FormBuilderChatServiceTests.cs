@@ -65,6 +65,27 @@ public class FormBuilderChatServiceTests
         Assert.Contains("CIERRE DE UN FORMATO OFICIAL", p);
         // Y hay un auto-check de diseno antes de cerrar (densidad, control correcto, css si es oficial).
         Assert.Contains("AUTO-CHECK DE DISENO", p);
+        // Replicar un documento oficial: COMPLETO + milimetrico (casillas numeradas) + matrices como grilla.
+        Assert.Contains("REPLICAR UN DOCUMENTO", p);
+        Assert.Contains("MILIMETRICO", p);
+        Assert.Contains("MATRICES = GRILLA", p);
+    }
+
+    // CHAT PERSISTENTE: reabrir el asistente sobre el MISMO formulario RESUME la conversacion (no abre un hilo
+    // nuevo), para que el historial no se pierda.
+    [Fact]
+    public async Task StartAsync_resume_la_conversacion_del_formulario_no_crea_una_nueva()
+    {
+        var ai = new FakeAi();
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var primera = await svc.StartAsync(FormId, Guid.NewGuid());
+        var segunda = await svc.StartAsync(FormId, Guid.NewGuid());
+
+        Assert.True(primera.Ok);
+        Assert.True(segunda.Ok);
+        Assert.Equal(primera.ConversationId, segunda.ConversationId); // misma conversacion -> historial persiste
     }
 
     [Fact]
@@ -516,6 +537,11 @@ public class FormBuilderChatServiceTests
 
         public Task<FormBuilderConversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
             => Task.FromResult(_convs.TryGetValue(conversationId, out var c) ? c : null);
+
+        public Task<FormBuilderConversation?> GetLatestConversationForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_convs.Values
+                .Where(c => c.FormDefinitionId == formDefinitionId && c.Status == FormBuilderConversationStatus.Active)
+                .OrderByDescending(c => c.CreatedAt).FirstOrDefault());
 
         public Task SaveConversationAsync(FormBuilderConversation conversation, CancellationToken cancellationToken = default)
         {

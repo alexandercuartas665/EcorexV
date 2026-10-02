@@ -80,6 +80,13 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
         {
+            // CHAT PERSISTENTE: si este formulario YA tiene una conversacion activa, la RESUMIMOS (su historial
+            // sigue ahi) en vez de abrir un hilo nuevo y perder el contexto. Solo si no hay ninguna, se crea.
+            var existing = await _store.GetLatestConversationForFormAsync(fid, cancellationToken);
+            if (existing is not null)
+            {
+                return new FormBuilderStartResult(true, null, existing.Id, existing.FormDefinitionId);
+            }
             var t = await _store.GetFormTitleAsync(fid, cancellationToken);
             if (!string.IsNullOrWhiteSpace(t)) { title = t!; }
         }

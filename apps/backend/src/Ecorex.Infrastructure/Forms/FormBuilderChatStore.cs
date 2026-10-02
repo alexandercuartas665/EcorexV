@@ -39,6 +39,14 @@ public sealed class FormBuilderChatStore : IFormBuilderChatStore
     public async Task<FormBuilderConversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
         => await _db.FormBuilderConversations.AsNoTracking().FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
 
+    // PERSISTENCIA del chat: la ultima conversacion ACTIVA de ese formulario, para RESUMIRLA al reabrir el panel
+    // (en vez de empezar un hilo nuevo y perder el historial). El filtro global por tenant ya aisla.
+    public async Task<FormBuilderConversation?> GetLatestConversationForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+        => await _db.FormBuilderConversations.AsNoTracking()
+            .Where(c => c.FormDefinitionId == formDefinitionId && c.Status == FormBuilderConversationStatus.Active)
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task SaveConversationAsync(FormBuilderConversation conversation, CancellationToken cancellationToken = default)
     {
         DetachTrackedById<FormBuilderConversation>(conversation.Id);

@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-02 - OT hija: hereda contacto+tercero+encargado; re-mapeo de salidas al clonar flujo; repair de OTs
+
+- 3 temas de AGRO en prod.
+- A) OT generada por salto de flujo (ChildTaskStarter) no traia el contacto del cliente ni quedaba con
+  encargado. Fix: la hija hereda del padre RequesterName/Email/Phone/Document + TerceroId + AssigneeTenantUserId
+  (el paso igual lo resuelve el flujo; esto sincroniza el assignee visible de la tarea, que quedaba null).
+- B) En el diseñador, la "salida a la que resuelve" de los enlaces de decision no se guardaba (aparecia vacia):
+  al CLONAR una version nueva (DeriveDraft en WorkflowDesignService) se re-mapeaban las aristas por BpmnElementId
+  pero el NotifyJson se copiaba TAL CUAL, dejando el targetNodeId apuntando a un id de nodo de la version
+  anterior -> el desplegable (que lista las aristas de ESTA version) no lo encontraba. Fix: RemapDecisionTargets
+  re-mapea el targetNodeId al nodo nuevo (mapa viejo->nuevo por BpmnElementId) al derivar el borrador. Confirmado
+  en prod: v19 tenia targetNodeId de v18. Para drafts YA rotos, re-seleccionar la salida y guardar.
+- C) REPAIR en prod (AGRO, transaccion): 17 OTs -> contacto+tercero del padre (todas estaban vacias); 12 ->
+  assignee de la tarea = encargado del padre (OTs con paso actual InheritStart); 1 paso reasignado (T00216, el
+  unico cuyo paso estaba mal). Revelacion: en la mayoria el PASO ya estaba bien (InheritStart si resolvia) pero
+  el assignee de la TAREA estaba desincronizado -> por eso se veia sin responsable.
+- Build Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Pendiente leve: el caso T00216 donde InheritStart resolvio el PASO
+  a otro usuario (Jans) en vez del starter (Lilian) no se explico por estatica (raro, 1 de 17); vigilar si recurre.
+
 ## 2026-10-01 - Subtareas con el MODAL COMPLETO (wizard con concepto/categorias) - SIN deploy
 
 - Pedido: al crear subtareas que abran el modal completo (wizard) con todas sus categorias, no el input

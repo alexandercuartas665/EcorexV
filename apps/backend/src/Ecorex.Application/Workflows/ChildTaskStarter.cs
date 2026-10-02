@@ -92,6 +92,17 @@ public sealed class ChildTaskStarter : IChildTaskStarter
             BoardId = boardId,
             ColumnId = columnId,
             Priority = parent.Priority,
+            // Datos del CONTACTO del cliente + vinculo al Directorio: la OT hija los hereda del padre para que
+            // sus formularios prellenen {tareas.*}/{tercero.*} y la notificacion al cliente tenga a quien llegar.
+            RequesterName = parent.RequesterName,
+            RequesterEmail = parent.RequesterEmail,
+            RequesterPhone = parent.RequesterPhone,
+            RequesterDocument = parent.RequesterDocument,
+            TerceroId = parent.TerceroId,
+            // Encargado: la OT nace a cargo del encargado del padre (el iniciador del flujo hijo = InheritStart).
+            // Sin esto, el assignee de la TAREA quedaba null aunque el paso lo resolviera, y la OT se veia "sin
+            // responsable". El paso igual lo resuelve el flujo; aqui se sincroniza el assignee visible de la tarea.
+            AssigneeTenantUserId = parent.AssigneeTenantUserId,
             Status = TaskItemStatus.Pending
         };
         _db.TaskItems.Add(child);

@@ -2577,7 +2577,7 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 
 /* ---- Vista lista ---- */
 .ab-listwrap { padding: 0 var(--pad, 30px) var(--pad, 30px); color: var(--ink); }
-.ab-list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 20px); box-shadow: var(--sh-sm); overflow: hidden; }
+.ab-list { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--sh-sm); overflow: hidden; }
 .ab-list-head { display: grid; grid-template-columns: 1fr 130px 110px 110px 150px 76px; gap: 12px; padding: 13px 22px; border-bottom: 1px solid var(--line); font-size: 10.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .05em; }
 .ab-list-row { display: grid; grid-template-columns: 1fr 130px 110px 110px 150px 76px; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--line); align-items: center; cursor: pointer; }
 .ab-list-row:hover { background: var(--surface-2); }

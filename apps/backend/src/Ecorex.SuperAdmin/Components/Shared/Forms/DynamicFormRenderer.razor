@@ -728,12 +728,13 @@ else
            Segment/Section/Table y Modal (TODO ADR-0021: dialogo real): seccion con titulo. *@
         if (container.ContainerType is FormContainerType.Row or FormContainerType.Col)
         {
+            @* Row/Col son MAQUETADO PURO (grupo transparente): su Name NO se pinta (se usa solo como
+               etiqueta interna para que el agente/usuario distinga las filas). El titulo visible (banda)
+               es exclusivo de Section/Segment. Antes un Row con nombre salia como banda repetida y ensuciaba
+               los formatos oficiales; ademas, forzar Rows SIN nombre hacia que el agente no los distinguiera
+               en get_form y los recreara en bucle. Con esto, el agente puede nombrarlos sin efecto visual. *@
             <div class="@GroupCssClass(container)"
                  style="@(WidthStyle(container) + container.Style)">
-                @if (!string.IsNullOrWhiteSpace(container.Name))
-                {
-                    <div class="dfr-group-head">@container.Name</div>
-                }
                 @RenderContainerChildren(container, stack: container.ContainerType == FormContainerType.Col)
             </div>
             return;

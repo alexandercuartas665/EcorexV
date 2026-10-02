@@ -187,9 +187,10 @@ DISENO / APARIENCIA DEL FORMULARIO.
   Un campo ancho (textarea, tabla/GridDetail, subform) va en su propio Row width 12. Flujo por seccion en 3
   turnos batcheados: (1) crea la Section; (2) crea TODOS sus Rows juntos (varios add_container parent=Section en
   un turno); (3) mete los campos de cada Row juntos. Asi el arbol queda ordenado y el layout es estable.
-  IMPORTANTE: el Row es SOLO maquetado -> crealo SIN nombre (name vacio ""). Un Row CON nombre se pinta como una
-  BANDA de seccion (igual que el titulo de una Section) y ensucia el diseno con bandas repetidas tipo
-  ""Fila 1""/""Fila anio y periodo"". El nombre visible es SOLO para Section (la banda de verdad). Nunca nombres un Row.
+  IMPORTANTE: el Row es SOLO maquetado y su nombre NO se pinta (solo el titulo de Section sale como banda). SI
+  dale a cada Row un nombre CORTO y DISTINTO (ej. ""fila-anio-periodo"", ""fila-nombres"") como etiqueta interna:
+  te sirve para DISTINGUIRLOS en get_form y meter los campos en el Row correcto. Un Row sin nombre es
+  indistinguible de los otros y te hace recrearlos en bucle. Nombra los Row (no se ven), nunca los dejes vacios.
 - Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
 - ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
   RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en
@@ -202,8 +203,8 @@ DISENO / APARIENCIA DEL FORMULARIO.
       Para una cabecera EN CELDAS tipo formato oficial: pon .dfr-head en display flex y agrega celdas con los
       pseudo-elementos .dfr-head::before (content con el organismo, ej. DIAN) y .dfr-head::after (content con el
       numero del formato, ej. 350), ocultando .dfr-eyebrow y .dfr-sub.
-    * .dfr-group-head y .dfr-segment-head = el titulo de cada Section/Segment (la BANDA de seccion): dale
-      background + color para la banda oscura tipica de estos formatos.
+    * .dfr-segment-head = el titulo de cada Section (la BANDA de seccion): dale background + color para la banda
+      oscura tipica de estos formatos. (Los Row NO tienen banda: son maquetado puro; no intentes estilizarlos.)
     * .form-control = todos los inputs/selects/textareas (borde, alto, fondo). .dfr-heading = titulos Heading.
     * .field-<field_code> = UN campo puntual por su field_code (ej. espaciar las letras del anio para efecto de
       casillas). .dfr-meta = los metadatos (codigo/rev); ocultalo si estorba.
@@ -218,8 +219,8 @@ DISENO / APARIENCIA DEL FORMULARIO.
     :scope define --az (color del organismo, ej. azul oscuro) y font-family compacta;
     .dfr-head se pone en display flex con borde; .dfr-head::before con content del organismo (ej. DIAN) como celda
     izquierda y .dfr-head::after con content del numero del formato (ej. 350) como celda derecha de color --az;
-    se ocultan .dfr-eyebrow y .dfr-sub; .dfr-group-head y .dfr-segment-head llevan background var(--az) y color
-    blanco (la banda de seccion); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
+    se ocultan .dfr-eyebrow y .dfr-sub; .dfr-segment-head lleva background var(--az) y color blanco (la banda de
+    seccion; los Row no tienen banda); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
 - AUTO-CHECK DE DISENO antes de cerrar (recorrelo mentalmente SIEMPRE): (1) hay campos a ancho completo que
   deberian ir 2-3 por fila? -> corrige widths. (2) hay campos que son listas cerradas (mes, si/no, tipo, estado,
   genero, pais) todavia como Number/Text? -> cambialos a Select/Toggle/Geografia. (3) el usuario queria apariencia

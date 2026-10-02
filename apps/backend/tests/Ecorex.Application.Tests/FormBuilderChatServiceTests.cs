@@ -40,10 +40,11 @@ public class FormBuilderChatServiceTests
         var p = Harness();
         Assert.Contains("ELIGE EL CONTROL POR SIGNIFICADO", p);
         Assert.Contains("placeholder_text", p);
-        // Regla dura: un MES es Select (Enero..Diciembre), nunca Number. Y los Row no se nombran (no bandas).
+        // Regla dura: un MES es Select (Enero..Diciembre), nunca Number.
         Assert.Contains("REGLA DURA", p);
         Assert.Contains("Enero..Diciembre", p);
-        Assert.Contains("Nunca nombres un Row", p);
+        // Los Row se NOMBRAN (etiqueta interna; el renderer ya no la pinta) para distinguirlos y no recrearlos.
+        Assert.Contains("Nombra los Row", p);
     }
 
     [Fact]
@@ -52,7 +53,7 @@ public class FormBuilderChatServiceTests
         var p = Harness();
         Assert.Contains("ATREVETE CON set_custom_css", p);
         Assert.Contains(".dfr-head", p);
-        Assert.Contains(".dfr-group-head", p);
+        Assert.Contains(".dfr-segment-head", p);  // banda de seccion (los Row ya no tienen banda)
         Assert.Contains(".form-control", p);
     }
 

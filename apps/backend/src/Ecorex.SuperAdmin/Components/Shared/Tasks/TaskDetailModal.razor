@@ -754,11 +754,13 @@
                                     <span class="tk-subtask-title">@sub.Title</span>
                                 </div>
                             }
-                            @if (!readOnly)
+                            @* Solo las tareas PADRE pueden tener subtareas (un solo nivel). La subtarea se crea con
+                               el MODAL COMPLETO (wizard): concepto/categorias, encargado, etc. -> nace completa y
+                               cuelga de esta por ParentId. *@
+                            @if (!readOnly && _detail.Item.ParentId is null)
                             {
                                 <div class="tk-check-add">
-                                    <input class="form-control form-control-sm" @bind="_newSubtaskText" maxlength="200" placeholder="Nueva subtarea..." />
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddSubtaskAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newSubtaskText))">Agregar subtarea</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="OpenSubtaskWizardAsync" disabled="@_busy">+ Agregar subtarea</button>
                                 </div>
                             }
                         </div>
@@ -1606,6 +1608,10 @@
     </div>
 }
 
+@* Wizard COMPLETO para crear una subtarea (con concepto/categorias): al crearla, cuelga de esta tarea
+   (ParentId) y se recarga el detalle para mostrarla en "Subtareas". *@
+<TaskWizard @ref="_subtaskWizard" OnCreated="OnSubtaskCreatedAsync" />
+
 @code {
     // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
     // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
@@ -1977,26 +1983,22 @@
         return total == 0 ? 0 : (int)Math.Round(ProgressDone() * 100.0 / total, MidpointRounding.AwayFromZero);
     }
 
-    private string _newSubtaskText = "";
+    private TaskWizard? _subtaskWizard;
 
-    private async Task AddSubtaskAsync()
+    // Abre el MODAL COMPLETO (wizard) para crear una subtarea de la tarea actual: concepto/categorias y todo.
+    // La tarea creada cuelga de esta por ParentId (lo pasa el wizard al CreateAsync; ver OnSubtaskCreatedAsync).
+    private async Task OpenSubtaskWizardAsync()
     {
-        if (_detail is null || string.IsNullOrWhiteSpace(_newSubtaskText)) { return; }
-        _busy = true;
-        try
-        {
-            var result = await TasksSvc.CreateSubtaskAsync(
-                _detail.Item.Id, _newSubtaskText.Trim(), null, await ActorAsync(), await ActorNameAsync());
-            if (!result.IsOk)
-            {
-                _actionError = result.Error;
-                return;
-            }
-            _newSubtaskText = "";
-            await ReloadAsync(_detail!.Item.Id);
-            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
-        }
-        finally { _busy = false; }
+        if (_detail is null || _subtaskWizard is null) { return; }
+        await _subtaskWizard.OpenAsync(parentId: _detail.Item.Id);
+    }
+
+    // Al crear la subtarea desde el wizard: recarga el detalle (la subtarea aparece en "Subtareas") y notifica.
+    private async Task OnSubtaskCreatedAsync(TaskItemDetailDto created)
+    {
+        if (_detail is null) { return; }
+        await ReloadAsync(_detail.Item.Id);
+        await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
     }
 
     // Abre una subtarea (o vuelve al padre) recargando el MISMO modal con esa tarea.

@@ -331,6 +331,33 @@ public sealed class NodeNotifyService : INodeNotifyService
     }
 
     /// <summary>
+    /// Resuelve la conversacion del contacto TOLERANDO el prefijo de pais. La conversacion de SARA se crea
+    /// desde el ENTRANTE del cliente, cuyo numero llega internacional (p.ej. 57 + 10 digitos); pero el
+    /// RequesterPhone de la tarea a veces viene SIN indicativo (10 digitos). Si se casa exacto, la nota del
+    /// flujo cae en un hilo HUERFANO que el agente nunca lee. Aqui se casa por el numero nacional significativo
+    /// (ultimos 10 digitos) dentro de la misma linea, prefiriendo la conversacion mas activa, para que la nota
+    /// aterrice en el hilo real de SARA. Devuelve la entidad RASTREADA (el llamador actualiza LastMessageAt).
+    /// </summary>
+    private async Task<Domain.Entities.Conversation?> FindContactConversationAsync(Guid lineId, string digits, CancellationToken ct)
+    {
+        var tail = digits.Length >= 10 ? digits[^10..] : digits;
+        return await _db.Conversations
+            .Where(c => c.WhatsAppLineId == lineId && (c.ContactPhone == digits || c.ContactPhone.EndsWith(tail)))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Normaliza el telefono a forma INTERNACIONAL al CREAR una conversacion nueva, para que coincida con el
+    /// ENTRANTE del cliente (que llega con indicativo, p.ej. 57...) y no quede un hilo huerfano cuando luego
+    /// escriba. Hoy todos los tenants son Colombia: un movil nacional son 10 digitos que empiezan por 3, al que
+    /// se antepone el indicativo 57. Un numero ya internacional (>=11 digitos) o que no calza el patron se deja
+    /// igual (no se arriesga un indicativo incorrecto). Si aparece otro pais, ampliar aqui con su indicativo.
+    /// </summary>
+    private static string CanonicalizeMsisdn(string digits)
+        => digits.Length == 10 && digits[0] == '3' ? "57" + digits : digits;
+
+    /// <summary>
     /// Deja una NOTA en la conversacion de WhatsApp del contacto (misma clave (linea, telefono) que usa la
     /// ingesta de chat), para que el agente conversacional (SARA) tenga CONTEXTO si el cliente responde: sabe
     /// que se le envio un enlace de decision y/o un archivo, y por que proceso. Se guarda como saliente (nota
@@ -343,15 +370,14 @@ public sealed class NodeNotifyService : INodeNotifyService
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
 
-        var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var conversation = await FindContactConversationAsync(lineId, digits, ct);
         var now = DateTimeOffset.UtcNow;
         if (conversation is null)
         {
             conversation = new Domain.Entities.Conversation
             {
                 TenantId = task.TenantId,
-                ContactPhone = digits,
+                ContactPhone = CanonicalizeMsisdn(digits),
                 WhatsAppLineId = lineId,
                 LastMessageAt = now
             };
@@ -401,15 +427,14 @@ public sealed class NodeNotifyService : INodeNotifyService
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
 
-        var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var conversation = await FindContactConversationAsync(lineId, digits, ct);
         var now = DateTimeOffset.UtcNow;
         if (conversation is null)
         {
             conversation = new Domain.Entities.Conversation
             {
                 TenantId = task.TenantId,
-                ContactPhone = digits,
+                ContactPhone = CanonicalizeMsisdn(digits),
                 WhatsAppLineId = lineId,
                 LastMessageAt = now
             };

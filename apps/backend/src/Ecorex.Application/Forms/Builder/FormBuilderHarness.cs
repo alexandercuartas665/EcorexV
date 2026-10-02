@@ -225,9 +225,17 @@ DISENO / APARIENCIA DEL FORMULARIO.
       Para una cabecera EN CELDAS tipo formato oficial: pon .dfr-head en display flex y agrega celdas con los
       pseudo-elementos .dfr-head::before (content con el organismo, ej. DIAN) y .dfr-head::after (content con el
       numero del formato, ej. 350), ocultando .dfr-eyebrow y .dfr-sub.
+    * .dfr-segment = la TARJETA de cada Section (el recuadro que por defecto trae esquinas redondeadas y SOMBRA,
+      lo que da el look ""web app""). Para el look de documento: .dfr-segment {{ border-radius:0 !important;
+      box-shadow:none !important; border:1px solid #9aa4b2 !important; padding:8px 10px !important; }}. ESTA es la
+      clase que debes tocar para matar la tarjeta SaaS; no basta con la banda.
     * .dfr-segment-head = el titulo de cada Section (la BANDA de seccion): dale background + color para la banda
       oscura tipica de estos formatos. (Los Row NO tienen banda: son maquetado puro; no intentes estilizarlos.)
     * .form-control = todos los inputs/selects/textareas (borde, alto, fondo). .dfr-heading = titulos Heading.
+    * OJO CON LA ESPECIFICIDAD: los estilos base del renderer estan acotados (ganan por especificidad a un selector
+      simple tuyo). Para las propiedades del look de documento que SI o SI debes imponer sobre el default
+      (box-shadow, border-radius, border, padding, font-size, gap/margin de .dfr-segment y .form-control) usa
+      !important; sin el, tu regla puede perder contra el estilo base y la sombra/el radio seguiran ahi.
     * .field-<field_code> = UN campo puntual por su field_code (ej. espaciar las letras del anio para efecto de
       casillas). .dfr-meta = los metadatos (codigo/rev); ocultalo si estorba.
   Flujo: get_form (para los field_code EXACTOS) -> set_custom_css con el bloque -> invita a probar en Vista previa.
@@ -243,10 +251,40 @@ DISENO / APARIENCIA DEL FORMULARIO.
     izquierda y .dfr-head::after con content del numero del formato (ej. 350) como celda derecha de color --az;
     se ocultan .dfr-eyebrow y .dfr-sub; .dfr-segment-head lleva background var(--az) y color blanco (la banda de
     seccion; los Row no tienen banda); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
+- LOOK DE DOCUMENTO OFICIAL = LO CONTRARIO A UNA WEB APP (especificacion DURA, el error mas comun). Un formato
+  oficial (DIAN, RUT, planilla, declaracion) se ve DENSO, RIGIDO y PLANO como PAPEL; una tarjeta bonita con
+  sombra, esquinas redondeadas e inputs espaciados es un formulario WEB y se nota de lejos que NO es el papel.
+  Cuando repliques un documento oficial, tu CSS DEBE fijar explicitamente TODO esto (si no, el renderer pone su
+  look SaaS por defecto y el resultado ""se parece pero no es""):
+    * SIN sombra y SIN radio: en :scope y en los contenedores/tarjetas -> box-shadow:none; border-radius:0.
+      Un formato oficial no tiene ni una esquina redondeada ni una sombra.
+    * Borde fino gris en TODO: contenedor exterior y .form-control con border:1px solid #9aa4b2 (o el gris que
+      aplique), NO bordes gruesos de color ni fondos de color en los inputs.
+    * Inputs CUADRADOS y APRETADOS: .form-control con border-radius:0, padding chico (~2-4px), alto bajo; reduce
+      el gap/margin entre campos y filas (margenes ~2-6px, no 12-16px). Las casillas deben casi TOCARSE, como
+      celdas de una tabla, no flotar separadas.
+    * Numero de casilla PEGADO al campo: la etiqueta (ej. ""33"", ""5. NIT"") va chica y pegada ARRIBA-IZQUIERDA del
+      input, fuente pequena; nada de labels grandes en negrita con aire. Baja el tamano de label (~10-11px) y su
+      margen inferior a ~1px.
+    * Tipografia COMPACTA y pequena: font-size base ~11-12px, una sans condensada o de sistema; el titulo NO es un
+      hero gigante centrado: el encabezado es una BANDA compacta (logo/organismo + franja + caja del numero), de
+      poca altura, alineada a los lados (no un titulo enorme en el centro con mucho espacio).
+    * Banda de seccion DELGADA: .dfr-segment-head con padding vertical minimo (~3-5px), fuente pequena en
+      mayusculas, el color institucional; no una barra alta y redondeada.
+    * Color institucional de verdad (cuando aplique): define --az con el azul oscuro del organismo y usalo en la
+      caja del numero, las bandas de seccion y los bordes de acento. Para la DIAN: azul oscuro institucional.
+  AUTO-TEST honesto antes de cerrar un formato oficial: ""si pongo mi resultado al lado del papel escaneado, un
+  humano diria que es el mismo documento, o diria 'esto es una web'?"". Si la respuesta es 'una web', casi siempre
+  es por: sombra, esquinas redondeadas, demasiado espacio entre campos, labels grandes, o falta del color. Quita
+  eso. Prefiere DENSO y PLANO: es mejor pasarse de apretado que dejarlo aireado tipo landing.
 - AUTO-CHECK DE DISENO antes de cerrar (recorrelo mentalmente SIEMPRE): (1) hay campos a ancho completo que
   deberian ir 2-3 por fila? -> corrige widths. (2) hay campos que son listas cerradas (mes, si/no, tipo, estado,
   genero, pais) todavia como Number/Text? -> cambialos a Select/Toggle/Geografia. (3) el usuario queria apariencia
   de documento oficial y custom_css sigue vacio? -> escribe el CSS. Si algo de esto falla, NO cierres: arreglalo.
+  (4) es un formato oficial pero SE VE como web app (tiene sombra, esquinas redondeadas, inputs espaciados con
+  aire, labels grandes, o le falta el color institucional)? -> aplica el LOOK DE DOCUMENTO OFICIAL: box-shadow:none,
+  border-radius:0, bordes finos grises, inputs cuadrados apretados casi tocandose, tipografia compacta ~11-12px,
+  banda de seccion delgada, color del organismo. DENSO y PLANO, no aireado. Si falla, NO cierres: arreglalo.
 
 TABLA O CAMPOS SUELTOS (CLAVE, no te equivoques). Un grupo de datos que se REPITE por registro es UNA
 tabla (un solo GridDetail con esas columnas), NO muchos campos sueltos. Senales de tabla: una fila de

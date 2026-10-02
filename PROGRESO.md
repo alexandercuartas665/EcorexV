@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-02 - v0.16.176: el emulador HTTP (/api/test/agent) ahora acepta AUDIO (nota de voz)
+
+- Sintoma: "el agente no escucha los audios si usas el emulador". Causa: el endpoint HTTP de prueba
+  /api/test/agent ingeria TODO FileBase64 como MessageType=document/MediaType=Document, sin importar
+  el mime. Un audio enviado por ahi caia como documento -> la rama real de Audio
+  (AgentConversationService -> RespondAsync audioBase64 -> RunCoreAsync.ReadAudioAsync) NUNCA corria,
+  y no se transcribia. (La UI "probar agente" si manda el audio via TestChatAsync; el hueco era solo
+  el endpoint HTTP, el que usa la sesion de agentes para validar por curl.)
+- Fix (Program.cs, emulador): en el bloque FileBase64, si el mime empieza por "audio" se ingiere como
+  MessageType="audio" + MediaType=Audio + body "(nota de voz)" + ext .ogg. Asi el audio recorre la
+  MISMA ruta real que WhatsApp y se transcribe (ReadAudioAsync, solo Gemini). El codigo de
+  transcripcion ya existia y estaba correcto (GeminiVision emite el inlineData de audio); solo faltaba
+  que el emulador marcara el mensaje como Audio. Sin migracion.
+- Siguiente: desplegar (con OK) y validar por el emulador enviando una nota de voz real.
+
 ## 2026-10-02 - OT hija: hereda contacto+tercero+encargado; re-mapeo de salidas al clonar flujo; repair de OTs
 
 - 3 temas de AGRO en prod.

@@ -1,0 +1,84 @@
+# =========================================================================
+#  Stack de PRODUCCION de ECOREX.tareas - variante PULL-FROM-GHCR (via rapida).
+#
+#  A diferencia de docker-compose.from-git.yml (que compila EN el host y lo
+#  tumba por OOM, ~40 min), aqui la imagen la construye el CI (publish-image.yml)
+#  en GitHub y prod solo la DESCARGA:
+#    docker compose -f docker-compose.image.yml pull ecorex-app
+#    docker compose -f docker-compose.image.yml up -d
+#  (o directamente ./actualizar-en-linux.sh, que hace backup + pull + up).
+#
+#  Requisitos en el server (una sola vez):
+#    - docker login ghcr.io -u <usuario> -p <PAT con read:packages>
+#      (si el paquete GHCR es privado; si se hace publico, no hace falta).
+#    - El mismo .env que usa el from-git (comparte vars y volumenes).
+#
+#  Rollback: desplegar un tag de imagen anterior sin reconstruir:
+#    ECOREX_IMAGE_TAG=<sha-viejo> docker compose -f docker-compose.image.yml up -d
+#
+#  Aislamiento y volumenes: IDENTICOS al from-git (mismo project name, mismos
+#  contenedores y volumenes PERSISTENTES), para que el cambio de variante no
+#  cree datos nuevos ni pierda los existentes.
+# =========================================================================
+
+name: ecorex-prod
+
+services:
+  ecorex-app:
+    # Imagen pre-construida por el CI en GHCR. ECOREX_IMAGE_TAG permite fijar un
+    # tag concreto (ej. el sha para rollback); por defecto 'latest'.
+    image: "ghcr.io/alexandercuartas665/ecorex/superadmin:${ECOREX_IMAGE_TAG:-latest}"
+    container_name: ecorex-app
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      ASPNETCORE_HTTP_PORTS: 8080
+      TZ: America/Bogota
+      ECOREX_DB_PROVIDER: Postgres
+      ECOREX_DB_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ECOREX_RUN_MIGRATIONS: "true"
+      ECOREX_MENU_REPORTES: "true"
+      ECOREX_SEED_ADMIN_PASSWORD: "${ECOREX_SEED_ADMIN_PASSWORD}"
+      ECOREX_MGMT_API_KEY: "${ECOREX_MGMT_API_KEY}"
+      ECOREX_PUBLIC_BASE_URL: "${ECOREX_PUBLIC_BASE_URL:-}"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    ports:
+      - "${ECOREX_PORT:-5480}:8080"
+    volumes:
+      # Archivos subidos por los usuarios (wwwroot/uploads). PERSISTENTE: mismo
+      # volumen que el from-git, no se pierde al recrear el contenedor.
+      - ecorex-uploads:/app/wwwroot/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ecorex-net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecorex-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ecorex-pgdata:/var/lib/postgresql/data
+    networks:
+      - ecorex-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  ecorex-pgdata:
+  ecorex-uploads:
+
+networks:
+  ecorex-net:
+    driver: bridge

@@ -69,6 +69,8 @@ public class FormBuilderChatServiceTests
         Assert.Contains("REPLICAR UN DOCUMENTO", p);
         Assert.Contains("MILIMETRICO", p);
         Assert.Contains("MATRICES = GRILLA", p);
+        // El fix de fidelidad: transcribir el documento primero (el adjunto solo llega en el 1er turno).
+        Assert.Contains("TRANSCRIBE PRIMERO", p);
     }
 
     // CHAT PERSISTENTE: reabrir el asistente sobre el MISMO formulario RESUME la conversacion (no abre un hilo

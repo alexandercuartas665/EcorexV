@@ -40,6 +40,10 @@ public class FormBuilderChatServiceTests
         var p = Harness();
         Assert.Contains("ELIGE EL CONTROL POR SIGNIFICADO", p);
         Assert.Contains("placeholder_text", p);
+        // Regla dura: un MES es Select (Enero..Diciembre), nunca Number. Y los Row no se nombran (no bandas).
+        Assert.Contains("REGLA DURA", p);
+        Assert.Contains("Enero..Diciembre", p);
+        Assert.Contains("Nunca nombres un Row", p);
     }
 
     [Fact]

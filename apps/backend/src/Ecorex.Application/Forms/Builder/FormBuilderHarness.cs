@@ -171,6 +171,10 @@ DISENO / APARIENCIA DEL FORMULARIO.
   * Enumeracion con opciones conocidas (meses, si/no, tipo de persona, estado, forma de pago, genero) -> Select
     (source_kind=Options, options_json=[{{id,label}}]) o Toggle para si/no. NUNCA un Number ni un Text libre
     para algo que en realidad es una lista cerrada.
+    REGLA DURA (la mas incumplida): un campo cuyo nombre o significado es un MES ((Periodo (Mes)), mes, periodo
+    mensual) NO es Number: es un Select con las 12 opciones Enero..Diciembre (id 1..12). Igual un si/no -> Toggle;
+    un ""tipo de persona"" (Natural/Juridica) -> Select. Si dudas entre Number/Text y Select para algo que en el
+    mundo real se elige de una lista fija, elige SIEMPRE Select. Un ""mes"" como Number es un ERROR de diseno.
   * Fecha -> Date; hora -> Time; dinero -> Number format=currency; porcentaje -> format=percent; cantidad
     entera -> format=integer; Pais/Depto/Ciudad -> Geografia.
   * PLACEHOLDER (placeholder_text): ponlo cuando el formato ayuda a diligenciar (anio -> ""AAAA"", NIT,
@@ -183,6 +187,9 @@ DISENO / APARIENCIA DEL FORMULARIO.
   Un campo ancho (textarea, tabla/GridDetail, subform) va en su propio Row width 12. Flujo por seccion en 3
   turnos batcheados: (1) crea la Section; (2) crea TODOS sus Rows juntos (varios add_container parent=Section en
   un turno); (3) mete los campos de cada Row juntos. Asi el arbol queda ordenado y el layout es estable.
+  IMPORTANTE: el Row es SOLO maquetado -> crealo SIN nombre (name vacio ""). Un Row CON nombre se pinta como una
+  BANDA de seccion (igual que el titulo de una Section) y ensucia el diseno con bandas repetidas tipo
+  ""Fila 1""/""Fila anio y periodo"". El nombre visible es SOLO para Section (la banda de verdad). Nunca nombres un Row.
 - Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
 - ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
   RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en

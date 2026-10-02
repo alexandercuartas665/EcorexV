@@ -148,8 +148,14 @@ public sealed class AgentConversationService : IAgentConversationService
         {
             // Nota de voz -> se pasa al modelo (la OYE) y se transcribe a texto (Gemini). El audio ya quedo
             // guardado en la conversacion/tarea por la ingesta; esto es solo para que el agente lo ENTIENDA.
-            audioBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
-            audioMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "audio/ogg" : lastIn.MediaMimeType;
+            // OLA 1 (guard de formato): el endpoint de Gemini SOLO acepta wav/mp3. WhatsApp entrega las notas de
+            // voz en OGG/opus (mime "audio/ogg; codecs=opus"), que Gemini rechaza con HTTP 400 y dejaba al agente
+            // MUDO. Aqui, si el formato NO es soportado, NO se manda el audio (queda null): no hay 400 y el agente
+            // responde con el fallback de nota de voz. La transcodificacion ogg->wav para que SI lo oiga es OLA 2.
+            var baseMime = (lastIn.MediaMimeType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+            var geminiOk = baseMime is "audio/wav" or "audio/x-wav" or "audio/mpeg" or "audio/mp3";
+            audioBase64 = geminiOk ? await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken) : null;
+            audioMime = geminiOk ? baseMime : null;
         }
 
         // Actor del sistema (el agente actua de forma autonoma); la auditoria queda sin usuario humano.

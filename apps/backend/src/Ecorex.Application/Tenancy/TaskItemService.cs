@@ -581,6 +581,7 @@ public sealed class TaskItemService : ITaskItemService
         task.RequesterName = Normalize(request.RequesterName, 200);
         task.RequesterEmail = Normalize(request.RequesterEmail, 256);
         task.RequesterPhone = Normalize(request.RequesterPhone, 200);
+        task.RequesterDocument = Normalize(request.RequesterDocument, 60);
         task.CcEmails = SerializeCcEmails(request.CcEmails);
         task.ProjectId = request.ProjectId;
         // Al reasignar proyecto, el hito sigue el request (coherente con ProjectId reemplazado).

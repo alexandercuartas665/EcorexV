@@ -1166,6 +1166,13 @@
                                     </span>
                                 </div>
                             }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-summary-row">
+                                    <span></span>
+                                    <button class="tb-modal-section-action" @onclick="OpenContactEditor" title="Recapturar nombre, correo, telefono e identificacion del contacto">Editar contacto</button>
+                                </div>
+                            }
                             @if (_detail.CcEmails.Count > 0)
                             {
                                 <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _detail.CcEmails)</strong></div>
@@ -1423,6 +1430,44 @@
                     {
                         <button class="btn btn-primary" style="justify-content:flex-start;width:100%;" @onclick="@(() => PickAddGeneroAsync(opt.DefinitionId))" disabled="@_busy">@opt.Title</button>
                     }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Recapturar datos de contacto del cliente (nombre/correo/telefono/identificacion). Reusa
+       UpdateAsync (concurrencia optimista); util cuando un dato se capturo mal (ej. el telefono). ===== *@
+@if (_editingContact)
+{
+    <div class="modal-overlay" style="z-index:62;overscroll-behavior:contain" @onmousedown="@(() => { if (!_busy) { _editingContact = false; } })">
+        <div class="modal-dialog" style="max-width:420px;" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Datos de contacto</h3>
+                <button class="modal-close" @onclick="@(() => _editingContact = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:.82rem;font-weight:600;">Nombre de contacto</span>
+                        <input class="form-control" @bind="_editContactName" maxlength="200" placeholder="Nombre del cliente / contacto" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:.82rem;font-weight:600;">Correo</span>
+                        <input class="form-control" type="email" @bind="_editContactEmail" maxlength="256" placeholder="correo@@ejemplo.com" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:.82rem;font-weight:600;">Telefono</span>
+                        <input class="form-control" @bind="_editContactPhone" maxlength="200" placeholder="Numero de contacto" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <span style="font-size:.82rem;font-weight:600;">Identificacion / NIT</span>
+                        <input class="form-control" @bind="_editContactDoc" maxlength="60" placeholder="Documento o NIT" />
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+                        <button class="btn btn-outline-secondary" @onclick="@(() => _editingContact = false)" disabled="@_busy">Cancelar</button>
+                        <button class="btn btn-primary" @onclick="SaveContactAsync" disabled="@_busy">Guardar</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1702,6 +1747,12 @@
     }
     private DateTime? _editDue;
     private DateTime? _editStart;
+    // Recaptura de datos de contacto (modal): nombre/correo/telefono/identificacion de la tarea.
+    private bool _editingContact;
+    private string _editContactName = "";
+    private string _editContactEmail = "";
+    private string _editContactPhone = "";
+    private string _editContactDoc = "";
     private bool _confirmClose;
     private bool _confirmArchive;
     private string? _copyNotice;
@@ -1799,7 +1850,7 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
         _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
-        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
+        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = _editingContact = false;
         _conflict = _actionError = _workLogError = _attError = _moveNote = null;
         _openMenu = null;
         _timerRunning = false;
@@ -2949,7 +3000,9 @@
     private UpdateTaskItemRequest BuildUpdate(
         string? title = null, string? description = null, TaskPriority? priority = null,
         DateTimeOffset? dueDate = null, bool clearDue = false,
-        DateTimeOffset? startDate = null, bool clearStart = false)
+        DateTimeOffset? startDate = null, bool clearStart = false,
+        string? requesterName = null, string? requesterEmail = null,
+        string? requesterPhone = null, string? requesterDocument = null)
     {
         var d = _detail!;
         return new UpdateTaskItemRequest(
@@ -2958,9 +3011,10 @@
             ActivityTypeId: d.Item.ActivityTypeId,
             Priority: priority ?? d.Item.Priority,
             DueDate: clearDue ? null : (dueDate ?? d.Item.DueDate),
-            RequesterName: d.RequesterName,
-            RequesterEmail: d.RequesterEmail,
-            RequesterPhone: d.RequesterPhone,
+            RequesterName: requesterName ?? d.RequesterName,
+            RequesterEmail: requesterEmail ?? d.RequesterEmail,
+            RequesterPhone: requesterPhone ?? d.RequesterPhone,
+            RequesterDocument: requesterDocument ?? d.RequesterDocument,
             CcEmails: d.CcEmails,
             ProjectId: d.Item.ProjectId,
             Color: d.Item.Color,
@@ -3012,6 +3066,29 @@
     {
         _editingDesc = false;
         await ApplyUpdateAsync(BuildUpdate(description: string.IsNullOrWhiteSpace(_editDesc) ? "" : _editDesc));
+    }
+
+    // Abre el modal de recaptura con los valores actuales del contacto.
+    private void OpenContactEditor()
+    {
+        if (_detail is null) { return; }
+        _editContactName = _detail.RequesterName ?? "";
+        _editContactEmail = _detail.RequesterEmail ?? "";
+        _editContactPhone = _detail.RequesterPhone ?? "";
+        _editContactDoc = _detail.RequesterDocument ?? "";
+        _editingContact = true;
+    }
+
+    // Guarda los 4 datos del contacto de una (nombre/correo/telefono/identificacion). Se pasan SIEMPRE
+    // los valores del formulario (aunque vayan vacios: recapturar permite limpiar un dato mal puesto).
+    private async Task SaveContactAsync()
+    {
+        _editingContact = false;
+        await ApplyUpdateAsync(BuildUpdate(
+            requesterName: _editContactName.Trim(),
+            requesterEmail: _editContactEmail.Trim(),
+            requesterPhone: _editContactPhone.Trim(),
+            requesterDocument: _editContactDoc.Trim()));
     }
 
     private async Task SavePriorityAsync(TaskPriority priority)

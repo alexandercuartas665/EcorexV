@@ -779,7 +779,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     // actual (cur). Antes era un reemplazo total: un update que solo cambiaba el label tambien reseteaba
     // container_id (dejaba el campo HUERFANO), width (a 12), required, options, etc. Sin cur el comportamiento
     // de add_question es identico al anterior (todos los defaults).
-    private SaveFormQuestionRequest BuildQuestionRequest(JsonElement args, FormQuestionDto? cur = null)
+    internal static SaveFormQuestionRequest BuildQuestionRequest(JsonElement args, FormQuestionDto? cur = null)
     {
         var controlType = Has(args, "control_type")
             ? EnumOr(args, "control_type", cur?.ControlType ?? FormControlType.Text)

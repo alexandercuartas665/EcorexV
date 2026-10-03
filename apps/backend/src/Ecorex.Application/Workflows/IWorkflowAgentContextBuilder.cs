@@ -55,4 +55,12 @@ public static class WorkflowAgentContextLimits
 
     /// <summary>Caracteres de textos libres largos (detalle de la tarea, comentarios de aprobacion).</summary>
     public const int MaxTextChars = 2000;
+
+    /// <summary>Pasos del MAPA del flujo (todos los nodos con su nota). Un flujo rara vez pasa de unas
+    /// decenas de nodos; 120 cubre con holgura sin inflar el prompt.</summary>
+    public const int MaxFlowSteps = 120;
+
+    /// <summary>Entradas de la bitacora de la actividad (las MAS RECIENTES). Suficiente para el relato del
+    /// caso sin arrastrar toda la historia de comentarios/acciones.</summary>
+    public const int MaxBitacoraEntries = 25;
 }

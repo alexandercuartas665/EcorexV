@@ -552,16 +552,34 @@ public sealed class AiProviderClient : IAiProviderClient
             }
         }
 
-        var toolDefs = tools.Select(t => new
+        // PROMPT CACHING EXPLICITO (Anthropic): el prefijo FIJO (system = arnes, y la definicion de herramientas) se
+        // marca con cache_control ephemeral -> en los turnos siguientes se cobra como lectura de cache (0.1x). En el
+        // constructor de formularios arnes + tools son ~20k tokens que se re-envian en CADA turno (40+ por
+        // formulario): ahi vive el grueso del costo. Un breakpoint al final del system y otro en la ULTIMA tool
+        // cubren todo el prefijo (Anthropic cachea hasta el ultimo breakpoint, en orden tools -> system -> messages).
+        var cache = new { type = "ephemeral" };
+        var toolDefs = new List<object>();
+        for (var i = 0; i < tools.Count; i++)
         {
-            name = t.Name,
-            description = t.Description ?? "",
-            input_schema = ParseSchema(t.ParametersJsonSchema)
-        }).ToArray();
+            var t = tools[i];
+            if (i == tools.Count - 1)
+            {
+                toolDefs.Add(new { name = t.Name, description = t.Description ?? "", input_schema = ParseSchema(t.ParametersJsonSchema), cache_control = cache });
+            }
+            else
+            {
+                toolDefs.Add(new { name = t.Name, description = t.Description ?? "", input_schema = ParseSchema(t.ParametersJsonSchema) });
+            }
+        }
+        object? system = string.IsNullOrWhiteSpace(systemPrompt)
+            ? null
+            : new object[] { new { type = "text", text = systemPrompt, cache_control = cache } };
 
-        object body = toolDefs.Length > 0
-            ? new { model, max_tokens = 1024, system = string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt, messages = msgs, tools = toolDefs }
-            : new { model, max_tokens = 1024, system = string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt, messages = msgs };
+        // max_tokens: la spec declarativa de apply_form_spec para una seccion completa supera facil los 1024
+        // tokens; con el tope viejo el JSON de la tool llegaba TRUNCADO y la llamada fallaba en silencio.
+        object body = toolDefs.Count > 0
+            ? new { model, max_tokens = 8192, system, messages = msgs, tools = toolDefs.ToArray() }
+            : new { model, max_tokens = 8192, system, messages = msgs };
 
         using var resp = await SendWithRetryAsync(() =>
         {
@@ -592,13 +610,20 @@ public sealed class AiProviderClient : IAiProviderClient
             }
         }
 
-        var (inTok, outTok) = (0, 0);
+        // Anthropic reporta input_tokens SIN los tokens de cache: los de lectura (cache_read_input_tokens, 0.1x) y
+        // los de creacion (cache_creation_input_tokens, 1.25x) van aparte. Para el contador/estimador: entrada
+        // total = los tres; cacheados = los leidos de cache.
+        var (inTok, outTok, cachedTok) = (0, 0, 0);
         if (doc.RootElement.TryGetProperty("usage", out var u))
         {
-            inTok = u.TryGetProperty("input_tokens", out var p) ? p.GetInt32() : 0;
+            var fresh = u.TryGetProperty("input_tokens", out var p) ? p.GetInt32() : 0;
+            var cacheRead = u.TryGetProperty("cache_read_input_tokens", out var cr) && cr.ValueKind == JsonValueKind.Number ? cr.GetInt32() : 0;
+            var cacheCreate = u.TryGetProperty("cache_creation_input_tokens", out var cc) && cc.ValueKind == JsonValueKind.Number ? cc.GetInt32() : 0;
+            inTok = fresh + cacheRead + cacheCreate;
+            cachedTok = cacheRead;
             outTok = u.TryGetProperty("output_tokens", out var c) ? c.GetInt32() : 0;
         }
-        return new AiCompletion(true, text, null, inTok, outTok, calls);
+        return new AiCompletion(true, text, null, inTok, outTok, calls, cachedTok);
     }
 
     // Formato de audio para el campo input_audio de la API (chat/completions): se deriva del subtipo mime

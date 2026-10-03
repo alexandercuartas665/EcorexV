@@ -1,6 +1,14 @@
 // Splitter del disenador de formularios: hace redimensibles las columnas del grid .fb-body arrastrando
 // las barras .fb-gutter. Cada gutter ajusta una variable CSS (--fb-left / --fb-right / --fb-chat) que
 // controla el ancho de su pista en el grid-template-columns. Vanilla JS (sin dependencias).
+
+// Auto-scroll del chat del asistente de formularios: lleva el contenedor de mensajes (.fbc-msgs) al final,
+// para que SIEMPRE se vea el ultimo mensaje. Lo invoca FormBuilderChatPanel en OnAfterRender.
+window.fbChatScrollBottom = function () {
+    var el = document.querySelector('.fbc-msgs');
+    if (el) { el.scrollTop = el.scrollHeight; }
+};
+
 (function () {
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 

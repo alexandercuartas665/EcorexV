@@ -19,6 +19,121 @@ public class FormBuilderChatServiceTests
 {
     private static readonly Guid FormId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    // --- GOLDEN del ARNES (criterio de diseno). Hallado con el Formulario 350 DIAN: el agente armaba
+    // formularios correctos pero PLANOS (todo width 12, todo Number/Text, nunca CSS). Estos asserts fijan que
+    // la guia de diseno siga en el system prompt. ---
+    private static string Harness() =>
+        FormBuilderHarness.SystemPrompt("ACME", editingExisting: false, formId: "11111111-1111-1111-1111-111111111111");
+
+    // Punto 4 de la auditoria: los bloques "replicar documento", "look de documento oficial" y "lectura del archivo"
+    // son CONDICIONALES. Un formulario simple (sin adjunto ni formato oficial) no paga esos miles de tokens por
+    // turno; con contexto Full (o la firma de 3 argumentos) siguen presentes.
+    [Fact]
+    public void Arnes_apaga_los_bloques_de_documento_cuando_no_hay_adjunto_ni_formato_oficial()
+    {
+        var full = FormBuilderHarness.SystemPrompt("ACME", false, null, FormBuilderHarness.PromptContext.Full);
+        var lean = FormBuilderHarness.SystemPrompt("ACME", false, null, new FormBuilderHarness.PromptContext(false, false));
+
+        // Frases que SOLO viven dentro de cada bloque condicional (el AUTO-CHECK de la base cita por nombre al
+        // "LOOK DE DOCUMENTO OFICIAL", asi que esa frase no sirve como centinela).
+        Assert.Contains("TRANSCRIBE PRIMERO", full);
+        Assert.Contains("LO CONTRARIO A UNA WEB APP", full);
+        Assert.Contains("LECTURA DEL ARCHIVO SUBIDO", full);
+
+        Assert.DoesNotContain("TRANSCRIBE PRIMERO", lean);
+        Assert.DoesNotContain("LO CONTRARIO A UNA WEB APP", lean);
+        Assert.DoesNotContain("LECTURA DEL ARCHIVO SUBIDO", lean);
+        Assert.True(lean.Length < full.Length * 0.8, $"lean={lean.Length} full={full.Length}");
+
+        // La BASE sigue completa: densidad, control por significado, apply_form_spec, auto-check de diseno.
+        Assert.Contains("DENSIDAD POR DEFECTO", lean);
+        Assert.Contains("apply_form_spec", lean);
+        Assert.Contains("AUTO-CHECK DE DISENO", lean);
+    }
+
+    // Las banderas se derivan del historial: adjunto => ambas; pedir un formato oficial/DIAN => formato; nada => nada.
+    [Fact]
+    public void PromptContext_From_detecta_adjunto_y_formato_oficial()
+    {
+        var nada = FormBuilderHarness.PromptContext.From(new[] { "crea un formulario de visitas con 5 campos" }, anyAttachment: false);
+        Assert.False(nada.HasDocument);
+        Assert.False(nada.WantsOfficialFormat);
+
+        var dian = FormBuilderHarness.PromptContext.From(new[] { "replica el formulario 350 de la DIAN" }, anyAttachment: false);
+        Assert.False(dian.HasDocument);
+        Assert.True(dian.WantsOfficialFormat);
+
+        var adjunto = FormBuilderHarness.PromptContext.From(new[] { "hola" }, anyAttachment: true);
+        Assert.True(adjunto.HasDocument);
+        Assert.True(adjunto.WantsOfficialFormat);
+    }
+
+    [Fact]
+    public void Arnes_exige_densidad_por_defecto_no_todo_a_ancho_completo()
+    {
+        var p = Harness();
+        Assert.Contains("DENSIDAD POR DEFECTO", p);
+        Assert.Contains("NO tires todo a width 12", p);
+        Assert.Contains("lista de texto", p);   // aplica aunque pasen los campos como texto
+    }
+
+    [Fact]
+    public void Arnes_exige_elegir_el_control_por_significado()
+    {
+        var p = Harness();
+        Assert.Contains("ELIGE EL CONTROL POR SIGNIFICADO", p);
+        Assert.Contains("placeholder_text", p);
+        // Regla dura: un MES es Select (Enero..Diciembre), nunca Number.
+        Assert.Contains("REGLA DURA", p);
+        Assert.Contains("Enero..Diciembre", p);
+        // Los Row se NOMBRAN (etiqueta interna; el renderer ya no la pinta) para distinguirlos y no recrearlos.
+        Assert.Contains("Nombra los Row", p);
+    }
+
+    [Fact]
+    public void Arnes_anima_a_usar_custom_css_con_las_clases_reales()
+    {
+        var p = Harness();
+        Assert.Contains("ATREVETE CON set_custom_css", p);
+        Assert.Contains(".dfr-head", p);
+        Assert.Contains(".dfr-segment-head", p);  // banda de seccion (los Row ya no tienen banda)
+        Assert.Contains(".form-control", p);
+    }
+
+    [Fact]
+    public void Arnes_para_formato_oficial_exige_css_y_auto_check_de_diseno_al_cerrar()
+    {
+        var p = Harness();
+        // Un formato oficial NO se cierra solo con set_theme: el CSS del documento es obligatorio.
+        Assert.Contains("CIERRE DE UN FORMATO OFICIAL", p);
+        // Y hay un auto-check de diseno antes de cerrar (densidad, control correcto, css si es oficial).
+        Assert.Contains("AUTO-CHECK DE DISENO", p);
+        // Replicar un documento oficial: COMPLETO + milimetrico (casillas numeradas) + matrices como grilla.
+        Assert.Contains("REPLICAR UN DOCUMENTO", p);
+        Assert.Contains("MILIMETRICO", p);
+        // Ronda 2: la matriz densa ya no se simula con GridDetail/Rows sueltas; es UN campo FixedMatrix.
+        Assert.Contains("MATRIZ = UN SOLO CAMPO FixedMatrix", p);
+        // El fix de fidelidad: transcribir el documento primero (el adjunto solo llega en el 1er turno).
+        Assert.Contains("TRANSCRIBE PRIMERO", p);
+    }
+
+    // CHAT PERSISTENTE: reabrir el asistente sobre el MISMO formulario RESUME la conversacion (no abre un hilo
+    // nuevo), para que el historial no se pierda.
+    [Fact]
+    public async Task StartAsync_resume_la_conversacion_del_formulario_no_crea_una_nueva()
+    {
+        var ai = new FakeAi();
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var primera = await svc.StartAsync(FormId, Guid.NewGuid());
+        var segunda = await svc.StartAsync(FormId, Guid.NewGuid());
+
+        Assert.True(primera.Ok);
+        Assert.True(segunda.Ok);
+        Assert.Equal(primera.ConversationId, segunda.ConversationId); // misma conversacion -> historial persiste
+    }
+
     [Fact]
     public async Task Turno_con_accion_mutante_se_propone_y_no_se_ejecuta()
     {
@@ -167,6 +282,37 @@ public class FormBuilderChatServiceTests
         Assert.False(r.Ok);
         Assert.Contains("demasiadas consultas", r.Error);
         Assert.False(r.AwaitingConfirmation);          // no quedo nada esperando confirmacion
+    }
+
+    // ROBUSTEZ (hallado construyendo el Formulario 350 DIAN): cuando el modelo propone add_container + add_question
+    // en el MISMO lote, el add_question referencia un container_id ADIVINADO (el id real se asigna al ejecutar) y
+    // fallaba con "El contenedor no pertenece al formulario", perdiendo el campo. ConfirmAsync ahora autocura: tras
+    // crear el contenedor en el lote, reintenta el add_question fallido apuntando al id real.
+    [Fact]
+    public async Task Lote_con_contenedor_y_campo_juntos_autocura_el_container_id_adivinado()
+    {
+        var ai = new FakeAi();
+        const string guessed = "00000000-0000-0000-0000-0000000000aa"; // id inventado por el modelo (no existe)
+        ai.Enqueue(new AiCompletion(true, "Creo la seccion y su primer campo.", null, 0, 0,
+            new[]
+            {
+                new AiToolCall("c1", "add_container", "{\"container_type\":\"Section\",\"name\":\"Datos\"}"),
+                new AiToolCall("q1", "add_question", "{\"label\":\"1. Año\",\"control_type\":\"Number\",\"container_id\":\"" + guessed + "\"}"),
+            }));
+        ai.Enqueue(new AiCompletion(true, "Listo, cree la seccion y el campo.", null, 0, 0, Array.Empty<AiToolCall>()));
+        var toolset = new FakeToolset();
+        var svc = NewService(ai, toolset, out _);
+
+        var start = await svc.StartAsync(FormId, Guid.NewGuid());
+        await svc.SendAsync(start.ConversationId, "crea la seccion con su campo", null, Guid.NewGuid());
+        var r = await svc.ConfirmAsync(start.ConversationId, Guid.NewGuid());
+
+        Assert.True(r.Ok);
+        var addQ = toolset.Executed.Where(x => x.Tool == "add_question").ToList();
+        Assert.Equal(2, addQ.Count);                                            // 1) fallo con id adivinado, 2) reintento
+        Assert.Contains(guessed, addQ[0].Args);                                 // primer intento: id adivinado
+        Assert.Contains(toolset.LastContainerId!.Value.ToString(), addQ[1].Args); // reintento: id REAL del contenedor
+        Assert.DoesNotContain(guessed, addQ[1].Args);
     }
 
     [Fact]
@@ -358,6 +504,8 @@ public class FormBuilderChatServiceTests
             new AiToolSpec("add_question", "crea campo", "{}"),
             new AiToolSpec("create_form", "crea formulario", "{}"),
         };
+        // Id real del ultimo contenedor creado (para validar que los add_question apunten a el).
+        public Guid? LastContainerId { get; private set; }
         public Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
         {
             Executed.Add((toolName, argumentsJson));
@@ -365,6 +513,31 @@ public class FormBuilderChatServiceTests
             if (string.Equals(toolName, "create_form", StringComparison.Ordinal))
             {
                 json = JsonSerializer.Serialize(new { id = Guid.NewGuid().ToString() });
+            }
+            else if (string.Equals(toolName, "add_container", StringComparison.Ordinal))
+            {
+                // Crea el contenedor y devuelve su id REAL (asignado al ejecutar, como en produccion).
+                var id = Guid.NewGuid();
+                LastContainerId = id;
+                json = JsonSerializer.Serialize(new { ok = true, container = new { id = id.ToString() } });
+            }
+            else if (string.Equals(toolName, "add_question", StringComparison.Ordinal))
+            {
+                // Si trae container_id, DEBE coincidir con un contenedor real; si no, "no pertenece al formulario".
+                string? cid = null;
+                try
+                {
+                    using var d = JsonDocument.Parse(argumentsJson);
+                    if (d.RootElement.ValueKind == JsonValueKind.Object
+                        && d.RootElement.TryGetProperty("container_id", out var c) && c.ValueKind == JsonValueKind.String)
+                    {
+                        cid = c.GetString();
+                    }
+                }
+                catch { /* args invalidos -> se trata como sin container */ }
+                json = (string.IsNullOrWhiteSpace(cid) || cid == LastContainerId?.ToString())
+                    ? JsonSerializer.Serialize(new { ok = true })
+                    : JsonSerializer.Serialize(new { ok = false, status = "Invalid", error = "El contenedor no pertenece al formulario." });
             }
             else if (string.Equals(toolName, "verify_form", StringComparison.Ordinal))
             {
@@ -410,6 +583,11 @@ public class FormBuilderChatServiceTests
 
         public Task<FormBuilderConversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default)
             => Task.FromResult(_convs.TryGetValue(conversationId, out var c) ? c : null);
+
+        public Task<FormBuilderConversation?> GetLatestConversationForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_convs.Values
+                .Where(c => c.FormDefinitionId == formDefinitionId && c.Status == FormBuilderConversationStatus.Active)
+                .OrderByDescending(c => c.CreatedAt).FirstOrDefault());
 
         public Task SaveConversationAsync(FormBuilderConversation conversation, CancellationToken cancellationToken = default)
         {

@@ -95,5 +95,14 @@ public enum FormControlType
     /// FormFieldValue.Type = "Canvas". Motor JS propio (form-canvas.js). Se agrego AL FINAL del enum para
     /// preservar los ordinales de los valores anteriores.
     /// </summary>
-    Canvas
+    Canvas,
+
+    /// <summary>
+    /// MATRIZ FIJA (formatos tipo DIAN 350): filas (conceptos) y columnas (agrupables) PREDEFINIDAS en OptionsJson
+    /// como OBJETO {rows, cols, captions, disabled} (<c>FixedMatrixSpec</c>); una casilla por celda con su numero.
+    /// El valor se guarda en FormResponse.Data como objeto JSON plano {"fila.col": "valor"}. Reemplaza la
+    /// simulacion fragil con decenas de Rows + campos sueltos alineados por width. Al FINAL del enum para preservar
+    /// los ordinales.
+    /// </summary>
+    FixedMatrix
 }

@@ -39,6 +39,23 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         AiProvider.Claude => "claude-haiku-4-5",
         _ => AiProviderCatalog.For(provider).DefaultModel,
     };
+
+    // Elige el modelo del asistente: el CONFIGURADO en Servidores de IA si es usable, si no el default rapido.
+    // Un modelo mas fuerte (gemini-2.5-pro) sube la fidelidad al leer formatos densos; uno rapido (flash) es mas
+    // agil para formularios simples. El usuario decide en la UI.
+    private static string ChooseFormBuilderModel(AiProvider provider, string? configuredModel)
+    {
+        var m = configuredModel?.Trim();
+        if (!string.IsNullOrWhiteSpace(m) && !IsNonToolModel(m!)) { return m!; }
+        return FormBuilderModelFor(provider);
+    }
+
+    // Modelos de RAZONAMIENTO sin function-calling: el asistente NO puede usarlos (todo su flujo son tools).
+    private static bool IsNonToolModel(string model)
+    {
+        var x = model.ToLowerInvariant();
+        return x.Contains("reasoner") || x.Contains("-thinking") || x.Contains("o1-") || x.EndsWith("-o1");
+    }
     // Tope de vueltas del bucle (llamadas al modelo) por turno: evita ciclos si el modelo insiste con lecturas.
     private const int MaxRounds = 8;
     // Cuantas veces, por turno, el sistema FUERZA verify_form al cierre y reinyecta los errores para que el
@@ -75,11 +92,22 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         {
             return new FormBuilderStartResult(false, $"El proveedor de IA para gestion de formularios ({provider}) no esta habilitado en la plataforma. Configuralo en Servidores de IA.", Guid.Empty, null);
         }
-        var model = FormBuilderModelFor(provider);
+        // MODELO: respeta el que el Super Admin configuro para el proveedor en Servidores de IA (asi puede elegir
+        // uno MAS FUERTE para vision densa, p.ej. gemini-2.5-pro, sin tocar codigo). Si no configuro ninguno,
+        // cae al default rapido por proveedor. Guard: ignora modelos de RAZONAMIENTO que no soportan
+        // function-calling (romperian el flujo de herramientas del asistente).
+        var model = ChooseFormBuilderModel(provider, cfg.Model);
 
         string title = "Nuevo formulario";
         if (formDefinitionId is Guid fid)
         {
+            // CHAT PERSISTENTE: si este formulario YA tiene una conversacion activa, la RESUMIMOS (su historial
+            // sigue ahi) en vez de abrir un hilo nuevo y perder el contexto. Solo si no hay ninguna, se crea.
+            var existing = await _store.GetLatestConversationForFormAsync(fid, cancellationToken);
+            if (existing is not null)
+            {
+                return new FormBuilderStartResult(true, null, existing.Id, existing.FormDefinitionId);
+            }
             var t = await _store.GetFormTitleAsync(fid, cancellationToken);
             if (!string.IsNullOrWhiteSpace(t)) { title = t!; }
         }
@@ -207,18 +235,60 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         }
 
         // Ejecuta cada herramienta propuesta EN ORDEN; guarda el resultado y marca Confirmed.
+        // AUTOCURACION del container_id adivinado: cuando el modelo propone add_container + add_question en el
+        // MISMO lote, el id real del contenedor se asigna al EJECUTAR, asi que el add_question referencia un id
+        // ADIVINADO que todavia no existe -> "El contenedor no pertenece al formulario" y el campo se perderia.
+        // Si un paso falla por ese motivo y en este lote YA se creo un contenedor, se reintenta UNA vez apuntando
+        // al contenedor real mas reciente. Solo se activa ante ese error exacto: no toca referencias validas.
+        Guid? lastBatchContainerId = null;
+        // Mapa id-ADIVINADO -> id-real de contenedores creados en ESTE lote. Lo aprendemos cuando un paso falla
+        // por referenciar un id que aun no existia y lo corregimos; luego los HERMANOS (p.ej. varias Rows bajo la
+        // MISMA Section recien creada) se corrigen ANTES de ejecutar, sin re-fallar. Asi el agente no reintenta el
+        // lote completo (que era lo que duplicaba filas/campos). Resuelve el caso Section + varias Rows en un lote.
+        var guessedToReal = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in pending)
         {
+            // PREEMPTIVO: si este paso referencia un contenedor cuyo id adivinado YA aprendimos, corrige antes de ejecutar.
+            var argsJson = p.ToolArgsJson ?? "{}";
+            if (TryGetContainerRef(argsJson) is string knownGuess && guessedToReal.TryGetValue(knownGuess, out var mappedCid))
+            {
+                argsJson = WithContainerId(argsJson, mappedCid);
+                p.ToolArgsJson = argsJson;
+            }
+
             string resultJson;
             try
             {
-                var r = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, p.ToolArgsJson ?? "{}", actorUserId, autonomous: true, cancellationToken);
+                var r = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, argsJson, actorUserId, autonomous: true, cancellationToken);
                 resultJson = r.Json;
+
+                if (lastBatchContainerId is Guid realCid
+                    && ResultIsContainerOwnershipError(resultJson)
+                    && ArgsReferencesContainer(argsJson))
+                {
+                    var guessedRef = TryGetContainerRef(argsJson); // el id adivinado que fallo (para aprenderlo)
+                    var fixedArgs = WithContainerId(argsJson, realCid);
+                    var r2 = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, fixedArgs, actorUserId, autonomous: true, cancellationToken);
+                    if (ResultIsOk(r2.Json))
+                    {
+                        resultJson = r2.Json;
+                        p.ToolArgsJson = fixedArgs; // persistir el id corregido para reconstruir el hilo
+                        if (guessedRef is not null) { guessedToReal[guessedRef] = realCid; } // aprende para los hermanos
+                    }
+                }
             }
             catch (Exception ex)
             {
                 resultJson = JsonSerializer.Serialize(new { ok = false, error = ex.Message }, Json);
             }
+
+            // Rastrea el contenedor recien creado en este lote (para redirigir los add_question que le sigan).
+            if (string.Equals(p.ToolName, "add_container", StringComparison.OrdinalIgnoreCase)
+                && TryGetCreatedContainerId(resultJson) is Guid createdCid)
+            {
+                lastBatchContainerId = createdCid;
+            }
+
             p.ProposalState = FormBuilderProposalState.Confirmed;
             p.ToolResultJson = resultJson;
             await _store.SaveMessageAsync(p, cancellationToken);
@@ -282,10 +352,31 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FormBuilderModelFor(provider);
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
+        // CUPO POR PLAN (misma regla que los agentes en AiInferenceService): si el plan del tenant tiene limite
+        // DURO de tokens de IA y ya se agoto el mes, el constructor no llama al modelo. Antes el form-builder
+        // consumia la key global de la plataforma sin tope por tenant (un 350 son ~2.7M tokens).
+        var quota = await _usage.GetQuotaAsync(cancellationToken);
+        if (quota.Exceeded && quota.Hard)
+        {
+            return FormBuilderTurnResult.Fail(conv.Id,
+                $"Alcanzaste el limite de tokens de IA de tu plan este mes ({quota.MonthlyLimitTokens:N0}). " +
+                "El asistente de formularios queda pausado hasta el proximo ciclo o hasta ampliar el plan.");
+        }
+
         var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
         if (string.IsNullOrWhiteSpace(tenantName)) { tenantName = "tu empresa"; }
+
+        // ARNES CONDICIONAL (pegajoso por conversacion): los bloques de documento/formato oficial y lectura de
+        // archivo solo se inyectan si en TODO el historial hubo un adjunto o el usuario pidio replicar un formato.
+        // Se calcula sobre el historial completo para que el prefijo no cambie entre turnos (prompt caching).
+        var history = await _store.GetMessagesAsync(conv.Id, cancellationToken);
+        var anyAttachment = images is { Count: > 0 } || docs is { Count: > 0 }
+            || history.Any(m => !string.IsNullOrWhiteSpace(m.AttachmentsJson)
+                && m.AttachmentsJson.Trim() is not ("[]" or "{}" or "null"));
+        var promptCtx = FormBuilderHarness.PromptContext.From(
+            history.Where(m => m.Role == FormBuilderMessageRole.User).Select(m => m.Content), anyAttachment);
         var systemPrompt = FormBuilderHarness.SystemPrompt(tenantName, editingExisting: conv.FormDefinitionId is not null,
-            formId: conv.FormDefinitionId?.ToString("D"));
+            formId: conv.FormDefinitionId?.ToString("D"), promptCtx);
         var tools = _toolset.GetSpecs();
         var readOnly = _toolset.ReadOnlyTools;
 
@@ -461,6 +552,108 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             || t.Contains("ahora agregare") || t.Contains("ahora agregaré") || t.Contains("ahora creare")
             || t.Contains("ahora anadire") || t.Contains("ahora añadiré") || t.Contains("aqui estan las llamadas")
             || t.Contains("aqui te presento las llamadas") || t.Contains("aquí te presento las llamadas");
+    }
+
+    // --- Autocuracion del container_id adivinado en un lote (add_container + add_question juntos) ---
+
+    // El resultado de una herramienta trae ok:true? (forma {"ok":true,...} / {"ok":false,...}).
+    private static bool ResultIsOk(string? resultJson)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson)) { return false; }
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("ok", out var ok)
+                && ok.ValueKind == JsonValueKind.True;
+        }
+        catch { return false; }
+    }
+
+    // El fallo es por un contenedor que no pertenece al formulario (id adivinado / inexistente)?
+    private static bool ResultIsContainerOwnershipError(string? resultJson)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson)) { return false; }
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return false; }
+            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True) { return false; }
+            if (!root.TryGetProperty("error", out var err) || err.ValueKind != JsonValueKind.String) { return false; }
+            var msg = err.GetString() ?? string.Empty;
+            // Cubre "El contenedor no pertenece al formulario." y "El contenedor padre no pertenece al formulario."
+            return msg.Contains("no pertenece al formulario", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    // Los args referencian un contenedor por un id ADIVINADO? Cubre container_id (add/update/move_question) Y
+    // parent_id (add/update/move_container: una Section recien creada en el MISMO lote cuyo id real aun no se
+    // conoce al anidar un Row debajo -> el Row fallaba y el agente reintentaba TODO duplicando filas).
+    private static bool ArgsReferencesContainer(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) { return false; }
+        try
+        {
+            var root = JsonDocument.Parse(argsJson).RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return false; }
+            return HasNonEmptyString(root, "container_id") || HasNonEmptyString(root, "parent_id");
+        }
+        catch { return false; }
+    }
+
+    private static bool HasNonEmptyString(JsonElement obj, string prop)
+        => obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString());
+
+    // El valor de la referencia al contenedor (container_id o, si no, parent_id). Null si no referencia ninguno.
+    private static string? TryGetContainerRef(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) { return null; }
+        try
+        {
+            var root = JsonDocument.Parse(argsJson).RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            if (HasNonEmptyString(root, "container_id")) { return root.GetProperty("container_id").GetString(); }
+            if (HasNonEmptyString(root, "parent_id")) { return root.GetProperty("parent_id").GetString(); }
+        }
+        catch { /* args no parseable */ }
+        return null;
+    }
+
+    // Reescribe la referencia al contenedor (container_id para preguntas, parent_id para contenedores) con el id
+    // real del contenedor recien creado en este lote. Pisa la que exista (no agrega la que no venia).
+    private static string WithContainerId(string argsJson, Guid containerId)
+    {
+        try
+        {
+            var node = System.Text.Json.Nodes.JsonNode.Parse(argsJson);
+            if (node is System.Text.Json.Nodes.JsonObject obj)
+            {
+                if (obj.ContainsKey("container_id")) { obj["container_id"] = containerId.ToString(); }
+                else if (obj.ContainsKey("parent_id")) { obj["parent_id"] = containerId.ToString(); }
+                return obj.ToJsonString(Json);
+            }
+        }
+        catch { /* si no parsea, se devuelve el original (el reintento no aplicara) */ }
+        return argsJson;
+    }
+
+    // Extrae el id del contenedor creado por add_container: {"ok":true,"container":{"id":"..."}}.
+    private static Guid? TryGetCreatedContainerId(string? resultJson)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            if (!(root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)) { return null; }
+            if (!root.TryGetProperty("container", out var cont) || cont.ValueKind != JsonValueKind.Object) { return null; }
+            if (!cont.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String) { return null; }
+            return Guid.TryParse(id.GetString(), out var g) ? g : null;
+        }
+        catch { return null; }
     }
 
     // Registra el consumo del asistente en AiUsageLog (source "form-builder"). Best-effort: un fallo del

@@ -261,6 +261,44 @@
             case FormControlType.GridDetail:
                 @RenderGrid(q, value)
                 break;
+            case FormControlType.FixedMatrix:
+                {
+                    // Matriz fija: se imprime como tabla real (filas x columnas, celdas n/a en blanco).
+                    var ms = FixedMatrixSpec.Parse(q.OptionsJson);
+                    var mcells = FixedMatrixSpec.ParseValue(value);
+                    if (ms is null)
+                    {
+                        <text>@value</text>
+                    }
+                    else
+                    {
+                        <table class="fpr-gtable">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    @foreach (var c in ms.Cols)
+                                    {
+                                        <th>@c.Label</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in ms.Rows)
+                                {
+                                    <tr>
+                                        <th>@r.Label</th>
+                                        @foreach (var c in ms.Cols)
+                                        {
+                                            var k = FixedMatrixSpec.Key(r.Id, c.Id);
+                                            <td>@(ms.IsDisabled(r.Id, c.Id) ? "" : (mcells.GetValueOrDefault(k) ?? ""))</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+                break;
             case FormControlType.Toggle:
                 <text>@(value == "true" ? "Si" : "No")</text>
                 break;

@@ -549,6 +549,7 @@ else
                         if (!FormFieldValidator.IsNonInput(q.ControlType)
                             && !FormFieldValidator.IsPlaceholderCapture(q.ControlType)
                             && q.ControlType != FormControlType.GridDetail
+                            && q.ControlType != FormControlType.FixedMatrix
                             && string.IsNullOrEmpty(_values.GetValueOrDefault(q.FieldCode)))
                         {
                             // Default DINAMICO (ola F6, doc 01 D8) gana sobre el literal DefaultValue.
@@ -728,12 +729,13 @@ else
            Segment/Section/Table y Modal (TODO ADR-0021: dialogo real): seccion con titulo. *@
         if (container.ContainerType is FormContainerType.Row or FormContainerType.Col)
         {
+            @* Row/Col son MAQUETADO PURO (grupo transparente): su Name NO se pinta (se usa solo como
+               etiqueta interna para que el agente/usuario distinga las filas). El titulo visible (banda)
+               es exclusivo de Section/Segment. Antes un Row con nombre salia como banda repetida y ensuciaba
+               los formatos oficiales; ademas, forzar Rows SIN nombre hacia que el agente no los distinguiera
+               en get_form y los recreara en bucle. Con esto, el agente puede nombrarlos sin efecto visual. *@
             <div class="@GroupCssClass(container)"
                  style="@(WidthStyle(container) + container.Style)">
-                @if (!string.IsNullOrWhiteSpace(container.Name))
-                {
-                    <div class="dfr-group-head">@container.Name</div>
-                }
                 @RenderContainerChildren(container, stack: container.ContainerType == FormContainerType.Col)
             </div>
             return;
@@ -1050,6 +1052,11 @@ else
                 @* Tabla FUNCIONAL (ADR-0021): columnas en OptionsJson [{id,label}] y el
                    valor del campo es un arreglo JSON de filas [{colId:"valor"}]. *@
                 @RenderGrid(q, value)
+                break;
+            case FormControlType.FixedMatrix:
+                @* Matriz FIJA: filas y columnas predefinidas (FixedMatrixSpec en OptionsJson), una casilla por
+                   celda; valor = objeto JSON plano {"fila.col":"valor"}. Para formatos tipo DIAN 350. *@
+                @RenderFixedMatrix(q, value)
                 break;
             case FormControlType.CascadeConfigurator:
                 @* Configurador en cascada (config-driven): la taxonomia vive en CascadeConfigJson;
@@ -1886,6 +1893,91 @@ else
             foreach (var (field, total) in computation.Rollups) { _values[field] = total; }
             _gridExcludedRows[q.FieldCode] = computation.ExcludedRowIndexes.ToHashSet();
         }
+    }
+
+    // ---- Matriz FIJA (FixedMatrix). Filas = conceptos y columnas (agrupables) predefinidas en OptionsJson
+    //      (FixedMatrixSpec); una casilla por celda con su numero (caption); celdas "disabled" en blanco. Es el
+    //      control nativo para formatos tipo DIAN 350 (concepto x juridicas/naturales x base/retencion), que
+    //      antes se simulaban con decenas de Rows y campos sueltos alineados "por convencion de width" (fragil:
+    //      encabezados duplicados, widths descuadrados). Renderiza una <table> real: alineacion garantizada. ----
+    private RenderFragment RenderFixedMatrix(FormQuestionDto q, string? value) => __builder =>
+    {
+        var spec = FixedMatrixSpec.Parse(q.OptionsJson);
+        @if (spec is null)
+        {
+            <div class="dfr-unsupported">La matriz no tiene filas/columnas definidas (options_json: rows + cols).</div>
+            return;
+        }
+        var cells = FixedMatrixSpec.ParseValue(value);
+        var groups = spec.Cols.Select(c => c.Group ?? string.Empty).ToList();
+        var hasGroups = groups.Any(g => g.Length > 0);
+        <div class="dfr-matrix-scroll">
+            <table class="dfr-matrix">
+                <thead>
+                    @if (hasGroups)
+                    {
+                        <tr class="dfr-matrix-groups">
+                            <th class="dfr-matrix-corner"></th>
+                            @{
+                                var gi = 0;
+                                while (gi < spec.Cols.Count)
+                                {
+                                    var g = groups[gi];
+                                    var span = 1;
+                                    while (gi + span < spec.Cols.Count && groups[gi + span] == g) { span++; }
+                                    <th colspan="@span" class="@(g.Length > 0 ? "dfr-matrix-group" : "dfr-matrix-group empty")">@g</th>
+                                    gi += span;
+                                }
+                            }
+                        </tr>
+                    }
+                    <tr>
+                        <th class="dfr-matrix-corner"></th>
+                        @foreach (var c in spec.Cols)
+                        {
+                            <th class="dfr-matrix-colhead">@c.Label</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in spec.Rows)
+                    {
+                        <tr>
+                            <th class="dfr-matrix-rowhead">@r.Label</th>
+                            @foreach (var c in spec.Cols)
+                            {
+                                var key = FixedMatrixSpec.Key(r.Id, c.Id);
+                                if (spec.IsDisabled(r.Id, c.Id))
+                                {
+                                    <td class="dfr-matrix-off"></td>
+                                }
+                                else
+                                {
+                                    var cap = spec.Caption(r.Id, c.Id);
+                                    var cur = cells.GetValueOrDefault(key);
+                                    var fmt = c.Format;
+                                    <td class="dfr-matrix-cell">
+                                        @if (!string.IsNullOrWhiteSpace(cap))
+                                        {
+                                            <span class="dfr-matrix-cap">@cap</span>
+                                        }
+                                        <input class="form-control form-control-sm@(NumCls(fmt))" value="@cur"
+                                               @onchange="@(e => SetMatrixCell(q, key, UnformatNumber(fmt, e.Value?.ToString())))" />
+                                    </td>
+                                }
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    };
+
+    private async Task SetMatrixCell(FormQuestionDto q, string key, string? cellValue)
+    {
+        var cells = FixedMatrixSpec.ParseValue(_values.GetValueOrDefault(q.FieldCode));
+        if (string.IsNullOrWhiteSpace(cellValue)) { cells.Remove(key); } else { cells[key] = cellValue; }
+        await SetValue(q, FixedMatrixSpec.SerializeValue(cells));
     }
 
     private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>

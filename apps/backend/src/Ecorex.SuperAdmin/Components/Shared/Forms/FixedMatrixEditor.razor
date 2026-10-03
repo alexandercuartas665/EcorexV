@@ -1,0 +1,212 @@
+@using System.Text.Json
+@using Ecorex.Application.Forms
+
+@* Editor VISUAL (sin codigo, self-serve) de una Matriz FIJA (FixedMatrix). Edita el mismo OptionsJson que lee
+   el motor: filas (conceptos), columnas (con grupo y formato) y, por celda, el numero de casilla (caption) o
+   "n/a" (disabled). Incluye escape hatch de JSON crudo. Se guarda al salir de cada campo. *@
+
+<div class="mx-root">
+    <div class="mx-toolbar">
+        <button type="button" class="mx-btn @(_view == "visual" ? "on" : "")" @onclick="@(() => _view = "visual")">Visual</button>
+        <button type="button" class="mx-btn @(_view == "json" ? "on" : "")" @onclick="@(() => _view = "json")">JSON</button>
+        <span class="mx-status @(_error is null ? "ok" : "err")">@(_error is null ? $"{_rows.Count} filas x {_cols.Count} columnas" : _error)</span>
+    </div>
+
+    @if (_view == "json")
+    {
+        <textarea class="mx-json" rows="14" @onchange="OnRawJsonChanged">@_rawJson</textarea>
+        <div class="mx-hint">{"rows":[{"id","label"}],"cols":[{"id","label","group","format"}],"captions":{"fila.col":"29"},"disabled":["fila.col"]}</div>
+    }
+    else
+    {
+        <div class="mx-sec">
+            <div class="mx-sec-hd"><b>Columnas</b> <span>grupo opcional (se fusiona en el encabezado) y formato</span>
+                <button type="button" class="mx-add" @onclick="AddCol">+ Columna</button>
+            </div>
+            @for (var i = 0; i < _cols.Count; i++)
+            {
+                var col = _cols[i];
+                var idx = i;
+                <div class="mx-row">
+                    <input class="mx-in" value="@col.Id" @onchange="@(e => Set(() => col.Id = V(e)))" placeholder="id (ej. jur_base)" />
+                    <input class="mx-in mx-grow" value="@col.Label" @onchange="@(e => Set(() => col.Label = V(e)))" placeholder="etiqueta" />
+                    <input class="mx-in" value="@col.Group" @onchange="@(e => Set(() => col.Group = VN(e)))" placeholder="grupo (ej. A personas juridicas)" />
+                    <select class="mx-in mx-fmt" value="@(col.Format ?? "")" @onchange="@(e => Set(() => col.Format = VN(e)))">
+                        <option value="">texto</option>
+                        <option value="integer">entero</option>
+                        <option value="decimal">decimal</option>
+                        <option value="currency">moneda</option>
+                        <option value="percent">porcentaje</option>
+                    </select>
+                    <button type="button" class="mx-del" title="Quitar columna" @onclick="@(() => Set(() => _cols.RemoveAt(idx)))">✕</button>
+                </div>
+            }
+        </div>
+
+        <div class="mx-sec">
+            <div class="mx-sec-hd"><b>Filas</b> <span>conceptos</span>
+                <button type="button" class="mx-add" @onclick="AddRow">+ Fila</button>
+            </div>
+            @for (var i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                var idx = i;
+                <div class="mx-row">
+                    <input class="mx-in" value="@row.Id" @onchange="@(e => Set(() => row.Id = V(e)))" placeholder="id (ej. honorarios)" />
+                    <input class="mx-in mx-grow" value="@row.Label" @onchange="@(e => Set(() => row.Label = V(e)))" placeholder="etiqueta" />
+                    <button type="button" class="mx-del" title="Quitar fila" @onclick="@(() => Set(() => _rows.RemoveAt(idx)))">✕</button>
+                </div>
+            }
+        </div>
+
+        @if (_rows.Count > 0 && _cols.Count > 0)
+        {
+            <div class="mx-sec">
+                <div class="mx-sec-hd"><b>Casillas</b> <span>numero por celda; "n/a" = la celda no aplica (queda en blanco)</span></div>
+                <div class="mx-grid-scroll">
+                    <table class="mx-grid">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                @foreach (var c in _cols)
+                                {
+                                    <th>@(string.IsNullOrWhiteSpace(c.Group) ? c.Label : c.Group + " / " + c.Label)</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in _rows)
+                            {
+                                <tr>
+                                    <th>@r.Label</th>
+                                    @foreach (var c in _cols)
+                                    {
+                                        var key = FixedMatrixSpec.Key(r.Id, c.Id);
+                                        var off = _disabled.Contains(key);
+                                        <td class="@(off ? "off" : "")">
+                                            <input class="mx-cap" value="@(_captions.GetValueOrDefault(key))" disabled="@off" placeholder="#"
+                                                   @onchange="@(e => Set(() => SetCaption(key, VN(e))))" />
+                                            <label class="mx-na" title="No aplica"><input type="checkbox" checked="@off" @onchange="@(e => Set(() => ToggleDisabled(key, B(e))))" /> n/a</label>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public EventCallback<string> JsonChanged { get; set; }
+
+    private string _view = "visual";
+    private string? _rawJson;
+    private string? _error;
+    private string? _lastSeen;
+    private readonly List<RowEdit> _rows = new();
+    private readonly List<ColEdit> _cols = new();
+    private readonly Dictionary<string, string> _captions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _disabled = new(StringComparer.Ordinal);
+
+    protected override void OnParametersSet()
+    {
+        if (!string.Equals(Json, _lastSeen, StringComparison.Ordinal))
+        {
+            _lastSeen = Json;
+            _rawJson = Json;
+            LoadFrom(Json);
+        }
+    }
+
+    // Carga LENIENTE (permite editar una config a medias) sobre el parser del motor.
+    private void LoadFrom(string? json)
+    {
+        _rows.Clear(); _cols.Clear(); _captions.Clear(); _disabled.Clear();
+        _error = null;
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { _error = "El JSON debe ser un objeto {rows, cols, captions, disabled}."; return; }
+            if (root.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var r in rows.EnumerateArray()) { _rows.Add(new RowEdit { Id = Str(r, "id"), Label = Str(r, "label") }); }
+            }
+            if (root.TryGetProperty("cols", out var cols) && cols.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var c in cols.EnumerateArray()) { _cols.Add(new ColEdit { Id = Str(c, "id"), Label = Str(c, "label"), Group = StrN(c, "group"), Format = StrN(c, "format") }); }
+            }
+            if (root.TryGetProperty("captions", out var caps) && caps.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in caps.EnumerateObject()) { if (p.Value.ValueKind == JsonValueKind.String) { _captions[p.Name] = p.Value.GetString() ?? ""; } }
+            }
+            if (root.TryGetProperty("disabled", out var dis) && dis.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var d in dis.EnumerateArray()) { if (d.ValueKind == JsonValueKind.String && d.GetString() is { Length: > 0 } s) { _disabled.Add(s); } }
+            }
+            if (FixedMatrixSpec.Parse(json) is null) { _error = "Faltan filas o columnas (o hay ids repetidos)."; }
+        }
+        catch (JsonException ex) { _error = "JSON invalido: " + ex.Message; }
+    }
+
+    private async Task OnRawJsonChanged(ChangeEventArgs e)
+    {
+        _rawJson = e.Value?.ToString();
+        LoadFrom(_rawJson);
+        await EmitAsync();
+    }
+
+    private async Task Set(Action mutate) { mutate(); await EmitAsync(); }
+    private Task AddRow() => Set(() => _rows.Add(new RowEdit { Id = "fila_" + (_rows.Count + 1), Label = "Fila " + (_rows.Count + 1) }));
+    private Task AddCol() => Set(() => _cols.Add(new ColEdit { Id = "col_" + (_cols.Count + 1), Label = "Columna " + (_cols.Count + 1) }));
+    private void SetCaption(string key, string? value) { if (string.IsNullOrWhiteSpace(value)) { _captions.Remove(key); } else { _captions[key] = value.Trim(); } }
+    private void ToggleDisabled(string key, bool off) { if (off) { _disabled.Add(key); } else { _disabled.Remove(key); } }
+
+    private async Task EmitAsync()
+    {
+        var json = Serialize();
+        _rawJson = json;
+        _lastSeen = json;
+        _error = FixedMatrixSpec.Parse(json) is null ? "Faltan filas o columnas (o hay ids repetidos)." : null;
+        await JsonChanged.InvokeAsync(json);
+    }
+
+    private string Serialize()
+    {
+        // Solo conserva captions/disabled de celdas que EXISTEN (si borran una fila/columna no quedan huerfanos).
+        var valid = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in _rows) { foreach (var c in _cols) { valid.Add(FixedMatrixSpec.Key(r.Id, c.Id)); } }
+        var payload = new Dictionary<string, object?>
+        {
+            ["rows"] = _rows.Select(r => new Dictionary<string, object?> { ["id"] = r.Id.Trim(), ["label"] = r.Label }).ToList(),
+            ["cols"] = _cols.Select(c => new Dictionary<string, object?>
+            {
+                ["id"] = c.Id.Trim(), ["label"] = c.Label,
+                ["group"] = string.IsNullOrWhiteSpace(c.Group) ? null : c.Group.Trim(),
+                ["format"] = string.IsNullOrWhiteSpace(c.Format) ? null : c.Format
+            }).ToList(),
+            ["captions"] = _captions.Where(kv => valid.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+            ["disabled"] = _disabled.Where(valid.Contains).OrderBy(k => k, StringComparer.Ordinal).ToList()
+        };
+        return JsonSerializer.Serialize(payload, SerOpts);
+    }
+
+    private static readonly JsonSerializerOptions SerOpts = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private static string V(ChangeEventArgs e) => e.Value?.ToString() ?? "";
+    private static string? VN(ChangeEventArgs e) { var s = e.Value?.ToString(); return string.IsNullOrWhiteSpace(s) ? null : s; }
+    private static bool B(ChangeEventArgs e) => e.Value is bool b && b;
+    private static string Str(JsonElement el, string prop) => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? (v.GetString() ?? "") : "";
+    private static string? StrN(JsonElement el, string prop) => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private sealed class RowEdit { public string Id = ""; public string Label = ""; }
+    private sealed class ColEdit { public string Id = ""; public string Label = ""; public string? Group; public string? Format; }
+}

@@ -891,6 +891,30 @@ app.MapPost("/auth/login", async (
 // membresia que /auth/login.
 if (app.Environment.IsDevelopment())
 {
+    // Atajo de DEV para el EVAL del constructor de formularios: puntua DETERMINISTICAMENTE un formulario ya
+    // construido por el agente (FormBuildScorer: field_codes duplicados, encabezado de matriz repetido, markdown
+    // literal, huerfanos, contenedores vacios, textos a width 12 que descuadran, y cobertura contra un fixture).
+    // GET /dev/score-form?id=GUID[&expect=frag1|frag2|...]. Permite comparar corridas/modelos/arneses con un numero
+    // en vez de a ojo sobre n=1. Resuelve el tenant del formulario (los filtros globales exigen tenant ambiente).
+    app.MapGet("/dev/score-form", async (IServiceProvider sp, Guid id, string? expect) =>
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        var tenantId = await db.FormDefinitions.IgnoreQueryFilters()
+            .Where(f => f.Id == id).Select(f => (Guid?)f.TenantId).FirstOrDefaultAsync();
+        if (tenantId is null) { return Results.NotFound("form"); }
+        using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId.Value))
+        {
+            var forms = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Forms.IFormDefinitionService>();
+            var d = await forms.GetAsync(id);
+            if (d is null) { return Results.NotFound("form"); }
+            var exp = string.IsNullOrWhiteSpace(expect) ? null
+                : new Ecorex.Application.Forms.Builder.FormBuildExpectation(
+                    expect.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            return Results.Ok(Ecorex.Application.Forms.Builder.FormBuildScorer.Score(d, exp));
+        }
+    }).AllowAnonymous();
+
     var devLoginEmail = Environment.GetEnvironmentVariable("ECOREX_DEV_LOGIN");
     if (!string.IsNullOrWhiteSpace(devLoginEmail))
     {

@@ -395,6 +395,19 @@
 .dfr-chip-converted:hover:not(:disabled) { filter: brightness(.97); text-decoration: underline; }
 .dfr-chip-converted:disabled { cursor: default; opacity: .8; }
 
+/* ---- Matriz FIJA (FixedMatrix): filas/columnas predefinidas, una casilla por celda (formatos tipo DIAN). Densa y plana. ---- */
+.dfr-matrix-scroll { overflow: auto; }
+.dfr-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
+.dfr-matrix th, .dfr-matrix td { border: 1px solid var(--line-2, rgba(20,20,25,.14)); padding: 3px 4px; vertical-align: top; }
+.dfr-matrix th { background: var(--surface-2, #FAFAFA); font-weight: 700; color: var(--ink-2, #5C5C66); text-align: center; font-size: 11px; }
+.dfr-matrix-group { text-transform: uppercase; letter-spacing: .04em; }
+.dfr-matrix-group.empty, .dfr-matrix-corner { background: transparent; border-top: 0; border-left: 0; }
+.dfr-matrix-rowhead { text-align: left !important; font-weight: 600 !important; color: var(--ink, #1B1B1E) !important; min-width: 160px; }
+.dfr-matrix-cell { min-width: 90px; }
+.dfr-matrix-cap { display: block; font-size: 10px; font-weight: 700; color: var(--ink-2, #5C5C66); line-height: 1; margin: 0 0 2px 1px; }
+.dfr-matrix-cell .form-control { height: 26px; padding: 2px 4px; font-size: 12px; border-radius: 4px; }
+.dfr-matrix-off { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(20,20,25,.05) 6px 8px); }
+
 /* Control Boton (accion "Imprimir plantilla") */
 .dfr-formbtn-wrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dfr-formbtn {

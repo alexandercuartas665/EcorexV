@@ -241,24 +241,39 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         // Si un paso falla por ese motivo y en este lote YA se creo un contenedor, se reintenta UNA vez apuntando
         // al contenedor real mas reciente. Solo se activa ante ese error exacto: no toca referencias validas.
         Guid? lastBatchContainerId = null;
+        // Mapa id-ADIVINADO -> id-real de contenedores creados en ESTE lote. Lo aprendemos cuando un paso falla
+        // por referenciar un id que aun no existia y lo corregimos; luego los HERMANOS (p.ej. varias Rows bajo la
+        // MISMA Section recien creada) se corrigen ANTES de ejecutar, sin re-fallar. Asi el agente no reintenta el
+        // lote completo (que era lo que duplicaba filas/campos). Resuelve el caso Section + varias Rows en un lote.
+        var guessedToReal = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in pending)
         {
+            // PREEMPTIVO: si este paso referencia un contenedor cuyo id adivinado YA aprendimos, corrige antes de ejecutar.
+            var argsJson = p.ToolArgsJson ?? "{}";
+            if (TryGetContainerRef(argsJson) is string knownGuess && guessedToReal.TryGetValue(knownGuess, out var mappedCid))
+            {
+                argsJson = WithContainerId(argsJson, mappedCid);
+                p.ToolArgsJson = argsJson;
+            }
+
             string resultJson;
             try
             {
-                var r = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, p.ToolArgsJson ?? "{}", actorUserId, autonomous: true, cancellationToken);
+                var r = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, argsJson, actorUserId, autonomous: true, cancellationToken);
                 resultJson = r.Json;
 
                 if (lastBatchContainerId is Guid realCid
                     && ResultIsContainerOwnershipError(resultJson)
-                    && ArgsReferencesContainer(p.ToolArgsJson))
+                    && ArgsReferencesContainer(argsJson))
                 {
-                    var fixedArgs = WithContainerId(p.ToolArgsJson!, realCid);
+                    var guessedRef = TryGetContainerRef(argsJson); // el id adivinado que fallo (para aprenderlo)
+                    var fixedArgs = WithContainerId(argsJson, realCid);
                     var r2 = await _toolset.ExecuteAsync(p.ToolName ?? string.Empty, fixedArgs, actorUserId, autonomous: true, cancellationToken);
                     if (ResultIsOk(r2.Json))
                     {
                         resultJson = r2.Json;
                         p.ToolArgsJson = fixedArgs; // persistir el id corregido para reconstruir el hilo
+                        if (guessedRef is not null) { guessedToReal[guessedRef] = realCid; } // aprende para los hermanos
                     }
                 }
             }
@@ -552,22 +567,41 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         catch { return false; }
     }
 
-    // Los args de la herramienta referencian un contenedor (tienen container_id no vacio)?
+    // Los args referencian un contenedor por un id ADIVINADO? Cubre container_id (add/update/move_question) Y
+    // parent_id (add/update/move_container: una Section recien creada en el MISMO lote cuyo id real aun no se
+    // conoce al anidar un Row debajo -> el Row fallaba y el agente reintentaba TODO duplicando filas).
     private static bool ArgsReferencesContainer(string? argsJson)
     {
         if (string.IsNullOrWhiteSpace(argsJson)) { return false; }
         try
         {
-            using var doc = JsonDocument.Parse(argsJson);
-            return doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("container_id", out var cid)
-                && cid.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(cid.GetString());
+            var root = JsonDocument.Parse(argsJson).RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return false; }
+            return HasNonEmptyString(root, "container_id") || HasNonEmptyString(root, "parent_id");
         }
         catch { return false; }
     }
 
-    // Reescribe container_id en los args con el id real del contenedor recien creado.
+    private static bool HasNonEmptyString(JsonElement obj, string prop)
+        => obj.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString());
+
+    // El valor de la referencia al contenedor (container_id o, si no, parent_id). Null si no referencia ninguno.
+    private static string? TryGetContainerRef(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) { return null; }
+        try
+        {
+            var root = JsonDocument.Parse(argsJson).RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            if (HasNonEmptyString(root, "container_id")) { return root.GetProperty("container_id").GetString(); }
+            if (HasNonEmptyString(root, "parent_id")) { return root.GetProperty("parent_id").GetString(); }
+        }
+        catch { /* args no parseable */ }
+        return null;
+    }
+
+    // Reescribe la referencia al contenedor (container_id para preguntas, parent_id para contenedores) con el id
+    // real del contenedor recien creado en este lote. Pisa la que exista (no agrega la que no venia).
     private static string WithContainerId(string argsJson, Guid containerId)
     {
         try
@@ -575,7 +609,8 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
             var node = System.Text.Json.Nodes.JsonNode.Parse(argsJson);
             if (node is System.Text.Json.Nodes.JsonObject obj)
             {
-                obj["container_id"] = containerId.ToString();
+                if (obj.ContainsKey("container_id")) { obj["container_id"] = containerId.ToString(); }
+                else if (obj.ContainsKey("parent_id")) { obj["parent_id"] = containerId.ToString(); }
                 return obj.ToJsonString(Json);
             }
         }

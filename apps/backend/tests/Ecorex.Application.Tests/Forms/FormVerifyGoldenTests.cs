@@ -295,4 +295,42 @@ public class FormGridColumnAliasTests
         Assert.Equal("2000", computed[0]["total_item"]);
         Assert.Equal("3500", rollups["subtotal"]); // 2000 + 1500
     }
+
+    // ---- Check #9: encabezado de matriz DUPLICADO --------------------------------------------------------
+    private static FormQuestionDto TextCell(Guid containerId, string label)
+        => new(Guid.NewGuid(), containerId, Guid.NewGuid().ToString("N")[..8], label, null, null,
+            FormControlType.Paragraph, null, false, 0, "col-md-2", null, null);
+
+    private static FormDefinitionDetailDto DefWithContainer(Guid cid, string name, IEnumerable<FormQuestionDto> qs)
+        => new(Guid.NewGuid(), "COD", "Titulo", null, FormStatus.Draft, 1, false, 1,
+            new[] { new FormContainerDto(cid, name, FormContainerType.Row, null, 0, null) }, qs.ToList());
+
+    // La MISMA etiqueta de texto 3+ veces en un contenedor = encabezado de columnas duplicado -> error.
+    [Fact]
+    public void Encabezado_de_matriz_duplicado_es_error()
+    {
+        var cid = Guid.NewGuid();
+        var qs = new[]
+        {
+            TextCell(cid, "Concepto"), TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+            TextCell(cid, "Concepto"), TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+        };
+        var issues = FormAuthoringToolset.VerifyForm(DefWithContainer(cid, "matriz_enc_cols", qs));
+        Assert.Contains(issues, i => i.Severity == "error" && i.Problem.Contains("DUPLICADO", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Encabezado LEGITIMO de matriz: cada etiqueta a lo sumo 2 veces (juridicas + naturales) -> SIN error (cero FP).
+    [Fact]
+    public void Encabezado_de_matriz_legitimo_no_reporta_duplicado()
+    {
+        var cid = Guid.NewGuid();
+        var qs = new[]
+        {
+            TextCell(cid, "Concepto"),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+        };
+        var issues = FormAuthoringToolset.VerifyForm(DefWithContainer(cid, "matriz_enc_cols", qs));
+        Assert.DoesNotContain(issues, i => i.Severity == "error" && i.Problem.Contains("DUPLICADO"));
+    }
 }

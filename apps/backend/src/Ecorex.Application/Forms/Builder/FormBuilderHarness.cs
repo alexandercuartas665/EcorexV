@@ -94,7 +94,10 @@ REGLA DE ORO: PROPONER Y CONFIRMAR.
       campos sueltos en Rows (concepto + sus casillas por fila), CUMPLE 3 reglas o queda confusa e inservible:
       (1) EL ENCABEZADO SE CREA UNA SOLA VEZ. Una fila de encabezado de grupo (ej. ""A personas juridicas"" /
           ""A personas naturales"") y UNA de subencabezado (Concepto | Base | Retencion | Base | Retencion). NUNCA
-          dupliques el bloque de encabezado (nada de ""...Matriz"" y otra ""...Matriz V2""): revienta la lectura.
+          dupliques el bloque de encabezado (nada de ""...Matriz"" y otra ""...Matriz V2"", ni repetir las celdas de
+          columna dos veces en la MISMA fila): revienta la lectura. Los titulos de GRUPO (juridicas/naturales) van
+          SOLO en su fila de grupo, NO los repitas tambien en la fila de columnas. Si ya creaste el encabezado, NO
+          lo vuelvas a crear: continua con las filas de conceptos (si dudas, get_form y mira lo que ya existe).
       (2) ALINEACION POR ANCHO: las columnas solo se alinean si el encabezado usa LOS MISMOS width que las filas
           de datos. La celda ""Concepto"" del subencabezado va con el MISMO width que el concepto de cada fila de
           dato (p.ej. 3), y cada celda de columna (Base/Retencion) con el MISMO width que su casilla de dato. El

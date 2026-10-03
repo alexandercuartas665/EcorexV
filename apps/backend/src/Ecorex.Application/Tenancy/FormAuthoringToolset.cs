@@ -1155,6 +1155,26 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "Rompe el ciclo: un campo calculado no puede depender (via otros calc) de si mismo. Redefine la formula."));
         }
 
+        // 9) ENCABEZADO DE MATRIZ DUPLICADO (heuristica). Dentro de UN contenedor, una etiqueta de TEXTO
+        //    (Heading/Paragraph) repetida 3+ veces casi siempre es un encabezado de columnas escrito dos veces:
+        //    el encabezado legitimo de una matriz repite una etiqueta a lo sumo 2 veces (base/retencion para
+        //    juridicas Y naturales). Umbral 3 => no da falso positivo en un encabezado correcto.
+        var contName = d.Containers.ToDictionary(c => c.Id, c => c.Name);
+        foreach (var grp in d.Questions
+            .Where(q => q.ContainerId is not null
+                && (q.ControlType == FormControlType.Heading || q.ControlType == FormControlType.Paragraph)
+                && !string.IsNullOrWhiteSpace(q.Label))
+            .GroupBy(q => q.ContainerId!.Value))
+        {
+            var dup = grp.GroupBy(q => q.Label.Trim(), StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(g => g.Count() >= 3);
+            if (dup is null) { continue; }
+            var where = contName.TryGetValue(grp.Key, out var n) && !string.IsNullOrWhiteSpace(n) ? $"contenedor '{n}'" : "un contenedor";
+            issues.Add(new("error", where,
+                $"la etiqueta de texto '{dup.Key}' aparece {dup.Count()} veces en el mismo contenedor: es un encabezado de columnas DUPLICADO",
+                "Borra (delete_question) las celdas de encabezado SOBRANTES y deja UNA sola fila de columnas; los titulos de grupo van solo en su propia fila."));
+        }
+
         return issues;
     }
 

@@ -352,10 +352,31 @@ public sealed class FormBuilderChatService : IFormBuilderChatService
         var model = !string.IsNullOrWhiteSpace(conv.Model) ? conv.Model! : FormBuilderModelFor(provider);
         var baseUrl = !string.IsNullOrWhiteSpace(cfg.BaseUrl) ? cfg.BaseUrl : meta.DefaultBaseUrl;
 
+        // CUPO POR PLAN (misma regla que los agentes en AiInferenceService): si el plan del tenant tiene limite
+        // DURO de tokens de IA y ya se agoto el mes, el constructor no llama al modelo. Antes el form-builder
+        // consumia la key global de la plataforma sin tope por tenant (un 350 son ~2.7M tokens).
+        var quota = await _usage.GetQuotaAsync(cancellationToken);
+        if (quota.Exceeded && quota.Hard)
+        {
+            return FormBuilderTurnResult.Fail(conv.Id,
+                $"Alcanzaste el limite de tokens de IA de tu plan este mes ({quota.MonthlyLimitTokens:N0}). " +
+                "El asistente de formularios queda pausado hasta el proximo ciclo o hasta ampliar el plan.");
+        }
+
         var tenantName = await _store.GetTenantNameAsync(conv.TenantId, cancellationToken);
         if (string.IsNullOrWhiteSpace(tenantName)) { tenantName = "tu empresa"; }
+
+        // ARNES CONDICIONAL (pegajoso por conversacion): los bloques de documento/formato oficial y lectura de
+        // archivo solo se inyectan si en TODO el historial hubo un adjunto o el usuario pidio replicar un formato.
+        // Se calcula sobre el historial completo para que el prefijo no cambie entre turnos (prompt caching).
+        var history = await _store.GetMessagesAsync(conv.Id, cancellationToken);
+        var anyAttachment = images is { Count: > 0 } || docs is { Count: > 0 }
+            || history.Any(m => !string.IsNullOrWhiteSpace(m.AttachmentsJson)
+                && m.AttachmentsJson.Trim() is not ("[]" or "{}" or "null"));
+        var promptCtx = FormBuilderHarness.PromptContext.From(
+            history.Where(m => m.Role == FormBuilderMessageRole.User).Select(m => m.Content), anyAttachment);
         var systemPrompt = FormBuilderHarness.SystemPrompt(tenantName, editingExisting: conv.FormDefinitionId is not null,
-            formId: conv.FormDefinitionId?.ToString("D"));
+            formId: conv.FormDefinitionId?.ToString("D"), promptCtx);
         var tools = _toolset.GetSpecs();
         var readOnly = _toolset.ReadOnlyTools;
 

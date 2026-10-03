@@ -894,6 +894,7 @@ else
         [FormControlType.Number] = new("Numerico", "Numero", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
+        [FormControlType.FixedMatrix] = new("Matriz fija", "Matriz", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"1.5\"/><path d=\"M3 9h18M3 15h18M9 3v18M15 3v18\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
         [FormControlType.Subform] = new("Subformulario", "Detalle", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"7\" rx=\"1.5\"/><rect x=\"6\" y=\"13\" width=\"15\" height=\"3\" rx=\"1\"/><rect x=\"6\" y=\"18\" width=\"15\" height=\"3\" rx=\"1\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
         [FormControlType.CascadeConfigurator] = new("Configurador en cascada", "Cascada", "<path d=\"M4 5h6M4 5v6M10 11h6M10 11v6M16 17h4\"/><circle cx=\"4\" cy=\"5\" r=\"1.6\"/><circle cx=\"10\" cy=\"11\" r=\"1.6\"/><circle cx=\"16\" cy=\"17\" r=\"1.6\"/>", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Geografia] = new("Pais / Departamento / Ciudad", "Geografia", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
@@ -1252,6 +1253,9 @@ else
             """[{"id":"opcion_1","label":"Opcion 1"},{"id":"opcion_2","label":"Opcion 2"}]""",
         FormControlType.GridDetail =>
             """[{"id":"columna_1","label":"Columna 1"},{"id":"columna_2","label":"Columna 2"}]""",
+        // Matriz fija: filas y columnas predefinidas + casilla (caption) por celda; celdas n/a en 'disabled'.
+        FormControlType.FixedMatrix =>
+            """{"rows":[{"id":"fila_1","label":"Fila 1"},{"id":"fila_2","label":"Fila 2"}],"cols":[{"id":"col_1","label":"Columna 1"},{"id":"col_2","label":"Columna 2"}],"captions":{},"disabled":[]}""",
         // Croquis (ADR Canvas): la config del lienzo vive como OBJETO JSON en OptionsJson.
         FormControlType.Canvas => """{"height":360,"cell":20,"grid":true}""",
         _ => null
@@ -2379,6 +2383,30 @@ else
                     </div>
                 </div>
                 break;
+            case FormControlType.FixedMatrix:
+                var mspec = FixedMatrixSpec.Parse(q.OptionsJson);
+                var mcols = mspec?.Cols.Select(c => c.Label).ToList() ?? new List<string> { "Columna 1", "Columna 2" };
+                var mrows = mspec?.Rows.Select(r => r.Label).Take(3).ToList() ?? new List<string> { "Fila 1", "Fila 2" };
+                <div class="fb-prev-table">
+                    <div class="fb-prev-thead" style="grid-template-columns:repeat(@(mcols.Count + 1),1fr)">
+                        <div></div>
+                        @foreach (var ml in mcols)
+                        {
+                            <div class="bl">@ml</div>
+                        }
+                    </div>
+                    @foreach (var rl in mrows)
+                    {
+                        <div class="fb-prev-trow" style="grid-template-columns:repeat(@(mcols.Count + 1),1fr)">
+                            <div>@rl</div>
+                            @foreach (var _ in mcols)
+                            {
+                                <div class="bl">-</div>
+                            }
+                        </div>
+                    }
+                </div>
+                break;
             case FormControlType.Signature:
                 <div class="fb-prev-capture dashed" style="height:56px">@((MarkupString)IconSvg("M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", 16)) Firma aqui</div>
                 break;
@@ -2434,7 +2462,7 @@ else
                         FormControlType.Radio, FormControlType.MultiCheck,
                         FormControlType.Date, FormControlType.Time, FormControlType.DateTime,
                         FormControlType.Number, FormControlType.Toggle,
-                        FormControlType.GridDetail, FormControlType.Subform, FormControlType.CascadeConfigurator,
+                        FormControlType.GridDetail, FormControlType.FixedMatrix, FormControlType.Subform, FormControlType.CascadeConfigurator,
                         FormControlType.Geografia,
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
@@ -2662,6 +2690,15 @@ else
                                     Definitions="ActiveDefs"
                                     OptionsJsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { OptionsJson = json }))" />
                 <div class="fb-hint">ADR-0085: una columna de la tabla puede ser de tipo "Gestiones". Cada pildora abre un subformulario (por codigo) ligado a la fila, con su color. Se guarda dentro del options_json de la tabla sin tocar las demas columnas.</div>
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.FixedMatrix })
+        {
+            <div class="fb-field">
+                <label>Filas, columnas y casillas de la matriz</label>
+                <FixedMatrixEditor Json="@node.Q!.OptionsJson"
+                                   JsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { OptionsJson = json }))" />
+                <div class="fb-hint">Matriz FIJA (tipo DIAN 350): filas = conceptos; columnas agrupables (ej. "A personas juridicas" / "naturales"); en cada celda el numero de casilla y, si no aplica, marcala n/a. El valor se guarda como {"fila.col": valor}. Self-serve: no requiere SQL ni agente.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Canvas })

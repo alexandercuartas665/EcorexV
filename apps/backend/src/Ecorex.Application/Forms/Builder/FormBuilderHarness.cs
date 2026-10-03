@@ -13,8 +13,176 @@ public static class FormBuilderHarness
     /// (siempre presente cuando el chat corre dentro del disenador): el agente debe usar ESE id en todas las
     /// herramientas y NO preguntar cual formulario ni crear/listar formularios.
     /// </summary>
-    public static string SystemPrompt(string tenantName, bool editingExisting, string? formId)
+    // ---- Bloques CONDICIONALES del arnes (texto verbatim; se inyectan solo cuando aplican) ----
+
+    // Replicar un documento/formato oficial completo (solo si hay adjunto o piden un formato oficial).
+    private static readonly string ReplicaBlock = $@"- REPLICAR UN DOCUMENTO/FORMATO OFICIAL COMPLETO (cuando suben un PDF/imagen de un formato, o piden ""replica
+  este formulario""): tu meta es reproducir el documento ENTERO de corrido, no una parte. Reglas:
+    * TRANSCRIBE PRIMERO (CRITICO, lo que mas falla): el archivo adjunto SOLO te llega en tu PRIMER mensaje;
+      en los turnos siguientes (tras cada confirmacion) YA NO LO TIENES. Si construyes de memoria, inventas y
+      mezclas secciones. Por eso, en tu PRIMER respuesta y ANTES de proponer nada, TRANSCRIBE el documento
+      COMPLETO como TEXTO: lista en orden TODAS las secciones y, dentro de cada una, TODAS las casillas con su
+      NUMERO y label EXACTO, marcando cuales bloques son MATRICES/tablas (y sus columnas) y cuales campos
+      sueltos. Esa transcripcion queda en el historial y es tu UNICA fuente fiel: en cada turno siguiente
+      construyes LEYENDO tu propia transcripcion, no de memoria. Si el documento es largo y no cabe entero,
+      transcribe lo mas fiel posible y DILO. No empieces a crear secciones hasta tener la transcripcion.
+    * COMPLETO: construye TODAS las secciones y TODAS las casillas del documento, de principio a fin. NO te
+      detengas tras la primera seccion ni preguntes ""sigo con la siguiente?"": encadena seccion tras seccion
+      (cada una en su turno batcheado) hasta terminar el documento, y solo entonces cierras. El set_custom_css
+      del look oficial va en el PRIMER turno (no al final).
+    * MILIMETRICO: respeta el TEXTO EXACTO de cada casilla, incluido su NUMERO como prefijo (""1. Año"",
+      ""29. Honorarios"", ""5. Número de Identificación Tributaria (NIT)""). NO reformules, no acortes, no
+      inventes casillas que no estan. Si el documento numera las casillas, el label las lleva.
+    * MATRIZ = UN SOLO CAMPO FixedMatrix (REGLA). Una tabla densa de conceptos FIJOS x columnas (p.ej. Concepto x
+      juridicas/naturales x base/retencion con un numero de casilla por celda, como el 350) se modela como UNA
+      pregunta control_type=FixedMatrix cuyo options_json es un OBJETO:
+      {{""rows"":[{{""id"":""honorarios"",""label"":""Honorarios""}}],
+       ""cols"":[{{""id"":""jur_base"",""label"":""Base sujeta a retencion"",""group"":""A personas juridicas"",""format"":""currency""}}],
+       ""captions"":{{""honorarios.jur_base"":""29""}}, ""disabled"":[""rentas_trabajo.jur_base""]}}
+      captions = numero de casilla de cada celda; disabled = celdas que NO aplican (p.ej. Rentas de trabajo solo
+      tiene naturales). El renderer dibuja la tabla REAL: grupos fusionados en el encabezado, columnas alineadas,
+      casilla por celda. NO la simules con Rows + campos sueltos (descuadra y duplica encabezados) ni con
+      GridDetail (ese es para filas que el usuario AGREGA). Solo si los conceptos NO son fijos es un GridDetail.
+    * SOLO SI NO PUEDES usar FixedMatrix y maquetas la matriz con campos sueltos en Rows, CUMPLE 3 reglas o
+      queda confusa e inservible:
+      (1) EL ENCABEZADO SE CREA UNA SOLA VEZ. Una fila de encabezado de grupo (ej. ""A personas juridicas"" /
+          ""A personas naturales"") y UNA de subencabezado (Concepto | Base | Retencion | Base | Retencion). NUNCA
+          dupliques el bloque de encabezado (nada de ""...Matriz"" y otra ""...Matriz V2"", ni repetir las celdas de
+          columna dos veces en la MISMA fila): revienta la lectura. Los titulos de GRUPO (juridicas/naturales) van
+          SOLO en su fila de grupo, NO los repitas tambien en la fila de columnas. Si ya creaste el encabezado, NO
+          lo vuelvas a crear: continua con las filas de conceptos (si dudas, get_form y mira lo que ya existe).
+      (2) ALINEACION POR ANCHO: las columnas solo se alinean si el encabezado usa LOS MISMOS width que las filas
+          de datos. La celda ""Concepto"" del subencabezado va con el MISMO width que el concepto de cada fila de
+          dato (p.ej. 3), y cada celda de columna (Base/Retencion) con el MISMO width que su casilla de dato. El
+          ""Concepto"" del encabezado NUNCA a width 12 (empuja las demas a otra linea y nada queda bajo su columna).
+          La fila de grupo (juridicas/naturales) debe arrancar DESPUES del ancho del concepto para sentarse sobre
+          sus columnas (desplazala con un offset o una celda vacia de ese ancho). Objetivo: cada casilla cae
+          EXACTAMENTE bajo su encabezado.
+      (3) SIN MARKDOWN EN LABELS: el renderer NO interpreta markdown; ""**Concepto**"" sale con los asteriscos
+          literales. Escribe el texto plano (""Concepto""); para enfasis usa un Heading o el CSS, nunca ** ** ni #.
+    * El resultado objetivo es como el papel: cabecera en celdas, bandas de seccion, casillas numeradas y las
+      matrices como tablas. Apunta a ESO desde el primer turno, no a una lista plana que ""luego mejoramos"".";
+
+    // Look de documento oficial via CSS (catalogo de clases, cierre obligatorio, especificacion dura).
+    private static readonly string OfficialLookBlock = $@"- ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
+  RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en
+  celdas, banda de seccion oscura, campos tipo casilla, tipografia compacta) se logra con CSS. NO lo evites por
+  miedo: se guarda ACOTADO a este formulario (scope automatico), no se filtra a la pagina y es reversible. La
+  unica regla dura: usa las clases REALES del renderer (NO inventes selectores; .form-section/.btn-primary NO
+  existen). CATALOGO real que puedes estilizar:
+    * :scope = la raiz del formulario; define aqui tus variables de color y la tipografia base.
+    * .dfr-head = la cabecera; sus hijos son .dfr-eyebrow (rotulo), .dfr-title (titulo), .dfr-sub (descripcion).
+      Para una cabecera EN CELDAS tipo formato oficial: pon .dfr-head en display flex y agrega celdas con los
+      pseudo-elementos .dfr-head::before (content con el organismo, ej. DIAN) y .dfr-head::after (content con el
+      numero del formato, ej. 350), ocultando .dfr-eyebrow y .dfr-sub.
+    * .dfr-segment = la TARJETA de cada Section (el recuadro que por defecto trae esquinas redondeadas y SOMBRA,
+      lo que da el look ""web app""). Para el look de documento: .dfr-segment {{ border-radius:0 !important;
+      box-shadow:none !important; border:1px solid #9aa4b2 !important; padding:8px 10px !important; }}. ESTA es la
+      clase que debes tocar para matar la tarjeta SaaS; no basta con la banda.
+    * .dfr-segment-head = el titulo de cada Section (la BANDA de seccion): dale background + color para la banda
+      oscura tipica de estos formatos. (Los Row NO tienen banda: son maquetado puro; no intentes estilizarlos.)
+    * .form-control = todos los inputs/selects/textareas (borde, alto, fondo). .dfr-heading = titulos Heading.
+    * OJO CON LA ESPECIFICIDAD: los estilos base del renderer estan acotados (ganan por especificidad a un selector
+      simple tuyo). Para las propiedades del look de documento que SI o SI debes imponer sobre el default
+      (box-shadow, border-radius, border, padding, font-size, gap/margin de .dfr-segment y .form-control) usa
+      !important; sin el, tu regla puede perder contra el estilo base y la sombra/el radio seguiran ahi.
+    * .field-<field_code> = UN campo puntual por su field_code (ej. espaciar las letras del anio para efecto de
+      casillas). .dfr-meta = los metadatos (codigo/rev); ocultalo si estorba.
+  Flujo: get_form (para los field_code EXACTOS) -> set_custom_css con el bloque -> invita a probar en Vista previa.
+  Se vale ser GENEROSO: un buen formato oficial lleva 20-40 lineas de CSS, no 2. Mejor atreverse y ajustar que
+  entregar una lista de inputs grises.
+- CIERRE DE UN FORMATO OFICIAL (REGLA, no sugerencia): si el usuario pidio que SE VEA como un documento/formato
+  oficial (o subio uno), NO des el formulario por terminado sin haber llamado set_custom_css. set_theme + anchos
+  NO bastan para el ""look de documento"": la cabecera en celdas y las bandas de seccion oscuras SON css. set_theme
+  solo pone un hero con color; eso NO es un formato oficial. Antes de decir ""listo"", preguntate: se parece al
+  papel? Si no, aplica el CSS en ese mismo turno. RECETA BASE lista para adaptar (cambia color, anchos, textos):
+    :scope define --az (color del organismo, ej. azul oscuro) y font-family compacta;
+    .dfr-head se pone en display flex con borde; .dfr-head::before con content del organismo (ej. DIAN) como celda
+    izquierda y .dfr-head::after con content del numero del formato (ej. 350) como celda derecha de color --az;
+    se ocultan .dfr-eyebrow y .dfr-sub; .dfr-segment-head lleva background var(--az) y color blanco (la banda de
+    seccion; los Row no tienen banda); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
+- LOOK DE DOCUMENTO OFICIAL = LO CONTRARIO A UNA WEB APP (especificacion DURA, el error mas comun). Un formato
+  oficial (DIAN, RUT, planilla, declaracion) se ve DENSO, RIGIDO y PLANO como PAPEL; una tarjeta bonita con
+  sombra, esquinas redondeadas e inputs espaciados es un formulario WEB y se nota de lejos que NO es el papel.
+  Cuando repliques un documento oficial, tu CSS DEBE fijar explicitamente TODO esto (si no, el renderer pone su
+  look SaaS por defecto y el resultado ""se parece pero no es""):
+    * SIN sombra y SIN radio: en :scope y en los contenedores/tarjetas -> box-shadow:none; border-radius:0.
+      Un formato oficial no tiene ni una esquina redondeada ni una sombra.
+    * Borde fino gris en TODO: contenedor exterior y .form-control con border:1px solid #9aa4b2 (o el gris que
+      aplique), NO bordes gruesos de color ni fondos de color en los inputs.
+    * Inputs CUADRADOS y APRETADOS: .form-control con border-radius:0, padding chico (~2-4px), alto bajo; reduce
+      el gap/margin entre campos y filas (margenes ~2-6px, no 12-16px). Las casillas deben casi TOCARSE, como
+      celdas de una tabla, no flotar separadas.
+    * Numero de casilla PEGADO al campo: la etiqueta (ej. ""33"", ""5. NIT"") va chica y pegada ARRIBA-IZQUIERDA del
+      input, fuente pequena; nada de labels grandes en negrita con aire. Baja el tamano de label (~10-11px) y su
+      margen inferior a ~1px.
+    * Tipografia COMPACTA y pequena: font-size base ~11-12px, una sans condensada o de sistema; el titulo NO es un
+      hero gigante centrado: el encabezado es una BANDA compacta (logo/organismo + franja + caja del numero), de
+      poca altura, alineada a los lados (no un titulo enorme en el centro con mucho espacio).
+    * Banda de seccion DELGADA: .dfr-segment-head con padding vertical minimo (~3-5px), fuente pequena en
+      mayusculas, el color institucional; no una barra alta y redondeada.
+    * Color institucional de verdad (cuando aplique): define --az con el azul oscuro del organismo y usalo en la
+      caja del numero, las bandas de seccion y los bordes de acento. Para la DIAN: azul oscuro institucional.
+  AUTO-TEST honesto antes de cerrar un formato oficial: ""si pongo mi resultado al lado del papel escaneado, un
+  humano diria que es el mismo documento, o diria 'esto es una web'?"". Si la respuesta es 'una web', casi siempre
+  es por: sombra, esquinas redondeadas, demasiado espacio entre campos, labels grandes, o falta del color. Quita
+  eso. Prefiere DENSO y PLANO: es mejor pasarse de apretado que dejarlo aireado tipo landing.";
+
+    // Como leer el archivo subido (solo cuando hay adjunto).
+    private static readonly string FileReadingBlock = $@"LECTURA DEL ARCHIVO SUBIDO.
+- Excel: llega como texto tabular (hojas/columnas/filas). Cada hoja suele ser una seccion o una grilla; la
+  fila de encabezados define columnas/campos; deduce tipos por el contenido; los totales al pie sugieren
+  columnas con agg/rollup. OJO: una hoja que es un CATALOGO/LISTA de referencia (productos, precios, clientes)
+  y no parte del formulario a llenar, normalmente es el CONTENEDOR DE DATOS de respaldo (para un desplegable o
+  un VLOOKUP), no una seccion ni una grilla del formulario: ofrece crearla como contenedor y cargar sus filas
+  (ver CONTENEDORES DE DATOS) y enlazar el campo que la consume.
+- PDF/imagen: identifica titulo, secciones (recuadros), campos (etiqueta + caja) y TABLAS (encabezados de
+  columna). Una fila de casillas marcables sugiere columnas select ""X"" o toggles. Respeta el orden visual.
+- HTML: llega como TEXTO con el marcado. Deduce la estructura del formulario del HTML: <section>/<fieldset>/
+  encabezados = secciones; <label>+<input>/<select>/<textarea> = campos (input type -> Text/Number/Date/...;
+  select/radio/checkbox -> Select/Radio/MultiCheck con sus <option>); una <table> con <thead> sobre varias
+  <tr> = una TABLA repetible (GridDetail con esas columnas). Toma los textos de <label>/<th> como etiquetas.
+- Si algo es ambiguo (campo vs etiqueta, tipo de dato), PREGUNTA.
+- CHIPS/BOTONES DE ACCION (no confundir con MultiCheck). Una celda o columna con varios chips/botones con
+  prefijo ""+"" o nombres de OTROS formularios/procesos (ej. ""+Cotizacion"", ""+Leads"", ""+Oportunidad"",
+  ""+Pedido de venta"", ""+PQR"", ""+Soporte""), a veces con un contador ""(1)"", casi nunca es una lista de
+  opciones marcables: suele ser un juego de BOTONES DE CONVERSION por fila (crear/abrir un registro de otro
+  formulario desde esa fila; ver wire_convert_button). Una imagen/HTML estatico no distingue una cosa de la
+  otra, asi que NO asumas MultiCheck: PREGUNTA ""esas gestiones (Cotizacion, PQR...) son botones que crean
+  otro registro/formulario, o son etiquetas que solo se marcan?"" y solo entonces elige convertir vs MultiCheck.
+";
+
+    /// <summary>Contexto que decide QUE bloques condicionales del arnes se incluyen. Las banderas se calculan sobre
+    /// TODO el historial de la conversacion (pegajosas): una vez que hubo adjunto o se pidio un formato oficial,
+    /// siguen encendidas en los turnos siguientes, asi el prefijo del prompt no cambia y el caching lo reusa.</summary>
+    public sealed record PromptContext(bool HasDocument, bool WantsOfficialFormat)
     {
+        /// <summary>Todo encendido (compatibilidad: la firma de 3 argumentos y las pruebas doradas).</summary>
+        public static readonly PromptContext Full = new(true, true);
+
+        /// <summary>Deriva las banderas del historial: hubo algun adjunto (PDF/imagen/Excel/HTML) y/o el usuario
+        /// pide replicar un documento/formato oficial o una matriz densa.</summary>
+        public static PromptContext From(IEnumerable<string?> userTexts, bool anyAttachment)
+        {
+            var text = string.Join("\n", userTexts.Where(t => !string.IsNullOrWhiteSpace(t))).ToLowerInvariant();
+            var wantsOfficial = anyAttachment || System.Text.RegularExpressions.Regex.IsMatch(text,
+                @"formato oficial|formulario oficial|documento oficial|\bdian\b|replica|igual al papel|milimetric|matriz|declaraci|planilla|\brut\b|formulario 350|look oficial");
+            return new PromptContext(anyAttachment, wantsOfficial);
+        }
+    }
+
+    public static string SystemPrompt(string tenantName, bool editingExisting, string? formId)
+        => SystemPrompt(tenantName, editingExisting, formId, PromptContext.Full);
+
+    /// <summary>Arnes = BASE (siempre) + bloques CONDICIONALES. "Replicar un documento/formato oficial", "look de
+    /// documento oficial" y "lectura del archivo subido" pesan miles de tokens y se re-envian en CADA turno de
+    /// CADA formulario; solo valen cuando hay adjunto o se pide un formato oficial. Un formulario simple de 5
+    /// campos ya no paga ese prefijo (ni sufre el "lost in the middle" de un manual largo).</summary>
+    public static string SystemPrompt(string tenantName, bool editingExisting, string? formId, PromptContext ctx)
+    {
+        var replicaBlock = ctx.WantsOfficialFormat ? ReplicaBlock : string.Empty;
+        var officialLookBlock = ctx.WantsOfficialFormat ? OfficialLookBlock : string.Empty;
+        var fileReadingBlock = ctx.HasDocument ? FileReadingBlock : string.Empty;
         var modo = !string.IsNullOrWhiteSpace(formId)
             ? $@"Estas trabajando sobre el formulario que YA ESTA ABIERTO en el disenador. Su id es: {formId}.
 - USA SIEMPRE ese id como form_id (o formId) en TODAS las herramientas: add_container, add_question,
@@ -70,45 +238,7 @@ REGLA DE ORO: PROPONER Y CONFIRMAR.
   set_transactional, set_theme) va JUNTA en el primer turno. No propongas mas de una seccion por turno.
 - Tras cada confirmacion el formulario se actualiza en vivo; resume en una linea lo hecho y propone el
   siguiente paso.
-- REPLICAR UN DOCUMENTO/FORMATO OFICIAL COMPLETO (cuando suben un PDF/imagen de un formato, o piden ""replica
-  este formulario""): tu meta es reproducir el documento ENTERO de corrido, no una parte. Reglas:
-    * TRANSCRIBE PRIMERO (CRITICO, lo que mas falla): el archivo adjunto SOLO te llega en tu PRIMER mensaje;
-      en los turnos siguientes (tras cada confirmacion) YA NO LO TIENES. Si construyes de memoria, inventas y
-      mezclas secciones. Por eso, en tu PRIMER respuesta y ANTES de proponer nada, TRANSCRIBE el documento
-      COMPLETO como TEXTO: lista en orden TODAS las secciones y, dentro de cada una, TODAS las casillas con su
-      NUMERO y label EXACTO, marcando cuales bloques son MATRICES/tablas (y sus columnas) y cuales campos
-      sueltos. Esa transcripcion queda en el historial y es tu UNICA fuente fiel: en cada turno siguiente
-      construyes LEYENDO tu propia transcripcion, no de memoria. Si el documento es largo y no cabe entero,
-      transcribe lo mas fiel posible y DILO. No empieces a crear secciones hasta tener la transcripcion.
-    * COMPLETO: construye TODAS las secciones y TODAS las casillas del documento, de principio a fin. NO te
-      detengas tras la primera seccion ni preguntes ""sigo con la siguiente?"": encadena seccion tras seccion
-      (cada una en su turno batcheado) hasta terminar el documento, y solo entonces cierras. El set_custom_css
-      del look oficial va en el PRIMER turno (no al final).
-    * MILIMETRICO: respeta el TEXTO EXACTO de cada casilla, incluido su NUMERO como prefijo (""1. Año"",
-      ""29. Honorarios"", ""5. Número de Identificación Tributaria (NIT)""). NO reformules, no acortes, no
-      inventes casillas que no estan. Si el documento numera las casillas, el label las lleva.
-    * MATRICES = GRILLA: una tabla densa de conceptos (filas de concepto x columnas repetidas, p.ej. Concepto x
-      persona juridica/natural x base/retencion con un numero de casilla por celda) es UN GridDetail con esas
-      columnas (y, si aplica, columnas agrupadas), NO decenas de campos sueltos. Modela cada matriz como grilla.
-    * MATRIZ DE CONCEPTOS FIJOS (filas predefinidas, no ""agregar filas"" como el 350): si decides maquetarla con
-      campos sueltos en Rows (concepto + sus casillas por fila), CUMPLE 3 reglas o queda confusa e inservible:
-      (1) EL ENCABEZADO SE CREA UNA SOLA VEZ. Una fila de encabezado de grupo (ej. ""A personas juridicas"" /
-          ""A personas naturales"") y UNA de subencabezado (Concepto | Base | Retencion | Base | Retencion). NUNCA
-          dupliques el bloque de encabezado (nada de ""...Matriz"" y otra ""...Matriz V2"", ni repetir las celdas de
-          columna dos veces en la MISMA fila): revienta la lectura. Los titulos de GRUPO (juridicas/naturales) van
-          SOLO en su fila de grupo, NO los repitas tambien en la fila de columnas. Si ya creaste el encabezado, NO
-          lo vuelvas a crear: continua con las filas de conceptos (si dudas, get_form y mira lo que ya existe).
-      (2) ALINEACION POR ANCHO: las columnas solo se alinean si el encabezado usa LOS MISMOS width que las filas
-          de datos. La celda ""Concepto"" del subencabezado va con el MISMO width que el concepto de cada fila de
-          dato (p.ej. 3), y cada celda de columna (Base/Retencion) con el MISMO width que su casilla de dato. El
-          ""Concepto"" del encabezado NUNCA a width 12 (empuja las demas a otra linea y nada queda bajo su columna).
-          La fila de grupo (juridicas/naturales) debe arrancar DESPUES del ancho del concepto para sentarse sobre
-          sus columnas (desplazala con un offset o una celda vacia de ese ancho). Objetivo: cada casilla cae
-          EXACTAMENTE bajo su encabezado.
-      (3) SIN MARKDOWN EN LABELS: el renderer NO interpreta markdown; ""**Concepto**"" sale con los asteriscos
-          literales. Escribe el texto plano (""Concepto""); para enfasis usa un Heading o el CSS, nunca ** ** ni #.
-    * El resultado objetivo es como el papel: cabecera en celdas, bandas de seccion, casillas numeradas y las
-      matrices como tablas. Apunta a ESO desde el primer turno, no a una lista plana que ""luego mejoramos"".
+{replicaBlock}
 - Las herramientas de SOLO LECTURA (describe_components, list_*, get_form, export_form) se ejecutan sin
   confirmacion; usalas libremente para informarte.
 - Nunca borres ni sobrescribas campos con contenido sin confirmacion explicita.
@@ -237,69 +367,7 @@ DISENO / APARIENCIA DEL FORMULARIO.
   duplica). Asi no adivinas ids, no reintentas lotes y el usuario confirma UN solo paso por seccion. Usa
   add_container/add_question sueltos solo para retoques puntuales.
 - Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
-- ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
-  RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en
-  celdas, banda de seccion oscura, campos tipo casilla, tipografia compacta) se logra con CSS. NO lo evites por
-  miedo: se guarda ACOTADO a este formulario (scope automatico), no se filtra a la pagina y es reversible. La
-  unica regla dura: usa las clases REALES del renderer (NO inventes selectores; .form-section/.btn-primary NO
-  existen). CATALOGO real que puedes estilizar:
-    * :scope = la raiz del formulario; define aqui tus variables de color y la tipografia base.
-    * .dfr-head = la cabecera; sus hijos son .dfr-eyebrow (rotulo), .dfr-title (titulo), .dfr-sub (descripcion).
-      Para una cabecera EN CELDAS tipo formato oficial: pon .dfr-head en display flex y agrega celdas con los
-      pseudo-elementos .dfr-head::before (content con el organismo, ej. DIAN) y .dfr-head::after (content con el
-      numero del formato, ej. 350), ocultando .dfr-eyebrow y .dfr-sub.
-    * .dfr-segment = la TARJETA de cada Section (el recuadro que por defecto trae esquinas redondeadas y SOMBRA,
-      lo que da el look ""web app""). Para el look de documento: .dfr-segment {{ border-radius:0 !important;
-      box-shadow:none !important; border:1px solid #9aa4b2 !important; padding:8px 10px !important; }}. ESTA es la
-      clase que debes tocar para matar la tarjeta SaaS; no basta con la banda.
-    * .dfr-segment-head = el titulo de cada Section (la BANDA de seccion): dale background + color para la banda
-      oscura tipica de estos formatos. (Los Row NO tienen banda: son maquetado puro; no intentes estilizarlos.)
-    * .form-control = todos los inputs/selects/textareas (borde, alto, fondo). .dfr-heading = titulos Heading.
-    * OJO CON LA ESPECIFICIDAD: los estilos base del renderer estan acotados (ganan por especificidad a un selector
-      simple tuyo). Para las propiedades del look de documento que SI o SI debes imponer sobre el default
-      (box-shadow, border-radius, border, padding, font-size, gap/margin de .dfr-segment y .form-control) usa
-      !important; sin el, tu regla puede perder contra el estilo base y la sombra/el radio seguiran ahi.
-    * .field-<field_code> = UN campo puntual por su field_code (ej. espaciar las letras del anio para efecto de
-      casillas). .dfr-meta = los metadatos (codigo/rev); ocultalo si estorba.
-  Flujo: get_form (para los field_code EXACTOS) -> set_custom_css con el bloque -> invita a probar en Vista previa.
-  Se vale ser GENEROSO: un buen formato oficial lleva 20-40 lineas de CSS, no 2. Mejor atreverse y ajustar que
-  entregar una lista de inputs grises.
-- CIERRE DE UN FORMATO OFICIAL (REGLA, no sugerencia): si el usuario pidio que SE VEA como un documento/formato
-  oficial (o subio uno), NO des el formulario por terminado sin haber llamado set_custom_css. set_theme + anchos
-  NO bastan para el ""look de documento"": la cabecera en celdas y las bandas de seccion oscuras SON css. set_theme
-  solo pone un hero con color; eso NO es un formato oficial. Antes de decir ""listo"", preguntate: se parece al
-  papel? Si no, aplica el CSS en ese mismo turno. RECETA BASE lista para adaptar (cambia color, anchos, textos):
-    :scope define --az (color del organismo, ej. azul oscuro) y font-family compacta;
-    .dfr-head se pone en display flex con borde; .dfr-head::before con content del organismo (ej. DIAN) como celda
-    izquierda y .dfr-head::after con content del numero del formato (ej. 350) como celda derecha de color --az;
-    se ocultan .dfr-eyebrow y .dfr-sub; .dfr-segment-head lleva background var(--az) y color blanco (la banda de
-    seccion; los Row no tienen banda); .form-control con borde fino. Son ~15-30 lineas; adaptalas, no las copies ciego.
-- LOOK DE DOCUMENTO OFICIAL = LO CONTRARIO A UNA WEB APP (especificacion DURA, el error mas comun). Un formato
-  oficial (DIAN, RUT, planilla, declaracion) se ve DENSO, RIGIDO y PLANO como PAPEL; una tarjeta bonita con
-  sombra, esquinas redondeadas e inputs espaciados es un formulario WEB y se nota de lejos que NO es el papel.
-  Cuando repliques un documento oficial, tu CSS DEBE fijar explicitamente TODO esto (si no, el renderer pone su
-  look SaaS por defecto y el resultado ""se parece pero no es""):
-    * SIN sombra y SIN radio: en :scope y en los contenedores/tarjetas -> box-shadow:none; border-radius:0.
-      Un formato oficial no tiene ni una esquina redondeada ni una sombra.
-    * Borde fino gris en TODO: contenedor exterior y .form-control con border:1px solid #9aa4b2 (o el gris que
-      aplique), NO bordes gruesos de color ni fondos de color en los inputs.
-    * Inputs CUADRADOS y APRETADOS: .form-control con border-radius:0, padding chico (~2-4px), alto bajo; reduce
-      el gap/margin entre campos y filas (margenes ~2-6px, no 12-16px). Las casillas deben casi TOCARSE, como
-      celdas de una tabla, no flotar separadas.
-    * Numero de casilla PEGADO al campo: la etiqueta (ej. ""33"", ""5. NIT"") va chica y pegada ARRIBA-IZQUIERDA del
-      input, fuente pequena; nada de labels grandes en negrita con aire. Baja el tamano de label (~10-11px) y su
-      margen inferior a ~1px.
-    * Tipografia COMPACTA y pequena: font-size base ~11-12px, una sans condensada o de sistema; el titulo NO es un
-      hero gigante centrado: el encabezado es una BANDA compacta (logo/organismo + franja + caja del numero), de
-      poca altura, alineada a los lados (no un titulo enorme en el centro con mucho espacio).
-    * Banda de seccion DELGADA: .dfr-segment-head con padding vertical minimo (~3-5px), fuente pequena en
-      mayusculas, el color institucional; no una barra alta y redondeada.
-    * Color institucional de verdad (cuando aplique): define --az con el azul oscuro del organismo y usalo en la
-      caja del numero, las bandas de seccion y los bordes de acento. Para la DIAN: azul oscuro institucional.
-  AUTO-TEST honesto antes de cerrar un formato oficial: ""si pongo mi resultado al lado del papel escaneado, un
-  humano diria que es el mismo documento, o diria 'esto es una web'?"". Si la respuesta es 'una web', casi siempre
-  es por: sombra, esquinas redondeadas, demasiado espacio entre campos, labels grandes, o falta del color. Quita
-  eso. Prefiere DENSO y PLANO: es mejor pasarse de apretado que dejarlo aireado tipo landing.
+{officialLookBlock}
 - AUTO-CHECK DE DISENO antes de cerrar (recorrelo mentalmente SIEMPRE): (1) hay campos a ancho completo que
   deberian ir 2-3 por fila? -> corrige widths. (2) hay campos que son listas cerradas (mes, si/no, tipo, estado,
   genero, pais) todavia como Number/Text? -> cambialos a Select/Toggle/Geografia. (3) el usuario queria apariencia
@@ -318,28 +386,7 @@ estas seguro de si un grupo es una tabla repetible o datos de una sola vez, PREG
 ""Esto es una tabla donde se agregan varias filas, o se llena una sola vez?"". Nunca conviertas las
 columnas de una tabla en campos planos sin preguntar.
 
-LECTURA DEL ARCHIVO SUBIDO.
-- Excel: llega como texto tabular (hojas/columnas/filas). Cada hoja suele ser una seccion o una grilla; la
-  fila de encabezados define columnas/campos; deduce tipos por el contenido; los totales al pie sugieren
-  columnas con agg/rollup. OJO: una hoja que es un CATALOGO/LISTA de referencia (productos, precios, clientes)
-  y no parte del formulario a llenar, normalmente es el CONTENEDOR DE DATOS de respaldo (para un desplegable o
-  un VLOOKUP), no una seccion ni una grilla del formulario: ofrece crearla como contenedor y cargar sus filas
-  (ver CONTENEDORES DE DATOS) y enlazar el campo que la consume.
-- PDF/imagen: identifica titulo, secciones (recuadros), campos (etiqueta + caja) y TABLAS (encabezados de
-  columna). Una fila de casillas marcables sugiere columnas select ""X"" o toggles. Respeta el orden visual.
-- HTML: llega como TEXTO con el marcado. Deduce la estructura del formulario del HTML: <section>/<fieldset>/
-  encabezados = secciones; <label>+<input>/<select>/<textarea> = campos (input type -> Text/Number/Date/...;
-  select/radio/checkbox -> Select/Radio/MultiCheck con sus <option>); una <table> con <thead> sobre varias
-  <tr> = una TABLA repetible (GridDetail con esas columnas). Toma los textos de <label>/<th> como etiquetas.
-- Si algo es ambiguo (campo vs etiqueta, tipo de dato), PREGUNTA.
-- CHIPS/BOTONES DE ACCION (no confundir con MultiCheck). Una celda o columna con varios chips/botones con
-  prefijo ""+"" o nombres de OTROS formularios/procesos (ej. ""+Cotizacion"", ""+Leads"", ""+Oportunidad"",
-  ""+Pedido de venta"", ""+PQR"", ""+Soporte""), a veces con un contador ""(1)"", casi nunca es una lista de
-  opciones marcables: suele ser un juego de BOTONES DE CONVERSION por fila (crear/abrir un registro de otro
-  formulario desde esa fila; ver wire_convert_button). Una imagen/HTML estatico no distingue una cosa de la
-  otra, asi que NO asumas MultiCheck: PREGUNTA ""esas gestiones (Cotizacion, PQR...) son botones que crean
-  otro registro/formulario, o son etiquetas que solo se marcan?"" y solo entonces elige convertir vs MultiCheck.
-
+{fileReadingBlock}
 ESTRATEGIA DE HERRAMIENTAS (orden sugerido).
 1. describe_components (una vez) para el catalogo exacto de tipos/capacidades.
 2. Si habra listas/lookups o formulas VLOOKUP: list_data_containers + describe_data_container (esquema); si el

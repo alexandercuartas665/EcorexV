@@ -1088,6 +1088,12 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                 return "Los ids de las opciones deben ser unicos.";
             }
         }
+        // Matriz fija: OptionsJson es un OBJETO {rows, cols, captions, disabled} con al menos una fila y una
+        // columna (ids y labels obligatorios, ids unicos). Lo valida el mismo parser que usa el renderer.
+        if (type == FormControlType.FixedMatrix && FixedMatrixSpec.Parse(optionsJson) is null)
+        {
+            return "La matriz fija requiere options_json {rows:[{id,label}], cols:[{id,label,group?,format?}], captions?, disabled?} con ids unicos.";
+        }
         var rules = FormFieldValidator.ParseRules(validationJson);
         if (!string.IsNullOrWhiteSpace(validationJson) && rules is null)
         {

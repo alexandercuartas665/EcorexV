@@ -93,7 +93,10 @@ public static class AiCostEstimator
         var r = RatesFor(provider, model);
         var cached = Math.Clamp(cachedInputTokens, 0, inputTokens);
         var fresh = inputTokens - cached;
-        var cost = (fresh * r.In + cached * r.In * 0.25m + outputTokens * r.Out) / 1_000_000m;
+        // Factor del cache de prompt: Anthropic cobra la LECTURA de cache a 0.1x de la entrada; Gemini (implicito)
+        // y el resto a ~0.25x. Antes se usaba 0.25 para todos (subestimaba el ahorro de Claude).
+        var cacheFactor = provider == AiProvider.Claude ? 0.10m : 0.25m;
+        var cost = (fresh * r.In + cached * r.In * cacheFactor + outputTokens * r.Out) / 1_000_000m;
         return Math.Round(cost, 6);
     }
 

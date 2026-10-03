@@ -25,6 +25,49 @@ public class FormBuilderChatServiceTests
     private static string Harness() =>
         FormBuilderHarness.SystemPrompt("ACME", editingExisting: false, formId: "11111111-1111-1111-1111-111111111111");
 
+    // Punto 4 de la auditoria: los bloques "replicar documento", "look de documento oficial" y "lectura del archivo"
+    // son CONDICIONALES. Un formulario simple (sin adjunto ni formato oficial) no paga esos miles de tokens por
+    // turno; con contexto Full (o la firma de 3 argumentos) siguen presentes.
+    [Fact]
+    public void Arnes_apaga_los_bloques_de_documento_cuando_no_hay_adjunto_ni_formato_oficial()
+    {
+        var full = FormBuilderHarness.SystemPrompt("ACME", false, null, FormBuilderHarness.PromptContext.Full);
+        var lean = FormBuilderHarness.SystemPrompt("ACME", false, null, new FormBuilderHarness.PromptContext(false, false));
+
+        // Frases que SOLO viven dentro de cada bloque condicional (el AUTO-CHECK de la base cita por nombre al
+        // "LOOK DE DOCUMENTO OFICIAL", asi que esa frase no sirve como centinela).
+        Assert.Contains("TRANSCRIBE PRIMERO", full);
+        Assert.Contains("LO CONTRARIO A UNA WEB APP", full);
+        Assert.Contains("LECTURA DEL ARCHIVO SUBIDO", full);
+
+        Assert.DoesNotContain("TRANSCRIBE PRIMERO", lean);
+        Assert.DoesNotContain("LO CONTRARIO A UNA WEB APP", lean);
+        Assert.DoesNotContain("LECTURA DEL ARCHIVO SUBIDO", lean);
+        Assert.True(lean.Length < full.Length * 0.8, $"lean={lean.Length} full={full.Length}");
+
+        // La BASE sigue completa: densidad, control por significado, apply_form_spec, auto-check de diseno.
+        Assert.Contains("DENSIDAD POR DEFECTO", lean);
+        Assert.Contains("apply_form_spec", lean);
+        Assert.Contains("AUTO-CHECK DE DISENO", lean);
+    }
+
+    // Las banderas se derivan del historial: adjunto => ambas; pedir un formato oficial/DIAN => formato; nada => nada.
+    [Fact]
+    public void PromptContext_From_detecta_adjunto_y_formato_oficial()
+    {
+        var nada = FormBuilderHarness.PromptContext.From(new[] { "crea un formulario de visitas con 5 campos" }, anyAttachment: false);
+        Assert.False(nada.HasDocument);
+        Assert.False(nada.WantsOfficialFormat);
+
+        var dian = FormBuilderHarness.PromptContext.From(new[] { "replica el formulario 350 de la DIAN" }, anyAttachment: false);
+        Assert.False(dian.HasDocument);
+        Assert.True(dian.WantsOfficialFormat);
+
+        var adjunto = FormBuilderHarness.PromptContext.From(new[] { "hola" }, anyAttachment: true);
+        Assert.True(adjunto.HasDocument);
+        Assert.True(adjunto.WantsOfficialFormat);
+    }
+
     [Fact]
     public void Arnes_exige_densidad_por_defecto_no_todo_a_ancho_completo()
     {
@@ -68,7 +111,8 @@ public class FormBuilderChatServiceTests
         // Replicar un documento oficial: COMPLETO + milimetrico (casillas numeradas) + matrices como grilla.
         Assert.Contains("REPLICAR UN DOCUMENTO", p);
         Assert.Contains("MILIMETRICO", p);
-        Assert.Contains("MATRICES = GRILLA", p);
+        // Ronda 2: la matriz densa ya no se simula con GridDetail/Rows sueltas; es UN campo FixedMatrix.
+        Assert.Contains("MATRIZ = UN SOLO CAMPO FixedMatrix", p);
         // El fix de fidelidad: transcribir el documento primero (el adjunto solo llega en el 1er turno).
         Assert.Contains("TRANSCRIBE PRIMERO", p);
     }

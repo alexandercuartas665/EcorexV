@@ -115,6 +115,11 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "atributos que add_question (field_code, label, control_type, width, required, options_json, calc_expression, " +
             "aggregate, format, source_kind/source_ref, placeholder_text, help_text, visible_when_json...).",
             """{"type":"object","properties":{"form_id":{"type":"string"},"containers":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string","description":"Section|Row|Col|Tabs|Segment"},"parent_key":{"type":"string"},"parent_id":{"type":"string"},"width":{"type":"integer"},"style":{"type":"string"},"inline_labels":{"type":"boolean"},"allowed_cargos_json":{"type":"string"},"visible_when_json":{"type":"string"}},"required":["key","name"]}},"fields":{"type":"array","items":{"type":"object","properties":{"container_key":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"width":{"type":"integer"},"required":{"type":"boolean"},"options_json":{"type":"string"},"placeholder_text":{"type":"string"},"help_text":{"type":"string"},"default_value":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"visible_when_json":{"type":"string"},"validation_json":{"type":"string"}},"required":["field_code","label","control_type"]}}},"required":["form_id"],"additionalProperties":false}"""),
+        new("delete_container",
+            "Elimina un CONTENEDOR (Section/Row/Col/Tabs) por su id. Sus preguntas y sub-contenedores NO se pierden: " +
+            "suben al padre del contenedor borrado (o a la raiz). Usala para quitar una fila/seccion que quedo VACIA, " +
+            "duplicada o sobrante (antes no habia forma y quedaban cascarones).",
+            """{"type":"object","properties":{"container_id":{"type":"string"}},"required":["container_id"],"additionalProperties":false}"""),
         new("list_templates",
             "Lista las plantillas de impresion del tenant (id, nombre, si es la predeterminada, si se envia como imagen).",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
@@ -303,6 +308,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "update_question" => await UpdateQuestionAsync(args, cancellationToken),
                 "move_question" => await MoveQuestionAsync(args, cancellationToken),
                 "delete_question" => await DeleteQuestionAsync(args, cancellationToken),
+                "delete_container" => await DeleteContainerAsync(args, cancellationToken),
                 "set_transactional" => await SetTransactionalAsync(args, cancellationToken),
                 "set_sequence_next" => await SetSequenceNextAsync(args, cancellationToken),
                 "set_module" => await SetModuleAsync(args, cancellationToken),
@@ -355,14 +361,21 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         },
         control_capabilities = new
         {
-            accept_options_json = new[] { "Select", "Radio", "MultiCheck", "GridDetail" },
+            accept_options_json = new[] { "Select", "Radio", "MultiCheck", "GridDetail", "FixedMatrix" },
             support_field_lookup = new[] { "Select", "Radio", "MultiCheck" },
             support_calc = new[] { "Number", "Text" },
             support_format = new[] { "Number", "Text", "Date", "DateTime" },
             no_capture = new[] { "Heading", "Literal", "Paragraph", "Divider", "Spacer", "Html", "Button" },
             grid_control = "GridDetail",
             master_detail_control = "Subform",
-            geografia_control = "Geografia"
+            geografia_control = "Geografia",
+            fixed_matrix_control = "FixedMatrix",
+            fixed_matrix_schema = new
+            {
+                note = "MATRIZ FIJA: filas (conceptos) y columnas (agrupables) PREDEFINIDAS, una casilla por celda. Para formatos tipo DIAN 350 (concepto x juridicas/naturales x base/retencion). Es UN solo campo: NO la simules con Rows + campos sueltos (eso descuadra) ni con GridDetail (que es para filas que el usuario AGREGA).",
+                options_json = "OBJETO {rows:[{id,label}], cols:[{id,label,group?,format?}], captions:{\"fila.col\":\"29\"}, disabled:[\"fila.col\"]}. group = encabezado superior fusionado (ej. 'A personas juridicas'); format = currency|integer|decimal|percent; captions = numero de casilla por celda; disabled = celdas que no aplican (quedan en blanco).",
+                value = "lo llena el usuario: objeto plano {\"fila.col\":\"valor\"}"
+            }
         },
         grid_column_schema = new
         {
@@ -1091,7 +1104,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     // el camino correcto (rollup), en vez de guardar un formulario roto.
     internal static string? HeaderGridCalcError(SaveFormQuestionRequest req)
     {
-        if (req.ControlType == FormControlType.GridDetail) { return null; } // el calc de una grilla va en options_json
+        if (req.ControlType is FormControlType.GridDetail or FormControlType.FixedMatrix) { return null; } // el calc de una grilla va en options_json; la matriz no calcula
         if (req.CalcExpression is { } ce && ce.Contains("{#", StringComparison.Ordinal))
         {
             return $"El calc de un campo NO puede referenciar una columna de grilla con {{#...}} (eso solo vale " +
@@ -1246,6 +1259,16 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             }
         }
 
+        // 5c) Matriz fija sin filas/columnas validas: el renderer no puede dibujarla.
+        foreach (var q in d.Questions.Where(x => x.ControlType == FormControlType.FixedMatrix))
+        {
+            if (FixedMatrixSpec.Parse(q.OptionsJson) is null)
+            {
+                issues.Add(new("error", $"matriz '{q.FieldCode}'", "no tiene filas/columnas validas en options_json",
+                    "Pon options_json = {rows:[{id,label}], cols:[{id,label,group?,format?}], captions:{...}, disabled:[...]} con ids unicos."));
+            }
+        }
+
         // 6) Coherencia de cada rollup contra el encabezado (destino real y SIN calc que lo pise).
         foreach (var (grid, col, target) in rollupTargets)
         {
@@ -1344,6 +1367,15 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         var index = Int(args, "index") ?? 0;
         var r = await _forms.MoveQuestionToAsync(id, TryGuid(args, "container_id", out var cid) ? cid : null, index, ct);
         return FormResp(r, v => new { ok = true, moved = v });
+    }
+
+    // Borra un contenedor; el servicio reubica sus preguntas y sub-contenedores en el padre (FKs NO ACTION), asi
+    // que nunca se pierde contenido. Cubre el hueco que dejaba cascarones vacios tras limpiar un encabezado.
+    private async Task<AgentToolResult> DeleteContainerAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "container_id", out var id)) { return Err("Falta un 'container_id' valido."); }
+        var r = await _forms.DeleteContainerAsync(id, ct);
+        return FormResp(r, v => new { ok = true, deleted = v, nota = "sus preguntas/sub-contenedores subieron al padre" });
     }
 
     private async Task<AgentToolResult> DeleteQuestionAsync(JsonElement args, CancellationToken ct)

@@ -19,6 +19,7 @@ public sealed class AiInferenceService : IAiInferenceService
     private readonly IAgentCierreService _cierre;
     private readonly IReadOnlyList<IAgentToolset> _toolsets;
     private readonly TimeProvider _clock;
+    private readonly IAudioTranscoder _audioTranscoder;
 
     // Nombres de TODAS las herramientas (de todos los toolsets). Se usan para sanear la respuesta saliente:
     // a veces el modelo escribe la llamada como texto (p.ej. "crear_lead(...)") y eso NO debe llegar al cliente.
@@ -31,7 +32,7 @@ public sealed class AiInferenceService : IAiInferenceService
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
-    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IAgentCierreService cierre, IEnumerable<IAgentToolset> toolsets, TimeProvider clock)
+    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IAgentCierreService cierre, IEnumerable<IAgentToolset> toolsets, TimeProvider clock, IAudioTranscoder audioTranscoder)
     {
         _db = db;
         _secretProtector = secretProtector;
@@ -41,6 +42,7 @@ public sealed class AiInferenceService : IAiInferenceService
         _cierre = cierre;
         _toolsets = toolsets.ToList();
         _clock = clock;
+        _audioTranscoder = audioTranscoder;
         _allToolNames = _toolsets.SelectMany(t => t.GetSpecs()).Select(s => s.Name)
             .Where(n => !string.IsNullOrWhiteSpace(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
@@ -154,10 +156,32 @@ public sealed class AiInferenceService : IAiInferenceService
             catch { /* best-effort: la lectura de la imagen nunca debe romper la respuesta */ }
         }
 
+        // Formato de audio (OLA 2): Gemini SOLO acepta wav/mp3, pero WhatsApp entrega las notas de voz en
+        // OGG/opus (mime "audio/ogg; codecs=opus"), que daba HTTP 400 y dejaba al agente MUDO. Aqui se limpia el
+        // sufijo ";codecs=..." y, si el formato no es wav/mp3, se TRANSCODIFICA a wav (ffmpeg). Si no se puede,
+        // el audio queda null: no se transcribe ni se manda al modelo, y el agente cae a su fallback (nunca mudo).
+        if (!string.IsNullOrWhiteSpace(audioBase64))
+        {
+            var baseAudioMime = (audioMime ?? "").Split(';')[0].Trim().ToLowerInvariant();
+            if (baseAudioMime is "audio/wav" or "audio/x-wav" or "audio/mpeg" or "audio/mp3")
+            {
+                audioMime = baseAudioMime; // ya soportado: se usa tal cual
+            }
+            else
+            {
+                byte[]? wav = null;
+                try { wav = await _audioTranscoder.ToWavAsync(Convert.FromBase64String(audioBase64!), baseAudioMime, cancellationToken); }
+                catch { /* best-effort */ }
+                if (wav is { Length: > 0 }) { audioBase64 = Convert.ToBase64String(wav); audioMime = "audio/wav"; }
+                else { audioBase64 = null; audioMime = null; }
+            }
+        }
+
         // Nota de voz entrante: se TRANSCRIBE y se anexa al ultimo turno como "Transcripcion del audio: ...",
-        // el formato que el prompt (seccion NOTA DE VOZ) ya espera. Asi la ven TANTO el modelo principal COMO el
-        // extractor de cache, y calza sin cambios de prompt. Best-effort: si falla, el audio igual quedo guardado
-        // (ingesta) y el agente usa su fallback en espanol. Alcance: Gemini; otros proveedores devuelven vacio.
+        // el formato que el prompt (seccion NOTA DE VOZ) ya espera. El MODELO PRINCIPAL recibe la transcripcion
+        // como TEXTO (no el audio crudo: ver la llamada a RunToolLoopAsync), asi que una sola lectura basta y se
+        // evita de raiz el 400 de formato en la llamada principal. Best-effort: si falla, el audio igual quedo
+        // guardado (ingesta) y el agente usa su fallback en espanol. Alcance: Gemini; otros proveedores vacio.
         if (!string.IsNullOrWhiteSpace(audioBase64) && work.Count > 0
             && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
         {
@@ -210,8 +234,11 @@ public sealed class AiInferenceService : IAiInferenceService
         // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds, agent.Id);
+        // El audio NO se reenvia al modelo principal (null, null): ya recibio su contenido como texto
+        // ("Transcripcion del audio: ..." arriba). Asi se evita el 400 de formato en la llamada principal y se
+        // ahorra payload; la imagen y el documento si siguen fluyendo al modelo.
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, imageBase64, imageMime, audioBase64, audioMime, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, imageBase64, imageMime, null, null, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)

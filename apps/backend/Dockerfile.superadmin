@@ -51,7 +51,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        chromium fonts-liberation fonts-noto-color-emoji ca-certificates \
+       ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+# ffmpeg: transcodifica las notas de voz de WhatsApp (ogg/opus) a WAV para la transcripcion por Gemini
+# (que solo acepta wav/mp3). Lo usa FfmpegAudioTranscoder (IAudioTranscoder) en el proceso SuperAdmin.
 # (Sin ECOREX_CHROME_PATH a proposito: que PuppeteerSharp use el Chromium que descarga, compatible.)
 
 WORKDIR /app

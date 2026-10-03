@@ -2942,6 +2942,16 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .cs-in { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; font-family: inherit; }
 .cs-in:focus { outline: none; border-color: var(--brand); }
 .cs-num { text-align: right; }
+/* Bloque de enriquecimiento (Maps->LinkedIn / web-correo): cada opcion en una fila compacta
+   [checkbox] [etiqueta] y, indentado, [sub-label] [input numerico CHICO] en linea. Antes el input
+   heredaba width:100% y ocupaba todo el modal para un valor de 1-2 digitos. Se scopea bajo .cs-editor
+   y se fuerza flex-direction:row para GANARLE a ".cs-editor label" (que apila texto sobre input). */
+.cs-editor .cs-enrich { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.cs-editor .cs-enrich + .cs-enrich { margin-top: 2px; }
+.cs-editor .cs-enrich-chk { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; font-size: 12.5px; font-weight: 500; color: var(--ink); line-height: 1.35; cursor: pointer; margin: 0; }
+.cs-editor .cs-enrich-chk input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--brand); cursor: pointer; }
+.cs-editor .cs-enrich-max { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0 0 0 26px; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+.cs-editor .cs-enrich .cs-num { width: 76px; flex: 0 0 auto; }
 .cs-c-exp { text-align: center; }
 .cs-exp { border: none; background: transparent; color: var(--ink-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; }
 .cs-c-chk { text-align: center; }

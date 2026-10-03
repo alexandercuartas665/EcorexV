@@ -374,7 +374,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     }
 
     // Distintos preservando el ORDEN de aparicion (case-insensitive).
-    private static List<string> DistinctKeep(IEnumerable<string> items)
+    internal static List<string> DistinctKeep(IEnumerable<string> items)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<string>();
@@ -388,7 +388,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     // Mezcla web_contacts en el data_json SIN perder lo de Maps: data_json es el row scrapeado serializado; se
     // re-escribe con el objeto { sitio, correos[], telefonos[] } agregado/actualizado. Si no es un objeto JSON
     // valido, se arranca uno nuevo (nunca lanza).
-    private static string MergeWebContacts(string? dataJson, string sitio, IReadOnlyList<string> correos, IReadOnlyList<string> telefonos)
+    internal static string MergeWebContacts(string? dataJson, string sitio, IReadOnlyList<string> correos, IReadOnlyList<string> telefonos)
     {
         JsonObject root;
         try
@@ -422,7 +422,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
           // Buzones automaticos (no sirven para contactar).
           "noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster" };
 
-    private static IEnumerable<string> ExtractAllEmails(string html)
+    internal static IEnumerable<string> ExtractAllEmails(string html)
     {
         foreach (Match m in MailtoRx.Matches(html))
         {
@@ -436,7 +436,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         }
     }
 
-    private static bool IsPlausibleEmail(string e)
+    internal static bool IsPlausibleEmail(string e)
     {
         if (e.Length is < 6 or > 120 || e.Count(c => c == '@') != 1) { return false; }
         var lower = e.ToLowerInvariant();
@@ -446,7 +446,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     // Prioriza los correos cuyo dominio coincide con el del SITIO de la empresa (p.ej. @colsanitas.com para
     // colsanitas.com); los de dominio AJENO (gmail, un proveedor, etc.) quedan al FINAL. Preserva el orden
     // relativo dentro de cada grupo. Si no se puede resolver el dominio del sitio, se deja la lista tal cual.
-    private static List<string> RankEmailsByOwnDomain(List<string> emails, string sitio)
+    internal static List<string> RankEmailsByOwnDomain(List<string> emails, string sitio)
     {
         var siteDom = RegistrableDomain(HostOf(sitio));
         if (string.IsNullOrEmpty(siteDom) || emails.Count < 2) { return emails; }
@@ -488,7 +488,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         @"(?:\+?57[\s.\-]?)?(?:3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|\(?60\d\)?[\s.\-]?\d{3}[\s.\-]?\d{4})",
         RegexOptions.Compiled);
 
-    private static IEnumerable<string> ExtractPhones(string html)
+    internal static IEnumerable<string> ExtractPhones(string html)
     {
         foreach (Match m in TelHrefRx.Matches(html))
         {
@@ -505,7 +505,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     // Normaliza a la forma NACIONAL en digitos: quita el indicativo pais 57 si viene; valida que sea un numero
     // colombiano razonable (movil 10 dig que empieza por 3, fijo nuevo 10 dig que empieza por 60, o fijo viejo
     // de 7 dig venido de un tel:). Devuelve null si no calza (descarta falsos positivos por longitud).
-    private static string? NormalizePhone(string raw)
+    internal static string? NormalizePhone(string raw)
     {
         var digits = new string(raw.Where(char.IsDigit).ToArray());
         if (digits.Length == 12 && digits.StartsWith("57", StringComparison.Ordinal)) { digits = digits[2..]; }

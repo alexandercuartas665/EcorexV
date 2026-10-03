@@ -222,6 +222,14 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             .Where(n => n.DefinitionId == draft.Id).ToListAsync(cancellationToken);
         var draftByElement = draftNodes.ToDictionary(n => n.BpmnElementId, StringComparer.Ordinal);
         var sourceById = sourceNodes.ToDictionary(n => n.Id);
+        // Mapa nodo VIEJO -> nodo NUEVO (por BpmnElementId, que si sobrevive al clonado). Lo usan los enlaces
+        // de decision del NotifyJson, cuyo targetNodeId apunta a OTRO nodo: sin re-mapear, el borrador guardaba
+        // un id de la version anterior y el desplegable "salida a la que resuelve" aparecia VACIO.
+        var oldToNewNodeId = new Dictionary<Guid, Guid>();
+        foreach (var sn in sourceNodes)
+        {
+            if (draftByElement.TryGetValue(sn.BpmnElementId, out var dn)) { oldToNewNodeId[sn.Id] = dn.Id; }
+        }
         foreach (var sourceNode in sourceNodes)
         {
             if (!draftByElement.TryGetValue(sourceNode.BpmnElementId, out var draftNode))
@@ -243,7 +251,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             // viajan en el XML BPMN. Sin esto, editar un flujo publicado creaba un borrador que PERDIA la
             // notificacion configurada (y los plazos): el usuario la configuraba, publicaba, volvia a editar
             // y "ya no estaba". Se copian igual que color/nota/tablero.
-            draftNode.NotifyJson = sourceNode.NotifyJson;
+            // Re-mapea el targetNodeId de los enlaces de decision a los nodos de ESTA version (antes se copiaba
+            // el id de la version anterior -> la salida de la compuerta se "perdia" al re-editar/publicar).
+            draftNode.NotifyJson = RemapDecisionTargets(sourceNode.NotifyJson, oldToNewNodeId);
             draftNode.SlaJson = sourceNode.SlaJson;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
@@ -348,6 +358,32 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             await transaction.CommitAsync(cancellationToken);
         }
         return WorkflowResult<FlowCanvasDto>.Ok((await GetCanvasAsync(draft.Id, cancellationToken))!);
+    }
+
+    // Re-mapea el targetNodeId de los enlaces de decision del NotifyJson a los nodos de la version nueva
+    // (<paramref name="oldToNew"/> = nodo viejo -> nodo nuevo, por BpmnElementId). Si un target ya no existe
+    // en el mapa (nodo eliminado), se deja tal cual (el desplegable lo mostrara vacio, como antes del fix).
+    private static string? RemapDecisionTargets(string? notifyJson, IReadOnlyDictionary<Guid, Guid> oldToNew)
+    {
+        if (string.IsNullOrWhiteSpace(notifyJson)) { return notifyJson; }
+        var cfg = NodeNotifyConfig.Parse(notifyJson);
+        if (cfg.IsEmpty) { return notifyJson; }
+        var changed = false;
+        var reglas = cfg.Reglas!.Select(r =>
+        {
+            if (r.EnlacesDecision is not { Count: > 0 }) { return r; }
+            var links = r.EnlacesDecision.Select(d =>
+            {
+                if (oldToNew.TryGetValue(d.TargetNodeId, out var nid) && nid != d.TargetNodeId)
+                {
+                    changed = true;
+                    return d with { TargetNodeId = nid };
+                }
+                return d;
+            }).ToList();
+            return r with { EnlacesDecision = links };
+        }).ToList();
+        return changed ? new NodeNotifyConfig(reglas).Serialize() : notifyJson;
     }
 
     // ---- Guardado desde bpmn-js (ADR-0034) ----

@@ -665,6 +665,8 @@
     private Guid? _presetProjectId;
     private Guid? _presetBoardId;
     private Guid? _presetColumnId;
+    // Subtarea: si el wizard se abre como "Agregar subtarea", la tarea creada cuelga de este padre (ParentId).
+    private Guid? _parentId;
     // Proyectos P3: hito del proyecto elegido (se cargan al elegir proyecto).
     private Guid? _milestoneId;
     private List<ProjectMilestoneDto> _milestones = new();
@@ -744,6 +746,7 @@
             ["correo"] = _requesterEmail,
             ["telefono"] = _requesterPhone,
             ["titulo"] = _title,
+            ["prioridad"] = TaskUi.PriorityLabel(_priority),
             ["nit"] = _requesterDoc,
             ["documento"] = _requesterDoc,
             ["identificacion"] = _requesterDoc,
@@ -890,7 +893,7 @@
     /// </summary>
     public async Task OpenAsync(Guid? presetProjectId = null, Guid? presetSubcategoriaId = null,
         Guid? presetCategoriaId = null, Guid? presetEntidadId = null,
-        Guid? presetBoardId = null, Guid? presetColumnId = null)
+        Guid? presetBoardId = null, Guid? presetColumnId = null, Guid? parentId = null)
     {
         ResetAll();
         _presetProjectId = presetProjectId;
@@ -899,6 +902,8 @@
         // Al crear desde un tablero, la actividad debe caer EN ese tablero/columna (no solo por concepto).
         _presetBoardId = presetBoardId;
         _presetColumnId = presetColumnId;
+        // Subtarea completa: la tarea creada cuelga de esta tarea padre (aparece en "Subtareas").
+        _parentId = parentId;
 
         _entidades = (await EntidadSvc.ListOptionsAsync()).ToList();
         // Comodidad: si el tenant tiene UNA sola Empresa/Area y no vino preseleccionada, se elige sola
@@ -944,7 +949,7 @@
         _tags.Clear(); _tagInput = "";
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = ""; _requesterTerceroId = null;
         _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
-        _presetBoardId = null; _presetColumnId = null;
+        _presetBoardId = null; _presetColumnId = null; _parentId = null;
         _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
         _firstStep = null; _encargadoRestringido = false;
@@ -1283,7 +1288,9 @@
             TerceroId: _requesterTerceroId,
             MilestoneId: _milestoneId,
             BoardId: _presetBoardId,
-            ColumnId: _presetColumnId);
+            ColumnId: _presetColumnId,
+            // Subtarea: si se abrio como "Agregar subtarea", cuelga del padre (aparece en sus "Subtareas").
+            ParentId: _parentId);
 
         var result = await TasksSvc.CreateAsync(request, actor, actorName);
         if (result.IsOk && await TenantIdAsync() is Guid tenantId)

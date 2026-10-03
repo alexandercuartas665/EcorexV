@@ -71,8 +71,10 @@ public static class BpmnXmlWriter
             process.Add(flow);
         }
 
-        // Diagrama (bpmndi): shapes con las coordenadas del canvas y edges con waypoints
-        // ortogonales simples (bpmn.io los reacomoda si el usuario los toca alla).
+        // Diagrama (bpmndi): shapes con las coordenadas del canvas y edges con waypoints ORTOGONALES
+        // (estilo Manhattan, como bpmn.io): salen por el lado que mira al destino y meten un codo si hay
+        // desfase. Antes se emitia una sola recta origen-derecha -> destino-izquierda, que con ramas hacia
+        // arriba/abajo (compuertas) cruzaba y se veia "chueca" hasta que el usuario movia el nodo.
         var byId = nodes.ToDictionary(n => n.BpmnElementId, StringComparer.Ordinal);
         var plane = new XElement(BpmnDi + "BPMNPlane",
             new XAttribute("id", "BPMNPlane_1"),
@@ -92,11 +94,14 @@ public static class BpmnXmlWriter
             {
                 continue;
             }
-            plane.Add(new XElement(BpmnDi + "BPMNEdge",
+            var bpmnEdge = new XElement(BpmnDi + "BPMNEdge",
                 new XAttribute("id", edge.BpmnElementId + "_di"),
-                new XAttribute("bpmnElement", edge.BpmnElementId),
-                Waypoint(source.X + source.W, source.Y + source.H / 2),
-                Waypoint(target.X, target.Y + target.H / 2)));
+                new XAttribute("bpmnElement", edge.BpmnElementId));
+            foreach (var (wx, wy) in OrthogonalWaypoints(source, target))
+            {
+                bpmnEdge.Add(Waypoint(wx, wy));
+            }
+            plane.Add(bpmnEdge);
         }
 
         var definitions = new XElement(Bpmn + "definitions",
@@ -144,6 +149,39 @@ public static class BpmnXmlWriter
 
     private static XElement Waypoint(int x, int y)
         => new(Di + "waypoint", new XAttribute("x", x), new XAttribute("y", y));
+
+    /// <summary>
+    /// Waypoints ORTOGONALES (estilo Manhattan, como bpmn.io) entre dos nodos segun su posicion relativa: se
+    /// sale por el lado que mira al destino en el EJE DOMINANTE (horizontal o vertical) y, si hay desfase en el
+    /// otro eje, se mete un codo en el punto medio (ruta en Z de 4 puntos); si estan alineados, una recta de 2.
+    /// Reemplaza la recta unica origen-derecha -> destino-izquierda, que con ramas hacia arriba/abajo cruzaba y
+    /// se veia "chueca". Solo afecta el DIBUJO (waypoints); el grafo (sourceRef/targetRef) no cambia, asi que el
+    /// round-trip de BpmnProcessParser.Parse(Write(grafo)) se mantiene.
+    /// </summary>
+    private static (int X, int Y)[] OrthogonalWaypoints(BpmnWriterNode s, BpmnWriterNode t)
+    {
+        const int tol = 6; // px: desfase despreciable en el otro eje -> recta directa
+        var scx = s.X + s.W / 2; var scy = s.Y + s.H / 2;
+        var tcx = t.X + t.W / 2; var tcy = t.Y + t.H / 2;
+        var dx = tcx - scx; var dy = tcy - scy;
+
+        if (Math.Abs(dx) >= Math.Abs(dy))
+        {
+            // Dominante HORIZONTAL: salir/entrar por los lados derecho/izquierdo.
+            (int X, int Y) sp = dx >= 0 ? (s.X + s.W, scy) : (s.X, scy);
+            (int X, int Y) tp = dx >= 0 ? (t.X, tcy) : (t.X + t.W, tcy);
+            if (Math.Abs(sp.Y - tp.Y) <= tol) { return new[] { sp, tp }; }
+            var midX = (sp.X + tp.X) / 2;
+            return new[] { sp, (midX, sp.Y), (midX, tp.Y), tp };
+        }
+
+        // Dominante VERTICAL: salir/entrar por abajo/arriba.
+        (int X, int Y) vsp = dy >= 0 ? (scx, s.Y + s.H) : (scx, s.Y);
+        (int X, int Y) vtp = dy >= 0 ? (tcx, t.Y) : (tcx, t.Y + t.H);
+        if (Math.Abs(vsp.X - vtp.X) <= tol) { return new[] { vsp, vtp }; }
+        var midY = (vsp.Y + vtp.Y) / 2;
+        return new[] { vsp, (vsp.X, midY), (vtp.X, midY), vtp };
+    }
 
     /// <summary>Id XML valido (NCName) desde el ProcessCode (ej. "COT-COM" -> "COT_COM").</summary>
     private static string Sanitize(string value)

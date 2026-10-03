@@ -98,6 +98,9 @@ public sealed record UpdateTaskItemRequest(
     string Title, string? Description, Guid? ActivityTypeId, TaskPriority Priority,
     DateTimeOffset? DueDate, string? RequesterName, string? RequesterEmail, string? RequesterPhone,
     IReadOnlyList<string>? CcEmails, Guid? ProjectId, string? Color, long Version,
+    // Identificacion/NIT del contacto: editable al recapturar datos de contacto desde el detalle de la
+    // tarea (nullable, igual que Name/Email/Phone; null tras Normalize = se limpia).
+    string? RequesterDocument = null,
     DateTimeOffset? StartDate = null,
     // Ola 1: reclasificar por concepto + Empresa/Area (null = no tocar).
     Guid? SubcategoriaId = null, Guid? EntidadId = null,

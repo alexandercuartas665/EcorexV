@@ -1667,6 +1667,60 @@ app.MapPost("/webhooks/ycloud", async (
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {
+        // No es un mensaje entrante: puede ser un evento de ESTADO de entrega. Si hay fallos de entrega
+        // (failed/undelivered), se deja una nota VISIBLE en la conversacion del cliente con el motivo de Meta,
+        // para que un "no llego" deje de ser invisible (antes el webhook de estado se ignoraba por completo).
+        var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
+        var failures = statuses.Where(s => s.IsFailure).ToList();
+        var recorded = 0;
+        foreach (var s in failures)
+        {
+            var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());
+            if (digits.Length == 0) { continue; }
+            // Resuelve la linea YCloud por su numero de negocio (from) o, si no vino, por el WABA id.
+            var stLine = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l =>
+                l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
+                && ((!string.IsNullOrEmpty(s.BusinessNumber) && l.YCloudPhoneNumberId == s.BusinessNumber)
+                    || (!string.IsNullOrEmpty(s.WabaId) && l.YCloudWabaId == s.WabaId)), ct);
+            if (stLine is null) { continue; }
+
+            var conv = await db.Conversations.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(c => c.WhatsAppLineId == stLine.Id && c.ContactPhone == digits, ct);
+            var nowU = DateTimeOffset.UtcNow;
+            if (conv is null)
+            {
+                conv = new Ecorex.Domain.Entities.Conversation
+                {
+                    TenantId = stLine.TenantId,
+                    ContactPhone = digits,
+                    WhatsAppLineId = stLine.Id,
+                    LastMessageAt = nowU
+                };
+                db.Conversations.Add(conv);
+            }
+            else { conv.LastMessageAt = nowU; }
+
+            var reason = string.IsNullOrWhiteSpace(s.ErrorMessage)
+                ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
+                : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
+            db.Messages.Add(new Ecorex.Domain.Entities.Message
+            {
+                TenantId = stLine.TenantId,
+                ConversationId = conv.Id,
+                Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
+                Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
+                MessageType = "text",
+                SentByName = "Sistema (WhatsApp)",
+                SentAt = nowU
+            });
+            recorded++;
+        }
+        if (recorded > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            log.LogWarning("Webhook YCloud: {N} fallo(s) de entrega registrados en la conversacion del cliente.", recorded);
+            return Results.Ok(new { status = "delivery_failure_recorded", count = recorded });
+        }
         log.LogInformation("Webhook YCloud IGNORADO (evento no procesable o sin mensaje entrante).");
         return Results.Ok(new { status = "ignored" });
     }
@@ -1851,19 +1905,23 @@ app.MapPost("/api/test/agent", async (
         catch { /* imagen invalida: seguimos solo con el texto */ }
     }
 
-    // Si llego un DOCUMENTO (PDF/Excel), lo guardamos en uploads/chat y lo ingerimos como mensaje ENTRANTE
-    // de tipo Document, para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo.
+    // Si llego un ARCHIVO (audio / PDF / Excel...), lo guardamos en uploads/chat y lo ingerimos como mensaje
+    // ENTRANTE para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo. El TIPO se
+    // decide por el mime: un audio entra como Audio (se transcribe), lo demas como Document. Antes TODO entraba
+    // como Document, asi que una nota de voz nunca recorria la ruta de audio y el agente no la "escuchaba".
     if (!string.IsNullOrWhiteSpace(body.FileBase64))
     {
         try
         {
             var bytes = Convert.FromBase64String(body.FileBase64!);
             var mime = string.IsNullOrWhiteSpace(body.FileMime) ? "application/octet-stream" : body.FileMime!;
+            var isAudio = mime.StartsWith("audio", StringComparison.OrdinalIgnoreCase);
             var origName = string.IsNullOrWhiteSpace(body.FileName) ? "archivo" : body.FileName!.Trim();
             var ext = System.IO.Path.GetExtension(origName);
             if (string.IsNullOrWhiteSpace(ext))
             {
-                ext = mime.Contains("pdf") ? ".pdf"
+                ext = isAudio ? ".ogg"
+                    : mime.Contains("pdf") ? ".pdf"
                     : (mime.Contains("sheet") || mime.Contains("excel")) ? ".xlsx"
                     : mime.Contains("csv") ? ".csv" : ".bin";
             }
@@ -1877,9 +1935,10 @@ app.MapPost("/api/test/agent", async (
                 ConversationId = conv.Id,
                 Direction = Ecorex.Domain.Enums.MessageDirection.Inbound,
                 ExternalId = "emu-doc-" + Guid.NewGuid().ToString("N"),
-                Body = "",
-                MessageType = "document",
-                MediaType = Ecorex.Domain.Enums.MessageMediaType.Document,
+                Body = isAudio ? "(nota de voz)" : "",
+                MessageType = isAudio ? "audio" : "document",
+                MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio
+                                    : Ecorex.Domain.Enums.MessageMediaType.Document,
                 MediaUrl = $"/uploads/chat/{fname}",
                 MediaMimeType = mime,
                 MediaFileName = origName,   // nombre ORIGINAL: el agente lo usa p.ej. en la columna 'archivo'

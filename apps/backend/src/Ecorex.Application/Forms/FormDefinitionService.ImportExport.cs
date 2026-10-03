@@ -79,6 +79,13 @@ public sealed partial class FormDefinitionService
                 cancellationToken);
         }
 
+        // Diseno y comportamiento de cabecera: CSS, tema, escalon de estados y regla de cierre. Igual que
+        // ReplaceStructureFromJsonAsync, para que un formulario traido de la galeria conserve su aspecto.
+        await SetCustomCssAsync(defId, new SetFormCssRequest(src.CustomCss), cancellationToken);
+        await SetThemeAsync(defId, src.ThemeJson, cancellationToken);
+        await SetStatusLadderAsync(defId, src.StatusLadderJson, cancellationToken);
+        await SetCloseRuleAsync(defId, src.CloseRuleJson, cancellationToken);
+
         // Contenedores: crear PADRES antes que hijos, remapeando ParentId viejo -> nuevo.
         var idMap = new Dictionary<Guid, Guid>();
         foreach (var c in OrderContainersParentFirst(src.Containers))

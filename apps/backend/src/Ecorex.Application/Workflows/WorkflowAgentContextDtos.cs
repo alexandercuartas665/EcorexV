@@ -20,6 +20,9 @@ public sealed record WorkflowAgentContextDto(
     WorkflowAgentPriorDataDto PriorData,
     WorkflowAgentTaskDto? Task,
     WorkflowAgentHistoryDto History,
+    // Mapa COMPLETO del flujo (todos los pasos con su nota y estado), para que el agente entienda el proceso
+    // entero y donde esta parado, no solo los pasos ya ejecutados. Vacio si no se pudo resolver.
+    IReadOnlyList<WorkflowAgentFlowStepDto> FlowMap,
     // Agente asignado al nodo y su autonomia. Null si el nodo no tiene agente.
     WorkflowAgentAssignmentDto? Assignment,
     // ADR-0091: resultado de la llamada que el agente pidio en un intento anterior (reanudacion). No null
@@ -127,11 +130,29 @@ public sealed record WorkflowAgentTaskDto(
     DateTimeOffset? DueDate,
     string? RequesterName,
     string? RequesterEmail,
-    WorkflowAgentTerceroDto? Tercero);
+    // Contacto completo del solicitante (antes solo iban nombre y correo). Util para que el agente llame,
+    // escriba o identifique a quien pidio el caso sin tener que consultarlo aparte.
+    string? RequesterPhone,
+    string? RequesterDocument,
+    WorkflowAgentTerceroDto? Tercero,
+    // Bitacora de la actividad (comentarios de personas + acciones del sistema), del mas antiguo al mas
+    // reciente, acotada. Es el relato humano del caso. Vacia si no hay entradas.
+    IReadOnlyList<WorkflowAgentBitacoraEntryDto> Bitacora);
 
 /// <summary>Tercero/cliente del caso (Directorio General 000232).</summary>
 public sealed record WorkflowAgentTerceroDto(
     Guid TerceroId, string Nombre, TerceroTipo Tipo, string? IdValor, string? Email, string? Telefono, string? Ciudad);
+
+/// <summary>Un paso del MAPA del flujo: nombre, tipo, su NOTA (post-it del lienzo, que explica para que es el
+/// paso) y el estado en esta instancia ("actual" | "hecho" | "pendiente"). Incluye TODOS los nodos del flujo,
+/// no solo los ya ejecutados.</summary>
+public sealed record WorkflowAgentFlowStepDto(
+    int? StepNumber, string? Name, WorkflowNodeType Type, string? Note, string Status);
+
+/// <summary>Una entrada de la bitacora de la actividad: cuando, quien, si es comentario de persona (vs accion
+/// del sistema) y el texto.</summary>
+public sealed record WorkflowAgentBitacoraEntryDto(
+    DateTimeOffset At, string? Author, bool EsComentario, string Text);
 
 /// <summary>(d) Historial de pasos: por donde paso el caso, con aprobaciones y comentarios.</summary>
 public sealed record WorkflowAgentHistoryDto(

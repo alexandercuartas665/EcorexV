@@ -2,6 +2,103 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-02 - OT hija: hereda contacto+tercero+encargado; re-mapeo de salidas al clonar flujo; repair de OTs
+
+- 3 temas de AGRO en prod.
+- A) OT generada por salto de flujo (ChildTaskStarter) no traia el contacto del cliente ni quedaba con
+  encargado. Fix: la hija hereda del padre RequesterName/Email/Phone/Document + TerceroId + AssigneeTenantUserId
+  (el paso igual lo resuelve el flujo; esto sincroniza el assignee visible de la tarea, que quedaba null).
+- B) En el diseñador, la "salida a la que resuelve" de los enlaces de decision no se guardaba (aparecia vacia):
+  al CLONAR una version nueva (DeriveDraft en WorkflowDesignService) se re-mapeaban las aristas por BpmnElementId
+  pero el NotifyJson se copiaba TAL CUAL, dejando el targetNodeId apuntando a un id de nodo de la version
+  anterior -> el desplegable (que lista las aristas de ESTA version) no lo encontraba. Fix: RemapDecisionTargets
+  re-mapea el targetNodeId al nodo nuevo (mapa viejo->nuevo por BpmnElementId) al derivar el borrador. Confirmado
+  en prod: v19 tenia targetNodeId de v18. Para drafts YA rotos, re-seleccionar la salida y guardar.
+- C) REPAIR en prod (AGRO, transaccion): 17 OTs -> contacto+tercero del padre (todas estaban vacias); 12 ->
+  assignee de la tarea = encargado del padre (OTs con paso actual InheritStart); 1 paso reasignado (T00216, el
+  unico cuyo paso estaba mal). Revelacion: en la mayoria el PASO ya estaba bien (InheritStart si resolvia) pero
+  el assignee de la TAREA estaba desincronizado -> por eso se veia sin responsable.
+- Build Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Pendiente leve: el caso T00216 donde InheritStart resolvio el PASO
+  a otro usuario (Jans) en vez del starter (Lilian) no se explico por estatica (raro, 1 de 17); vigilar si recurre.
+
+## 2026-10-01 - Subtareas con el MODAL COMPLETO (wizard con concepto/categorias) - SIN deploy
+
+- Pedido: al crear subtareas que abran el modal completo (wizard) con todas sus categorias, no el input
+  rapido de solo-titulo.
+- Hallazgo: CreateTaskItemRequest YA tiene ParentId y CreateAsync lo asigna (L256); CreateSubtaskAsync lo usa.
+  El wizard no lo pasaba (creaba tareas sueltas). Nota vieja del wizard (L657) decia "no hay donde guardar el
+  padre" -> ya no aplica.
+- TaskWizard.razor: OpenAsync nuevo param parentId -> _parentId (reset en ResetAll) -> CreateTaskItemRequest
+  ParentId=_parentId. Asi el wizard puede crear una tarea que cuelga de un padre.
+- TaskDetailModal.razor: se quito el input rapido (_newSubtaskText/AddSubtaskAsync) y se puso un boton
+  "+ Agregar subtarea" que abre <TaskWizard @ref=_subtaskWizard> con parentId=tarea actual; OnCreated recarga el
+  detalle (la subtarea aparece en "Subtareas"). El boton solo aparece si la tarea NO es ya subtarea
+  (_detail.Item.ParentId is null) -> respeta el nivel unico. La subtarea nace COMPLETA: concepto/flujo/encargado
+  propios + vinculo al padre (aparece en Subtareas del padre; puede caer en el tablero de su concepto).
+- CreateSubtaskAsync queda disponible (lo usan agentes/otros), solo cambia la UI del detalle.
+- Build SuperAdmin Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Validar: en una tarea padre, "+ Agregar subtarea" abre el wizard
+  completo y la subtarea creada aparece en Subtareas.
+
+## 2026-10-01 - Fix: copiar actividad no copiaba los formularios (filtro IsActive) - SIN deploy
+
+- El usuario reporto que al copiar una actividad no se copiaban los formularios. Causa: el copiado de forms
+  en TaskItemService.CopyAsync (v0.16.165) filtraba `r.IsActive`, pero IsActive es la marca OPCIONAL "activo
+  por defecto" (ADR-0065) y lo NORMAL en los modulos (COT, etc.) es is_active=false (p.ej. en T00203 el COT
+  estaba is_active=false, 246/249 asi). Resultado: no copiaba ningun formulario.
+- Fix (~L478): toma las respuestas NO anuladas (VoidedAt==null) ancladas al numero/numero-N, agrupa por
+  (DefinitionId, Reference) y elige UNA por grupo con OrderByDescending(IsActive).ThenBy(CreatedAt) -prefiere
+  la activa, si no la original/mas antigua- (misma regla que la UI/PDF para elegir la respuesta de la tarea).
+  Se recrean como BORRADOR re-apuntando el Reference al numero de la copia (sin consecutivo ni on-submit).
+- Build Release verde; Application.Tests 1081/1081. Sin migracion.
+- Siguiente: commit/push + deploy (pedir OK). Validar: copiar una tarea con COT y ver el form con sus datos en
+  la copia.
+
+## 2026-10-01 - YCloud: capturar estado de entrega (failed/undelivered) -> nota visible en la conversacion - SIN deploy
+
+- Diagnostico (T00219 AGRO, flujo PROCESO COMERCIAL VENTA MOSTRADOR, nodo "Gestion del agente"): el WhatsApp
+  por YCloud NO llegaba al cliente. Verificado que NUESTRO lado esta bien: linea COMERCIAL_AGENTE YCloud
+  Connected, plantilla entrega_cotizacion_button_fin Approved (header Document), POST a api.ycloud.com -> HTTP
+  200 (aceptado), URL publica del PDF alcanzable (app2 /uploads 404 en inexistente, no 401), y se creo la nota
+  de contexto (solo si waOutcome.Ok). O sea: YCloud acepto, el fallo es aguas abajo (Meta) y era INVISIBLE
+  porque el webhook de ESTADO de YCloud se ignoraba ("Webhook YCloud IGNORADO").
+- Fix: YCloudWebhookParser.ParseStatuses() nuevo (lee eventos whatsapp.message.updated: from=negocio,
+  to=destinatario, status, error{code,message} u errors[], wabaId, wamid; tolerante). En el endpoint
+  /webhooks/ycloud, cuando no hay mensaje entrante, si hay estados failed/undelivered se resuelve la linea
+  (por YCloudPhoneNumberId==from o YCloudWabaId) + la conversacion (linea+telefono) y se deja un mensaje
+  saliente "Sistema (WhatsApp)": "El WhatsApp al cliente NO se entrego (estado YCloud: X). Motivo: <error Meta>".
+  Asi un "no llego" deja de ser invisible, con el codigo/motivo de Meta.
+- Sin migracion (reusa Conversation/Message). Build SuperAdmin Release verde; 5 tests nuevos del parser de
+  estados (YCloudWebhookParserStatusTests) OK; Application.Tests 1081/1081.
+- Siguiente: deploy (pedir OK; el webhook llega a PROD, asi que esto solo sirve desplegado). Tras desplegar,
+  re-disparar el nodo y ver en la conversacion del cliente el motivo real de Meta -> ahi sabremos por que no
+  entrega (num sin WhatsApp, documento, boton/parametro, opt-in, etc.).
+
+## 2026-10-01 - Decision por link: etiqueta por salida + nota para el agente (SARA) - SIN deploy
+
+- Dos piezas sobre el link de decision del cliente (/d/{token}).
+- A) ETIQUETA POR SALIDA (self-serve): cada enlace de decision del nodo gateway puede llevar una etiqueta
+  (TaskItemTag) configurable en el disenador. Se congela en el token al emitir el enlace (como footer/encuesta)
+  y, cuando el cliente responde por ESA salida, se AGREGA a la tarea (no quita otras, idempotente). Cambios:
+  NotifyDecisionLink.ApplyTagId (NodeNotifyConfig), WorkflowDecisionToken.ApplyTagId (migracion dual
+  AddDecisionTokenApplyTag: apply_tag_id uuid/uniqueidentifier null), EnsureLinkAsync nuevo param applyTagId,
+  WorkflowDecisionLinkService.ApplyAsync inserta TaskItemTagAssignment (guard tagExists + dedupe), FlowEditor
+  selector "Etiqueta a aplicar" por enlace + DecisionLinkRow.ApplyTagId + load/save + lista _tags (ITaskItemService.ListTagsAsync).
+- B) NOTA PARA EL AGENTE (SARA): caja de texto "Nota para el agente" en la regla de notificacion (cuando el
+  destino es el CONTACTO/cliente). NO se envia al cliente. Al enviarse el mensaje de WhatsApp al cliente, el
+  texto se suma a la nota de contexto de su conversacion (reusa RecordContactShareObservationAsync, que ya deja
+  una nota "si el cliente responde, el agente sabe de que se trata") para que SARA tenga el contexto de que se
+  gestiono. Cambios: NodeNotifyRule.NotaAgente, NodeNotifyService pasa rule.NotaAgente a la nota de conversacion,
+  FlowEditor textarea + NotifyRuleRow.NotaAgente + load/save.
+- Observaciones de la decision -> bitacora de la tarea: YA funcionaba (WorkflowDecisionLinkService escribe la
+  observacion como TaskItemActivity). Formulario que llega -> ya cae en la tarea por Reference (sin cambios).
+- Gates: build Release verde; Application.Tests 1081/1081; has-pending "No changes" en ambos contextos.
+- Decisiones del usuario: etiqueta POR salida, solo AGREGA (no exclusiva); nota del agente va a la CONVERSACION
+  del cliente (SARA), no a la bitacora de la tarea.
+- Siguiente: validar E2E (configurar etiqueta+nota en un gateway, enviar al cliente, responder por el link y ver
+  etiqueta aplicada + nota en la conversacion); deploy lo corre el usuario (migracion dual al arrancar).
+
 ## 2026-09-30 - Contactos: enrich web por SERVIDOR + perfil LinkedIn detallado + tipo campo Url (Directorio) - SIN deploy
 
 - Hand-off de la sesion de pruebas del Cargador de contactos (000740) y Directorio. Tres mejoras.

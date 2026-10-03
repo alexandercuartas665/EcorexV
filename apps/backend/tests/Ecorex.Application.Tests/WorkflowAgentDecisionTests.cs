@@ -80,6 +80,7 @@ public class WorkflowAgentContextSerializerRoutesTests
             new WorkflowAgentPriorDataDto(Array.Empty<WorkflowAgentPriorFormDto>(), false),
             Task: null,
             new WorkflowAgentHistoryDto(Array.Empty<WorkflowAgentHistoryStepDto>(), 0, false),
+            FlowMap: Array.Empty<WorkflowAgentFlowStepDto>(),
             Assignment: null);
     }
 

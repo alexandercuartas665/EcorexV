@@ -62,6 +62,40 @@ public class FormAuthoringGuardTests
         Assert.Equal("concepto_honorarios", req.FieldCode);  // field_code intacto
     }
 
+    // REGRESION (seguridad): update_container es PATCH. Renombrar una seccion debe CONSERVAR tipo, padre, ancho
+    // y sobre todo allowed_cargos_json (acceso por cargo) y visible_when_json. Antes los reseteaba: la seccion
+    // restringida quedaba Segment, en la raiz, a 12 y ABIERTA a todos.
+    [Fact]
+    public void Update_parcial_de_contenedor_conserva_tipo_padre_width_y_cargos()
+    {
+        var parent = Guid.NewGuid();
+        var cur = new FormContainerDto(Guid.NewGuid(), "Facturacion", FormContainerType.Section, parent, 0, null,
+            Width: 6, InlineLabels: true, AllowedCargosJson: "[\"c1\"]", VisibleWhenJson: "{\"field\":\"x\",\"op\":\"equals\",\"value\":\"si\"}");
+        var args = JsonDocument.Parse("{\"container_id\":\"" + cur.Id + "\",\"name\":\"Facturacion electronica\"}").RootElement;
+
+        var req = FormAuthoringToolset.BuildContainerRequest(args, cur);
+
+        Assert.Equal("Facturacion electronica", req.Name);
+        Assert.Equal(FormContainerType.Section, req.ContainerType);
+        Assert.Equal(parent, req.ParentId);
+        Assert.Equal(6, req.Width);
+        Assert.True(req.InlineLabels);
+        Assert.Equal("[\"c1\"]", req.AllowedCargosJson);
+        Assert.NotNull(req.VisibleWhenJson);
+    }
+
+    // add_container (cur=null) sigue igual: defaults Segment / raiz / 12.
+    [Fact]
+    public void Add_contenedor_sin_baseline_usa_defaults()
+    {
+        var args = JsonDocument.Parse("{\"form_id\":\"" + Guid.NewGuid() + "\",\"name\":\"Datos\"}").RootElement;
+        var req = FormAuthoringToolset.BuildContainerRequest(args, null);
+        Assert.Equal("Datos", req.Name);
+        Assert.Null(req.ParentId);
+        Assert.Equal(12, req.Width);
+        Assert.Null(req.AllowedCargosJson);
+    }
+
     // add_question (cur=null) se comporta como antes: los campos no enviados caen a su default.
     [Fact]
     public void Add_sin_baseline_usa_defaults()

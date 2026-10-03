@@ -541,6 +541,12 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         return question is null ? null : ToDto(question);
     }
 
+    public async Task<FormContainerDto?> GetContainerAsync(Guid containerId, CancellationToken cancellationToken = default)
+    {
+        var container = await _db.FormContainers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == containerId, cancellationToken);
+        return container is null ? null : ToDto(container);
+    }
+
     public async Task<FormResult<bool>> DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default)
     {
         var question = await _db.FormQuestions.FirstOrDefaultAsync(q => q.Id == questionId, cancellationToken);

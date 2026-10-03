@@ -297,24 +297,30 @@ public class FormGridColumnAliasTests
     }
 
     // ---- Check #9: encabezado de matriz DUPLICADO --------------------------------------------------------
-    private static FormQuestionDto TextCell(Guid containerId, string label)
+    // Celda de texto de un encabezado de matriz con un ancho REALISTA (2, como las columnas base/retencion);
+    // sin Width explicito caeria al default 12 y el scorer la marcaria (bien) como texto que descuadra la fila.
+    private static FormQuestionDto TextCell(Guid containerId, string label, int width = 2)
         => new(Guid.NewGuid(), containerId, Guid.NewGuid().ToString("N")[..8], label, null, null,
-            FormControlType.Paragraph, null, false, 0, "col-md-2", null, null);
+            FormControlType.Paragraph, null, false, 0, "col-md-" + width, null, null, Width: width);
 
     private static FormDefinitionDetailDto DefWithContainer(Guid cid, string name, IEnumerable<FormQuestionDto> qs)
         => new(Guid.NewGuid(), "COD", "Titulo", null, FormStatus.Draft, 1, false, 1,
             new[] { new FormContainerDto(cid, name, FormContainerType.Row, null, 0, null) }, qs.ToList());
 
-    // La MISMA etiqueta de texto 3+ veces en un contenedor = encabezado de columnas duplicado -> error.
+    // La MISMA etiqueta de texto 3+ veces en un contenedor = encabezado de columnas duplicado -> error. Es el caso
+    // real del F350: el set legitimo COMPLETO (Base/Retenciones ya van 2x: juridicas + naturales) escrito dos veces
+    // deja Base y Retenciones en 4x.
     [Fact]
     public void Encabezado_de_matriz_duplicado_es_error()
     {
         var cid = Guid.NewGuid();
-        var qs = new[]
+        var legit = new[]
         {
-            TextCell(cid, "Concepto"), TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
-            TextCell(cid, "Concepto"), TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+            TextCell(cid, "Concepto", 4),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
         };
+        var qs = legit.Concat(legit.Select(q => TextCell(cid, q.Label, q.Width))).ToArray();
         var issues = FormAuthoringToolset.VerifyForm(DefWithContainer(cid, "matriz_enc_cols", qs));
         Assert.Contains(issues, i => i.Severity == "error" && i.Problem.Contains("DUPLICADO", StringComparison.OrdinalIgnoreCase));
     }
@@ -332,5 +338,48 @@ public class FormGridColumnAliasTests
         };
         var issues = FormAuthoringToolset.VerifyForm(DefWithContainer(cid, "matriz_enc_cols", qs));
         Assert.DoesNotContain(issues, i => i.Severity == "error" && i.Problem.Contains("DUPLICADO"));
+    }
+
+    // ---- FormBuildScorer (base del eval): el puntaje debe separar una construccion limpia de una con los
+    //      defectos reales del F350, de forma determinista. ---------------------------------------------------
+    [Fact]
+    public void Scorer_encabezado_limpio_da_100_y_duplicado_penaliza()
+    {
+        var cid = Guid.NewGuid();
+        var limpio = new[]
+        {
+            TextCell(cid, "Concepto"),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+            TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+        };
+        var sLimpio = Ecorex.Application.Forms.Builder.FormBuildScorer.Score(DefWithContainer(cid, "matriz_enc_cols", limpio));
+        Assert.Equal(100, sLimpio.Score);
+        Assert.Equal(0, sLimpio.DuplicateTextLabelsInContainer);
+
+        var duplicado = limpio.Concat(new[]
+        {
+            TextCell(cid, "Concepto"), TextCell(cid, "Base sujeta a retencion"), TextCell(cid, "Retenciones"),
+        }).ToArray();
+        var sDup = Ecorex.Application.Forms.Builder.FormBuildScorer.Score(DefWithContainer(cid, "matriz_enc_cols", duplicado));
+        Assert.True(sDup.DuplicateTextLabelsInContainer >= 1);
+        Assert.True(sDup.Score < sLimpio.Score);
+    }
+
+    // La cobertura contra un fixture baja el puntaje cuando faltan casillas esperadas y lo deja intacto si estan.
+    [Fact]
+    public void Scorer_cobertura_contra_fixture()
+    {
+        var cid = Guid.NewGuid();
+        var qs = new[] { TextCell(cid, "Honorarios"), TextCell(cid, "Comisiones") };
+        var def = DefWithContainer(cid, "fila", qs);
+        var completo = Ecorex.Application.Forms.Builder.FormBuildScorer.Score(def,
+            new Ecorex.Application.Forms.Builder.FormBuildExpectation(new[] { "Honorarios", "Comisiones" }));
+        var incompleto = Ecorex.Application.Forms.Builder.FormBuildScorer.Score(def,
+            new Ecorex.Application.Forms.Builder.FormBuildExpectation(new[] { "Honorarios", "Comisiones", "Servicios", "Dividendos" }));
+        Assert.Equal(2, completo.ExpectedFound);
+        Assert.Equal(100, completo.Score);
+        Assert.Equal(2, incompleto.ExpectedFound);
+        Assert.True(incompleto.Score < 100);
+        Assert.Contains(incompleto.Notes, n => n.Contains("Servicios"));
     }
 }

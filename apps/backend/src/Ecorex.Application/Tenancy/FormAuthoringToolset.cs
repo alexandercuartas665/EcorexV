@@ -104,6 +104,17 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "source_ref, lista Options sin opciones, referencias {codigo} colgantes, NaturalKey a un campo inexistente. " +
             "Llamala AL TERMINAR de construir y CORRIGE cada 'error' que reporte antes de cerrar.",
             """{"type":"object","properties":{"form_id":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
+        new("apply_form_spec",
+            "PREFERIDA para CONSTRUIR: aplica de UNA vez una seccion completa (o el formulario entero) como una spec " +
+            "DECLARATIVA en lugar de decenas de add_container/add_question. 'containers' = lista ORDENADA (padres antes " +
+            "que hijos) de contenedores con una 'key' corta tuya; los hijos referencian a su padre por 'parent_key' (o " +
+            "'parent_id' si el padre ya existe). 'fields' = campos con 'container_key' (o 'container_id'). El SERVIDOR " +
+            "asigna los ids (nunca los adivinas), lo aplica de forma ATOMICA (si algo falla se revierte TODO, nada queda " +
+            "a medias) e IDEMPOTENTE: re-aplicar la misma spec ACTUALIZA en vez de duplicar (contenedor = mismo padre + " +
+            "mismo nombre; campo = mismo field_code). Devuelve conteos y el mapa key->id. Los campos aceptan los mismos " +
+            "atributos que add_question (field_code, label, control_type, width, required, options_json, calc_expression, " +
+            "aggregate, format, source_kind/source_ref, placeholder_text, help_text, visible_when_json...).",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"containers":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"name":{"type":"string"},"container_type":{"type":"string","description":"Section|Row|Col|Tabs|Segment"},"parent_key":{"type":"string"},"parent_id":{"type":"string"},"width":{"type":"integer"},"style":{"type":"string"},"inline_labels":{"type":"boolean"},"allowed_cargos_json":{"type":"string"},"visible_when_json":{"type":"string"}},"required":["key","name"]}},"fields":{"type":"array","items":{"type":"object","properties":{"container_key":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"width":{"type":"integer"},"required":{"type":"boolean"},"options_json":{"type":"string"},"placeholder_text":{"type":"string"},"help_text":{"type":"string"},"default_value":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"visible_when_json":{"type":"string"},"validation_json":{"type":"string"}},"required":["field_code","label","control_type"]}}},"required":["form_id"],"additionalProperties":false}"""),
         new("list_templates",
             "Lista las plantillas de impresion del tenant (id, nombre, si es la predeterminada, si se envia como imagen).",
             """{"type":"object","properties":{},"additionalProperties":false}"""),
@@ -288,6 +299,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                 "update_container" => await UpdateContainerAsync(args, cancellationToken),
                 "move_container" => await MoveContainerAsync(args, cancellationToken),
                 "add_question" => await AddQuestionAsync(args, cancellationToken),
+                "apply_form_spec" => await ApplyFormSpecAsync(args, cancellationToken),
                 "update_question" => await UpdateQuestionAsync(args, cancellationToken),
                 "move_question" => await MoveQuestionAsync(args, cancellationToken),
                 "delete_question" => await DeleteQuestionAsync(args, cancellationToken),
@@ -730,38 +742,163 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         return FormResp(r, v => new { ok = true, form = v });
     }
 
+    // ================= apply_form_spec (construccion DECLARATIVA) =================
+    // Aplica una seccion (o el form entero) de UNA vez: contenedores con 'key' propia del agente (padres antes que
+    // hijos) + campos con 'container_key'. El servidor asigna los ids (el agente NUNCA los adivina), es ATOMICO
+    // (una transaccion: si un paso falla se revierte todo) e IDEMPOTENTE (contenedor = mismo padre + mismo nombre,
+    // campo = mismo field_code -> se ACTUALIZA, no se duplica). Reemplaza el patron fragil de 40+ add_container/
+    // add_question con ids adivinados, self-heal y reintentos que duplicaban filas en el F350.
+    private async Task<AgentToolResult> ApplyFormSpecAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!TryGuid(args, "form_id", out var formId)) { return Err("Falta un 'form_id' valido."); }
+        var form = await _forms.GetAsync(formId, ct);
+        if (form is null) { return Err("No se encontro un formulario con ese id."); }
+
+        var keyToId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        var containers = form.Containers.ToList();
+        var byCode = new Dictionary<string, FormQuestionDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in form.Questions) { byCode.TryAdd(q.FieldCode, q); }
+        int cNew = 0, cUpd = 0, fNew = 0, fUpd = 0;
+
+        // Toolset y FormDefinitionService comparten el mismo IApplicationDbContext scoped: la transaccion abierta
+        // aqui cubre los SaveChanges de los servicios. Si ya hay una activa (caller externo), nos sumamos a ella.
+        var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(ct);
+        try
+        {
+            if (args.TryGetProperty("containers", out var conts) && conts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var c in conts.EnumerateArray())
+                {
+                    var key = Str(c, "key");
+                    var name = Str(c, "name")?.Trim();
+                    if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(name)) { throw new InvalidOperationException("Cada contenedor necesita 'key' y 'name'."); }
+
+                    Guid? parentId = null;
+                    var parentKey = Str(c, "parent_key");
+                    if (!string.IsNullOrWhiteSpace(parentKey))
+                    {
+                        if (!keyToId.TryGetValue(parentKey!, out var pid)) { throw new InvalidOperationException($"Contenedor '{key}': parent_key '{parentKey}' debe definirse ANTES en la lista (padres antes que hijos)."); }
+                        parentId = pid;
+                    }
+                    else if (TryGuid(c, "parent_id", out var ppid)) { parentId = ppid; }
+
+                    // IDEMPOTENTE: mismo padre + mismo nombre => es el mismo contenedor (se actualiza, no se duplica).
+                    var match = containers.FirstOrDefault(x => x.ParentId == parentId && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+                    var req = BuildContainerRequest(WithProp(c, "parent_id", parentId?.ToString()), match);
+                    if (match is null)
+                    {
+                        var r = await _forms.AddContainerAsync(formId, req, ct);
+                        if (!r.IsOk || r.Value is null) { throw new InvalidOperationException($"Contenedor '{key}': {r.Error}"); }
+                        keyToId[key!] = r.Value.Id; containers.Add(r.Value); cNew++;
+                    }
+                    else
+                    {
+                        var r = await _forms.UpdateContainerAsync(match.Id, req, ct);
+                        if (!r.IsOk) { throw new InvalidOperationException($"Contenedor '{key}': {r.Error}"); }
+                        keyToId[key!] = match.Id; cUpd++;
+                    }
+                }
+            }
+
+            if (args.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var f in fields.EnumerateArray())
+                {
+                    var code = Str(f, "field_code")?.Trim();
+                    if (string.IsNullOrWhiteSpace(code)) { throw new InvalidOperationException("Cada campo necesita 'field_code'."); }
+
+                    Guid? cid = null;
+                    var ckey = Str(f, "container_key");
+                    if (!string.IsNullOrWhiteSpace(ckey))
+                    {
+                        if (!keyToId.TryGetValue(ckey!, out var k)) { throw new InvalidOperationException($"Campo '{code}': container_key '{ckey}' no esta en la spec."); }
+                        cid = k;
+                    }
+                    else if (TryGuid(f, "container_id", out var fcid)) { cid = fcid; }
+
+                    // IDEMPOTENTE: mismo field_code => se actualiza (PATCH sobre el actual), no se duplica.
+                    byCode.TryGetValue(code!, out var existing);
+                    var req = BuildQuestionRequest(WithProp(f, "container_id", cid?.ToString()), existing);
+                    if (string.IsNullOrWhiteSpace(req.Label)) { throw new InvalidOperationException($"Campo '{code}': falta 'label'."); }
+                    if (HeaderGridCalcError(req) is { } gce) { throw new InvalidOperationException($"Campo '{code}': {gce}"); }
+                    if (existing is null)
+                    {
+                        var r = await _forms.AddQuestionAsync(formId, req, ct);
+                        if (!r.IsOk || r.Value is null) { throw new InvalidOperationException($"Campo '{code}': {r.Error}"); }
+                        byCode[code!] = r.Value; fNew++;
+                    }
+                    else
+                    {
+                        var r = await _forms.UpdateQuestionAsync(existing.Id, req, ct);
+                        if (!r.IsOk) { throw new InvalidOperationException($"Campo '{code}': {r.Error}"); }
+                        fUpd++;
+                    }
+                }
+            }
+
+            if (tx is not null) { await tx.CommitAsync(ct); }
+        }
+        catch (Exception ex)
+        {
+            if (tx is not null) { try { await tx.RollbackAsync(ct); } catch { /* ya revertida */ } }
+            return Err("apply_form_spec REVERTIDO (no quedo nada a medias): " + ex.Message);
+        }
+        finally
+        {
+            if (tx is not null) { await tx.DisposeAsync(); }
+        }
+
+        return Ok(new
+        {
+            ok = true,
+            containers_created = cNew,
+            containers_updated = cUpd,
+            fields_created = fNew,
+            fields_updated = fUpd,
+            keys = keyToId.ToDictionary(k => k.Key, k => k.Value.ToString())
+        });
+    }
+
     private async Task<AgentToolResult> AddContainerAsync(JsonElement args, CancellationToken ct)
     {
         if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
-        var name = Str(args, "name");
-        if (string.IsNullOrWhiteSpace(name)) { return Err("Falta 'name'."); }
-        var req = new SaveFormContainerRequest(
-            name!.Trim(),
-            EnumOr(args, "container_type", FormContainerType.Segment),
-            TryGuid(args, "parent_id", out var pid) ? pid : null,
-            Str(args, "style"),
-            Width: Int(args, "width") ?? 12,
-            InlineLabels: Bool(args, "inline_labels") ?? false,
-            AllowedCargosJson: Str(args, "allowed_cargos_json"),
-            VisibleWhenJson: Str(args, "visible_when_json"));
+        var req = BuildContainerRequest(args);
+        if (string.IsNullOrWhiteSpace(req.Name)) { return Err("Falta 'name'."); }
         var r = await _forms.AddContainerAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, container = v });
+    }
+
+    // Construye el request de contenedor para add_container (cur=null) o update_container (cur = contenedor
+    // ACTUAL). En el update es un PATCH: cada campo toma el arg SOLO si el agente lo envio; si no, conserva el
+    // valor actual. Antes update_container era un REEMPLAZO TOTAL: renombrar una seccion la volvia Segment, la
+    // sacaba a la raiz (parent null), le ponia width 12 y BORRABA allowed_cargos_json (acceso por cargo, un
+    // hueco de seguridad: la seccion restringida quedaba abierta a todos) y visible_when_json. Sin cur,
+    // add_container se comporta igual que antes (defaults).
+    internal static SaveFormContainerRequest BuildContainerRequest(JsonElement args, FormContainerDto? cur = null)
+    {
+        string? S(string key, string? curVal) => Has(args, key) ? Str(args, key) : curVal;
+        return new SaveFormContainerRequest(
+            ((Has(args, "name") ? Str(args, "name") : cur?.Name) ?? string.Empty).Trim(),
+            Has(args, "container_type") ? EnumOr(args, "container_type", cur?.ContainerType ?? FormContainerType.Segment) : (cur?.ContainerType ?? FormContainerType.Segment),
+            Has(args, "parent_id") ? (TryGuid(args, "parent_id", out var pid) ? pid : null) : cur?.ParentId,
+            S("style", cur?.Style),
+            TabsJson: S("tabs_json", cur?.TabsJson),
+            Width: Has(args, "width") ? (Int(args, "width") ?? 12) : (cur?.Width ?? 12),
+            IsLocked: Has(args, "is_locked") ? (Bool(args, "is_locked") ?? false) : (cur?.IsLocked ?? false),
+            IsHidden: Has(args, "is_hidden") ? (Bool(args, "is_hidden") ?? false) : (cur?.IsHidden ?? false),
+            InlineLabels: Has(args, "inline_labels") ? (Bool(args, "inline_labels") ?? false) : (cur?.InlineLabels ?? false),
+            AllowedCargosJson: S("allowed_cargos_json", cur?.AllowedCargosJson),
+            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson));
     }
 
     private async Task<AgentToolResult> UpdateContainerAsync(JsonElement args, CancellationToken ct)
     {
         if (!TryGuid(args, "container_id", out var id)) { return Err("Falta un 'container_id' valido."); }
-        var name = Str(args, "name");
-        if (string.IsNullOrWhiteSpace(name)) { return Err("Falta 'name'."); }
-        var req = new SaveFormContainerRequest(
-            name!.Trim(),
-            EnumOr(args, "container_type", FormContainerType.Segment),
-            TryGuid(args, "parent_id", out var pid) ? pid : null,
-            Str(args, "style"),
-            Width: Int(args, "width") ?? 12,
-            InlineLabels: Bool(args, "inline_labels") ?? false,
-            AllowedCargosJson: Str(args, "allowed_cargos_json"),
-            VisibleWhenJson: Str(args, "visible_when_json"));
+        // PATCH: parte del contenedor ACTUAL y solo pisa lo que el agente envie.
+        var cur = await _forms.GetContainerAsync(id, ct);
+        if (cur is null) { return Err("No existe un contenedor con ese id."); }
+        var req = BuildContainerRequest(args, cur);
+        if (string.IsNullOrWhiteSpace(req.Name)) { return Err("Falta 'name'."); }
         var r = await _forms.UpdateContainerAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, container = v });
     }
@@ -1385,10 +1522,14 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     private async Task<AgentToolResult> UpdateTemplateAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
         if (!TryGuid(args, "template_id", out var id)) { return Err("Falta un 'template_id' valido."); }
-        var name = Str(args, "name");
-        var html = Str(args, "html");
+        // PATCH: lo no enviado se conserva (antes renombrar reseteaba send_as_image a false).
+        var cur = await _templates.GetAsync(id, ct);
+        if (cur is null) { return Err("No se encontro la plantilla."); }
+        var name = (Has(args, "name") ? Str(args, "name") : cur.Name)?.Trim();
+        var html = Has(args, "html") ? Str(args, "html") : cur.HtmlContent;
+        var sendAsImage = Has(args, "send_as_image") ? (Bool(args, "send_as_image") ?? cur.SendAsImage) : cur.SendAsImage;
         if (string.IsNullOrWhiteSpace(name) || html is null) { return Err("Faltan 'name' y 'html'."); }
-        var t = await _templates.UpdateAsync(id, name!.Trim(), html, Bool(args, "send_as_image") ?? false, actor, ct);
+        var t = await _templates.UpdateAsync(id, name!, html, sendAsImage, actor, ct);
         return t is null ? Err("No se encontro la plantilla.")
             : Ok(new { ok = true, template = new { id = t.Id, name = t.Name, is_default = t.IsDefault, send_as_image = t.SendAsImage } });
     }
@@ -1633,6 +1774,15 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         => r.IsOk && r.Value is not null
             ? Ok(project(r.Value))
             : new(JsonSerializer.Serialize(new { ok = false, status = r.Status.ToString(), error = r.Error, field_errors = r.FieldErrors }, JsonOut), SessionCompleted: false);
+
+    // Copia del objeto con una propiedad string fijada (o quitada si value es null). Lo usa apply_form_spec para
+    // inyectar el parent_id / container_id YA RESUELTO antes de reusar BuildContainerRequest/BuildQuestionRequest.
+    private static JsonElement WithProp(JsonElement obj, string prop, string? value)
+    {
+        var node = (obj.ValueKind == JsonValueKind.Object ? JsonNode.Parse(obj.GetRawText()) as JsonObject : null) ?? new JsonObject();
+        if (value is null) { node.Remove(prop); } else { node[prop] = value; }
+        return JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+    }
 
     // El agente ENVIO esta propiedad (y no como null). Sirve para el update PARCIAL: si no la envio, se
     // conserva el valor actual del campo en vez de pisarlo con un default.

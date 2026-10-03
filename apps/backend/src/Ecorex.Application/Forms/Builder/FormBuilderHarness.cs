@@ -230,6 +230,12 @@ DISENO / APARIENCIA DEL FORMULARIO.
   dale a cada Row un nombre CORTO y DISTINTO (ej. ""fila-anio-periodo"", ""fila-nombres"") como etiqueta interna:
   te sirve para DISTINGUIRLOS en get_form y meter los campos en el Row correcto. Un Row sin nombre es
   indistinguible de los otros y te hace recrearlos en bucle. Nombra los Row (no se ven), nunca los dejes vacios.
+- apply_form_spec es la forma PREFERIDA de construir: en vez de decenas de add_container/add_question (con ids
+  que no conoces), arma la SECCION COMPLETA (o el formulario entero) en UNA sola llamada: 'containers' con una
+  'key' tuya (padres antes que hijos, los hijos con parent_key) + 'fields' con container_key. El servidor asigna
+  los ids, es ATOMICO (si algo falla no queda nada a medias) e IDEMPOTENTE (re-aplicar la misma spec actualiza, NO
+  duplica). Asi no adivinas ids, no reintentas lotes y el usuario confirma UN solo paso por seccion. Usa
+  add_container/add_question sueltos solo para retoques puntuales.
 - Para PESTANAS crea un contenedor Tabs y mueve las secciones DENTRO (update_container con parent_id = id del Tabs).
 - ATREVETE CON set_custom_css cuando el formulario DEBE parecerse a un DOCUMENTO/FORMATO OFICIAL (declaracion,
   RUT, planilla, certificado, factura): set_theme solo da marca + hero; el LOOK de documento (cabecera en

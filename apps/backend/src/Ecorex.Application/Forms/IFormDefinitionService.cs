@@ -88,6 +88,11 @@ public interface IFormDefinitionService
     /// para hacer un update PARCIAL: parte de los valores actuales y solo pisa lo que el agente envia.</summary>
     Task<FormQuestionDto?> GetQuestionAsync(Guid questionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Lee UN contenedor por su id. Mismo proposito que <see cref="GetQuestionAsync"/>: update PARCIAL
+    /// desde la autoria por agente (renombrar una seccion no debe resetear tipo/padre/ancho ni borrar el
+    /// acceso por cargo o la visibilidad condicional).</summary>
+    Task<FormContainerDto?> GetContainerAsync(Guid containerId, CancellationToken cancellationToken = default);
+
     Task<FormResult<bool>> DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default);
 
     /// <summary>Reordena la pregunta dentro de su contenedor (paso a paso).</summary>

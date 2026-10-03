@@ -546,6 +546,60 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal(FormServiceStatus.Invalid, cycle.Status);
     }
 
+    // ---- Galeria/Marketplace: el import (traer) conserva el diseno de cabecera (fix 8c64e82f) ----
+
+    [Fact]
+    public async Task Export_Then_Import_CarriesCustomCssAndHeaderDesign()
+    {
+        var seed = await SeedTenantAsync("Forms Export Import CSS");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+
+        // Formulario origen con diseno de cabecera: es justo lo que la galeria debe conservar.
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-CSS" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), "Formulario con diseno"));
+        Assert.True(created.IsOk, created.Error);
+        var srcId = created.Value!.Id;
+
+        const string css = "@scope{ .dfr-heading{ background:#1f3b73 !important; color:#fff; } }";
+        const string theme = """{"skin":"dian"}""";
+        const string ladder = """["Borrador","Enviado","Aprobado"]""";
+        const string closeRule = """{"on":"Aprobado"}""";
+        Assert.True((await definitions.SetCustomCssAsync(srcId, new SetFormCssRequest(css))).IsOk);
+        Assert.True((await definitions.SetThemeAsync(srcId, theme)).IsOk);
+        Assert.True((await definitions.SetStatusLadderAsync(srcId, ladder)).IsOk);
+        Assert.True((await definitions.SetCloseRuleAsync(srcId, closeRule)).IsOk);
+
+        // Una pregunta con calc/format para confirmar que el contenido tambien viaja.
+        Assert.True((await definitions.AddQuestionAsync(srcId, new SaveFormQuestionRequest(
+            null, "total", "Total", FormControlType.Number, Format: "currency",
+            CalcExpression: "{a}+{b}"))).IsOk);
+
+        // Export -> Import crea un formulario NUEVO, igual que "traer de la galeria".
+        var export = await definitions.ExportAsync(srcId);
+        Assert.True(export.IsOk, export.Error);
+        var imported = await definitions.ImportAsync(export.Value!);
+        Assert.True(imported.IsOk, imported.Error);
+        var newId = imported.Value!.Id;
+        Assert.NotEqual(srcId, newId);
+
+        // Regresion del fix: el importado conserva CSS, tema, escalon de estados y regla de cierre.
+        var detail = await definitions.GetAsync(newId);
+        Assert.NotNull(detail);
+        Assert.Equal(css, detail!.CustomCss);
+        Assert.False(string.IsNullOrWhiteSpace(detail.ThemeJson));
+        Assert.False(string.IsNullOrWhiteSpace(detail.StatusLadderJson));
+        Assert.False(string.IsNullOrWhiteSpace(detail.CloseRuleJson));
+        Assert.Equal(
+            new[] { "Borrador", "Enviado", "Aprobado" },
+            System.Text.Json.JsonSerializer.Deserialize<List<string>>(detail.StatusLadderJson!));
+
+        // El contenido (pregunta con calc/format) tambien se trajo.
+        var total = detail.Questions.Single(q => q.FieldCode == "total");
+        Assert.Equal("currency", total.Format);
+        Assert.Equal("{a}+{b}", total.CalcExpression);
+    }
+
     [Fact]
     public async Task GridDetail_SubmitRoundTrip_AndHiddenRequiredIsSkipped()
     {

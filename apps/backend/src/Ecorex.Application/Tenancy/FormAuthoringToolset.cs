@@ -774,32 +774,41 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         return FormResp(r, v => new { ok = true, moved = v });
     }
 
-    private SaveFormQuestionRequest BuildQuestionRequest(JsonElement args)
+    // Construye el request para add_question (cur=null) o para update_question (cur = pregunta ACTUAL). En el
+    // update es un PATCH: cada campo toma el valor del arg SOLO si el agente lo envio; si no, conserva el valor
+    // actual (cur). Antes era un reemplazo total: un update que solo cambiaba el label tambien reseteaba
+    // container_id (dejaba el campo HUERFANO), width (a 12), required, options, etc. Sin cur el comportamiento
+    // de add_question es identico al anterior (todos los defaults).
+    private SaveFormQuestionRequest BuildQuestionRequest(JsonElement args, FormQuestionDto? cur = null)
     {
-        var controlType = EnumOr(args, "control_type", FormControlType.Text);
+        var controlType = Has(args, "control_type")
+            ? EnumOr(args, "control_type", cur?.ControlType ?? FormControlType.Text)
+            : (cur?.ControlType ?? FormControlType.Text);
+        // string del arg si viene, si no el valor actual.
+        string? S(string key, string? curVal) => Has(args, key) ? Str(args, key) : curVal;
         return new(
-            ContainerId: TryGuid(args, "container_id", out var cid) ? cid : null,
-            FieldCode: (Str(args, "field_code") ?? string.Empty).Trim(),
-            Label: (Str(args, "label") ?? string.Empty).Trim(),
+            ContainerId: Has(args, "container_id") ? (TryGuid(args, "container_id", out var cid) ? cid : null) : cur?.ContainerId,
+            FieldCode: ((Has(args, "field_code") ? Str(args, "field_code") : cur?.FieldCode) ?? string.Empty).Trim(),
+            Label: ((Has(args, "label") ? Str(args, "label") : cur?.Label) ?? string.Empty).Trim(),
             ControlType: controlType,
-            HelpText: Str(args, "help_text"),
-            OptionsJson: NormalizeOptionsJson(Str(args, "options_json"), controlType),
-            Required: Bool(args, "required") ?? false,
-            ValidationJson: Str(args, "validation_json"),
-            Width: Int(args, "width") ?? 12,
-            PlaceholderText: Str(args, "placeholder_text"),
-            DefaultValue: Str(args, "default_value"),
-            SourceKind: EnumOr(args, "source_kind", FormSourceKind.Options),
-            SourceRef: Str(args, "source_ref"),
-            DisplayField: Str(args, "display_field"),
-            ValueField: Str(args, "value_field"),
-            FilterJson: Str(args, "filter_json"),
-            AutofillMapJson: Str(args, "autofill_map_json"),
-            Presentation: EnumOr(args, "presentation", FormFieldPresentation.Autocomplete),
-            CalcExpression: FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")),
-            Aggregate: EnumOr(args, "aggregate", FormAggregate.None),
-            Format: Str(args, "format"),
-            VisibleWhenJson: Str(args, "visible_when_json"));
+            HelpText: S("help_text", cur?.HelpText),
+            OptionsJson: Has(args, "options_json") ? NormalizeOptionsJson(Str(args, "options_json"), controlType) : cur?.OptionsJson,
+            Required: Has(args, "required") ? (Bool(args, "required") ?? false) : (cur?.Required ?? false),
+            ValidationJson: S("validation_json", cur?.ValidationJson),
+            Width: Has(args, "width") ? (Int(args, "width") ?? 12) : (cur?.Width ?? 12),
+            PlaceholderText: S("placeholder_text", cur?.PlaceholderText),
+            DefaultValue: S("default_value", cur?.DefaultValue),
+            SourceKind: Has(args, "source_kind") ? EnumOr(args, "source_kind", cur?.SourceKind ?? FormSourceKind.Options) : (cur?.SourceKind ?? FormSourceKind.Options),
+            SourceRef: S("source_ref", cur?.SourceRef),
+            DisplayField: S("display_field", cur?.DisplayField),
+            ValueField: S("value_field", cur?.ValueField),
+            FilterJson: S("filter_json", cur?.FilterJson),
+            AutofillMapJson: S("autofill_map_json", cur?.AutofillMapJson),
+            Presentation: Has(args, "presentation") ? EnumOr(args, "presentation", cur?.Presentation ?? FormFieldPresentation.Autocomplete) : (cur?.Presentation ?? FormFieldPresentation.Autocomplete),
+            CalcExpression: Has(args, "calc_expression") ? FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")) : cur?.CalcExpression,
+            Aggregate: Has(args, "aggregate") ? EnumOr(args, "aggregate", cur?.Aggregate ?? FormAggregate.None) : (cur?.Aggregate ?? FormAggregate.None),
+            Format: S("format", cur?.Format),
+            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson));
     }
 
     // BLINDAJE de autoria por agente para el options_json. Segun el control:
@@ -928,7 +937,11 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     private async Task<AgentToolResult> UpdateQuestionAsync(JsonElement args, CancellationToken ct)
     {
         if (!TryGuid(args, "question_id", out var id)) { return Err("Falta un 'question_id' valido."); }
-        var req = BuildQuestionRequest(args);
+        // PATCH: parte de la pregunta ACTUAL y solo pisa lo que el agente envie (evita dejar el campo huerfano
+        // o resetear width/required/options al editar un solo atributo como el label).
+        var cur = await _forms.GetQuestionAsync(id, ct);
+        if (cur is null) { return Err("No existe una pregunta con ese id."); }
+        var req = BuildQuestionRequest(args, cur);
         if (string.IsNullOrWhiteSpace(req.FieldCode) || string.IsNullOrWhiteSpace(req.Label)) { return Err("Faltan 'field_code' y 'label'."); }
         if (HeaderGridCalcError(req) is { } gce) { return Err(gce); }
         var r = await _forms.UpdateQuestionAsync(id, req, ct);
@@ -1600,6 +1613,11 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
         => r.IsOk && r.Value is not null
             ? Ok(project(r.Value))
             : new(JsonSerializer.Serialize(new { ok = false, status = r.Status.ToString(), error = r.Error, field_errors = r.FieldErrors }, JsonOut), SessionCompleted: false);
+
+    // El agente ENVIO esta propiedad (y no como null). Sirve para el update PARCIAL: si no la envio, se
+    // conserva el valor actual del campo en vez de pisarlo con un default.
+    private static bool Has(JsonElement el, string prop)
+        => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind != JsonValueKind.Null;
 
     private static string? Str(JsonElement el, string prop)
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String

@@ -90,6 +90,20 @@ REGLA DE ORO: PROPONER Y CONFIRMAR.
     * MATRICES = GRILLA: una tabla densa de conceptos (filas de concepto x columnas repetidas, p.ej. Concepto x
       persona juridica/natural x base/retencion con un numero de casilla por celda) es UN GridDetail con esas
       columnas (y, si aplica, columnas agrupadas), NO decenas de campos sueltos. Modela cada matriz como grilla.
+    * MATRIZ DE CONCEPTOS FIJOS (filas predefinidas, no ""agregar filas"" como el 350): si decides maquetarla con
+      campos sueltos en Rows (concepto + sus casillas por fila), CUMPLE 3 reglas o queda confusa e inservible:
+      (1) EL ENCABEZADO SE CREA UNA SOLA VEZ. Una fila de encabezado de grupo (ej. ""A personas juridicas"" /
+          ""A personas naturales"") y UNA de subencabezado (Concepto | Base | Retencion | Base | Retencion). NUNCA
+          dupliques el bloque de encabezado (nada de ""...Matriz"" y otra ""...Matriz V2""): revienta la lectura.
+      (2) ALINEACION POR ANCHO: las columnas solo se alinean si el encabezado usa LOS MISMOS width que las filas
+          de datos. La celda ""Concepto"" del subencabezado va con el MISMO width que el concepto de cada fila de
+          dato (p.ej. 3), y cada celda de columna (Base/Retencion) con el MISMO width que su casilla de dato. El
+          ""Concepto"" del encabezado NUNCA a width 12 (empuja las demas a otra linea y nada queda bajo su columna).
+          La fila de grupo (juridicas/naturales) debe arrancar DESPUES del ancho del concepto para sentarse sobre
+          sus columnas (desplazala con un offset o una celda vacia de ese ancho). Objetivo: cada casilla cae
+          EXACTAMENTE bajo su encabezado.
+      (3) SIN MARKDOWN EN LABELS: el renderer NO interpreta markdown; ""**Concepto**"" sale con los asteriscos
+          literales. Escribe el texto plano (""Concepto""); para enfasis usa un Heading o el CSS, nunca ** ** ni #.
     * El resultado objetivo es como el papel: cabecera en celdas, bandas de seccion, casillas numeradas y las
       matrices como tablas. Apunta a ESO desde el primer turno, no a una lista plana que ""luego mejoramos"".
 - Las herramientas de SOLO LECTURA (describe_components, list_*, get_form, export_form) se ejecutan sin

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
 using Ecorex.Application.Scraping;
@@ -8,6 +9,7 @@ using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.SuperAdmin.Agents;
 
@@ -42,10 +44,12 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     private readonly IScrapeFetcher _fetcher;              // GET acotado con guardas SSRF (etapa 3, sitio propio).
     private readonly IAiProviderClient _aiClient;          // resumen de empresa a partir del HTML del sitio.
     private readonly IAiProviderResolver _aiResolver;      // resuelve/descifra el proveedor elegido.
+    private readonly ILogger<ContactSearchRunner> _logger; // traza de la corrida (incl. [WEB-ENRICH]).
 
     public ContactSearchRunner(
         IApplicationDbContext db, ITenantContext tenant, IAiStepOrchestrator orchestrator,
-        IScrapeFetcher fetcher, IAiProviderClient aiClient, IAiProviderResolver aiResolver)
+        IScrapeFetcher fetcher, IAiProviderClient aiClient, IAiProviderResolver aiResolver,
+        ILogger<ContactSearchRunner> logger)
     {
         _db = db;
         _tenant = tenant;
@@ -53,6 +57,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         _fetcher = fetcher;
         _aiClient = aiClient;
         _aiResolver = aiResolver;
+        _logger = logger;
     }
 
     public async Task<ContactSearchRunResult> RunAsync(Guid searchId, CancellationToken ct = default)
@@ -262,33 +267,44 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         {
             var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == prospectoId, ct);
             if (p is null || string.IsNullOrWhiteSpace(p.SitioWeb)) { return; }
-            var needEmail = string.IsNullOrWhiteSpace(p.Correo);
-            var needPerfil = string.IsNullOrWhiteSpace(p.Perfil);
-            if (!needEmail && !needPerfil) { return; }
 
             var res = await _fetcher.FetchAsync(p.SitioWeb!, ct);
             if (!res.Ok || string.IsNullOrWhiteSpace(res.Body)) { return; }
             var html = res.Body!;
 
-            var changed = false;
+            // 1) Correos y telefonos de la pagina principal.
+            var emails = new List<string>();
+            var phones = new List<string>();
+            CollectContacts(html, emails, phones);
 
-            if (needEmail)
+            // 2) Pagina de "Contacto/Contact" del MISMO sitio (si existe): suele concentrar correos/telefonos.
+            //    El guard SSRF re-valida el destino en cada fetch.
+            var contactUrl = FindContactLink(html, p.SitioWeb!);
+            if (contactUrl is not null)
             {
-                var email = ExtractEmailFromHtml(html);
-                if (email is null)
-                {
-                    // Reintenta en una pagina de Contacto del MISMO sitio (el guard SSRF re-valida el destino).
-                    var contactUrl = FindContactLink(html, p.SitioWeb!);
-                    if (contactUrl is not null)
-                    {
-                        var r2 = await _fetcher.FetchAsync(contactUrl, ct);
-                        if (r2.Ok && !string.IsNullOrWhiteSpace(r2.Body)) { email = ExtractEmailFromHtml(r2.Body!); }
-                    }
-                }
-                if (email is not null) { p.Correo = email; changed = true; }
+                var r2 = await _fetcher.FetchAsync(contactUrl, ct);
+                if (r2.Ok && !string.IsNullOrWhiteSpace(r2.Body)) { CollectContacts(r2.Body!, emails, phones); }
             }
 
-            if (needPerfil && aiChoice is not null)
+            var correos = DistinctKeep(emails);
+            var telefonos = DistinctKeep(phones);
+
+            var changed = false;
+
+            // 3) Primario SOLO si esta vacio: NO pisa lo que trajo Maps (correo/telefono de la ficha). Si Maps
+            //    ya trajo telefono, el del sitio NO lo reemplaza (queda en la lista completa de abajo).
+            if (string.IsNullOrWhiteSpace(p.Correo) && correos.Count > 0) { p.Correo = correos[0]; changed = true; }
+            if (string.IsNullOrWhiteSpace(p.Telefono) && telefonos.Count > 0) { p.Telefono = telefonos[0]; changed = true; }
+
+            // 4) Lista COMPLETA del sitio, consultable, sin pisar Maps: se guarda en data_json.web_contacts.
+            if (correos.Count > 0 || telefonos.Count > 0)
+            {
+                p.DataJson = MergeWebContacts(p.DataJson, p.SitioWeb!, correos, telefonos);
+                changed = true;
+            }
+
+            // 5) Perfil (resumen de empresa) si falta (igual que antes).
+            if (string.IsNullOrWhiteSpace(p.Perfil) && aiChoice is not null)
             {
                 var text = HtmlToText(html);
                 if (text.Length >= 80)
@@ -309,31 +325,78 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 p.Badge = ProspectoSearchRowSink.ComputeBadge(p.Metrica, p.SitioWeb);
                 await _db.SaveChangesAsync(ct);
             }
+
+            // Visibilidad: una linea por empresa con lo que encontro el sistema en el sitio.
+            _logger.LogInformation(
+                "[WEB-ENRICH] empresa=\"{Empresa}\" sitio=\"{Sitio}\" correos={Correos} telefonos={Telefonos}",
+                p.NombreCompleto, p.SitioWeb, correos.Count, telefonos.Count);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* best-effort: un sitio caido/raro no debe tumbar la corrida ni el proceso. */ }
     }
 
-    // Correo desde HTML: prioriza enlaces mailto: y, si no hay, un email en texto plano. Filtra placeholders y
-    // correos de librerias/servicios comunes (no son el de la empresa). Devuelve el primero razonable o null.
+    // Recolecta correos y telefonos plausibles de un HTML (pagina principal o de Contacto) hacia las listas.
+    private static void CollectContacts(string html, List<string> emails, List<string> phones)
+    {
+        emails.AddRange(ExtractAllEmails(html));
+        phones.AddRange(ExtractPhones(html));
+    }
+
+    // Distintos preservando el ORDEN de aparicion (case-insensitive).
+    private static List<string> DistinctKeep(IEnumerable<string> items)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var it in items)
+        {
+            if (!string.IsNullOrWhiteSpace(it) && seen.Add(it)) { result.Add(it); }
+        }
+        return result;
+    }
+
+    // Mezcla web_contacts en el data_json SIN perder lo de Maps: data_json es el row scrapeado serializado; se
+    // re-escribe con el objeto { sitio, correos[], telefonos[] } agregado/actualizado. Si no es un objeto JSON
+    // valido, se arranca uno nuevo (nunca lanza).
+    private static string MergeWebContacts(string? dataJson, string sitio, IReadOnlyList<string> correos, IReadOnlyList<string> telefonos)
+    {
+        JsonObject root;
+        try
+        {
+            root = string.IsNullOrWhiteSpace(dataJson)
+                ? new JsonObject()
+                : (JsonNode.Parse(dataJson) as JsonObject) ?? new JsonObject();
+        }
+        catch { root = new JsonObject(); }
+
+        root["web_contacts"] = new JsonObject
+        {
+            ["sitio"] = sitio,
+            ["correos"] = new JsonArray(correos.Select(c => (JsonNode)JsonValue.Create(c)!).ToArray()),
+            ["telefonos"] = new JsonArray(telefonos.Select(t => (JsonNode)JsonValue.Create(t)!).ToArray())
+        };
+        return root.ToJsonString();
+    }
+
+    // Correos desde HTML: TODOS los plausibles (mailto: + texto plano), en minuscula para dedup. Filtra
+    // placeholders y correos de librerias/servicios comunes (no son el de la empresa). El dedup/orden lo hace
+    // DistinctKeep aguas arriba.
     private static readonly Regex MailtoRx = new(@"mailto:([^""'?\s>]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex EmailRx = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", RegexOptions.Compiled);
     private static readonly string[] EmailJunk =
         { "example.com", "sentry", "wixpress", "domain.com", "email.com", "yourdomain", "sentry.io", "@2x", ".png", ".jpg", ".gif", ".webp" };
 
-    private static string? ExtractEmailFromHtml(string html)
+    private static IEnumerable<string> ExtractAllEmails(string html)
     {
         foreach (Match m in MailtoRx.Matches(html))
         {
             var e = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-            if (IsPlausibleEmail(e)) { return e; }
+            if (IsPlausibleEmail(e)) { yield return e.ToLowerInvariant(); }
         }
         foreach (Match m in EmailRx.Matches(html))
         {
             var e = m.Value.Trim();
-            if (IsPlausibleEmail(e)) { return e; }
+            if (IsPlausibleEmail(e)) { yield return e.ToLowerInvariant(); }
         }
-        return null;
     }
 
     private static bool IsPlausibleEmail(string e)
@@ -341,6 +404,41 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         if (e.Length is < 6 or > 120 || e.Count(c => c == '@') != 1) { return false; }
         var lower = e.ToLowerInvariant();
         return !EmailJunk.Any(j => lower.Contains(j));
+    }
+
+    // Telefonos desde HTML: enlaces tel: + patrones colombianos en el texto (celular 3XX XXX XXXX, fijo con
+    // indicativo 60X XXXXXXX / (60X) XXX XXXX, con o sin +57). NormalizePhone valida y deja la forma nacional
+    // (10 digitos); el dedup/orden lo hace DistinctKeep aguas arriba.
+    private static readonly Regex TelHrefRx =
+        new(@"tel:([+0-9().\s\-]{6,})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PhoneTextRx = new(
+        @"(?:\+?57[\s.\-]?)?(?:3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{4}|\(?60\d\)?[\s.\-]?\d{3}[\s.\-]?\d{4})",
+        RegexOptions.Compiled);
+
+    private static IEnumerable<string> ExtractPhones(string html)
+    {
+        foreach (Match m in TelHrefRx.Matches(html))
+        {
+            var n = NormalizePhone(m.Groups[1].Value);
+            if (n is not null) { yield return n; }
+        }
+        foreach (Match m in PhoneTextRx.Matches(html))
+        {
+            var n = NormalizePhone(m.Value);
+            if (n is not null) { yield return n; }
+        }
+    }
+
+    // Normaliza a la forma NACIONAL en digitos: quita el indicativo pais 57 si viene; valida que sea un numero
+    // colombiano razonable (movil 10 dig que empieza por 3, fijo nuevo 10 dig que empieza por 60, o fijo viejo
+    // de 7 dig venido de un tel:). Devuelve null si no calza (descarta falsos positivos por longitud).
+    private static string? NormalizePhone(string raw)
+    {
+        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        if (digits.Length == 12 && digits.StartsWith("57", StringComparison.Ordinal)) { digits = digits[2..]; }
+        if (digits.Length == 10 && (digits[0] == '3' || digits.StartsWith("60", StringComparison.Ordinal))) { return digits; }
+        if (digits.Length == 7) { return digits; } // fijo antiguo (normalmente de un enlace tel:)
+        return null;
     }
 
     // Busca en el HTML un enlace a una pagina de "Contacto/Contact" del MISMO host (para reintentar el correo).

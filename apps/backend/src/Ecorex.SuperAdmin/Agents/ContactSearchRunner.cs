@@ -263,76 +263,107 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     /// </summary>
     private async Task EnrichCompanyFromWebsiteAsync(Guid prospectoId, AiProviderChoice? aiChoice, CancellationToken ct)
     {
+        var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == prospectoId, ct);
+        if (p is null) { return; }
+
+        var nombre = p.NombreCompleto;
+        var sitio = p.SitioWeb?.Trim();
+        // Sin sitio web no hay nada que visitar, pero se DEJA TRAZA para que no haya huecos silenciosos.
+        if (string.IsNullOrWhiteSpace(sitio))
+        {
+            _logger.LogInformation("[WEB-ENRICH] empresa=\"{Empresa}\" sitio=\"\" correos=0 telefonos=0 (sin sitio web)", nombre);
+            return;
+        }
+
+        var correos = new List<string>();
+        var telefonos = new List<string>();
+        string? error = null;
         try
         {
-            var p = await _db.ProspectosScrapeados.FirstOrDefaultAsync(x => x.Id == prospectoId, ct);
-            if (p is null || string.IsNullOrWhiteSpace(p.SitioWeb)) { return; }
-
-            var res = await _fetcher.FetchAsync(p.SitioWeb!, ct);
-            if (!res.Ok || string.IsNullOrWhiteSpace(res.Body)) { return; }
-            var html = res.Body!;
-
-            // 1) Correos y telefonos de la pagina principal.
             var emails = new List<string>();
             var phones = new List<string>();
-            CollectContacts(html, emails, phones);
 
-            // 2) Pagina de "Contacto/Contact" del MISMO sitio (si existe): suele concentrar correos/telefonos.
-            //    El guard SSRF re-valida el destino en cada fetch.
-            var contactUrl = FindContactLink(html, p.SitioWeb!);
-            if (contactUrl is not null)
+            // 1) Pagina principal.
+            var res = await _fetcher.FetchAsync(sitio, ct);
+            if (!res.Ok || string.IsNullOrWhiteSpace(res.Body))
             {
-                var r2 = await _fetcher.FetchAsync(contactUrl, ct);
-                if (r2.Ok && !string.IsNullOrWhiteSpace(r2.Body)) { CollectContacts(r2.Body!, emails, phones); }
+                error = res.Ok ? "sitio vacio" : (res.Error ?? "fetch fallo");
             }
-
-            var correos = DistinctKeep(emails);
-            var telefonos = DistinctKeep(phones);
-
-            var changed = false;
-
-            // 3) Primario SOLO si esta vacio: NO pisa lo que trajo Maps (correo/telefono de la ficha). Si Maps
-            //    ya trajo telefono, el del sitio NO lo reemplaza (queda en la lista completa de abajo).
-            if (string.IsNullOrWhiteSpace(p.Correo) && correos.Count > 0) { p.Correo = correos[0]; changed = true; }
-            if (string.IsNullOrWhiteSpace(p.Telefono) && telefonos.Count > 0) { p.Telefono = telefonos[0]; changed = true; }
-
-            // 4) Lista COMPLETA del sitio, consultable, sin pisar Maps: se guarda en data_json.web_contacts.
-            if (correos.Count > 0 || telefonos.Count > 0)
+            else
             {
-                p.DataJson = MergeWebContacts(p.DataJson, p.SitioWeb!, correos, telefonos);
-                changed = true;
-            }
+                var html = res.Body!;
+                CollectContacts(html, emails, phones);
 
-            // 5) Perfil (resumen de empresa) si falta (igual que antes).
-            if (string.IsNullOrWhiteSpace(p.Perfil) && aiChoice is not null)
-            {
-                var text = HtmlToText(html);
-                if (text.Length >= 80)
+                // 2) Pagina de "Contacto/Contact" del MISMO sitio (si existe): suele concentrar correos/telefonos.
+                //    El guard SSRF re-valida el destino en cada fetch.
+                var contactUrl = FindContactLink(html, sitio);
+                if (contactUrl is not null)
                 {
-                    var resumen = await SummarizeCompanyAsync(aiChoice, p.NombreCompleto, text, ct);
-                    if (!string.IsNullOrWhiteSpace(resumen))
+                    var r2 = await _fetcher.FetchAsync(contactUrl, ct);
+                    if (r2.Ok && !string.IsNullOrWhiteSpace(r2.Body)) { CollectContacts(r2.Body!, emails, phones); }
+                }
+
+                // Correos: dedup + PRIORIZA el dominio propio del sitio (los de terceros van al final).
+                correos = RankEmailsByOwnDomain(DistinctKeep(emails), sitio);
+                telefonos = DistinctKeep(phones);
+
+                var changed = false;
+                // 3) Primario SOLO si esta vacio: NO pisa lo que trajo Maps. Si Maps ya trajo telefono, el del
+                //    sitio NO lo reemplaza (queda en la lista completa).
+                if (string.IsNullOrWhiteSpace(p.Correo) && correos.Count > 0) { p.Correo = correos[0]; changed = true; }
+                if (string.IsNullOrWhiteSpace(p.Telefono) && telefonos.Count > 0) { p.Telefono = telefonos[0]; changed = true; }
+
+                // 4) Lista COMPLETA del sitio, consultable, sin pisar Maps: data_json.web_contacts.
+                if (correos.Count > 0 || telefonos.Count > 0)
+                {
+                    p.DataJson = MergeWebContacts(p.DataJson, sitio, correos, telefonos);
+                    changed = true;
+                }
+
+                // 5) Perfil (resumen de empresa) si falta.
+                if (string.IsNullOrWhiteSpace(p.Perfil) && aiChoice is not null)
+                {
+                    var text = HtmlToText(html);
+                    if (text.Length >= 80)
                     {
-                        var r = resumen!.Trim();
-                        if (r.Length > 1000) { r = r[..1000]; }
-                        p.Perfil = r;
-                        changed = true;
+                        var resumen = await SummarizeCompanyAsync(aiChoice, p.NombreCompleto, text, ct);
+                        if (!string.IsNullOrWhiteSpace(resumen))
+                        {
+                            var r = resumen!.Trim();
+                            if (r.Length > 1000) { r = r[..1000]; }
+                            p.Perfil = r;
+                            changed = true;
+                        }
                     }
                 }
-            }
 
-            if (changed)
-            {
-                p.Badge = ProspectoSearchRowSink.ComputeBadge(p.Metrica, p.SitioWeb);
-                await _db.SaveChangesAsync(ct);
+                if (changed)
+                {
+                    p.Badge = ProspectoSearchRowSink.ComputeBadge(p.Metrica, p.SitioWeb);
+                    await _db.SaveChangesAsync(ct);
+                }
             }
-
-            // Visibilidad: una linea por empresa con lo que encontro el sistema en el sitio.
-            _logger.LogInformation(
-                "[WEB-ENRICH] empresa=\"{Empresa}\" sitio=\"{Sitio}\" correos={Correos} telefonos={Telefonos}",
-                p.NombreCompleto, p.SitioWeb, correos.Count, telefonos.Count);
         }
         catch (OperationCanceledException) { throw; }
-        catch { /* best-effort: un sitio caido/raro no debe tumbar la corrida ni el proceso. */ }
+        catch (Exception ex)
+        {
+            // Best-effort: un sitio caido/raro no tumba la corrida, pero el motivo QUEDA EN LA TRAZA (no se traga).
+            error = ex.GetType().Name + ": " + ex.Message;
+        }
+
+        // Visibilidad: SIEMPRE una linea por empresa con sitio (exito o fallo), para que no haya huecos silenciosos.
+        if (error is null)
+        {
+            _logger.LogInformation(
+                "[WEB-ENRICH] empresa=\"{Empresa}\" sitio=\"{Sitio}\" correos={Correos} telefonos={Telefonos}",
+                nombre, sitio, correos.Count, telefonos.Count);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "[WEB-ENRICH] empresa=\"{Empresa}\" sitio=\"{Sitio}\" correos={Correos} telefonos={Telefonos} (error: {Error})",
+                nombre, sitio, correos.Count, telefonos.Count, error);
+        }
     }
 
     // Recolecta correos y telefonos plausibles de un HTML (pagina principal o de Contacto) hacia las listas.
@@ -382,8 +413,14 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     // DistinctKeep aguas arriba.
     private static readonly Regex MailtoRx = new(@"mailto:([^""'?\s>]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex EmailRx = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", RegexOptions.Compiled);
+    // Descarta placeholders, correos de LIBRERIAS/INFRA de terceros (no son de la empresa) y buzones automaticos.
     private static readonly string[] EmailJunk =
-        { "example.com", "sentry", "wixpress", "domain.com", "email.com", "yourdomain", "sentry.io", "@2x", ".png", ".jpg", ".gif", ".webp" };
+        { "example.com", "domain.com", "email.com", "yourdomain", "@2x", ".png", ".jpg", ".gif", ".webp",
+          // Infra / anti-bot / CDNs / servicios de terceros (su correo NO es el de la empresa).
+          "sentry", "sentry.io", "wixpress", "radware", "cloudflare", "akamai", "googleapis", "gstatic",
+          "cloudfront", "jsdelivr", "fontawesome", "schema.org", "w3.org",
+          // Buzones automaticos (no sirven para contactar).
+          "noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster" };
 
     private static IEnumerable<string> ExtractAllEmails(string html)
     {
@@ -404,6 +441,42 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         if (e.Length is < 6 or > 120 || e.Count(c => c == '@') != 1) { return false; }
         var lower = e.ToLowerInvariant();
         return !EmailJunk.Any(j => lower.Contains(j));
+    }
+
+    // Prioriza los correos cuyo dominio coincide con el del SITIO de la empresa (p.ej. @colsanitas.com para
+    // colsanitas.com); los de dominio AJENO (gmail, un proveedor, etc.) quedan al FINAL. Preserva el orden
+    // relativo dentro de cada grupo. Si no se puede resolver el dominio del sitio, se deja la lista tal cual.
+    private static List<string> RankEmailsByOwnDomain(List<string> emails, string sitio)
+    {
+        var siteDom = RegistrableDomain(HostOf(sitio));
+        if (string.IsNullOrEmpty(siteDom) || emails.Count < 2) { return emails; }
+        var propios = new List<string>();
+        var ajenos = new List<string>();
+        foreach (var e in emails)
+        {
+            var at = e.LastIndexOf('@');
+            var dom = at >= 0 && at + 1 < e.Length ? e[(at + 1)..] : string.Empty;
+            if (RegistrableDomain(dom) == siteDom) { propios.Add(e); } else { ajenos.Add(e); }
+        }
+        propios.AddRange(ajenos);
+        return propios;
+    }
+
+    // Host de una URL (sin "www."), en minuscula. Vacio si no parsea.
+    private static string HostOf(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) { return string.Empty; }
+        var h = u.Host.ToLowerInvariant();
+        return h.StartsWith("www.", StringComparison.Ordinal) ? h[4..] : h;
+    }
+
+    // Dominio "registrable" simple (dos ultimas etiquetas: colsanitas.com, empresa.co). Suficiente para comparar
+    // el correo contra el sitio sin una lista de sufijos publicos.
+    private static string RegistrableDomain(string host)
+    {
+        host = host.ToLowerInvariant().Trim();
+        var parts = host.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? parts[^2] + "." + parts[^1] : host;
     }
 
     // Telefonos desde HTML: enlaces tel: + patrones colombianos en el texto (celular 3XX XXX XXXX, fijo con

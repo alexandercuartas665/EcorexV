@@ -72,6 +72,17 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
+
+// Nombre de cookie POR INSTANCIA (solo dev). En localhost el puerto NO forma parte del scope de una cookie,
+// asi que varias instancias (distintos puertos/tenants) comparten ".AspNetCore.Cookies" y la sesion de una
+// pisa la de las otras (riesgo: una pestana "cruzada" escribe en el tenant equivocado). Con un
+// ECOREX_COOKIE_SUFFIX distinto por lanzamiento dev cada instancia usa su propio nombre y ya no se cruzan.
+// Vacio (PROD) -> nombre DEFAULT de hoy: prod queda intacto (y ademas prod ya aisla por subdominio de tenant,
+// host distinto = cookie distinta).
+var cookieSuffix = Environment.GetEnvironmentVariable("ECOREX_COOKIE_SUFFIX");
+var hasCookieSuffix = !string.IsNullOrWhiteSpace(cookieSuffix);
+var authCookieName = hasCookieSuffix ? $".Ecorex.Auth.{cookieSuffix}" : ".AspNetCore.Cookies";
+
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -83,7 +94,16 @@ builder.Services
         // cerrar el navegador). Antes eran 8h, lo que obligaba a re-loguear con frecuencia.
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = true;
+        // Nombre namespaced por instancia en dev; default identico al de hoy en prod (ver arriba).
+        options.Cookie.Name = authCookieName;
     });
+
+// Antiforgery con el MISMO sufijo para que tampoco cruce entre instancias dev. Solo se fija cuando hay
+// sufijo: sin el, se respeta el nombre DEFAULT que Blazor asigna (prod intacto).
+if (hasCookieSuffix)
+{
+    builder.Services.AddAntiforgery(o => o.Cookie.Name = $".Ecorex.Antiforgery.{cookieSuffix}");
+}
 builder.Services.AddAuthorizationBuilder()
     // Operador de plataforma (Super Admin / roles internos): tiene claim platform_role.
     .AddPolicy("PlatformOperator", p => p.RequireClaim("platform_role"))

@@ -34,6 +34,17 @@ if (-not $env:ECOREX_DB_CONNECTION) {
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS        = $Url
 
+# Nombre de cookie POR INSTANCIA (solo dev): en localhost el puerto NO forma parte del scope de una
+# cookie, asi que varias instancias (distintos puertos/tenants) comparten ".AspNetCore.Cookies" y la
+# sesion de una pisa la de las otras (riesgo: una pestana "cruzada" escribe en el tenant equivocado).
+# Derivamos el sufijo del puerto para que cada instancia use un nombre propio; si ya viene seteado en
+# la sesion se respeta. Vacio => el codigo usa el nombre default (prod intacto; prod ya aisla por
+# subdominio por tenant). Al levantar VARIAS instancias a mano, exporta un ECOREX_COOKIE_SUFFIX distinto
+# por cada una (el puerto sirve) antes de arrancar.
+if (-not $env:ECOREX_COOKIE_SUFFIX) {
+    $env:ECOREX_COOKIE_SUFFIX = "$Port"
+}
+
 Write-Host "==> ECOREX.tareas: cargando en $Url" -ForegroundColor Cyan
 
 # 1) Infraestructura local (Postgres) via docker.

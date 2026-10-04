@@ -33,6 +33,11 @@ public sealed class ContactSearchRunner : IContactSearchRunner
     /// Maps/Web NO tienen tope. Configurable aqui.</summary>
     private const int DailySocialCap = 20;
 
+    /// <summary>Fuente propia de las APERTURAS de perfil del "perfil detallado" (etapa 2b). Tienen su PROPIO
+    /// contador diario (<see cref="DailySocialCap"/>) para que no consuman el cupo de las BUSQUEDAS LinkedIn:
+    /// una corrida con perfil detallado abre ~8 perfiles y, si se contaran como busquedas, agotaria el tope.</summary>
+    private const string LinkedInProfileSource = "LinkedInPerfil";
+
     /// <summary>Fuentes sociales sujetas al tope diario (las que penalizan por exceso de scraping).</summary>
     private static bool IsSocial(ContactSearchSource s) => s
         is ContactSearchSource.LinkedIn or ContactSearchSource.Facebook
@@ -59,6 +64,11 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         _aiResolver = aiResolver;
         _logger = logger;
     }
+
+    // Acota el motivo de fallo para la columna Error/UI (los errores del orquestador son cortos; tope de
+    // seguridad). Nunca null cuando se llama con ok=false, para que la fila siempre muestre un motivo.
+    private static string? ClipError(string? e)
+        => string.IsNullOrWhiteSpace(e) ? "(sin motivo)" : (e.Length > 500 ? e[..500] : e);
 
     public async Task<ContactSearchRunResult> RunAsync(Guid searchId, CancellationToken ct = default)
     {
@@ -110,9 +120,18 @@ public sealed class ContactSearchRunner : IContactSearchRunner
 
         var outcome = await _orchestrator.RunAsync(ctx, ct);
 
+        // Visibilidad (A): un fallo del orquestador deja TRAZA. Antes el motivo se descartaba y el fallo quedaba
+        // mudo (ok=false, 0 filas, sin rastro) cuando, p.ej., el modelo respondia texto sin llamar una tool.
+        if (!outcome.Ok)
+        {
+            _logger.LogWarning("[CONTACT-SEARCH] etapa={Etapa} ok=false motivo={Motivo}",
+                source, outcome.Error ?? "(sin motivo)");
+        }
+
         // Sella la ultima corrida (base del futuro programador automatico). def viene rastreado.
         def.LastRunAt = DateTimeOffset.UtcNow;
-        // Registra la corrida para el tope diario por fuente (cuenta OK y fallidas: ambas tocaron la red).
+        // Registra la corrida para el tope diario por fuente (cuenta OK y fallidas: ambas tocaron la red). Si
+        // fallo, se PERSISTE el motivo para mostrarlo en la UI.
         _db.ContactSearchRuns.Add(new ContactSearchRun
         {
             TenantId = tenantId,
@@ -121,6 +140,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
             RunAt = DateTimeOffset.UtcNow,
             Ok = outcome.Ok,
             Inserted = outcome.Inserted,
+            Error = outcome.Ok ? null : ClipError(outcome.Error),
         });
         await _db.SaveChangesAsync(ct);
 
@@ -175,7 +195,8 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         // ETAPA 2b (perfil LinkedIn DETALLADO, opt-in): por cada persona creada abre su /in/, lee el perfil y la
         // IA arma un resumen amplio (about + educacion + experiencia + headline) -> PerfilDetalle. Acotado por
         // PerfilDetalladoMax y con PAUSA entre perfiles (anti-baneo). No crea filas ni toca el amarre/dedup; no
-        // falla la corrida si algo sale mal. Respeta el cupo diario de LinkedIn (si ya se agoto, no abre mas).
+        // falla la corrida si algo sale mal. Las aperturas de perfil tienen su PROPIO cupo diario
+        // (LinkedInProfileSource), separado del de las busquedas LinkedIn (C): asi no agotan el tope de busqueda.
         if (def.PerfilDetallado && def.EnrichLinkedIn && def.SourceType == ContactSearchSource.Maps
             && outcome.Ok && detailTargets.Count > 0)
         {
@@ -186,8 +207,8 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 if (ct.IsCancellationRequested || done >= detCap) { break; }
                 var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
                 var liToday = await _db.ContactSearchRuns
-                    .CountAsync(r => r.Source == "LinkedIn" && r.RunAt >= startOfDayUtc, ct);
-                if (liToday >= DailySocialCap) { break; } // cupo LinkedIn del dia agotado.
+                    .CountAsync(r => r.Source == LinkedInProfileSource && r.RunAt >= startOfDayUtc, ct);
+                if (liToday >= DailySocialCap) { break; } // cupo diario de PERFILES agotado (propio, no el de busqueda).
 
                 if (done > 0)
                 {
@@ -208,7 +229,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                 {
                     TenantId = tenantId,
                     DefinitionId = def.Id,
-                    Source = "LinkedIn",
+                    Source = LinkedInProfileSource, // C: cupo propio, no consume el de busquedas LinkedIn.
                     RunAt = DateTimeOffset.UtcNow,
                     Ok = true,
                     Inserted = 0,
@@ -285,6 +306,18 @@ public sealed class ContactSearchRunner : IContactSearchRunner
 
             // 1) Pagina principal.
             var res = await _fetcher.FetchAsync(sitio, ct);
+            // Fallback (B): la URL de Maps varia por corrida y a veces es un SUBPATH que da 404 (o un dominio con
+            // error SSL). Si falla y la URL tenia ruta, se reintenta UNA vez con el dominio RAIZ (https://host/)
+            // antes de rendirse; el motivo se sigue logeando.
+            if ((!res.Ok || string.IsNullOrWhiteSpace(res.Body)) && TryRootUrl(sitio) is string rootUrl)
+            {
+                var rootRes = await _fetcher.FetchAsync(rootUrl, ct);
+                if (rootRes.Ok && !string.IsNullOrWhiteSpace(rootRes.Body))
+                {
+                    res = rootRes;
+                    sitio = rootUrl; // lo encontrado viene del dominio raiz (afecta FindContactLink y web_contacts).
+                }
+            }
             if (!res.Ok || string.IsNullOrWhiteSpace(res.Body))
             {
                 error = res.Ok ? "sitio vacio" : (res.Error ?? "fetch fallo");
@@ -460,6 +493,21 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         }
         propios.AddRange(ajenos);
         return propios;
+    }
+
+    // Dominio RAIZ (https://host[:port]/) de una URL, SOLO si difiere de la original (esta tenia ruta/query/puerto);
+    // null si no parsea, no es http/https, o ya ERA la raiz. Para el fallback B (reintentar el sitio base).
+    internal static string? TryRootUrl(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)
+            || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps))
+        {
+            return null;
+        }
+        var root = u.GetLeftPart(UriPartial.Authority) + "/";
+        // Comparar contra la forma NORMALIZADA (AbsoluteUri), para que "https://x.com" (sin "/") cuente
+        // como raiz y no dispare un reintento a la misma pagina.
+        return string.Equals(root, u.AbsoluteUri, StringComparison.OrdinalIgnoreCase) ? null : root;
     }
 
     // Host de una URL (sin "www."), en minuscula. Vacio si no parsea.

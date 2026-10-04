@@ -76,6 +76,7 @@ public sealed class AiStepOrchestrator(
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(ctx.MaxSeconds is > 0 ? ctx.MaxSeconds : 90);
         int ins = 0, upd = 0, del = 0, round = 0;
         var saved = false;
+        var firstStepRetried = false; // A4: reintento unico del primer paso si el modelo no llama ninguna tool.
 
         // El navegador del agente es EFIMERO por orden (abre-ejecuta-cierra, sin estado entre ordenes),
         // asi que la "pagina actual" no sobrevive entre tool calls. La sesion recuerda la ultima URL para
@@ -105,6 +106,18 @@ public sealed class AiStepOrchestrator(
             if (completion.ToolCalls.Count == 0)
             {
                 messages.Add(new AiToolMessage("assistant", completion.Text));
+                // Flakiness del PRIMER paso: a veces el modelo responde TEXTO sin abrir el navegador -> el paso
+                // quedaba mudo (ok=false, 0 filas). Se reintenta UNA sola vez reforzando que DEBE usar 'navegar'
+                // antes de rendirse. Si en el segundo intento tampoco llama una tool, se termina de verdad.
+                if (round == 0 && !saved && !firstStepRetried)
+                {
+                    firstStepRetried = true;
+                    log.LogInformation("[IA-PASO] primer paso sin tool call; reintento reforzando 'navegar'.");
+                    messages.Add(new AiToolMessage("user",
+                        "No respondas con texto. USA la herramienta 'navegar' para ABRIR la pagina ahora mismo, "
+                        + "luego 'leer_html' y 'guardar_filas'. No te rindas sin navegar primero."));
+                    continue;
+                }
                 break;
             }
 

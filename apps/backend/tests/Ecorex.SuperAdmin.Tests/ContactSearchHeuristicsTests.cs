@@ -164,4 +164,32 @@ public class ContactSearchHeuristicsTests
     {
         Assert.Equal(esperado, ProspectoSearchRowSink.SafeHttpUrl(input));
     }
+
+    // ---- TryRootUrl (fallback a la raiz del dominio ante 404/SSL de la ruta profunda) ----
+
+    [Theory]
+    // Ruta profunda -> raiz del dominio.
+    [InlineData("https://empresa.com/contacto/equipo", "https://empresa.com/")]
+    [InlineData("http://www.empresa.com/es/nosotros?x=1", "http://www.empresa.com/")]
+    // Puerto preservado en la autoridad.
+    [InlineData("https://empresa.com:8443/a/b", "https://empresa.com:8443/")]
+    public void TryRootUrl_RutaProfunda_DevuelveRaiz(string input, string esperado)
+    {
+        Assert.Equal(esperado, ContactSearchRunner.TryRootUrl(input));
+    }
+
+    [Theory]
+    // Ya es la raiz: no hay nada que reintentar -> null.
+    [InlineData("https://empresa.com")]
+    [InlineData("https://empresa.com/")]
+    // No http(s): no se reintenta.
+    [InlineData("ftp://empresa.com/x")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("/ruta/relativa")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryRootUrl_SinRutaOInvalida_DevuelveNull(string? input)
+    {
+        Assert.Null(ContactSearchRunner.TryRootUrl(input));
+    }
 }

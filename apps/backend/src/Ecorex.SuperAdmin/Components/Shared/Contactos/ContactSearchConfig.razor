@@ -202,7 +202,7 @@
                                                 <button class="cl-btn sm" @onclick="() => row.Schedules.Add(new SlotEdit())" style="margin-top:2px;">+ Agregar programacion</button>
                                             </div>
                                             <div class="cs-detail-foot">
-                                                <span class="cs-note">@(row.LastRunAt is null ? "Sin ejecutar aun." : $"Ultima corrida: {row.LastRunAt:yyyy-MM-dd HH:mm}")</span>
+                                                <span class="cs-note @(row.LastRunOk == false ? "cs-note-err" : null)">@RunStatusLabel(row)</span>
                                                 <button class="cl-btn primary sm" @onclick="() => SaveAsync(row)" disabled="@(_busy || string.IsNullOrWhiteSpace(row.Name))">@(isDraft ? "Agregar busqueda" : "Guardar cambios")</button>
                                             </div>
                                         </div>
@@ -251,8 +251,10 @@
         public List<SlotEdit> Schedules = new();  // varias programaciones; vacio = Manual
         public bool Active = true;
         public DateTimeOffset? LastRunAt;
+        public bool? LastRunOk;       // estado de la ultima corrida: null=nunca; true=OK; false=fallo.
+        public string? LastRunError;  // motivo del fallo de la ultima corrida (si LastRunOk==false).
         public bool Expanded;
-        public string? Error;
+        public string? Error;         // error de guardado/validacion de la fila (NO es el de la corrida).
     }
 
     // Una programacion editable en la UI (frecuencia + hora + dia).
@@ -305,8 +307,22 @@
             DayOfWeek = sl.DayOfWeek ?? 1,
             DayOfMonth = sl.DayOfMonth ?? 1
         }).ToList(),
-        LastRunAt = s.LastRunAt, Active = s.IsActive
+        LastRunAt = s.LastRunAt, Active = s.IsActive,
+        LastRunOk = s.LastRunOk, LastRunError = s.LastRunError
     };
+
+    // Texto del estado de la ultima corrida en el pie de la fila (OK / fallo + motivo).
+    private static string RunStatusLabel(Row row)
+    {
+        if (row.LastRunAt is null) { return "Sin ejecutar aun."; }
+        var cuando = $"Ultima corrida: {row.LastRunAt:yyyy-MM-dd HH:mm}";
+        if (row.LastRunOk == false)
+        {
+            var motivo = string.IsNullOrWhiteSpace(row.LastRunError) ? "(sin motivo)" : row.LastRunError;
+            return $"{cuando} - FALLO: {motivo}";
+        }
+        return row.LastRunOk == true ? $"{cuando} - OK" : cuando;
+    }
 
     private async Task SaveAsync(Row r)
     {

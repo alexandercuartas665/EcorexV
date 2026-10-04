@@ -18,7 +18,9 @@ public sealed record ContactSearchDto(
     // Enriquecimiento Maps -> sitio web/correo (solo Maps): abre la ficha de cada empresa para el sitio web/correo.
     bool EnrichWebCorreo = false, int EnrichWebMax = 20,
     // Perfil LinkedIn detallado (opt-in, requiere EnrichLinkedIn): abre cada /in/ y resume about/educacion/experiencia.
-    bool PerfilDetallado = false, int PerfilDetalladoMax = 5);
+    bool PerfilDetallado = false, int PerfilDetalladoMax = 5,
+    // Estado de la ULTIMA corrida (para la UI): null = nunca corrio; true = OK; false = fallo (LastRunError = motivo).
+    bool? LastRunOk = null, string? LastRunError = null);
 
 /// <summary>Alta/edicion de una busqueda configurada.</summary>
 public sealed record SaveContactSearchRequest(

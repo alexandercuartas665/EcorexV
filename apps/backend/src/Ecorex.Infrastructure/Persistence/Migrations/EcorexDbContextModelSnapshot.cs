@@ -2334,6 +2334,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
                     b.Property<int>("Inserted")
                         .HasColumnType("integer")
                         .HasColumnName("inserted");

@@ -78,6 +78,23 @@ public sealed class MarketplaceService : IMarketplaceService
         return MarketplaceResult<bool>.Success(true);
     }
 
+    public async Task<MarketplaceResult<bool>> UnpublishFormAsync(
+        Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var code = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => d.Id == definitionId).Select(d => d.Code).FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(code)) { return MarketplaceResult<bool>.Fail("El formulario no existe."); }
+
+        var items = await _db.MarketplaceItems
+            .Where(i => i.Kind == MarketplaceItemKind.Form && i.IsActive && i.SourceCode == code)
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0) { return MarketplaceResult<bool>.Fail("Este formulario no esta publicado en la galeria."); }
+
+        foreach (var it in items) { it.IsActive = false; }
+        await _db.SaveChangesAsync(cancellationToken);
+        return MarketplaceResult<bool>.Success(true);
+    }
+
     public async Task<IReadOnlyCollection<string>> ListPublishedSourceCodesAsync(
         MarketplaceItemKind kind, CancellationToken cancellationToken = default)
     {

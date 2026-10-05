@@ -286,8 +286,12 @@ public sealed class NodeNotifyService : INodeNotifyService
                 {
                     try
                     {
+                        // La nota para el agente admite tokens de la tarea ({tarea.cliente}, {tarea.numero}, ...):
+                        // se renderiza aqui (antes iba en crudo) para que el contexto quede completo.
+                        var notaAgenteRender = string.IsNullOrWhiteSpace(rule.NotaAgente)
+                            ? null : _tokens.Render(rule.NotaAgente, tokens);
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, rule.NotaAgente, ct);
+                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, notaAgenteRender, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -415,7 +419,12 @@ public sealed class NodeNotifyService : INodeNotifyService
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
         sb.Append('.');
         // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
+        // notaAgente YA viene renderizada con los tokens de la tarea ({tarea.cliente}, etc.) por el llamador.
         if (!string.IsNullOrWhiteSpace(notaAgente)) { sb.Append($" Contexto para el agente: {notaAgente.Trim()}"); }
+        // Texto base (sin el cierre dirigido a SARA): sirve para la BITACORA DE LA ACTIVIDAD, que SI lee el
+        // agente del NODO de flujo (WorkflowAgentContextBuilder) -antes quedaba ciego a que ya se envio la
+        // cotizacion-. Es durable (vive en la tarea), asi que sobrevive a un reinicio de conversacion.
+        var bitacoraText = sb.ToString();
         sb.Append(" Si el cliente escribe, es en respuesta a esto.");
 
         _db.Messages.Add(new Domain.Entities.Message
@@ -427,6 +436,16 @@ public sealed class NodeNotifyService : INodeNotifyService
             MessageType = "text",
             SentByName = "Sistema (flujo)",
             SentAt = now
+        });
+        // ADR-0119 (contexto del agente de seguimiento): la misma observacion va a la bitacora de la ACTIVIDAD,
+        // para que el agente del nodo sepa que ya se envio la cotizacion al cliente y pueda hacer el seguimiento.
+        _db.TaskItemActivities.Add(new Domain.Entities.TaskItemActivity
+        {
+            TenantId = task.TenantId,
+            TaskItemId = task.Id,
+            Type = Domain.Enums.TaskActivityType.Action,
+            ActorName = "Sistema (flujo)",
+            Text = bitacoraText.Length > 4000 ? bitacoraText[..4000] : bitacoraText
         });
         await _db.SaveChangesAsync(ct);
     }

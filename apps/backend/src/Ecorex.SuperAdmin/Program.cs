@@ -993,6 +993,27 @@ if (app.Environment.IsDevelopment())
             return Results.Ok(new { attended });
         }).AllowAnonymous();
 
+        // Atajo de DESARROLLO para RE-DISPARAR la notificacion de llegada de un paso (ADR-0100) y ver en el log
+        // por que "no llega" (el envio ya no es mudo). Solo Development. OJO: envia de verdad (WhatsApp/correo).
+        app.MapGet("/dev/renotify", async (IServiceProvider sp, Guid node, Guid step, Guid task) =>
+        {
+            var normalized = devLoginEmail.Trim().ToLowerInvariant();
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
+            if (user is null) { return Results.NotFound("dev user"); }
+            var membership = await db.TenantUsers.IgnoreQueryFilters()
+                .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+                .OrderBy(tu => tu.CreatedAt).FirstOrDefaultAsync();
+            if (membership is null) { return Results.BadRequest("dev user sin tenant"); }
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(membership.TenantId))
+            {
+                var notify = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Workflows.INodeNotifyService>();
+                await notify.NotifyStepArrivalAsync(node, step, task, Guid.Empty);
+            }
+            return Results.Ok(new { ok = true, node, step, task });
+        }).AllowAnonymous();
+
         // Atajo de DESARROLLO para PRUEBA DE CARGA del import de items: crea N items via el mismo camino real
         // (IItemService.ImportAsync -> CreateAsync por fila: SKU consecutivo + stock + validacion) y mide el
         // tiempo. Los items quedan con nombre 'CARGA {hora}-{i}' para poder limpiarlos. Solo Development.

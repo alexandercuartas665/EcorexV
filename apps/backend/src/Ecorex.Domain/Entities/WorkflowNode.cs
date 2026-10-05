@@ -142,4 +142,13 @@ public class WorkflowNode : TenantEntity
     /// es un retardo REAL (el agente se ejecuta en inicio = activacion + arranque); para humano es informativo.
     /// </summary>
     public string? StartDelayJson { get; set; }
+
+    /// <summary>
+    /// Desplazamiento manual (dx, dy) del nodo en el DIAGRAMA DE LA TAREA (runtime), persistido y COMPARTIDO
+    /// entre usuarios (ADR-0051 v2). Se suma al auto-layout por capas. Null = el nodo sigue el layout calculado.
+    /// Es solo presentacion del runtime; no afecta el editor BPMN (X/Y) ni la ejecucion.
+    /// </summary>
+    public int? RuntimeLayoutDx { get; set; }
+
+    public int? RuntimeLayoutDy { get; set; }
 }

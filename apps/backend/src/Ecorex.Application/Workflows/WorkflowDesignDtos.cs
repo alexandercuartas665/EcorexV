@@ -59,7 +59,10 @@ public sealed record FlowCanvasNodeDto(
     // Es la DURACION / "tiempo estimado para entregar" (Plazos v2, ADR-0119).
     string? SlaJson = null,
     // Tiempo para ARRANCAR el paso (Plazos v2, ADR-0119), mismo shape que SlaJson. Null = Inmediato.
-    string? StartDelayJson = null);
+    string? StartDelayJson = null,
+    // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
+    int? RuntimeLayoutDx = null,
+    int? RuntimeLayoutDy = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

@@ -15884,6 +15884,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("restart_node_id");
 
+                    b.Property<int?>("RuntimeLayoutDx")
+                        .HasColumnType("int")
+                        .HasColumnName("runtime_layout_dx");
+
+                    b.Property<int?>("RuntimeLayoutDy")
+                        .HasColumnType("int")
+                        .HasColumnName("runtime_layout_dy");
+
                     b.Property<string>("SlaJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("sla_json");

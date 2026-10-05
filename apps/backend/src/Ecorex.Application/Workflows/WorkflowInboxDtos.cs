@@ -95,7 +95,11 @@ public sealed record TaskFlowNodeDto(
     string? AgentFailureReason = null,
     // Bitacora LEGIBLE de lo que hizo el agente en este paso (JSON WorkflowAgentRunLog): una entrada por
     // corrida con hora, tokens, resultado y fases de razonamiento. Para el detalle "Ver actividad del agente".
-    string? AgentRunLog = null);
+    string? AgentRunLog = null,
+    // Desplazamiento manual PERSISTIDO del nodo en el diagrama de la tarea (ADR-0051 v2): lo que el usuario
+    // arrastro, guardado en BD y COMPARTIDO (por nodo del flujo). Se suma al auto-layout. Null = sin mover.
+    int? RuntimeDx = null,
+    int? RuntimeDy = null);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

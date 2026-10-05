@@ -256,6 +256,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.NotifyJson = RemapDecisionTargets(sourceNode.NotifyJson, oldToNewNodeId);
             draftNode.SlaJson = sourceNode.SlaJson;
             draftNode.StartDelayJson = sourceNode.StartDelayJson; // Plazos v2 (ADR-0119): metadato, no viaja en el XML.
+            draftNode.RuntimeLayoutDx = sourceNode.RuntimeLayoutDx; // Layout del runtime (ADR-0051 v2): se conserva al publicar.
+            draftNode.RuntimeLayoutDy = sourceNode.RuntimeLayoutDy;
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))
@@ -1869,7 +1871,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
-                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson);
+                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson,
+                n.RuntimeLayoutDx, n.RuntimeLayoutDy);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

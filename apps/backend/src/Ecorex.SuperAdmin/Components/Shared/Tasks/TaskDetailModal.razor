@@ -1983,6 +1983,18 @@
                 {
                     _flowDiagram = await inboxSvc.GetTaskFlowDiagramAsync(taskId, meForFlow);
                     _flowCenterPending = _flowDiagram is not null; // centrar en el nodo actual tras renderizar.
+                    // Siembra los desplazamientos PERSISTIDOS (compartidos) para el arrastre (ADR-0051 v2).
+                    _flowOffsets.Clear();
+                    if (_flowDiagram is not null)
+                    {
+                        foreach (var fn in _flowDiagram.Nodes)
+                        {
+                            if (fn.RuntimeDx.HasValue || fn.RuntimeDy.HasValue)
+                            {
+                                _flowOffsets[fn.NodeId] = (fn.RuntimeDx ?? 0, fn.RuntimeDy ?? 0);
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -2524,7 +2536,7 @@
         _flowDragStartY = e.ClientY;
     }
 
-    private void FlowDragEnd(DragEventArgs e)
+    private async Task FlowDragEnd(DragEventArgs e)
     {
         if (_flowDragNode is not Guid id) { return; }
         // El canvas esta escalado por CSS zoom: el delta en pantalla se divide por el zoom.
@@ -2532,8 +2544,12 @@
         var dx = (int)((e.ClientX - _flowDragStartX) / z);
         var dy = (int)((e.ClientY - _flowDragStartY) / z);
         var cur = _flowOffsets.TryGetValue(id, out var o) ? o : (dx: 0, dy: 0);
-        _flowOffsets[id] = (cur.dx + dx, cur.dy + dy);
+        var nx = cur.dx + dx; var ny = cur.dy + dy;
+        _flowOffsets[id] = (nx, ny);
         _flowDragNode = null;
+        // Persiste el desplazamiento (compartido entre usuarios, ADR-0051 v2). Best-effort: si falla, el
+        // movimiento queda al menos en esta sesion.
+        try { await InboxSvc.SetNodeRuntimeOffsetAsync(id, nx, ny); } catch { /* best-effort */ }
     }
 
     // Zoom del diagrama (CSS zoom sobre el canvas; el scroller reajusta las barras).

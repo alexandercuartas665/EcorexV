@@ -420,6 +420,30 @@
                                         <div class="xd-prop"><label>Mapeo campo -&gt; columna (JSON, opcional)</label>
                                             <textarea class="xd-input xd-code-input" rows="3" placeholder='{"petof":"PETICION","solicitud":"SOLICITUD"}' @bind="_sMappingJson"></textarea></div>
                                     }
+
+                                    @* ---- ENSAMBLADO -> Regla: motor del dron, Ola 4 ---- *@
+                                    @if (_sKind == ScrapeStepKind.Ensamblado)
+                                    {
+                                        <div class="xd-prop">
+                                            <label>Regla a invocar (ENSAMBLADO)</label>
+                                            @if (_rules.Count == 0)
+                                            {
+                                                <div class="xd-hint">No hay reglas en este tenant. Crea una en el modulo Reglas.</div>
+                                            }
+                                            else
+                                            {
+                                                <select class="xd-input" @bind="_sRuleId">
+                                                    <option value="">(ninguna)</option>
+                                                    @foreach (var r in _rules) { <option value="@r.Id">@r.Label</option> }
+                                                </select>
+                                            }
+                                        </div>
+                                        <div class="xd-prop">
+                                            <label>Entrada de la regla (ruta del contexto, objeto)</label>
+                                            <input class="xd-input mono" placeholder="DETALLE.cabecera" @bind="_sRuleInputVar" />
+                                            <div class="xd-help">El JSON de esa ruta se aplana y se entrega a la regla como datos (FormData). Vacio = <code>DETALLE</code>.</div>
+                                        </div>
+                                    }
                                 }
 
                                 @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp)
@@ -656,6 +680,9 @@
     private string _sIngestPath = "";
     private string _sPageCountVar = "";
     private bool _sIsPageNext;
+    private string _sRuleId = "";
+    private string _sRuleInputVar = "";
+    private IReadOnlyList<ScrapeRuleOptionDto> _rules = Array.Empty<ScrapeRuleOptionDto>();
 
     // Paso "Leer token de correo" (LeerCorreoOtp): su config va serializada en MappingJson.
     private List<OtpMailboxDto> _buzones = new();
@@ -685,6 +712,7 @@
         _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
         _clients = await ConfigSvc.ListClientsAsync();
         _containers = await FlowSvc.ListContainersAsync();
+        _rules = await FlowSvc.ListRulesAsync();
         _aiProviders = await AiSvc.ListEnabledAsync();
         _buzones = (await OtpSvc.ListAsync()).ToList();
         await ReloadFlowsAsync();
@@ -995,6 +1023,8 @@
         _sIngestPath = s?.IngestPath ?? "";
         _sPageCountVar = s?.PageCountVar ?? "";
         _sIsPageNext = s?.IsPageNext ?? false;
+        _sRuleId = s?.RuleId?.ToString() ?? "";
+        _sRuleInputVar = s?.RuleInputVar ?? "";
 
         // Paso "Leer token de correo": su config vive en MappingJson.
         _otpTest = null;
@@ -1056,7 +1086,8 @@
                 WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction,
                 OutputVar: NullIfBlank(_sOutputVar), LoopOverVar: NullIfBlank(_sLoopOverVar),
                 IsLoopEnd: _sIsLoopEnd, IngestPath: NullIfBlank(_sIngestPath),
-                PageCountVar: NullIfBlank(_sPageCountVar), IsPageNext: _sIsPageNext);
+                PageCountVar: NullIfBlank(_sPageCountVar), IsPageNext: _sIsPageNext,
+                RuleId: ParseGuid(_sRuleId), RuleInputVar: NullIfBlank(_sRuleInputVar));
             var saved = await FlowSvc.SaveStepAsync(req, _actor);
             if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
             _showStepEditor = false;

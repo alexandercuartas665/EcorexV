@@ -73,6 +73,22 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<ScrapeRuleOptionDto>> ListRulesAsync(CancellationToken ct = default)
+    {
+        // Reglas del tenant (filtro global por tenant) etiquetadas "Documento / Regla (verbo)".
+        var rules = await _db.Rules.AsNoTracking()
+            .Select(r => new { r.Id, r.Name, r.VerbName, r.DocumentId }).ToListAsync(ct);
+        if (rules.Count == 0) { return Array.Empty<ScrapeRuleOptionDto>(); }
+        var docIds = rules.Select(r => r.DocumentId).Distinct().ToList();
+        var docNames = await _db.RuleDocuments.AsNoTracking().Where(d => docIds.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, d => d.Name, ct);
+        return rules
+            .Select(r => new ScrapeRuleOptionDto(r.Id,
+                (docNames.TryGetValue(r.DocumentId, out var dn) ? dn + " / " : "") + r.Name + " (" + r.VerbName + ")"))
+            .OrderBy(x => x.Label)
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default)
     {
         return await _db.ScrapeFlowRuns.AsNoTracking()
@@ -257,6 +273,8 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.IngestPath = NullIfBlank(req.IngestPath);
         entity.PageCountVar = NullIfBlank(req.PageCountVar);
         entity.IsPageNext = req.IsPageNext;
+        entity.RuleId = req.RuleId;
+        entity.RuleInputVar = NullIfBlank(req.RuleInputVar);
 
         await _db.SaveChangesAsync(ct);
         return MapStep(entity);
@@ -340,7 +358,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         s.Id, s.FlowId, s.Order, s.Kind, s.Name, s.WaitMs, s.Url, s.Script, s.Selector, s.MappingJson,
         s.Instruction, s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel,
         s.WarningLabel, s.WarningAction, s.OutputVar, s.LoopOverVar, s.IsLoopEnd, s.IngestPath,
-        s.PageCountVar, s.IsPageNext);
+        s.PageCountVar, s.IsPageNext, s.RuleId, s.RuleInputVar);
 
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
         new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret);

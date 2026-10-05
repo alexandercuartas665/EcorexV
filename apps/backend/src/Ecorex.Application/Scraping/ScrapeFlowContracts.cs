@@ -44,7 +44,12 @@ public sealed record ScrapeStepDto(
     bool IsLoopEnd = false,
     string? IngestPath = null,
     string? PageCountVar = null,
-    bool IsPageNext = false);
+    bool IsPageNext = false,
+    Guid? RuleId = null,
+    string? RuleInputVar = null);
+
+/// <summary>Una regla del tenant, para el selector del paso ENSAMBLADO (Ola 4).</summary>
+public sealed record ScrapeRuleOptionDto(Guid Id, string Label);
 
 /// <summary>Una variable. NUNCA lleva el valor: solo si tiene o no, y si es secreta.</summary>
 public sealed record ScrapeVariableDto(
@@ -142,7 +147,9 @@ public sealed record SaveScrapeStepRequest(
     bool IsLoopEnd = false,
     string? IngestPath = null,
     string? PageCountVar = null,
-    bool IsPageNext = false);
+    bool IsPageNext = false,
+    Guid? RuleId = null,
+    string? RuleInputVar = null);
 
 /// <summary>Alta/edicion de una variable. <paramref name="Value"/> en claro (input); se cifra al
 /// persistir si <paramref name="IsSecret"/>. Si es edicion y Value llega null, se conserva el valor
@@ -163,6 +170,8 @@ public interface IScrapeFlowService
     Task<IReadOnlyList<ScrapeFlowSummaryDto>> ListAsync(CancellationToken ct = default);
     /// <summary>Tablas que un flujo puede usar como destino, etiquetadas "Modelo / Tabla".</summary>
     Task<IReadOnlyList<ScrapeTargetDto>> ListContainersAsync(CancellationToken ct = default);
+    /// <summary>Reglas del tenant para el paso ENSAMBLADO (Ola 4), etiquetadas "Documento / Regla (verbo)".</summary>
+    Task<IReadOnlyList<ScrapeRuleOptionDto>> ListRulesAsync(CancellationToken ct = default);
     Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default);
     /// <summary>Bitacora de corridas del flujo, mas recientes primero (runtime, Ola 3).</summary>
     Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default);

@@ -11771,6 +11771,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("page_count_var");
 
+                    b.Property<Guid?>("RuleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("RuleInputVar")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("rule_input_var");
+
                     b.Property<string>("Script")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("script");

@@ -139,6 +139,17 @@ public class ScrapeStep : TenantEntity
     /// el que re-lee el listado). El motor los corre, en orden, entre una pagina y la siguiente.</summary>
     public bool IsPageNext { get; set; }
 
+    // ---- ENSAMBLADO -> Regla (motor del dron, Ola 4) ----
+
+    /// <summary>Regla de negocio (RulesEngine) a invocar en este paso (el "ENSAMBLADO" del legacy). Referencia
+    /// SUAVE (sin FK dura) a <c>Rule.Id</c>. Si esta puesta, el paso NO va al navegador: el motor invoca la
+    /// regla pasandole como FormData lo que haya en <see cref="RuleInputVar"/>. Null = no invoca regla.</summary>
+    public Guid? RuleId { get; set; }
+
+    /// <summary>Ruta del contexto cuyo JSON (objeto) se aplana y se entrega a la regla como FormData
+    /// (p.ej. "DETALLE.cabecera"). Si es null, usa "DETALLE".</summary>
+    public string? RuleInputVar { get; set; }
+
     // ---- Paso de IA (Kind = Ai) ----
 
     /// <summary>Instruccion en lenguaje natural para el agente ("saca la tabla de precios").</summary>

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
+using Ecorex.Application.Rules;
 using Ecorex.Application.Scraping;
 using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Entities;
@@ -199,6 +200,15 @@ public sealed class BrowserRunService(
             if (step.Kind == ScrapeStepKind.Ai)
             {
                 return Fail("El paso de IA no se ejecuta en modo paso a paso; usa \"Ejecutar ahora\".");
+            }
+
+            // ENSAMBLADO -> Regla (Ola 4): no va al navegador; invoca la regla con el contexto de sesion.
+            if (step.RuleId is not null || step.Kind == ScrapeStepKind.Ensamblado)
+            {
+                var rules = scope.ServiceProvider.GetRequiredService<IRulesEngine>();
+                var (rok, rdetail, recs) = await InvokeRuleAsync(rules, step, ctx, ct);
+                await RecordStepRunAsync(db, flowId, step.Name, rok, recs, 0, 0, rdetail, ct);
+                return new StepRunResult(rok, false, rok ? null : rdetail, null, rdetail, recs, 0, 0, rdetail);
             }
 
             var sessionKey = StepSessionKeyFor(flowId);
@@ -403,6 +413,16 @@ public sealed class BrowserRunService(
             async Task<bool> ExecStepAsync(ScrapeStep step)
             {
                 if (step.Kind is ScrapeStepKind.Ai or ScrapeStepKind.LeerCorreoOtp) { return true; } // no en el bucle
+
+                // ENSAMBLADO -> Regla (Ola 4): no va al navegador; invoca la regla con el contexto.
+                if (step.RuleId is not null || step.Kind == ScrapeStepKind.Ensamblado)
+                {
+                    var rules = scope.ServiceProvider.GetRequiredService<IRulesEngine>();
+                    var (rok, rdetail, _) = await InvokeRuleAsync(rules, step, ctx, ct);
+                    if (!rok) { lastErr = rdetail; return false; }
+                    return true;
+                }
+
                 var prepared = SubstitutedClone(step, ctx);
                 CompiledFlow compiled;
                 try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, NewCorr(), secret); }
@@ -595,6 +615,55 @@ public sealed class BrowserRunService(
             catch { /* no era cadena JSON literal */ }
         }
         return raw;
+    }
+
+    // ---- ENSAMBLADO -> Regla (motor del dron, Ola 4) ----
+
+    /// <summary>Invoca la Regla del paso (si tiene RuleId) pasandole como FormData el JSON de RuleInputVar
+    /// aplanado. Un paso ENSAMBLADO sin regla asignada es un no-op (no rompe el bucle).</summary>
+    private static async Task<(bool Ok, string Detail, int Records)> InvokeRuleAsync(
+        IRulesEngine rules, ScrapeStep step, ScrapeRunContext ctx, CancellationToken ct)
+    {
+        if (step.RuleId is not Guid rid) { return (true, "ENSAMBLADO sin regla asignada (omitido).", 0); }
+        var inputPath = string.IsNullOrWhiteSpace(step.RuleInputVar) ? "DETALLE" : step.RuleInputVar!;
+        var formData = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (ctx.TryResolve(inputPath, out var json) && !string.IsNullOrWhiteSpace(json))
+        {
+            FlattenJsonObject(json, formData);
+        }
+        var res = await rules.ExecuteRuleAsync(rid, new RuleInvocation(RuleTriggerKind.Manual, formData), ct);
+        if (!res.IsOk || res.Value is null)
+        {
+            return (false, res.Error ?? "La regla no se pudo ejecutar.", 0);
+        }
+        var o = res.Value;
+        var ok = o.Status == RuleExecutionStatus.Success;
+        var detail = $"Regla {o.RuleName}: {o.Status}"
+            + (o.RecordsAffected > 0 ? $" ({o.RecordsAffected} reg.)" : "")
+            + (ok ? "" : $" - {o.ErrorMessage ?? o.Message}");
+        return (ok, detail, o.RecordsAffected);
+    }
+
+    /// <summary>Aplana un objeto JSON a FormData (clave->texto). Escalares como texto; objetos/arreglos como
+    /// su JSON crudo. Si no es un objeto, lo deja en la clave "_raw".</summary>
+    private static void FlattenJsonObject(string json, Dictionary<string, string?> into)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { into["_raw"] = json; return; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                into[p.Name] = p.Value.ValueKind switch
+                {
+                    JsonValueKind.String => p.Value.GetString(),
+                    JsonValueKind.Null => null,
+                    JsonValueKind.Object or JsonValueKind.Array => p.Value.GetRawText(),
+                    _ => p.Value.ToString()
+                };
+            }
+        }
+        catch { into["_raw"] = json; }
     }
 
     /// <summary>Ejecuta el flujo paso a paso, en su propio scope. Deterministas por tramos (canal),

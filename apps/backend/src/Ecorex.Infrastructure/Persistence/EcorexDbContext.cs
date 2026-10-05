@@ -933,6 +933,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.LoopOverVar).HasMaxLength(120);
             b.Property(x => x.IngestPath).HasMaxLength(120);
             b.Property(x => x.PageCountVar).HasMaxLength(120);
+            b.Property(x => x.RuleInputVar).HasMaxLength(120);
+            // RuleId: referencia SUAVE (sin FK) a Rule, como TargetContainerId, para no crear otro camino de cascada.
             // Script / MappingJson / ToolAllowListJson pueden ser largos: sin tope de longitud.
             b.HasOne(x => x.Flow).WithMany(x => x.Steps)
                 .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);

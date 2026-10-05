@@ -60,12 +60,30 @@
                     <option value="Gmail">Gmail</option>
                     <option value="Imap">IMAP (manual)</option>
                 </select></label>
+            <label>Modo de autenticacion
+                <select class="form-control" @bind="_eAuthMode">
+                    <option value="Basic">Usuario + app-password (IMAP basico)</option>
+                    <option value="OAuth2">OAuth2 (Microsoft 365 moderno)</option>
+                </select></label>
+            @if (_eAuthMode == "OAuth2")
+            {
+                <div class="bz-hint">Microsoft 365 moderno: registra una app en Azure AD con permiso de APLICACION
+                    <strong>IMAP.AccessAsApp</strong> (consentimiento de admin) y dale acceso al buzon. Luego pon aqui el
+                    Tenant, el Client ID y el Client Secret.</div>
+            }
             <div class="bz-two">
                 <label>Host IMAP<input class="form-control" @bind="_eHost" /></label>
                 <label>Puerto<input class="form-control" type="number" @bind="_ePuerto" /></label>
             </div>
-            <label>Usuario / correo<input class="form-control" @bind="_eUsuario" /></label>
-            <label>App-password @(_eId is not null ? "(vacio = conservar la actual)" : "")<input class="form-control" type="password" @bind="_ePassword" autocomplete="new-password" /></label>
+            <label>Usuario / correo (buzon a leer)<input class="form-control" @bind="_eUsuario" /></label>
+            @if (_eAuthMode == "OAuth2")
+            {
+                <div class="bz-two">
+                    <label>Tenant ID (Azure AD)<input class="form-control" @bind="_eOauthTenantId" placeholder="dominio o GUID del directorio" /></label>
+                    <label>Client ID (Azure AD)<input class="form-control" @bind="_eOauthClientId" placeholder="application (client) id" /></label>
+                </div>
+            }
+            <label>@(_eAuthMode == "OAuth2" ? "Client secret" : "App-password") @(_eId is not null ? "(vacio = conservar la actual)" : "")<input class="form-control" type="password" @bind="_ePassword" autocomplete="new-password" /></label>
             <div class="bz-two">
                 <label class="bz-chk"><input type="checkbox" @bind="_eSsl" /> Usar SSL</label>
                 <label class="bz-chk"><input type="checkbox" @bind="_eActivo" /> Activo</label>
@@ -126,6 +144,7 @@
     private string _eNombre = ""; private string _eProveedor = "Microsoft";
     private string _eHost = "outlook.office365.com"; private int _ePuerto = 993;
     private string _eUsuario = ""; private string? _ePassword; private bool _eSsl = true; private bool _eActivo = true;
+    private string _eAuthMode = "OAuth2"; private string _eOauthTenantId = ""; private string _eOauthClientId = "";
 
     // probar
     private bool _showProbar; private Guid _pId; private string _probarNombre = "";
@@ -145,6 +164,8 @@
             "Gmail" => ("imap.gmail.com", 993, true),
             _ => (_eHost, _ePuerto, _eSsl)
         };
+        // Microsoft 365 ya no admite basic-auth IMAP: por defecto OAuth2. Gmail usa app-password (Basic).
+        _eAuthMode = _eProveedor switch { "Microsoft" => "OAuth2", "Gmail" => "Basic", _ => _eAuthMode };
     }
 
     private void OpenEditor(OtpMailboxDto? b)
@@ -159,6 +180,9 @@
         _ePassword = null;
         _eSsl = b?.UsarSsl ?? true;
         _eActivo = b?.Activo ?? true;
+        _eAuthMode = string.IsNullOrWhiteSpace(b?.AuthMode) ? (b is null ? "OAuth2" : "Basic") : b!.AuthMode;
+        _eOauthTenantId = b?.OauthTenantId ?? "";
+        _eOauthClientId = b?.OauthClientId ?? "";
         _showEditor = true;
     }
 
@@ -167,7 +191,8 @@
         _busy = true; _editorErr = null;
         try
         {
-            var (id, err) = await Svc.SaveAsync(new SaveOtpMailboxRequest(_eId, _eNombre, _eProveedor, _eHost, _ePuerto, _eSsl, _eUsuario, _ePassword, _eActivo));
+            var (id, err) = await Svc.SaveAsync(new SaveOtpMailboxRequest(_eId, _eNombre, _eProveedor, _eHost, _ePuerto, _eSsl, _eUsuario, _ePassword, _eActivo,
+                _eAuthMode, string.IsNullOrWhiteSpace(_eOauthTenantId) ? null : _eOauthTenantId.Trim(), string.IsNullOrWhiteSpace(_eOauthClientId) ? null : _eOauthClientId.Trim()));
             if (err is not null) { _editorErr = err; return; }
             _showEditor = false;
             Flash("Buzon guardado.", false);

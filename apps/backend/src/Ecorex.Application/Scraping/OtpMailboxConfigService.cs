@@ -25,7 +25,8 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
     public async Task<IReadOnlyList<OtpMailboxDto>> ListAsync(CancellationToken ct = default) =>
         (await _db.OtpMailboxConfigs.AsNoTracking().OrderBy(x => x.Nombre).ToListAsync(ct))
         .Select(x => new OtpMailboxDto(x.Id, x.Nombre, x.Proveedor, x.Host, x.Puerto, x.UsarSsl, x.Usuario,
-            x.Activo, !string.IsNullOrEmpty(x.PasswordCifrada), x.UltimaValidacion)).ToList();
+            x.Activo, !string.IsNullOrEmpty(x.PasswordCifrada), x.UltimaValidacion,
+            x.AuthMode, x.OauthTenantId, x.OauthClientId)).ToList();
 
     public async Task<(Guid? Id, string? Error)> SaveAsync(SaveOtpMailboxRequest req, CancellationToken ct = default)
     {
@@ -35,6 +36,12 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
         if (string.IsNullOrWhiteSpace(req.Host)) { return (null, "El host IMAP es obligatorio."); }
         if (string.IsNullOrWhiteSpace(req.Usuario)) { return (null, "El usuario es obligatorio."); }
         if (req.Puerto is < 1 or > 65535) { return (null, "Puerto invalido."); }
+        var authMode = string.Equals(req.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase) ? "OAuth2" : "Basic";
+        if (authMode == "OAuth2")
+        {
+            if (string.IsNullOrWhiteSpace(req.OauthTenantId)) { return (null, "OAuth2: el Tenant ID de Azure AD es obligatorio."); }
+            if (string.IsNullOrWhiteSpace(req.OauthClientId)) { return (null, "OAuth2: el Client ID de Azure AD es obligatorio."); }
+        }
 
         OtpMailboxConfig entity;
         if (req.Id is { } id)
@@ -55,6 +62,9 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
         entity.UsarSsl = req.UsarSsl;
         entity.Usuario = req.Usuario.Trim();
         entity.Activo = req.Activo;
+        entity.AuthMode = authMode;
+        entity.OauthTenantId = authMode == "OAuth2" ? req.OauthTenantId?.Trim() : null;
+        entity.OauthClientId = authMode == "OAuth2" ? req.OauthClientId?.Trim() : null;
         if (!string.IsNullOrWhiteSpace(req.Password))
         {
             entity.PasswordCifrada = _protector.Protect(req.Password.Trim());
@@ -86,16 +96,22 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
     {
         var cfg = await _db.OtpMailboxConfigs.FirstOrDefaultAsync(x => x.Id == configId, ct);
         if (cfg is null) { return new(false, null, "El buzon no existe."); }
-        if (string.IsNullOrEmpty(cfg.PasswordCifrada)) { return new(false, null, "El buzon no tiene app-password configurada."); }
+        var esOauth = string.Equals(cfg.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(cfg.PasswordCifrada))
+        {
+            return new(false, null, esOauth ? "El buzon no tiene client secret configurado." : "El buzon no tiene app-password configurada.");
+        }
         if (string.IsNullOrWhiteSpace(regex)) { return new(false, null, "La regex de extraccion es obligatoria."); }
-        string password;
-        try { password = _protector.Unprotect(cfg.PasswordCifrada); }
+        string secret;
+        try { secret = _protector.Unprotect(cfg.PasswordCifrada); }
         catch { return new(false, null, "No se pudo descifrar la clave del buzon; vuelve a guardarla."); }
 
-        var req = new OtpReadRequest(cfg.Host, cfg.Puerto, cfg.UsarSsl, cfg.Usuario, password,
+        var req = new OtpReadRequest(cfg.Host, cfg.Puerto, cfg.UsarSsl, cfg.Usuario, secret,
             string.IsNullOrWhiteSpace(remitente) ? null : remitente.Trim(),
             string.IsNullOrWhiteSpace(asunto) ? null : asunto.Trim(),
-            regex.Trim(), sinceUtc, timeoutSegundos);
+            regex.Trim(), sinceUtc, timeoutSegundos,
+            AuthMode: esOauth ? "OAuth2" : "Basic",
+            OauthTenantId: cfg.OauthTenantId, OauthClientId: cfg.OauthClientId);
         var result = await _reader.ReadTokenAsync(req, ct);
 
         if (result.Ok && marcarValidacion)

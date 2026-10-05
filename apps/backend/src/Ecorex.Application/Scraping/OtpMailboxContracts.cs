@@ -1,14 +1,18 @@
 namespace Ecorex.Application.Scraping;
 
-/// <summary>Buzon OTP para la UI (sin exponer la clave).</summary>
+/// <summary>Buzon OTP para la UI (sin exponer el secreto). AuthMode "Basic"|"OAuth2"; en OAuth2 se usan
+/// OauthTenantId/OauthClientId (el client id no es secreto) y TienePassword = hay client secret guardado.</summary>
 public sealed record OtpMailboxDto(
     Guid Id, string Nombre, string Proveedor, string Host, int Puerto, bool UsarSsl, string Usuario,
-    bool Activo, bool TienePassword, DateTimeOffset? UltimaValidacion);
+    bool Activo, bool TienePassword, DateTimeOffset? UltimaValidacion,
+    string AuthMode = "Basic", string? OauthTenantId = null, string? OauthClientId = null);
 
-/// <summary>Alta/edicion de un buzon OTP. Password null = conservar la actual (no reescribir).</summary>
+/// <summary>Alta/edicion de un buzon OTP. Password null = conservar el secreto actual (no reescribir).
+/// En OAuth2, Password lleva el CLIENT SECRET de la app de Azure AD.</summary>
 public sealed record SaveOtpMailboxRequest(
     Guid? Id, string Nombre, string Proveedor, string Host, int Puerto, bool UsarSsl, string Usuario,
-    string? Password, bool Activo);
+    string? Password, bool Activo,
+    string AuthMode = "Basic", string? OauthTenantId = null, string? OauthClientId = null);
 
 /// <summary>Servicio de configuracion + prueba del buzon OTP (modulo Extraccion de datos).</summary>
 public interface IOtpMailboxConfigService

@@ -24,10 +24,21 @@ public sealed class OtpMailboxConfig : TenantEntity
 
     public bool UsarSsl { get; set; } = true;
 
-    /// <summary>Usuario/correo del buzon.</summary>
+    /// <summary>Usuario/correo del buzon. En OAuth2 es el BUZON al que se accede (app-only).</summary>
     public string Usuario { get; set; } = string.Empty;
 
-    /// <summary>App-password cifrada (ISecretProtector). Nunca se devuelve en claro.</summary>
+    /// <summary>Modo de autenticacion: "Basic" (IMAP usuario+app-password, Gmail / tenants viejos) u
+    /// "OAuth2" (Microsoft 365 moderno: client-credentials app-only; Microsoft desactivo basic-auth).</summary>
+    public string AuthMode { get; set; } = "Basic";
+
+    /// <summary>OAuth2: Directorio (tenant) de Azure AD -GUID o dominio- de la app registrada.</summary>
+    public string? OauthTenantId { get; set; }
+
+    /// <summary>OAuth2: Application (client) ID de la app registrada en Azure AD. No es secreto.</summary>
+    public string? OauthClientId { get; set; }
+
+    /// <summary>Secreto cifrado (ISecretProtector). En "Basic" es la app-password del buzon; en "OAuth2"
+    /// es el CLIENT SECRET de la app de Azure AD. Nunca se devuelve en claro.</summary>
     public string? PasswordCifrada { get; set; }
 
     public bool Activo { get; set; } = true;

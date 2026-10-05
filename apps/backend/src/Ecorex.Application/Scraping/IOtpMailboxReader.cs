@@ -12,10 +12,16 @@ namespace Ecorex.Application.Scraping;
 /// <param name="SinceUtc">Solo correos recibidos desde esta hora (para no leer OTPs viejos).</param>
 /// <param name="TimeoutSeconds">Cuanto esperar a que llegue el correo (poll).</param>
 /// <param name="PollSeconds">Intervalo de reintento.</param>
+/// <param name="AuthMode">"Basic" (usuario+password/app-password) u "OAuth2" (Microsoft 365 app-only).</param>
+/// <param name="OauthTenantId">OAuth2: tenant de Azure AD.</param>
+/// <param name="OauthClientId">OAuth2: client id de la app de Azure AD.</param>
+/// <remarks>En OAuth2, <paramref name="Password"/> lleva el CLIENT SECRET de la app y
+/// <paramref name="Username"/> es el buzon al que se accede.</remarks>
 public sealed record OtpReadRequest(
     string Host, int Port, bool UseSsl, string Username, string Password,
     string? FromContains, string? SubjectContains, string Regex,
-    DateTimeOffset? SinceUtc, int TimeoutSeconds, int PollSeconds = 5);
+    DateTimeOffset? SinceUtc, int TimeoutSeconds, int PollSeconds = 5,
+    string AuthMode = "Basic", string? OauthTenantId = null, string? OauthClientId = null);
 
 /// <summary>Resultado de leer el OTP (nunca lanza por fallo de red/timeout: veredicto tipado).</summary>
 public sealed record OtpReadResult(

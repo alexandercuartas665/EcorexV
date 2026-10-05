@@ -9111,6 +9111,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("activo");
 
+                    b.Property<string>("AuthMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("auth_mode");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -9130,6 +9136,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)")
                         .HasColumnName("nombre");
+
+                    b.Property<string>("OauthClientId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("oauth_client_id");
+
+                    b.Property<string>("OauthTenantId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("oauth_tenant_id");
 
                     b.Property<string>("PasswordCifrada")
                         .HasColumnType("nvarchar(max)")

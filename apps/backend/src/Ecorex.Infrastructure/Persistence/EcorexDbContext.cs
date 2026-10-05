@@ -868,6 +868,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Proveedor).HasMaxLength(30).IsRequired();
             b.Property(x => x.Host).HasMaxLength(200).IsRequired();
             b.Property(x => x.Usuario).HasMaxLength(200).IsRequired();
+            b.Property(x => x.AuthMode).HasMaxLength(20).IsRequired();
+            b.Property(x => x.OauthTenantId).HasMaxLength(100);
+            b.Property(x => x.OauthClientId).HasMaxLength(100);
             // PasswordCifrada sin maxlength (ciphertext).
             b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
         });

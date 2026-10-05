@@ -4,6 +4,7 @@ using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
 using MailKit.Security;
+using Microsoft.Identity.Client;
 
 namespace Ecorex.Infrastructure.Email;
 
@@ -32,7 +33,41 @@ public sealed class ImapOtpMailboxReader : IOtpMailboxReader
             using var client = new ImapClient();
             var opt = req.UseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTlsWhenAvailable;
             await client.ConnectAsync(req.Host, req.Port, opt, ct);
-            await client.AuthenticateAsync(req.Username, req.Password, ct);
+
+            if (string.Equals(req.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase))
+            {
+                // Microsoft 365 moderno: client-credentials (app-only). La app de Azure AD debe tener el
+                // permiso de APLICACION IMAP.AccessAsApp con consentimiento de admin, y estar autorizada
+                // sobre el buzon (service principal + acceso al buzon). El token se pide con el client secret.
+                if (string.IsNullOrWhiteSpace(req.OauthTenantId) || string.IsNullOrWhiteSpace(req.OauthClientId))
+                {
+                    return new(false, null, "OAuth2: falta el Tenant ID o el Client ID de Azure AD.");
+                }
+                string accessToken;
+                try
+                {
+                    var appClient = ConfidentialClientApplicationBuilder.Create(req.OauthClientId)
+                        .WithClientSecret(req.Password)
+                        .WithAuthority($"https://login.microsoftonline.com/{req.OauthTenantId}")
+                        .Build();
+                    // .default con el recurso de Outlook: toma los permisos de APLICACION concedidos a la app.
+                    var tokenResult = await appClient
+                        .AcquireTokenForClient(new[] { "https://outlook.office365.com/.default" })
+                        .ExecuteAsync(ct);
+                    accessToken = tokenResult.AccessToken;
+                }
+                catch (MsalServiceException ex)
+                {
+                    return new(false, null, $"OAuth2: no se pudo obtener el token ({ex.ErrorCode}): {ex.Message}");
+                }
+                var oauth2 = new SaslMechanismOAuth2(req.Username, accessToken);
+                await client.AuthenticateAsync(oauth2, ct);
+            }
+            else
+            {
+                await client.AuthenticateAsync(req.Username, req.Password, ct);
+            }
+
             var inbox = client.Inbox;
             await inbox.OpenAsync(FolderAccess.ReadOnly, ct);
 

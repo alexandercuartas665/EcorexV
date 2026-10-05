@@ -101,6 +101,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return await RunFormFillAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken, onProgress);
         }
 
+        // ADR-0120: si este nodo de DECISION/COMPUERTA tiene un medio de comunicacion (linea de WhatsApp, agente
+        // de voz, Colmena para web o permiso de correo), NO se decide a ciegas: se corre un bucle de herramientas
+        // y el prompt empuja a USAR el medio (preguntarle al cliente el dato que falta) antes de rendirse. Sin
+        // ningun medio, la ruta de un solo tiro de abajo queda intacta (cero cambio para los flujos que ya corren).
+        var hasCommsMedium = context.Assignment?.WhatsAppLineId is not null
+            || (context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null)
+            || context.Assignment?.ColmenaClientId is not null
+            || context.Assignment?.CanSendEmail == true;
+        if (hasCommsMedium)
+        {
+            return await RunDecisionWithToolsAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken, onProgress);
+        }
+
         var systemPrompt = BuildSystemPrompt(agent.SystemPrompt, context);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars)
@@ -219,6 +232,206 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         {
             sb.AppendLine("- Tu respuesta CIERRA el paso y el proceso avanza sin revision humana. Ante la duda, puede_resolver=false.");
         }
+        return sb.ToString();
+    }
+
+    // ---- ADR-0120: DECIDIR/elegir ruta usando el medio de comunicacion del nodo (bucle de herramientas) ----
+
+    /// <summary>Tope de rondas del bucle de decision: acota tokens y corta ciclos si el modelo no concluye.</summary>
+    private const int MaxDecisionRounds = 6;
+
+    /// <summary>
+    /// Corre el bucle de function-calling para un nodo de DECISION o COMPUERTA que tiene un medio de
+    /// comunicacion (ADR-0120). Ofrece las herramientas de comunicacion (web/llamada/WhatsApp/correo) y empuja
+    /// a USARLAS para conseguir el dato que falta antes de decidir. El agente termina devolviendo el MISMO JSON
+    /// de decision (`{puede_resolver, resultado|ruta, comentario}`) que la ruta de un solo tiro, asi que el
+    /// parser y el runner no cambian. Si pide una llamada o un WhatsApp, el bucle corta y el runner pausa el
+    /// paso (la respuesta lo reanuda con el dato en el contexto).
+    /// </summary>
+    private async Task<WorkflowAgentInvocationResult> RunDecisionWithToolsAsync(
+        WorkflowAgentContextDto context, Domain.Entities.AiAgent agent, string? baseUrl, string apiKey, string model,
+        CancellationToken cancellationToken, Action<string, long>? onProgress = null)
+    {
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
+        var canSendEmail = context.Assignment?.CanSendEmail == true;
+
+        // Mismas specs de comunicacion que el llenado (sin las herramientas de formulario): no hay formulario que
+        // ver/fijar/enviar; la decision viaja como texto JSON en el ultimo turno del modelo.
+        var tools = BuildDecisionTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var system = BuildDecisionWithToolsSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var userPrompt = WorkflowAgentContextSerializer.ToText(context);
+        if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
+        var messages = new List<AiToolMessage> { new("user", userPrompt) };
+
+        var esCompuerta = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
+        string? decisionText = null;
+        WorkflowAgentCallRequest? callRequest = null;
+        WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
+        var emailsSent = 0;
+        int inTokens = 0, outTokens = 0;
+
+        onProgress?.Invoke(esCompuerta ? "Leyendo el caso para elegir la ruta..." : "Leyendo el caso para decidir...", 0);
+
+        for (var round = 0; round < MaxDecisionRounds; round++)
+        {
+            AiCompletion completion;
+            try
+            {
+                completion = await _client.CompleteWithToolsAsync(
+                    agent.Provider, apiKey, baseUrl, model, system, messages, tools, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                return WorkflowAgentInvocationResult.Failed(
+                    $"Error llamando al proveedor {agent.Provider}: {ex.Message}", agent.Provider, model, inTokens, outTokens);
+            }
+
+            inTokens += completion.InputTokens;
+            outTokens += completion.OutputTokens;
+            if (!completion.Ok)
+            {
+                return WorkflowAgentInvocationResult.Failed(
+                    completion.Error ?? "El proveedor de IA no respondio.", agent.Provider, model, inTokens, outTokens);
+            }
+
+            // Sin llamadas a herramientas: el modelo ya decidio -> su texto es el JSON de decision.
+            if (completion.ToolCalls.Count == 0)
+            {
+                decisionText = completion.Text;
+                break;
+            }
+
+            messages.Add(new AiToolMessage("assistant", completion.Text, completion.ToolCalls));
+            onProgress?.Invoke(DescribeRound(completion.Text, completion.ToolCalls.Select(c => c.Name)), inTokens + outTokens);
+
+            var pausing = false;
+            foreach (var call in completion.ToolCalls)
+            {
+                string result;
+                if (call.Name == "buscar_web" && canSearchWeb)
+                {
+                    result = await ExecuteWebSearchAsync(call.ArgumentsJson, context.Assignment!, agent.TenantId, cancellationToken);
+                }
+                else if (call.Name == "llamar_telefono" && canCall)
+                {
+                    callRequest = ReadCallRequest(call.ArgumentsJson);
+                    pausing = true;
+                    result = callRequest is null
+                        ? """{"error": "falta 'numero' para la llamada"}"""
+                        : """{"ok": true, "mensaje": "llamada solicitada; el paso quedara en espera del resultado"}""";
+                }
+                else if (call.Name == "preguntar_whatsapp" && canAskWhatsApp)
+                {
+                    whatsAppRequest = ReadWhatsAppRequest(call.ArgumentsJson);
+                    pausing = true;
+                    result = whatsAppRequest is null
+                        ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
+                        : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
+                }
+                else if (call.Name == "enviar_correo" && canSendEmail)
+                {
+                    if (emailsSent >= MaxEmailsPerStep)
+                    {
+                        result = $$"""{"ok": false, "error": "ya se enviaron {{MaxEmailsPerStep}} correos en este paso (tope)"}""";
+                    }
+                    else
+                    {
+                        result = await ExecuteSendEmailAsync(call.ArgumentsJson, cancellationToken);
+                        emailsSent++;
+                    }
+                }
+                else
+                {
+                    result = $$"""{"error": "herramienta '{{call.Name}}' no disponible"}""";
+                }
+                messages.Add(new AiToolMessage("tool", result, ToolCallId: call.Id, ToolName: call.Name));
+            }
+
+            // Una llamada o un WhatsApp PAUSAN el paso: el runner los coloca/envia y el paso espera la respuesta.
+            if (pausing) { break; }
+        }
+
+        // El agente pidio una llamada -> el runner la coloca y pausa el paso.
+        if (callRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: null, Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, CallRequest: callRequest);
+        }
+        // El agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso.
+        if (whatsAppRequest is not null)
+        {
+            return new WorkflowAgentInvocationResult(
+                true, Result: null, Comment: null, Error: null,
+                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, WhatsAppRequest: whatsAppRequest);
+        }
+
+        if (string.IsNullOrWhiteSpace(decisionText))
+        {
+            return WorkflowAgentInvocationResult.Failed(
+                "El agente no concluyo una decision tras usar sus herramientas.", agent.Provider, model, inTokens, outTokens);
+        }
+
+        var parsed = WorkflowAgentDecisionParser.Parse(decisionText!);
+        var totalTokens = (long)inTokens + outTokens;
+        var finalPhase = parsed.Ok
+            ? (Clip(parsed.Comment, 160) ?? (string.IsNullOrWhiteSpace(parsed.Result) ? "Decision tomada." : $"Decidio: {parsed.Result}"))
+            : (Clip(parsed.Error, 160) ?? "No pudo decidir con los datos del caso.");
+        onProgress?.Invoke(finalPhase!, totalTokens);
+
+        return parsed with { Provider = agent.Provider, Model = model, InputTokens = inTokens, OutputTokens = outTokens };
+    }
+
+    /// <summary>Herramientas de COMUNICACION para un nodo de decision/compuerta (ADR-0120): las mismas del
+    /// llenado menos las de formulario. El medio disponible decide cuales se ofrecen.</summary>
+    private static IReadOnlyList<AiToolSpec> BuildDecisionTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    {
+        var tools = new List<AiToolSpec>();
+        if (canSearchWeb)
+        {
+            tools.Add(new AiToolSpec("buscar_web",
+                "Abre una pagina web y extrae su contenido para conseguir un dato que falta. 'url' obligatorio; 'objetivo' describe que buscar.",
+                """{"type":"object","properties":{"url":{"type":"string"},"objetivo":{"type":"string"}},"required":["url"]}"""));
+        }
+        if (canCall)
+        {
+            tools.Add(new AiToolSpec("llamar_telefono",
+                "Coloca una llamada para conseguir un dato con una persona. 'numero' obligatorio (con codigo de pais). El paso quedara EN ESPERA del resultado y luego retomaras la decision.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"objetivo":{"type":"string"}},"required":["numero"]}"""));
+        }
+        if (canAskWhatsApp)
+        {
+            tools.Add(new AiToolSpec("preguntar_whatsapp",
+                "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato que necesitas para decidir. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se envia. El paso quedara EN ESPERA de la respuesta y luego retomaras la decision. Usala si el dato depende del cliente y no esta en el contexto.",
+                """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
+        }
+        if (canSendEmail)
+        {
+            tools.Add(new AiToolSpec("enviar_correo",
+                "Envia un correo. 'para' (email) y 'asunto' y 'cuerpo' obligatorios.",
+                """{"type":"object","properties":{"para":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["para","asunto","cuerpo"]}"""));
+        }
+        return tools;
+    }
+
+    /// <summary>Prompt de sistema para la decision CON herramientas (ADR-0120): el contrato de decision de
+    /// siempre + el empujon a USAR el medio de comunicacion disponible antes de rendirse.</summary>
+    private static string BuildDecisionWithToolsSystemPrompt(
+        string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    {
+        var sb = new StringBuilder(BuildSystemPrompt(agentPrompt, context));
+        sb.AppendLine();
+        sb.AppendLine("Tienes herramientas para CONSEGUIR lo que te falte antes de decidir:");
+        if (canAskWhatsApp) { sb.AppendLine("- 'preguntar_whatsapp': pregunta al cliente por WhatsApp (el paso espera la respuesta y la recibiras para decidir)."); }
+        if (canCall) { sb.AppendLine("- 'llamar_telefono': coloca una llamada para conseguir el dato."); }
+        if (canSearchWeb) { sb.AppendLine("- 'buscar_web': abre una pagina y extrae un dato."); }
+        if (canSendEmail) { sb.AppendLine("- 'enviar_correo': envia un correo."); }
+        sb.AppendLine();
+        sb.AppendLine("IMPORTANTE: se te dio un medio de comunicacion con el cliente; lo evidente es USARLO para llegar a la decision.");
+        sb.AppendLine("Si el dato que necesitas depende del cliente y no esta en el contexto, PREGUNTASELO por ese medio en vez de responder puede_resolver=false.");
+        sb.AppendLine("Solo cuando YA tengas lo necesario (o sea imposible conseguirlo), responde el JSON de decision descrito arriba, sin llamar mas herramientas.");
         return sb.ToString();
     }
 

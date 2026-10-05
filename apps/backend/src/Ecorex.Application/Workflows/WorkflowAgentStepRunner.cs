@@ -266,6 +266,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         var now = _clock.GetUtcNow();
         step.AgentAttemptedAt = now;
+        // ADR-0120: el paso se RESUELVE (no se pausa): deja de "poseer" la conversacion para que el agente de la
+        // linea (SARA) vuelva a atender. Si veniamos de una pregunta por WhatsApp o una llamada, su espera termino.
+        step.PendingWhatsAppConversationId = null;
+        step.PendingVoiceCallId = null;
         // La propuesta guardada: la ruta en una compuerta, "Formulario" en un llenado, o el resultado en un Task.
         step.AgentProposalResult = isGateway ? Clip(routeLabel, 20) : (isForm ? "Formulario" : invocation.Result);
         step.AgentProposalComment = invocation.Comment;

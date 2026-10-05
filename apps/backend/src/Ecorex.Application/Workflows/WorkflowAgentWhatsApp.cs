@@ -118,6 +118,27 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
             SentAt = now
         });
 
+        // ADR-0120: el saliente del agente del nodo tambien queda en /bitacora-agente, atribuido al agente ligado
+        // a la linea. Asi, cuando el cliente responda y el agente conversacional (SARA) retome, tiene el rastro de
+        // lo que el flujo pregunto (sin esto la conversacion ni aparecia en la bitacora del agente).
+        var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == command.LineId)
+            .Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (boundAgentId is Guid aid)
+        {
+            _db.AiAgentRunLogs.Add(new AiAgentRunLog
+            {
+                TenantId = command.TenantId,
+                ConversationId = conversation.Id,
+                AgentId = aid,
+                OccurredAt = now,
+                Kind = AiAgentRunLogKind.Info,
+                Title = "El agente del flujo pregunto al cliente",
+                Content = command.Question.Trim()
+            });
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return WhatsAppAskResult.Ok(conversation.Id);
     }

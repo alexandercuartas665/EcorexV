@@ -133,10 +133,17 @@
                                         @card.Estado
                                     </span>
                                     <AuthorizeView Policy="SuperAdminOnly">
-                                        <button title="Publicar al marketplace" @onclick:stopPropagation="true" @onclick="@(() => OpenPublish(card.DefinitionId, card.Name))" disabled="@_busy"
-                                                style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
+                                        <button title="@(_publishedCodes.Contains(card.ProcessCode) ? "Actualizar la plantilla publicada" : "Publicar al marketplace")" @onclick:stopPropagation="true" @onclick="@(() => OpenPublish(card.DefinitionId, card.Name))" disabled="@_busy"
+                                                style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:@(_publishedCodes.Contains(card.ProcessCode) ? "var(--t-green,#16a34a)" : "var(--ink-3,#94a3b8)");border-radius:6px;cursor:pointer;">
                                             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 12v9"/><path d="m8 16 4-4 4 4"/></svg>
                                         </button>
+                                        @if (_publishedCodes.Contains(card.ProcessCode))
+                                        {
+                                            <button title="Despublicar de la galeria (quitar de 'Traer un flujo')" @onclick:stopPropagation="true" @onclick="@(() => AskUnpublish(card.DefinitionId, card.ProcessCode, card.Name))" disabled="@_busy"
+                                                    style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
+                                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 21v-9"/><path d="m8 16 4 4 4-4"/></svg>
+                                            </button>
+                                        }
                                     </AuthorizeView>
                                     <button title="Etiquetas" @onclick:stopPropagation="true" @onclick="@(() => OpenAssign(card.ProcessCode, card.Name))" disabled="@_busy"
                                             style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
@@ -323,6 +330,25 @@
     </div>
 }
 
+@* ---- Modal: confirmar despublicar de la galeria ---- *@
+@if (_unpublishDefId is not null)
+{
+    <div class="fl-overlay" @onclick="() => _unpublishDefId = null">
+        <div class="fl-modal" style="width:min(460px,94vw)" @onclick:stopPropagation>
+            <h3 class="fl-modal-title">Despublicar de la galeria</h3>
+            <p class="fl-muted">
+                Se quitara <b>@_unpublishName</b> de la galeria "Traer un flujo": ningun tenant podra traerla.
+                Es reversible (volver a publicarla la reactiva) y no afecta las copias que algun tenant ya haya traido.
+            </p>
+            @if (_unpublishError is not null) { <div class="tk-field-error">@_unpublishError</div> }
+            <div class="fl-modal-foot">
+                <button class="fl-btn-ghost" @onclick="() => _unpublishDefId = null" disabled="@_busy">Cancelar</button>
+                <button class="fl-btn-sm" style="background:var(--t-red,#dc2626);border-color:var(--t-red,#dc2626);color:#fff;" @onclick="ConfirmUnpublishAsync" disabled="@_busy">Despublicar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Modal: gestionar categorias (crear / renombrar / eliminar) ---- *@
 @if (_manageOpen)
 {
@@ -486,6 +512,15 @@
     private Guid? _pubExistingId;
     private bool _pubUpdateExisting;
 
+    // Despublicar: codigos (ProcessCode) de flujos con plantilla ACTIVA en la galeria (solo Super Admin).
+    // Define que tarjetas muestran la accion "Despublicar".
+    private HashSet<string> _publishedCodes = new(StringComparer.OrdinalIgnoreCase);
+    // Confirmacion de despublicar.
+    private Guid? _unpublishDefId;
+    private string? _unpublishCode;
+    private string? _unpublishName;
+    private string? _unpublishError;
+
     private sealed record CardGroup(string Title, string? Color, List<FlowCardDto> Cards);
 
     private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
@@ -582,7 +617,12 @@
             var st = await AuthState;
             if (!st.User.HasClaim("platform_role", "SuperAdmin")) { return; }
             await _gate.WaitAsync();
-            try { _cardImages = await MarketSvc.GetImageRefsBySourceCodeAsync(MarketplaceItemKind.Flow); }
+            try
+            {
+                _cardImages = await MarketSvc.GetImageRefsBySourceCodeAsync(MarketplaceItemKind.Flow);
+                _publishedCodes = (await MarketSvc.ListPublishedSourceCodesAsync(MarketplaceItemKind.Flow))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
             finally { _gate.Release(); }
         }
         catch { /* la imagen es decorativa: nunca debe tumbar la pagina */ }
@@ -728,8 +768,34 @@
                 : await MarketSvc.PublishFlowAsync(_pubDefId, input, null);
             if (!res.Ok) { _pubError = res.Error ?? "No se pudo publicar."; return; }
             _publishOpen = false;
+            if (res.Value is not null && !string.IsNullOrWhiteSpace(res.Value.SourceCode))
+            {
+                _publishedCodes.Add(res.Value.SourceCode!); // ya aparece el boton "Despublicar" en la tarjeta.
+            }
         }
         catch (Exception ex) { _pubError = ex.Message; }
+        finally { _gate.Release(); _busy = false; }
+    }
+
+    // ---- Despublicar de la galeria (desactivar la plantilla; reversible) ----
+    private void AskUnpublish(Guid defId, string code, string name)
+    {
+        _unpublishDefId = defId; _unpublishCode = code; _unpublishName = name; _unpublishError = null;
+    }
+
+    private async Task ConfirmUnpublishAsync()
+    {
+        if (_unpublishDefId is not Guid defId) { return; }
+        _busy = true; _unpublishError = null;
+        await _gate.WaitAsync();
+        try
+        {
+            var res = await MarketSvc.UnpublishFlowAsync(defId);
+            if (!res.Ok) { _unpublishError = res.Error ?? "No se pudo despublicar."; return; }
+            if (!string.IsNullOrWhiteSpace(_unpublishCode)) { _publishedCodes.Remove(_unpublishCode!); }
+            _unpublishDefId = null; _unpublishCode = null; _unpublishName = null;
+        }
+        catch (Exception ex) { _unpublishError = ex.Message; }
         finally { _gate.Release(); _busy = false; }
     }
 

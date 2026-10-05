@@ -60,6 +60,34 @@ public sealed class MarketplaceService : IMarketplaceService
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<MarketplaceResult<bool>> UnpublishFlowAsync(
+        Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var code = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.Id == definitionId).Select(d => d.ProcessCode).FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(code)) { return MarketplaceResult<bool>.Fail("El flujo no existe."); }
+
+        var items = await _db.MarketplaceItems
+            .Where(i => i.Kind == MarketplaceItemKind.Flow && i.IsActive && i.SourceCode == code)
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0) { return MarketplaceResult<bool>.Fail("Este flujo no esta publicado en la galeria."); }
+
+        // Desactivar (no borrar): reversible, conserva ImportCount y no toca las copias ya traidas.
+        foreach (var it in items) { it.IsActive = false; }
+        await _db.SaveChangesAsync(cancellationToken);
+        return MarketplaceResult<bool>.Success(true);
+    }
+
+    public async Task<IReadOnlyCollection<string>> ListPublishedSourceCodesAsync(
+        MarketplaceItemKind kind, CancellationToken cancellationToken = default)
+    {
+        return await _db.MarketplaceItems.AsNoTracking()
+            .Where(i => i.Kind == kind && i.IsActive && i.SourceCode != null)
+            .Select(i => i.SourceCode!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<MarketplaceResult<MarketplaceItemDto>> RepublishFlowAsync(
         Guid itemId, Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default)
     {

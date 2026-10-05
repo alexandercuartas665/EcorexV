@@ -1,6 +1,6 @@
 # ADR-0119: Plazos v2 - tiempo de arranque (y ejecucion diferida del agente) + duracion por paso
 
-**Estado:** Propuesto
+**Estado:** Aceptado (Fases A+B+C implementadas)
 **Fecha:** 2026-10-05
 **Contexto de codigo:** WorkflowNode.SlaJson, StepSla, StepDeadlineCalculator,
 WorkflowEngine.ActivateNodeAsync + StampStepDeadlinesAsync, WorkflowStepHistory, TaskItem.StartDate/DueDate,
@@ -94,9 +94,15 @@ tiempo **conviva** en el nodo (no un nodo aparte). **Rechazada por alcance.**
 
 ## Action items
 
-1. [ ] (B) `WorkflowNode.StartDelayJson` + lectura via `StepSla` (reuso del parser).
-2. [ ] (B) `StepDeadlineCalculator`: `inicio = activacion + arranque`; `vence = inicio + duracion`.
-3. [ ] (B) `WorkflowEngine.StampStepDeadlinesAsync`: estampar `StartAt` + `DueAt`; `StartDate`/`DueDate` de la actividad.
-4. [ ] (B) Migracion dual: `start_delay_json` (workflow_nodes), `start_at` (workflow_step_history).
-5. [ ] (B) UI del disenador: dos bloques (Tiempo para arrancar | Tiempo estimado para entregar).
-6. [ ] (C) Dispatcher de pasos de agente honra "no antes de" = `inicio(paso)`.
+1. [x] (B) `WorkflowNode.StartDelayJson` + lectura via `StepSla` (reuso del parser).
+2. [x] (B) `StepDeadlineCalculator`: `inicio = activacion + arranque`; `vence = inicio + duracion` (composicion en el motor; +3 tests).
+3. [x] (B) `WorkflowEngine.StampStepDeadlinesAsync`: estampar `StartAt` + `DueAt`; `StartDate`/`DueDate` de la actividad.
+4. [x] (B) Migracion dual: `start_delay_json` (workflow_nodes), `start_at` (workflow_step_histories).
+5. [x] (B) UI del disenador: dos bloques (Tiempo para arrancar | Tiempo estimado para entregar).
+6. [x] (C) Dispatcher de pasos de agente honra "no antes de" = `StartAt` (worker barre cada 30s).
+
+## Estado de implementacion
+
+Commits en `fase-0/clon-backbone`: ADR (`a32a1978`), Fase B (`932ab27b`), Fase C (`bec917d8`). Build verde;
+App 1112 / Domain 35 / SuperAdmin 173 tests verdes; migracion dual auto-aplicada en dev. Sin desplegar a prod.
+Pendiente: validacion E2E (configurar arranque en un nodo-agente y ver la ejecucion diferida) + deploy.

@@ -57,11 +57,12 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
         // Baileys) y Emulator NO la tienen: se puede enviar texto libre en cualquier momento, igual que una
         // respuesta manual del chat. Para esas lineas no se exige ventana ni plantilla; de lo contrario el
         // agente no podria escribir al cliente en frio aunque Evolution si lo entregue.
-        var provider = await _db.WhatsAppLines.AsNoTracking()
-            .Where(l => l.Id == command.LineId)
-            .Select(l => (WhatsAppProvider?)l.Provider)
-            .FirstOrDefaultAsync(cancellationToken);
-        var noMetaWindow = provider is WhatsAppProvider.Evolution or WhatsAppProvider.Emulator;
+        // Se carga la entidad (sin proyeccion con cast a nullable: con el value-converter enum->string el cast
+        // (WhatsAppProvider?) no materializaba bien y caia como "no Evolution"). El provider se lee del enum real.
+        var line = await _db.WhatsAppLines.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == command.LineId, cancellationToken);
+        var noMetaWindow = line is not null
+            && (line.Provider == WhatsAppProvider.Evolution || line.Provider == WhatsAppProvider.Emulator);
 
         // Ventana de 24h: hay un entrante reciente en esta conversacion? (Evolution/Emulator: siempre "abierta".)
         var windowOpen = noMetaWindow;

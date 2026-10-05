@@ -182,7 +182,15 @@ public static class ScrapeFlowCompiler
         // El Navegador lo corre con WebView2 ExecuteScriptAsync, donde un `return` en el nivel superior es
         // error de sintaxis; por eso se envuelve en un IIFE ANTES de firmar (la firma cubre el JS exacto
         // que se ejecuta). El salto de linea final evita que un comentario `//` al final se coma el cierre.
-        var body = "(function(){\n" + js + "\n})()";
+        //
+        // Dos estilos conviven: los pasos NATIVOS son un cuerpo (`return [...]`) y van tal cual; los pasos
+        // LEGACY del dron son una EXPRESION/IIFE (`(function(){...})()`) cuyo valor se perderia al envolver
+        // (el envoltorio no tiene return). Para poder CAPTURAR su salida (OutputVar del motor, Ola 1) se
+        // envuelven con `return (...)`. Heuristica: empieza con '(' => expresion; si no, cuerpo.
+        var trimmed = js.TrimStart();
+        var body = trimmed.StartsWith("(")
+            ? "(function(){\nreturn (\n" + js + "\n);\n})()"
+            : "(function(){\n" + js + "\n})()";
         return new(BrowserActionKind.Eval, Script: body, Signature: Sign(body, correlationId, secret, step));
     }
 

@@ -38,7 +38,8 @@ public sealed record ScrapeStepDto(
     Guid? AiProviderId,
     string? AiModel,
     string? WarningLabel = null,
-    ScrapeWarningAction WarningAction = ScrapeWarningAction.None);
+    ScrapeWarningAction WarningAction = ScrapeWarningAction.None,
+    string? OutputVar = null);
 
 /// <summary>Una variable. NUNCA lleva el valor: solo si tiene o no, y si es secreta.</summary>
 public sealed record ScrapeVariableDto(
@@ -130,7 +131,8 @@ public sealed record SaveScrapeStepRequest(
     Guid? AiProviderId = null,
     string? AiModel = null,
     string? WarningLabel = null,
-    ScrapeWarningAction WarningAction = ScrapeWarningAction.None);
+    ScrapeWarningAction WarningAction = ScrapeWarningAction.None,
+    string? OutputVar = null);
 
 /// <summary>Alta/edicion de una variable. <paramref name="Value"/> en claro (input); se cifra al
 /// persistir si <paramref name="IsSecret"/>. Si es edicion y Value llega null, se conserva el valor

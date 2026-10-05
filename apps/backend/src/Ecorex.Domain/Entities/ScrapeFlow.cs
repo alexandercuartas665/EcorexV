@@ -104,6 +104,13 @@ public class ScrapeStep : TenantEntity
     /// patron de DataConnector.MappingJson.</summary>
     public string? MappingJson { get; set; }
 
+    /// <summary>Orquestacion (motor del dron, Ola 1): nombre bajo el cual se GUARDA la salida de este paso
+    /// en el contexto de la corrida (p.ej. "LISTADO" para el paso que lee la grilla, "DETALLE" para el que
+    /// lee la cotizacion). Si el valor devuelto es JSON, se guarda parseado. Los pasos siguientes lo usan
+    /// sustituyendo {{VAR}} o @@VAR@@ con rutas con punto/indice (p.ej. {{LISTADO.compras[0].btnDiligenciarId}}).
+    /// Null = no se captura.</summary>
+    public string? OutputVar { get; set; }
+
     // ---- Paso de IA (Kind = Ai) ----
 
     /// <summary>Instruccion en lenguaje natural para el agente ("saca la tabla de precios").</summary>

@@ -929,6 +929,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Instruction).HasMaxLength(2000);
             b.Property(x => x.AiModel).HasMaxLength(120);
             b.Property(x => x.WarningLabel).HasMaxLength(200);
+            b.Property(x => x.OutputVar).HasMaxLength(60);
             // Script / MappingJson / ToolAllowListJson pueden ser largos: sin tope de longitud.
             b.HasOne(x => x.Flow).WithMany(x => x.Steps)
                 .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);

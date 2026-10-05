@@ -11743,6 +11743,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("order");
 
+                    b.Property<string>("OutputVar")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("output_var");
+
                     b.Property<string>("Script")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("script");

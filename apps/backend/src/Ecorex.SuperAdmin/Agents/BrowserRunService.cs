@@ -173,12 +173,15 @@ public sealed class BrowserRunService(
                 try { secret = protector.Unprotect(client.ClientSecretEncrypted); } catch { /* ilegible */ }
             }
 
-            // Variables del flujo + las de sesion (overlay efimero: p.ej. el token que leyo un paso OTP antes).
+            // Variables del flujo + las de sesion (overlay efimero: salidas capturadas de pasos anteriores y
+            // el token que leyo un paso OTP). El contexto resuelve {{ruta}}/@@ruta@@ con acceso por punto/indice
+            // a los JSON capturados (motor del dron, Ola 1).
             var vars = DecryptVariables(flow.Variables, protector);
             if (_stepSessionVars.TryGetValue(flowId, out var session))
             {
                 foreach (var (k, v) in session) { vars[k] = v; }
             }
+            var ctx = new ScrapeRunContext(vars);
 
             // Paso "Leer token de correo": NO va al navegador. Lee el OTP por IMAP y lo deja como variable de
             // sesion para que los pasos siguientes lo sustituyan como {{NOMBRE}}.
@@ -194,10 +197,14 @@ public sealed class BrowserRunService(
 
             var sessionKey = StepSessionKeyFor(flowId);
             var corr = NewCorr();
+            // Pre-sustituye el paso contra el contexto (rutas a las salidas capturadas); el compilador luego
+            // solo firma. Se trabaja sobre un CLON para no mutar la entidad rastreada (no se persiste el JS).
+            var prepared = SubstitutedClone(step, ctx);
             CompiledFlow compiled;
             try
             {
-                compiled = ScrapeFlowCompiler.CompileSteps(new[] { step }, flow.ContainerId, vars, corr, secret);
+                compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId,
+                    EmptyVars, corr, secret);
             }
             catch (ScrapeCompileException ex) { return Fail(ex.Message); }
 
@@ -250,7 +257,18 @@ public sealed class BrowserRunService(
                 var value = result.Results
                     .Where(r => r.Kind != BrowserActionKind.Screenshot && !string.IsNullOrEmpty(r.Value))
                     .Select(r => r.Value).FirstOrDefault();
-                var detail = ins > 0 ? $"{ins} filas" : "Paso ejecutado";
+
+                // Motor del dron (Ola 1): si el paso define OutputVar, se CAPTURA su salida en el contexto de
+                // sesion para que los pasos siguientes la usen ({{OutputVar.ruta}} / @@OutputVar.ruta@@).
+                if (!string.IsNullOrWhiteSpace(step.OutputVar))
+                {
+                    var captured = UnwrapEvalValue(value);
+                    _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal))
+                        [step.OutputVar!.Trim()] = captured ?? string.Empty;
+                }
+
+                var detail = ins > 0 ? $"{ins} filas"
+                    : string.IsNullOrWhiteSpace(step.OutputVar) ? "Paso ejecutado" : $"Paso ejecutado (capturado en {{{{{step.OutputVar!.Trim()}}}}})";
 
                 await activity.RecordAsync(new AgentActivityEntry(
                     tenantId, client.ClientId, null, AgentActivityKind.Browser, corr,
@@ -379,6 +397,40 @@ public sealed class BrowserRunService(
     private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
 
     private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
+
+    private static readonly Dictionary<string, string> EmptyVars = new(StringComparer.Ordinal);
+
+    /// <summary>Clon DESLIGADO del paso con Url/Script/Selector ya sustituidos contra el contexto (para no
+    /// mutar la entidad rastreada ni persistir el JS sustituido). Copia solo lo que el compilador lee.</summary>
+    private static ScrapeStep SubstitutedClone(ScrapeStep s, ScrapeRunContext ctx) => new()
+    {
+        Order = s.Order,
+        Kind = s.Kind,
+        Name = s.Name,
+        WaitMs = s.WaitMs,
+        Url = ctx.Substitute(s.Url),
+        Script = ctx.Substitute(s.Script),
+        Selector = ctx.Substitute(s.Selector),
+        MappingJson = s.MappingJson,
+        TargetContainerId = s.TargetContainerId,
+        WarningLabel = s.WarningLabel,
+        WarningAction = s.WarningAction,
+    };
+
+    /// <summary>WebView2 ExecuteScriptAsync devuelve el resultado JSON-encoded. Si el paso devolvio una CADENA
+    /// (el caso tipico: <c>JSON.stringify({...})</c>), llega doble-codificada ("\"{...}\""): se desenvuelve un
+    /// nivel para guardar el JSON limpio navegable. Si no era cadena JSON, se deja tal cual.</summary>
+    private static string? UnwrapEvalValue(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) { return raw; }
+        var t = raw.TrimStart();
+        if (t.Length > 0 && t[0] == '"')
+        {
+            try { return JsonSerializer.Deserialize<string>(raw); }
+            catch { /* no era cadena JSON literal */ }
+        }
+        return raw;
+    }
 
     /// <summary>Ejecuta el flujo paso a paso, en su propio scope. Deterministas por tramos (canal),
     /// pasos de IA por el orquestador. Cierra la corrida al terminar, pase lo que pase.</summary>

@@ -53,9 +53,19 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
 
         var now = _clock.GetUtcNow();
 
-        // Ventana de 24h: hay un entrante reciente en esta conversacion?
-        var windowOpen = false;
-        if (conversation is not null)
+        // ADR-0120: la ventana de 24h es una regla de Meta (Cloud/YCloud). Las lineas Evolution (WhatsApp Web,
+        // Baileys) y Emulator NO la tienen: se puede enviar texto libre en cualquier momento, igual que una
+        // respuesta manual del chat. Para esas lineas no se exige ventana ni plantilla; de lo contrario el
+        // agente no podria escribir al cliente en frio aunque Evolution si lo entregue.
+        var provider = await _db.WhatsAppLines.AsNoTracking()
+            .Where(l => l.Id == command.LineId)
+            .Select(l => (WhatsAppProvider?)l.Provider)
+            .FirstOrDefaultAsync(cancellationToken);
+        var noMetaWindow = provider is WhatsAppProvider.Evolution or WhatsAppProvider.Emulator;
+
+        // Ventana de 24h: hay un entrante reciente en esta conversacion? (Evolution/Emulator: siempre "abierta".)
+        var windowOpen = noMetaWindow;
+        if (!windowOpen && conversation is not null)
         {
             var since = now - ServiceWindow;
             windowOpen = await _db.Messages.AnyAsync(

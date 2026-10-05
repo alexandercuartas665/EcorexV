@@ -1700,6 +1700,11 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-failed svg { width: 13px; height: 13px; flex: none; }
 .tk-flow-node.agent-failed { border-color: #d97706; box-shadow: 0 0 0 1px #d97706, 0 8px 22px -8px rgba(0,0,0,.5); }
 .tk-flow-node.working { border-color: var(--ai-accent); animation: tkAura 1.8s infinite ease-in-out; }
+/* Plazos v2 (ADR-0119): agente PROGRAMADO (aun no arranca, espera su StartAt). Sin aura/animacion
+   -> deja claro que NO esta trabajando todavia, solo en espera de su hora. */
+.tk-flow-scheduled { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--ink-3, #94a3b8); }
+.tk-flow-scheduled svg { width: 13px; height: 13px; flex: none; }
+.tk-flow-node.scheduled { border-color: var(--line-2, #e5e7eb); border-style: dashed; }
 @keyframes tkAura { 0%, 100% { box-shadow: 0 0 0 1px var(--ai-accent), 0 8px 22px -8px rgba(0,0,0,.55); } 50% { box-shadow: 0 0 0 1px var(--ai-accent), 0 0 0 6px var(--ai-soft), 0 12px 26px -8px rgba(0,0,0,.6); } }
 /* Rama DESCARTADA (ADR-0073): la compuerta tomo otra ruta -> el nodo se atenua en gris. Sigue siendo
    consultable (menu/notas), pero visualmente queda claro que el proceso no paso por ahi. */

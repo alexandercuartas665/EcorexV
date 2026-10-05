@@ -79,7 +79,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.CompletedAt,
                 s.AgentAttemptedAt,
                 s.AgentFailureReason,
-                s.AgentRunLog
+                s.AgentRunLog,
+                s.StartAt
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -346,7 +347,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                     ? h.AgentFailureReason : null,
                 AgentRunLog: isAuto ? h?.AgentRunLog : null,
                 RuntimeDx: n.RuntimeLayoutDx,
-                RuntimeDy: n.RuntimeLayoutDy);
+                RuntimeDy: n.RuntimeLayoutDy,
+                // Inicio programado del paso vigente (Plazos v2): si esta en el futuro, el agente aun no arranca.
+                ScheduledStartAt: h is { IsCurrent: true } ? h.StartAt : null);
         }).ToList();
 
         var edges = canvas.Edges

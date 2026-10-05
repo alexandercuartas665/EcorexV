@@ -373,9 +373,13 @@
                                 // Un paso de agente que es el ACTUAL y sigue abierto = el agente lo esta (o va a) atender: se pinta "trabajando".
                                 // El agente ya intento y NO pudo (dejo un motivo de fallo): el paso requiere una persona.
                                 var agentFailed = nn.IsAuto && !string.IsNullOrWhiteSpace(nn.AgentFailureReason);
-                                // "Trabajando": paso de agente vigente que aun NO ha fallado (pendiente de/atendiendose).
-                                var agentWorking = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned && !agentFailed;
-                                <div class="tk-flow-node @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(agentFailed ? "agent-failed" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
+                                // Plazos v2 (ADR-0119): si el paso tiene INICIO programado en el FUTURO, el agente AUN NO
+                                // arranca -> esta "programado / en espera", NO "trabajando" (era la confusion del contador).
+                                var agentScheduled = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned && !agentFailed
+                                    && nn.ScheduledStartAt is DateTimeOffset _ssa && _ssa > DateTimeOffset.Now;
+                                // "Trabajando": paso de agente vigente que aun NO ha fallado NI esta programado a futuro.
+                                var agentWorking = nn.IsAuto && nn.IsCurrent && nn.State != TaskFlowNodeState.Completed && !nn.IsAbandoned && !agentFailed && !agentScheduled;
+                                <div class="tk-flow-node @(isEvent ? "ev" : "") @(nn.IsAuto ? "agent" : "") @(agentWorking ? "working" : "") @(agentScheduled ? "scheduled" : "") @(agentFailed ? "agent-failed" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(nn.IsAbandoned ? "abandoned" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
                                      style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@FlowNodeCardStyle(nn, accent, isGw, isEvent)"
                                      draggable="true"
                                      @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
@@ -473,7 +477,14 @@
                                                         }
                                                     </div>
                                                 }
-                                                @if (agentWorking)
+                                                @if (agentScheduled)
+                                                {
+                                                    <div class="tk-flow-scheduled" title="El agente arranca segun el tiempo configurado en el nodo (Plazos v2)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                                                        <span>En espera - arranca @(nn.ScheduledStartAt!.Value.ToLocalTime().ToString("HH:mm"))</span>
+                                                    </div>
+                                                }
+                                                else if (agentWorking)
                                                 {
                                                     var think = _liveThinking.TryGetValue(nn.NodeId, out var lvTh) && !string.IsNullOrWhiteSpace(lvTh)
                                                         ? lvTh : "El agente esta trabajando...";

@@ -447,6 +447,26 @@ public sealed class NodeNotifyService : INodeNotifyService
             ActorName = "Sistema (flujo)",
             Text = bitacoraText.Length > 4000 ? bitacoraText[..4000] : bitacoraText
         });
+        // Y a la BITACORA DEL AGENTE (/bitacora-agente): se registra el envio del flujo en el log de atencion
+        // de la conversacion, atribuido al agente ligado a la linea. Asi la conversacion aparece ahi y el agente
+        // conversacional (SARA) tiene el contexto cuando el cliente responda -incluso tras reiniciar la conversacion-.
+        var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == lineId)
+            .Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(ct);
+        if (boundAgentId is Guid aid)
+        {
+            _db.AiAgentRunLogs.Add(new Domain.Entities.AiAgentRunLog
+            {
+                TenantId = task.TenantId,
+                ConversationId = conversation.Id,
+                AgentId = aid,
+                OccurredAt = now,
+                Kind = Domain.Enums.AiAgentRunLogKind.Info,
+                Title = "El flujo envio un mensaje al cliente",
+                Content = bitacoraText
+            });
+        }
         await _db.SaveChangesAsync(ct);
     }
 

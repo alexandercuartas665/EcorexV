@@ -386,6 +386,9 @@
 /* Boton "ejecutar este paso": verde, para distinguirlo de las flechas/editar. */
 .xd-icon-btn.play { color: var(--t-green, var(--ok)); border-color: var(--t-green-bg, var(--line-2)); font-size: 11px; }
 .xd-icon-btn.play:hover:not(:disabled) { background: var(--t-green-bg); color: var(--t-green, var(--ok)); }
+/* Boton "ejecutar bucle" (ForEach): morado/marca, para distinguirlo del play. */
+.xd-icon-btn.loop { color: var(--t-purple, var(--brand-2)); border-color: var(--t-purple-bg, var(--line-2)); font-size: 14px; }
+.xd-icon-btn.loop:hover:not(:disabled) { background: var(--t-purple-bg, var(--brand-soft)); color: var(--t-purple, var(--brand-2)); }
 
 /* ---- Paso a paso (sesion viva) ---- */
 .xd-stepper {

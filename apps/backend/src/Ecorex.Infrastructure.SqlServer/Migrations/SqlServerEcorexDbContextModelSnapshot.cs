@@ -11710,16 +11710,30 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("flow_id");
 
+                    b.Property<string>("IngestPath")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("ingest_path");
+
                     b.Property<string>("Instruction")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")
                         .HasColumnName("instruction");
+
+                    b.Property<bool>("IsLoopEnd")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_loop_end");
 
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("kind");
+
+                    b.Property<string>("LoopOverVar")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("loop_over_var");
 
                     b.Property<string>("MappingJson")
                         .HasColumnType("nvarchar(max)")

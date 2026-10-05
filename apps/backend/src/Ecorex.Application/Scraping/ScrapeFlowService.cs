@@ -252,6 +252,9 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.WarningLabel = NullIfBlank(req.WarningLabel);
         entity.WarningAction = req.WarningAction;
         entity.OutputVar = NullIfBlank(req.OutputVar);
+        entity.LoopOverVar = NullIfBlank(req.LoopOverVar);
+        entity.IsLoopEnd = req.IsLoopEnd;
+        entity.IngestPath = NullIfBlank(req.IngestPath);
 
         await _db.SaveChangesAsync(ct);
         return MapStep(entity);
@@ -334,7 +337,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
     private static ScrapeStepDto MapStep(ScrapeStep s) => new(
         s.Id, s.FlowId, s.Order, s.Kind, s.Name, s.WaitMs, s.Url, s.Script, s.Selector, s.MappingJson,
         s.Instruction, s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel,
-        s.WarningLabel, s.WarningAction, s.OutputVar);
+        s.WarningLabel, s.WarningAction, s.OutputVar, s.LoopOverVar, s.IsLoopEnd, s.IngestPath);
 
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
         new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret);

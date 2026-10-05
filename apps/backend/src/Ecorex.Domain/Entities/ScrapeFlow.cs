@@ -111,6 +111,22 @@ public class ScrapeStep : TenantEntity
     /// Null = no se captura.</summary>
     public string? OutputVar { get; set; }
 
+    // ---- Bucle por filas (motor del dron, Ola 2: "consumir una por una") ----
+
+    /// <summary>Si esta puesto, este paso INICIA un bucle ForEach sobre el array en esa ruta del contexto
+    /// (p.ej. "LISTADO.compras"). El cuerpo del bucle va desde este paso hasta el que tenga
+    /// <see cref="IsLoopEnd"/>=true (inclusive). En cada vuelta, el elemento actual se bindea en el contexto
+    /// como "ROW" (y el indice como "ROW_INDEX"), de modo que el cuerpo use @@ROW.campo@@ / {{ROW.campo}}.</summary>
+    public string? LoopOverVar { get; set; }
+
+    /// <summary>Marca el ULTIMO paso del cuerpo de un bucle ForEach (ver <see cref="LoopOverVar"/>).</summary>
+    public bool IsLoopEnd { get; set; }
+
+    /// <summary>Si esta puesto, tras ejecutarse el paso se INGIERE a <see cref="TargetContainerId"/> (o la
+    /// tabla del flujo) lo que haya en esta ruta del contexto (p.ej. "DETALLE.cabecera" = una fila;
+    /// "DETALLE.items" = varias). Reusa <see cref="MappingJson"/> para mapear campos->columnas.</summary>
+    public string? IngestPath { get; set; }
+
     // ---- Paso de IA (Kind = Ai) ----
 
     /// <summary>Instruccion en lenguaje natural para el agente ("saca la tabla de precios").</summary>

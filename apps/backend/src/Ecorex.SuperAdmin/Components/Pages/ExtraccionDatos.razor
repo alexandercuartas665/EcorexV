@@ -233,6 +233,10 @@
                                     </div>
                                     <div class="xd-step-actions">
                                         <button class="xd-icon-btn play" title="Ejecutar este paso (sesion viva)" disabled="@_busy" @onclick="() => RunStepAsync(s, i)">&#9654;</button>
+                                        @if (!string.IsNullOrWhiteSpace(s.LoopOverVar))
+                                        {
+                                            <button class="xd-icon-btn loop" title="Ejecutar bucle (consumir todas las filas)" disabled="@_busy" @onclick="() => RunLoopAsync(s)">&#8635;</button>
+                                        }
                                         <button class="xd-icon-btn" title="Subir" disabled="@(i == 0)" @onclick="() => MoveStepAsync(i, -1)">&uarr;</button>
                                         <button class="xd-icon-btn" title="Bajar" disabled="@(i == flow.Steps.Count - 1)" @onclick="() => MoveStepAsync(i, 1)">&darr;</button>
                                         <button class="xd-icon-btn" title="Editar" @onclick="() => OpenStepEditor(s)">&#9998;</button>
@@ -384,6 +388,31 @@
                                             siguientes como <code>&#123;&#123;NOMBRE.ruta&#125;&#125;</code> o <code>@("@@")NOMBRE.ruta@("@@")</code>
                                             (ej. <code>&#123;&#123;LISTADO.compras[0].btnDiligenciarId&#125;&#125;</code>).</div>
                                     </div>
+
+                                    @* ---- Bucle (ForEach) + ingesta: motor del dron, Ola 2 ---- *@
+                                    <div class="xd-prop">
+                                        <label>Recorrer (ForEach) la variable (inicia bucle)</label>
+                                        <input class="xd-input mono" placeholder="LISTADO.compras" @bind="_sLoopOverVar" />
+                                        <div class="xd-help">Si lo pones, "Ejecutar bucle" recorre ese array; en cada vuelta la fila actual
+                                            queda como <code>&#123;&#123;ROW.campo&#125;&#125;</code> / <code>@("@@")ROW.campo@("@@")</code>. El cuerpo va de este paso al marcado "fin del bucle".</div>
+                                    </div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_sIsLoopEnd" /> Este paso es el FIN del cuerpo del bucle</label>
+                                    <div class="xd-prop">
+                                        <label>Ingerir al Contenedor la ruta (opcional)</label>
+                                        <input class="xd-input mono" placeholder="DETALLE.cabecera" @bind="_sIngestPath" />
+                                        <div class="xd-help">Tras el paso, ingiere lo que haya en esa ruta (objeto = 1 fila; array = varias) a la
+                                            tabla destino de abajo (o la del flujo). Usa el mapeo campo-&gt;columna.</div>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(_sIngestPath))
+                                    {
+                                        <div class="xd-prop"><label>Tabla destino de la ingesta</label>
+                                            <select class="xd-input" @bind="_sTargetContainer">
+                                                <option value="">(la del flujo)</option>
+                                                @foreach (var c in _containers) { <option value="@c.Id">@c.Label</option> }
+                                            </select></div>
+                                        <div class="xd-prop"><label>Mapeo campo -&gt; columna (JSON, opcional)</label>
+                                            <textarea class="xd-input xd-code-input" rows="3" placeholder='{"petof":"PETICION","solicitud":"SOLICITUD"}' @bind="_sMappingJson"></textarea></div>
+                                    }
                                 }
 
                                 @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp)
@@ -615,6 +644,9 @@
     private string _sWarnLabel = "";
     private ScrapeWarningAction _sWarnAction = ScrapeWarningAction.None;
     private string _sOutputVar = "";
+    private string _sLoopOverVar = "";
+    private bool _sIsLoopEnd;
+    private string _sIngestPath = "";
 
     // Paso "Leer token de correo" (LeerCorreoOtp): su config va serializada en MappingJson.
     private List<OtpMailboxDto> _buzones = new();
@@ -751,6 +783,25 @@
     }
 
     private void ResetCursor() { _stepCursor = 0; _stepResult = null; }
+
+    private async Task RunLoopAsync(ScrapeStepDto s)
+    {
+        if (_selected is null) { return; }
+        if (Tenant.TenantId is not Guid tenantId) { Flash("No se pudo resolver el tenant.", true); return; }
+        _busy = true; _stepResult = null;
+        var flowId = _selected.Id;
+        try
+        {
+            _stepResult = await RunSvc.RunLoopNowAsync(flowId, s.Id, tenantId);
+            if (_stepResult.Offline) { Flash("El agente no esta en linea. Conectalo contra este servidor y reintenta.", true); }
+            else if (!_stepResult.Ok) { Flash(_stepResult.Error ?? "El bucle fallo.", true); }
+            else { Flash($"Bucle \"{s.Name}\": {_stepResult.Detail}"); }
+            await SelectFlowAsync(flowId);
+            await ReloadFlowsAsync();
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
 
     private async Task ExecStepCore(ScrapeStepDto s)
     {
@@ -930,6 +981,9 @@
         _sWarnLabel = s?.WarningLabel ?? "";
         _sWarnAction = s?.WarningAction ?? ScrapeWarningAction.None;
         _sOutputVar = s?.OutputVar ?? "";
+        _sLoopOverVar = s?.LoopOverVar ?? "";
+        _sIsLoopEnd = s?.IsLoopEnd ?? false;
+        _sIngestPath = s?.IngestPath ?? "";
 
         // Paso "Leer token de correo": su config vive en MappingJson.
         _otpTest = null;
@@ -989,7 +1043,8 @@
                 ToolAllowListJson: toolJson, MaxSteps: ParseInt(_sMaxSteps), MaxSeconds: ParseInt(_sMaxSeconds),
                 AiProviderId: ParseGuid(_sAiProviderId), AiModel: null,
                 WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction,
-                OutputVar: NullIfBlank(_sOutputVar));
+                OutputVar: NullIfBlank(_sOutputVar), LoopOverVar: NullIfBlank(_sLoopOverVar),
+                IsLoopEnd: _sIsLoopEnd, IngestPath: NullIfBlank(_sIngestPath));
             var saved = await FlowSvc.SaveStepAsync(req, _actor);
             if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
             _showStepEditor = false;

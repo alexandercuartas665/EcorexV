@@ -45,6 +45,12 @@ public interface IBrowserRunService
     /// resultado para pintarlo en la UI. Pensado para encadenar pasos a mano (login -> OTP -> continuar).</summary>
     Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default);
 
+    /// <summary>Ejecuta un BUCLE ForEach (motor del dron, Ola 2): recorre el array del contexto que indica el
+    /// paso <paramref name="loopStepId"/> (su LoopOverVar, p.ej. LISTADO.compras) y, por cada fila, corre el
+    /// cuerpo del bucle (desde ese paso hasta el que tenga IsLoopEnd) sobre la MISMA sesion viva, bindeando la
+    /// fila como ROW; ingiere lo que los pasos marquen con IngestPath. Sincrono; para "consumir una por una".</summary>
+    Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default);
+
     /// <summary>Cierra la sesion viva del flujo en el agente (la ventana que el paso a paso mantenia abierta) y
     /// olvida las variables de sesion (p.ej. el token OTP leido). Best-effort.</summary>
     Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default);
@@ -333,6 +339,139 @@ public sealed class BrowserRunService(
         var detail = $"Token leido en {{{{{varName}}}}}: {read.Token}";
         await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, detail, ct);
         return new StepRunResult(true, false, null, null, read.Token, 0, 0, 0, detail);
+    }
+
+    public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        using (AmbientTenantContext.Begin(tenantId))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
+            var ingest = scope.ServiceProvider.GetRequiredService<IRowIngestService>();
+
+            var flow = await db.ScrapeFlows.Include(f => f.Steps).Include(f => f.Variables)
+                .FirstOrDefaultAsync(f => f.Id == flowId, ct);
+            if (flow is null) { return LoopFail("El flujo no existe o no es de este tenant."); }
+
+            var ordered = flow.Steps.OrderBy(s => s.Order).ToList();
+            var startIdx = ordered.FindIndex(s => s.Id == loopStepId);
+            if (startIdx < 0) { return LoopFail("El paso del bucle no existe en el flujo."); }
+            var start = ordered[startIdx];
+            if (string.IsNullOrWhiteSpace(start.LoopOverVar))
+            {
+                return LoopFail("Ese paso no inicia un bucle: marcale 'Recorrer (ForEach) la variable'.");
+            }
+            // Cuerpo = desde el paso de inicio hasta el primero con IsLoopEnd (inclusive); si ninguno lo tiene,
+            // el cuerpo es solo el paso de inicio.
+            var endIdx = startIdx;
+            for (var i = startIdx; i < ordered.Count; i++) { endIdx = i; if (ordered[i].IsLoopEnd) { break; } }
+            var body = ordered.GetRange(startIdx, endIdx - startIdx + 1);
+
+            if (flow.ClientId is not Guid clientPk) { return LoopFail("El flujo no tiene un agente asignado."); }
+            var client = await db.DataClients.FirstOrDefaultAsync(c => c.Id == clientPk && c.IsActive, ct);
+            if (client is null) { return LoopFail("El agente asignado no existe o esta inactivo."); }
+            if (!registry.IsOnline(client.ClientId))
+            {
+                return new StepRunResult(false, true, "El agente asignado no esta en linea.", null, null, 0, 0, 0, null);
+            }
+
+            string? secret = null;
+            if (client.ClientSecretEncrypted is not null)
+            {
+                try { secret = protector.Unprotect(client.ClientSecretEncrypted); } catch { /* ilegible */ }
+            }
+
+            var vars = DecryptVariables(flow.Variables, protector);
+            if (_stepSessionVars.TryGetValue(flowId, out var sess)) { foreach (var (k, v) in sess) { vars[k] = v; } }
+            var ctx = new ScrapeRunContext(vars);
+
+            if (!ctx.TryResolve(start.LoopOverVar!, out var arrJson) || string.IsNullOrWhiteSpace(arrJson))
+            {
+                return LoopFail($"No hay datos en '{start.LoopOverVar}'. Corre antes el paso que lo captura (OutputVar).");
+            }
+            List<string> elements;
+            try
+            {
+                using var doc = JsonDocument.Parse(arrJson);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) { return LoopFail($"'{start.LoopOverVar}' no es una lista."); }
+                elements = doc.RootElement.EnumerateArray().Select(e => e.GetRawText()).ToList();
+            }
+            catch { return LoopFail($"'{start.LoopOverVar}' no es JSON navegable."); }
+            if (elements.Count == 0) { return LoopFail("El listado esta vacio: no hay filas que consumir."); }
+
+            var sessionKey = StepSessionKeyFor(flowId);
+            int ins = 0, upd = 0, del = 0, rowsOk = 0;
+            string? lastErr = null, lastShot = null;
+            var started = DateTimeOffset.UtcNow;
+
+            for (var idx = 0; idx < elements.Count; idx++)
+            {
+                ctx.Set("ROW", elements[idx]);
+                ctx.Set("ROW_INDEX", idx.ToString());
+                var rowOk = true;
+                foreach (var step in body)
+                {
+                    // El cuerpo del bucle es DETERMINISTA: los pasos de IA/OTP no se corren aqui.
+                    if (step.Kind is ScrapeStepKind.Ai or ScrapeStepKind.LeerCorreoOtp) { continue; }
+
+                    var prepared = SubstitutedClone(step, ctx);
+                    CompiledFlow compiled;
+                    try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, NewCorr(), secret); }
+                    catch (ScrapeCompileException ex) { lastErr = ex.Message; rowOk = false; break; }
+                    if (compiled.Actions.Count == 0) { continue; }
+
+                    var corr = NewCorr();
+                    var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
+                    var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+                    BrowserResultMsg result;
+                    try
+                    {
+                        var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
+                        result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
+                    }
+                    catch (Exception ex) { lastErr = ex.Message; rowOk = false; break; }
+
+                    lastShot = result.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64 ?? lastShot;
+                    if (!result.Ok) { lastErr = FirstError(result); rowOk = false; break; }
+
+                    // Captura de salida del paso (p.ej. DETALLE).
+                    if (!string.IsNullOrWhiteSpace(step.OutputVar))
+                    {
+                        var val = result.Results.Where(r => r.Kind != BrowserActionKind.Screenshot && !string.IsNullOrEmpty(r.Value))
+                            .Select(r => r.Value).FirstOrDefault();
+                        ctx.Set(step.OutputVar, UnwrapEvalValue(val));
+                    }
+
+                    // Ingesta: lo que haya en IngestPath (objeto -> 1 fila; array -> varias) al Contenedor.
+                    if (!string.IsNullOrWhiteSpace(step.IngestPath) && ctx.TryResolve(step.IngestPath!, out var ingJson))
+                    {
+                        var container = step.TargetContainerId ?? flow.ContainerId;
+                        if (container is Guid cid)
+                        {
+                            var rows = ScrapeRowIngest.ParseRows(ingJson);
+                            if (rows.Count > 0)
+                            {
+                                var (i2, u2, d2) = await ScrapeRowIngest.IngestAsync(ingest, db, cid, tenantId, step.MappingJson, rows, ct);
+                                ins += i2; upd += u2; del += d2;
+                            }
+                        }
+                    }
+                }
+                if (rowOk) { rowsOk++; }
+            }
+
+            var okAll = lastErr is null;
+            var detail = $"{rowsOk}/{elements.Count} filas consumidas, {ins} ingeridas"
+                + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
+            await activity.RecordAsync(new AgentActivityEntry(
+                tenantId, client.ClientId, null, AgentActivityKind.Browser, NewCorr(),
+                $"Bucle: {flow.Name} / {start.Name}", okAll, started, DateTimeOffset.UtcNow, detail));
+            await RecordStepRunAsync(db, flowId, $"Bucle {start.Name}", okAll, ins, upd, del, detail, ct);
+            return new StepRunResult(okAll, false, lastErr, lastShot, detail, ins, upd, del, detail);
+        }
+
+        static StepRunResult LoopFail(string error) => new(false, false, error, null, null, 0, 0, 0, error);
     }
 
     public async Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default)

@@ -76,8 +76,14 @@ public sealed class WorkflowAgentStepDispatcher : IWorkflowAgentStepDispatcher
 
     public async Task<IReadOnlyList<Guid>> FindTenantsWithPendingAgentStepsAsync(
         CancellationToken cancellationToken = default)
-        => await _db.WorkflowStepHistories.IgnoreQueryFilters()
-            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending && s.AgentAttemptedAt == null)
+    {
+        // Plazos v2 (ADR-0119, Fase C): un paso con "tiempo para arrancar" en el futuro (StartAt > ahora) NO
+        // esta listo todavia; se tomara en un barrido posterior cuando llegue su fecha. StartAt null = sin
+        // arranque programado = listo ya (retrocompatible con la Fase 1).
+        var now = DateTimeOffset.UtcNow;
+        return await _db.WorkflowStepHistories.IgnoreQueryFilters()
+            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending && s.AgentAttemptedAt == null
+                && (s.StartAt == null || s.StartAt <= now))
             // El join con el vinculo nodo-agente lleva TenantId a los dos lados: un paso de un tenant
             // jamas puede emparejar con el agente de otro aunque se ignoren los filtros globales.
             .Join(_db.WorkflowNodeAgents.IgnoreQueryFilters(),
@@ -86,6 +92,7 @@ public sealed class WorkflowAgentStepDispatcher : IWorkflowAgentStepDispatcher
                 (s, a) => s.TenantId)
             .Distinct()
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<int> RunPendingForTenantAsync(CancellationToken cancellationToken = default)
     {
@@ -95,9 +102,12 @@ public sealed class WorkflowAgentStepDispatcher : IWorkflowAgentStepDispatcher
             return 0;
         }
 
-        // Consulta bajo el filtro global del tenant activo (sin IgnoreQueryFilters).
+        // Consulta bajo el filtro global del tenant activo (sin IgnoreQueryFilters). Plazos v2 (ADR-0119,
+        // Fase C): se excluyen los pasos cuyo arranque aun no llega (StartAt > ahora); StartAt null = listo ya.
+        var now = DateTimeOffset.UtcNow;
         var stepIds = await _db.WorkflowStepHistories.AsNoTracking()
-            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending && s.AgentAttemptedAt == null)
+            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending && s.AgentAttemptedAt == null
+                && (s.StartAt == null || s.StartAt <= now))
             .Join(_db.WorkflowNodeAgents.AsNoTracking(), s => s.NodeId, a => a.NodeId, (s, a) => s)
             .OrderBy(s => s.CreatedAt)
             .Take(MaxStepsPerTenantPerCycle)

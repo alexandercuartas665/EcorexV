@@ -1982,6 +1982,7 @@
                 try
                 {
                     _flowDiagram = await inboxSvc.GetTaskFlowDiagramAsync(taskId, meForFlow);
+                    _flowCenterPending = _flowDiagram is not null; // centrar en el nodo actual tras renderizar.
                 }
                 catch (Exception ex)
                 {
@@ -2426,13 +2427,93 @@
 
     private int FlowOffX(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dx : 0;
     private int FlowOffY(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dy : 0;
-    // Base con padding 30 (deja aire para el re-centrado de los eventos, que restan hasta ~18px).
+    // ===== Auto-layout por capas (ADR-0051 v2) =====
+    // En vez de reusar las coordenadas APINADAS del editor (que se piquan al crecer las tarjetas), se recoloca
+    // por ORDEN DEL FLUJO: columnas de izquierda a derecha (longest-path), filas apiladas con separacion
+    // garantizada => siempre "de largo" y sin solaparse. El movimiento manual del usuario (FlowOffX/Y) se suma
+    // encima. Se cachea por diagrama (ReferenceEquals) para no recomputar en cada render.
+    private const int FlowColGap = 60;  // aire horizontal entre columnas
+    private const int FlowRowGap = 28;  // aire vertical entre tarjetas de una columna
+    private const int FlowPad = 30;     // margen del canvas
+
+    private Dictionary<Guid, (int X, int Y)>? _flowLayout;
+    private TaskFlowDiagramDto? _flowLayoutFor;
+
+    private Dictionary<Guid, (int X, int Y)> FlowLayout(TaskFlowDiagramDto flow)
+    {
+        if (_flowLayout is not null && ReferenceEquals(_flowLayoutFor, flow)) { return _flowLayout; }
+        _flowLayout = ComputeLayeredLayout(flow);
+        _flowLayoutFor = flow;
+        return _flowLayout;
+    }
+
+    private static Dictionary<Guid, (int X, int Y)> ComputeLayeredLayout(TaskFlowDiagramDto flow)
+    {
+        var pos = new Dictionary<Guid, (int X, int Y)>();
+        var nodes = flow.Nodes;
+        if (nodes.Count == 0) { return pos; }
+
+        var present = nodes.Select(n => n.NodeId).ToHashSet();
+        var outAdj = nodes.ToDictionary(n => n.NodeId, _ => new List<Guid>());
+        var indeg = nodes.ToDictionary(n => n.NodeId, _ => 0);
+        foreach (var e in flow.Edges)
+        {
+            if (e.SourceNodeId == e.TargetNodeId
+                || !present.Contains(e.SourceNodeId) || !present.Contains(e.TargetNodeId)) { continue; }
+            outAdj[e.SourceNodeId].Add(e.TargetNodeId);
+            indeg[e.TargetNodeId]++;
+        }
+
+        // Columna = longest-path desde las fuentes, via orden topologico (Kahn). Los back-edges de un ciclo no
+        // revisitan; los nodos que queden en ciclo se ubican despues por una pasada extra (best-effort).
+        var col = nodes.ToDictionary(n => n.NodeId, _ => 0);
+        var indegWork = new Dictionary<Guid, int>(indeg);
+        var q = new Queue<Guid>(nodes.Where(n => indegWork[n.NodeId] == 0)
+            .OrderBy(n => n.X).ThenBy(n => n.Y).Select(n => n.NodeId));
+        // Sin fuente (todo en ciclo): arranca por el nodo mas a la izquierda del editor.
+        if (q.Count == 0) { q.Enqueue(nodes.OrderBy(n => n.X).ThenBy(n => n.Y).First().NodeId); }
+        var seen = new HashSet<Guid>();
+        while (q.Count > 0)
+        {
+            var u = q.Dequeue();
+            if (!seen.Add(u)) { continue; }
+            foreach (var v in outAdj[u])
+            {
+                if (col[v] < col[u] + 1) { col[v] = col[u] + 1; }
+                if (--indegWork[v] <= 0 && !seen.Contains(v)) { q.Enqueue(v); }
+            }
+        }
+        foreach (var n in nodes.Where(n => !seen.Contains(n.NodeId)).OrderBy(n => n.X).ThenBy(n => n.Y))
+        {
+            var preds = flow.Edges
+                .Where(e => e.TargetNodeId == n.NodeId && present.Contains(e.SourceNodeId))
+                .Select(e => col[e.SourceNodeId]);
+            col[n.NodeId] = (preds.Any() ? preds.Max() : 0) + 1;
+        }
+
+        // Agrupa por columna; dentro de cada una ordena las filas por la Y del editor (estable) y las empaca
+        // verticalmente sin solape. El ancho de la columna = la tarjeta mas ancha; la tarjeta se centra en el.
+        var cols = nodes.GroupBy(n => col[n.NodeId]).OrderBy(g => g.Key).ToList();
+        var x = FlowPad;
+        foreach (var g in cols)
+        {
+            var colNodes = g.OrderBy(n => n.Y).ThenBy(n => n.X).ToList();
+            var colW = colNodes.Max(FlowNodeW);
+            var y = FlowPad;
+            foreach (var n in colNodes)
+            {
+                pos[n.NodeId] = (x + (colW - FlowNodeW(n)) / 2, y);
+                y += FlowNodeH(n) + FlowRowGap;
+            }
+            x += colW + FlowColGap;
+        }
+        return pos;
+    }
+
     private int FlowNodeLeft(TaskFlowDiagramDto flow, TaskFlowNodeDto n)
-        => (int)((n.X - flow.MinX) * FlowXScale) + 30 + FlowOffX(n.NodeId)
-           - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigW(n)) / 2 : 0);
+        => (FlowLayout(flow).TryGetValue(n.NodeId, out var p) ? p.X : FlowPad) + FlowOffX(n.NodeId);
     private int FlowNodeTop(TaskFlowDiagramDto flow, TaskFlowNodeDto n)
-        => (int)((n.Y - flow.MinY) * FlowYScale) + 30 + FlowOffY(n.NodeId)
-           - (FlowIsEvent(n) ? (FlowEventSize - FlowEventOrigH(n)) / 2 : 0);
+        => (FlowLayout(flow).TryGetValue(n.NodeId, out var p) ? p.Y : FlowPad) + FlowOffY(n.NodeId);
     private int FlowCanvasW(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 200 : flow.Nodes.Max(n => FlowNodeLeft(flow, n) + FlowNodeW(n)) + 20;
     private int FlowCanvasH(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 140 : flow.Nodes.Max(n => FlowNodeTop(flow, n) + FlowNodeH(n)) + 20;
 
@@ -2925,7 +3006,17 @@
         {
             try { await JS.InvokeVoidAsync("ecorexTaskTimer.sync", "tk-timer-display"); } catch { /* best-effort */ }
         }
+        // Al cargar el diagrama, centra la vista en el nodo ACTUAL (el que esta por cerrar). Una sola vez por
+        // carga, para no pelear con el scroll manual del usuario.
+        if (_flowCenterPending && _flowDiagram is not null)
+        {
+            _flowCenterPending = false;
+            try { await JS.InvokeVoidAsync("ecorexFlow.centerCurrent"); } catch { /* best-effort */ }
+        }
     }
+
+    // Se pide centrar el diagrama en el nodo actual tras el proximo render (se activa al (re)cargar el detalle).
+    private bool _flowCenterPending;
 
     /// <summary>Capa 2 (ADR-0091): abre el canal SignalR (TaskHub) y escucha "AgentProgress" para pintar el
     /// pensamiento del agente y los tokens en vivo en el nodo. Best-effort: sin canal, el nodo sigue mostrando

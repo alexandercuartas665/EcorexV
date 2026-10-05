@@ -127,6 +127,18 @@ public class ScrapeStep : TenantEntity
     /// "DETALLE.items" = varias). Reusa <see cref="MappingJson"/> para mapear campos->columnas.</summary>
     public string? IngestPath { get; set; }
 
+    // ---- Paginacion data-driven (motor del dron, Ola 3) ----
+
+    /// <summary>En el paso que inicia el bucle (<see cref="LoopOverVar"/>): ruta del contexto al numero TOTAL
+    /// de paginas (p.ej. "LISTADO.totalPaginas"). Si esta puesto, tras consumir las filas de una pagina el
+    /// motor avanza a la siguiente (corriendo los pasos marcados <see cref="IsPageNext"/>) hasta ese total.
+    /// La pagina actual se expone al contexto como "PAG" (la usan los pasos de avance con @@PAG@@).</summary>
+    public string? PageCountVar { get; set; }
+
+    /// <summary>Marca un paso que AVANZA de pagina / recarga la grilla (p.ej. el __doPostBack a 'Page$'+PAG y
+    /// el que re-lee el listado). El motor los corre, en orden, entre una pagina y la siguiente.</summary>
+    public bool IsPageNext { get; set; }
+
     // ---- Paso de IA (Kind = Ai) ----
 
     /// <summary>Instruccion en lenguaje natural para el agente ("saca la tabla de precios").</summary>

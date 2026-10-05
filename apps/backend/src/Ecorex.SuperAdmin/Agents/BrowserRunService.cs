@@ -390,79 +390,105 @@ public sealed class BrowserRunService(
             {
                 return LoopFail($"No hay datos en '{start.LoopOverVar}'. Corre antes el paso que lo captura (OutputVar).");
             }
-            List<string> elements;
-            try
-            {
-                using var doc = JsonDocument.Parse(arrJson);
-                if (doc.RootElement.ValueKind != JsonValueKind.Array) { return LoopFail($"'{start.LoopOverVar}' no es una lista."); }
-                elements = doc.RootElement.EnumerateArray().Select(e => e.GetRawText()).ToList();
-            }
-            catch { return LoopFail($"'{start.LoopOverVar}' no es JSON navegable."); }
-            if (elements.Count == 0) { return LoopFail("El listado esta vacio: no hay filas que consumir."); }
 
             var sessionKey = StepSessionKeyFor(flowId);
-            int ins = 0, upd = 0, del = 0, rowsOk = 0;
+            var paginate = !string.IsNullOrWhiteSpace(start.PageCountVar);
+            var pageSteps = ordered.Where(s => s.IsPageNext).ToList(); // avance+recarga entre paginas (Ola 3)
+            int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0;
             string? lastErr = null, lastShot = null;
             var started = DateTimeOffset.UtcNow;
 
-            for (var idx = 0; idx < elements.Count; idx++)
+            // Ejecuta UN paso (del cuerpo o de avance) contra el contexto: compila, despacha (sesion viva),
+            // captura su OutputVar e ingiere si tiene IngestPath. Devuelve false y fija lastErr si falla.
+            async Task<bool> ExecStepAsync(ScrapeStep step)
             {
-                ctx.Set("ROW", elements[idx]);
-                ctx.Set("ROW_INDEX", idx.ToString());
-                var rowOk = true;
-                foreach (var step in body)
+                if (step.Kind is ScrapeStepKind.Ai or ScrapeStepKind.LeerCorreoOtp) { return true; } // no en el bucle
+                var prepared = SubstitutedClone(step, ctx);
+                CompiledFlow compiled;
+                try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, NewCorr(), secret); }
+                catch (ScrapeCompileException ex) { lastErr = ex.Message; return false; }
+                if (compiled.Actions.Count == 0) { return true; }
+
+                var corr = NewCorr();
+                var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
+                var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+                BrowserResultMsg result;
+                try
                 {
-                    // El cuerpo del bucle es DETERMINISTA: los pasos de IA/OTP no se corren aqui.
-                    if (step.Kind is ScrapeStepKind.Ai or ScrapeStepKind.LeerCorreoOtp) { continue; }
+                    var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
+                    result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
+                }
+                catch (Exception ex) { lastErr = ex.Message; return false; }
 
-                    var prepared = SubstitutedClone(step, ctx);
-                    CompiledFlow compiled;
-                    try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, NewCorr(), secret); }
-                    catch (ScrapeCompileException ex) { lastErr = ex.Message; rowOk = false; break; }
-                    if (compiled.Actions.Count == 0) { continue; }
+                lastShot = result.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64 ?? lastShot;
+                if (!result.Ok) { lastErr = FirstError(result); return false; }
 
-                    var corr = NewCorr();
-                    var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
-                    var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
-                    BrowserResultMsg result;
-                    try
+                if (!string.IsNullOrWhiteSpace(step.OutputVar))
+                {
+                    var val = result.Results.Where(r => r.Kind != BrowserActionKind.Screenshot && !string.IsNullOrEmpty(r.Value))
+                        .Select(r => r.Value).FirstOrDefault();
+                    ctx.Set(step.OutputVar, UnwrapEvalValue(val));
+                }
+                if (!string.IsNullOrWhiteSpace(step.IngestPath) && ctx.TryResolve(step.IngestPath!, out var ingJson))
+                {
+                    var container = step.TargetContainerId ?? flow.ContainerId;
+                    if (container is Guid cid)
                     {
-                        var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
-                        result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
-                    }
-                    catch (Exception ex) { lastErr = ex.Message; rowOk = false; break; }
-
-                    lastShot = result.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64 ?? lastShot;
-                    if (!result.Ok) { lastErr = FirstError(result); rowOk = false; break; }
-
-                    // Captura de salida del paso (p.ej. DETALLE).
-                    if (!string.IsNullOrWhiteSpace(step.OutputVar))
-                    {
-                        var val = result.Results.Where(r => r.Kind != BrowserActionKind.Screenshot && !string.IsNullOrEmpty(r.Value))
-                            .Select(r => r.Value).FirstOrDefault();
-                        ctx.Set(step.OutputVar, UnwrapEvalValue(val));
-                    }
-
-                    // Ingesta: lo que haya en IngestPath (objeto -> 1 fila; array -> varias) al Contenedor.
-                    if (!string.IsNullOrWhiteSpace(step.IngestPath) && ctx.TryResolve(step.IngestPath!, out var ingJson))
-                    {
-                        var container = step.TargetContainerId ?? flow.ContainerId;
-                        if (container is Guid cid)
+                        var rows2 = ScrapeRowIngest.ParseRows(ingJson);
+                        if (rows2.Count > 0)
                         {
-                            var rows = ScrapeRowIngest.ParseRows(ingJson);
-                            if (rows.Count > 0)
-                            {
-                                var (i2, u2, d2) = await ScrapeRowIngest.IngestAsync(ingest, db, cid, tenantId, step.MappingJson, rows, ct);
-                                ins += i2; upd += u2; del += d2;
-                            }
+                            var (i2, u2, d2) = await ScrapeRowIngest.IngestAsync(ingest, db, cid, tenantId, step.MappingJson, rows2, ct);
+                            ins += i2; upd += u2; del += d2;
                         }
                     }
                 }
-                if (rowOk) { rowsOk++; }
+                return true;
+            }
+
+            // Las filas del array actual (p.ej. LISTADO.compras) tal cual esta el contexto en esta pagina.
+            List<string> CurrentRows()
+            {
+                if (!ctx.TryResolve(start.LoopOverVar!, out var aj) || string.IsNullOrWhiteSpace(aj)) { return new(); }
+                try
+                {
+                    using var d = JsonDocument.Parse(aj);
+                    return d.RootElement.ValueKind == JsonValueKind.Array
+                        ? d.RootElement.EnumerateArray().Select(e => e.GetRawText()).ToList() : new();
+                }
+                catch { return new(); }
+            }
+
+            const int MaxPages = 500; // tope de seguridad por si el total viene mal
+            var page = 1;
+            while (true)
+            {
+                var rows = CurrentRows();
+                for (var ri = 0; ri < rows.Count; ri++)
+                {
+                    ctx.Set("ROW", rows[ri]);
+                    ctx.Set("ROW_INDEX", ri.ToString());
+                    var rowOk = true;
+                    foreach (var step in body) { if (!await ExecStepAsync(step)) { rowOk = false; break; } }
+                    if (rowOk) { rowsOk++; } else { break; }
+                }
+                pagesDone++;
+                if (lastErr is not null || !paginate) { break; }
+
+                var total = 1;
+                if (ctx.TryResolve(start.PageCountVar!, out var tp) && int.TryParse((tp ?? "").Trim(), out var tpn)) { total = tpn; }
+                if (page >= total || page >= MaxPages) { break; }
+
+                // Avanzar de pagina: fija PAG y corre los pasos marcados IsPageNext (postback + re-lectura del
+                // listado, que al tener OutputVar refresca LISTADO en el contexto para la proxima vuelta).
+                page++;
+                ctx.Set("PAG", page.ToString());
+                var advOk = true;
+                foreach (var ps in pageSteps) { if (!await ExecStepAsync(ps)) { advOk = false; break; } }
+                if (!advOk) { break; }
             }
 
             var okAll = lastErr is null;
-            var detail = $"{rowsOk}/{elements.Count} filas consumidas, {ins} ingeridas"
+            var detail = $"{rowsOk} filas consumidas en {pagesDone} pagina(s), {ins} ingeridas"
                 + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
             await activity.RecordAsync(new AgentActivityEntry(
                 tenantId, client.ClientId, null, AgentActivityKind.Browser, NewCorr(),

@@ -11724,6 +11724,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_loop_end");
 
+                    b.Property<bool>("IsPageNext")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_page_next");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -11761,6 +11765,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)")
                         .HasColumnName("output_var");
+
+                    b.Property<string>("PageCountVar")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("page_count_var");
 
                     b.Property<string>("Script")
                         .HasColumnType("nvarchar(max)")

@@ -398,6 +398,13 @@
                                     </div>
                                     <label class="xd-check"><input type="checkbox" @bind="_sIsLoopEnd" /> Este paso es el FIN del cuerpo del bucle</label>
                                     <div class="xd-prop">
+                                        <label>Paginacion: ruta al total de paginas (en el paso que inicia el bucle)</label>
+                                        <input class="xd-input mono" placeholder="LISTADO.totalPaginas" @bind="_sPageCountVar" />
+                                        <div class="xd-help">Si lo pones, tras consumir las filas de una pagina el motor avanza a la siguiente
+                                            (corriendo los pasos marcados abajo) hasta ese total. La pagina actual queda como <code>@("@@")PAG@("@@")</code>.</div>
+                                    </div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_sIsPageNext" /> Este paso AVANZA de pagina / recarga el listado (se corre entre paginas)</label>
+                                    <div class="xd-prop">
                                         <label>Ingerir al Contenedor la ruta (opcional)</label>
                                         <input class="xd-input mono" placeholder="DETALLE.cabecera" @bind="_sIngestPath" />
                                         <div class="xd-help">Tras el paso, ingiere lo que haya en esa ruta (objeto = 1 fila; array = varias) a la
@@ -647,6 +654,8 @@
     private string _sLoopOverVar = "";
     private bool _sIsLoopEnd;
     private string _sIngestPath = "";
+    private string _sPageCountVar = "";
+    private bool _sIsPageNext;
 
     // Paso "Leer token de correo" (LeerCorreoOtp): su config va serializada en MappingJson.
     private List<OtpMailboxDto> _buzones = new();
@@ -984,6 +993,8 @@
         _sLoopOverVar = s?.LoopOverVar ?? "";
         _sIsLoopEnd = s?.IsLoopEnd ?? false;
         _sIngestPath = s?.IngestPath ?? "";
+        _sPageCountVar = s?.PageCountVar ?? "";
+        _sIsPageNext = s?.IsPageNext ?? false;
 
         // Paso "Leer token de correo": su config vive en MappingJson.
         _otpTest = null;
@@ -1044,7 +1055,8 @@
                 AiProviderId: ParseGuid(_sAiProviderId), AiModel: null,
                 WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction,
                 OutputVar: NullIfBlank(_sOutputVar), LoopOverVar: NullIfBlank(_sLoopOverVar),
-                IsLoopEnd: _sIsLoopEnd, IngestPath: NullIfBlank(_sIngestPath));
+                IsLoopEnd: _sIsLoopEnd, IngestPath: NullIfBlank(_sIngestPath),
+                PageCountVar: NullIfBlank(_sPageCountVar), IsPageNext: _sIsPageNext);
             var saved = await FlowSvc.SaveStepAsync(req, _actor);
             if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
             _showStepEditor = false;

@@ -72,15 +72,30 @@ public sealed class NodeNotifyService : INodeNotifyService
                 tokens["link"] = link!;
             }
 
+            _logger.LogInformation("[NODE-NOTIFY] nodo {NodeId} paso {StepId}: procesando {Count} regla(s) al llegar.",
+                nodeId, stepId, config.Reglas!.Count);
             foreach (var rule in config.Reglas!)
             {
-                try { await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken); }
-                catch { /* un envio fallido no frena las demas reglas */ }
+                try
+                {
+                    await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken);
+                    _logger.LogInformation("[NODE-NOTIFY] regla {Canal} procesada (nodo {NodeId}, paso {StepId}).",
+                        rule.Canal, nodeId, stepId);
+                }
+                catch (Exception ex)
+                {
+                    // Un envio fallido no frena las demas reglas, PERO ya no es silencioso: queda en el log con
+                    // el motivo (antes "no llegaba el mensaje" y no habia rastro de por que).
+                    _logger.LogWarning(ex, "[NODE-NOTIFY] fallo al ENVIAR la regla {Canal} del nodo {NodeId} (paso {StepId}): {Motivo}",
+                        rule.Canal, nodeId, stepId, ex.Message);
+                }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort: una notificacion nunca debe romper el avance del flujo.
+            // Best-effort: una notificacion nunca debe romper el avance del flujo. Pero se registra el motivo.
+            _logger.LogWarning(ex, "[NODE-NOTIFY] fallo GENERAL notificando la llegada al nodo {NodeId} (paso {StepId}): {Motivo}",
+                nodeId, stepId, ex.Message);
         }
     }
 

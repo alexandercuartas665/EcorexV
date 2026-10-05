@@ -255,6 +255,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             // el id de la version anterior -> la salida de la compuerta se "perdia" al re-editar/publicar).
             draftNode.NotifyJson = RemapDecisionTargets(sourceNode.NotifyJson, oldToNewNodeId);
             draftNode.SlaJson = sourceNode.SlaJson;
+            draftNode.StartDelayJson = sourceNode.StartDelayJson; // Plazos v2 (ADR-0119): metadato, no viaja en el XML.
             if (sourceNode.RestartNodeId is Guid restartId
                 && sourceById.TryGetValue(restartId, out var restartSource)
                 && draftByElement.TryGetValue(restartSource.BpmnElementId, out var restartDraft))
@@ -914,6 +915,27 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             trimmed = parsed.IsEmpty ? null : StepSla.Build(parsed.Days, parsed.Hours, parsed.Minutes, parsed.DayMode);
         }
         node.SlaJson = trimmed;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeStartDelayAsync(
+        Guid nodeId, string? startDelayJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Tiempo para arrancar (Plazos v2, ADR-0119): metadato del nodo, editable sobre publicada, no regenera
+        // el XML. Mismo parser que el plazo; vacio/todo-en-cero -> null (= Inmediato).
+        var trimmed = string.IsNullOrWhiteSpace(startDelayJson) ? null : startDelayJson.Trim();
+        if (trimmed is not null)
+        {
+            var parsed = StepSla.Read(trimmed);
+            trimmed = parsed.IsEmpty ? null : StepSla.Build(parsed.Days, parsed.Hours, parsed.Minutes, parsed.DayMode);
+        }
+        node.StartDelayJson = trimmed;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }
@@ -1847,7 +1869,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
-                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson);
+                n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

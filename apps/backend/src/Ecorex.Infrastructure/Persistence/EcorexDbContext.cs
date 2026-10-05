@@ -1509,6 +1509,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.NotifyJson).HasColumnType(jsonColumnType);
             // Plazo (SLA) del paso (Fase 1 - plazos de flujo): jsonb {days,hours,minutes,dayMode}.
             b.Property(x => x.SlaJson).HasColumnType(jsonColumnType);
+            // Tiempo para arrancar (Plazos v2 - ADR-0119): jsonb, mismo shape que SlaJson.
+            b.Property(x => x.StartDelayJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
         });

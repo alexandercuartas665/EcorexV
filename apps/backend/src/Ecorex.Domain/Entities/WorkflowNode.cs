@@ -134,4 +134,12 @@ public class WorkflowNode : TenantEntity
     /// para calcular el vencimiento del paso y la fecha final (que rueda) de la actividad. Null = sin plazo.
     /// </summary>
     public string? SlaJson { get; set; }
+
+    /// <summary>
+    /// TIEMPO PARA ARRANCAR el paso (Plazos v2 - ADR-0119): cuanto se espera DESDE que el paso se activa antes
+    /// de que arranque. Mismo shape que <see cref="SlaJson"/> (JSON {days,hours,minutes,dayMode}, ver StepSla).
+    /// Null/ausente = Inmediato (arranca al activarse = comportamiento de la Fase 1). Para un nodo con AGENTE
+    /// es un retardo REAL (el agente se ejecuta en inicio = activacion + arranque); para humano es informativo.
+    /// </summary>
+    public string? StartDelayJson { get; set; }
 }

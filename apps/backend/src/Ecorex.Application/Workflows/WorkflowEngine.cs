@@ -1013,10 +1013,12 @@ public sealed class WorkflowEngine : IWorkflowEngine
     }
 
     /// <summary>
-    /// Plazos de flujo (Fase 1): estampa el vencimiento estimado del paso (inicio real + plazo del nodo,
-    /// respetando calendario/habil + el calendario operativo del tenant, en su zona horaria) y refresca la
-    /// fecha inicial y la fecha FINAL ESTIMADA de la actividad (que RUEDA: ahora + suma de los plazos del paso
-    /// actual y los siguientes). Si el flujo no usa plazos, no toca ninguna fecha (respeta las manuales).
+    /// Plazos v2 (ADR-0119): al activarse un paso estampa su INICIO planeado (activacion + "tiempo para
+    /// arrancar") en StartAt, su VENCIMIENTO (inicio + "duracion") en DueAt, y refresca la fecha inicial y la
+    /// fecha FINAL ESTIMADA de la actividad (que RUEDA: inicio + suma de las duraciones del paso actual y los
+    /// siguientes, por StepNumber). Respeta calendario/habil + el calendario operativo del tenant, en su zona
+    /// horaria. Si el flujo no usa plazos ni arranques, no toca ninguna fecha (respeta las manuales). El retardo
+    /// REAL del agente (ejecutar en StartAt) es Fase C; aqui solo se estampan las fechas.
     /// </summary>
     private async Task StampStepDeadlinesAsync(
         WorkflowInstance instance, WorkflowNode node, WorkflowStepHistory step, TaskItem? task,
@@ -1024,9 +1026,10 @@ public sealed class WorkflowEngine : IWorkflowEngine
     {
         var nodes = await _db.WorkflowNodes.AsNoTracking()
             .Where(n => n.DefinitionId == instance.DefinitionId)
-            .Select(n => new { n.Id, n.StepNumber, n.SlaJson })
+            .Select(n => new { n.Id, n.StepNumber, n.SlaJson, n.StartDelayJson })
             .ToListAsync(cancellationToken);
-        if (nodes.All(n => StepSla.Read(n.SlaJson).IsEmpty)) { return; } // el flujo no configuro plazos
+        // El flujo no usa plazos v2 si ningun nodo define duracion NI arranque (Plazos v2, ADR-0119).
+        if (nodes.All(n => StepSla.Read(n.SlaJson).IsEmpty && StepSla.Read(n.StartDelayJson).IsEmpty)) { return; }
 
         var tzId = await _db.Tenants.AsNoTracking()
             .Where(t => t.Id == instance.TenantId).Select(t => t.TimeZoneId)
@@ -1038,26 +1041,34 @@ public sealed class WorkflowEngine : IWorkflowEngine
         var nowUtc = DateTimeOffset.UtcNow;
         var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, tz).DateTime;
 
-        // Vencimiento del PASO actual (solo si el nodo tiene plazo).
-        var nodeSla = StepSla.Read(node.SlaJson);
-        if (!nodeSla.IsEmpty)
+        // Plazos v2 (ADR-0119): INICIO = activacion + "tiempo para arrancar"; VENCE = inicio + "duracion".
+        var nodeDuration = StepSla.Read(node.SlaJson);       // tiempo estimado para entregar (= el plazo de hoy)
+        var nodeStartDelay = StepSla.Read(node.StartDelayJson); // tiempo para arrancar (Inmediato = vacio)
+
+        // Inicio planeado del paso = activacion real + arranque (con Inmediato coincide con la activacion).
+        var startLocal = StepDeadlineCalculator.AddPlazo(nowLocal, nodeStartDelay, nonWorking);
+        step.StartAt = ToTenantUtc(startLocal, tz);
+        // Vencimiento del paso = inicio + duracion (solo si el nodo tiene duracion).
+        if (!nodeDuration.IsEmpty)
         {
-            step.DueAt = ToTenantUtc(StepDeadlineCalculator.AddPlazo(nowLocal, nodeSla, nonWorking), tz);
+            step.DueAt = ToTenantUtc(StepDeadlineCalculator.AddPlazo(startLocal, nodeDuration, nonWorking), tz);
         }
 
         if (task is null) { return; }
 
-        // Inicio real de la actividad = el primer paso que la pone en marcha (no pisa una fecha ya puesta).
-        task.StartDate ??= nowUtc;
+        // Inicio real de la actividad = inicio del primer paso que la pone en marcha (no pisa una fecha manual).
+        task.StartDate ??= step.StartAt ?? nowUtc;
 
-        // Fecha final que RUEDA: ahora + suma de los plazos del paso actual y los siguientes (por StepNumber).
+        // Fecha final que RUEDA: inicio del paso actual + suma de las DURACIONES del paso actual y los
+        // siguientes (por StepNumber, igual que Fase 1). El arranque de los pasos FUTUROS no se proyecta: el
+        // retardo real solo se aplica al activarse cada paso (se respeta el estimado por StepNumber de hoy).
         var current = nodes.FirstOrDefault(n => n.Id == node.Id);
-        IEnumerable<StepSla> remaining = current?.StepNumber is int sn
+        IEnumerable<StepSla> remainingDurations = current?.StepNumber is int sn
             ? nodes.Where(n => n.StepNumber.HasValue && n.StepNumber.Value >= sn)
                    .OrderBy(n => n.StepNumber!.Value)
                    .Select(n => StepSla.Read(n.SlaJson))
-            : new[] { nodeSla };
-        task.DueDate = ToTenantUtc(StepDeadlineCalculator.AddPlazos(nowLocal, remaining, nonWorking), tz);
+            : new[] { nodeDuration };
+        task.DueDate = ToTenantUtc(StepDeadlineCalculator.AddPlazos(startLocal, remainingDurations, nonWorking), tz);
     }
 
     /// <summary>Convierte una hora LOCAL del tenant a un DateTimeOffset UTC (Colombia sin DST; portable).</summary>

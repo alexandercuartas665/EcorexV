@@ -112,6 +112,11 @@ public interface IWorkflowDesignService
     /// el nodo no existe.</summary>
     Task<WorkflowResult<bool>> SetNodeSlaAsync(Guid nodeId, string? slaJson, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el "tiempo para arrancar" del paso (Plazos v2 - ADR-0119): JSON {days,hours,minutes,dayMode}
+    /// (mismo shape que el plazo). Metadato del nodo, editable sobre publicada. null/vacio = Inmediato. NotFound
+    /// si el nodo no existe.</summary>
+    Task<WorkflowResult<bool>> SetNodeStartDelayAsync(Guid nodeId, string? startDelayJson, CancellationToken cancellationToken = default);
+
     /// <summary>Fija el tablero + columna destino del nodo (enlace flujo &lt;-&gt; tableros); la actividad salta
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);

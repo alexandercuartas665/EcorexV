@@ -15884,6 +15884,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("sla_json");
 
+                    b.Property<string>("StartDelayJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("start_delay_json");
+
                     b.Property<int?>("StepNumber")
                         .HasColumnType("integer")
                         .HasColumnName("step_number");
@@ -16399,6 +16403,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("PendingWhatsAppConversationId")
                         .HasColumnType("uuid")
                         .HasColumnName("pending_whats_app_conversation_id");
+
+                    b.Property<DateTimeOffset?>("StartAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_at");
 
                     b.Property<string>("Status")
                         .IsRequired()

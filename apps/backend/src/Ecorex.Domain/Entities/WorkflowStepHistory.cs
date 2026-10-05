@@ -129,4 +129,12 @@ public class WorkflowStepHistory : TenantEntity
     /// el fin real es CompletedAt.
     /// </summary>
     public DateTimeOffset? DueAt { get; set; }
+
+    /// <summary>
+    /// INICIO planeado del paso (Plazos v2 - ADR-0119): activacion_real + el "tiempo para arrancar" del nodo
+    /// (StartDelayJson), respetando calendario/habil y el calendario operativo del tenant. Con arranque
+    /// Inmediato coincide con la activacion real (CreatedAt). Null = el nodo no define arranque (o no hay
+    /// plazos). El vencimiento (DueAt) se cuenta DESDE este inicio: DueAt = StartAt + duracion (SlaJson).
+    /// </summary>
+    public DateTimeOffset? StartAt { get; set; }
 }

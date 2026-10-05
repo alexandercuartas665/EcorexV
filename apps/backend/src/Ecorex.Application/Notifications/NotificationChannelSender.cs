@@ -53,17 +53,33 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         }
         try
         {
-            var q = _db.WhatsAppTemplates.AsNoTracking().Where(t => t.Name == templateName && t.IsActive);
-            if (!string.IsNullOrWhiteSpace(language)) { q = q.Where(t => t.Language == language); }
-            var tpl = await q.FirstOrDefaultAsync(cancellationToken);
+            // Resolucion TOLERANTE del idioma (las plantillas WhatsApp suelen quedar en 'es' y la regla en
+            // 'es_CO' -o al reves-, lo que fallaba callado): 1) match exacto; 2) idioma BASE (es_CO -> es);
+            // 3) cualquier variante activa de esa plantilla. Se ENVIA con el idioma REAL de la hallada.
+            var baseQ = _db.WhatsAppTemplates.AsNoTracking().Where(t => t.Name == templateName && t.IsActive);
+            var tpl = await baseQ
+                .Where(t => string.IsNullOrWhiteSpace(language) || t.Language == language)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (tpl is null && !string.IsNullOrWhiteSpace(language))
+            {
+                var baseLang = language.Split('_', '-')[0];
+                tpl = await baseQ.Where(t => t.Language == baseLang).FirstOrDefaultAsync(cancellationToken)
+                      ?? await baseQ.OrderBy(t => t.Language).FirstOrDefaultAsync(cancellationToken);
+                if (tpl is not null)
+                {
+                    _logger.LogInformation("WhatsApp plantilla '{Template}' (linea {LineId}): idioma '{Req}' no existe, se usa '{Found}'.",
+                        templateName, lineId, language, tpl.Language);
+                }
+            }
             if (tpl is null)
             {
                 // solo enviamos plantillas que existen y estan activas en el tenant
-                var reason = $"No existe una plantilla activa '{templateName}'" + (string.IsNullOrWhiteSpace(language) ? "." : $" en idioma '{language}'.");
+                var reason = $"No existe una plantilla activa '{templateName}'" + (string.IsNullOrWhiteSpace(language) ? "." : $" en ningun idioma (se pidio '{language}').");
                 _logger.LogWarning("WhatsApp plantilla no enviada (linea {LineId}, {Template}): {Reason}", lineId, templateName, reason);
                 return new WhatsAppSendOutcome(false, reason);
             }
-            var lang = string.IsNullOrWhiteSpace(language) ? tpl.Language : language!;
+            // Siempre se envia con el idioma REAL de la plantilla hallada (si no, Meta la rechaza por idioma).
+            var lang = tpl.Language;
             var (mediaType, mediaUrl) = HeaderMedia(tpl);
             // Header de media DINAMICO (p.ej. el PDF de la cotizacion): sobreescribe el header fijo de la plantilla.
             if (!string.IsNullOrWhiteSpace(headerMediaUrlOverride))

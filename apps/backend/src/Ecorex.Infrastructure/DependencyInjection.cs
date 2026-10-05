@@ -87,7 +87,10 @@ public static class DependencyInjection
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
         // Correo saliente via SMTP configurable por el Super Admin (clave cifrada).
         services.AddScoped<Application.Common.IEmailSender, Email.SmtpEmailSender>();
-        services.AddScoped<Application.Scraping.IOtpMailboxReader, Email.ImapOtpMailboxReader>();
+        // Lector de OTP: enruta por AuthMode (Graph API para Microsoft 365 moderno, IMAP para el resto).
+        services.AddScoped<Email.ImapOtpMailboxReader>();
+        services.AddScoped<Email.GraphOtpMailboxReader>();
+        services.AddScoped<Application.Scraping.IOtpMailboxReader, Email.DispatchingOtpMailboxReader>();
         services.AddSingleton<Application.Workflows.INotifyLinkBuilder, Notifications.NotifyLinkBuilder>();
         // Consola SQL admin (000077): ejecuta SQL crudo + audita en sql_console_logs.
         services.AddScoped<Ecorex.Application.Admin.ISqlConsoleService, Sql.SqlConsoleService>();

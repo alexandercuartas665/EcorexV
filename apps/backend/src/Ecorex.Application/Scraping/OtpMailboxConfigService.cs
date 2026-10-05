@@ -36,11 +36,17 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
         if (string.IsNullOrWhiteSpace(req.Host)) { return (null, "El host IMAP es obligatorio."); }
         if (string.IsNullOrWhiteSpace(req.Usuario)) { return (null, "El usuario es obligatorio."); }
         if (req.Puerto is < 1 or > 65535) { return (null, "Puerto invalido."); }
-        var authMode = string.Equals(req.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase) ? "OAuth2" : "Basic";
-        if (authMode == "OAuth2")
+        var authMode = (req.AuthMode ?? "").Trim() switch
         {
-            if (string.IsNullOrWhiteSpace(req.OauthTenantId)) { return (null, "OAuth2: el Tenant ID de Azure AD es obligatorio."); }
-            if (string.IsNullOrWhiteSpace(req.OauthClientId)) { return (null, "OAuth2: el Client ID de Azure AD es obligatorio."); }
+            var m when string.Equals(m, "OAuth2", StringComparison.OrdinalIgnoreCase) => "OAuth2",
+            var m when string.Equals(m, "Graph", StringComparison.OrdinalIgnoreCase) => "Graph",
+            _ => "Basic"
+        };
+        var needsAzure = authMode is "OAuth2" or "Graph";
+        if (needsAzure)
+        {
+            if (string.IsNullOrWhiteSpace(req.OauthTenantId)) { return (null, $"{authMode}: el Tenant ID de Azure AD es obligatorio."); }
+            if (string.IsNullOrWhiteSpace(req.OauthClientId)) { return (null, $"{authMode}: el Client ID de Azure AD es obligatorio."); }
         }
 
         OtpMailboxConfig entity;
@@ -63,8 +69,8 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
         entity.Usuario = req.Usuario.Trim();
         entity.Activo = req.Activo;
         entity.AuthMode = authMode;
-        entity.OauthTenantId = authMode == "OAuth2" ? req.OauthTenantId?.Trim() : null;
-        entity.OauthClientId = authMode == "OAuth2" ? req.OauthClientId?.Trim() : null;
+        entity.OauthTenantId = needsAzure ? req.OauthTenantId?.Trim() : null;
+        entity.OauthClientId = needsAzure ? req.OauthClientId?.Trim() : null;
         if (!string.IsNullOrWhiteSpace(req.Password))
         {
             entity.PasswordCifrada = _protector.Protect(req.Password.Trim());
@@ -96,10 +102,11 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
     {
         var cfg = await _db.OtpMailboxConfigs.FirstOrDefaultAsync(x => x.Id == configId, ct);
         if (cfg is null) { return new(false, null, "El buzon no existe."); }
-        var esOauth = string.Equals(cfg.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase);
+        var usaAzure = string.Equals(cfg.AuthMode, "OAuth2", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(cfg.AuthMode, "Graph", StringComparison.OrdinalIgnoreCase);
         if (string.IsNullOrEmpty(cfg.PasswordCifrada))
         {
-            return new(false, null, esOauth ? "El buzon no tiene client secret configurado." : "El buzon no tiene app-password configurada.");
+            return new(false, null, usaAzure ? "El buzon no tiene client secret configurado." : "El buzon no tiene app-password configurada.");
         }
         if (string.IsNullOrWhiteSpace(regex)) { return new(false, null, "La regex de extraccion es obligatoria."); }
         string secret;
@@ -110,7 +117,7 @@ public sealed class OtpMailboxConfigService : IOtpMailboxConfigService
             string.IsNullOrWhiteSpace(remitente) ? null : remitente.Trim(),
             string.IsNullOrWhiteSpace(asunto) ? null : asunto.Trim(),
             regex.Trim(), sinceUtc, timeoutSegundos,
-            AuthMode: esOauth ? "OAuth2" : "Basic",
+            AuthMode: usaAzure ? cfg.AuthMode : "Basic",
             OauthTenantId: cfg.OauthTenantId, OauthClientId: cfg.OauthClientId);
         var result = await _reader.ReadTokenAsync(req, ct);
 

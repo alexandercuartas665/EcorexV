@@ -63,31 +63,48 @@
             <label>Modo de autenticacion
                 <select class="form-control" @bind="_eAuthMode">
                     <option value="Basic">Usuario + app-password (IMAP basico)</option>
-                    <option value="OAuth2">OAuth2 (Microsoft 365 moderno)</option>
+                    <option value="OAuth2">OAuth2 / IMAP (Microsoft 365)</option>
+                    <option value="Graph">Graph API (Microsoft 365, recomendado)</option>
                 </select></label>
-            @if (_eAuthMode == "OAuth2")
+            @if (_eAuthMode == "Graph")
             {
-                <div class="bz-hint">Microsoft 365 moderno: registra una app en Azure AD con permiso de APLICACION
-                    <strong>IMAP.AccessAsApp</strong> (consentimiento de admin) y dale acceso al buzon. Luego pon aqui el
-                    Tenant, el Client ID y el Client Secret.</div>
+                <div class="bz-hint">Microsoft Graph (recomendado): registra una app en Azure AD con permiso de APLICACION
+                    <strong>Mail.Read</strong> (consentimiento de admin). No requiere habilitar IMAP ni permisos de buzon en
+                    Exchange. Pon aqui el Tenant, el Client ID y el Client Secret.</div>
             }
-            <div class="bz-two">
-                <label>Host IMAP<input class="form-control" @bind="_eHost" /></label>
-                <label>Puerto<input class="form-control" type="number" @bind="_ePuerto" /></label>
-            </div>
+            else if (_eAuthMode == "OAuth2")
+            {
+                <div class="bz-hint">Microsoft 365 por IMAP: la app de Azure AD necesita el permiso de APLICACION
+                    <strong>IMAP.AccessAsApp</strong> (consentimiento de admin) y acceso al buzon en Exchange
+                    (New-ServicePrincipal + Add-MailboxPermission + IMAP habilitado).</div>
+            }
+            @if (_eAuthMode != "Graph")
+            {
+                <div class="bz-two">
+                    <label>Host IMAP<input class="form-control" @bind="_eHost" /></label>
+                    <label>Puerto<input class="form-control" type="number" @bind="_ePuerto" /></label>
+                </div>
+            }
             <label>Usuario / correo (buzon a leer)<input class="form-control" @bind="_eUsuario" /></label>
-            @if (_eAuthMode == "OAuth2")
+            @if (_eAuthMode is "OAuth2" or "Graph")
             {
                 <div class="bz-two">
                     <label>Tenant ID (Azure AD)<input class="form-control" @bind="_eOauthTenantId" placeholder="dominio o GUID del directorio" /></label>
                     <label>Client ID (Azure AD)<input class="form-control" @bind="_eOauthClientId" placeholder="application (client) id" /></label>
                 </div>
             }
-            <label>@(_eAuthMode == "OAuth2" ? "Client secret" : "App-password") @(_eId is not null ? "(vacio = conservar la actual)" : "")<input class="form-control" type="password" @bind="_ePassword" autocomplete="new-password" /></label>
-            <div class="bz-two">
-                <label class="bz-chk"><input type="checkbox" @bind="_eSsl" /> Usar SSL</label>
+            <label>@(_eAuthMode is "OAuth2" or "Graph" ? "Client secret" : "App-password") @(_eId is not null ? "(vacio = conservar la actual)" : "")<input class="form-control" type="password" @bind="_ePassword" autocomplete="new-password" /></label>
+            @if (_eAuthMode != "Graph")
+            {
+                <div class="bz-two">
+                    <label class="bz-chk"><input type="checkbox" @bind="_eSsl" /> Usar SSL</label>
+                    <label class="bz-chk"><input type="checkbox" @bind="_eActivo" /> Activo</label>
+                </div>
+            }
+            else
+            {
                 <label class="bz-chk"><input type="checkbox" @bind="_eActivo" /> Activo</label>
-            </div>
+            }
             @if (_editorErr is not null) { <div class="bz-msg err">@_editorErr</div> }
             <div class="bz-actions">
                 <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
@@ -144,7 +161,7 @@
     private string _eNombre = ""; private string _eProveedor = "Microsoft";
     private string _eHost = "outlook.office365.com"; private int _ePuerto = 993;
     private string _eUsuario = ""; private string? _ePassword; private bool _eSsl = true; private bool _eActivo = true;
-    private string _eAuthMode = "OAuth2"; private string _eOauthTenantId = ""; private string _eOauthClientId = "";
+    private string _eAuthMode = "Graph"; private string _eOauthTenantId = ""; private string _eOauthClientId = "";
 
     // probar
     private bool _showProbar; private Guid _pId; private string _probarNombre = "";
@@ -164,8 +181,8 @@
             "Gmail" => ("imap.gmail.com", 993, true),
             _ => (_eHost, _ePuerto, _eSsl)
         };
-        // Microsoft 365 ya no admite basic-auth IMAP: por defecto OAuth2. Gmail usa app-password (Basic).
-        _eAuthMode = _eProveedor switch { "Microsoft" => "OAuth2", "Gmail" => "Basic", _ => _eAuthMode };
+        // Microsoft 365: por defecto Graph API (mas simple que IMAP). Gmail usa app-password (Basic).
+        _eAuthMode = _eProveedor switch { "Microsoft" => "Graph", "Gmail" => "Basic", _ => _eAuthMode };
     }
 
     private void OpenEditor(OtpMailboxDto? b)
@@ -180,7 +197,7 @@
         _ePassword = null;
         _eSsl = b?.UsarSsl ?? true;
         _eActivo = b?.Activo ?? true;
-        _eAuthMode = string.IsNullOrWhiteSpace(b?.AuthMode) ? (b is null ? "OAuth2" : "Basic") : b!.AuthMode;
+        _eAuthMode = string.IsNullOrWhiteSpace(b?.AuthMode) ? (b is null ? "Graph" : "Basic") : b!.AuthMode;
         _eOauthTenantId = b?.OauthTenantId ?? "";
         _eOauthClientId = b?.OauthClientId ?? "";
         _showEditor = true;

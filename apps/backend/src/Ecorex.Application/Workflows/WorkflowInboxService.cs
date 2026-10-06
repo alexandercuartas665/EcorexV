@@ -80,7 +80,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.AgentAttemptedAt,
                 s.AgentFailureReason,
                 s.AgentRunLog,
-                s.StartAt
+                s.StartAt,
+                s.PendingWhatsAppConversationId,
+                s.PendingVoiceCallId
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -349,7 +351,11 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 RuntimeDx: n.RuntimeLayoutDx,
                 RuntimeDy: n.RuntimeLayoutDy,
                 // Inicio programado del paso vigente (Plazos v2): si esta en el futuro, el agente aun no arranca.
-                ScheduledStartAt: h is { IsCurrent: true } ? h.StartAt : null);
+                ScheduledStartAt: h is { IsCurrent: true } ? h.StartAt : null,
+                // ADR-0092/0120: el agente del paso vigente quedo EN ESPERA de respuesta del cliente (WhatsApp o
+                // llamada). La UI lo muestra como "en espera", no "trabajando" (no esta pensando).
+                AwaitingReply: isAuto && h is { IsCurrent: true }
+                    && (h.PendingWhatsAppConversationId != null || h.PendingVoiceCallId != null));
         }).ToList();
 
         var edges = canvas.Edges

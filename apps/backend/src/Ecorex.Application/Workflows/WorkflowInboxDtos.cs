@@ -102,7 +102,11 @@ public sealed record TaskFlowNodeDto(
     int? RuntimeDy = null,
     // INICIO programado del paso (Plazos v2, ADR-0119): activacion + "tiempo para arrancar". Si esta en el
     // FUTURO, el paso (p.ej. un agente) aun NO arranca: la UI muestra "programado hasta HH:MM", no "trabajando".
-    DateTimeOffset? ScheduledStartAt = null);
+    DateTimeOffset? ScheduledStartAt = null,
+    // El agente ya corrio y quedo EN ESPERA de una respuesta del cliente (pregunto por WhatsApp o pidio una
+    // llamada): PendingWhatsAppConversationId / PendingVoiceCallId seteados. La UI muestra "En espera de
+    // respuesta..." en vez de "trabajando" (el agente NO esta pensando: espera al cliente). ADR-0092/0120.
+    bool AwaitingReply = false);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

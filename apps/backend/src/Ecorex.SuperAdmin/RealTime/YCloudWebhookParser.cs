@@ -13,6 +13,20 @@ namespace Ecorex.SuperAdmin.RealTime;
 public sealed record YCloudParsedMessage(string To, string Phone, string? Name, string ExternalId, string Body, DateTimeOffset? SentAt,
     string? MediaLink = null, string? MediaMime = null, string? MediaKind = null, string? MediaFileName = null);
 
+/// <summary>Estado de entrega de un mensaje SALIENTE reportado por YCloud (evento whatsapp.message.updated).
+/// <see cref="BusinessNumber"/> es el numero de negocio que ENVIO (from), <see cref="RecipientPhone"/> el
+/// destinatario (to). Sirve para hacer VISIBLE un "no llego" (failed/undelivered) con el motivo de Meta, que
+/// antes se perdia porque el webhook de estado se ignoraba.</summary>
+public sealed record YCloudStatusUpdate(
+    string BusinessNumber, string RecipientPhone, string Status, string? WabaId,
+    string? ErrorCode, string? ErrorMessage, string? Wamid, DateTimeOffset? At)
+{
+    /// <summary>true si la entrega fallo (no llego al cliente): failed / undelivered.</summary>
+    public bool IsFailure => !string.IsNullOrWhiteSpace(Status)
+        && (Status.Equals("failed", StringComparison.OrdinalIgnoreCase)
+            || Status.Equals("undelivered", StringComparison.OrdinalIgnoreCase));
+}
+
 /// <summary>
 /// Traduce el payload del webhook de YCloud a mensajes entrantes normalizados. YCloud entrega UN evento por
 /// POST (objeto con <c>type</c> y <c>whatsappInboundMessage</c>); por robustez tambien se acepta un array de
@@ -34,6 +48,75 @@ public static class YCloudWebhookParser
             ParseEvent(root, result);
         }
         return result;
+    }
+
+    /// <summary>Extrae los ESTADOS de entrega de mensajes salientes (eventos de estado de YCloud). Tolerante a
+    /// un objeto o un array de eventos. Ignora los eventos de mensaje entrante (los maneja <see cref="Parse"/>).</summary>
+    public static IReadOnlyList<YCloudStatusUpdate> ParseStatuses(JsonElement root)
+    {
+        var result = new List<YCloudStatusUpdate>();
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in root.EnumerateArray()) { ParseStatus(e, result); }
+        }
+        else if (root.ValueKind == JsonValueKind.Object)
+        {
+            ParseStatus(root, result);
+        }
+        return result;
+    }
+
+    private static void ParseStatus(JsonElement evt, List<YCloudStatusUpdate> result)
+    {
+        if (evt.ValueKind != JsonValueKind.Object) { return; }
+
+        // Si trae 'type' y es de mensaje ENTRANTE, no es un estado -> se ignora aqui (lo maneja Parse()).
+        if (evt.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String)
+        {
+            var t = typeEl.GetString() ?? "";
+            if (t.Contains("inbound_message", StringComparison.OrdinalIgnoreCase)) { return; }
+        }
+
+        // El estado viene en whatsappMessage (evento whatsapp.message.updated); fallback al propio objeto.
+        var msg = evt.TryGetProperty("whatsappMessage", out var wm) && wm.ValueKind == JsonValueKind.Object
+            ? wm
+            : evt;
+
+        var status = Str(msg, "status");
+        if (string.IsNullOrWhiteSpace(status)) { return; } // sin 'status' no es un evento de estado
+
+        // Saliente: from = negocio, to = destinatario. (Entrante seria al reves, pero esos ya se filtraron.)
+        var business = Digits(Str(msg, "from"));
+        var recipient = Digits(Str(msg, "to"));
+        var wabaId = Str(msg, "wabaId") ?? Str(msg, "wabaID") ?? Str(msg, "waba_id");
+        var wamid = Str(msg, "wamid") ?? Str(msg, "id");
+
+        // error: objeto { code, message/title } o arreglo 'errors'. code puede venir numerico o string.
+        string? errCode = null, errMsg = null;
+        if (msg.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
+        {
+            errCode = NumOrStr(err, "code"); errMsg = Str(err, "message") ?? Str(err, "title") ?? Str(err, "detail");
+        }
+        else if (msg.TryGetProperty("errors", out var errs) && errs.ValueKind == JsonValueKind.Array && errs.GetArrayLength() > 0)
+        {
+            var e0 = errs[0];
+            errCode = NumOrStr(e0, "code"); errMsg = Str(e0, "message") ?? Str(e0, "title") ?? Str(e0, "detail");
+        }
+
+        var at = ParseTime(Str(msg, "updateTime") ?? Str(msg, "sendTime") ?? Str(msg, "timestamp"));
+        result.Add(new YCloudStatusUpdate(business, recipient, status!, wabaId, errCode, errMsg, wamid, at));
+    }
+
+    // Lee un campo que puede venir como numero o string (ej. codigo de error de Meta).
+    private static string? NumOrStr(JsonElement el, string name)
+    {
+        if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty(name, out var v)) { return null; }
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString(),
+            JsonValueKind.Number => v.ToString(),
+            _ => null
+        };
     }
 
     private static void ParseEvent(JsonElement evt, List<YCloudParsedMessage> result)

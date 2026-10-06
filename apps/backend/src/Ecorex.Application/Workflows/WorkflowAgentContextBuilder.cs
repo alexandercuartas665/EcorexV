@@ -43,11 +43,16 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         var (historyDto, stepsById) = await BuildHistoryAsync(step, cancellationToken);
         var priorData = await BuildPriorDataAsync(step, stepsById, cancellationToken);
         var taskDto = await BuildTaskAsync(step.InstanceId, cancellationToken);
+        var flowMap = await BuildFlowMapAsync(step.InstanceId, cancellationToken);
         var voiceCall = await BuildVoiceCallResultAsync(step, cancellationToken);
         var whatsAppReply = await BuildWhatsAppReplyResultAsync(step, cancellationToken);
+        // ADR-0121: si pregunto y el cliente aun no responde, pasa la hora del ultimo saliente (reintento).
+        var awaitingSince = whatsAppReply is null
+            ? await BuildWhatsAppAwaitingSinceAsync(step, cancellationToken)
+            : (DateTimeOffset?)null;
 
         return WorkflowResult<WorkflowAgentContextDto>.Ok(new WorkflowAgentContextDto(
-            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, assignment, voiceCall, whatsAppReply));
+            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply, awaitingSince));
     }
 
     /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el
@@ -69,6 +74,30 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             return null;
         }
         return new WorkflowAgentWhatsAppReplyDto(Clip(reply, WorkflowAgentContextLimits.MaxValueChars));
+    }
+
+    /// <summary>ADR-0121: si el paso esta esperando una respuesta de WhatsApp (PendingWhatsAppConversationId) y
+    /// NO hay entrante tras el ultimo saliente, devuelve la hora de ese ultimo saliente: el cliente no ha
+    /// respondido y este es el reintento programado (el agente enviara un recordatorio). Null si no espera o si
+    /// ya hay respuesta (en ese caso manda BuildWhatsAppReplyResultAsync).</summary>
+    private async Task<DateTimeOffset?> BuildWhatsAppAwaitingSinceAsync(
+        Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        if (step.PendingWhatsAppConversationId is not Guid conversationId)
+        {
+            return null;
+        }
+        var lastOut = await _db.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound)
+            .MaxAsync(m => (DateTimeOffset?)m.SentAt, cancellationToken);
+        if (lastOut is null)
+        {
+            return null;
+        }
+        var hasReplyAfter = await _db.Messages.AsNoTracking()
+            .AnyAsync(m => m.ConversationId == conversationId
+                && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound && m.SentAt > lastOut, cancellationToken);
+        return hasReplyAfter ? null : lastOut;
     }
 
     /// <summary>ADR-0091: si el paso esperaba una llamada (PendingVoiceCallId), trae el transcript y los datos
@@ -328,12 +357,20 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             return null;
         }
 
-        // El tercero NO cuelga de TaskItem: se deriva del concepto (subcategoria 000270) que
-        // clasifica la tarea, via ActividadSubcategoriaTercero. Solo se resuelve cuando la
-        // subcategoria apunta a UN unico tercero; si son varios, el "cliente del caso" es
-        // ambiguo y se prefiere no darle al agente un dato que podria ser falso.
+        // Tercero/cliente del caso: se PREFIERE el vinculado DIRECTO a la tarea (TaskItem.TerceroId, el
+        // contacto de la actividad). Si no lo tiene, se deriva del concepto (subcategoria 000270) via
+        // ActividadSubcategoriaTercero, pero solo cuando apunta a UN unico tercero (si son varios el cliente
+        // es ambiguo y se prefiere no dar al agente un dato que podria ser falso).
         WorkflowAgentTerceroDto? tercero = null;
-        if (task.SubcategoriaId is Guid subcategoriaId)
+        if (task.TerceroId is Guid terceroDirectoId)
+        {
+            tercero = await _db.Terceros.AsNoTracking()
+                .Where(t => t.Id == terceroDirectoId)
+                .Select(t => new WorkflowAgentTerceroDto(
+                    t.Id, t.Nombre, t.Tipo, t.IdValor, t.Email, t.Telefono, t.Ciudad))
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        if (tercero is null && task.SubcategoriaId is Guid subcategoriaId)
         {
             var terceroIds = await _db.ActividadSubcategoriaTerceros.AsNoTracking()
                 .Where(x => x.SubcategoriaId == subcategoriaId)
@@ -350,11 +387,72 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             }
         }
 
+        var bitacora = await BuildBitacoraAsync(task.Id, cancellationToken);
+
         return new WorkflowAgentTaskDto(
             task.Id, task.Number, task.Title,
             Clip(task.Description, WorkflowAgentContextLimits.MaxTextChars),
             task.Status, task.Priority, task.DueDate,
-            task.RequesterName, task.RequesterEmail, tercero);
+            task.RequesterName, task.RequesterEmail, task.RequesterPhone, task.RequesterDocument,
+            tercero, bitacora);
+    }
+
+    // ---- Bitacora de la actividad (comentarios de personas + acciones del sistema), ventana mas reciente ----
+    private async Task<IReadOnlyList<WorkflowAgentBitacoraEntryDto>> BuildBitacoraAsync(
+        Guid taskId, CancellationToken cancellationToken)
+    {
+        var rows = await _db.TaskItemActivities.AsNoTracking()
+            .Where(a => a.TaskItemId == taskId)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(WorkflowAgentContextLimits.MaxBitacoraEntries)
+            .Select(a => new { a.CreatedAt, a.ActorName, a.Type, a.Text })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => new WorkflowAgentBitacoraEntryDto(
+                r.CreatedAt, r.ActorName, r.Type == TaskActivityType.Comment,
+                Clip(r.Text, WorkflowAgentContextLimits.MaxValueChars) ?? string.Empty))
+            .ToList();
+    }
+
+    // ---- Mapa COMPLETO del flujo: TODOS los nodos (con su nota) + su estado en esta instancia ----
+    private async Task<IReadOnlyList<WorkflowAgentFlowStepDto>> BuildFlowMapAsync(
+        Guid instanceId, CancellationToken cancellationToken)
+    {
+        var definitionId = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == instanceId).Select(i => i.DefinitionId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (definitionId == Guid.Empty) { return Array.Empty<WorkflowAgentFlowStepDto>(); }
+
+        var nodes = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.DefinitionId == definitionId)
+            .OrderBy(n => n.StepNumber).ThenBy(n => n.Name)
+            .Take(WorkflowAgentContextLimits.MaxFlowSteps)
+            .Select(n => new { n.Id, n.Name, n.NodeType, n.Note, n.StepNumber })
+            .ToListAsync(cancellationToken);
+        if (nodes.Count == 0) { return Array.Empty<WorkflowAgentFlowStepDto>(); }
+
+        // Estado por nodo a partir del historial de la instancia: actual > hecho (algun Completed) > pendiente.
+        var nodeIds = nodes.Select(n => n.Id).ToList();
+        var stepRows = await _db.WorkflowStepHistories.AsNoTracking()
+            .Where(s => s.InstanceId == instanceId && nodeIds.Contains(s.NodeId))
+            .Select(s => new { s.NodeId, s.Status, s.IsCurrent })
+            .ToListAsync(cancellationToken);
+        var byNode = stepRows.GroupBy(s => s.NodeId).ToDictionary(g => g.Key, g => g.ToList());
+
+        string StatusOf(Guid nodeId)
+        {
+            if (!byNode.TryGetValue(nodeId, out var rows) || rows.Count == 0) { return "pendiente"; }
+            if (rows.Any(r => r.IsCurrent)) { return "actual"; }
+            if (rows.Any(r => r.Status == WorkflowStepStatus.Completed)) { return "hecho"; }
+            return "pendiente";
+        }
+
+        return nodes.Select(n => new WorkflowAgentFlowStepDto(
+                n.StepNumber, n.Name, n.NodeType,
+                Clip(n.Note, WorkflowAgentContextLimits.MaxTextChars), StatusOf(n.Id)))
+            .ToList();
     }
 
     /// <summary>Recorta un texto al tope y marca el corte para que el modelo lo note.</summary>

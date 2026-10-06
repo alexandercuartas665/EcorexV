@@ -112,6 +112,16 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentDeadlineAt { get; set; }
 
+    /// <summary>
+    /// ADR-0121: reintento que el PROPIO agente se auto-programo (herramienta 'programar_reintento'). Cuando el
+    /// agente pregunta al cliente y se reprograma "por si no responde", se estampa ahora+en_minutos. Si llega
+    /// esta hora y el cliente no ha respondido, el barrido RE-CORRE al agente (limpia este campo y
+    /// AgentAttemptedAt) para que redacte un recordatorio. Si el cliente responde antes, ChatIngestService lo
+    /// limpia (el reintento ya no hace falta). Independiente de AgentDeadlineAt (timeout duro). Null = sin
+    /// reintento programado.
+    /// </summary>
+    public DateTimeOffset? AgentNextRetryAt { get; set; }
+
     /// <summary>CYCLESTART legacy: primer nodo de un ciclo abierto por reinicio.</summary>
     public bool IsCycleStart { get; set; }
 
@@ -129,4 +139,12 @@ public class WorkflowStepHistory : TenantEntity
     /// el fin real es CompletedAt.
     /// </summary>
     public DateTimeOffset? DueAt { get; set; }
+
+    /// <summary>
+    /// INICIO planeado del paso (Plazos v2 - ADR-0119): activacion_real + el "tiempo para arrancar" del nodo
+    /// (StartDelayJson), respetando calendario/habil y el calendario operativo del tenant. Con arranque
+    /// Inmediato coincide con la activacion real (CreatedAt). Null = el nodo no define arranque (o no hay
+    /// plazos). El vencimiento (DueAt) se cuenta DESDE este inicio: DueAt = StartAt + duracion (SlaJson).
+    /// </summary>
+    public DateTimeOffset? StartAt { get; set; }
 }

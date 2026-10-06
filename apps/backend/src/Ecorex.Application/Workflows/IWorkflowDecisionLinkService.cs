@@ -17,7 +17,10 @@ public interface IWorkflowDecisionLinkService
     Task<string?> EnsureLinkAsync(Guid stepId, Guid targetNodeId, WorkflowDecisionCapture capture,
         bool observationRequired, string? buttonLabel, int? expiryHours,
         // Ola 2/3: footer HTML ya resuelto (tokens sustituidos) y JSON de encuesta a congelar en el token.
-        string? footerHtml = null, string? surveyJson = null, CancellationToken cancellationToken = default);
+        string? footerHtml = null, string? surveyJson = null,
+        // Etiqueta (TaskItemTag) a congelar en el token: se agrega a la tarea cuando el cliente responde por
+        // esta salida. Null = sin etiqueta.
+        Guid? applyTagId = null, CancellationToken cancellationToken = default);
 
     /// <summary>Valida un token en claro (existe, no usado, no revocado, no expirado y el paso sigue vigente).
     /// NO requiere tenant. Resultado neutro si invalido.</summary>

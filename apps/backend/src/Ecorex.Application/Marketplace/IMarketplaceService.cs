@@ -67,6 +67,21 @@ public interface IMarketplaceService
     /// </summary>
     Task<MarketplaceResult<MarketplaceItemDto>> RepublishFlowAsync(Guid itemId, Guid definitionId, MarketplacePublishInput input, Guid? platformUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// DESPUBLICA (desactiva) la plantilla ACTIVA de ESTE flujo (match por SourceCode = ProcessCode): la quita
+    /// de la galeria "Traer un flujo" de todos los tenants. Es REVERSIBLE (re-publicar la vuelve a activar) y no
+    /// toca las copias ya traidas por un tenant. Devuelve Fail si el flujo no tiene plantilla activa.
+    /// </summary>
+    Task<MarketplaceResult<bool>> UnpublishFlowAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Igual que <see cref="UnpublishFlowAsync"/> pero para una plantilla de FORMULARIO (match por
+    /// SourceCode = Code del formulario): la quita de la galeria "Traer un formulario".</summary>
+    Task<MarketplaceResult<bool>> UnpublishFormAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Codigos de origen (SourceCode) de los items ACTIVOS de un tipo. La vista de Super Admin lo usa
+    /// para saber que flujos/formularios estan publicados y mostrar la accion "Despublicar" en su tarjeta.</summary>
+    Task<IReadOnlyCollection<string>> ListPublishedSourceCodesAsync(MarketplaceItemKind kind, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<MarketplaceItemDto>> ListAsync(MarketplaceItemKind? kind, string? category, string? query, bool includeInactive, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken cancellationToken = default);
 

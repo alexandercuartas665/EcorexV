@@ -307,6 +307,74 @@ public abstract class WorkflowAgentStepTestsBase
         }
     }
 
+    // ---- (6) Plazos v2 (ADR-0119, Fase C): arranque diferido del agente por StartAt ----
+
+    /// <summary>
+    /// Un paso de agente con "tiempo para arrancar" en el FUTURO (StartAt &gt; ahora) NO se dispara: ni el
+    /// barrido de plataforma lo ve, ni el barrido acotado al tenant lo atiende. Cuando llega su fecha
+    /// (StartAt en el pasado) SI se dispara. StartAt null seguiria el camino de siempre (no cubierto aqui).
+    /// </summary>
+    [Fact]
+    public async Task AgentStep_WithFutureStartAt_IsHeldUntilDue()
+    {
+        var seed = await SeedTenantAsync("AgentStep Arranque");
+
+        ScenarioSeed scenario;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+        }
+
+        // Arranque EN EL FUTURO.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.StartAt = DateTimeOffset.UtcNow.AddHours(1);
+            await ctx.SaveChangesAsync();
+        }
+
+        // El barrido de plataforma NO ve el tenant (su unico paso aun no esta listo).
+        await using (var ctxPlatform = _fixture.CreateContext(tenantId: null))
+        {
+            var dispatcher = new WorkflowAgentStepDispatcher(
+                ctxPlatform, new TestTenantContext(null), new ThrowingRunner(),
+                NullLogger<WorkflowAgentStepDispatcher>.Instance);
+            Assert.DoesNotContain(seed.TenantId, await dispatcher.FindTenantsWithPendingAgentStepsAsync());
+        }
+
+        // El barrido acotado al tenant tampoco lo atiende; el paso queda intacto.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var invoker = FakeWorkflowAgentInvoker.Answering("Approved", "No deberia correr aun.");
+            var dispatcher = new WorkflowAgentStepDispatcher(
+                ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId),
+                BuildRunner(ctx, seed, invoker), NullLogger<WorkflowAgentStepDispatcher>.Instance);
+            Assert.Equal(0, await dispatcher.RunPendingForTenantAsync());
+            Assert.Equal(0, invoker.Calls);
+
+            var step = await ctx.WorkflowStepHistories.AsNoTracking().SingleAsync(s => s.Id == scenario.AgentStepId);
+            Assert.Null(step.AgentAttemptedAt);
+        }
+
+        // Llego la fecha (StartAt en el pasado): ahora SI se dispara.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.StartAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var invoker = FakeWorkflowAgentInvoker.Answering("Approved", "Ahora si.");
+            var dispatcher = new WorkflowAgentStepDispatcher(
+                ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId),
+                BuildRunner(ctx, seed, invoker), NullLogger<WorkflowAgentStepDispatcher>.Instance);
+            Assert.Equal(1, await dispatcher.RunPendingForTenantAsync());
+            Assert.Equal(1, invoker.Calls);
+        }
+    }
+
     // ---- Dobles ----
 
     /// <summary>

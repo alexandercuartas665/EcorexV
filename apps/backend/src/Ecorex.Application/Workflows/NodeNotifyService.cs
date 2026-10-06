@@ -72,15 +72,30 @@ public sealed class NodeNotifyService : INodeNotifyService
                 tokens["link"] = link!;
             }
 
+            _logger.LogInformation("[NODE-NOTIFY] nodo {NodeId} paso {StepId}: procesando {Count} regla(s) al llegar.",
+                nodeId, stepId, config.Reglas!.Count);
             foreach (var rule in config.Reglas!)
             {
-                try { await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken); }
-                catch { /* un envio fallido no frena las demas reglas */ }
+                try
+                {
+                    await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken);
+                    _logger.LogInformation("[NODE-NOTIFY] regla {Canal} procesada (nodo {NodeId}, paso {StepId}).",
+                        rule.Canal, nodeId, stepId);
+                }
+                catch (Exception ex)
+                {
+                    // Un envio fallido no frena las demas reglas, PERO ya no es silencioso: queda en el log con
+                    // el motivo (antes "no llegaba el mensaje" y no habia rastro de por que).
+                    _logger.LogWarning(ex, "[NODE-NOTIFY] fallo al ENVIAR la regla {Canal} del nodo {NodeId} (paso {StepId}): {Motivo}",
+                        rule.Canal, nodeId, stepId, ex.Message);
+                }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort: una notificacion nunca debe romper el avance del flujo.
+            // Best-effort: una notificacion nunca debe romper el avance del flujo. Pero se registra el motivo.
+            _logger.LogWarning(ex, "[NODE-NOTIFY] fallo GENERAL notificando la llegada al nodo {NodeId} (paso {StepId}): {Motivo}",
+                nodeId, stepId, ex.Message);
         }
     }
 
@@ -104,7 +119,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                     ? null : _tokens.Render(d.FooterHtml, tokens);
                 var surveyJson = await BuildSurveyJsonAsync(d.SurveyFormDefId, ct);
                 var url = await _decisionLinks.EnsureLinkAsync(stepId, d.TargetNodeId, d.Capture,
-                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, footerResolved, surveyJson, ct);
+                    d.ObservationRequired, d.ButtonLabel, d.ExpiryHours, footerResolved, surveyJson, d.ApplyTagId, ct);
                 if (string.IsNullOrWhiteSpace(url)) { continue; }
                 if (!string.IsNullOrWhiteSpace(d.Variable)) { copy[d.Variable.Trim()] = url!; }
                 if (!string.IsNullOrWhiteSpace(d.ButtonLabel)) { byLabel[d.ButtonLabel!.Trim()] = url!; }
@@ -271,8 +286,12 @@ public sealed class NodeNotifyService : INodeNotifyService
                 {
                     try
                     {
+                        // La nota para el agente admite tokens de la tarea ({tarea.cliente}, {tarea.numero}, ...):
+                        // se renderiza aqui (antes iba en crudo) para que el contexto quede completo.
+                        var notaAgenteRender = string.IsNullOrWhiteSpace(rule.NotaAgente)
+                            ? null : _tokens.Render(rule.NotaAgente, tokens);
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, ct);
+                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, notaAgenteRender, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -331,6 +350,33 @@ public sealed class NodeNotifyService : INodeNotifyService
     }
 
     /// <summary>
+    /// Resuelve la conversacion del contacto TOLERANDO el prefijo de pais. La conversacion de SARA se crea
+    /// desde el ENTRANTE del cliente, cuyo numero llega internacional (p.ej. 57 + 10 digitos); pero el
+    /// RequesterPhone de la tarea a veces viene SIN indicativo (10 digitos). Si se casa exacto, la nota del
+    /// flujo cae en un hilo HUERFANO que el agente nunca lee. Aqui se casa por el numero nacional significativo
+    /// (ultimos 10 digitos) dentro de la misma linea, prefiriendo la conversacion mas activa, para que la nota
+    /// aterrice en el hilo real de SARA. Devuelve la entidad RASTREADA (el llamador actualiza LastMessageAt).
+    /// </summary>
+    private async Task<Domain.Entities.Conversation?> FindContactConversationAsync(Guid lineId, string digits, CancellationToken ct)
+    {
+        var tail = digits.Length >= 10 ? digits[^10..] : digits;
+        return await _db.Conversations
+            .Where(c => c.WhatsAppLineId == lineId && (c.ContactPhone == digits || c.ContactPhone.EndsWith(tail)))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Normaliza el telefono a forma INTERNACIONAL al CREAR una conversacion nueva, para que coincida con el
+    /// ENTRANTE del cliente (que llega con indicativo, p.ej. 57...) y no quede un hilo huerfano cuando luego
+    /// escriba. Hoy todos los tenants son Colombia: un movil nacional son 10 digitos que empiezan por 3, al que
+    /// se antepone el indicativo 57. Un numero ya internacional (>=11 digitos) o que no calza el patron se deja
+    /// igual (no se arriesga un indicativo incorrecto). Si aparece otro pais, ampliar aqui con su indicativo.
+    /// </summary>
+    private static string CanonicalizeMsisdn(string digits)
+        => digits.Length == 10 && digits[0] == '3' ? "57" + digits : digits;
+
+    /// <summary>
     /// Deja una NOTA en la conversacion de WhatsApp del contacto (misma clave (linea, telefono) que usa la
     /// ingesta de chat), para que el agente conversacional (SARA) tenga CONTEXTO si el cliente responde: sabe
     /// que se le envio un enlace de decision y/o un archivo, y por que proceso. Se guarda como saliente (nota
@@ -338,20 +384,19 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// </summary>
     private async Task RecordContactShareObservationAsync(
         Domain.Entities.TaskItem task, Guid lineId, string phone, bool hasDecisionLink,
-        Forms.QuoteDocument? cotDoc, CancellationToken ct)
+        Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
 
-        var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var conversation = await FindContactConversationAsync(lineId, digits, ct);
         var now = DateTimeOffset.UtcNow;
         if (conversation is null)
         {
             conversation = new Domain.Entities.Conversation
             {
                 TenantId = task.TenantId,
-                ContactPhone = digits,
+                ContactPhone = CanonicalizeMsisdn(digits),
                 WhatsAppLineId = lineId,
                 LastMessageAt = now
             };
@@ -372,7 +417,15 @@ public sealed class NodeNotifyService : INodeNotifyService
         }
         sb.Append($", en el proceso {task.Number}");
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
-        sb.Append(". Si el cliente escribe, es en respuesta a esto.");
+        sb.Append('.');
+        // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
+        // notaAgente YA viene renderizada con los tokens de la tarea ({tarea.cliente}, etc.) por el llamador.
+        if (!string.IsNullOrWhiteSpace(notaAgente)) { sb.Append($" Contexto para el agente: {notaAgente.Trim()}"); }
+        // Texto base (sin el cierre dirigido a SARA): sirve para la BITACORA DE LA ACTIVIDAD, que SI lee el
+        // agente del NODO de flujo (WorkflowAgentContextBuilder) -antes quedaba ciego a que ya se envio la
+        // cotizacion-. Es durable (vive en la tarea), asi que sobrevive a un reinicio de conversacion.
+        var bitacoraText = sb.ToString();
+        sb.Append(" Si el cliente escribe, es en respuesta a esto.");
 
         _db.Messages.Add(new Domain.Entities.Message
         {
@@ -384,6 +437,36 @@ public sealed class NodeNotifyService : INodeNotifyService
             SentByName = "Sistema (flujo)",
             SentAt = now
         });
+        // ADR-0119 (contexto del agente de seguimiento): la misma observacion va a la bitacora de la ACTIVIDAD,
+        // para que el agente del nodo sepa que ya se envio la cotizacion al cliente y pueda hacer el seguimiento.
+        _db.TaskItemActivities.Add(new Domain.Entities.TaskItemActivity
+        {
+            TenantId = task.TenantId,
+            TaskItemId = task.Id,
+            Type = Domain.Enums.TaskActivityType.Action,
+            ActorName = "Sistema (flujo)",
+            Text = bitacoraText.Length > 4000 ? bitacoraText[..4000] : bitacoraText
+        });
+        // Y a la BITACORA DEL AGENTE (/bitacora-agente): se registra el envio del flujo en el log de atencion
+        // de la conversacion, atribuido al agente ligado a la linea. Asi la conversacion aparece ahi y el agente
+        // conversacional (SARA) tiene el contexto cuando el cliente responda -incluso tras reiniciar la conversacion-.
+        var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == lineId)
+            .Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(ct);
+        if (boundAgentId is Guid aid)
+        {
+            _db.AiAgentRunLogs.Add(new Domain.Entities.AiAgentRunLog
+            {
+                TenantId = task.TenantId,
+                ConversationId = conversation.Id,
+                AgentId = aid,
+                OccurredAt = now,
+                Kind = Domain.Enums.AiAgentRunLogKind.Info,
+                Title = "El flujo envio un mensaje al cliente",
+                Content = bitacoraText
+            });
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -398,15 +481,14 @@ public sealed class NodeNotifyService : INodeNotifyService
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
 
-        var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits, ct);
+        var conversation = await FindContactConversationAsync(lineId, digits, ct);
         var now = DateTimeOffset.UtcNow;
         if (conversation is null)
         {
             conversation = new Domain.Entities.Conversation
             {
                 TenantId = task.TenantId,
-                ContactPhone = digits,
+                ContactPhone = CanonicalizeMsisdn(digits),
                 WhatsAppLineId = lineId,
                 LastMessageAt = now
             };

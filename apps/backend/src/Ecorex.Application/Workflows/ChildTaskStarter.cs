@@ -92,6 +92,18 @@ public sealed class ChildTaskStarter : IChildTaskStarter
             BoardId = boardId,
             ColumnId = columnId,
             Priority = parent.Priority,
+            // Datos del CONTACTO del cliente + vinculo al Directorio: la OT hija los hereda del padre para que
+            // sus formularios prellenen {tareas.*}/{tercero.*} y la notificacion al cliente tenga a quien llegar.
+            RequesterName = parent.RequesterName,
+            RequesterEmail = parent.RequesterEmail,
+            RequesterPhone = parent.RequesterPhone,
+            RequesterDocument = parent.RequesterDocument,
+            TerceroId = parent.TerceroId,
+            // Encargado INICIAL = encargado del padre, pero solo como FALLBACK: tras arrancar el flujo hijo se
+            // sincroniza la tarjeta con lo que el flujo DESTINO resuelve en su primer paso (su cargo/politica),
+            // para que el salto RESPETE las condiciones del nodo donde cae y no imponga el encargado del padre.
+            // Si el flujo no asigna a nadie, se conserva este fallback para no dejar la OT "sin responsable".
+            AssigneeTenantUserId = parent.AssigneeTenantUserId,
             Status = TaskItemStatus.Pending
         };
         _db.TaskItems.Add(child);
@@ -129,6 +141,25 @@ public sealed class ChildTaskStarter : IChildTaskStarter
             // No se pudo arrancar el flujo hijo: propagar para que la transaccion del padre se revierta entera
             // (no dejar una hija a medias). Es un caso raro: el flujo destino ya se valido publicado arriba.
             throw new InvalidOperationException($"No se pudo iniciar el flujo hijo del salto: {started.Error}");
+        }
+
+        // Respetar las condiciones del flujo DESTINO: la tarjeta (responsable visible de la tarea) toma lo que el
+        // flujo hijo resolvio para su primer paso vigente (cargo/politica del nodo donde cae el salto). Si el nodo
+        // no asigna a nadie, se conserva el fallback (encargado del padre) puesto al crear la hija. Mismo contexto
+        // scoped que el motor => child.WorkflowInstanceId ya quedo enlazado por StartInstanceAsync.
+        var startedInstanceId = started.Value?.Id ?? child.WorkflowInstanceId;
+        if (startedInstanceId is Guid instanceId)
+        {
+            var resolvedAssignee = await _db.WorkflowStepHistories.AsNoTracking()
+                .Where(h => h.InstanceId == instanceId && h.IsCurrent && h.Status == WorkflowStepStatus.Pending)
+                .OrderBy(h => h.CreatedAt)
+                .Select(h => h.AssignedToTenantUserId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (resolvedAssignee is Guid flowAssignee && flowAssignee != child.AssigneeTenantUserId)
+            {
+                child.AssigneeTenantUserId = flowAssignee;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
         }
 
         return child.Id;

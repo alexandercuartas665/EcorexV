@@ -18,6 +18,7 @@
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppTemplateService TemplatesSvc
 @inject IQuoteTemplateService QuoteTemplatesSvc
+@inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -679,6 +680,16 @@ else
                             </label>
                         }
 
+                        @if (r.Destino == NodeNotifyRecipient.ContactoTarea)
+                        {
+                            @* Nota INTERNA para el agente conversacional (SARA): NO se envia al cliente. Al enviar el
+                               mensaje al cliente (WhatsApp) se suma a la nota de contexto de su conversacion, para que
+                               el agente sepa que se gestiono si el cliente responde. *@
+                            <textarea class="fe-textarea" rows="2" style="margin-top:8px;"
+                                      placeholder="Nota para el agente (SARA), no se envia al cliente: que se esta gestionando. Ej: Se envio la cotizacion {tarea.numero} para aprobacion."
+                                      @bind="r.NotaAgente"></textarea>
+                        }
+
                         @if (notifyNode.NodeType == WorkflowNodeType.ExclusiveGateway
                              && (r.Canal is NotifyChannel.Correo or NotifyChannel.WhatsApp)
                              && NotifyGatewayExits(notifyNode).Count > 0)
@@ -730,6 +741,15 @@ else
                                                 <option value="@f.Id" selected="@(d.SurveyFormDefId == f.Id)">Encuesta: @f.Code - @f.Title</option>
                                             }
                                         </select>
+                                        @* Etiqueta a AGREGAR a la tarea cuando el cliente responde por ESTA salida (no quita otras). *@
+                                        <select class="fe-input sm" style="width:100%;margin-top:6px;"
+                                                @onchange="@(e => d.ApplyTagId = Guid.TryParse(e.Value?.ToString(), out var tg) ? tg : (Guid?)null)">
+                                            <option value="" selected="@(d.ApplyTagId is null)">Sin etiqueta</option>
+                                            @foreach (var g in _tags)
+                                            {
+                                                <option value="@g.Id" selected="@(d.ApplyTagId == g.Id)">Etiqueta: @g.Name</option>
+                                            }
+                                        </select>
                                     </div>
                                 }
                                 <button class="fe-btn sm" @onclick="@(() => r.Enlaces.Add(new DecisionLinkRow()))">+ Agregar enlace</button>
@@ -774,6 +794,49 @@ else
                 </button>
             </div>
             <div class="fe-modal-body">
+                @* ---- Bloque 1: tiempo para ARRANCAR (Plazos v2, ADR-0119) ---- *@
+                <div class="fe-lbl" style="font-weight:700;margin-bottom:4px;">Tiempo para arrancar</div>
+                <div style="display:flex;gap:16px;align-items:center;margin-bottom:6px;">
+                    <label style="display:flex;gap:6px;align-items:center;cursor:pointer;">
+                        <input type="radio" name="arranque" checked="@_startImmediate" @onchange="@(() => _startImmediate = true)" />
+                        Inmediato
+                    </label>
+                    <label style="display:flex;gap:6px;align-items:center;cursor:pointer;">
+                        <input type="radio" name="arranque" checked="@(!_startImmediate)" @onchange="@(() => _startImmediate = false)" />
+                        Esperar
+                    </label>
+                </div>
+                @if (!_startImmediate)
+                {
+                    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                        <div>
+                            <label class="fe-lbl">Dias</label>
+                            <input class="fe-input sm" type="number" min="0" max="365" style="width:80px" @bind="_startDays" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Modo de los dias</label>
+                            <select class="fe-input sm" style="width:150px" @bind="_startMode">
+                                <option value="@StepSlaDayMode.Calendar">Calendario</option>
+                                <option value="@StepSlaDayMode.Business">Habil (laboral)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Horas</label>
+                            <input class="fe-input sm" type="number" min="0" max="23" style="width:80px" @bind="_startHours" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Minutos</label>
+                            <input class="fe-input sm" type="number" min="0" max="59" style="width:80px" @bind="_startMinutes" />
+                        </div>
+                    </div>
+                }
+                <div class="fe-acc-note" style="margin:6px 0 14px;">
+                    Cuanto espera el paso DESDE que se activa antes de arrancar. En un nodo con agente es un retardo
+                    REAL (el agente se ejecuta en esa fecha); en un paso humano solo programa la fecha de inicio.
+                </div>
+
+                @* ---- Bloque 2: tiempo estimado para ENTREGAR (duracion = el plazo de siempre) ---- *@
+                <div class="fe-lbl" style="font-weight:700;margin-bottom:4px;border-top:1px solid var(--line-2,#eee);padding-top:12px;">Tiempo estimado para entregar</div>
                 <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
                     <div>
                         <label class="fe-lbl">Dias</label>
@@ -796,8 +859,8 @@ else
                     </div>
                 </div>
                 <div class="fe-acc-note" style="margin-top:10px;">
-                    "Habil" cuenta solo dias laborales (salta fines de semana y los dias no operativos de la entidad);
-                    las horas y minutos siempre son tiempo real. Deja todo en 0 para quitar el plazo.
+                    Cuanto deberia DEMORAR el paso. El vencimiento = inicio + esta duracion. "Habil" cuenta solo
+                    dias laborales; horas y minutos siempre son tiempo real. Deja todo en 0 para quitar la duracion.
                 </div>
                 @if (!string.IsNullOrEmpty(_slaError))
                 {
@@ -871,6 +934,7 @@ else
     // que un guardado disparado por OTRO campo no pierda el texto que el usuario aun no ha confirmado (blur).
     private string? _agentExtraPromptDraft;
     private List<FormDefinitionListItemDto> _forms = [];
+    private List<Ecorex.Application.Tenancy.TaskItemTagDto> _tags = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
 
@@ -1544,12 +1608,18 @@ else
             return;
         }
         var sla = StepSla.Read(node.SlaJson);
+        var start = StepSla.Read(node.StartDelayJson);
         <div class="fe-acc-note" style="margin:0 0 8px">
-            Tiempo estimado para completar el paso. El reloj real arranca cuando el paso anterior TERMINA; los
-            dias pueden ser de calendario o habiles (saltan fines de semana y los dias no operativos de la entidad).
+            Cuando ARRANCA el paso (inmediato o esperar) y cuanto debe DEMORAR (duracion). El inicio se cuenta
+            desde que el paso se activa; los dias pueden ser de calendario o habiles. En un nodo con agente, el
+            arranque es un retardo real (se ejecuta en esa fecha).
         </div>
         <button class="fe-btn" @onclick="OpenSlaModalAsync">
-            @(sla.IsEmpty ? "Configurar plazo" : $"Plazo: {SlaLabel(sla)}")
+            @{
+                var arrancaTxt = start.IsEmpty ? "inmediato" : SlaLabel(start);
+                var entregaTxt = sla.IsEmpty ? "sin duracion" : SlaLabel(sla);
+            }
+            @((start.IsEmpty && sla.IsEmpty) ? "Configurar tiempos" : $"Arranca: {arrancaTxt} - Entrega: {entregaTxt}")
         </button>
         var withSla = _canvas!.Nodes.Count(n => !StepSla.Read(n.SlaJson).IsEmpty);
         if (withSla > 0)
@@ -1974,6 +2044,12 @@ else
     private int _slaHours;
     private int _slaMinutes;
     private StepSlaDayMode _slaMode = StepSlaDayMode.Calendar;
+    // Tiempo para arrancar (Plazos v2, ADR-0119): Inmediato (default) o Esperar D/H/M.
+    private bool _startImmediate = true;
+    private int _startDays;
+    private int _startHours;
+    private int _startMinutes;
+    private StepSlaDayMode _startMode = StepSlaDayMode.Calendar;
 
     private void OpenSlaModalAsync()
     {
@@ -1981,6 +2057,9 @@ else
         _slaError = null;
         var s = StepSla.Read(node.SlaJson);
         _slaDays = s.Days; _slaHours = s.Hours; _slaMinutes = s.Minutes; _slaMode = s.DayMode;
+        var start = StepSla.Read(node.StartDelayJson);
+        _startImmediate = start.IsEmpty;
+        _startDays = start.Days; _startHours = start.Hours; _startMinutes = start.Minutes; _startMode = start.DayMode;
         _slaModalOpen = true;
     }
 
@@ -1988,15 +2067,19 @@ else
     {
         if (Selected is not FlowCanvasNodeDto node) { return; }
         _slaError = null;
-        var days = Math.Clamp(_slaDays, 0, 365);
-        var hours = Math.Clamp(_slaHours, 0, 23);
-        var minutes = Math.Clamp(_slaMinutes, 0, 59);
-        var json = StepSla.Build(days, hours, minutes, _slaMode); // null si todo en 0
+        // Duracion (tiempo estimado para entregar) = el plazo de siempre.
+        var json = StepSla.Build(Math.Clamp(_slaDays, 0, 365), Math.Clamp(_slaHours, 0, 23), Math.Clamp(_slaMinutes, 0, 59), _slaMode);
+        // Arranque (tiempo para arrancar): Inmediato => null; si no, D/H/M con su modo.
+        var startJson = _startImmediate
+            ? null
+            : StepSla.Build(Math.Clamp(_startDays, 0, 365), Math.Clamp(_startHours, 0, 23), Math.Clamp(_startMinutes, 0, 59), _startMode);
 
         await GuardAsync(async () =>
         {
             var result = await DesignSvc.SetNodeSlaAsync(node.Id, json);
             if (!result.IsOk) { _slaError = result.Error; return; }
+            var startResult = await DesignSvc.SetNodeStartDelayAsync(node.Id, startJson);
+            if (!startResult.IsOk) { _slaError = startResult.Error; return; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _slaModalOpen = false;
         });
@@ -2035,6 +2118,8 @@ else
         public string? AdjuntarPdfTemplateId { get; set; }
         // Enlaces publicos de decision del cliente que esta regla emite (solo compuertas).
         public List<DecisionLinkRow> Enlaces { get; set; } = new();
+        // Nota interna para el agente conversacional (SARA): contexto de que se gestiono con el cliente.
+        public string? NotaAgente { get; set; }
     }
 
     // Un enlace de decision dentro de una regla: llena una variable con la URL /d/{token} de una salida.
@@ -2048,6 +2133,7 @@ else
         public int? ExpiryHours { get; set; }
         public string? FooterHtml { get; set; }        // Ola 2: HTML del pie de la pagina de decision.
         public Guid? SurveyFormDefId { get; set; }      // Ola 3: formulario reportable usado como encuesta.
+        public Guid? ApplyTagId { get; set; }           // Etiqueta a AGREGAR a la tarea al responder por esta salida.
     }
 
     // Salidas (edges) del nodo de la compuerta actualmente en el modal de notificacion, para el desplegable.
@@ -2084,6 +2170,7 @@ else
                 : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
             AdjuntarPdfFormDefId = r.AdjuntarPdfFormDefId?.ToString(),
             AdjuntarPdfTemplateId = r.AdjuntarPdfTemplateId?.ToString(),
+            NotaAgente = r.NotaAgente,
             Enlaces = (r.EnlacesDecision ?? Array.Empty<NotifyDecisionLink>()).Select(d => new DecisionLinkRow
             {
                 Variable = d.Variable,
@@ -2093,7 +2180,8 @@ else
                 ButtonLabel = d.ButtonLabel,
                 ExpiryHours = d.ExpiryHours,
                 FooterHtml = d.FooterHtml,
-                SurveyFormDefId = d.SurveyFormDefId
+                SurveyFormDefId = d.SurveyFormDefId,
+                ApplyTagId = d.ApplyTagId
             }).ToList()
         }).ToList();
         if (!_notifyDataLoaded)
@@ -2108,6 +2196,11 @@ else
         if (_forms.Count == 0)
         {
             _forms = (await FormsSvc.ListAsync(includeArchived: false)).Where(f => f.Status == FormStatus.Active).ToList();
+        }
+        // Etiquetas del tenant para el selector "Etiqueta a aplicar" por salida de decision.
+        if (_tags.Count == 0)
+        {
+            _tags = (await TasksSvc.ListTagsAsync()).ToList();
         }
         _notifyModalOpen = true;
     }
@@ -2168,9 +2261,10 @@ else
                 ? r.Enlaces.Where(x => !string.IsNullOrWhiteSpace(x.Variable) && Guid.TryParse(x.TargetNodeId, out _))
                     .Select(x => new NotifyDecisionLink(x.Variable.Trim(), Guid.Parse(x.TargetNodeId!), x.Capture,
                         x.ObservationRequired, string.IsNullOrWhiteSpace(x.ButtonLabel) ? null : x.ButtonLabel!.Trim(), x.ExpiryHours,
-                        string.IsNullOrWhiteSpace(x.FooterHtml) ? null : x.FooterHtml!.Trim(), x.SurveyFormDefId))
+                        string.IsNullOrWhiteSpace(x.FooterHtml) ? null : x.FooterHtml!.Trim(), x.SurveyFormDefId, x.ApplyTagId))
                     .ToList() is { Count: > 0 } el ? el : null
-                : null)).ToList());
+                : null,
+            string.IsNullOrWhiteSpace(r.NotaAgente) ? null : r.NotaAgente.Trim())).ToList());
 
         await GuardAsync(async () =>
         {

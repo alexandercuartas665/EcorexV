@@ -53,9 +53,20 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
 
         var now = _clock.GetUtcNow();
 
-        // Ventana de 24h: hay un entrante reciente en esta conversacion?
-        var windowOpen = false;
-        if (conversation is not null)
+        // ADR-0120: la ventana de 24h es una regla de Meta (Cloud/YCloud). Las lineas Evolution (WhatsApp Web,
+        // Baileys) y Emulator NO la tienen: se puede enviar texto libre en cualquier momento, igual que una
+        // respuesta manual del chat. Para esas lineas no se exige ventana ni plantilla; de lo contrario el
+        // agente no podria escribir al cliente en frio aunque Evolution si lo entregue.
+        // Se carga la entidad (sin proyeccion con cast a nullable: con el value-converter enum->string el cast
+        // (WhatsAppProvider?) no materializaba bien y caia como "no Evolution"). El provider se lee del enum real.
+        var line = await _db.WhatsAppLines.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == command.LineId, cancellationToken);
+        var noMetaWindow = line is not null
+            && (line.Provider == WhatsAppProvider.Evolution || line.Provider == WhatsAppProvider.Emulator);
+
+        // Ventana de 24h: hay un entrante reciente en esta conversacion? (Evolution/Emulator: siempre "abierta".)
+        var windowOpen = noMetaWindow;
+        if (!windowOpen && conversation is not null)
         {
             var since = now - ServiceWindow;
             windowOpen = await _db.Messages.AnyAsync(
@@ -117,6 +128,27 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
             SentByName = "Agente de IA",
             SentAt = now
         });
+
+        // ADR-0120: el saliente del agente del nodo tambien queda en /bitacora-agente, atribuido al agente ligado
+        // a la linea. Asi, cuando el cliente responda y el agente conversacional (SARA) retome, tiene el rastro de
+        // lo que el flujo pregunto (sin esto la conversacion ni aparecia en la bitacora del agente).
+        var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == command.LineId)
+            .Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (boundAgentId is Guid aid)
+        {
+            _db.AiAgentRunLogs.Add(new AiAgentRunLog
+            {
+                TenantId = command.TenantId,
+                ConversationId = conversation.Id,
+                AgentId = aid,
+                OccurredAt = now,
+                Kind = AiAgentRunLogKind.Info,
+                Title = "El agente del flujo pregunto al cliente",
+                Content = command.Question.Trim()
+            });
+        }
 
         await _db.SaveChangesAsync(cancellationToken);
         return WhatsAppAskResult.Ok(conversation.Id);

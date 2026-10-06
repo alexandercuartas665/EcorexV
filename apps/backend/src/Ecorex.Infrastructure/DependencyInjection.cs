@@ -85,6 +85,9 @@ public static class DependencyInjection
             .SetApplicationName("Ecorex")
             .PersistKeysToDbContext<EcorexDbContext>();
         services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
+        // Transcodificacion de audio (ffmpeg): WhatsApp entrega notas de voz en ogg/opus y Gemini solo acepta
+        // wav/mp3, asi que se convierten a WAV antes de transcribir. Sin estado -> singleton.
+        services.AddSingleton<Application.Common.IAudioTranscoder, Media.FfmpegAudioTranscoder>();
         // Correo saliente via SMTP configurable por el Super Admin (clave cifrada).
         services.AddScoped<Application.Common.IEmailSender, Email.SmtpEmailSender>();
         // Lector de OTP: enruta por AuthMode (Graph API para Microsoft 365 moderno, IMAP para el resto).

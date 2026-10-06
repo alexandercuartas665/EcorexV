@@ -38,7 +38,10 @@ public sealed record ProspectoDto(
     string? SitioWeb = null,
     string? FraseBusqueda = null,
     // Resumen del perfil (persona: headline/about; empresa: que hace). Va a la ficha Base como "perfil".
-    string? Perfil = null);
+    string? Perfil = null,
+    // Datos crudos del scraping (JSON). Incluye web_contacts { sitio, correos[], telefonos[] } del
+    // enriquecimiento web (ETAPA 3), que la ficha muestra como "Correos/Telefonos del sitio".
+    string? DataJson = null);
 
 /// <summary>Columna/estado configurable de la Bolsa de contactos (kanban de terceros).</summary>
 public sealed record BolsaColumnaDto(

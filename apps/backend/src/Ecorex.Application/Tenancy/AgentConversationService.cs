@@ -146,8 +146,10 @@ public sealed class AgentConversationService : IAgentConversationService
         }
         else if (lastIn.MediaType == MessageMediaType.Audio && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
         {
-            // Nota de voz -> se pasa al modelo (la OYE) y se transcribe a texto (Gemini). El audio ya quedo
-            // guardado en la conversacion/tarea por la ingesta; esto es solo para que el agente lo ENTIENDA.
+            // Nota de voz -> se transcribe a texto para que el agente la ENTIENDA. El audio ya quedo guardado en
+            // la conversacion/tarea por la ingesta. Se pasa CRUDO (p.ej. ogg/opus de WhatsApp): la capa de
+            // inferencia (RunCoreAsync, OLA 2) limpia el mime y TRANSCODIFICA a wav si hace falta (Gemini solo
+            // acepta wav/mp3) antes de leerlo; si no se puede, el agente cae a su fallback (nunca queda mudo).
             audioBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
             audioMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "audio/ogg" : lastIn.MediaMimeType;
         }

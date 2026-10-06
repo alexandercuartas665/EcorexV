@@ -24,4 +24,8 @@ public class ContactSearchRun : TenantEntity
 
     /// <summary>Contactos insertados en esa corrida.</summary>
     public int Inserted { get; set; }
+
+    /// <summary>Motivo del fallo cuando <see cref="Ok"/> es false (lo que devolvio el orquestador). Null si OK.
+    /// Sirve para que un fallo MUDO del orquestador quede persistido y se pueda mostrar en la UI.</summary>
+    public string? Error { get; set; }
 }

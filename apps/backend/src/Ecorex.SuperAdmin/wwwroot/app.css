@@ -1700,6 +1700,11 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-failed svg { width: 13px; height: 13px; flex: none; }
 .tk-flow-node.agent-failed { border-color: #d97706; box-shadow: 0 0 0 1px #d97706, 0 8px 22px -8px rgba(0,0,0,.5); }
 .tk-flow-node.working { border-color: var(--ai-accent); animation: tkAura 1.8s infinite ease-in-out; }
+/* Plazos v2 (ADR-0119): agente PROGRAMADO (aun no arranca, espera su StartAt). Sin aura/animacion
+   -> deja claro que NO esta trabajando todavia, solo en espera de su hora. */
+.tk-flow-scheduled { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--ink-3, #94a3b8); }
+.tk-flow-scheduled svg { width: 13px; height: 13px; flex: none; }
+.tk-flow-node.scheduled { border-color: var(--line-2, #e5e7eb); border-style: dashed; }
 @keyframes tkAura { 0%, 100% { box-shadow: 0 0 0 1px var(--ai-accent), 0 8px 22px -8px rgba(0,0,0,.55); } 50% { box-shadow: 0 0 0 1px var(--ai-accent), 0 0 0 6px var(--ai-soft), 0 12px 26px -8px rgba(0,0,0,.6); } }
 /* Rama DESCARTADA (ADR-0073): la compuerta tomo otra ruta -> el nodo se atenua en gris. Sigue siendo
    consultable (menu/notas), pero visualmente queda claro que el proceso no paso por ahi. */
@@ -2577,7 +2582,7 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 
 /* ---- Vista lista ---- */
 .ab-listwrap { padding: 0 var(--pad, 30px) var(--pad, 30px); color: var(--ink); }
-.ab-list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 20px); box-shadow: var(--sh-sm); overflow: hidden; }
+.ab-list { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--sh-sm); overflow: hidden; }
 .ab-list-head { display: grid; grid-template-columns: 1fr 130px 110px 110px 150px 76px; gap: 12px; padding: 13px 22px; border-bottom: 1px solid var(--line); font-size: 10.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .05em; }
 .ab-list-row { display: grid; grid-template-columns: 1fr 130px 110px 110px 150px 76px; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--line); align-items: center; cursor: pointer; }
 .ab-list-row:hover { background: var(--surface-2); }
@@ -2909,6 +2914,7 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .cs-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .cs-empty { text-align: center; color: var(--ink-3); padding: 20px 0 !important; }
 .cs-note { font-size: 12px; color: var(--ink-3); max-width: 720px; }
+.cs-note-err { color: var(--danger, #dc2626); font-weight: 600; }
 
 /* ---- Configurar busquedas: version GLOBAL de cl-btn/cl-flash (el scoped vive en CargadorContactos,
    este componente se usa desde el Gestor de contactos y no hereda ese scope) ---- */
@@ -2942,6 +2948,16 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .cs-in { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; font-family: inherit; }
 .cs-in:focus { outline: none; border-color: var(--brand); }
 .cs-num { text-align: right; }
+/* Bloque de enriquecimiento (Maps->LinkedIn / web-correo): cada opcion en una fila compacta
+   [checkbox] [etiqueta] y, indentado, [sub-label] [input numerico CHICO] en linea. Antes el input
+   heredaba width:100% y ocupaba todo el modal para un valor de 1-2 digitos. Se scopea bajo .cs-editor
+   y se fuerza flex-direction:row para GANARLE a ".cs-editor label" (que apila texto sobre input). */
+.cs-editor .cs-enrich { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.cs-editor .cs-enrich + .cs-enrich { margin-top: 2px; }
+.cs-editor .cs-enrich-chk { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; font-size: 12.5px; font-weight: 500; color: var(--ink); line-height: 1.35; cursor: pointer; margin: 0; }
+.cs-editor .cs-enrich-chk input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--brand); cursor: pointer; }
+.cs-editor .cs-enrich-max { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0 0 0 26px; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
+.cs-editor .cs-enrich .cs-num { width: 76px; flex: 0 0 auto; }
 .cs-c-exp { text-align: center; }
 .cs-exp { border: none; background: transparent; color: var(--ink-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; }
 .cs-c-chk { text-align: center; }

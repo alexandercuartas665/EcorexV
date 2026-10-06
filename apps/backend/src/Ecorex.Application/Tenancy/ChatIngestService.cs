@@ -110,13 +110,45 @@ public sealed class ChatIngestService : IChatIngestService
         // Se limpia AgentAttemptedAt (conservando PendingWhatsAppConversationId, que el agente lee para tener la
         // respuesta en su contexto) para que el barrido de agentes vuelva a correr el paso. Consulta acotada e
         // indexada por conversacion; el guard de colision en AgentConversationService evita la doble respuesta.
-        var waitingSteps = await _db.WorkflowStepHistories
-            .IgnoreQueryFilters()
-            .Where(s => s.TenantId == tenantId && s.PendingWhatsAppConversationId == conversation.Id && s.IsCurrent)
-            .ToListAsync(cancellationToken);
+        // ADR-0122: si la conversacion fue "tomada por el flujo", la respuesta se enruta EXACTAMENTE al paso/nodo
+        // que la tomo (FlowHoldStepId) -un solo dueno-, no a todos los pasos que casualmente la esperen. Sin
+        // marca (holds viejos) se cae al comportamiento anterior por PendingWhatsAppConversationId.
+        var waitingSteps = conversation.FlowHoldStepId is Guid ownerStepId
+            ? await _db.WorkflowStepHistories.IgnoreQueryFilters()
+                .Where(s => s.TenantId == tenantId && s.Id == ownerStepId && s.IsCurrent)
+                .ToListAsync(cancellationToken)
+            : await _db.WorkflowStepHistories.IgnoreQueryFilters()
+                .Where(s => s.TenantId == tenantId && s.PendingWhatsAppConversationId == conversation.Id && s.IsCurrent)
+                .ToListAsync(cancellationToken);
         foreach (var s in waitingSteps)
         {
             s.AgentAttemptedAt = null;
+            s.AgentNextRetryAt = null;   // ADR-0121: el cliente respondio -> el reintento programado ya no hace falta.
+        }
+
+        // ADR-0120: si la conversacion esta "tomada por el flujo" (un paso vigente espera esta respuesta), el
+        // arnes del flujo deja la respuesta del cliente en la BITACORA DEL AGENTE. Asi la bitacora queda completa
+        // (el agente pregunto -> el cliente respondio -> el agente decide) y, cuando el agente conversacional
+        // (SARA) retome esa linea al liberarse el paso, tiene el rastro. Atribuida al agente ligado a la linea.
+        if (waitingSteps.Count > 0 && lineId is Guid heldLineId)
+        {
+            var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+                .Where(b => b.WhatsAppLineId == heldLineId)
+                .Select(b => (Guid?)b.AgentId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (boundAgentId is Guid aid)
+            {
+                _db.AiAgentRunLogs.Add(new AiAgentRunLog
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    AgentId = aid,
+                    OccurredAt = now,
+                    Kind = AiAgentRunLogKind.Info,
+                    Title = "El cliente respondio al flujo",
+                    Content = string.IsNullOrWhiteSpace(payload.Body) ? "(mensaje sin texto)" : payload.Body
+                });
+            }
         }
 
         await _db.SaveChangesAsync(cancellationToken);

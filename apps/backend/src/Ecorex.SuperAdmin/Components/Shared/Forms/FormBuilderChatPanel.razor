@@ -4,6 +4,7 @@
 @using Ecorex.Application.Forms.Builder
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IFormBuilderChatService Chat
+@inject IJSRuntime JS
 
 <div class="fbc">
     <div class="fbc-head">
@@ -102,6 +103,14 @@
 
     protected override async Task OnInitializedAsync() => await EnsureStartedAsync();
 
+    // AUTO-SCROLL: tras cada render, lleva el contenedor de mensajes al final para que SIEMPRE se vea lo ultimo
+    // (mensaje nuevo, "Pensando...", o propuesta). El helper vive en fb-splitter.js (cargado con el disenador).
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("fbChatScrollBottom"); }
+        catch { /* el interop puede no estar listo durante el prerender; no es critico */ }
+    }
+
     private async Task EnsureStartedAsync()
     {
         if (_started) { return; }
@@ -110,7 +119,29 @@
         var r = await Chat.StartAsync(FormDefinitionId, actor);
         if (!r.Ok) { _error = r.Error; return; }
         _conversationId = r.ConversationId;
-        _messages.Add(new Bubble("bot", "Hola. Sube un Excel/PDF/imagen/HTML o dime que campos necesitas y lo armamos paso a paso."));
+
+        // CHAT PERSISTENTE: si la conversacion se RESUMIO (ya tenia mensajes), reconstruimos el historial de
+        // burbujas y reponemos las propuestas PENDIENTES (vuelven los botones Confirmar/Rechazar). Si esta
+        // vacia (recien creada), mostramos el saludo inicial.
+        var transcript = await Chat.GetTranscriptAsync(r.ConversationId);
+        if (transcript.Count > 0)
+        {
+            foreach (var msg in transcript)
+            {
+                if (string.IsNullOrWhiteSpace(msg.Content)) { continue; }
+                if (msg.Role == FormBuilderMessageRole.User) { _messages.Add(new Bubble("me", msg.Content!)); }
+                else if (msg.Role == FormBuilderMessageRole.Assistant) { _messages.Add(new Bubble("bot", msg.Content!)); }
+            }
+            var pend = transcript
+                .Where(m => m.Role == FormBuilderMessageRole.Proposal && m.ProposalState == FormBuilderProposalState.Pending)
+                .Select(m => new FormBuilderProposalDto(m.Id, m.ToolName ?? string.Empty, m.ToolArgsJson ?? "{}"))
+                .ToList();
+            if (pend.Count > 0) { _proposals = pend; _awaiting = true; }
+        }
+        else
+        {
+            _messages.Add(new Bubble("bot", "Hola. Sube un Excel/PDF/imagen/HTML o dime que campos necesitas y lo armamos paso a paso."));
+        }
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)

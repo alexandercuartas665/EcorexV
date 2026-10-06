@@ -28,7 +28,27 @@ public sealed class ContactSearchService : IContactSearchService
         var rows = await _db.ContactSearchDefinitions.AsNoTracking()
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
-        return rows.Select(Map).ToList();
+
+        // Estado de la ULTIMA corrida por definicion (para la UI): una consulta por fila (son pocas en el
+        // config). Permite mostrar OK/fallo + motivo y no dejar un fallo del orquestador mudo.
+        var lastByDef = new Dictionary<Guid, (bool Ok, string? Error)>();
+        foreach (var x in rows)
+        {
+            var lr = await _db.ContactSearchRuns.AsNoTracking()
+                .Where(r => r.DefinitionId == x.Id)
+                .OrderByDescending(r => r.RunAt)
+                .Select(r => new { r.Ok, r.Error })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (lr is not null) { lastByDef[x.Id] = (lr.Ok, lr.Error); }
+        }
+
+        return rows.Select(x =>
+        {
+            var dto = Map(x);
+            return lastByDef.TryGetValue(x.Id, out var lr)
+                ? dto with { LastRunOk = lr.Ok, LastRunError = lr.Error }
+                : dto;
+        }).ToList();
     }
 
     public async Task<ContactSearchDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)

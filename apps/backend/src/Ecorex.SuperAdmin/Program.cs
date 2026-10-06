@@ -72,6 +72,17 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
+
+// Nombre de cookie POR INSTANCIA (solo dev). En localhost el puerto NO forma parte del scope de una cookie,
+// asi que varias instancias (distintos puertos/tenants) comparten ".AspNetCore.Cookies" y la sesion de una
+// pisa la de las otras (riesgo: una pestana "cruzada" escribe en el tenant equivocado). Con un
+// ECOREX_COOKIE_SUFFIX distinto por lanzamiento dev cada instancia usa su propio nombre y ya no se cruzan.
+// Vacio (PROD) -> nombre DEFAULT de hoy: prod queda intacto (y ademas prod ya aisla por subdominio de tenant,
+// host distinto = cookie distinta).
+var cookieSuffix = Environment.GetEnvironmentVariable("ECOREX_COOKIE_SUFFIX");
+var hasCookieSuffix = !string.IsNullOrWhiteSpace(cookieSuffix);
+var authCookieName = hasCookieSuffix ? $".Ecorex.Auth.{cookieSuffix}" : ".AspNetCore.Cookies";
+
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -83,7 +94,16 @@ builder.Services
         // cerrar el navegador). Antes eran 8h, lo que obligaba a re-loguear con frecuencia.
         options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = true;
+        // Nombre namespaced por instancia en dev; default identico al de hoy en prod (ver arriba).
+        options.Cookie.Name = authCookieName;
     });
+
+// Antiforgery con el MISMO sufijo para que tampoco cruce entre instancias dev. Solo se fija cuando hay
+// sufijo: sin el, se respeta el nombre DEFAULT que Blazor asigna (prod intacto).
+if (hasCookieSuffix)
+{
+    builder.Services.AddAntiforgery(o => o.Cookie.Name = $".Ecorex.Antiforgery.{cookieSuffix}");
+}
 builder.Services.AddAuthorizationBuilder()
     // Operador de plataforma (Super Admin / roles internos): tiene claim platform_role.
     .AddPolicy("PlatformOperator", p => p.RequireClaim("platform_role"))
@@ -908,6 +928,30 @@ app.MapPost("/auth/login", async (
 // membresia que /auth/login.
 if (app.Environment.IsDevelopment())
 {
+    // Atajo de DEV para el EVAL del constructor de formularios: puntua DETERMINISTICAMENTE un formulario ya
+    // construido por el agente (FormBuildScorer: field_codes duplicados, encabezado de matriz repetido, markdown
+    // literal, huerfanos, contenedores vacios, textos a width 12 que descuadran, y cobertura contra un fixture).
+    // GET /dev/score-form?id=GUID[&expect=frag1|frag2|...]. Permite comparar corridas/modelos/arneses con un numero
+    // en vez de a ojo sobre n=1. Resuelve el tenant del formulario (los filtros globales exigen tenant ambiente).
+    app.MapGet("/dev/score-form", async (IServiceProvider sp, Guid id, string? expect) =>
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        var tenantId = await db.FormDefinitions.IgnoreQueryFilters()
+            .Where(f => f.Id == id).Select(f => (Guid?)f.TenantId).FirstOrDefaultAsync();
+        if (tenantId is null) { return Results.NotFound("form"); }
+        using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId.Value))
+        {
+            var forms = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Forms.IFormDefinitionService>();
+            var d = await forms.GetAsync(id);
+            if (d is null) { return Results.NotFound("form"); }
+            var exp = string.IsNullOrWhiteSpace(expect) ? null
+                : new Ecorex.Application.Forms.Builder.FormBuildExpectation(
+                    expect.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            return Results.Ok(Ecorex.Application.Forms.Builder.FormBuildScorer.Score(d, exp));
+        }
+    }).AllowAnonymous();
+
     var devLoginEmail = Environment.GetEnvironmentVariable("ECOREX_DEV_LOGIN");
     if (!string.IsNullOrWhiteSpace(devLoginEmail))
     {
@@ -964,6 +1008,54 @@ if (app.Environment.IsDevelopment())
                 attended = await dispatcher.RunPendingForTenantAsync();
             }
             return Results.Ok(new { attended });
+        }).AllowAnonymous();
+
+        // Atajo de DESARROLLO para RE-DISPARAR la notificacion de llegada de un paso (ADR-0100) y ver en el log
+        // por que "no llega" (el envio ya no es mudo). Solo Development. OJO: envia de verdad (WhatsApp/correo).
+        app.MapGet("/dev/renotify", async (IServiceProvider sp, Guid node, Guid step, Guid task) =>
+        {
+            var normalized = devLoginEmail.Trim().ToLowerInvariant();
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
+            if (user is null) { return Results.NotFound("dev user"); }
+            var membership = await db.TenantUsers.IgnoreQueryFilters()
+                .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+                .OrderBy(tu => tu.CreatedAt).FirstOrDefaultAsync();
+            if (membership is null) { return Results.BadRequest("dev user sin tenant"); }
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(membership.TenantId))
+            {
+                var notify = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Workflows.INodeNotifyService>();
+                await notify.NotifyStepArrivalAsync(node, step, task, Guid.Empty);
+            }
+            return Results.Ok(new { ok = true, node, step, task });
+        }).AllowAnonymous();
+
+        // Atajo de DESARROLLO para SIMULAR un mensaje ENTRANTE del cliente en una linea (el webhook real de
+        // Evolution apunta a prod, asi que una instancia local nunca recibe la respuesta). Inyecta por el MISMO
+        // pipeline real (IChatIngestService.IngestTrustedAsync): persiste el inbound, reanuda el paso del agente
+        // que esperaba por esa conversacion y escribe la respuesta en la bitacora. Solo Development.
+        // Uso: /dev/inbound?line={lineId}&phone={digitos}&body={texto}
+        app.MapGet("/dev/inbound", async (IServiceProvider sp, Guid line, string phone, string body) =>
+        {
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var l = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == line);
+            if (l is null) { return Results.NotFound("line"); }
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(l.TenantId))
+            {
+                var ingest = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Tenancy.IChatIngestService>();
+                var payload = new Ecorex.Application.Tenancy.IngestMessageRequest(
+                    ContactPhone: phone,
+                    ContactName: null,
+                    ExternalMessageId: "dev-" + Guid.NewGuid().ToString("N"),
+                    Body: body,
+                    MessageType: "text",
+                    SentAt: DateTimeOffset.UtcNow,
+                    WhatsAppLineId: line);
+                var res = await ingest.IngestTrustedAsync(l.TenantId, payload);
+                return Results.Ok(new { ok = true, result = res.ToString(), line, phone, body });
+            }
         }).AllowAnonymous();
 
         // Atajo de DESARROLLO para PRUEBA DE CARGA del import de items: crea N items via el mismo camino real
@@ -1660,6 +1752,60 @@ app.MapPost("/webhooks/ycloud", async (
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {
+        // No es un mensaje entrante: puede ser un evento de ESTADO de entrega. Si hay fallos de entrega
+        // (failed/undelivered), se deja una nota VISIBLE en la conversacion del cliente con el motivo de Meta,
+        // para que un "no llego" deje de ser invisible (antes el webhook de estado se ignoraba por completo).
+        var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
+        var failures = statuses.Where(s => s.IsFailure).ToList();
+        var recorded = 0;
+        foreach (var s in failures)
+        {
+            var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());
+            if (digits.Length == 0) { continue; }
+            // Resuelve la linea YCloud por su numero de negocio (from) o, si no vino, por el WABA id.
+            var stLine = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l =>
+                l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
+                && ((!string.IsNullOrEmpty(s.BusinessNumber) && l.YCloudPhoneNumberId == s.BusinessNumber)
+                    || (!string.IsNullOrEmpty(s.WabaId) && l.YCloudWabaId == s.WabaId)), ct);
+            if (stLine is null) { continue; }
+
+            var conv = await db.Conversations.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(c => c.WhatsAppLineId == stLine.Id && c.ContactPhone == digits, ct);
+            var nowU = DateTimeOffset.UtcNow;
+            if (conv is null)
+            {
+                conv = new Ecorex.Domain.Entities.Conversation
+                {
+                    TenantId = stLine.TenantId,
+                    ContactPhone = digits,
+                    WhatsAppLineId = stLine.Id,
+                    LastMessageAt = nowU
+                };
+                db.Conversations.Add(conv);
+            }
+            else { conv.LastMessageAt = nowU; }
+
+            var reason = string.IsNullOrWhiteSpace(s.ErrorMessage)
+                ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
+                : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
+            db.Messages.Add(new Ecorex.Domain.Entities.Message
+            {
+                TenantId = stLine.TenantId,
+                ConversationId = conv.Id,
+                Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
+                Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
+                MessageType = "text",
+                SentByName = "Sistema (WhatsApp)",
+                SentAt = nowU
+            });
+            recorded++;
+        }
+        if (recorded > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            log.LogWarning("Webhook YCloud: {N} fallo(s) de entrega registrados en la conversacion del cliente.", recorded);
+            return Results.Ok(new { status = "delivery_failure_recorded", count = recorded });
+        }
         log.LogInformation("Webhook YCloud IGNORADO (evento no procesable o sin mensaje entrante).");
         return Results.Ok(new { status = "ignored" });
     }
@@ -1844,19 +1990,23 @@ app.MapPost("/api/test/agent", async (
         catch { /* imagen invalida: seguimos solo con el texto */ }
     }
 
-    // Si llego un DOCUMENTO (PDF/Excel), lo guardamos en uploads/chat y lo ingerimos como mensaje ENTRANTE
-    // de tipo Document, para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo.
+    // Si llego un ARCHIVO (audio / PDF / Excel...), lo guardamos en uploads/chat y lo ingerimos como mensaje
+    // ENTRANTE para que la MISMA ruta real (AgentConversationService) lo lea y lo mande al modelo. El TIPO se
+    // decide por el mime: un audio entra como Audio (se transcribe), lo demas como Document. Antes TODO entraba
+    // como Document, asi que una nota de voz nunca recorria la ruta de audio y el agente no la "escuchaba".
     if (!string.IsNullOrWhiteSpace(body.FileBase64))
     {
         try
         {
             var bytes = Convert.FromBase64String(body.FileBase64!);
             var mime = string.IsNullOrWhiteSpace(body.FileMime) ? "application/octet-stream" : body.FileMime!;
+            var isAudio = mime.StartsWith("audio", StringComparison.OrdinalIgnoreCase);
             var origName = string.IsNullOrWhiteSpace(body.FileName) ? "archivo" : body.FileName!.Trim();
             var ext = System.IO.Path.GetExtension(origName);
             if (string.IsNullOrWhiteSpace(ext))
             {
-                ext = mime.Contains("pdf") ? ".pdf"
+                ext = isAudio ? ".ogg"
+                    : mime.Contains("pdf") ? ".pdf"
                     : (mime.Contains("sheet") || mime.Contains("excel")) ? ".xlsx"
                     : mime.Contains("csv") ? ".csv" : ".bin";
             }
@@ -1870,9 +2020,10 @@ app.MapPost("/api/test/agent", async (
                 ConversationId = conv.Id,
                 Direction = Ecorex.Domain.Enums.MessageDirection.Inbound,
                 ExternalId = "emu-doc-" + Guid.NewGuid().ToString("N"),
-                Body = "",
-                MessageType = "document",
-                MediaType = Ecorex.Domain.Enums.MessageMediaType.Document,
+                Body = isAudio ? "(nota de voz)" : "",
+                MessageType = isAudio ? "audio" : "document",
+                MediaType = isAudio ? Ecorex.Domain.Enums.MessageMediaType.Audio
+                                    : Ecorex.Domain.Enums.MessageMediaType.Document,
                 MediaUrl = $"/uploads/chat/{fname}",
                 MediaMimeType = mime,
                 MediaFileName = origName,   // nombre ORIGINAL: el agente lo usa p.ej. en la columna 'archivo'

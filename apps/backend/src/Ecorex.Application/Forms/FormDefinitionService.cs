@@ -535,6 +535,18 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         return FormResult<FormQuestionDto>.Ok(ToDto(question));
     }
 
+    public async Task<FormQuestionDto?> GetQuestionAsync(Guid questionId, CancellationToken cancellationToken = default)
+    {
+        var question = await _db.FormQuestions.AsNoTracking().FirstOrDefaultAsync(q => q.Id == questionId, cancellationToken);
+        return question is null ? null : ToDto(question);
+    }
+
+    public async Task<FormContainerDto?> GetContainerAsync(Guid containerId, CancellationToken cancellationToken = default)
+    {
+        var container = await _db.FormContainers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == containerId, cancellationToken);
+        return container is null ? null : ToDto(container);
+    }
+
     public async Task<FormResult<bool>> DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default)
     {
         var question = await _db.FormQuestions.FirstOrDefaultAsync(q => q.Id == questionId, cancellationToken);
@@ -1075,6 +1087,12 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             {
                 return "Los ids de las opciones deben ser unicos.";
             }
+        }
+        // Matriz fija: OptionsJson es un OBJETO {rows, cols, captions, disabled} con al menos una fila y una
+        // columna (ids y labels obligatorios, ids unicos). Lo valida el mismo parser que usa el renderer.
+        if (type == FormControlType.FixedMatrix && FixedMatrixSpec.Parse(optionsJson) is null)
+        {
+            return "La matriz fija requiere options_json {rows:[{id,label}], cols:[{id,label,group?,format?}], captions?, disabled?} con ids unicos.";
         }
         var rules = FormFieldValidator.ParseRules(validationJson);
         if (!string.IsNullOrWhiteSpace(validationJson) && rules is null)

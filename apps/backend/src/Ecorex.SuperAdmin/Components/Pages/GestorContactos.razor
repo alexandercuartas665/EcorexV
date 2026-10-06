@@ -1236,10 +1236,47 @@
         static string N(string? s) => (s ?? string.Empty).Trim().ToLowerInvariant();
         var esEmpresa = (!string.IsNullOrWhiteSpace(p.Empresa) && N(p.NombreCompleto) == N(p.Empresa))
             || _prospectos.Any(x => x.EmpresaProspectoId == p.Id);
+        var (webCorreos, webTelefonos) = ParseWebContacts(p.DataJson);
         await _terceroModal.OpenFromProspectoAsync(
             p.Id, p.NombreCompleto, esEmpresa, p.Fuente,
             p.Cargo, p.Empresa, p.Ciudad, p.Correo, p.Telefono, p.ImagenUrl,
-            p.Direccion, p.SitioWeb, p.OrigenUrl, p.FraseBusqueda, p.Perfil);
+            p.Direccion, p.SitioWeb, p.OrigenUrl, p.FraseBusqueda, p.Perfil,
+            webCorreos, webTelefonos);
+    }
+
+    // Lee data_json.web_contacts { correos[], telefonos[] } del prospecto (enriquecimiento web, ETAPA 3) para
+    // mostrarlo en la ficha. Tolerante: si no hay JSON valido o el nodo falta, devuelve listas vacias.
+    private static (IReadOnlyList<string> Correos, IReadOnlyList<string> Telefonos) ParseWebContacts(string? dataJson)
+    {
+        if (string.IsNullOrWhiteSpace(dataJson)) { return (Array.Empty<string>(), Array.Empty<string>()); }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(dataJson);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("web_contacts", out var wc))
+            {
+                return (Array.Empty<string>(), Array.Empty<string>());
+            }
+            static IReadOnlyList<string> Arr(System.Text.Json.JsonElement node, string key)
+            {
+                if (!node.TryGetProperty(key, out var a) || a.ValueKind != System.Text.Json.JsonValueKind.Array)
+                {
+                    return Array.Empty<string>();
+                }
+                var list = new List<string>();
+                foreach (var e in a.EnumerateArray())
+                {
+                    if (e.ValueKind == System.Text.Json.JsonValueKind.String
+                        && e.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                    {
+                        list.Add(s);
+                    }
+                }
+                return list;
+            }
+            return (Arr(wc, "correos"), Arr(wc, "telefonos"));
+        }
+        catch { return (Array.Empty<string>(), Array.Empty<string>()); }
     }
 
     // Incorpora el prospecto al Directorio (desde el boton del modal grande): promueve (crea el Tercero rico

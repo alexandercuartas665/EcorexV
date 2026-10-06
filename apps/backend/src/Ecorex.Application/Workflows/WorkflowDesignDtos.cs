@@ -56,7 +56,13 @@ public sealed record FlowCanvasNodeDto(
     // Reglas de notificacion del nodo (ADR-0100), JSON. Null/vacio = sin avisos. Metadato, no viaja en el XML.
     string? NotifyJson = null,
     // Plazo (SLA) del paso (Fase 2 - plazos de flujo), JSON {days,hours,minutes,dayMode}. Null = sin plazo.
-    string? SlaJson = null);
+    // Es la DURACION / "tiempo estimado para entregar" (Plazos v2, ADR-0119).
+    string? SlaJson = null,
+    // Tiempo para ARRANCAR el paso (Plazos v2, ADR-0119), mismo shape que SlaJson. Null = Inmediato.
+    string? StartDelayJson = null,
+    // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
+    int? RuntimeLayoutDx = null,
+    int? RuntimeLayoutDy = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

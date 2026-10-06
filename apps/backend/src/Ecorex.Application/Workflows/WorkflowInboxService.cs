@@ -79,7 +79,10 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.CompletedAt,
                 s.AgentAttemptedAt,
                 s.AgentFailureReason,
-                s.AgentRunLog
+                s.AgentRunLog,
+                s.StartAt,
+                s.PendingWhatsAppConversationId,
+                s.PendingVoiceCallId
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -344,7 +347,15 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 AgentEmail: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsE) && capsE.Email,
                 AgentFailureReason: isAuto && h is { IsCurrent: true, Status: WorkflowStepStatus.Pending, AgentAttemptedAt: not null }
                     ? h.AgentFailureReason : null,
-                AgentRunLog: isAuto ? h?.AgentRunLog : null);
+                AgentRunLog: isAuto ? h?.AgentRunLog : null,
+                RuntimeDx: n.RuntimeLayoutDx,
+                RuntimeDy: n.RuntimeLayoutDy,
+                // Inicio programado del paso vigente (Plazos v2): si esta en el futuro, el agente aun no arranca.
+                ScheduledStartAt: h is { IsCurrent: true } ? h.StartAt : null,
+                // ADR-0092/0120: el agente del paso vigente quedo EN ESPERA de respuesta del cliente (WhatsApp o
+                // llamada). La UI lo muestra como "en espera", no "trabajando" (no esta pensando).
+                AwaitingReply: isAuto && h is { IsCurrent: true }
+                    && (h.PendingWhatsAppConversationId != null || h.PendingVoiceCallId != null));
         }).ToList();
 
         var edges = canvas.Edges
@@ -363,6 +374,19 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             FlowName: canvas.Name,
             MinX: minX, MinY: minY, Width: maxX - minX, Height: maxY - minY,
             Nodes: nodes, Edges: edges);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeRuntimeOffsetAsync(
+        Guid nodeId, int dx, int dy, CancellationToken cancellationToken = default)
+    {
+        // Tenant-scoped por el filtro global (no se filtra a mano por TenantId).
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null) { return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado."); }
+        // (0,0) limpia el override (vuelve al auto-layout); si no, se guarda el desplazamiento.
+        node.RuntimeLayoutDx = dx == 0 ? null : dx;
+        node.RuntimeLayoutDy = dy == 0 ? null : dy;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
     }
 
     public async Task<IReadOnlyList<PendingStepDto>> GetMyPendingStepsAsync(

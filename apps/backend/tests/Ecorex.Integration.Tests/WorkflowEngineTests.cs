@@ -229,6 +229,54 @@ public abstract class WorkflowEngineTestsBase
         Assert.True(stepBHist.DueAt!.Value > DateTimeOffset.UtcNow.AddHours(20), "1 dia habil deja el vencimiento a mas de 20h");
     }
 
+    /// <summary>
+    /// Plazos v2 (ADR-0119): un nodo con "tiempo para arrancar" (StartDelayJson) hace que su INICIO planeado
+    /// (StartAt) sea activacion + arranque, y el vencimiento (DueAt) = StartAt + duracion (no activacion +
+    /// duracion). La fecha inicial de la actividad toma ese inicio (en el futuro), no "ahora".
+    /// </summary>
+    [Fact]
+    public async Task LinearFlow_WithStartDelay_StampsStartAtShiftedAndDueFromStart()
+    {
+        var seed = await SeedTenantAsync("Workflow Arranque");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+
+        var definition = (await engine.ImportBpmnAsync(new ImportBpmnRequest("ARR-01", "Flujo con arranque", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(definition.Id)).IsOk);
+
+        var nodeA = await ctx.WorkflowNodes.SingleAsync(n => n.DefinitionId == definition.Id && n.BpmnElementId == "Task_A");
+        nodeA.StartDelayJson = StepSla.Build(0, 2, 0, StepSlaDayMode.Calendar); // arranca a +2h
+        nodeA.SlaJson = StepSla.Build(0, 0, 30, StepSlaDayMode.Calendar);       // dura 30m
+        nodeA.StepNumber = 1;
+        var activityType = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        activityType.WorkflowDefinitionId = definition.Id;
+        await ctx.SaveChangesAsync();
+
+        var before = DateTimeOffset.UtcNow;
+        var service = BuildTaskService(ctx, seed, engine);
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea con arranque", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == taskId);
+
+        var stepAHist = await ctx.WorkflowStepHistories.AsNoTracking()
+            .SingleAsync(s => s.InstanceId == instance.Id && s.NodeId == nodeA.Id && s.IsCurrent);
+
+        // Inicio planeado ~ +2h desde la activacion (el arranque corrio la fecha inicial).
+        Assert.NotNull(stepAHist.StartAt);
+        Assert.InRange(stepAHist.StartAt!.Value, before.AddMinutes(115), DateTimeOffset.UtcNow.AddMinutes(125));
+        // Vencimiento = inicio + 30m (~ +2h30m), NO activacion + 30m.
+        Assert.NotNull(stepAHist.DueAt);
+        Assert.InRange(stepAHist.DueAt!.Value, before.AddMinutes(145), DateTimeOffset.UtcNow.AddMinutes(155));
+        Assert.True(stepAHist.DueAt!.Value > stepAHist.StartAt!.Value);
+
+        // La actividad toma el inicio planeado (en el futuro), no "ahora".
+        var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == taskId);
+        Assert.NotNull(task.StartDate);
+        Assert.InRange(task.StartDate!.Value, before.AddMinutes(115), DateTimeOffset.UtcNow.AddMinutes(125));
+    }
+
     // ---- D11: ejecucion en PARALELO (multi-token) ----
 
     /// <summary>

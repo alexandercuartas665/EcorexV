@@ -2811,6 +2811,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("Error")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("error");
+
                     b.Property<int>("Inserted")
                         .HasColumnType("int")
                         .HasColumnName("inserted");
@@ -3166,6 +3170,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<Guid?>("FlowHoldNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_hold_node_id");
+
+                    b.Property<Guid?>("FlowHoldStepId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_hold_step_id");
 
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("datetimeoffset")
@@ -16084,6 +16096,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("ApplyTagId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("apply_tag_id");
+
                     b.Property<string>("ButtonLabel")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
@@ -16496,9 +16512,21 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("restart_node_id");
 
+                    b.Property<int?>("RuntimeLayoutDx")
+                        .HasColumnType("int")
+                        .HasColumnName("runtime_layout_dx");
+
+                    b.Property<int?>("RuntimeLayoutDy")
+                        .HasColumnType("int")
+                        .HasColumnName("runtime_layout_dy");
+
                     b.Property<string>("SlaJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("sla_json");
+
+                    b.Property<string>("StartDelayJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("start_delay_json");
 
                     b.Property<int?>("StepNumber")
                         .HasColumnType("int")
@@ -16931,6 +16959,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("agent_failure_reason");
 
+                    b.Property<DateTimeOffset?>("AgentNextRetryAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("agent_next_retry_at");
+
                     b.Property<string>("AgentProposalComment")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")
@@ -17015,6 +17047,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("PendingWhatsAppConversationId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("pending_whats_app_conversation_id");
+
+                    b.Property<DateTimeOffset?>("StartAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("start_at");
 
                     b.Property<string>("Status")
                         .IsRequired()

@@ -90,4 +90,12 @@ public interface IWorkflowInboxService
     /// </summary>
     Task<TaskFlowDiagramDto?> GetTaskFlowDiagramAsync(
         Guid taskId, Guid viewerTenantUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Guarda el desplazamiento manual (dx, dy) de un nodo en el DIAGRAMA DE LA TAREA (ADR-0051 v2). Es
+    /// presentacion COMPARTIDA (por nodo del flujo, tenant-scoped); se suma al auto-layout. (0,0) lo limpia.
+    /// Devuelve NotFound si el nodo no existe en el tenant. No afecta el editor BPMN ni la ejecucion.
+    /// </summary>
+    Task<WorkflowResult<bool>> SetNodeRuntimeOffsetAsync(
+        Guid nodeId, int dx, int dy, CancellationToken cancellationToken = default);
 }

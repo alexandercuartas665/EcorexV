@@ -72,6 +72,10 @@ public partial class TerceroModal
     // el uso normal (crear/editar terceros). Se limpia SIEMPRE en OpenCreate/OpenEditAsync.
     private Guid? _prospectoId;
     private string? _prospectoFuente;
+    // Contactos encontrados en el SITIO WEB de la empresa (enriquecimiento web, ETAPA 3). Solo lectura en la
+    // ficha del prospecto, con etiqueta "del sitio web". Vacio = no se muestran.
+    private IReadOnlyList<string> _webCorreos = Array.Empty<string>();
+    private IReadOnlyList<string> _webTelefonos = Array.Empty<string>();
     // Empresa a la que pertenece este tercero (Persona). Al CREAR un contacto asociado se fija a la
     // empresa padre; al EDITAR se carga la existente para PRESERVARLA (antes se mandaba null y editar
     // una persona la desvinculaba de su empresa). null para empresas y personas individuales.
@@ -293,6 +297,8 @@ public partial class TerceroModal
         _editingId = null;
         _prospectoId = null;
         _prospectoFuente = null;
+        _webCorreos = Array.Empty<string>();
+        _webTelefonos = Array.Empty<string>();
         _empresaId = null;
         _returnToParentId = null;
         _mTab = "datos";
@@ -358,11 +364,14 @@ public partial class TerceroModal
         string? cargo = null, string? empresa = null, string? ciudad = null,
         string? email = null, string? telefono = null, string? imagenUrl = null,
         string? direccion = null, string? sitioWeb = null, string? origenUrl = null, string? fraseBusqueda = null,
-        string? perfil = null)
+        string? perfil = null,
+        IReadOnlyList<string>? webCorreos = null, IReadOnlyList<string>? webTelefonos = null)
     {
         await OpenCreate();
         _prospectoId = prospectoId;
         _prospectoFuente = fuente;
+        _webCorreos = webCorreos ?? Array.Empty<string>();
+        _webTelefonos = webTelefonos ?? Array.Empty<string>();
         _editingId = null;
         _mTipo = esEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
         _mIdTipo = esEmpresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;

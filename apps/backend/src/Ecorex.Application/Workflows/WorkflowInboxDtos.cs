@@ -95,7 +95,18 @@ public sealed record TaskFlowNodeDto(
     string? AgentFailureReason = null,
     // Bitacora LEGIBLE de lo que hizo el agente en este paso (JSON WorkflowAgentRunLog): una entrada por
     // corrida con hora, tokens, resultado y fases de razonamiento. Para el detalle "Ver actividad del agente".
-    string? AgentRunLog = null);
+    string? AgentRunLog = null,
+    // Desplazamiento manual PERSISTIDO del nodo en el diagrama de la tarea (ADR-0051 v2): lo que el usuario
+    // arrastro, guardado en BD y COMPARTIDO (por nodo del flujo). Se suma al auto-layout. Null = sin mover.
+    int? RuntimeDx = null,
+    int? RuntimeDy = null,
+    // INICIO programado del paso (Plazos v2, ADR-0119): activacion + "tiempo para arrancar". Si esta en el
+    // FUTURO, el paso (p.ej. un agente) aun NO arranca: la UI muestra "programado hasta HH:MM", no "trabajando".
+    DateTimeOffset? ScheduledStartAt = null,
+    // El agente ya corrio y quedo EN ESPERA de una respuesta del cliente (pregunto por WhatsApp o pidio una
+    // llamada): PendingWhatsAppConversationId / PendingVoiceCallId seteados. La UI muestra "En espera de
+    // respuesta..." en vez de "trabajando" (el agente NO esta pensando: espera al cliente). ADR-0092/0120.
+    bool AwaitingReply = false);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

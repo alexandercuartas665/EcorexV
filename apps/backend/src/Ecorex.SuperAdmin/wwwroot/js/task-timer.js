@@ -62,5 +62,19 @@ window.ecorexFlow = {
         if (left + W > vw - margin) { left = vw - W - margin; }
         if (left < margin) { left = margin; }
         return { left: Math.round(left), top: Math.round(top) };
+    },
+    // Centra el scroller del diagrama en el nodo ACTUAL (el que esta por cerrar). Usa getBoundingClientRect
+    // (coords de pantalla) + el scroll actual, asi funciona con el zoom CSS del canvas. Best-effort.
+    centerCurrent: function () {
+        var scroller = document.querySelector('.tk-flow-scroller');
+        if (!scroller) { return; }
+        var node = scroller.querySelector('.tk-flow-node.current') || scroller.querySelector('.tk-flow-node.working');
+        if (!node) { return; }
+        var sr = scroller.getBoundingClientRect();
+        var nr = node.getBoundingClientRect();
+        var left = scroller.scrollLeft + (nr.left - sr.left) + nr.width / 2 - sr.width / 2;
+        var top = scroller.scrollTop + (nr.top - sr.top) + nr.height / 2 - sr.height / 2;
+        try { scroller.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: 'smooth' }); }
+        catch (e) { scroller.scrollLeft = Math.max(0, left); scroller.scrollTop = Math.max(0, top); }
     }
 };

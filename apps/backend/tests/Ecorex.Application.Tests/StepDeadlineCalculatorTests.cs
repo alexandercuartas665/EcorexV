@@ -84,6 +84,47 @@ public class StepDeadlineCalculatorTests
         Assert.Equal(D(2026, 9, 18, 11, 0), end);
     }
 
+    // ---- Plazos v2 (ADR-0119): arranque + duracion ----
+
+    [Fact]
+    public void V2_inicio_igual_activacion_mas_arranque_y_vence_igual_inicio_mas_duracion()
+    {
+        // Activacion jueves 9am; arranque = 2h; duracion = 3h. inicio = 11am; vence = 2pm (tiempo real).
+        var activacion = D(2026, 9, 17, 9, 0);
+        var arranque = StepSla.Read(StepSla.Build(0, 2, 0, StepSlaDayMode.Calendar));
+        var duracion = StepSla.Read(StepSla.Build(0, 3, 0, StepSlaDayMode.Calendar));
+
+        var inicio = StepDeadlineCalculator.AddPlazo(activacion, arranque);
+        var vence = StepDeadlineCalculator.AddPlazo(inicio, duracion);
+
+        Assert.Equal(D(2026, 9, 17, 11, 0), inicio);
+        Assert.Equal(D(2026, 9, 17, 14, 0), vence);
+    }
+
+    [Fact]
+    public void V2_arranque_inmediato_el_inicio_es_la_activacion()
+    {
+        // Arranque vacio (Inmediato) => inicio == activacion; vence = activacion + duracion (= comportamiento Fase 1).
+        var activacion = D(2026, 9, 17, 9, 0);
+        var inicio = StepDeadlineCalculator.AddPlazo(activacion, StepSla.None);
+        var vence = StepDeadlineCalculator.AddPlazo(inicio, StepSla.Read(StepSla.Build(0, 0, 10, StepSlaDayMode.Calendar)));
+
+        Assert.Equal(activacion, inicio);
+        Assert.Equal(D(2026, 9, 17, 9, 10), vence);
+    }
+
+    [Fact]
+    public void V2_arranque_habil_respeta_calendario()
+    {
+        // Arranque = 1 dia habil desde viernes 9am = lunes 9am (salta fin de semana); luego duracion 2h = 11am.
+        var activacion = D(2026, 9, 18, 9, 0); // viernes
+        var inicio = StepDeadlineCalculator.AddPlazo(activacion, StepSla.Read(StepSla.Build(1, 0, 0, StepSlaDayMode.Business)));
+        var vence = StepDeadlineCalculator.AddPlazo(inicio, StepSla.Read(StepSla.Build(0, 2, 0, StepSlaDayMode.Calendar)));
+
+        Assert.Equal(D(2026, 9, 21, 9, 0), inicio);  // lunes 9am
+        Assert.Equal(D(2026, 9, 21, 11, 0), vence);  // lunes 11am
+    }
+
     [Fact]
     public void IsWorkingDay_respeta_fin_de_semana_y_no_operativos()
     {

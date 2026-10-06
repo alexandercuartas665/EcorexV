@@ -101,6 +101,44 @@ public abstract class WorkflowInboxTestsBase
         Assert.Equal(new[] { "Aprobada", "Rechazada" }, cotStep.ApprovalOptions.OrderBy(o => o, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// Layout persistido del diagrama de la tarea (ADR-0051 v2): SetNodeRuntimeOffset guarda el
+    /// desplazamiento por nodo del flujo (compartido) y GetTaskFlowDiagram lo devuelve; (0,0) lo limpia.
+    /// </summary>
+    [Fact]
+    public async Task RuntimeLayoutOffset_PersistsSharedAndClears()
+    {
+        var seed = await SeedTenantAsync("Inbox Layout");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var engine = BuildEngine(ctx, seed);
+        var (asesorId, aprobadorId, _) = await SeedCargosAsync(ctx, tenantCtx, seed);
+        var definition = await PublishFlowAsync(engine, ctx, seed);
+        await AttachPoliciesAsync(ctx, tenantCtx, definition, asesorCargoId: asesorId.CargoId, aprobadorCargoId: aprobadorId.CargoId);
+
+        var taskService = BuildTaskService(ctx, seed, engine);
+        var created = await taskService.CreateAsync(
+            new CreateTaskItemRequest("Tarea layout", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
+        var node = await ctx.WorkflowNodes.AsNoTracking()
+            .FirstAsync(n => n.DefinitionId == definition.Id && n.BpmnElementId == "Task_Cot");
+
+        // Guardar el desplazamiento -> aparece en el diagrama de la tarea (compartido por nodo del flujo).
+        Assert.True((await inbox.SetNodeRuntimeOffsetAsync(node.Id, 40, 80)).IsOk);
+        var dto = (await inbox.GetTaskFlowDiagramAsync(taskId, asesorId.UserId))!.Nodes.First(n => n.NodeId == node.Id);
+        Assert.Equal(40, dto.RuntimeDx);
+        Assert.Equal(80, dto.RuntimeDy);
+
+        // (0,0) limpia el override -> vuelve al auto-layout (null).
+        Assert.True((await inbox.SetNodeRuntimeOffsetAsync(node.Id, 0, 0)).IsOk);
+        var cleared = (await inbox.GetTaskFlowDiagramAsync(taskId, asesorId.UserId))!.Nodes.First(n => n.NodeId == node.Id);
+        Assert.Null(cleared.RuntimeDx);
+        Assert.Null(cleared.RuntimeDy);
+    }
+
     [Fact]
     public async Task Gateway_ApprovedRoutesToFacturacion_RejectedRestartsCotizacion()
     {

@@ -58,7 +58,11 @@ public sealed record WorkflowAgentInvocationResult(
     WorkflowAgentCallRequest? CallRequest = null,
     // ADR-0092: el agente PIDIO preguntar por WhatsApp para conseguir datos. El invoker NO envia (asincrono):
     // la senala y el runner envia y PAUSA el paso hasta la respuesta. Null = no pidio WhatsApp.
-    WorkflowAgentWhatsAppRequest? WhatsAppRequest = null)
+    WorkflowAgentWhatsAppRequest? WhatsAppRequest = null,
+    // ADR-0121: el agente se AUTO-REPROGRAMO (herramienta 'programar_reintento') para reintentar en N minutos si
+    // el cliente no responde. El runner lo estampa en AgentNextRetryAt al pausar por la pregunta. Null = sin
+    // reintento programado. Acotado a [5, 43200] (30 dias) por el lector de la herramienta.
+    int? RetryInMinutes = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);

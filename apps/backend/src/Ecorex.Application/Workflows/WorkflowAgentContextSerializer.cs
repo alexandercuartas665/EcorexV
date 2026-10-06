@@ -84,8 +84,28 @@ public static class WorkflowAgentContextSerializer
                 ? "- (la persona aun no responde nada util)"
                 : $"- La persona respondio: {wa.ReplyText}");
         }
+        // ADR-0121: ya preguntaste y el cliente NO ha respondido -> es tu reintento programado.
+        else if (context.WhatsAppAwaitingSince is { } since)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Cliente sin responder (reintento)");
+            sb.AppendLine($"- Ya le escribiste por WhatsApp (ultimo mensaje: {since.ToLocalTime():yyyy-MM-dd HH:mm}) y AUN NO HA RESPONDIDO.");
+            sb.AppendLine("- Si aun tiene sentido, envia un recordatorio BREVE y cordial con 'preguntar_whatsapp' (y 'programar_reintento' de nuevo si quieres otro intento). Si ya insististe lo suficiente, no insistas mas.");
+        }
 
         // (b) Lo ya capturado antes: es donde suele estar el dato que decide el paso.
+        if (context.FlowMap.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("# Mapa del flujo (TODOS los pasos, con su nota y estado)");
+            foreach (var fs in context.FlowMap)
+            {
+                var num = fs.StepNumber is int sn ? $"{sn}. " : "";
+                var note = string.IsNullOrWhiteSpace(fs.Note) ? "" : $" | nota: {fs.Note}";
+                sb.AppendLine($"- [{fs.Status}] {num}{fs.Name ?? "(sin nombre)"} ({fs.Type}){note}");
+            }
+        }
+
         sb.AppendLine();
         sb.AppendLine("# Datos capturados en pasos anteriores");
         if (context.PriorData.Forms.Count == 0)
@@ -118,10 +138,26 @@ public static class WorkflowAgentContextSerializer
             sb.AppendLine($"- Estado: {task.Status} | Prioridad: {task.Priority}");
             if (task.DueDate is { } due) { sb.AppendLine($"- Vence: {due:yyyy-MM-dd}"); }
             if (!string.IsNullOrWhiteSpace(task.RequesterName)) { sb.AppendLine($"- Solicitante: {task.RequesterName}"); }
+            if (!string.IsNullOrWhiteSpace(task.RequesterEmail)) { sb.AppendLine($"- Correo solicitante: {task.RequesterEmail}"); }
+            if (!string.IsNullOrWhiteSpace(task.RequesterPhone)) { sb.AppendLine($"- Telefono solicitante: {task.RequesterPhone}"); }
+            if (!string.IsNullOrWhiteSpace(task.RequesterDocument)) { sb.AppendLine($"- Documento solicitante: {task.RequesterDocument}"); }
             if (task.Tercero is { } tercero)
             {
                 sb.AppendLine($"- Tercero: {tercero.Nombre} ({tercero.Tipo})"
-                    + (string.IsNullOrWhiteSpace(tercero.IdValor) ? "" : $" id {tercero.IdValor}"));
+                    + (string.IsNullOrWhiteSpace(tercero.IdValor) ? "" : $" id {tercero.IdValor}")
+                    + (string.IsNullOrWhiteSpace(tercero.Telefono) ? "" : $" | tel {tercero.Telefono}")
+                    + (string.IsNullOrWhiteSpace(tercero.Email) ? "" : $" | {tercero.Email}"));
+            }
+            if (task.Bitacora.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Bitacora de la actividad");
+                foreach (var b in task.Bitacora)
+                {
+                    var quien = string.IsNullOrWhiteSpace(b.Author) ? "sistema" : b.Author;
+                    var tipo = b.EsComentario ? "comentario" : "accion";
+                    sb.AppendLine($"- [{b.At:yyyy-MM-dd HH:mm}] {quien} ({tipo}): {b.Text}");
+                }
             }
         }
 

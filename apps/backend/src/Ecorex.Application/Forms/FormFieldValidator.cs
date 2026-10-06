@@ -30,12 +30,14 @@ public static class FormFieldValidator
     /// (su valor es un arreglo de filas, no un escalar comparable).
     /// </summary>
     public static bool IsCapture(FormControlType type)
-        => !IsNonInput(type) && !IsPlaceholderCapture(type) && type != FormControlType.GridDetail;
+        => !IsNonInput(type) && !IsPlaceholderCapture(type)
+            // GridDetail y FixedMatrix: su valor es una coleccion (filas / celdas), no un escalar comparable.
+            && type != FormControlType.GridDetail && type != FormControlType.FixedMatrix;
 
     /// <summary>Controles Tier 1 con componente en el DynamicFormRenderer.</summary>
     public static bool IsTier1(FormControlType type)
         => type <= FormControlType.Literal
-            || type is FormControlType.GridDetail or FormControlType.Paragraph
+            || type is FormControlType.GridDetail or FormControlType.FixedMatrix or FormControlType.Paragraph
                 or FormControlType.Divider or FormControlType.Spacer;
 
     /// <summary>
@@ -125,6 +127,7 @@ public static class FormFieldValidator
         {
             FormControlType.MultiCheck => ParseMultiValues(value).Count == 0,
             FormControlType.GridDetail => ParseGridRows(value).Count == 0,
+            FormControlType.FixedMatrix => FixedMatrixSpec.ParseValue(value).Count == 0,
             _ => string.IsNullOrWhiteSpace(value)
         };
         if (isEmpty)
@@ -143,8 +146,26 @@ public static class FormFieldValidator
             FormControlType.Select or FormControlType.Radio => ValidateOption(value!, options),
             FormControlType.MultiCheck => ValidateMulti(value!, options),
             FormControlType.GridDetail => ValidateGrid(value!, optionsJson),
+            FormControlType.FixedMatrix => ValidateFixedMatrix(value!, optionsJson),
             _ => null
         };
+    }
+
+    /// <summary>Matriz fija: el valor es {"fila.col": valor}; toda clave debe existir en la spec y no ser n/a.</summary>
+    private static string? ValidateFixedMatrix(string value, string? optionsJson)
+    {
+        var spec = FixedMatrixSpec.Parse(optionsJson);
+        if (spec is null) { return "La matriz no tiene filas/columnas definidas."; }
+        foreach (var key in FixedMatrixSpec.ParseValue(value).Keys)
+        {
+            var dot = key.IndexOf('.');
+            if (dot <= 0 || dot == key.Length - 1) { return $"Celda '{key}' invalida (formato fila.col)."; }
+            var rowId = key[..dot];
+            var colId = key[(dot + 1)..];
+            if (!spec.Rows.Any(r => r.Id == rowId) || !spec.Cols.Any(c => c.Id == colId)) { return $"La celda '{key}' no existe en la matriz."; }
+            if (spec.IsDisabled(rowId, colId)) { return $"La celda '{key}' no aplica (n/a)."; }
+        }
+        return null;
     }
 
     /// <summary>

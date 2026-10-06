@@ -2811,6 +2811,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
                     b.Property<int>("Inserted")
                         .HasColumnType("integer")
                         .HasColumnName("inserted");
@@ -3166,6 +3170,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<Guid?>("FlowHoldNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_hold_node_id");
+
+                    b.Property<Guid?>("FlowHoldStepId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_hold_step_id");
 
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("timestamp with time zone")
@@ -16080,6 +16092,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("ApplyTagId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("apply_tag_id");
+
                     b.Property<string>("ButtonLabel")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
@@ -16492,9 +16508,21 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("restart_node_id");
 
+                    b.Property<int?>("RuntimeLayoutDx")
+                        .HasColumnType("integer")
+                        .HasColumnName("runtime_layout_dx");
+
+                    b.Property<int?>("RuntimeLayoutDy")
+                        .HasColumnType("integer")
+                        .HasColumnName("runtime_layout_dy");
+
                     b.Property<string>("SlaJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("sla_json");
+
+                    b.Property<string>("StartDelayJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("start_delay_json");
 
                     b.Property<int?>("StepNumber")
                         .HasColumnType("integer")
@@ -16927,6 +16955,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("agent_failure_reason");
 
+                    b.Property<DateTimeOffset?>("AgentNextRetryAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("agent_next_retry_at");
+
                     b.Property<string>("AgentProposalComment")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -17011,6 +17043,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("PendingWhatsAppConversationId")
                         .HasColumnType("uuid")
                         .HasColumnName("pending_whats_app_conversation_id");
+
+                    b.Property<DateTimeOffset?>("StartAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_at");
 
                     b.Property<string>("Status")
                         .IsRequired()

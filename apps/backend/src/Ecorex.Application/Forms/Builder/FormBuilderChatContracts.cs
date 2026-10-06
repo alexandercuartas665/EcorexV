@@ -51,6 +51,9 @@ public interface IFormBuilderChatStore
 
     Task<FormBuilderConversation?> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken = default);
 
+    /// <summary>Ultima conversacion ACTIVA del formulario, para RESUMIRLA al reabrir el panel (chat persistente).</summary>
+    Task<FormBuilderConversation?> GetLatestConversationForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default);
+
     Task SaveConversationAsync(FormBuilderConversation conversation, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<FormBuilderMessage>> GetMessagesAsync(Guid conversationId, CancellationToken cancellationToken = default);

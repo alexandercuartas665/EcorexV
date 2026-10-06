@@ -22,6 +22,12 @@ public sealed record AgentRunLogEntryDto(DateTimeOffset OccurredAt, AiAgentRunLo
 /// <summary>Conversacion atendida por un agente (para el listado de la bitacora).</summary>
 public sealed record AgentConversationDto(Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel, DateTimeOffset? LastActivityAt, int Events);
 
+/// <summary>ADR-0120: conversacion "tomada por el flujo" (un paso vigente de una tarea espera una respuesta por
+/// esta linea). Mientras exista, el agente de la linea (SARA) se calla; el flujo la libera al resolver la salida.</summary>
+public sealed record FlowHeldConversationDto(
+    Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel,
+    string TaskNumber, string TaskTitle, string NodeName, DateTimeOffset? HeldUntil);
+
 /// <summary>
 /// Gestiona el vinculo entre agentes de IA y lineas de WhatsApp (conectar/desconectar, modo autonomo)
 /// y expone la bitacora de atencion. Todo tenant-scoped.
@@ -34,6 +40,16 @@ public interface IAiAgentLineService
 
     Task<IReadOnlyList<AgentConversationDto>> ListAttendedConversationsAsync(int take = 50, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentRunLogEntryDto>> GetConversationLogAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0120: conversaciones "tomadas por el flujo" ahora mismo (un paso vigente espera respuesta por
+    /// WhatsApp). Es la lista visible de "esta linea atiende el flujo de la tarea X"; se vacia sola cuando el
+    /// agente del nodo resuelve la salida (se limpia PendingWhatsAppConversationId).</summary>
+    Task<IReadOnlyList<FlowHeldConversationDto>> ListFlowHeldConversationsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0120: LIBERA manualmente la(s) linea(s) que un flujo tomo para esta conversacion. Devuelve el
+    /// paso a atencion humana y suelta la conversacion (limpia PendingWhatsAppConversationId), de modo que el
+    /// agente de la linea (SARA) vuelve a atender. Devuelve cuantos pasos se liberaron.</summary>
+    Task<int> ReleaseFlowHoldAsync(Guid conversationId, CancellationToken cancellationToken = default);
 
     /// <summary>Vacia TODA la bitacora del tenant Y el cache de datos capturados por los agentes (deja al
     /// agente en cero). No toca mensajes del chat ni leads. Devuelve (logs, cache) borrados.</summary>
@@ -55,12 +71,14 @@ public sealed class AiAgentLineService : IAiAgentLineService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IAuditWriter _audit;
+    private readonly Workflows.IWorkflowAgentStepRunner _agentRunner;
 
-    public AiAgentLineService(IApplicationDbContext db, ITenantContext tenant, IAuditWriter audit)
+    public AiAgentLineService(IApplicationDbContext db, ITenantContext tenant, IAuditWriter audit, Workflows.IWorkflowAgentStepRunner agentRunner)
     {
         _db = db;
         _tenant = tenant;
         _audit = audit;
+        _agentRunner = agentRunner;
     }
 
     public async Task<IReadOnlyList<AgentLineDto>> ListLinesForAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
@@ -145,6 +163,60 @@ public sealed class AiAgentLineService : IAiAgentLineService
             .OrderBy(l => l.OccurredAt)
             .Select(l => new AgentRunLogEntryDto(l.OccurredAt, l.Kind, l.Title, l.Content, l.Response))
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<FlowHeldConversationDto>> ListFlowHeldConversationsAsync(CancellationToken cancellationToken = default)
+    {
+        // Pasos vigentes que "poseen" una conversacion (preguntaron por WhatsApp y esperan la respuesta). El
+        // filtro global por tenant aplica a todas (son TenantEntity). La liberacion es automatica: cuando el
+        // agente resuelve la salida, PendingWhatsAppConversationId se limpia y la fila desaparece de esta lista.
+        var rows = await (
+            from h in _db.WorkflowStepHistories.AsNoTracking()
+            where h.IsCurrent && h.PendingWhatsAppConversationId != null
+            join i in _db.WorkflowInstances.AsNoTracking() on h.InstanceId equals i.Id
+            join t in _db.TaskItems.AsNoTracking() on i.TaskItemId equals t.Id
+            join n in _db.WorkflowNodes.AsNoTracking() on h.NodeId equals n.Id
+            join c in _db.Conversations.AsNoTracking() on h.PendingWhatsAppConversationId equals c.Id
+            select new
+            {
+                c.Id,
+                c.ContactName,
+                c.ContactPhone,
+                c.WhatsAppLineId,
+                t.Number,
+                t.Title,
+                NodeName = n.Name,
+                h.AgentDeadlineAt
+            }).ToListAsync(cancellationToken);
+        if (rows.Count == 0) { return Array.Empty<FlowHeldConversationDto>(); }
+
+        var lineLabels = await _db.WhatsAppLines.AsNoTracking()
+            .ToDictionaryAsync(l => l.Id, l => string.IsNullOrWhiteSpace(l.PhoneNumber) ? l.InstanceName : l.PhoneNumber!, cancellationToken);
+
+        return rows.Select(r =>
+        {
+            string? lineLabel = r.WhatsAppLineId is Guid lid && lineLabels.TryGetValue(lid, out var lbl) ? lbl : null;
+            return new FlowHeldConversationDto(
+                r.Id, r.ContactName, r.ContactPhone ?? "?", lineLabel,
+                r.Number, r.Title ?? "", r.NodeName ?? "", r.AgentDeadlineAt);
+        }).ToList();
+    }
+
+    public async Task<int> ReleaseFlowHoldAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.UserId is not Guid actor) { return 0; }
+        // Pasos vigentes que poseen esta conversacion. CancelAsync devuelve el paso a una persona y limpia los
+        // pending (misma via que el "Terminar" del agente), asi que la linea queda libre y SARA retoma.
+        var stepIds = await _db.WorkflowStepHistories.AsNoTracking()
+            .Where(s => s.IsCurrent && s.PendingWhatsAppConversationId == conversationId)
+            .Select(s => s.Id)
+            .ToListAsync(cancellationToken);
+        var released = 0;
+        foreach (var stepId in stepIds)
+        {
+            if (await _agentRunner.CancelAsync(stepId, actor, cancellationToken)) { released++; }
+        }
+        return released;
+    }
 
     public async Task<(int Logs, int Cache)> ClearAllLogsAsync(CancellationToken cancellationToken = default)
     {

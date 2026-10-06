@@ -269,6 +269,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         string? decisionText = null;
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
+        int? retryMinutes = null;
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
 
@@ -330,6 +331,15 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
                         : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
                 }
+                else if (call.Name == "programar_reintento" && canAskWhatsApp)
+                {
+                    // ADR-0121: el agente se auto-reprograma. NO pausa por si mismo (acompana a la pregunta): solo
+                    // registra en cuanto reintentar; el runner lo estampa en AgentNextRetryAt al pausar.
+                    retryMinutes = ReadRetryMinutes(call.ArgumentsJson);
+                    result = retryMinutes is null
+                        ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
+                        : $$"""{"ok": true, "mensaje": "reintento programado en {{retryMinutes}} min si el cliente no responde"}""";
+                }
                 else if (call.Name == "enviar_correo" && canSendEmail)
                 {
                     if (emailsSent >= MaxEmailsPerStep)
@@ -358,14 +368,16 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         {
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: null, Error: null,
-                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, CallRequest: callRequest);
+                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, CallRequest: callRequest,
+                RetryInMinutes: retryMinutes);
         }
         // El agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso.
         if (whatsAppRequest is not null)
         {
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: null, Error: null,
-                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, WhatsAppRequest: whatsAppRequest);
+                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, WhatsAppRequest: whatsAppRequest,
+                RetryInMinutes: retryMinutes);
         }
 
         if (string.IsNullOrWhiteSpace(decisionText))
@@ -406,6 +418,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             tools.Add(new AiToolSpec("preguntar_whatsapp",
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato que necesitas para decidir. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se envia. El paso quedara EN ESPERA de la respuesta y luego retomaras la decision. Usala si el dato depende del cliente y no esta en el contexto.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
+            tools.Add(BuildRetryTool());
         }
         if (canSendEmail)
         {
@@ -425,6 +438,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         sb.AppendLine();
         sb.AppendLine("Tienes herramientas para CONSEGUIR lo que te falte antes de decidir:");
         if (canAskWhatsApp) { sb.AppendLine("- 'preguntar_whatsapp': pregunta al cliente por WhatsApp (el paso espera la respuesta y la recibiras para decidir)."); }
+        if (canAskWhatsApp) { sb.AppendLine("- 'programar_reintento': cuando le preguntes al cliente, PROGRAMA tambien un reintento (en_minutos) por si no responde; al cumplirse, volveras a correr para enviarle un recordatorio. Si responde antes, se cancela solo."); }
         if (canCall) { sb.AppendLine("- 'llamar_telefono': coloca una llamada para conseguir el dato."); }
         if (canSearchWeb) { sb.AppendLine("- 'buscar_web': abre una pagina y extrae un dato."); }
         if (canSendEmail) { sb.AppendLine("- 'enviar_correo': envia un correo."); }
@@ -473,6 +487,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         var finished = false;
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
+        int? retryMinutes = null;
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
 
@@ -574,6 +589,15 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
                         : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
                 }
+                else if (call.Name == "programar_reintento" && canAskWhatsApp)
+                {
+                    // ADR-0121: el agente se auto-reprograma (acompana a la pregunta; no pausa por si mismo). El
+                    // runner lo estampa en AgentNextRetryAt al pausar por el WhatsApp.
+                    retryMinutes = ReadRetryMinutes(call.ArgumentsJson);
+                    result = retryMinutes is null
+                        ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
+                        : $$"""{"ok": true, "mensaje": "reintento programado en {{retryMinutes}} min si el cliente no responde"}""";
+                }
                 else if (call.Name == "enviar_correo" && canSendEmail)
                 {
                     // ADR-0093: el agente envia un correo (sincrono, sin pausa; el correo entrante no existe).
@@ -609,7 +633,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null,
-                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest);
+                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest, RetryInMinutes: retryMinutes);
         }
 
         // ADR-0092: el agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso; los campos ya
@@ -619,7 +643,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null,
-                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest);
+                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest, RetryInMinutes: retryMinutes);
         }
 
         if (!finished || fields.Count == 0)
@@ -672,6 +696,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             tools.Add(new AiToolSpec("preguntar_whatsapp",
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
+            tools.Add(BuildRetryTool());
         }
         if (canSendEmail)
         {
@@ -681,6 +706,34 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 """{"type":"object","properties":{"destinatario":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["destinatario","asunto","cuerpo"]}"""));
         }
         return tools;
+    }
+
+    /// <summary>ADR-0121: herramienta para que el agente se AUTO-REPROGRAME (reintento por silencio del cliente).
+    /// Se usa JUNTO con 'preguntar_whatsapp': "le escribo ahora y me reprogramo en X por si no responde".</summary>
+    private static AiToolSpec BuildRetryTool()
+        => new("programar_reintento",
+            "Programa TU PROPIO siguiente intento por si el cliente no responde a tu pregunta. 'en_minutos' es cuanto esperar antes de reintentar (ej. 1440 = 1 dia; min 5, max 43200). Usala en el MISMO turno que 'preguntar_whatsapp'. Si llega esa hora y el cliente sigue sin responder, volveras a correr con el contexto actualizado para enviarle un recordatorio (o rendirte si ya insististe). Si el cliente responde antes, el reintento se cancela solo.",
+            """{"type":"object","properties":{"en_minutos":{"type":"integer"}},"required":["en_minutos"]}""");
+
+    /// <summary>Lee 'en_minutos' de 'programar_reintento', acotado a [5, 43200] (30 dias). Null si no es valido.</summary>
+    private static int? ReadRetryMinutes(string argsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            if (doc.RootElement.TryGetProperty("en_minutos", out var m))
+            {
+                int? val = m.ValueKind switch
+                {
+                    JsonValueKind.Number when m.TryGetInt32(out var i) => i,
+                    JsonValueKind.String when int.TryParse(m.GetString(), out var i) => i,
+                    _ => null
+                };
+                if (val is int v) { return Math.Clamp(v, 5, 43200); }
+            }
+            return null;
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>Lee los argumentos de 'preguntar_whatsapp'. Null si falta el numero o la pregunta.</summary>
@@ -732,6 +785,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (canAskWhatsApp)
         {
             sb.AppendLine("Ademas tienes 'preguntar_whatsapp' para CONSEGUIR un dato preguntandole a una persona por WhatsApp. Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera de la respuesta y luego retomaras el llenado.");
+            sb.AppendLine("Al preguntar por WhatsApp, usa tambien 'programar_reintento' (en_minutos) por si no responde: al cumplirse volveras a correr para enviarle un recordatorio; si responde antes, se cancela solo.");
         }
         if (canSendEmail)
         {

@@ -221,14 +221,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // EN ESPERA; el webhook de Retell lo reanudara con el resultado. No se toca el resto de la decision.
         if (invocation.CallRequest is not null)
         {
-            return await PauseForCallAsync(step, nodeAgent, context, invocation.CallRequest, cancellationToken);
+            return await PauseForCallAsync(step, nodeAgent, context, invocation.CallRequest, invocation.RetryInMinutes, cancellationToken);
         }
 
         // ADR-0092: el agente pidio preguntar por WhatsApp. Se envia (asincrono) y el paso queda EN ESPERA de la
         // respuesta; la ingesta de chat lo reanudara. Mismo trato que la llamada.
         if (invocation.WhatsAppRequest is not null)
         {
-            return await PauseForWhatsAppAsync(step, nodeAgent, context, invocation.WhatsAppRequest, cancellationToken);
+            return await PauseForWhatsAppAsync(step, nodeAgent, context, invocation.WhatsAppRequest, invocation.RetryInMinutes, cancellationToken);
         }
 
         // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
@@ -270,6 +270,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // linea (SARA) vuelva a atender. Si veniamos de una pregunta por WhatsApp o una llamada, su espera termino.
         step.PendingWhatsAppConversationId = null;
         step.PendingVoiceCallId = null;
+        step.AgentNextRetryAt = null;   // ADR-0121: resuelto -> no hay reintento pendiente.
         // La propuesta guardada: la ruta en una compuerta, "Formulario" en un llenado, o el resultado en un Task.
         step.AgentProposalResult = isGateway ? Clip(routeLabel, 20) : (isForm ? "Formulario" : invocation.Result);
         step.AgentProposalComment = invocation.Comment;
@@ -334,7 +335,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// el barrido re-corra al agente con el resultado en el contexto. Si no se puede colocar -> vuelve a humano.</summary>
     private async Task<WorkflowAgentStepOutcome> PauseForCallAsync(
         WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
-        WorkflowAgentCallRequest callRequest, CancellationToken cancellationToken)
+        WorkflowAgentCallRequest callRequest, int? retryMinutes, CancellationToken cancellationToken)
     {
         if (context.Assignment?.VoiceAiAgentId is not Guid voiceAgentId)
         {
@@ -365,6 +366,8 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentProposalComment = Clip(callRequest.Objetivo, 2000);
         // Fecha limite (B): si la llamada nunca se resuelve, el reaper cerrara el paso pasada esta hora.
         step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
+        // ADR-0121: si el agente se auto-reprogramo, se estampa el reintento (antes del deadline duro).
+        step.AgentNextRetryAt = retryMinutes is int rm ? _clock.GetUtcNow().AddMinutes(rm) : null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AddTaskNoteAsync(step,
@@ -389,7 +392,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// para acotar el costo; si no se puede enviar o se supera el tope -> vuelve a una persona.</summary>
     private async Task<WorkflowAgentStepOutcome> PauseForWhatsAppAsync(
         WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
-        WorkflowAgentWhatsAppRequest request, CancellationToken cancellationToken)
+        WorkflowAgentWhatsAppRequest request, int? retryMinutes, CancellationToken cancellationToken)
     {
         if (context.Assignment?.WhatsAppLineId is not Guid lineId)
         {
@@ -429,6 +432,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentProposalComment = Clip(request.Pregunta, 2000);
         // Fecha limite (B): si la respuesta nunca llega, el reaper cerrara el paso pasada esta hora.
         step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
+        // ADR-0121: si el agente se auto-reprogramo ("por si no responde"), se estampa el reintento. Al cumplirse
+        // (sin respuesta del cliente) el barrido re-corre al agente para que envie un recordatorio.
+        step.AgentNextRetryAt = retryMinutes is int rm ? _clock.GetUtcNow().AddMinutes(rm) : null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AddTaskNoteAsync(step,
@@ -480,6 +486,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // Si veniamos de una llamada o un WhatsApp (reanudacion), ya se uso su resultado: el paso deja de esperarlos.
         step.PendingVoiceCallId = null;
         step.PendingWhatsAppConversationId = null;
+        step.AgentNextRetryAt = null;   // ADR-0121
 
         var taskId = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
@@ -559,6 +566,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             step.AgentAttemptCount += 1;
             step.ExecutedByAiAgentId = null;
             step.PendingWhatsAppConversationId = null;
+            step.AgentNextRetryAt = null;   // ADR-0121
             await _db.SaveChangesAsync(cancellationToken);
             _logger.LogInformation(
                 "Agente {AgentId}: paso {StepId} no resuelto; reintento {N}/{Max}.",
@@ -589,6 +597,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             step.AgentAttemptCount += 1;
             step.AgentFailureReason = Clip(reason, 500);
             step.AgentDeadlineAt = null;
+            step.AgentNextRetryAt = null;   // ADR-0121
             await _db.SaveChangesAsync(cancellationToken);
             var routed = await _engine.CompleteStepAsync(
                 step.InstanceId, step.Id, executedByTenantUserId: null,
@@ -616,6 +625,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.PendingVoiceCallId = null;
         step.PendingWhatsAppConversationId = null;
         step.AgentDeadlineAt = null;
+        step.AgentNextRetryAt = null;   // ADR-0121
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AssignToPersonIfUnambiguousAsync(step, cancellationToken);

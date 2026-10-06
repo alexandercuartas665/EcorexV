@@ -30,7 +30,11 @@ public sealed record WorkflowAgentContextDto(
     WorkflowAgentVoiceCallDto? VoiceCallResult = null,
     // ADR-0092: respuesta de WhatsApp a la pregunta que el agente hizo en un intento anterior (reanudacion).
     // No null cuando el paso esperaba una respuesta y ya llego: el agente la usa para seguir llenando/preguntar.
-    WorkflowAgentWhatsAppReplyDto? WhatsAppReplyResult = null);
+    WorkflowAgentWhatsAppReplyDto? WhatsAppReplyResult = null,
+    // ADR-0121: el agente ya pregunto por WhatsApp y el cliente NO ha respondido (sin inbound tras el ultimo
+    // saliente). Trae la hora del ultimo mensaje que le enviaste; es tu reintento programado -> envia un
+    // recordatorio breve o rindete si ya insististe. Null si no esta esperando o si ya respondio.
+    DateTimeOffset? WhatsAppAwaitingSince = null);
 
 /// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
 /// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>

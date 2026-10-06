@@ -46,9 +46,13 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         var flowMap = await BuildFlowMapAsync(step.InstanceId, cancellationToken);
         var voiceCall = await BuildVoiceCallResultAsync(step, cancellationToken);
         var whatsAppReply = await BuildWhatsAppReplyResultAsync(step, cancellationToken);
+        // ADR-0121: si pregunto y el cliente aun no responde, pasa la hora del ultimo saliente (reintento).
+        var awaitingSince = whatsAppReply is null
+            ? await BuildWhatsAppAwaitingSinceAsync(step, cancellationToken)
+            : (DateTimeOffset?)null;
 
         return WorkflowResult<WorkflowAgentContextDto>.Ok(new WorkflowAgentContextDto(
-            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply));
+            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply, awaitingSince));
     }
 
     /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el
@@ -70,6 +74,30 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             return null;
         }
         return new WorkflowAgentWhatsAppReplyDto(Clip(reply, WorkflowAgentContextLimits.MaxValueChars));
+    }
+
+    /// <summary>ADR-0121: si el paso esta esperando una respuesta de WhatsApp (PendingWhatsAppConversationId) y
+    /// NO hay entrante tras el ultimo saliente, devuelve la hora de ese ultimo saliente: el cliente no ha
+    /// respondido y este es el reintento programado (el agente enviara un recordatorio). Null si no espera o si
+    /// ya hay respuesta (en ese caso manda BuildWhatsAppReplyResultAsync).</summary>
+    private async Task<DateTimeOffset?> BuildWhatsAppAwaitingSinceAsync(
+        Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        if (step.PendingWhatsAppConversationId is not Guid conversationId)
+        {
+            return null;
+        }
+        var lastOut = await _db.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound)
+            .MaxAsync(m => (DateTimeOffset?)m.SentAt, cancellationToken);
+        if (lastOut is null)
+        {
+            return null;
+        }
+        var hasReplyAfter = await _db.Messages.AsNoTracking()
+            .AnyAsync(m => m.ConversationId == conversationId
+                && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound && m.SentAt > lastOut, cancellationToken);
+        return hasReplyAfter ? null : lastOut;
     }
 
     /// <summary>ADR-0091: si el paso esperaba una llamada (PendingVoiceCallId), trae el transcript y los datos

@@ -117,6 +117,7 @@ public sealed class ChatIngestService : IChatIngestService
         foreach (var s in waitingSteps)
         {
             s.AgentAttemptedAt = null;
+            s.AgentNextRetryAt = null;   // ADR-0121: el cliente respondio -> el reintento programado ya no hace falta.
         }
 
         // ADR-0120: si la conversacion esta "tomada por el flujo" (un paso vigente espera esta respuesta), el

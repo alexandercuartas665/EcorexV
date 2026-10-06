@@ -256,11 +256,21 @@ public class AiAgentLineServiceTests
         public bool HasActiveTransaction => false;
     }
 
+    private sealed class NoopAgentRunner : Ecorex.Application.Workflows.IWorkflowAgentStepRunner
+    {
+        public Task<Ecorex.Application.Workflows.WorkflowAgentStepOutcome> RunAsync(Guid stepId, CancellationToken cancellationToken = default)
+            => Task.FromResult(Ecorex.Application.Workflows.WorkflowAgentStepOutcome.NotApplicable);
+        public Task<bool> CancelAsync(Guid stepId, Guid actorTenantUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+        public Task<bool> TimeoutAsync(Guid stepId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+    }
+
     private static (AiAgentLineService Svc, InnerDb Inner, FakeAudit Audit) NewService()
     {
         var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var audit = new FakeAudit();
-        return (new AiAgentLineService(new FakeAppDb(inner), new FakeTenant(), audit), inner, audit);
+        return (new AiAgentLineService(new FakeAppDb(inner), new FakeTenant(), audit, new NoopAgentRunner()), inner, audit);
     }
 
     [Fact]

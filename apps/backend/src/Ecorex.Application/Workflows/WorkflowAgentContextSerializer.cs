@@ -84,6 +84,14 @@ public static class WorkflowAgentContextSerializer
                 ? "- (la persona aun no responde nada util)"
                 : $"- La persona respondio: {wa.ReplyText}");
         }
+        // ADR-0121: ya preguntaste y el cliente NO ha respondido -> es tu reintento programado.
+        else if (context.WhatsAppAwaitingSince is { } since)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Cliente sin responder (reintento)");
+            sb.AppendLine($"- Ya le escribiste por WhatsApp (ultimo mensaje: {since.ToLocalTime():yyyy-MM-dd HH:mm}) y AUN NO HA RESPONDIDO.");
+            sb.AppendLine("- Si aun tiene sentido, envia un recordatorio BREVE y cordial con 'preguntar_whatsapp' (y 'programar_reintento' de nuevo si quieres otro intento). Si ya insististe lo suficiente, no insistas mas.");
+        }
 
         // (b) Lo ya capturado antes: es donde suele estar el dato que decide el paso.
         if (context.FlowMap.Count > 0)

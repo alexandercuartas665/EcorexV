@@ -16331,6 +16331,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("agent_failure_reason");
 
+                    b.Property<DateTimeOffset?>("AgentNextRetryAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("agent_next_retry_at");
+
                     b.Property<string>("AgentProposalComment")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")

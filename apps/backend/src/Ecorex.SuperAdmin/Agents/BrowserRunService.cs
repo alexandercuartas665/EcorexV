@@ -343,9 +343,13 @@ public sealed class BrowserRunService(
         }
 
         var varName = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!.Trim();
-        // El token puede venir URL-encodeado (p.ej. un enlace envuelto en SafeLinks de Outlook, donde la URL
-        // real va en el parametro url=... percent-encoded). Con UrlDecode lo dejamos listo para navegar.
-        var tokenValue = cfg.UrlDecode ? Uri.UnescapeDataString(read.Token!) : read.Token!;
+        // El token/enlace puede venir codificado de dos formas segun como llegue el correo:
+        //  - entidades HTML en el href (correo reenviado: ...AuthToken?pk=..&amp;rk=..) -> HtmlDecode
+        //  - percent-encoding (enlace envuelto en SafeLinks de Outlook: url=https%3A%2F%2F..) -> UnescapeDataString
+        // Con UrlDecode aplicamos ambos (en ese orden) para dejarlo listo para navegar.
+        var tokenValue = cfg.UrlDecode
+            ? Uri.UnescapeDataString(System.Net.WebUtility.HtmlDecode(read.Token!))
+            : read.Token!;
         var session = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
         session[varName] = tokenValue;
 

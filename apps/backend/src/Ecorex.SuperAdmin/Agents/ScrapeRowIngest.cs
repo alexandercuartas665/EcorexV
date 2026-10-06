@@ -44,12 +44,15 @@ public static class ScrapeRowIngest
         return rows;
     }
 
-    /// <summary>Ingiere filas (ya materializadas) en la tabla destino, modo Append (cada corrida agrega).
-    /// Devuelve (insertadas, actualizadas, borradas). Resuelve el mapeo campo->columna: si hay
-    /// <paramref name="mappingJson"/> (campo->nombreColumna) lo invierte; si no, identidad por nombre.</summary>
+    /// <summary>Ingiere filas (ya materializadas) en la tabla destino. Resuelve el mapeo campo->columna: si
+    /// hay <paramref name="mappingJson"/> (campo->nombreColumna) lo invierte; si no, identidad por nombre.
+    /// Modo: por defecto Append (cada corrida agrega). Si <paramref name="keyColumnName"/> apunta a una
+    /// columna mapeada, usa Upsert por esa clave (idempotente: inserta si no existe, actualiza si coincide),
+    /// asi re-correr el flujo NO duplica. Devuelve (insertadas, actualizadas, borradas).</summary>
     public static async Task<(int Inserted, int Updated, int Deleted)> IngestAsync(
         IRowIngestService ingest, IApplicationDbContext db, Guid containerId, Guid tenantId,
-        string? mappingJson, IReadOnlyList<IReadOnlyDictionary<string, string?>> rows, CancellationToken ct)
+        string? mappingJson, IReadOnlyList<IReadOnlyDictionary<string, string?>> rows, CancellationToken ct,
+        string? keyColumnName = null)
     {
         if (rows.Count == 0) { return (0, 0, 0); }
         var mapping = await BuildMappingAsync(db, containerId, mappingJson, ct);
@@ -58,7 +61,23 @@ public static class ScrapeRowIngest
             throw new InvalidOperationException(
                 "El mapeo no apunta a ninguna columna escalar de la tabla destino.");
         }
-        var session = ingest.CreateSession(containerId, tenantId, mapping, ApiImportMode.Append, null);
+
+        var mode = ApiImportMode.Append;
+        Guid? keyColumnId = null;
+        if (!string.IsNullOrWhiteSpace(keyColumnName))
+        {
+            keyColumnId = await db.DataContainerColumns.AsNoTracking()
+                .Where(c => c.ContainerId == containerId && c.Name == keyColumnName)
+                .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(ct);
+            if (keyColumnId is Guid kid && mapping.ContainsKey(kid)) { mode = ApiImportMode.Upsert; }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"La columna clave de ingesta '{keyColumnName}' no existe o no esta mapeada en la tabla destino.");
+            }
+        }
+
+        var session = ingest.CreateSession(containerId, tenantId, mapping, mode, keyColumnId);
         await session.PrepareAsync(ct);
         await session.IngestChunkAsync(rows, ct);
         return (session.Inserted, session.Updated, session.Deleted);

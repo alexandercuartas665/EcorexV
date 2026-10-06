@@ -11706,6 +11706,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("flow_id");
 
+                    b.Property<string>("IngestKeyColumn")
+                        .HasColumnType("text")
+                        .HasColumnName("ingest_key_column");
+
                     b.Property<string>("IngestPath")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")

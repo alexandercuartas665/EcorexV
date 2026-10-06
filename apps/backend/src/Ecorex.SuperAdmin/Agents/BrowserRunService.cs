@@ -467,7 +467,7 @@ public sealed class BrowserRunService(
                         var rows2 = ScrapeRowIngest.ParseRows(ingJson);
                         if (rows2.Count > 0)
                         {
-                            var (i2, u2, d2) = await ScrapeRowIngest.IngestAsync(ingest, db, cid, tenantId, step.MappingJson, rows2, ct);
+                            var (i2, u2, d2) = await ScrapeRowIngest.IngestAsync(ingest, db, cid, tenantId, step.MappingJson, rows2, ct, step.IngestKeyColumn);
                             ins += i2; upd += u2; del += d2;
                         }
                     }

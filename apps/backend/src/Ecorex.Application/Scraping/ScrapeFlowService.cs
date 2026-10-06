@@ -271,6 +271,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.LoopOverVar = NullIfBlank(req.LoopOverVar);
         entity.IsLoopEnd = req.IsLoopEnd;
         entity.IngestPath = NullIfBlank(req.IngestPath);
+        entity.IngestKeyColumn = NullIfBlank(req.IngestKeyColumn);
         entity.PageCountVar = NullIfBlank(req.PageCountVar);
         entity.IsPageNext = req.IsPageNext;
         entity.RuleId = req.RuleId;
@@ -358,7 +359,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         s.Id, s.FlowId, s.Order, s.Kind, s.Name, s.WaitMs, s.Url, s.Script, s.Selector, s.MappingJson,
         s.Instruction, s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel,
         s.WarningLabel, s.WarningAction, s.OutputVar, s.LoopOverVar, s.IsLoopEnd, s.IngestPath,
-        s.PageCountVar, s.IsPageNext, s.RuleId, s.RuleInputVar);
+        s.IngestKeyColumn, s.PageCountVar, s.IsPageNext, s.RuleId, s.RuleInputVar);
 
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
         new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret);

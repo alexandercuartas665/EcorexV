@@ -127,6 +127,14 @@ public class ScrapeStep : TenantEntity
     /// "DETALLE.items" = varias). Reusa <see cref="MappingJson"/> para mapear campos->columnas.</summary>
     public string? IngestPath { get; set; }
 
+    /// <summary>Nombre de la columna destino que hace de CLAVE para ingesta IDEMPOTENTE (modo Upsert): si
+    /// esta puesto, en vez de agregar siempre (Append) la ingesta reconcilia por esa columna (inserta si no
+    /// existe, actualiza la fila existente si coincide), asi re-correr el flujo NO duplica. Para una tabla
+    /// con una fila por entidad usar su identificador (p.ej. "PETOF"); para una tabla con varias filas por
+    /// entidad usar una clave compuesta por fila (p.ej. una columna "CLAVE" = PETOF-ITEM). Si esta vacio, la
+    /// ingesta sigue en modo Append.</summary>
+    public string? IngestKeyColumn { get; set; }
+
     // ---- Paginacion data-driven (motor del dron, Ola 3) ----
 
     /// <summary>En el paso que inicia el bucle (<see cref="LoopOverVar"/>): ruta del contexto al numero TOTAL

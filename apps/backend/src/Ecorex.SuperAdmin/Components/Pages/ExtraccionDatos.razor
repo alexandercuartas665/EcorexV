@@ -419,6 +419,13 @@
                                             </select></div>
                                         <div class="xd-prop"><label>Mapeo campo -&gt; columna (JSON, opcional)</label>
                                             <textarea class="xd-input xd-code-input" rows="3" placeholder='{"petof":"PETICION","solicitud":"SOLICITUD"}' @bind="_sMappingJson"></textarea></div>
+                                        <div class="xd-prop"><label>Clave de idempotencia (columna, opcional)</label>
+                                            <input class="xd-input mono" placeholder="PETOF" @bind="_sIngestKeyColumn" />
+                                            <div class="xd-help">Si la pones, la ingesta hace <b>Upsert</b> por esa columna destino (debe estar mapeada):
+                                                re-correr el flujo NO duplica (inserta si no existe, actualiza si coincide). Para 1 fila por entidad
+                                                usa su id (p.ej. <code>PETOF</code>); para varias filas por entidad usa una clave por fila
+                                                (p.ej. una columna <code>CLAVE</code>). Vacio = Append (agrega siempre).</div>
+                                        </div>
                                     }
 
                                     @* ---- ENSAMBLADO -> Regla: motor del dron, Ola 4 ---- *@
@@ -678,6 +685,7 @@
     private string _sLoopOverVar = "";
     private bool _sIsLoopEnd;
     private string _sIngestPath = "";
+    private string _sIngestKeyColumn = "";
     private string _sPageCountVar = "";
     private bool _sIsPageNext;
     private string _sRuleId = "";
@@ -1021,6 +1029,7 @@
         _sLoopOverVar = s?.LoopOverVar ?? "";
         _sIsLoopEnd = s?.IsLoopEnd ?? false;
         _sIngestPath = s?.IngestPath ?? "";
+        _sIngestKeyColumn = s?.IngestKeyColumn ?? "";
         _sPageCountVar = s?.PageCountVar ?? "";
         _sIsPageNext = s?.IsPageNext ?? false;
         _sRuleId = s?.RuleId?.ToString() ?? "";
@@ -1086,6 +1095,7 @@
                 WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction,
                 OutputVar: NullIfBlank(_sOutputVar), LoopOverVar: NullIfBlank(_sLoopOverVar),
                 IsLoopEnd: _sIsLoopEnd, IngestPath: NullIfBlank(_sIngestPath),
+                IngestKeyColumn: NullIfBlank(_sIngestKeyColumn),
                 PageCountVar: NullIfBlank(_sPageCountVar), IsPageNext: _sIsPageNext,
                 RuleId: ParseGuid(_sRuleId), RuleInputVar: NullIfBlank(_sRuleInputVar));
             var saved = await FlowSvc.SaveStepAsync(req, _actor);

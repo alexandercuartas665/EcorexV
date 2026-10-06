@@ -4,6 +4,7 @@ using Ecorex.Domain.Enums;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -33,6 +34,29 @@ public sealed class EcorexApiFactory : WebApplicationFactory<Program>, IAsyncLif
         builder.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
         builder.UseSetting("Jwt:SigningKey", SigningKey);
         builder.UseSetting("Database:AutoMigrate", "false");
+
+        // El host del Api (ValidateOnBuild) necesita ITemplateMediaStore e IDocumentoFileStore, cuyas
+        // implementaciones viven en SuperAdmin (no referenciado por el Api). Estos endpoints de Auth no ejercitan
+        // media de plantillas ni archivos de documentos, asi que basta un doble No-Op para que el host arranque.
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddScoped<Ecorex.Application.Notifications.ITemplateMediaStore, NoOpTemplateMediaStore>();
+            services.AddScoped<Ecorex.Application.Documentos.IDocumentoFileStore, NoOpDocumentoFileStore>();
+        });
+    }
+
+    private sealed class NoOpTemplateMediaStore : Ecorex.Application.Notifications.ITemplateMediaStore
+    {
+        public Task<string?> PublishAsync(byte[] bytes, string fileName, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+    }
+
+    private sealed class NoOpDocumentoFileStore : Ecorex.Application.Documentos.IDocumentoFileStore
+    {
+        public Task<string> SaveAsync(Guid tenantId, byte[] contenido, string extension, CancellationToken ct = default)
+            => Task.FromResult(string.Empty);
+        public Task<byte[]?> ReadAsync(string urlPublica, CancellationToken ct = default)
+            => Task.FromResult<byte[]?>(null);
     }
 
     public async Task InitializeAsync()

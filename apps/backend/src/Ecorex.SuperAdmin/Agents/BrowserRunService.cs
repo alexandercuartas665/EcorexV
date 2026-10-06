@@ -343,12 +343,15 @@ public sealed class BrowserRunService(
         }
 
         var varName = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!.Trim();
+        // El token puede venir URL-encodeado (p.ej. un enlace envuelto en SafeLinks de Outlook, donde la URL
+        // real va en el parametro url=... percent-encoded). Con UrlDecode lo dejamos listo para navegar.
+        var tokenValue = cfg.UrlDecode ? Uri.UnescapeDataString(read.Token!) : read.Token!;
         var session = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
-        session[varName] = read.Token!;
+        session[varName] = tokenValue;
 
-        var detail = $"Token leido en {{{{{varName}}}}}: {read.Token}";
+        var detail = $"Token leido en {{{{{varName}}}}}: {tokenValue}";
         await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, detail, ct);
-        return new StepRunResult(true, false, null, null, read.Token, 0, 0, 0, detail);
+        return new StepRunResult(true, false, null, null, tokenValue, 0, 0, 0, detail);
     }
 
     public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)
@@ -589,7 +592,7 @@ public sealed class BrowserRunService(
 
     /// <summary>Config del paso "Leer token de correo", serializada en ScrapeStep.MappingJson (misma forma
     /// que la que arma la UI de Extraccion de datos).</summary>
-    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds, bool UrlDecode = false);
 
     private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
 

@@ -366,6 +366,7 @@
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Variable destino (se inserta como &#123;&#123;NOMBRE&#125;&#125; en pasos siguientes)</label><input class="xd-input" placeholder="TOKEN" @bind="_sOtpVar" /></div>
                                         <div class="xd-prop"><label>Timeout de espera (seg)</label><input class="xd-input" type="number" @bind="_sOtpTimeout" /></div>
+                                        <label class="xd-check"><input type="checkbox" @bind="_sOtpUrlDecode" /> Decodificar URL del token (para enlaces envueltos en SafeLinks: deja la URL lista para navegar)</label>
                                     </div>
                                     <div class="xd-props-actions">
                                         <button class="xd-btn" @onclick="ProbarOtpAsync" disabled="@(_busy || string.IsNullOrEmpty(_sOtpMailbox))">@(_busy ? "Leyendo..." : "Probar lectura")</button>
@@ -700,6 +701,7 @@
     private string _sOtpRegex = @"\b(\d{4,8})\b";
     private string _sOtpVar = "TOKEN";
     private string _sOtpTimeout = "120";
+    private bool _sOtpUrlDecode;
     private OtpReadResult? _otpTest;
 
     // Editor de variable
@@ -1037,7 +1039,7 @@
 
         // Paso "Leer token de correo": su config vive en MappingJson.
         _otpTest = null;
-        _sOtpMailbox = ""; _sOtpFrom = ""; _sOtpSubject = ""; _sOtpRegex = @"\b(\d{4,8})\b"; _sOtpVar = "TOKEN"; _sOtpTimeout = "120";
+        _sOtpMailbox = ""; _sOtpFrom = ""; _sOtpSubject = ""; _sOtpRegex = @"\b(\d{4,8})\b"; _sOtpVar = "TOKEN"; _sOtpTimeout = "120"; _sOtpUrlDecode = false;
         if (s?.Kind == ScrapeStepKind.LeerCorreoOtp && !string.IsNullOrWhiteSpace(s.MappingJson))
         {
             try
@@ -1051,13 +1053,14 @@
                     _sOtpRegex = string.IsNullOrWhiteSpace(cfg.Regex) ? _sOtpRegex : cfg.Regex!;
                     _sOtpVar = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!;
                     _sOtpTimeout = (cfg.TimeoutSeconds > 0 ? cfg.TimeoutSeconds : 120).ToString();
+                    _sOtpUrlDecode = cfg.UrlDecode;
                 }
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
         }
     }
 
-    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds, bool UrlDecode = false);
 
     private async Task ProbarOtpAsync()
     {
@@ -1083,7 +1086,7 @@
                 ? System.Text.Json.JsonSerializer.Serialize(new OtpStepConfig(
                     ParseGuid(_sOtpMailbox), NullIfBlank(_sOtpFrom), NullIfBlank(_sOtpSubject),
                     string.IsNullOrWhiteSpace(_sOtpRegex) ? @"\b(\d{4,8})\b" : _sOtpRegex.Trim(),
-                    string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120))
+                    string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120, _sOtpUrlDecode))
                 : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,

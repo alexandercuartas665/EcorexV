@@ -403,7 +403,14 @@ public sealed class BrowserRunService(
 
             var sessionKey = StepSessionKeyFor(flowId);
             var paginate = !string.IsNullOrWhiteSpace(start.PageCountVar);
-            var pageSteps = ordered.Where(s => s.IsPageNext).ToList(); // avance+recarga entre paginas (Ola 3)
+            // Pasos de avance de pagina (Ola 3): los IsPageNext que pertenecen a ESTE bucle, es decir los que
+            // caen despues de su inicio y antes del siguiente inicio de bucle (otro LoopOverVar). Asi un flujo
+            // con dos bucles paginados (p.ej. Pendientes e Historico) no mezcla sus avances de pagina.
+            var nextLoopStartOrder = ordered
+                .Where(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) && s.Order > start.Order)
+                .Select(s => (int?)s.Order).Min();
+            var pageSteps = ordered.Where(s => s.IsPageNext && s.Order > start.Order
+                && (nextLoopStartOrder is null || s.Order < nextLoopStartOrder)).ToList(); // avance+recarga entre paginas
             int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0;
             string? lastErr = null, lastShot = null;
             var started = DateTimeOffset.UtcNow;

@@ -39,7 +39,7 @@ public class ContactSearchHeuristicsTests
     {
         var html = "(601) 3905099 | 6013905099 | +57 601 3905099";
         var phones = ContactSearchRunner.DistinctKeep(ContactSearchRunner.ExtractPhones(html));
-        Assert.Single(phones.Where(p => p == "6013905099"));
+        Assert.Single(phones, p => p == "6013905099");
     }
 
     [Theory]

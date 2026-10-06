@@ -203,6 +203,12 @@ public class ScheduledUpsertRunTests
         public DbSet<ScrapeStep> ScrapeSteps => NotUsed<ScrapeStep>();
         public DbSet<ScrapeVariable> ScrapeVariables => NotUsed<ScrapeVariable>();
         public DbSet<ScrapeFlowRun> ScrapeFlowRuns => NotUsed<ScrapeFlowRun>();
+        public DbSet<OtpMailboxConfig> OtpMailboxConfigs => throw new NotSupportedException();
+        public DbSet<ConciliacionDianDocumento> ConciliacionDianDocumentos => throw new NotSupportedException();
+        public DbSet<ConciliacionDianRenglon> ConciliacionDianRenglones => throw new NotSupportedException();
+        public DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies => throw new NotSupportedException();
+        public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => throw new NotSupportedException();
+        public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => throw new NotSupportedException();
         public DbSet<AgentActivityLog> AgentActivityLogs => NotUsed<AgentActivityLog>();
         public DbSet<Warehouse> Warehouses => NotUsed<Warehouse>();
         public DbSet<Brand> Brands => NotUsed<Brand>();

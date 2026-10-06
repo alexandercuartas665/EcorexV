@@ -190,6 +190,12 @@ public class TenantUserServiceTests
         public DbSet<ScrapeStep> ScrapeSteps => throw new NotSupportedException();
         public DbSet<ScrapeVariable> ScrapeVariables => throw new NotSupportedException();
         public DbSet<ScrapeFlowRun> ScrapeFlowRuns => throw new NotSupportedException();
+        public DbSet<OtpMailboxConfig> OtpMailboxConfigs => throw new NotSupportedException();
+        public DbSet<ConciliacionDianDocumento> ConciliacionDianDocumentos => throw new NotSupportedException();
+        public DbSet<ConciliacionDianRenglon> ConciliacionDianRenglones => throw new NotSupportedException();
+        public DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies => throw new NotSupportedException();
+        public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => throw new NotSupportedException();
+        public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => throw new NotSupportedException();
         public DbSet<AgentActivityLog> AgentActivityLogs => throw new NotSupportedException();
         public DbSet<Warehouse> Warehouses => throw new NotSupportedException();
         public DbSet<Brand> Brands => throw new NotSupportedException();

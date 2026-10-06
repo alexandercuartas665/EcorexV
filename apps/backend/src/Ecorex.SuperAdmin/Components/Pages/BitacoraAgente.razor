@@ -46,13 +46,19 @@
         <div style="display:flex;flex-direction:column;gap:6px;">
             @foreach (var h in _held)
             {
-                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;border-bottom:1px solid var(--border);padding-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;border-bottom:1px solid var(--border);padding-bottom:6px;">
                     <div>
                         <strong>@(string.IsNullOrWhiteSpace(h.ContactName) ? h.ContactPhone : h.ContactName)</strong>
                         <span class="text-muted">@h.ContactPhone @(h.LineLabel is null ? "" : $"- linea {h.LineLabel}")</span>
                     </div>
-                    <div class="text-muted">
-                        Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span class="text-muted">
+                            Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
+                        </span>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ReleaseHoldAsync(h.ConversationId)" disabled="@_busy"
+                                title="Libera esta linea del flujo: el paso vuelve a atencion humana y el agente de la linea (SARA) retoma la conversacion.">
+                            @(_busy ? "..." : "Liberar linea")
+                        </button>
                     </div>
                 </div>
             }
@@ -191,6 +197,21 @@ else
             _selectedId = null; _log = new();
             await ReloadAsync();
             _flash = $"Conversacion reiniciada: {logs} log(s), {cache} dato(s) de cache y {messages} mensaje(s) eliminados.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ReleaseHoldAsync(Guid conversationId)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Liberar esta linea del flujo? El paso del agente vuelve a atencion humana y el agente de la linea (SARA) retoma la conversacion.")) { return; }
+        _busy = true; _flash = null;
+        try
+        {
+            var n = await AgentLinesSvc.ReleaseFlowHoldAsync(conversationId);
+            await ReloadAsync();
+            _flash = n > 0
+                ? $"Linea liberada: {n} paso(s) devuelto(s) a atencion humana. SARA retoma la conversacion."
+                : "No se libero ningun paso (puede que el flujo ya la haya soltado).";
         }
         finally { _busy = false; }
     }

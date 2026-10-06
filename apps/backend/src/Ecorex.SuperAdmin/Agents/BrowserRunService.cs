@@ -423,13 +423,16 @@ public sealed class BrowserRunService(
                     return true;
                 }
 
+                // El correlationId debe ser EL MISMO al compilar (que FIRMA el JS ligado a ese corr) y al
+                // despachar: el agente verifica la firma contra el corr del request. Usar dos distintos =
+                // "Firma de JS invalida".
+                var corr = NewCorr();
                 var prepared = SubstitutedClone(step, ctx);
                 CompiledFlow compiled;
-                try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, NewCorr(), secret); }
+                try { compiled = ScrapeFlowCompiler.CompileSteps(new[] { prepared }, flow.ContainerId, EmptyVars, corr, secret); }
                 catch (ScrapeCompileException ex) { lastErr = ex.Message; return false; }
                 if (compiled.Actions.Count == 0) { return true; }
 
-                var corr = NewCorr();
                 var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
                 var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
                 BrowserResultMsg result;

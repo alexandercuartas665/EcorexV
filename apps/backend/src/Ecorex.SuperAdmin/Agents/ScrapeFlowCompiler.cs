@@ -184,13 +184,23 @@ public static class ScrapeFlowCompiler
         // que se ejecuta). El salto de linea final evita que un comentario `//` al final se coma el cierre.
         //
         // Dos estilos conviven: los pasos NATIVOS son un cuerpo (`return [...]`) y van tal cual; los pasos
-        // LEGACY del dron son una EXPRESION/IIFE (`(function(){...})()`) cuyo valor se perderia al envolver
-        // (el envoltorio no tiene return). Para poder CAPTURAR su salida (OutputVar del motor, Ola 1) se
-        // envuelven con `return (...)`. Heuristica: empieza con '(' => expresion; si no, cuerpo.
-        var trimmed = js.TrimStart();
-        var body = trimmed.StartsWith("(")
-            ? "(function(){\nreturn (\n" + js + "\n);\n})()"
-            : "(function(){\n" + js + "\n})()";
+        // LEGACY del dron son una EXPRESION/IIFE (`(function(){...})()` o `(() => {...})()`) cuyo valor se
+        // perderia al envolver (el envoltorio no tiene return). Para poder CAPTURAR su salida (OutputVar del
+        // motor, Ola 1) se envuelven con `return (...)`. Heuristica: empieza con '(' => expresion; si no, cuerpo.
+        string body;
+        if (js.TrimStart().StartsWith("("))
+        {
+            // IMPORTANTE: una EXPRESION dentro de `return ( ... )` NO puede llevar `;` final (p.ej. el login
+            // `(() => {...})();`), porque `return (expr;)` es error de sintaxis -> ExecuteScriptAsync devuelve
+            // null y el JS no corre. Se recortan los `;` y espacios finales antes de envolver.
+            var expr = js.TrimEnd();
+            while (expr.EndsWith(";")) { expr = expr[..^1].TrimEnd(); }
+            body = "(function(){\nreturn (\n" + expr + "\n);\n})()";
+        }
+        else
+        {
+            body = "(function(){\n" + js + "\n})()";
+        }
         return new(BrowserActionKind.Eval, Script: body, Signature: Sign(body, correlationId, secret, step));
     }
 

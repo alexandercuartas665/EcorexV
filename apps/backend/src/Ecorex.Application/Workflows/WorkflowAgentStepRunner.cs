@@ -268,6 +268,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentAttemptedAt = now;
         // ADR-0120: el paso se RESUELVE (no se pausa): deja de "poseer" la conversacion para que el agente de la
         // linea (SARA) vuelva a atender. Si veniamos de una pregunta por WhatsApp o una llamada, su espera termino.
+        await ReleaseConversationHoldAsync(step, cancellationToken);   // ADR-0122: suelta la marca en la conversacion
         step.PendingWhatsAppConversationId = null;
         step.PendingVoiceCallId = null;
         step.AgentNextRetryAt = null;   // ADR-0121: resuelto -> no hay reintento pendiente.
@@ -414,6 +415,27 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             }
         }
 
+        // ADR-0122: UN SOLO DUENO. Si la conversacion con este contacto por esta linea ya la tomo OTRO paso
+        // vigente del flujo, no se toma en paralelo (evita que dos nodos le escriban al mismo cliente y que su
+        // respuesta reanude a ambos). Si el dueno anotado ya no esta vigente, se puede retomar (abajo se re-anota).
+        var digits = new string(request.Numero.Where(char.IsDigit).ToArray());
+        var existingHolder = await _db.Conversations.AsNoTracking()
+            .Where(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits && c.FlowHoldStepId != null)
+            .Select(c => c.FlowHoldStepId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (existingHolder is Guid holder && holder != step.Id)
+        {
+            var holderActive = await _db.WorkflowStepHistories.AsNoTracking()
+                .AnyAsync(s => s.Id == holder && s.IsCurrent && s.Status == WorkflowStepStatus.Pending, cancellationToken);
+            if (holderActive)
+            {
+                return await ReturnToPersonAsync(
+                    step, nodeAgent,
+                    "La conversacion con este contacto ya la esta atendiendo otro paso del flujo por la misma linea; no se toma en paralelo.",
+                    cancellationToken);
+            }
+        }
+
         var sent = await _whatsApp.AskAsync(new WhatsAppAskCommand(
             step.TenantId, lineId, request.Numero, request.Pregunta,
             context.Assignment.WhatsAppTemplateName, context.Assignment.WhatsAppTemplateLang), cancellationToken);
@@ -430,6 +452,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.PendingWhatsAppConversationId = conversationId;
         step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
         step.AgentProposalComment = Clip(request.Pregunta, 2000);
+        // ADR-0122: anota en la CONVERSACION el paso y el NODO que la tomaron ("el id del nodo que lo hizo"),
+        // para enrutar la respuesta exactamente a este paso/nodo y para el guard de un solo dueno.
+        var heldConv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (heldConv is not null)
+        {
+            heldConv.FlowHoldStepId = step.Id;
+            heldConv.FlowHoldNodeId = step.NodeId;
+        }
         // Fecha limite (B): si la respuesta nunca llega, el reaper cerrara el paso pasada esta hora.
         step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
         // ADR-0121: si el agente se auto-reprogramo ("por si no responde"), se estampa el reintento. Al cumplirse
@@ -484,6 +514,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     {
         var autonomous = nodeAgent.Autonomy == WorkflowAgentAutonomy.Autonomous;
         // Si veniamos de una llamada o un WhatsApp (reanudacion), ya se uso su resultado: el paso deja de esperarlos.
+        await ReleaseConversationHoldAsync(step, cancellationToken);   // ADR-0122
         step.PendingVoiceCallId = null;
         step.PendingWhatsAppConversationId = null;
         step.AgentNextRetryAt = null;   // ADR-0121
@@ -565,6 +596,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             step.AgentAttemptCount += 1;
             step.ExecutedByAiAgentId = null;
+            await ReleaseConversationHoldAsync(step, cancellationToken);   // ADR-0122
             step.PendingWhatsAppConversationId = null;
             step.AgentNextRetryAt = null;   // ADR-0121
             await _db.SaveChangesAsync(cancellationToken);
@@ -598,6 +630,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             step.AgentFailureReason = Clip(reason, 500);
             step.AgentDeadlineAt = null;
             step.AgentNextRetryAt = null;   // ADR-0121
+            await ReleaseConversationHoldAsync(step, cancellationToken);   // ADR-0122
             await _db.SaveChangesAsync(cancellationToken);
             var routed = await _engine.CompleteStepAsync(
                 step.InstanceId, step.Id, executedByTenantUserId: null,
@@ -622,6 +655,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentAttemptCount += 1;
         step.ExecutedByAiAgentId = null;
         step.AgentFailureReason = Clip(reason, 500);
+        await ReleaseConversationHoldAsync(step, cancellationToken);   // ADR-0122
         step.PendingVoiceCallId = null;
         step.PendingWhatsAppConversationId = null;
         step.AgentDeadlineAt = null;
@@ -742,6 +776,21 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     {
         try { await _progress.AgentProgressAsync(tenantId, taskId, nodeId, phase, tokens); }
         catch { /* best-effort: un fallo del stream no afecta al paso */ }
+    }
+
+    /// <summary>ADR-0122: libera la marca de "tomada por el flujo" (FlowHoldStepId/FlowHoldNodeId) de la
+    /// conversacion que ESTE paso tenia anotada. Se llama al RESOLVER, devolver a persona o fallar, para que el
+    /// agente de la linea (SARA) y otros pasos puedan volver a usarla. Solo la suelta si el dueno sigue siendo
+    /// este paso (no pisa una toma mas nueva).</summary>
+    private async Task ReleaseConversationHoldAsync(WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        if (step.PendingWhatsAppConversationId is not Guid conversationId) { return; }
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (conv is not null && conv.FlowHoldStepId == step.Id)
+        {
+            conv.FlowHoldStepId = null;
+            conv.FlowHoldNodeId = null;
+        }
     }
 
     /// <summary>

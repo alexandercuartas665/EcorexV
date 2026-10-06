@@ -110,10 +110,16 @@ public sealed class ChatIngestService : IChatIngestService
         // Se limpia AgentAttemptedAt (conservando PendingWhatsAppConversationId, que el agente lee para tener la
         // respuesta en su contexto) para que el barrido de agentes vuelva a correr el paso. Consulta acotada e
         // indexada por conversacion; el guard de colision en AgentConversationService evita la doble respuesta.
-        var waitingSteps = await _db.WorkflowStepHistories
-            .IgnoreQueryFilters()
-            .Where(s => s.TenantId == tenantId && s.PendingWhatsAppConversationId == conversation.Id && s.IsCurrent)
-            .ToListAsync(cancellationToken);
+        // ADR-0122: si la conversacion fue "tomada por el flujo", la respuesta se enruta EXACTAMENTE al paso/nodo
+        // que la tomo (FlowHoldStepId) -un solo dueno-, no a todos los pasos que casualmente la esperen. Sin
+        // marca (holds viejos) se cae al comportamiento anterior por PendingWhatsAppConversationId.
+        var waitingSteps = conversation.FlowHoldStepId is Guid ownerStepId
+            ? await _db.WorkflowStepHistories.IgnoreQueryFilters()
+                .Where(s => s.TenantId == tenantId && s.Id == ownerStepId && s.IsCurrent)
+                .ToListAsync(cancellationToken)
+            : await _db.WorkflowStepHistories.IgnoreQueryFilters()
+                .Where(s => s.TenantId == tenantId && s.PendingWhatsAppConversationId == conversation.Id && s.IsCurrent)
+                .ToListAsync(cancellationToken);
         foreach (var s in waitingSteps)
         {
             s.AgentAttemptedAt = null;

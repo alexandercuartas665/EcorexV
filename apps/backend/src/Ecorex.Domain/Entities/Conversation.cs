@@ -43,4 +43,18 @@ public class Conversation : TenantEntity
     /// <summary>Cuando se envio el ultimo paso de reactivacion. Null = aun no se envio ninguno. Sirve para
     /// detectar que el cliente respondio DESPUES del ultimo seguimiento (reinicio de la secuencia).</summary>
     public DateTimeOffset? ReactivacionUltimoEnvioAt { get; set; }
+
+    /// <summary>
+    /// ADR-0122: la conversacion esta "tomada por el flujo". Cuando un paso de agente toma la linea para
+    /// preguntarle al cliente, anota AQUI el PASO (<see cref="FlowHoldStepId"/>) y el NODO
+    /// (<see cref="FlowHoldNodeId"/>) que la tomo. Sirve para: (1) UN SOLO DUENO -ningun otro paso puede tomar
+    /// la misma conversacion a la vez-, (2) enrutar la respuesta del cliente EXACTAMENTE a ese paso/nodo (no a
+    /// todos los que esperan), (3) que SARA (agente de la linea) se calle mientras este tomada. Null = libre;
+    /// el flujo la libera (pone null) al resolver la salida o devolver a persona.
+    /// </summary>
+    public Guid? FlowHoldStepId { get; set; }
+
+    /// <summary>ADR-0122: el NODO del flujo que tomo esta conversacion (ver <see cref="FlowHoldStepId"/>). Es "el
+    /// id del nodo que lo hizo", para atender la respuesta desde ese flujo y ese nodo.</summary>
+    public Guid? FlowHoldNodeId { get; set; }
 }

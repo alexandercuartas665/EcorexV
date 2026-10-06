@@ -2694,6 +2694,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("FlowHoldNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_hold_node_id");
+
+                    b.Property<Guid?>("FlowHoldStepId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_hold_step_id");
+
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_message_at");

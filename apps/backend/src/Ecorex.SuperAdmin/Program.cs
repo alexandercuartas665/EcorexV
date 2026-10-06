@@ -1014,6 +1014,33 @@ if (app.Environment.IsDevelopment())
             return Results.Ok(new { ok = true, node, step, task });
         }).AllowAnonymous();
 
+        // Atajo de DESARROLLO para SIMULAR un mensaje ENTRANTE del cliente en una linea (el webhook real de
+        // Evolution apunta a prod, asi que una instancia local nunca recibe la respuesta). Inyecta por el MISMO
+        // pipeline real (IChatIngestService.IngestTrustedAsync): persiste el inbound, reanuda el paso del agente
+        // que esperaba por esa conversacion y escribe la respuesta en la bitacora. Solo Development.
+        // Uso: /dev/inbound?line={lineId}&phone={digitos}&body={texto}
+        app.MapGet("/dev/inbound", async (IServiceProvider sp, Guid line, string phone, string body) =>
+        {
+            using var scope = sp.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            var l = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == line);
+            if (l is null) { return Results.NotFound("line"); }
+            using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(l.TenantId))
+            {
+                var ingest = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Tenancy.IChatIngestService>();
+                var payload = new Ecorex.Application.Tenancy.IngestMessageRequest(
+                    ContactPhone: phone,
+                    ContactName: null,
+                    ExternalMessageId: "dev-" + Guid.NewGuid().ToString("N"),
+                    Body: body,
+                    MessageType: "text",
+                    SentAt: DateTimeOffset.UtcNow,
+                    WhatsAppLineId: line);
+                var res = await ingest.IngestTrustedAsync(l.TenantId, payload);
+                return Results.Ok(new { ok = true, result = res.ToString(), line, phone, body });
+            }
+        }).AllowAnonymous();
+
         // Atajo de DESARROLLO para PRUEBA DE CARGA del import de items: crea N items via el mismo camino real
         // (IItemService.ImportAsync -> CreateAsync por fila: SKU consecutivo + stock + validacion) y mide el
         // tiempo. Los items quedan con nombre 'CARGA {hora}-{i}' para poder limpiarlos. Solo Development.

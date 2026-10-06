@@ -119,6 +119,31 @@ public sealed class ChatIngestService : IChatIngestService
             s.AgentAttemptedAt = null;
         }
 
+        // ADR-0120: si la conversacion esta "tomada por el flujo" (un paso vigente espera esta respuesta), el
+        // arnes del flujo deja la respuesta del cliente en la BITACORA DEL AGENTE. Asi la bitacora queda completa
+        // (el agente pregunto -> el cliente respondio -> el agente decide) y, cuando el agente conversacional
+        // (SARA) retome esa linea al liberarse el paso, tiene el rastro. Atribuida al agente ligado a la linea.
+        if (waitingSteps.Count > 0 && lineId is Guid heldLineId)
+        {
+            var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+                .Where(b => b.WhatsAppLineId == heldLineId)
+                .Select(b => (Guid?)b.AgentId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (boundAgentId is Guid aid)
+            {
+                _db.AiAgentRunLogs.Add(new AiAgentRunLog
+                {
+                    TenantId = tenantId,
+                    ConversationId = conversation.Id,
+                    AgentId = aid,
+                    OccurredAt = now,
+                    Kind = AiAgentRunLogKind.Info,
+                    Title = "El cliente respondio al flujo",
+                    Content = string.IsNullOrWhiteSpace(payload.Body) ? "(mensaje sin texto)" : payload.Body
+                });
+            }
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var dto = new MessageDto(message.Id, message.ConversationId, message.Direction, message.Body,

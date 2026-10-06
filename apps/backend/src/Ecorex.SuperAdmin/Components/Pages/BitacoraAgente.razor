@@ -36,6 +36,30 @@
     </div>
 }
 
+@if (_held.Count > 0)
+{
+    <div class="card" style="padding:14px;margin-bottom:14px;border-left:3px solid var(--primary);">
+        <div style="font-weight:800;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+            <span class="badge bg-primary">@_held.Count</span>
+            Lineas atendidas por el flujo <span class="text-muted" style="font-weight:600;">(el agente del paso tomo la linea; SARA en silencio hasta que libere la salida)</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+            @foreach (var h in _held)
+            {
+                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;border-bottom:1px solid var(--border);padding-bottom:6px;">
+                    <div>
+                        <strong>@(string.IsNullOrWhiteSpace(h.ContactName) ? h.ContactPhone : h.ContactName)</strong>
+                        <span class="text-muted">@h.ContactPhone @(h.LineLabel is null ? "" : $"- linea {h.LineLabel}")</span>
+                    </div>
+                    <div class="text-muted">
+                        Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
 @if (_loading)
 {
     <p><em>Cargando...</em></p>
@@ -123,6 +147,7 @@ else
     private bool _busy;
     private string? _flash;
     private List<AgentConversationDto> _convs = new();
+    private List<FlowHeldConversationDto> _held = new();
     private Guid? _selectedId;
     private List<AgentRunLogEntryDto> _log = new();
 
@@ -179,6 +204,7 @@ else
     private async Task ReloadAsync()
     {
         _convs = (await AgentLinesSvc.ListAttendedConversationsAsync()).ToList();
+        _held = (await AgentLinesSvc.ListFlowHeldConversationsAsync()).ToList();
         if (_selectedId is Guid id && _convs.All(c => c.ConversationId != id)) { _selectedId = null; _log = new(); }
     }
 

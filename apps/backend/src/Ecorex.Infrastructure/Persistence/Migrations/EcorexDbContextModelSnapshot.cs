@@ -12339,6 +12339,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("allowed_user_ids_json");
 
+                    b.Property<int>("AutoArchiveDoneDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("auto_archive_done_days");
+
                     b.Property<bool>("CardPrimaryContact")
                         .HasColumnType("boolean")
                         .HasColumnName("card_primary_contact");
@@ -16450,6 +16454,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("bpmn_element_id");
+
+                    b.Property<string>("CloseReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("close_reason");
 
                     b.Property<string>("Color")
                         .HasMaxLength(20)

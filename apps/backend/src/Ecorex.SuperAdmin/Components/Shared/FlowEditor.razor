@@ -998,9 +998,19 @@ else
     // Enlace flujo <-> tableros: tableros del tenant + sus columnas (para configurar el destino por nodo).
     private List<(Guid Id, string Name)> _boards = new();
     private readonly Dictionary<Guid, IReadOnlyList<TaskBoardColumnDto>> _columnsByBoard = new();
+    // Conceptos de cierre por tablero (ADR-0123): alimentan el selector "Concepto de cierre" del nodo.
+    private readonly Dictionary<Guid, IReadOnlyList<string>> _closeReasonsByBoard = new();
 
     private IReadOnlyList<TaskBoardColumnDto> ColumnsFor(Guid boardId)
         => _columnsByBoard.GetValueOrDefault(boardId) ?? Array.Empty<TaskBoardColumnDto>();
+
+    private IReadOnlyList<string> CloseReasonsFor(Guid boardId)
+        => _closeReasonsByBoard.GetValueOrDefault(boardId) ?? Array.Empty<string>();
+
+    /// <summary>True si la columna destino del nodo es una columna de CIERRE (IsDone) del tablero destino.</summary>
+    private bool TargetColumnIsDone(FlowCanvasNodeDto node)
+        => node.TargetBoardId is Guid b && node.TargetColumnId is Guid c
+           && ColumnsFor(b).Any(col => col.Id == c && col.IsDone);
 
     private async Task LoadBoardsAsync()
     {
@@ -1009,6 +1019,11 @@ else
             // Selector de tablero destino del flujo (diseno): se muestran todos, sin la restriccion por usuario.
             var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(CanSeeRestricted: true));
             _boards = index.Boards.Select(b => (b.Id, b.Name)).ToList();
+            // Conceptos de cierre por tablero (ADR-0123): para el selector "Concepto de cierre" del nodo.
+            foreach (var b in index.Boards)
+            {
+                _closeReasonsByBoard[b.Id] = b.CloseReasons ?? Array.Empty<string>();
+            }
             // Columnas de cada tablero (pocos tableros en un tenant; se cachean para los selectores).
             foreach (var (id, _) in _boards)
             {
@@ -1325,10 +1340,44 @@ else
                         <option value="">Primera columna</option>
                         @foreach (var c in ColumnsFor(tb))
                         {
-                            <option value="@c.Id">@c.Name</option>
+                            <option value="@c.Id">@c.Name@(c.IsDone ? " (cierre)" : "")</option>
                         }
                     </select>
                 </div>
+
+                @* Concepto de cierre (ADR-0123): SOLO si la columna destino es de cierre. El flujo lo estampa
+                   en la tarea al llegar aqui (equivalente automatico del prompt manual). Obligatorio. *@
+                @if (TargetColumnIsDone(node))
+                {
+                    var reasons = CloseReasonsFor(tb);
+                    <div class="fe-field">
+                        <label>Concepto de cierre (obligatorio al cerrar)</label>
+                        @if (reasons.Count == 0)
+                        {
+                            <div class="fe-hint" style="color:var(--danger,#b4232a);">
+                                Este tablero no tiene conceptos de cierre. Configuralos en el tablero
+                                (Estados del tablero &rarr; motivos de cierre) para poder elegir uno aqui.
+                            </div>
+                        }
+                        else
+                        {
+                            <select class="fe-input sm" value="@(node.CloseReason ?? "")"
+                                    @onchange="@(e => OnNodeCloseReasonChangedAsync(node, e))">
+                                <option value="">-- Elige el concepto --</option>
+                                @foreach (var r in reasons)
+                                {
+                                    <option value="@r">@r</option>
+                                }
+                            </select>
+                            @if (string.IsNullOrWhiteSpace(node.CloseReason))
+                            {
+                                <div class="fe-hint" style="color:var(--danger,#b4232a);">
+                                    Elige con que concepto se archivara la tarea al cerrarse por este paso.
+                                </div>
+                            }
+                        }
+                    </div>
+                }
             }
 
         @* Apariencia del nodo (restaurado del canvas propio): color de paleta + nota post-it. Son
@@ -1995,6 +2044,17 @@ else
         await GuardAsync(async () =>
         {
             var result = await DesignSvc.SetNodeBoardTargetAsync(node.Id, node.TargetBoardId, columnId);
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
+
+    private async Task OnNodeCloseReasonChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var concept = e.Value?.ToString();
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeCloseReasonAsync(node.Id, concept);
             if (!result.IsOk) { _error = result.Error; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
         });

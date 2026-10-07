@@ -244,6 +244,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.Note = sourceNode.Note;
             draftNode.TargetBoardId = sourceNode.TargetBoardId;
             draftNode.TargetColumnId = sourceNode.TargetColumnId;
+            draftNode.CloseReason = sourceNode.CloseReason;
             draftNode.JumpToDefinitionId = sourceNode.JumpToDefinitionId;
             draftNode.AssigneeSource = sourceNode.AssigneeSource;
             draftNode.AssigneeFormFieldCode = sourceNode.AssigneeFormFieldCode;
@@ -975,21 +976,80 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             var board = await _db.TaskBoards.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bid, cancellationToken);
             if (board is null) { return WorkflowResult<bool>.Invalid("El tablero destino no existe."); }
+            var columnIsDone = false;
             if (columnId is Guid cid)
             {
-                var okCol = await _db.TaskBoardColumns.AsNoTracking().AnyAsync(c => c.Id == cid && c.BoardId == bid, cancellationToken);
-                if (!okCol) { return WorkflowResult<bool>.Invalid("La columna no pertenece al tablero destino."); }
+                var col = await _db.TaskBoardColumns.AsNoTracking()
+                    .Where(c => c.Id == cid && c.BoardId == bid)
+                    .Select(c => new { c.IsDone }).FirstOrDefaultAsync(cancellationToken);
+                if (col is null) { return WorkflowResult<bool>.Invalid("La columna no pertenece al tablero destino."); }
+                columnIsDone = col.IsDone;
             }
             node.TargetBoardId = bid;
             node.TargetColumnId = columnId;
+            // El concepto de cierre (ADR-0123) solo aplica a columnas de cierre: si la nueva columna no es de
+            // cierre, se limpia el concepto que hubiera quedado de una seleccion anterior.
+            if (!columnIsDone) { node.CloseReason = null; }
         }
         else
         {
             node.TargetBoardId = null;
             node.TargetColumnId = null;
+            node.CloseReason = null;
         }
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Fija el CONCEPTO DE CIERRE (ADR-0123) que el flujo estampara en la tarea cuando este nodo la
+    /// lleve a su columna de cierre. Solo valido si el nodo apunta a una columna con IsDone del tablero
+    /// destino; el concepto debe ser uno de los motivos de cierre del tablero. closeReason null/blanco = limpia.</summary>
+    public async Task<WorkflowResult<bool>> SetNodeCloseReasonAsync(
+        Guid nodeId, string? closeReason, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null) { return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado."); }
+
+        var chosen = (closeReason ?? string.Empty).Trim();
+        if (chosen.Length == 0) { node.CloseReason = null; await _db.SaveChangesAsync(cancellationToken); return WorkflowResult<bool>.Ok(true); }
+
+        if (node.TargetBoardId is not Guid bid || node.TargetColumnId is not Guid cid)
+        {
+            return WorkflowResult<bool>.Invalid("Primero elige el tablero y la columna de cierre.");
+        }
+        var col = await _db.TaskBoardColumns.AsNoTracking()
+            .Where(c => c.Id == cid && c.BoardId == bid).Select(c => new { c.IsDone }).FirstOrDefaultAsync(cancellationToken);
+        if (col is null || !col.IsDone)
+        {
+            return WorkflowResult<bool>.Invalid("El concepto de cierre solo aplica a una columna de cierre.");
+        }
+        var reasonsJson = await _db.TaskBoards.AsNoTracking()
+            .Where(b => b.Id == bid).Select(b => b.CloseReasonsJson).FirstOrDefaultAsync(cancellationToken);
+        var reasons = ParseBoardCloseReasons(reasonsJson);
+        if (reasons.Count == 0)
+        {
+            return WorkflowResult<bool>.Invalid("El tablero destino no tiene conceptos de cierre configurados.");
+        }
+        if (!reasons.Any(r => string.Equals(r, chosen, StringComparison.CurrentCultureIgnoreCase)))
+        {
+            return WorkflowResult<bool>.Invalid("El concepto no es uno de los conceptos de cierre del tablero.");
+        }
+        node.CloseReason = chosen.Length > 200 ? chosen[..200] : chosen;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Parsea el arreglo JSON de conceptos de cierre del tablero (TaskBoard.CloseReasonsJson).</summary>
+    private static IReadOnlyList<string> ParseBoardCloseReasons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try
+        {
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json!);
+            return list is null ? Array.Empty<string>()
+                : list.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0).ToList();
+        }
+        catch { return Array.Empty<string>(); }
     }
 
     public async Task<WorkflowResult<bool>> SetNodeJumpAsync(
@@ -1872,7 +1932,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
                 n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson,
-                n.RuntimeLayoutDx, n.RuntimeLayoutDy);
+                n.RuntimeLayoutDx, n.RuntimeLayoutDy, n.CloseReason);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

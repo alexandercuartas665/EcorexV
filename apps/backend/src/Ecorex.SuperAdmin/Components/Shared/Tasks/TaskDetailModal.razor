@@ -112,13 +112,13 @@
                     <button class="tk-conflict-x" @onclick="@(() => _moveNote = null)">&times;</button>
                 </div>
             }
-            @* Prompt de motivo de cierre (opcional) al mover a una columna final del tablero. *@
+            @* Prompt de concepto de cierre (OBLIGATORIO, ADR-0123) al mover a una columna de cierre. *@
             @if (_pendingCloseColumn is not null)
             {
                 <div class="tk-closeask-overlay" @onclick="@(() => _pendingCloseColumn = null)" @onclick:stopPropagation="true">
                     <div class="tk-closeask" @onclick:stopPropagation="true">
-                        <div class="tk-closeask-h">Motivo de cierre <span>(opcional)</span></div>
-                        <p class="tk-closeask-sub">Vas a mover la tarea a <strong>@_pendingCloseColumn.Name</strong>. Elige un motivo o ciérrala sin motivo.</p>
+                        <div class="tk-closeask-h">Concepto de cierre <span>(obligatorio)</span></div>
+                        <p class="tk-closeask-sub">Vas a cerrar la tarea en <strong>@_pendingCloseColumn.Name</strong>. Elige con que concepto se cierra.</p>
                         <div class="tk-closeask-opts">
                             @foreach (var motivo in _closeReasons)
                             {
@@ -128,7 +128,6 @@
                         </div>
                         <div class="tk-closeask-foot">
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _pendingCloseColumn = null)" disabled="@_busy">Cancelar</button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ConfirmCloseAsync(null))" disabled="@_busy">Cerrar sin motivo</button>
                         </div>
                     </div>
                 </div>

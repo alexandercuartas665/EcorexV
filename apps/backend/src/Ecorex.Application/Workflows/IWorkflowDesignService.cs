@@ -121,6 +121,10 @@ public interface IWorkflowDesignService
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija (o limpia, con null) el CONCEPTO DE CIERRE (ADR-0123) que el flujo estampa al llevar la
+    /// actividad a la columna de cierre del nodo. Debe ser uno de los conceptos del tablero destino.</summary>
+    Task<WorkflowResult<bool>> SetNodeCloseReasonAsync(Guid nodeId, string? closeReason, CancellationToken cancellationToken = default);
+
     /// <summary>Fija (o quita, con null) el flujo destino al que "salta" el nodo (handoff a otro proceso).
     /// Referencia suelta, se muestra en el panel del nodo (no se dibuja en el lienzo).</summary>
     Task<WorkflowResult<bool>> SetNodeJumpAsync(Guid nodeId, Guid? jumpToDefinitionId, CancellationToken cancellationToken = default);

@@ -26,7 +26,11 @@ public sealed record ActivityBoardSummaryDto(
     bool CardPrimaryContact = false,
     // Restriccion de visibilidad por usuario (TenantUserId autorizados). Null/vacio = todos. Se usa para
     // precargar el editor del tablero en el administrador; en la bandeja/menu rapido no se expone.
-    IReadOnlyList<Guid>? AllowedUserIds = null);
+    IReadOnlyList<Guid>? AllowedUserIds = null,
+    // Auto-archivado (ADR-0123): dias que una tarea cerrada aguanta antes de archivarse sola. 0 = nunca.
+    int AutoArchiveDoneDays = 15,
+    // Motivos/conceptos de cierre del tablero (para el selector "Concepto de cierre" del nodo de flujo).
+    IReadOnlyList<string>? CloseReasons = null);
 
 public sealed record ActivityBoardIndexDto(
     IReadOnlyList<ActivityBoardSummaryDto> Boards, ActivityBoardKpisDto Kpis);
@@ -76,7 +80,9 @@ public sealed record UpdateActivityBoardRequest(
     bool? CardPrimaryContact = null,
     // Restriccion de visibilidad por usuario: null = NO tocar; lista vacia = quitar la restriccion (todos);
     // lista con ids = solo esos TenantUser (mas Owner/Admin) ven el tablero.
-    IReadOnlyList<Guid>? AllowedUserIds = null);
+    IReadOnlyList<Guid>? AllowedUserIds = null,
+    // Auto-archivado (ADR-0123): dias para archivar lo cerrado. Null = NO tocar; 0 = nunca; >0 = plazo.
+    int? AutoArchiveDoneDays = null);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope
@@ -179,7 +185,9 @@ public sealed record ActivityBoardDetailDto(
     // Motivos de cierre configurados del tablero (para pedirlos al mover a una columna final). Vacio = no se pregunta.
     IReadOnlyList<string>? CloseReasons = null,
     // Si las tarjetas muestran el nombre del contacto/cliente como titulo (en vez del titulo de la actividad).
-    bool CardPrimaryContact = false);
+    bool CardPrimaryContact = false,
+    // Auto-archivado (ADR-0123): dias para archivar lo cerrado. 0 = nunca.
+    int AutoArchiveDoneDays = 15);
 
 /// <summary>
 /// Creacion rapida desde la columna del tablero. ActivityTypeId null usa el primer tipo

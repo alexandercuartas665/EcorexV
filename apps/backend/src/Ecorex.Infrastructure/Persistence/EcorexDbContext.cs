@@ -1540,6 +1540,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.StartDelayJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
+            // Concepto de cierre que el flujo estampa al llegar a una columna de cierre (ADR-0123).
+            b.Property(x => x.CloseReason).HasMaxLength(200);
         });
 
         // Dias no operativos del tenant (Fase 1 - plazos de flujo): festivos/no operativos que el modo habil

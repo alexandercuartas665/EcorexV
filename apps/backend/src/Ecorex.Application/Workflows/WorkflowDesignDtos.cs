@@ -62,7 +62,9 @@ public sealed record FlowCanvasNodeDto(
     string? StartDelayJson = null,
     // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
     int? RuntimeLayoutDx = null,
-    int? RuntimeLayoutDy = null);
+    int? RuntimeLayoutDy = null,
+    // Concepto de cierre (ADR-0123) que el flujo estampa al llegar a una columna de cierre. Null = sin concepto.
+    string? CloseReason = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

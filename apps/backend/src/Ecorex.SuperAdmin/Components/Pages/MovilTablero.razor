@@ -281,6 +281,26 @@
     </div>
 }
 
+@* ---- Concepto de cierre (OBLIGATORIO, ADR-0123) al mover a una columna de cierre ---- *@
+@if (_conceptCard is { } cnCard && _conceptTarget is { } cnTarget)
+{
+    <div class="mv-overlay bottom" @onclick="CancelConcept">
+        <div class="mv-sheet" @onclick:stopPropagation="true">
+            <div class="mv-grip"></div>
+            <div class="mv-sheet-title">@cnCard.Number</div>
+            <div class="mv-sheet-sub">Cerrar en @cnTarget.Name &mdash; elige el concepto</div>
+            @foreach (var concept in (_detail?.CloseReasons ?? Array.Empty<string>()))
+            {
+                var cc = concept;
+                <button class="mv-state-btn" disabled="@_busy" @onclick="@(() => ConfirmConceptAsync(cc))">
+                    <span class="mv-dot"></span>@cc
+                </button>
+            }
+            <button class="mv-sheet-close" @onclick="CancelConcept">Cancelar</button>
+        </div>
+    </div>
+}
+
 @* ---- Hoja de escaneo ---- *@
 @if (_scanOpen)
 {
@@ -400,17 +420,53 @@
     private void OpenMove(ActivityCardDto card) => _moveCard = card;
     private void CloseMove() => _moveCard = null;
 
+    // Concepto de cierre pendiente (ADR-0123): al mover a una columna de cierre con conceptos, se pregunta.
+    private ActivityCardDto? _conceptCard;
+    private ActivityBoardColumnDto? _conceptTarget;
+    private string? _conceptFromName;
+
     private async Task MoveToAsync(ActivityCardDto card, ActivityBoardColumnDto target)
     {
         if (card.ColumnId == target.Id) { return; }
+        await MoveWithConceptCheckAsync(card, target, null);
+    }
+
+    /// <summary>Si cae en columna de cierre con conceptos configurados, pregunta el concepto; si no, mueve.</summary>
+    private async Task MoveWithConceptCheckAsync(ActivityCardDto card, ActivityBoardColumnDto target, string? fromName)
+    {
+        if (target.IsDone && (_detail?.CloseReasons?.Count ?? 0) > 0)
+        {
+            _conceptCard = card; _conceptTarget = target; _conceptFromName = fromName;
+            _moveCard = null;
+            StateHasChanged();
+            return;
+        }
+        await ExecMoveAsync(card, target, fromName, null);
+    }
+
+    private void CancelConcept() { _conceptCard = null; _conceptTarget = null; _conceptFromName = null; }
+
+    private async Task ConfirmConceptAsync(string concept)
+    {
+        var card = _conceptCard; var target = _conceptTarget; var from = _conceptFromName;
+        CancelConcept();
+        if (card is not null && target is not null) { await ExecMoveAsync(card, target, from, concept); }
+    }
+
+    private async Task ExecMoveAsync(ActivityCardDto card, ActivityBoardColumnDto target, string? fromName, string? concept)
+    {
         _busy = true;
         try
         {
-            var res = await BoardsSvc.MoveTaskAsync(card.Id, target.Id, 0, _actorId, _actorName);
-            if (res.IsOk) { ShowToast($"{card.Number} -> {target.Name}", true); await ReloadAsync(); }
+            var res = await BoardsSvc.MoveTaskAsync(card.Id, target.Id, 0, _actorId, _actorName, concept);
+            if (res.IsOk)
+            {
+                ShowToast(fromName is null ? $"{card.Number} -> {target.Name}" : $"{card.Number}: {fromName} -> {target.Name}", true);
+                await ReloadAsync();
+            }
             else { ShowToast(res.Error ?? "No se pudo mover.", false); }
         }
-        finally { _busy = false; _moveCard = null; }
+        finally { _busy = false; _moveCard = null; ClearPending(); }
     }
 
     // ---- Escaneo ----
@@ -616,15 +672,10 @@
     private async Task ConfirmAdvanceAsync()
     {
         if (_pendingCard is not { } card || _pendingTo is not { } to) { return; }
-        _busy = true;
-        try
-        {
-            // TODO (siguiente iteracion): ejecutar aqui las reglas de negocio ANTES/DESPUES de avanzar.
-            var res = await BoardsSvc.MoveTaskAsync(card.Id, to.Id, 0, _actorId, _actorName);
-            if (res.IsOk) { ShowToast($"{card.Number}: {_pendingFrom?.Name} -> {to.Name}", true); await ReloadAsync(); }
-            else { ShowToast(res.Error ?? "No se pudo avanzar.", false); }
-        }
-        finally { _busy = false; ClearPending(); }
+        var fromName = _pendingFrom?.Name;
+        ClearPending();
+        // Si avanza a una columna de cierre con conceptos, se pide el concepto (obligatorio); si no, mueve.
+        await MoveWithConceptCheckAsync(card, to, fromName);
     }
 
     private void ClearPending() { _pendingCard = null; _pendingFrom = null; _pendingTo = null; }

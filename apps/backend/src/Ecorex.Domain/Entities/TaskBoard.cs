@@ -58,6 +58,14 @@ public class TaskBoard : TenantEntity
     /// tarea a una columna final (IsDone) se ofrece elegir uno (OPCIONAL). Null/vacio = no se pregunta.</summary>
     public string? CloseReasonsJson { get; set; }
 
+    /// <summary>
+    /// Auto-archivado (ADR-0123): dias que una tarea CERRADA (Status Done/Closed, en una columna IsDone)
+    /// puede permanecer en el tablero antes de archivarse sola. Un worker diario archiva las que superen
+    /// este plazo (reloj = <c>TaskItem.ColumnEnteredAt</c>). 0 = NUNCA auto-archivar (solo manual).
+    /// Default 15 para tableros nuevos; los existentes se siembran aparte (rollout).
+    /// </summary>
+    public int AutoArchiveDoneDays { get; set; } = 15;
+
     /// <summary>Si el tablero esta habilitado para el MODULO MOVIL con lector de codigo de barras
     /// (/movil/tablero). Solo los tableros con este flag aparecen en el selector del modulo movil.
     /// Por defecto FALSE: hay que habilitarlo explicitamente en la configuracion del tablero.</summary>

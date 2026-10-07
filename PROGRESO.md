@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-06 - Auto-archivado de tareas cerradas por tablero + concepto de cierre obligatorio (ADR-0123)
+
+- Problema: las tarjetas caen en la columna de cierre y se quedan ahi para siempre (nada archiva). El
+  archivado de tareas era 100% manual. Ademas el concepto/motivo de cierre era opcional.
+- Decision (ADR-0123): la regla de desaparicion vive en el TABLERO (`AutoArchiveDoneDays`, default 15, 0=nunca);
+  el disparador se ancla en "cerrada" (Status Done/Closed) + columna IsDone + N dias (reloj `ColumnEnteredAt`),
+  lo que protege a un flujo VIVO parqueado en una columna de cierre intermedia (no esta Done -> no se archiva).
+  Concepto de cierre OBLIGATORIO: manual PREGUNTA (se retiro "Cerrar sin motivo"); el flujo lo pre-configura en
+  CUALQUIER nodo con columna de cierre (`WorkflowNode.CloseReason`) y lo estampa al completar.
+- Hecho (sin deploy):
+  - Dominio: `TaskBoard.AutoArchiveDoneDays`, `WorkflowNode.CloseReason`. Migracion DUAL
+    (AddBoardAutoArchiveAndNodeCloseReason); defaultValue 3 SIEMBRA los tableros existentes (nuevos = 15).
+  - Servidor: guard de concepto obligatorio en `ActivityBoardService.MoveTaskAsync`; estampado del flujo en
+    `WorkflowEngine.MoveTaskToNodeTargetAsync`; `SetNodeCloseReasonAsync` (valida contra la lista del tablero);
+    `ITaskAutoArchiveService` + `TaskAutoArchiveWorker` (diario, tenant-scoped via AmbientTenantContext).
+  - UI: campo "Auto-archivar lo cerrado (dias)" en config del tablero; selector "Concepto de cierre" en el nodo
+    del FlowEditor (debajo de tablero/columna, solo si la columna es "Cierra"); prompt de cierre obligatorio en
+    TaskDetailModal, ActivityBoardDetail (drag) y MovilTablero.
+  - Gates: build verde; unitarias 1112 (Application) + 35 (Domain) + 173 (SuperAdmin); `dotnet format` limpio
+    (de paso se formateo ContactSearchRunner.cs, que venia con WHITESPACE pre-existente del merge del DRON);
+    has-pending-model-changes limpio en ambos contextos.
+  - Validado en local: migracion aplicada (16 tableros sembrados = 3); config del tablero round-trip OK
+    (guardo dias=5 + 3 conceptos, verificado en BD).
+- Siguiente: E2E de cierre (manual exige concepto -> archiva a los N dias) y de flujo (estampa + archiva al
+  completar; parqueo intermedio NO archiva). Decidir ventana de deploy.
+- Bloqueos: ninguno.
+
 ## 2026-09-30 - Extraccion de datos: traer config legacy al modulo NATIVO ScrapeFlow (worktree conciliacion-dian)
 
 - Objetivo: traer las extracciones del legacy NEWFRONT_web_scraping (000730, WEB_SCRAPING* en M700_GEN/SOLDARCO)

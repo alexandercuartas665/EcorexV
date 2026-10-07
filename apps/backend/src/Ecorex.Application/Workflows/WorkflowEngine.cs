@@ -1134,15 +1134,36 @@ public sealed class WorkflowEngine : IWorkflowEngine
     private async Task MoveTaskToNodeTargetAsync(TaskItem task, WorkflowNode node, CancellationToken cancellationToken)
     {
         if (node.TargetBoardId is not Guid targetBoard) { return; }
-        var targetColumn = node.TargetColumnId ?? await _db.TaskBoardColumns.AsNoTracking()
-            .Where(c => c.BoardId == targetBoard)
-            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
-            .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
+        Guid? targetColumn;
+        bool columnIsDone;
+        if (node.TargetColumnId is Guid fixedCol)
+        {
+            targetColumn = fixedCol;
+            // Solo se consulta el flag de cierre; si la columna no existe, se preserva el id configurado.
+            columnIsDone = await _db.TaskBoardColumns.AsNoTracking()
+                .Where(c => c.Id == fixedCol).Select(c => c.IsDone).FirstOrDefaultAsync(cancellationToken);
+        }
+        else
+        {
+            var first = await _db.TaskBoardColumns.AsNoTracking()
+                .Where(c => c.BoardId == targetBoard)
+                .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+                .Select(c => new { c.Id, c.IsDone }).FirstOrDefaultAsync(cancellationToken);
+            targetColumn = first?.Id;
+            columnIsDone = first?.IsDone ?? false;
+        }
         if (targetColumn is Guid col && (task.BoardId != targetBoard || task.ColumnId != col))
         {
             task.BoardId = targetBoard;
             task.ColumnId = col;
             task.ColumnEnteredAt = DateTimeOffset.UtcNow;
+        }
+        // Concepto de cierre (ADR-0123): si el nodo cae en una columna de cierre y trae concepto, el flujo lo
+        // estampa en la tarea (equivalente automatico del prompt manual). Se recorta a 200 como el cierre manual.
+        if (targetColumn is not null && columnIsDone && !string.IsNullOrWhiteSpace(node.CloseReason))
+        {
+            var cr = node.CloseReason!.Trim();
+            task.CloseReason = cr.Length > 200 ? cr[..200] : cr;
         }
     }
 

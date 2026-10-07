@@ -264,6 +264,9 @@ if (!disableWorkers)
     // Secuencia de reactivacion del agente: revive contactos dormidos (texto <=24h / plantilla >24h, regla
     // de Meta). Mismo motivo para vivir aqui que los workers de arriba (prod solo levanta ecorex-app).
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.AgentReactivationWorker>();
+    // Auto-archivado de tareas cerradas por tablero (ADR-0123): archiva lo que lleva N dias cerrado en
+    // una columna de cierre. Mismo motivo para vivir aqui que los workers de arriba (prod solo levanta ecorex-app).
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.TaskAutoArchiveWorker>();
 }
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();

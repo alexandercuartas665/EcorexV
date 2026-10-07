@@ -193,7 +193,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                 board.Status, board.DueDate, board.IsArchived, board.SortOrder,
                 columns.Where(c => c.BoardId == board.Id).Select(c => c.Name).ToList(),
                 progress, boardTasks.Count, members, board.MobileScanEnabled, board.CardPrimaryContact,
-                ParseUserIds(board.AllowedUserIdsJson)));
+                ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson)));
         }
 
         return new ActivityBoardIndexDto(summaries,
@@ -342,6 +342,11 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             board.AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds);
         }
+        // Auto-archivado (ADR-0123): null = no tocar; se clampa a [0, 3650] (0 = nunca).
+        if (request.AutoArchiveDoneDays is int days)
+        {
+            board.AutoArchiveDoneDays = Math.Clamp(days, 0, 3650);
+        }
         await _db.SaveChangesAsync(cancellationToken);
 
         var columnNames = await _db.TaskBoardColumns.AsNoTracking()
@@ -353,7 +358,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.Id, board.Code, board.Name, board.Description, board.Color,
             board.Status, board.DueDate, board.IsArchived, board.SortOrder,
             columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled, board.CardPrimaryContact,
-            ParseUserIds(board.AllowedUserIdsJson)));
+            ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson)));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteBoardAsync(Guid boardId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -596,7 +601,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.Id, board.Code, board.Name, board.Description, board.Status, board.DueDate,
             board.IsArchived, columnDtos,
             new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
-            board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson), board.CardPrimaryContact));
+            board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson), board.CardPrimaryContact,
+            board.AutoArchiveDoneDays));
     }
 
     public async Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default)
@@ -680,6 +686,28 @@ public sealed class ActivityBoardService : IActivityBoardService
         if (column is null || column.BoardId != boardId)
         {
             return TaskCoreResult<MoveTaskResultDto>.Invalid("La columna destino no pertenece al tablero de la tarea.");
+        }
+
+        // Concepto de cierre OBLIGATORIO (ADR-0123): si la columna es de cierre y el tablero tiene conceptos
+        // configurados, el movimiento manual debe traer uno (y debe ser uno de la lista). Asi todo cierre
+        // queda rotulado. El flujo estampa su propio concepto por nodo (no pasa por aqui con lista vacia).
+        if (column.IsDone)
+        {
+            var reasonsJson = await _db.TaskBoards.AsNoTracking()
+                .Where(b => b.Id == boardId).Select(b => b.CloseReasonsJson).FirstOrDefaultAsync(cancellationToken);
+            var reasons = ParseCloseReasons(reasonsJson);
+            if (reasons.Count > 0)
+            {
+                var chosen = (closeReason ?? string.Empty).Trim();
+                if (chosen.Length == 0)
+                {
+                    return TaskCoreResult<MoveTaskResultDto>.Invalid("Debes elegir un concepto de cierre para cerrar la tarea.");
+                }
+                if (!reasons.Any(r => string.Equals(r, chosen, StringComparison.CurrentCultureIgnoreCase)))
+                {
+                    return TaskCoreResult<MoveTaskResultDto>.Invalid("El concepto de cierre no es uno de los configurados en el tablero.");
+                }
+            }
         }
 
         // Reorden estable (ola 3): sortOrder es el INDICE DE DROP dentro de la columna

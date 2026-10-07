@@ -96,6 +96,8 @@ public static class DependencyInjection
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();
         // Tableros de actividades unificados (ADR-0020): tarjetas = TaskItem.
         services.AddScoped<Tenancy.IActivityBoardService, Tenancy.ActivityBoardService>();
+        // Auto-archivado de tareas cerradas por tablero (ADR-0123): lo dispara TaskAutoArchiveWorker.
+        services.AddScoped<Tenancy.ITaskAutoArchiveService, Tenancy.TaskAutoArchiveService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
         // Motor de flujos BPMN (FASE 4, ADR-0014). El hook de reglas es el REAL del
         // RulesEngine (FASE 4 ola 3, ADR-0016): ejecuta las reglas autonomas del nodo.

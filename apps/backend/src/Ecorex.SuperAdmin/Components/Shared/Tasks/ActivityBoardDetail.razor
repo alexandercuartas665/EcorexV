@@ -1026,11 +1026,20 @@
                     <input type="date" class="ab-input" @bind="_ebDue" />
                 </div>
                 <div class="ab-field">
-                    <label>Motivos de cierre (uno por linea)</label>
+                    <label>Conceptos de cierre (uno por linea)</label>
                     <textarea class="ab-textarea" @bind="_ebCloseReasons" rows="4"
                               placeholder="Resuelto&#10;Duplicado&#10;No aplica&#10;Cancelado por el cliente"></textarea>
                     <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px;">
-                        Se ofrecen (opcional) al mover una tarea a una columna final. Vacio = no se pregunta.
+                        Si hay conceptos, se PIDE uno (obligatorio) al cerrar una tarea en una columna de cierre.
+                        Vacio = no se pregunta. En los flujos, el nodo de cierre elige su concepto por adelantado.
+                    </div>
+                </div>
+                <div class="ab-field">
+                    <label>Auto-archivar lo cerrado (dias)</label>
+                    <input type="number" min="0" max="3650" step="1" class="ab-input" @bind="_ebAutoArchiveDays" />
+                    <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px;">
+                        Las tareas CERRADAS en una columna de cierre se archivan solas tras estos dias
+                        (se van de la vista; se recuperan en "Ver archivadas"). 0 = nunca (solo manual).
                     </div>
                 </div>
                 @if (_ebError is not null)
@@ -1041,6 +1050,27 @@
             <div class="ab-modal-foot">
                 <button class="ab-btn-secondary" @onclick="@(() => _ebOpen = false)">Cancelar</button>
                 <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_ebName))" @onclick="SaveBoardAsync">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Prompt de concepto de cierre (OBLIGATORIO, ADR-0123) al arrastrar a una columna de cierre ---- *@
+@if (_pendingCloseColumn is not null)
+{
+    <div class="tk-closeask-overlay" @onclick="@(() => CancelClose())" @onclick:stopPropagation="true">
+        <div class="tk-closeask" @onclick:stopPropagation="true">
+            <div class="tk-closeask-h">Concepto de cierre <span>(obligatorio)</span></div>
+            <p class="tk-closeask-sub">Vas a cerrar la tarea en <strong>@_pendingCloseColumn.Name</strong>. Elige con que concepto se cierra.</p>
+            <div class="tk-closeask-opts">
+                @foreach (var motivo in (_detail?.CloseReasons ?? Array.Empty<string>()))
+                {
+                    var m = motivo;
+                    <button class="tk-closeask-opt" @onclick="@(() => ConfirmCloseAsync(m))" disabled="@_busy">@m</button>
+                }
+            </div>
+            <div class="tk-closeask-foot">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => CancelClose())" disabled="@_busy">Cancelar</button>
             </div>
         </div>
     </div>
@@ -1411,6 +1441,7 @@
     private TaskBoardStatus _ebStatus = TaskBoardStatus.InProgress;
     private DateTime? _ebDue;
     private string _ebCloseReasons = "";
+    private int _ebAutoArchiveDays = 15;
     private string? _ebError;
 
     private bool _busy;
@@ -1842,9 +1873,47 @@
         await MoveAsync(taskId, target, index);
     }
 
+    // Concepto de cierre pendiente (ADR-0123): al arrastrar a una columna de cierre con conceptos
+    // configurados, se pregunta ANTES de mover (obligatorio).
+    private ActivityBoardColumnDto? _pendingCloseColumn;
+    private Guid _pendingCloseTaskId;
+    private int _pendingCloseSortOrder;
+
     private async Task MoveAsync(Guid taskId, ActivityBoardColumnDto target, int sortOrder)
     {
-        var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync());
+        // Si cae en una columna de cierre y el tablero tiene conceptos, se exige elegir uno (prompt).
+        if (target.IsDone && (_detail?.CloseReasons?.Count ?? 0) > 0)
+        {
+            _pendingCloseTaskId = taskId;
+            _pendingCloseColumn = target;
+            _pendingCloseSortOrder = sortOrder;
+            StateHasChanged();
+            return;
+        }
+        await DoMoveAsync(taskId, target.Id, sortOrder, null);
+    }
+
+    private void CancelClose()
+    {
+        _pendingCloseColumn = null;
+        _pendingCloseTaskId = Guid.Empty;
+    }
+
+    private async Task ConfirmCloseAsync(string concept)
+    {
+        var taskId = _pendingCloseTaskId;
+        var columnId = _pendingCloseColumn?.Id;
+        var sortOrder = _pendingCloseSortOrder;
+        CancelClose();
+        if (columnId is Guid col)
+        {
+            await DoMoveAsync(taskId, col, sortOrder, concept);
+        }
+    }
+
+    private async Task DoMoveAsync(Guid taskId, Guid columnId, int sortOrder, string? closeReason)
+    {
+        var result = await BoardsSvc.MoveTaskAsync(taskId, columnId, sortOrder, await ActorAsync(), await ActorNameAsync(), closeReason);
         if (!result.IsOk)
         {
             _toasts?.Error(result.Error ?? "No se pudo mover la tarea.");
@@ -2130,6 +2199,7 @@
         _ebStatus = _detail.Status;
         _ebDue = _detail.DueDate?.ToLocalTime().DateTime.Date;
         _ebCloseReasons = string.Join("\n", _detail.CloseReasons ?? Array.Empty<string>());
+        _ebAutoArchiveDays = _detail.AutoArchiveDoneDays;
         _ebError = null;
         _ebOpen = true;
     }
@@ -2154,7 +2224,8 @@
                 Status: _ebStatus,
                 DueDate: due,
                 IsArchived: _detail.IsArchived,
-                CloseReasons: motivos);
+                CloseReasons: motivos,
+                AutoArchiveDoneDays: Math.Clamp(_ebAutoArchiveDays, 0, 3650));
             var result = await BoardsSvc.UpdateBoardAsync(_detail.Id, request, await ActorAsync(), await ActorNameAsync());
             if (!result.IsOk)
             {

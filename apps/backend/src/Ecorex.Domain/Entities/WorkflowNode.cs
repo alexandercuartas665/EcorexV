@@ -73,6 +73,14 @@ public class WorkflowNode : TenantEntity
     /// activarse este paso. Null = primera columna del tablero destino.</summary>
     public Guid? TargetColumnId { get; set; }
 
+    /// <summary>
+    /// Concepto de cierre (ADR-0123) que el flujo ESTAMPA en la tarea cuando este nodo la lleva a una
+    /// columna de cierre (<see cref="TargetColumnId"/> con IsDone). Debe ser uno de los motivos de cierre
+    /// del tablero destino (<c>TaskBoard.CloseReasonsJson</c>). Como el flujo es automatico, no se pregunta:
+    /// el disenador lo elige por adelantado. Null = el nodo no cae en columna de cierre (o sin concepto).
+    /// </summary>
+    public string? CloseReason { get; set; }
+
     // ---- Salto a otro flujo (ADR-0056; visual por ahora, el vinculo runtime es deuda) ----
     /// <summary>Definicion de flujo a la que "salta" este nodo (handoff a otro proceso). Null = no salta.
     /// Referencia suelta (sin FK dura, como el destino de tablero; se valida en el servicio). Se muestra

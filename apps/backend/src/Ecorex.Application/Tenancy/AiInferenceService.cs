@@ -74,20 +74,31 @@ public sealed class AiInferenceService : IAiInferenceService
     }
 
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
+    // La caja de arena adjunta a lo sumo UNA imagen y/o UN audio: se envuelven en listas de un elemento.
     public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, string? audioBase64 = null, string? audioMime = null, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, audioBase64, audioMime, docBase64: null, docMime: null, docFileName: null, cancellationToken);
+        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null,
+            SingleImage(imageBase64, imageMime), attachments, SingleAudio(audioBase64, audioMime), documents: null, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
-    // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea. Si el ultimo turno del
-    // cliente trajo un adjunto (imagen o PDF), el despachador lo pasa aqui para que llegue AL MODELO.
+    // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea. El despachador pasa TODA la
+    // media entrante no respondida (listas) para que llegue AL MODELO y se lea/extraiga archivo por archivo.
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
-        string? imageBase64 = null, string? imageMime = null,
-        string? docBase64 = null, string? docMime = null, string? docFileName = null,
-        string? audioBase64 = null, string? audioMime = null,
+        IReadOnlyList<AiInlineImage>? images = null,
+        IReadOnlyList<AiInlineDocument>? documents = null,
+        IReadOnlyList<AiInlineAudio>? audios = null,
         CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: imageBase64, imageMime: imageMime, pendingAttachments: null, audioBase64: audioBase64, audioMime: audioMime, docBase64: docBase64, docMime: docMime, docFileName: docFileName, cancellationToken);
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId,
+            images: images, pendingAttachments: null, audios: audios, documents: documents, cancellationToken);
 
-    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, string? audioBase64, string? audioMime, string? docBase64, string? docMime, string? docFileName, CancellationToken cancellationToken)
+    private static IReadOnlyList<AiInlineImage>? SingleImage(string? base64, string? mime)
+        => string.IsNullOrWhiteSpace(base64) ? null
+            : new[] { new AiInlineImage(base64!, string.IsNullOrWhiteSpace(mime) ? "image/jpeg" : mime!) };
+
+    private static IReadOnlyList<AiInlineAudio>? SingleAudio(string? base64, string? mime)
+        => string.IsNullOrWhiteSpace(base64) ? null
+            : new[] { new AiInlineAudio(base64!, string.IsNullOrWhiteSpace(mime) ? "audio/ogg" : mime!) };
+
+    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, IReadOnlyList<AiInlineImage>? images, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, IReadOnlyList<AiInlineAudio>? audios, IReadOnlyList<AiInlineDocument>? documents, CancellationToken cancellationToken)
     {
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
         if (agent is null) { return new AiChatResult(false, null, "El agente no existe."); }
@@ -136,85 +147,102 @@ public sealed class AiInferenceService : IAiInferenceService
             .Where(v => v.AgentId == agentId && v.SessionId == sessionId)
             .ToDictionaryAsync(v => v.FieldKey, v => v.Value, cancellationToken);
 
-        // Fix B (lectura de imagen entrante): si el turno del cliente trae una imagen, se corre una pasada de
-        // VISION que la CLASIFICA y EXTRAE sus campos como TEXTO, y se anexa al ultimo turno. Asi la ven TANTO el
-        // modelo principal (system prompt + tool loop) COMO el extractor de cache -> el valor se persiste y
-        // sobrevive a los turnos siguientes (antes la imagen solo llegaba por vision y su valor no se guardaba).
-        // Best-effort: solo corre cuando hay imagen; nunca bloquea ni rompe la respuesta al cliente.
+        // Fix 1 (hand-off multi-archivo): el cliente puede mandar VARIOS archivos en una rafaga que el
+        // despachador agrupa en UNA corrida. Se procesa TODA la media no respondida (listas images/audios/
+        // documents), no solo el ultimo adjunto. Cada archivo se LEE (vision/transcripcion/extraccion) y su
+        // texto se anexa al ultimo turno del cliente para que lo vea TANTO el modelo principal COMO el
+        // extractor de cache. Best-effort POR archivo: si una lectura falla, no rompe las demas ni la respuesta.
         var work = turns.ToList();
-        if (!string.IsNullOrWhiteSpace(imageBase64) && work.Count > 0
-            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
+        var isLastUser = work.Count > 0 && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase);
+
+        // Imagenes entrantes (incluye documentos con mime de imagen, reclasificados aguas arriba, Fix 2):
+        // una pasada de VISION por cada una que CLASIFICA y EXTRAE sus campos como TEXTO.
+        if (images is { Count: > 0 } && isLastUser)
         {
-            try
+            var n = 0;
+            foreach (var img in images)
             {
-                var reading = await ReadImageAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, imageBase64!, imageMime, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(reading))
+                n++;
+                try
                 {
-                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n[Lectura automatica de la imagen adjunta]\n" + reading!.Trim() };
+                    var reading = await ReadImageAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, img.Base64, img.Mime, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(reading))
+                    {
+                        var label = images.Count > 1
+                            ? $"[Lectura automatica de la imagen adjunta {n}/{images.Count}]"
+                            : "[Lectura automatica de la imagen adjunta]";
+                        work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n" + label + "\n" + reading!.Trim() };
+                    }
                 }
+                catch { /* best-effort por archivo: la lectura de una imagen nunca debe romper la respuesta */ }
             }
-            catch { /* best-effort: la lectura de la imagen nunca debe romper la respuesta */ }
         }
 
         // Formato de audio (OLA 2): Gemini SOLO acepta wav/mp3, pero WhatsApp entrega las notas de voz en
-        // OGG/opus (mime "audio/ogg; codecs=opus"), que daba HTTP 400 y dejaba al agente MUDO. Aqui se limpia el
-        // sufijo ";codecs=..." y, si el formato no es wav/mp3, se TRANSCODIFICA a wav (ffmpeg). Si no se puede,
-        // el audio queda null: no se transcribe ni se manda al modelo, y el agente cae a su fallback (nunca mudo).
-        if (!string.IsNullOrWhiteSpace(audioBase64))
+        // OGG/opus (mime "audio/ogg; codecs=opus"). Se limpia el sufijo ";codecs=..." y, si el formato no es
+        // wav/mp3, se TRANSCODIFICA a wav (ffmpeg). Luego se TRANSCRIBE cada nota y se anexa al ultimo turno
+        // como "Transcripcion del audio: ...". El MODELO PRINCIPAL recibe la transcripcion como TEXTO (no el
+        // audio crudo: ver la llamada a RunToolLoopAsync), asi se evita el 400 de formato en la llamada
+        // principal. Best-effort POR archivo: si una transcripcion falla, el agente cae a su fallback (nunca mudo).
+        if (audios is { Count: > 0 } && isLastUser)
         {
-            var baseAudioMime = (audioMime ?? "").Split(';')[0].Trim().ToLowerInvariant();
-            if (baseAudioMime is "audio/wav" or "audio/x-wav" or "audio/mpeg" or "audio/mp3")
+            var n = 0;
+            foreach (var au in audios)
             {
-                audioMime = baseAudioMime; // ya soportado: se usa tal cual
-            }
-            else
-            {
-                byte[]? wav = null;
-                try { wav = await _audioTranscoder.ToWavAsync(Convert.FromBase64String(audioBase64!), baseAudioMime, cancellationToken); }
-                catch { /* best-effort */ }
-                if (wav is { Length: > 0 }) { audioBase64 = Convert.ToBase64String(wav); audioMime = "audio/wav"; }
-                else { audioBase64 = null; audioMime = null; }
+                n++;
+                var audioBase64 = au.Base64;
+                string? audioMime = au.Mime;
+                var baseAudioMime = (audioMime ?? "").Split(';')[0].Trim().ToLowerInvariant();
+                if (baseAudioMime is "audio/wav" or "audio/x-wav" or "audio/mpeg" or "audio/mp3")
+                {
+                    audioMime = baseAudioMime; // ya soportado: se usa tal cual
+                }
+                else
+                {
+                    byte[]? wav = null;
+                    try { wav = await _audioTranscoder.ToWavAsync(Convert.FromBase64String(audioBase64), baseAudioMime, cancellationToken); }
+                    catch { /* best-effort */ }
+                    if (wav is { Length: > 0 }) { audioBase64 = Convert.ToBase64String(wav); audioMime = "audio/wav"; }
+                    else { continue; /* no transcodificable: se omite esta nota (el audio ya quedo guardado) */ }
+                }
+                try
+                {
+                    var transcripcion = await ReadAudioAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, audioBase64, audioMime, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(transcripcion))
+                    {
+                        var prefix = audios.Count > 1 ? $"Transcripcion del audio {n}/{audios.Count}: " : "Transcripcion del audio: ";
+                        work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n" + prefix + transcripcion!.Trim() };
+                    }
+                }
+                catch { /* best-effort por archivo: la transcripcion nunca debe romper la respuesta */ }
             }
         }
 
-        // Nota de voz entrante: se TRANSCRIBE y se anexa al ultimo turno como "Transcripcion del audio: ...",
-        // el formato que el prompt (seccion NOTA DE VOZ) ya espera. El MODELO PRINCIPAL recibe la transcripcion
-        // como TEXTO (no el audio crudo: ver la llamada a RunToolLoopAsync), asi que una sola lectura basta y se
-        // evita de raiz el 400 de formato en la llamada principal. Best-effort: si falla, el audio igual quedo
-        // guardado (ingesta) y el agente usa su fallback en espanol. Alcance: Gemini; otros proveedores vacio.
-        if (!string.IsNullOrWhiteSpace(audioBase64) && work.Count > 0
-            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
+        // Documentos entrantes (p.ej. factura PDF): el modelo principal ya los recibe nativos (AiInlineDocument),
+        // pero el EXTRACTOR de cache lee solo TEXTO. Se LEE cada PDF y se anexa al ultimo turno como
+        // "[Lectura automatica del documento adjunto]\n<campos>" para que el extractor capture el valor. Los
+        // documentos con mime de imagen se reclasificaron a 'images' aguas arriba (Fix 2); los Excel/CSV se
+        // extraen a texto aguas arriba. Aqui solo se leen los PDF (el unico tipo que ReadDocumentAsync soporta).
+        if (documents is { Count: > 0 } && isLastUser)
         {
-            try
+            var n = 0;
+            foreach (var doc in documents)
             {
-                var transcripcion = await ReadAudioAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, audioBase64!, audioMime, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(transcripcion))
+                n++;
+                if (!(doc.Mime?.Contains("pdf", StringComparison.OrdinalIgnoreCase) ?? false)) { continue; }
+                try
                 {
-                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\nTranscripcion del audio: " + transcripcion!.Trim() };
+                    var lectura = await ReadDocumentAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, doc.Base64, doc.Mime, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(lectura))
+                    {
+                        var label = documents.Count > 1
+                            ? $"[Lectura automatica del documento adjunto {n}/{documents.Count}]"
+                            : "[Lectura automatica del documento adjunto]";
+                        work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n" + label + "\n" + lectura!.Trim() };
+                    }
                 }
+                catch { /* best-effort por archivo: la lectura de un documento nunca debe romper la respuesta */ }
             }
-            catch { /* best-effort: la transcripcion nunca debe romper la respuesta */ }
-        }
-
-        // Documento PDF entrante (factura, etc.): el modelo principal ya recibe el PDF (AiInlineDocument) y
-        // rutea en el turno, pero el EXTRACTOR de cache lee solo TEXTO. Igual que la imagen (Fix B) y el audio,
-        // se LEE el PDF y se anexa al ultimo turno como "[Lectura automatica del documento adjunto]\n<campos>"
-        // para que el extractor capture el valor (factura_costoservicioenergia, etc.). Solo PDF: los Excel/CSV
-        // se extraen a texto aguas arriba (AgentConversationService), asi que no se re-procesan aqui.
-        if (!string.IsNullOrWhiteSpace(docBase64)
-            && (docMime?.Contains("pdf", StringComparison.OrdinalIgnoreCase) ?? false)
-            && work.Count > 0
-            && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                var lectura = await ReadDocumentAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, docBase64!, docMime, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(lectura))
-                {
-                    work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n[Lectura automatica del documento adjunto]\n" + lectura!.Trim() };
-                }
-            }
-            catch { /* best-effort: la lectura del documento nunca debe romper la respuesta */ }
         }
 
         var systemPrompt = await BuildSystemPrompt(agentId, systemPromptOverride ?? agent.SystemPrompt, resources, cacheFields, cacheValues, work, autonomous, cancellationToken);
@@ -232,13 +260,15 @@ public sealed class AiInferenceService : IAiInferenceService
         // Whitelist de tableros del agente (null/[] = sin restriccion). La consume TasksToolset por el contexto.
         var allowedBoardIds = ParseAllowedBoardIds(agent.AllowedBoardIdsJson);
         // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
-        // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
-        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments, allowedBoardIds, agent.Id);
-        // El audio NO se reenvia al modelo principal (null, null): ya recibio su contenido como texto
-        // ("Transcripcion del audio: ..." arriba). Asi se evita el 400 de formato en la llamada principal y se
-        // ahorra payload; la imagen y el documento si siguen fluyendo al modelo.
+        // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets. Con varias imagenes se
+        // pasa la PRIMERA al contexto de vision (las herramientas de vision operan sobre una imagen).
+        var firstImage = images is { Count: > 0 } ? images[0] : null;
+        using var _toolCtx = AiToolRunContext.Begin(conversationId, firstImage?.Base64, firstImage?.Mime, pendingAttachments, allowedBoardIds, agent.Id);
+        // El audio NO se reenvia al modelo principal: ya recibio su contenido como texto ("Transcripcion del
+        // audio: ..." arriba). Asi se evita el 400 de formato en la llamada principal y se ahorra payload; las
+        // imagenes y los documentos si siguen fluyendo al modelo (listas completas).
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, imageBase64, imageMime, null, null, docBase64, docMime, docFileName, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, images, documents, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -415,7 +445,7 @@ CIUDAD:";
     /// </summary>
     private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
-        IReadOnlyList<AiChatTurn> turns, string? imageBase64, string? imageMime, string? audioBase64, string? audioMime, string? docBase64, string? docMime, string? docFileName, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
+        IReadOnlyList<AiChatTurn> turns, IReadOnlyList<AiInlineImage>? inImages, IReadOnlyList<AiInlineDocument>? inDocuments, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
     {
         // Agregamos las herramientas de TODOS los toolsets registrados, omitiendo las que el agente
         // tiene deshabilitadas. Mapeamos cada nombre de herramienta a su toolset para el despacho.
@@ -440,26 +470,16 @@ CIUDAD:";
             var t = turns[i];
             var role = string.Equals(t.Role, "model", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user";
             IReadOnlyList<AiInlineImage>? images = null;
-            IReadOnlyList<AiInlineAudio>? audios = null;
             IReadOnlyList<AiInlineDocument>? documents = null;
             if (i == turns.Count - 1 && role == "user")
             {
-                if (!string.IsNullOrWhiteSpace(imageBase64))
-                {
-                    images = new[] { new AiInlineImage(imageBase64!, string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!) };
-                }
-                if (!string.IsNullOrWhiteSpace(audioBase64))
-                {
-                    audios = new[] { new AiInlineAudio(audioBase64!, string.IsNullOrWhiteSpace(audioMime) ? "audio/ogg" : audioMime!) };
-                }
-                // Documento entrante (p.ej. PDF de lista de precios): se adjunta al ultimo turno de usuario.
-                // Solo Gemini lo aprovecha (ruta nativa generateContent); otros proveedores lo ignoran.
-                if (!string.IsNullOrWhiteSpace(docBase64))
-                {
-                    documents = new[] { new AiInlineDocument(docBase64!, string.IsNullOrWhiteSpace(docMime) ? "application/pdf" : docMime!, docFileName) };
-                }
+                // TODAS las imagenes y documentos entrantes no respondidos se adjuntan al ULTIMO turno de
+                // usuario para que el modelo los VEA/LEA de una sola vez (Fix 1 multi-archivo). El audio NO va
+                // aqui (se paso como transcripcion de texto). Solo Gemini aprovecha los documentos nativos.
+                if (inImages is { Count: > 0 }) { images = inImages; }
+                if (inDocuments is { Count: > 0 }) { documents = inDocuments; }
             }
-            messages.Add(new AiToolMessage(role, t.Text, Images: images, Audios: audios, Documents: documents));
+            messages.Add(new AiToolMessage(role, t.Text, Images: images, Documents: documents));
         }
 
         var totalIn = 0;

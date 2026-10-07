@@ -28,6 +28,10 @@ public sealed class AgentConversationService : IAgentConversationService
     // Cuantos mensajes recientes se reconstruyen como contexto del agente.
     private const int MaxTurns = 30;
 
+    // Tope de adjuntos ENTRANTES que se mandan al modelo por corrida (costo). Si el cliente manda una rafaga
+    // mas larga, se procesan los primeros de la tanda no respondida (los demas quedan guardados en la tarea).
+    private const int MaxInboundAttachments = 8;
+
     // Pausa breve entre adjuntos consecutivos para preservar el ORDEN de llegada en WhatsApp
     // (el proveedor puede reordenar envios muy seguidos). Modesta a proposito: el despachador
     // procesa las conversaciones en un bucle secuencial, asi que un delay grande frenaria a las demas.
@@ -112,53 +116,95 @@ public sealed class AgentConversationService : IAgentConversationService
             TurnText(m)))
             .ToList();
 
-        // Adjunto del ULTIMO turno del cliente -> AL MODELO (Parte B, ADR-0104). Hasta hoy el binario se
-        // guardaba pero el modelo solo veia "(adjunto)". Ahora, segun el tipo:
-        //  - Imagen  -> se pasa como imagen (el modelo la VE; ya funcionaba en Gemini/Claude por vision).
-        //  - PDF/otro binario -> se pasa como documento (Gemini lo LEE por su ruta nativa generateContent).
-        //  - Excel/CSV -> se EXTRAE a texto tabular y se anexa al ultimo turno (Gemini no acepta xlsx nativo).
-        // Solo el ultimo turno entrante (igual que hoy con imagen); sin adjunto todo sigue igual.
-        string? imageBase64 = null, imageMime = null, docBase64 = null, docMime = null, docFileName = null, audioBase64 = null, audioMime = null;
-        var lastIn = messages[^1];   // garantizado entrante (si fuera saliente ya habriamos retornado)
-        if (lastIn.MediaType == MessageMediaType.Image && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
+        // Adjuntos ENTRANTES no respondidos -> AL MODELO (Parte B, ADR-0104 + Fix 1 multi-archivo). Hasta hoy
+        // solo se procesaba el ULTIMO mensaje: si el cliente mandaba VARIOS archivos en una rafaga (que el
+        // despachador agrupa en UNA corrida), solo el ultimo llegaba como vision/documento/audio y los demas
+        // quedaban como texto "(imagen)" sin analizar. Ahora se recolecta TODA la media de los mensajes
+        // entrantes posteriores al ultimo saliente, en listas. Segun el tipo:
+        //  - Imagen  -> lista de imagenes (el modelo las VE; se extraen sus campos por vision).
+        //  - Documento con mime de imagen (jpeg/png/webp) -> se trata como IMAGEN (Fix 2): una factura
+        //    adjuntada como archivo jpeg se lee igual que una foto de factura.
+        //  - PDF/otro binario -> lista de documentos (Gemini los LEE por su ruta nativa generateContent).
+        //  - Excel/CSV -> se EXTRAE a texto tabular y se anexa a SU turno (Gemini no acepta xlsx nativo).
+        //  - Audio -> lista de notas de voz (se transcriben a texto en la capa de inferencia).
+        var images = new List<AiInlineImage>();
+        var documents = new List<AiInlineDocument>();
+        var audios = new List<AiInlineAudio>();
+
+        // Mensajes entrantes NO respondidos = los posteriores al ultimo saliente (toda la rafaga del cliente).
+        var lastOutIdx = -1;
+        for (var i = messages.Count - 1; i >= 0; i--)
         {
-            imageBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
-            imageMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "image/jpeg" : lastIn.MediaMimeType;
+            if (messages[i].Direction == MessageDirection.Outbound) { lastOutIdx = i; break; }
         }
-        else if (lastIn.MediaType == MessageMediaType.Document && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
+
+        for (var i = lastOutIdx + 1; i < messages.Count; i++)
         {
-            if (SpreadsheetText.IsSpreadsheet(lastIn.MediaMimeType, lastIn.MediaFileName))
+            if (images.Count + documents.Count + audios.Count >= MaxInboundAttachments) { break; }
+            var m = messages[i];
+            if (m.MediaType == MessageMediaType.None || string.IsNullOrWhiteSpace(m.MediaUrl)) { continue; }
+
+            if (m.MediaType == MessageMediaType.Image)
             {
-                var b64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
-                var extracted = SpreadsheetText.FromBase64(b64, lastIn.MediaFileName);
-                if (!string.IsNullOrWhiteSpace(extracted))
+                var b64 = await _assets.ReadBase64Async(m.MediaUrl, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(b64))
                 {
-                    var nombre = string.IsNullOrWhiteSpace(lastIn.MediaFileName) ? "adjunto" : lastIn.MediaFileName!.Trim();
-                    turns[^1] = turns[^1] with { Text = turns[^1].Text + $"\n\n[Contenido del archivo {nombre}]:\n{extracted}" };
+                    images.Add(new AiInlineImage(b64, string.IsNullOrWhiteSpace(m.MediaMimeType) ? "image/jpeg" : m.MediaMimeType!));
                 }
             }
-            else
+            else if (m.MediaType == MessageMediaType.Document)
             {
-                docBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
-                docMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "application/pdf" : lastIn.MediaMimeType;
-                docFileName = string.IsNullOrWhiteSpace(lastIn.MediaFileName) ? null : lastIn.MediaFileName!.Trim();
+                if (SpreadsheetText.IsSpreadsheet(m.MediaMimeType, m.MediaFileName))
+                {
+                    var b64 = await _assets.ReadBase64Async(m.MediaUrl, cancellationToken);
+                    var extracted = SpreadsheetText.FromBase64(b64, m.MediaFileName);
+                    if (!string.IsNullOrWhiteSpace(extracted))
+                    {
+                        var nombre = string.IsNullOrWhiteSpace(m.MediaFileName) ? "adjunto" : m.MediaFileName!.Trim();
+                        turns[i] = turns[i] with { Text = turns[i].Text + $"\n\n[Contenido del archivo {nombre}]:\n{extracted}" };
+                    }
+                }
+                else if (IsImageMime(m.MediaMimeType))
+                {
+                    // Fix 2: documento adjuntado como imagen (jpeg/png/webp) -> se lee como IMAGEN.
+                    var b64 = await _assets.ReadBase64Async(m.MediaUrl, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(b64))
+                    {
+                        images.Add(new AiInlineImage(b64, m.MediaMimeType!.Split(';')[0].Trim()));
+                    }
+                }
+                else
+                {
+                    var b64 = await _assets.ReadBase64Async(m.MediaUrl, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(b64))
+                    {
+                        documents.Add(new AiInlineDocument(b64,
+                            string.IsNullOrWhiteSpace(m.MediaMimeType) ? "application/pdf" : m.MediaMimeType!,
+                            string.IsNullOrWhiteSpace(m.MediaFileName) ? null : m.MediaFileName!.Trim()));
+                    }
+                }
             }
-        }
-        else if (lastIn.MediaType == MessageMediaType.Audio && !string.IsNullOrWhiteSpace(lastIn.MediaUrl))
-        {
-            // Nota de voz -> se transcribe a texto para que el agente la ENTIENDA. El audio ya quedo guardado en
-            // la conversacion/tarea por la ingesta. Se pasa CRUDO (p.ej. ogg/opus de WhatsApp): la capa de
-            // inferencia (RunCoreAsync, OLA 2) limpia el mime y TRANSCODIFICA a wav si hace falta (Gemini solo
-            // acepta wav/mp3) antes de leerlo; si no se puede, el agente cae a su fallback (nunca queda mudo).
-            audioBase64 = await _assets.ReadBase64Async(lastIn.MediaUrl, cancellationToken);
-            audioMime = string.IsNullOrWhiteSpace(lastIn.MediaMimeType) ? "audio/ogg" : lastIn.MediaMimeType;
+            else if (m.MediaType == MessageMediaType.Audio)
+            {
+                // Nota de voz -> se transcribe a texto para que el agente la ENTIENDA. El audio ya quedo guardado
+                // en la conversacion/tarea por la ingesta. Se pasa CRUDO (p.ej. ogg/opus de WhatsApp): la capa de
+                // inferencia limpia el mime y TRANSCODIFICA a wav si hace falta; si no se puede, cae a su fallback.
+                var b64 = await _assets.ReadBase64Async(m.MediaUrl, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(b64))
+                {
+                    audios.Add(new AiInlineAudio(b64, string.IsNullOrWhiteSpace(m.MediaMimeType) ? "audio/ogg" : m.MediaMimeType!));
+                }
+            }
         }
 
         // Actor del sistema (el agente actua de forma autonoma); la auditoria queda sin usuario humano.
         var actor = Guid.Empty;
 
         var result = await _inference.RespondAsync(agent.Id, conversationId, turns, binding.AutoConfirm, actor,
-            imageBase64, imageMime, docBase64, docMime, docFileName, audioBase64, audioMime, cancellationToken);
+            images.Count > 0 ? images : null,
+            documents.Count > 0 ? documents : null,
+            audios.Count > 0 ? audios : null,
+            cancellationToken);
 
         // Bitacora: mensaje recibido + prompts/herramientas + respuesta.
         await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Inbound,
@@ -330,6 +376,14 @@ public sealed class AgentConversationService : IAgentConversationService
             : m.Body;
         if (m.MediaType == MessageMediaType.None || string.IsNullOrWhiteSpace(m.MediaFileName)) { return baseText; }
         return $"{baseText} [archivo adjunto: {m.MediaFileName!.Trim()}]";
+    }
+
+    // Fix 2: un Documento con mime de imagen (jpeg/png/webp/gif) se trata como imagen para la lectura/extraccion.
+    private static bool IsImageMime(string? mime)
+    {
+        if (string.IsNullOrWhiteSpace(mime)) { return false; }
+        var baseMime = mime.Split(';')[0].Trim();
+        return baseMime.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task LogAsync(Guid tenantId, Guid conversationId, Guid agentId, AiAgentRunLogKind kind, string title, string? content, string? response, CancellationToken ct)

@@ -129,12 +129,12 @@ public interface IAiInferenceService
     /// reserva/cancela de verdad (true) o solo registra solicitudes para que un asesor las confirme (false).
     /// El resultado incluye DebugPrompts (prompts + herramientas) para persistir la bitacora de atencion.
     /// </summary>
-    /// <param name="imageBase64">Imagen ENTRANTE (base64) del ultimo turno del cliente, para que el modelo la VEA.</param>
-    /// <param name="docBase64">Documento ENTRANTE (base64, p.ej. PDF) del ultimo turno del cliente, para que el modelo lo LEA (ruta nativa Gemini).</param>
-    /// <param name="audioBase64">Nota de voz ENTRANTE (base64) del ultimo turno del cliente; el modelo la OYE y ademas se transcribe al texto (ruta Gemini).</param>
+    /// <param name="images">Imagenes ENTRANTES no respondidas (incluye documentos con mime de imagen), para que el modelo las VEA y se extraigan sus campos.</param>
+    /// <param name="documents">Documentos ENTRANTES no respondidos (p.ej. PDF), para que el modelo los LEA (ruta nativa Gemini) y se extraigan.</param>
+    /// <param name="audios">Notas de voz ENTRANTES no respondidas; se transcriben a texto y se anexan al ultimo turno (ruta Gemini).</param>
     Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId,
-        string? imageBase64 = null, string? imageMime = null,
-        string? docBase64 = null, string? docMime = null, string? docFileName = null,
-        string? audioBase64 = null, string? audioMime = null,
+        IReadOnlyList<AiInlineImage>? images = null,
+        IReadOnlyList<AiInlineDocument>? documents = null,
+        IReadOnlyList<AiInlineAudio>? audios = null,
         CancellationToken cancellationToken = default);
 }

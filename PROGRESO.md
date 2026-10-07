@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-07 - Agente: analizar TODOS los archivos no respondidos de la rafaga (no solo el ultimo)
+
+- Sintoma (prod, EPRING, conv 01a0aa5c): el cliente mando 2 archivos casi a la vez (foto del techo + factura
+  jpeg-como-documento). Hubo UNA corrida y el agente analizo SOLO el ultimo (la factura); la foto quedo sin
+  analizar (el modelo solo vio "(imagen)" como texto).
+- Causa 1: AgentConversationService tomaba la media SOLO de lastIn (messages[^1]); los demas adjuntos de la
+  rafaga llegaban como texto "(adjunto)" y no se analizaban.
+- Causa 2: un Documento con mime de imagen (factura adjuntada como archivo jpeg) no disparaba la lectura de
+  campos (ReadDocumentAsync solo corre si el mime contiene "pdf").
+- Fix 1 (listas): se recolecta TODA la media de los mensajes entrantes POSTERIORES al ultimo saliente y se pasa
+  en listas (images/documents/audios) a RespondAsync -> RunCoreAsync. Cada archivo se LEE (vision/transcripcion/
+  extraccion de PDF) y su texto se anexa al ultimo turno (lo ve el modelo principal Y el extractor de cache).
+  RunToolLoopAsync adjunta TODAS las imagenes y documentos al ultimo turno de usuario (el modelo los ve/lee de
+  una). Best-effort POR archivo (si una lectura falla, no rompe las demas ni la respuesta). Tope
+  MaxInboundAttachments=8 por costo.
+- Fix 2: un Documento con mime de imagen (image/jpeg|png|webp) se reclasifica a IMAGEN aguas arriba
+  (AgentConversationService) -> el modelo lo VE y ReadImageAsync extrae sus campos, igual que una foto.
+- Firmas: RespondAsync (solo lo llama AgentConversationService) e IAiInferenceService.RespondAsync pasan a
+  listas; TestChatAsync (caja de arena, 1 imagen/1 audio) envuelve en listas de un elemento (SingleImage/
+  SingleAudio); RunCoreAsync y RunToolLoopAsync internos a listas. El audio sigue yendo al modelo SOLO como
+  transcripcion de texto (no binario).
+- Sin migracion. Build verde; unitarias 1112 (Application) + 173 (SuperAdmin). AppVersion 0.16.189.
+- Siguiente: E2E (emulador/real) — 2 archivos en el mismo turno marcan AMBOS; factura jpeg-como-documento se
+  lee igual; regresion de 1 archivo por turno intacta. Pendiente aparte: audio ogg/opus -> Gemini pide wav/mp3
+  (hand-off audio-ogg-opus-gemini); confirmar si las notas se transcribieron o cayeron al fallback.
+- Bloqueos: ninguno. NO desplegado (el usuario indica cuando).
+
 ## 2026-10-06 - Auto-archivado de tareas cerradas por tablero + concepto de cierre obligatorio (ADR-0123)
 
 - Problema: las tarjetas caen en la columna de cierre y se quedan ahi para siempre (nada archiva). El

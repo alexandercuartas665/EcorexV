@@ -293,6 +293,27 @@ else
                             <a href="/tableros/@boardId">Abrir el tablero</a>
                         </div>
                     </div>
+                    @* Cierre de tareas (ADR-0123): conceptos de cierre + auto-archivado. Van aqui, junto a los
+                       estados con "Cierra", porque es la configuracion natural del cierre del tablero. *@
+                    <div class="field">
+                        <label class="form-label">Conceptos de cierre (uno por linea)</label>
+                        <textarea class="form-control" rows="4" @bind="_fCloseReasons"
+                                  placeholder="Resuelto&#10;Duplicado&#10;No aplica&#10;Cancelado por el cliente"></textarea>
+                        <div class="text-muted" style="font-size:11.5px;margin-top:4px;">
+                            Si hay conceptos, se PIDE uno (obligatorio) al cerrar una tarea en una columna "Cierra".
+                            Vacio = no se pregunta. En los flujos, el nodo de cierre elige su concepto por adelantado.
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Auto-archivar lo cerrado (dias)</label>
+                        <input type="number" min="0" max="3650" step="1" class="form-control" style="max-width:160px;"
+                               value="@_fAutoArchiveDays"
+                               @onchange="@(e => _fAutoArchiveDays = int.TryParse(e.Value?.ToString(), out var d) ? Math.Clamp(d, 0, 3650) : _fAutoArchiveDays)" />
+                        <div class="text-muted" style="font-size:11.5px;margin-top:4px;">
+                            Las tareas CERRADAS en una columna "Cierra" se archivan solas tras estos dias (se van de
+                            la vista; se recuperan en "Ver archivadas"). 0 = nunca (solo manual).
+                        </div>
+                    </div>
                 }
                 @if (_error is not null)
                 {
@@ -386,6 +407,9 @@ else
     private bool _fCardPrimaryContact;
     private string? _fDescription;
     private string? _fColor;
+    // Cierre de tareas (ADR-0123): conceptos de cierre (uno por linea) + plazo de auto-archivado por tablero.
+    private string _fCloseReasons = "";
+    private int _fAutoArchiveDays = 15;
     private string? _error;
 
     /// <summary>Paleta predefinida (HEX) para color del tablero. La misma que usan las tarjetas.</summary>
@@ -427,6 +451,8 @@ else
         _fArchived = false;
         _fScanEnabled = false;
         _fCardPrimaryContact = false;
+        _fCloseReasons = "";
+        _fAutoArchiveDays = 15;
         _fAllowedUsers.Clear();
         _error = null;
         _columns.Clear();
@@ -444,6 +470,8 @@ else
         _fArchived = b.IsArchived;
         _fScanEnabled = b.MobileScanEnabled;
         _fCardPrimaryContact = b.CardPrimaryContact;
+        _fCloseReasons = string.Join("\n", b.CloseReasons ?? Array.Empty<string>());
+        _fAutoArchiveDays = b.AutoArchiveDoneDays;
         _fAllowedUsers.Clear();
         foreach (var uid in b.AllowedUserIds ?? Array.Empty<Guid>()) { _fAllowedUsers.Add(uid); }
         _error = null;
@@ -673,9 +701,12 @@ else
             var actorName = await ActorNameAsync();
             if (_editId is Guid id)
             {
+                var motivos = _fCloseReasons
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList();
                 var upd = await BoardsSvc.UpdateBoardAsync(
                     id,
-                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact, AllowedUserIds: _fAllowedUsers.ToList()),
+                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, CloseReasons: motivos, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact, AllowedUserIds: _fAllowedUsers.ToList(), AutoArchiveDoneDays: Math.Clamp(_fAutoArchiveDays, 0, 3650)),
                     actor, actorName);
                 if (!upd.IsOk) { _error = upd.Error ?? "No se pudo guardar el tablero."; return; }
             }

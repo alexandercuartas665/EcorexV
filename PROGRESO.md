@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-08 - Etiquetar la tarea segun la salida del flujo via herramienta del agente (ADR-0124)
+
+- Objetivo: que el agente de nodo clasifique la tarea segun como termine el caso (p.ej. al enrutar a "Cliente
+  no desea comprar" etiquetar "Perdido"), sin trabajo manual y sin inventar rutas.
+- Decision (ADR-0124): etiquetado SOLO como herramienta del agente `etiquetar_tarea(etiqueta)`. El invoker
+  (WorkflowAgentInvoker) acumula los nombres pedidos en WorkflowAgentInvocationResult.RequestedTagNames (tope
+  MaxTagsPerStep); el runner (WorkflowAgentStepRunner) los aplica tras registrar la decision: resuelve por
+  nombre (case-insensitive), crea si no existe, dedup, idempotente, best-effort (su fallo no frena el avance).
+  El prompt incluye AvailableTaskTags (catalogo del tenant) para reusar las existentes. Usa TaskItemTag, el
+  MISMO catalogo que administra Tableros (nombre/color via ITaskItemService) y muestra TagPicker en la tarea.
+- Ayuda en acordeon (<details>, cerrado por defecto) en el modal de configurar el agente del nodo: explica las
+  6 herramientas y que recurso habilita cada una + nota segun el nodo (compuerta->elige ruta; con form->llena).
+  Fix CSS: flex:0 0 auto en .fe-help (el modal-body es flex column y overflow:hidden colapsaba min-height a 0).
+- DESCARTADA la capa determinista por nodo que se habia propuesto primero (WorkflowNode.ApplyTagsJson +
+  selector "Etiquetas al llegar a este paso" en el panel del nodo): "dejalo solo como herramientas del agente".
+  Se revirtio por completo: columna, migracion dual (removida de PG/SQL Server + revertida en BD local),
+  logica del motor y metodos del WorkflowDesignService. No queda esquema ni codigo muerto.
+- Sin migracion. Build verde; unitarias 1112 (Application) + 173 (SuperAdmin). Verificado en vivo (acordeon
+  renderiza en el modal del nodo "Agente seguimiento inteligente"). Commit cb7de755 en tronco.
+- Siguiente: E2E con la linea simulada (el agente atiende la compuerta, enruta segun la charla y etiqueta).
+  Pendiente aparte: push (tronco + espejo main) y deploy (a la senal del usuario).
+- Bloqueos: ninguno. NO desplegado.
+
 ## 2026-10-07 - Agente: analizar TODOS los archivos no respondidos de la rafaga (no solo el ultimo)
 
 - Sintoma (prod, EPRING, conv 01a0aa5c): el cliente mando 2 archivos casi a la vez (foto del techo + factura

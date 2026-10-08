@@ -71,7 +71,13 @@ public enum ScrapeStepKind
     /// <summary>Leer un OTP/token de un buzon por correo (IMAP, server-side) y ponerlo en una variable del
     /// flujo. Para logins que mandan un codigo al correo. La config (buzon, remitente, asunto, regex,
     /// variable, timeout) va en MappingJson del paso.</summary>
-    LeerCorreoOtp = 18
+    LeerCorreoOtp = 18,
+
+    /// <summary>Procesar los archivos YA descargados (server-side): lee una carpeta, parsea cada archivo
+    /// segun un formato (p.ej. factura DIAN UBL de un ZIP) y vuelca los datos a un destino, sin duplicar
+    /// (llave configurable, p.ej. CUFE). Opcional: auto-importar al modulo destino y mover los procesados.
+    /// La config (carpeta, patron, formato, destino, llave, autoimportar, mover) va en MappingJson.</summary>
+    ProcesarArchivos = 19
 }
 
 /// <summary>

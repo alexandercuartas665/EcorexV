@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Ecorex.Application.Automatizaciones.ConciliacionDian;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.Rules;
@@ -197,6 +198,13 @@ public sealed class BrowserRunService(
                 return await RunOtpStepAsync(scope, db, flowId, tenantId, step, ct);
             }
 
+            // Paso "Procesar archivos descargados": NO va al navegador. Lee la carpeta de descargas, parsea
+            // cada archivo (DIAN UBL) y vuelca a la fuente Bot sin duplicar (CUFE); opcional auto-importar.
+            if (step.Kind == ScrapeStepKind.ProcesarArchivos)
+            {
+                return await RunProcesarArchivosStepAsync(scope, db, flowId, tenantId, step, vars, ct);
+            }
+
             if (step.Kind == ScrapeStepKind.Ai)
             {
                 return Fail("El paso de IA no se ejecuta en modo paso a paso; usa \"Ejecutar ahora\".");
@@ -356,6 +364,135 @@ public sealed class BrowserRunService(
         var detail = $"Token leido en {{{{{varName}}}}}: {tokenValue}";
         await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, detail, ct);
         return new StepRunResult(true, false, null, null, tokenValue, 0, 0, 0, detail);
+    }
+
+    /// <summary>Config del paso "Procesar archivos descargados" (MappingJson). Todo opcional con defaults.</summary>
+    private sealed record ProcesarArchivosConfig(
+        string? Carpeta = null, string? Patron = "*.zip", string? Formato = "DianUbl",
+        string? Destino = "ConciliacionBot", string? LlaveDedup = "CUFE",
+        bool AutoImportar = true, bool MoverProcesados = true);
+
+    /// <summary>Procesa (server-side) los archivos ya descargados: parsea cada ZIP (DIAN UBL), hace UPSERT por
+    /// CUFE en la fuente Bot (sin duplicar), mueve los procesados y -si AutoImportar- los lleva al CCD del mes.
+    /// La carpeta sale de la config o, por defecto, de la variable RutaDescargaBot del flujo.</summary>
+    private async Task<StepRunResult> RunProcesarArchivosStepAsync(
+        IServiceScope scope, IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step,
+        IReadOnlyDictionary<string, string> vars, CancellationToken ct)
+    {
+        ProcesarArchivosConfig cfg = new();
+        if (!string.IsNullOrWhiteSpace(step.MappingJson))
+        {
+            try { cfg = JsonSerializer.Deserialize<ProcesarArchivosConfig>(step.MappingJson!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg; }
+            catch { /* json viejo/invalido: defaults */ }
+        }
+
+        var carpeta = !string.IsNullOrWhiteSpace(cfg.Carpeta) ? ResolveVars(cfg.Carpeta!, vars)
+            : (vars.TryGetValue("RutaDescargaBot", out var rd) && !string.IsNullOrWhiteSpace(rd) ? rd : null);
+        if (string.IsNullOrWhiteSpace(carpeta) || !Directory.Exists(carpeta))
+        {
+            var m = $"No existe la carpeta de descargas: {carpeta ?? "(sin configurar; define RutaDescargaBot o Carpeta)"}";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+        var patron = string.IsNullOrWhiteSpace(cfg.Patron) ? "*.zip" : cfg.Patron!;
+        var nuestroNit = vars.TryGetValue("NIT_EMPRESA", out var ne) ? ne.Trim() : "";
+
+        var archivos = Directory.GetFiles(carpeta, patron);
+        if (archivos.Length == 0)
+        {
+            var m = "No hay archivos para procesar en la carpeta.";
+            await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, m, ct);
+            return new StepRunResult(true, false, null, null, null, 0, 0, 0, m);
+        }
+
+        var procDir = Path.Combine(carpeta, "procesados");
+        int nuevos = 0, actualizados = 0, fallidos = 0;
+        var periodos = new HashSet<(int Anio, int Mes)>();
+        var okFiles = new List<string>(); // archivos parseados OK: se mueven SOLO si SaveChanges confirma
+
+        foreach (var archivo in archivos)
+        {
+            DianDoc? doc;
+            try { doc = DianUblParser.ParseZip(archivo, nuestroNit); }
+            catch { doc = null; }
+            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe)) { fallidos++; continue; }
+
+            var existente = await db.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
+            if (existente is null)
+            {
+                db.ConciliacionDianBotDummies.Add(new ConciliacionDianBotDummy
+                {
+                    TenantId = tenantId, Cufe = doc.Cufe, TipoDoc = doc.TipoDoc, FechaDoc = doc.Fecha,
+                    NombreEmisor = doc.NombreEmisor, NitEmisor = doc.NitEmisor, PrefijoFolio = doc.NumFactura,
+                    IdCompra = "", SubtotalBruto = doc.SubtotalBruto, DescuentoComercial = doc.Descuento,
+                    Subtotal = doc.SubtotalNeto, Iva = doc.Iva, TotalAntesRet = doc.TotalAntesRet,
+                    RetencionFuente = doc.Retefuente, RetencionIca = doc.ReteIca, Total = doc.Total,
+                    TipoPago = doc.TipoPago, ProveedorTecnologico = "",
+                });
+                nuevos++;
+            }
+            else
+            {
+                existente.TipoDoc = doc.TipoDoc; existente.FechaDoc = doc.Fecha;
+                existente.NombreEmisor = doc.NombreEmisor; existente.NitEmisor = doc.NitEmisor;
+                existente.PrefijoFolio = doc.NumFactura; existente.SubtotalBruto = doc.SubtotalBruto;
+                existente.DescuentoComercial = doc.Descuento; existente.Subtotal = doc.SubtotalNeto;
+                existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
+                existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
+                existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                actualizados++;
+            }
+            periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
+            okFiles.Add(archivo);
+        }
+        await db.SaveChangesAsync(ct);
+
+        // Mover a /procesados SOLO despues de confirmar (evita perder archivos si el guardado falla).
+        if (cfg.MoverProcesados && okFiles.Count > 0)
+        {
+            try { Directory.CreateDirectory(procDir); } catch { /* best-effort */ }
+            foreach (var archivo in okFiles)
+            {
+                try { File.Move(archivo, Path.Combine(procDir, Path.GetFileName(archivo)), overwrite: true); }
+                catch { /* si no se puede mover, el dedup por CUFE evita duplicar en la proxima corrida */ }
+            }
+        }
+
+        int importados = 0;
+        if (cfg.AutoImportar)
+        {
+            var svc = scope.ServiceProvider.GetRequiredService<IConciliacionDianService>();
+            foreach (var (anio, mes) in periodos)
+            {
+                var ccd = await db.ConciliacionDianDocumentos.FirstOrDefaultAsync(d => d.Anio == anio && d.Mes == mes, ct);
+                Guid? docId = ccd?.Id;
+                if (docId is null)
+                {
+                    var (nuevo, _) = await svc.CrearDocumentoAsync(anio, mes, ct);
+                    docId = nuevo?.Id;
+                }
+                if (docId is Guid id) { importados += await svc.ImportarDesdeBotAsync(id, ct); }
+            }
+        }
+
+        var detalle = $"Procesados {archivos.Length}: {nuevos} nuevos, {actualizados} actualizados"
+            + (fallidos > 0 ? $", {fallidos} con error" : "")
+            + (cfg.AutoImportar ? $"; {importados} importados a conciliacion ({periodos.Count} periodo/s)" : "")
+            + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + ".";
+        await RecordStepRunAsync(db, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
+        return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
+    }
+
+    /// <summary>Reemplaza @@VAR@@ y {{VAR}} por el valor de la variable (para rutas configurables).</summary>
+    private static string ResolveVars(string input, IReadOnlyDictionary<string, string> vars)
+    {
+        if (string.IsNullOrEmpty(input)) { return input; }
+        foreach (var (k, v) in vars)
+        {
+            input = input.Replace("@@" + k + "@@", v).Replace("{{" + k + "}}", v);
+        }
+        return input;
     }
 
     public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)

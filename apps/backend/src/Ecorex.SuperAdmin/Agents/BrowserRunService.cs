@@ -704,6 +704,49 @@ public sealed class BrowserRunService(
                 if (flow is null) { await runLog.CloseAsync(runCorr, false, 0, 0, 0, "El flujo desaparecio."); return; }
                 var steps = flow.Steps.OrderBy(s => s.Order).ToList();
 
+                // Flujos con paso OTP (lectura de token por correo) NO se pueden compilar por tramos: el OTP
+                // lo resuelve el runtime (no el navegador) y la sesion DIAN debe sobrevivir login->OTP->
+                // descarga. Para esos flujos "Ejecutar todo" corre los pasos EN ORDEN por el MISMO camino del
+                // paso a paso (RunStepNowAsync: intercepta el OTP, mantiene UNA sesion viva e inyecta URL_PASO
+                // al siguiente paso). Asi el boton de arriba equivale a pulsar 1..N a mano y se puede agendar.
+                if (steps.Any(s => s.Kind == ScrapeStepKind.LeerCorreoOtp))
+                {
+                    var notas = new List<string>();
+                    var hechos = 0;
+                    foreach (var paso in steps)
+                    {
+                        StepRunResult r;
+                        try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, CancellationToken.None); }
+                        catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                        hechos++;
+                        ins += r.Inserted; upd += r.Updated; del += r.Deleted;
+
+                        if (r.Offline)
+                        {
+                            await runLog.CloseAsync(runCorr, false, ins, upd, del,
+                                $"El agente quedo offline en el paso '{paso.Name}'.");
+                            return;
+                        }
+                        // El OTP es duro: sin token el login no sirve y lo que sigue es inutil -> abortar.
+                        if (paso.Kind == ScrapeStepKind.LeerCorreoOtp && !r.Ok)
+                        {
+                            await runLog.CloseAsync(runCorr, false, ins, upd, del,
+                                $"Paso '{paso.Name}': {r.Error ?? r.Detail ?? "no se obtuvo el token"}.");
+                            return;
+                        }
+                        // Pasos guarda/driver (EXPLORACION/Variable sin filas) devuelven Ok=false de forma
+                        // benigna: se anota y se sigue, igual que el operador en el paso a paso.
+                        if (!r.Ok) { notas.Add(paso.Name); }
+                    }
+                    // Nota: el paso-bucle de descarga sigue bajando en 2do plano (setTimeouts en el navegador);
+                    // la corrida se cierra aqui aunque las descargas continuen unos minutos mas.
+                    var det = $"Flujo ejecutado paso a paso ({hechos} pasos)"
+                        + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+                    await runLog.CloseAsync(runCorr, true, ins, upd, del, det);
+                    log.LogInformation("[NAV-RUN] corr={Corr} OK (stepwise/OTP) pasos={N}", runCorr, hechos);
+                    return;
+                }
+
                 // Paginacion controlada (Ola 5): si el flujo define una variable de pagina + rango, se
                 // repite entero por cada pagina, sustituyendo {{PAGINA}}. Sin rango, corre una vez.
                 var pages = ResolvePages(flow);

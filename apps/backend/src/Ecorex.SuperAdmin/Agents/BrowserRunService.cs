@@ -238,7 +238,7 @@ public sealed class BrowserRunService(
             int ins = 0, upd = 0, del = 0;
             try
             {
-                var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
+                var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true, DownloadFolder: DownloadFolderFrom(vars));
                 var result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
 
                 var screenshot = result.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
@@ -343,12 +343,19 @@ public sealed class BrowserRunService(
         }
 
         var varName = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!.Trim();
+        // El token/enlace puede venir codificado de dos formas segun como llegue el correo:
+        //  - entidades HTML en el href (correo reenviado: ...AuthToken?pk=..&amp;rk=..) -> HtmlDecode
+        //  - percent-encoding (enlace envuelto en SafeLinks de Outlook: url=https%3A%2F%2F..) -> UnescapeDataString
+        // Con UrlDecode aplicamos ambos (en ese orden) para dejarlo listo para navegar.
+        var tokenValue = cfg.UrlDecode
+            ? Uri.UnescapeDataString(System.Net.WebUtility.HtmlDecode(read.Token!))
+            : read.Token!;
         var session = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
-        session[varName] = read.Token!;
+        session[varName] = tokenValue;
 
-        var detail = $"Token leido en {{{{{varName}}}}}: {read.Token}";
+        var detail = $"Token leido en {{{{{varName}}}}}: {tokenValue}";
         await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, detail, ct);
-        return new StepRunResult(true, false, null, null, read.Token, 0, 0, 0, detail);
+        return new StepRunResult(true, false, null, null, tokenValue, 0, 0, 0, detail);
     }
 
     public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)
@@ -445,7 +452,7 @@ public sealed class BrowserRunService(
                 BrowserResultMsg result;
                 try
                 {
-                    var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true);
+                    var req = new BrowserRequestMsg(corr, tenantId.ToString(), actions, SessionKey: sessionKey, KeepAlive: true, DownloadFolder: DownloadFolderFrom(vars));
                     result = await channel.ExecuteAsync(client.ClientId, req, timeout, ct);
                 }
                 catch (Exception ex) { lastErr = ex.Message; return false; }
@@ -589,7 +596,7 @@ public sealed class BrowserRunService(
 
     /// <summary>Config del paso "Leer token de correo", serializada en ScrapeStep.MappingJson (misma forma
     /// que la que arma la UI de Extraccion de datos).</summary>
-    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds, bool UrlDecode = false);
 
     private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
 
@@ -733,7 +740,7 @@ public sealed class BrowserRunService(
                             if (compiled.Actions.Count == 0) { continue; }
 
                             var timeout = TimeSpan.FromSeconds(60 + compiled.Actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
-                            var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions);
+                            var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions, DownloadFolder: DownloadFolderFrom(vars));
                             var started = DateTimeOffset.UtcNow;
                             var result = await channel.ExecuteAsync(clientId, req, timeout, CancellationToken.None);
                             // Bitacora transversal de agentes (ADR-0045): 1 registro resumen por tramo despachado.
@@ -879,6 +886,12 @@ public sealed class BrowserRunService(
         }
         return dict;
     }
+
+    /// <summary>Carpeta destino de descargas definida por la config del flujo (variable RutaDescargaBot).
+    /// Null/blanco => el agente baja a su carpeta por defecto (Downloads del usuario). Se envia al agente en
+    /// la BrowserRequestMsg; el agente la aplica en DownloadStarting (compat: agente viejo la ignora).</summary>
+    private static string? DownloadFolderFrom(IReadOnlyDictionary<string, string> vars)
+        => vars.TryGetValue("RutaDescargaBot", out var f) && !string.IsNullOrWhiteSpace(f) ? f.Trim() : null;
 
     private static string? FirstError(BrowserResultMsg msg) =>
         msg.Error ?? msg.Results.FirstOrDefault(r => !r.Ok)?.Error;

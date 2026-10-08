@@ -360,7 +360,12 @@ public sealed record BrowserRequestMsg(
     // pueden encadenar pasos sobre el estado real de la pagina (login -> OTP -> continuar). Se libera con
     // una orden que traiga una accion CloseSession (o por inactividad en el agente). Va al FINAL por COMPAT:
     // un backend viejo no lo envia y un agente viejo lo ignora (cierra como siempre).
-    bool KeepAlive = false);
+    bool KeepAlive = false,
+    // Carpeta DESTINO de las descargas del navegador (ZIP/archivos). Si viene, el agente redirige las
+    // descargas de ESTA sesion a esa carpeta (WebView2 DownloadStarting -> ResultFilePath); null = carpeta
+    // de descargas por defecto del WebView2 (Downloads del usuario). Va al FINAL por COMPAT: un backend
+    // viejo no lo envia y un agente viejo lo ignora (baja a Downloads como siempre).
+    string? DownloadFolder = null);
 
 /// <summary>Resultado de una accion individual del navegador.</summary>
 public sealed record BrowserActionResult(

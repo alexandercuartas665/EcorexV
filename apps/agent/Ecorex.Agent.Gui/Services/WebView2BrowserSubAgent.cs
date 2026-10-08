@@ -207,6 +207,10 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                 if (keepAlive) { RegisterLiveSession(req.SessionKey!, instance); }
             }
 
+            // Carpeta destino de descargas de ESTA orden (RutaDescargaBot del flujo). Se re-aplica siempre,
+            // incluso reusando una sesion viva (puede cambiar entre pasos; null vuelve al destino por defecto).
+            instance.SetDownloadFolder(req.DownloadFolder);
+
             // La sesion viva NO se cierra al terminar (se reusa en la proxima orden); el resto si.
             var closeAtEnd = !keepAlive;
             try
@@ -270,6 +274,18 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         private readonly bool _persistent;
         private readonly List<DownloadRecord> _downloads = new();
 
+        // Carpeta destino de las descargas para esta instancia (viene de la orden; la config del flujo la
+        // fija por la variable RutaDescargaBot). Null = carpeta por defecto del WebView2 (Downloads). Se
+        // re-aplica en CADA orden (una sesion viva puede cambiarla entre pasos).
+        private string? _downloadFolder;
+
+        /// <summary>Fija (o limpia con null/blanco) la carpeta destino de descargas de esta instancia. Se
+        /// valida y crea perezosamente en DownloadStarting; si no sirve, se cae a la carpeta por defecto.</summary>
+        public void SetDownloadFolder(string? folder)
+        {
+            _downloadFolder = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+        }
+
         /// <summary>True cuando la ventana/WebView2 ya no sirve (cerrada por <see cref="Close"/> o por el
         /// operador a mano). El cache de sesiones vivas lo consulta para no reusar una instancia muerta.</summary>
         public bool Disposed { get; private set; }
@@ -330,6 +346,22 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
 
             web.CoreWebView2.DownloadStarting += (_, e) =>
             {
+                // Redirigir a la carpeta destino configurada (RutaDescargaBot del flujo), si la hay y sirve.
+                // Best-effort: si no se puede crear/usar, se deja el destino por defecto (no se rompe la bajada).
+                var folder = instance._downloadFolder;
+                if (!string.IsNullOrWhiteSpace(folder))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(folder);
+                        var name = Path.GetFileName(e.ResultFilePath);
+                        if (!string.IsNullOrWhiteSpace(name))
+                        {
+                            e.ResultFilePath = Path.Combine(folder, name);
+                        }
+                    }
+                    catch { /* carpeta invalida/sin permiso: se queda la ruta por defecto del WebView2 */ }
+                }
                 instance._downloads.Add(new DownloadRecord(e.DownloadOperation.Uri, e.ResultFilePath, DateTimeOffset.UtcNow));
                 if (instance._downloads.Count > 50) { instance._downloads.RemoveAt(0); }
             };

@@ -68,4 +68,9 @@ public sealed class ConciliacionDianRenglon : TenantEntity
 
     /// <summary>Marca de seleccion en la grilla (persiste entre paginado/refresh, como el molde).</summary>
     public bool Seleccionado { get; set; }
+
+    /// <summary>Color de marcador PERSISTENTE de la fila, elegido por el usuario en el menu contextual
+    /// (token corto: "green"/"yellow"/"red"/"blue"/"gray"; null = sin color). Es solo organizativo/visual:
+    /// no participa del cruce ni de los eventos. Los renglones nuevos nacen sin color.</summary>
+    public string? MarkerColor { get; set; }
 }

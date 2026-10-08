@@ -88,3 +88,27 @@
 .cd-switch span::before { content: ""; position: absolute; height: 16px; width: 16px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: transform .15s; }
 .cd-switch input:checked + span { background: #16a34a; }
 .cd-switch input:checked + span::before { transform: translateX(18px); }
+
+/* ---- Marcador de color por fila (menu contextual persistente) ---- */
+.cd-mark-cell { padding-left: 6px; }
+.cd-grid tbody tr.cd-marked { background: rgba(0,0,0,.015); }
+.cd-grid tbody tr { cursor: context-menu; }
+
+.cd-ctx-overlay { position: fixed; inset: 0; z-index: 4000; background: transparent; }
+.cd-ctx-menu {
+    position: fixed; z-index: 4001; min-width: 168px;
+    background: var(--surface, #fff); border: 1px solid var(--line-2, #d1d5db);
+    border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 10px;
+}
+.cd-ctx-title { font-size: 12px; font-weight: 600; color: var(--text-2, #6b7280); margin-bottom: 8px; }
+.cd-ctx-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 8px; }
+.cd-swatch {
+    width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(0,0,0,.12);
+    cursor: pointer; padding: 0; transition: transform .1s;
+}
+.cd-swatch:hover { transform: scale(1.18); border-color: rgba(0,0,0,.35); }
+.cd-ctx-clear {
+    width: 100%; font-size: 12px; padding: 5px 8px; cursor: pointer;
+    background: var(--surface-2, #f3f4f6); border: 1px solid var(--line-2, #d1d5db); border-radius: 7px;
+}
+.cd-ctx-clear:hover { background: var(--line-2, #e5e7eb); }

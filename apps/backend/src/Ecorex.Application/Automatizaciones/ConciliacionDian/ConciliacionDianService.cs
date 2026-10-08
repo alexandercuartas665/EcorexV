@@ -231,6 +231,19 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
+    // Colores permitidos para el marcador de fila (whitelist; cualquier otro valor se trata como "sin color").
+    private static readonly HashSet<string> _marcadores = new(StringComparer.OrdinalIgnoreCase)
+    { "green", "yellow", "red", "blue", "gray", "purple", "orange" };
+
+    public async Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default)
+    {
+        var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        if (r is null) { return; }
+        var c = color?.Trim().ToLowerInvariant();
+        r.MarkerColor = !string.IsNullOrEmpty(c) && _marcadores.Contains(c) ? c : null; // "" o invalido => limpia
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
@@ -417,5 +430,5 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             r.NumFacturaProveedor, r.NumFacturaSoldarco, r.OrdenCompraSoldarco, r.SubtotalBruto,
             r.DescuentoComercial, r.SubtotalNeto, r.IvaDescontable, r.TotalAntesRetenciones, r.RetRetefuente,
             r.RetIca, r.TotalFactura, r.TipoPago, r.FacturaAprobada, r.PlataformaProveedor, r.RutEscaneado,
-            r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe);
+            r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor);
 }

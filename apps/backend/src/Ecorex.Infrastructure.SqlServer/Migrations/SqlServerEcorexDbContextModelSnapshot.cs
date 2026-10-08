@@ -2473,6 +2473,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("iva_descontable");
 
+                    b.Property<string>("MarkerColor")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("marker_color");
+
                     b.Property<string>("NitProveedor")
                         .IsRequired()
                         .HasMaxLength(40)

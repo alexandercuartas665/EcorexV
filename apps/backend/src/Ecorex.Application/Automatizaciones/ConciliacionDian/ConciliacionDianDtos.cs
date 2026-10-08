@@ -35,7 +35,8 @@ public sealed record ConciliacionDianRenglonDto(
     bool Evento33,
     bool Evento34,
     bool Seleccionado,
-    string Cufe);
+    string Cufe,
+    string? MarkerColor);
 
 /// <summary>Filtros del panel (proveedor, rango de fechas de emision, rango de numero de factura).</summary>
 public sealed record ConciliacionDianFiltro(

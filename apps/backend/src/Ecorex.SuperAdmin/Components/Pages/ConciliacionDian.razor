@@ -123,8 +123,8 @@ else
                 }
                 @foreach (var r in _renglones)
                 {
-                    <tr>
-                        <td><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
+                    <tr class="@(r.MarkerColor is null ? "" : "cd-marked")" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="Clic derecho para marcar con color">
+                        <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")"><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
                         <td>@r.TipoDocDian</td>
                         <td>@r.FechaEmision.ToString("dd/MM/yyyy")</td>
                         <td>@r.NombreProveedor</td>
@@ -164,6 +164,22 @@ else
             </tbody>
         </table>
     </div>
+
+    @if (_menuOpen)
+    {
+        <div class="cd-ctx-overlay" @onclick="CloseColorMenu" @oncontextmenu:preventDefault="true"></div>
+        <div class="cd-ctx-menu" style="left:@(Px(_menuX)); top:@(Px(_menuY));">
+            <div class="cd-ctx-title">Marcar fila</div>
+            <div class="cd-ctx-swatches">
+                @foreach (var p in _palette)
+                {
+                    <button type="button" class="cd-swatch" title="@p.Label" style="background:@p.Hex"
+                            @onclick="() => SetColorAsync(p.Token)"></button>
+                }
+            </div>
+            <button type="button" class="cd-ctx-clear" @onclick="() => SetColorAsync(null)">Sin color</button>
+        </div>
+    }
 }
 
 @code {
@@ -306,6 +322,41 @@ else
     {
         var val = e.Value is bool b && b;
         await Svc.SetSeleccionAsync(_renglones.Select(r => r.Id).ToList(), val);
+        await ReloadAsync();
+    }
+
+    // ---- Marcador de color por fila (menu contextual, persistente) ----
+    private bool _menuOpen;
+    private double _menuX, _menuY;
+    private ConciliacionDianRenglonDto? _menuRenglon;
+
+    private static readonly (string Token, string Label, string Hex)[] _palette = new[]
+    {
+        ("green", "Verde", "#16a34a"), ("yellow", "Amarillo", "#eab308"), ("red", "Rojo", "#dc2626"),
+        ("blue", "Azul", "#2563eb"), ("gray", "Gris", "#6b7280"), ("purple", "Morado", "#7c3aed"),
+        ("orange", "Naranja", "#ea580c"),
+    };
+    private static string Hex(string token)
+    {
+        foreach (var p in _palette) { if (p.Token == token) { return p.Hex; } }
+        return "transparent";
+    }
+    private static string Px(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
+
+    private void OpenColorMenu(ConciliacionDianRenglonDto r, Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        _menuRenglon = r;
+        _menuX = e.ClientX;
+        _menuY = e.ClientY;
+        _menuOpen = true;
+    }
+    private void CloseColorMenu() { _menuOpen = false; _menuRenglon = null; }
+    private async Task SetColorAsync(string? token)
+    {
+        if (_menuRenglon is null) { return; }
+        var id = _menuRenglon.Id;
+        CloseColorMenu();
+        await Svc.SetMarkerColorAsync(id, token);
         await ReloadAsync();
     }
 

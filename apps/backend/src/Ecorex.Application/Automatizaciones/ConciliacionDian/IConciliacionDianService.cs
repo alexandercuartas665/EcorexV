@@ -31,6 +31,9 @@ public interface IConciliacionDianService
     /// y recalcula PlataformaProveedor desde NEWTON (dummy).</summary>
     Task<ConciliacionCruceResult> CruzarAsync(Guid documentoId, CancellationToken ct = default);
     Task UpdateOrdenCompraAsync(Guid renglonId, string ordenCompra, CancellationToken ct = default);
+    /// <summary>Fija (o limpia con null/"") el color del marcador PERSISTENTE de la fila. Solo visual; valida
+    /// contra una whitelist de colores (cualquier otro valor limpia el marcador).</summary>
+    Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default);
     Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default);
     Task SetSeleccionAsync(IReadOnlyList<Guid> renglonIds, bool seleccionado, CancellationToken ct = default);
     /// <summary>MOCK en Fase 1: marca los eventos RADIAN 030/032/033 en los renglones aprobados con plataforma.

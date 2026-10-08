@@ -66,10 +66,12 @@
 }
 .cd-tab.on .cd-badge { background: var(--brand, #4f46e5); color: #fff; }
 
-.cd-grid-wrap { overflow-x: auto; border: 1px solid var(--line-2, #e5e7eb); border-top: 0; border-radius: 0 0 12px 12px; }
-.cd-grid { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+/* Scroll propio (vertical + horizontal) para que el header quede FIJO (sticky) dentro del contenedor. */
+.cd-grid-wrap { overflow: auto; max-height: calc(100vh - 300px); min-height: 220px; border: 1px solid var(--line-2, #e5e7eb); border-top: 0; border-radius: 0 0 12px 12px; }
+.cd-grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; white-space: nowrap; }
 .cd-grid th, .cd-grid td { padding: 8px 10px; border-bottom: 1px solid var(--line, #f1f5f9); text-align: left; }
-.cd-grid th { background: var(--surface-2, #f8fafc); font-weight: 700; color: var(--ink-2, #4b5563); position: sticky; top: 0; z-index: 1; }
+/* Header pegado arriba al hacer scroll; fondo opaco + sombra para que no se mezcle con las filas. */
+.cd-grid thead th { background: var(--surface-2, #f1f5f9); font-weight: 700; color: var(--ink-2, #4b5563); position: sticky; top: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 0 1px 2px rgba(0,0,0,.06); }
 .cd-grid td.num, .cd-grid th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .cd-grid tbody tr:hover { background: var(--brand-soft, #f5f7ff); }
 

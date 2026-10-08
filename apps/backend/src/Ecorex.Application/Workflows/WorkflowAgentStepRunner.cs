@@ -215,6 +215,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 cancellationToken);
         }
 
+        // Bitacora del agente (/bitacora-agente): si el paso atiende a un cliente por WhatsApp (el nodo tiene
+        // linea y la tarea tiene telefono con conversacion), se deja el CONTEXTO que recibio el agente (con el
+        // mapa del flujo) y su DECISION, atribuidos al agente de la linea. Asi el razonamiento del agente del
+        // nodo (no solo "preguntó/respondió") queda visible para depurar. Best-effort: nunca rompe el paso.
+        try { await LogAgentDecisionToBitacoraAsync(step, context, invocation, cancellationToken); }
+        catch (Exception ex) { _logger.LogWarning(ex, "No se pudo registrar la decision del agente en /bitacora-agente (paso {StepId}).", step.Id); }
+
         // ---- Fase 3: decidir y persistir (transaccion corta) ----
 
         // ADR-0091: el agente pidio una llamada para conseguir un dato. Se coloca (asincrona) y el paso queda
@@ -743,6 +750,100 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private void AppendRun(WorkflowStepHistory step, int attempt, long tokens, IReadOnlyList<string> rounds, string outcome)
         => step.AgentRunLog = WorkflowAgentRunLog.Append(step.AgentRunLog,
             new WorkflowAgentRunLogEntry(_clock.GetUtcNow(), attempt, tokens, outcome, rounds.ToArray()));
+
+    /// <summary>Tope del texto del contexto que se guarda en la bitacora del agente (evita filas gigantes).</summary>
+    private const int MaxBitacoraContentChars = 20000;
+
+    /// <summary>
+    /// Deja en /bitacora-agente el razonamiento del agente del NODO cuando atiende a un cliente por WhatsApp:
+    /// (1) el CONTEXTO que recibio (serializado, con el mapa del flujo, la bitacora y la respuesta del cliente)
+    /// y (2) su DECISION (ruta de la compuerta / resultado del paso / campos). Se ata a la conversacion del
+    /// contacto (misma clave linea+telefono que usa la ingesta) y al agente de la linea, para que aparezca en
+    /// la misma atencion que SARA. Best-effort: solo corre si hay linea + telefono + conversacion; nunca lanza.
+    /// </summary>
+    private async Task LogAgentDecisionToBitacoraAsync(
+        WorkflowStepHistory step, WorkflowAgentContextDto context, WorkflowAgentInvocationResult invocation, CancellationToken ct)
+    {
+        if (context.Assignment?.WhatsAppLineId is not Guid lineId) { return; }
+        var phone = context.Task?.RequesterPhone;
+        if (string.IsNullOrWhiteSpace(phone)) { return; }
+
+        // Conversacion del contacto (tolera el prefijo de pais: casa por los ultimos 10 digitos).
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) { return; }
+        var tail = digits.Length >= 10 ? digits[^10..] : digits;
+        var conversationId = await _db.Conversations.AsNoTracking()
+            .Where(c => c.WhatsAppLineId == lineId && (c.ContactPhone == digits || c.ContactPhone.EndsWith(tail)))
+            .OrderByDescending(c => c.LastMessageAt)
+            .Select(c => (Guid?)c.Id)
+            .FirstOrDefaultAsync(ct);
+        if (conversationId is not Guid convId) { return; }
+
+        // Agente de la linea (misma atribucion que WorkflowAgentWhatsApp); si no hay, el agente del nodo.
+        var agentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == lineId)
+            .Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(ct) ?? context.Assignment.AiAgentId;
+
+        var now = _clock.GetUtcNow();
+        var nodeName = context.Node.Name ?? context.Node.BpmnElementId;
+
+        // (1) Contexto que recibio el agente (incluye el mapa del flujo con el estado de cada nodo).
+        var contextText = WorkflowAgentContextSerializer.ToText(context);
+        if (contextText.Length > MaxBitacoraContentChars) { contextText = contextText[..MaxBitacoraContentChars] + "\n[...contexto recortado...]"; }
+        _db.AiAgentRunLogs.Add(new AiAgentRunLog
+        {
+            TenantId = step.TenantId,
+            ConversationId = convId,
+            AgentId = agentId,
+            OccurredAt = now,
+            Kind = AiAgentRunLogKind.Prompt,
+            Title = $"Contexto del agente del flujo (paso: {nodeName})",
+            Content = contextText
+        });
+
+        // (2) Decision que tomo el agente.
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(invocation.Route))
+        {
+            var routeName = context.Node.Routes?.FirstOrDefault(r => r.Key == invocation.Route)?.TargetName;
+            sb.Append("Ruta elegida (compuerta): ").Append(string.IsNullOrWhiteSpace(routeName) ? invocation.Route : $"{routeName} ({invocation.Route})");
+        }
+        else if (!string.IsNullOrWhiteSpace(invocation.Result))
+        {
+            sb.Append("Resultado del paso: ").Append(invocation.Result);
+        }
+        else if (invocation.WhatsAppRequest is not null)
+        {
+            sb.Append("Pidio preguntar por WhatsApp: ").Append(invocation.WhatsAppRequest.Pregunta);
+        }
+        else if (invocation.CallRequest is not null)
+        {
+            sb.Append("Pidio una llamada: ").Append(invocation.CallRequest.Objetivo ?? "(sin objetivo)");
+        }
+        else
+        {
+            sb.Append("Sin ruta ni resultado explicito.");
+        }
+        if (!string.IsNullOrWhiteSpace(invocation.Comment)) { sb.Append("\nComentario del agente: ").Append(invocation.Comment!.Trim()); }
+        if (invocation.Fields is { Count: > 0 })
+        {
+            sb.Append("\nCampos del formulario: ")
+              .Append(string.Join(", ", invocation.Fields.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)).Select(kv => $"{kv.Key}={kv.Value}")));
+        }
+        _db.AiAgentRunLogs.Add(new AiAgentRunLog
+        {
+            TenantId = step.TenantId,
+            ConversationId = convId,
+            AgentId = agentId,
+            OccurredAt = now,
+            Kind = AiAgentRunLogKind.Tool,
+            Title = $"Decision del agente del flujo (paso: {nodeName})",
+            Content = sb.ToString()
+        });
+
+        await _db.SaveChangesAsync(ct);
+    }
 
     /// <summary>
     /// Destinatario humano del paso, con el MISMO resolutor por nodo que usa la bandeja

@@ -51,8 +51,14 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             ? await BuildWhatsAppAwaitingSinceAsync(step, cancellationToken)
             : (DateTimeOffset?)null;
 
+        // ADR-0124: catalogo de etiquetas de tarea del tenant, para que el agente reuse una existente al etiquetar.
+        var availableTags = await _db.TaskItemTags.AsNoTracking()
+            .OrderBy(t => t.Name).Select(t => t.Name)
+            .Take(WorkflowAgentContextLimits.MaxBitacoraEntries)
+            .ToListAsync(cancellationToken);
+
         return WorkflowResult<WorkflowAgentContextDto>.Ok(new WorkflowAgentContextDto(
-            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply, awaitingSince));
+            step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply, awaitingSince, availableTags));
     }
 
     /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el

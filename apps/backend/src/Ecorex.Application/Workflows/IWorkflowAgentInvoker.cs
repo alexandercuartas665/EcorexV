@@ -62,7 +62,10 @@ public sealed record WorkflowAgentInvocationResult(
     // ADR-0121: el agente se AUTO-REPROGRAMO (herramienta 'programar_reintento') para reintentar en N minutos si
     // el cliente no responde. El runner lo estampa en AgentNextRetryAt al pausar por la pregunta. Null = sin
     // reintento programado. Acotado a [5, 43200] (30 dias) por el lector de la herramienta.
-    int? RetryInMinutes = null)
+    int? RetryInMinutes = null,
+    // ADR-0124: etiquetas (por NOMBRE) que el agente pidio poner a la tarea via 'etiquetar_tarea' (el motivo con
+    // matiz). El invoker solo las acumula; el RUNNER las resuelve/crea en el catalogo del tenant y las asigna.
+    IReadOnlyList<string>? RequestedTagNames = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);

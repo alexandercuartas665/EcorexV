@@ -106,6 +106,14 @@ public static class WorkflowAgentContextSerializer
             }
         }
 
+        // ADR-0124: etiquetas de tarea disponibles en el tenant, para que el agente REUSE una al 'etiquetar_tarea'.
+        if (context.AvailableTaskTags is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("# Etiquetas de tarea disponibles (reusa una con 'etiquetar_tarea' si aplica)");
+            sb.AppendLine(string.Join(", ", context.AvailableTaskTags));
+        }
+
         sb.AppendLine();
         sb.AppendLine("# Datos capturados en pasos anteriores");
         if (context.PriorData.Forms.Count == 0)

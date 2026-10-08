@@ -222,6 +222,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         try { await LogAgentDecisionToBitacoraAsync(step, context, invocation, cancellationToken); }
         catch (Exception ex) { _logger.LogWarning(ex, "No se pudo registrar la decision del agente en /bitacora-agente (paso {StepId}).", step.Id); }
 
+        // ADR-0124: el agente pidio etiquetar la tarea (el motivo con matiz) via 'etiquetar_tarea'. Se resuelven/
+        // crean en el catalogo del tenant y se asignan a la tarea. Best-effort: nunca rompe el paso.
+        if (invocation.RequestedTagNames is { Count: > 0 } && taskId is Guid tagTaskId)
+        {
+            try { await ApplyRequestedTagsAsync(step.TenantId, tagTaskId, invocation.RequestedTagNames, cancellationToken); }
+            catch (Exception ex) { _logger.LogWarning(ex, "No se pudieron aplicar las etiquetas del agente a la tarea (paso {StepId}).", step.Id); }
+        }
+
         // ---- Fase 3: decidir y persistir (transaccion corta) ----
 
         // ADR-0091: el agente pidio una llamada para conseguir un dato. Se coloca (asincrona) y el paso queda
@@ -843,6 +851,51 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         });
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>ADR-0124: aplica a la tarea las etiquetas (por NOMBRE) que el agente pidio via 'etiquetar_tarea'
+    /// (el motivo con matiz). Resuelve por nombre en el catalogo del tenant (case-insensitive); si no existe, la
+    /// CREA (para permitir motivos nuevos); luego la asigna a la tarea si aun no la tiene. Idempotente.</summary>
+    private async Task ApplyRequestedTagsAsync(Guid tenantId, Guid taskId, IReadOnlyList<string> tagNames, CancellationToken ct)
+    {
+        var names = tagNames.Select(n => (n ?? string.Empty).Trim())
+            .Where(n => n.Length > 0)
+            .Select(n => n.Length > 60 ? n[..60] : n)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (names.Count == 0) { return; }
+
+        // Catalogo del tenant (nombre -> id). TaskItemTag tiene nombre unico por tenant.
+        var catalog = await _db.TaskItemTags.AsNoTracking()
+            .Select(t => new { t.Id, t.Name }).ToListAsync(ct);
+        var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in catalog) { byName[t.Name] = t.Id; }
+
+        // Etiquetas que la tarea ya tiene (no duplicar).
+        var already = (await _db.TaskItemTagAssignments.AsNoTracking()
+            .Where(a => a.TaskItemId == taskId).Select(a => a.TagId).ToListAsync(ct)).ToHashSet();
+
+        var changed = false;
+        foreach (var name in names)
+        {
+            Guid tagId;
+            if (byName.TryGetValue(name, out var existing)) { tagId = existing; }
+            else
+            {
+                var tag = new TaskItemTag { TenantId = tenantId, Name = name };
+                _db.TaskItemTags.Add(tag);
+                tagId = tag.Id; // Guid v7 generado en el ctor
+                byName[name] = tagId;
+                changed = true;
+            }
+            if (!already.Contains(tagId))
+            {
+                _db.TaskItemTagAssignments.Add(new TaskItemTagAssignment { TenantId = tenantId, TaskItemId = taskId, TagId = tagId });
+                already.Add(tagId);
+                changed = true;
+            }
+        }
+        if (changed) { await _db.SaveChangesAsync(ct); }
     }
 
     /// <summary>

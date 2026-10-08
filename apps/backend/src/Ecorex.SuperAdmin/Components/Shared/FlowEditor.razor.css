@@ -326,6 +326,33 @@ textarea.fe-input { height: auto; padding: 8px 12px; line-height: 1.4; resize: v
     font-size: 12px; font-weight: 700; color: var(--ink-2); letter-spacing: .02em;
     padding-top: 6px; border-top: 1px solid var(--line-2); margin-top: 2px;
 }
+/* AYUDA en acordeon (<details>) dentro del modal del agente: cerrado por defecto para no ocupar espacio.
+   flex:0 0 auto evita que el modal-body (flex column) lo encoja a 0 por el min-height:auto->0 que dispara overflow:hidden. */
+.fe-help { border: 1px solid var(--line-2); border-radius: 11px; background: var(--surface-2); overflow: hidden; flex: 0 0 auto; }
+.fe-help > .fe-help-sum {
+    display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+    padding: 10px 13px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); user-select: none;
+}
+.fe-help > .fe-help-sum::-webkit-details-marker { display: none; }
+.fe-help > .fe-help-sum svg { color: var(--brand); flex: 0 0 auto; }
+.fe-help > .fe-help-sum::after {
+    content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--ink-3);
+    border-bottom: 2px solid var(--ink-3); transform: rotate(45deg); transition: transform .15s ease;
+}
+.fe-help[open] > .fe-help-sum::after { transform: rotate(-135deg); }
+.fe-help[open] > .fe-help-sum { border-bottom: 1px solid var(--line-2); }
+.fe-help-body { padding: 10px 14px 12px; font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+.fe-help-body p { margin: 0 0 8px; }
+.fe-help-body p.fe-help-foot { margin: 8px 0 0; color: var(--ink-3); }
+.fe-help-body ul { margin: 0 0 6px; padding-left: 16px; display: flex; flex-direction: column; gap: 7px; }
+.fe-help-body li { line-height: 1.45; }
+.fe-help-body b { color: var(--ink-1); }
+.fe-help-tag, .fe-help-req {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .02em;
+    padding: 1px 7px; border-radius: 999px; vertical-align: middle; margin-left: 2px;
+}
+.fe-help-tag { background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--brand); }
+.fe-help-req { background: var(--surface-3); color: var(--ink-3); border: 1px solid var(--line-2); }
 .fe-btn-ghost {
     height: 40px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-2);
     background: var(--surface); font: inherit; font-weight: 600; font-size: 13.5px;

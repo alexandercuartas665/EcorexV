@@ -423,6 +423,35 @@ else
                                   placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
                     </div>
 
+                    @* AYUDA: que herramientas tiene el agente y como pedirselas desde el prompt extra. Va en un
+                       acordeon (<details>) cerrado por defecto para no ocupar espacio en el modal. *@
+                    <details class="fe-help">
+                        <summary class="fe-help-sum">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                            <span>Como usar las herramientas del agente</span>
+                        </summary>
+                        <div class="fe-help-body">
+                            <p>El agente usa estas herramientas por su cuenta segun lo que pidas en el <b>prompt extra</b> de arriba. Cada una solo esta disponible si habilitas su recurso en este modal.</p>
+                            <ul>
+                                <li><b>etiquetar_tarea</b> <span class="fe-help-tag">siempre</span> &mdash; clasifica la tarea con una etiqueta segun como termine el caso. Ej: &ldquo;si el cliente no desea comprar, etiqueta la tarea como <i>Perdido</i>; si acepta, como <i>Ganado</i>&rdquo;. Reusa una etiqueta existente o crea una nueva por su nombre; el color se administra en Tableros.</li>
+                                <li><b>buscar_web</b> <span class="fe-help-req">requiere Buscar en la web (Colmena)</span> &mdash; abre fichas o paginas con el perfil logueado para conseguir un dato. Ej: &ldquo;busca el correo del cliente en LinkedIn por nombre + empresa&rdquo;.</li>
+                                <li><b>llamar_telefono</b> <span class="fe-help-req">requiere Agente de voz (Retell)</span> &mdash; hace una llamada y <u>deja el paso en espera</u> hasta que termina; luego el agente usa lo que capturo.</li>
+                                <li><b>preguntar_whatsapp</b> <span class="fe-help-req">requiere WhatsApp (linea)</span> &mdash; le escribe al cliente una pregunta y <u>deja el paso en espera</u> hasta que responda.</li>
+                                <li><b>programar_reintento</b> <span class="fe-help-req">requiere WhatsApp (linea)</span> &mdash; si el cliente no contesta, agenda un recordatorio breve mas tarde en vez de rendirse.</li>
+                                <li><b>enviar_correo</b> <span class="fe-help-req">requiere Permitir enviar correos</span> &mdash; redacta y envia un correo; <u>no espera respuesta</u>. Para pedir un dato y esperar, usa llamada o WhatsApp.</li>
+                            </ul>
+                            @if (agentNode.NodeType == WorkflowNodeType.ExclusiveGateway)
+                            {
+                                <p>Como este nodo es una <b>compuerta</b>, el agente ademas <b>elige la ruta</b> de salida que corresponda al caso.</p>
+                            }
+                            else
+                            {
+                                <p>Si el paso tiene <b>formulario</b>, el agente lo <b>lee, fija los campos y lo envia</b> con los datos que consiguio (no necesitas pedirselo).</p>
+                            }
+                            <p class="fe-help-foot">Tu trabajo es decirle en el prompt extra <b>que buscar, a quien contactar y como clasificar el resultado</b>; el agente decide cuando usar cada herramienta.</p>
+                        </div>
+                    </details>
+
                     <div class="fe-modal-section">Conseguir datos (opcional)</div>
                     <div class="fe-grid-2">
                         <div>
@@ -1033,7 +1062,7 @@ else
                 }
             }
         }
-        catch { /* si falla la carga de tableros, el selector queda vacio (no rompe el editor) */ }
+        catch { /* si falla la carga de tableros, los selectores quedan vacios (no rompe el editor) */ }
     }
 
     private async Task LoadAsync()

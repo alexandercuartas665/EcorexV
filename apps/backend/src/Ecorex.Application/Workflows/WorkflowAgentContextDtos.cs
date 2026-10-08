@@ -34,7 +34,10 @@ public sealed record WorkflowAgentContextDto(
     // ADR-0121: el agente ya pregunto por WhatsApp y el cliente NO ha respondido (sin inbound tras el ultimo
     // saliente). Trae la hora del ultimo mensaje que le enviaste; es tu reintento programado -> envia un
     // recordatorio breve o rindete si ya insististe. Null si no esta esperando o si ya respondio.
-    DateTimeOffset? WhatsAppAwaitingSince = null);
+    DateTimeOffset? WhatsAppAwaitingSince = null,
+    // ADR-0124: catalogo de etiquetas de tarea del tenant (nombres), para que el agente REUSE una existente con
+    // la herramienta 'etiquetar_tarea' en vez de crear una nueva. Vacio = sin catalogo (igual puede crear).
+    IReadOnlyList<string>? AvailableTaskTags = null);
 
 /// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
 /// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>

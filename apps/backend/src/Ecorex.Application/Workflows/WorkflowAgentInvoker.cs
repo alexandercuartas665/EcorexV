@@ -270,6 +270,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         int? retryMinutes = null;
+        var requestedTags = new List<string>();
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
 
@@ -352,6 +353,21 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         emailsSent++;
                     }
                 }
+                else if (call.Name == "etiquetar_tarea")
+                {
+                    // ADR-0124: el agente clasifica la tarea con el MOTIVO. Solo se acumula; el runner la aplica.
+                    var tag = ReadTagName(call.ArgumentsJson);
+                    if (string.IsNullOrWhiteSpace(tag))
+                    {
+                        result = """{"error": "falta 'etiqueta' (texto corto)"}""";
+                    }
+                    else
+                    {
+                        if (requestedTags.Count < MaxTagsPerStep
+                            && !requestedTags.Contains(tag!, StringComparer.OrdinalIgnoreCase)) { requestedTags.Add(tag!); }
+                        result = $$"""{"ok": true, "mensaje": "etiqueta '{{tag}}' marcada para la tarea"}""";
+                    }
+                }
                 else
                 {
                     result = $$"""{"error": "herramienta '{{call.Name}}' no disponible"}""";
@@ -369,7 +385,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: null, Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, CallRequest: callRequest,
-                RetryInMinutes: retryMinutes);
+                RetryInMinutes: retryMinutes, RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
         // El agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso.
         if (whatsAppRequest is not null)
@@ -377,7 +393,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: null, Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, WhatsAppRequest: whatsAppRequest,
-                RetryInMinutes: retryMinutes);
+                RetryInMinutes: retryMinutes, RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
 
         if (string.IsNullOrWhiteSpace(decisionText))
@@ -393,8 +409,39 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             : (Clip(parsed.Error, 160) ?? "No pudo decidir con los datos del caso.");
         onProgress?.Invoke(finalPhase!, totalTokens);
 
-        return parsed with { Provider = agent.Provider, Model = model, InputTokens = inTokens, OutputTokens = outTokens };
+        return parsed with
+        {
+            Provider = agent.Provider,
+            Model = model,
+            InputTokens = inTokens,
+            OutputTokens = outTokens,
+            RequestedTagNames = requestedTags.Count > 0 ? requestedTags : null
+        };
     }
+
+    /// <summary>Tope de etiquetas (motivo) que el agente puede pedir en un paso (ADR-0124), por costo/ruido.</summary>
+    private const int MaxTagsPerStep = 4;
+
+    /// <summary>Lee 'etiqueta' (texto corto) de la herramienta 'etiquetar_tarea' (ADR-0124). Null/recorta si no es valido.</summary>
+    private static string? ReadTagName(string? argumentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argumentsJson)) { return null; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(argumentsJson);
+            if (!doc.RootElement.TryGetProperty("etiqueta", out var el) || el.ValueKind != System.Text.Json.JsonValueKind.String) { return null; }
+            var s = el.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(s)) { return null; }
+            return s!.Length > 60 ? s[..60] : s;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Spec de la herramienta 'etiquetar_tarea' (ADR-0124): clasifica la tarea con el motivo del caso.</summary>
+    private static AiToolSpec BuildTagTool()
+        => new("etiquetar_tarea",
+            "Agrega una ETIQUETA (texto corto) a la tarea para clasificar el motivo o el resultado del caso, p.ej. 'Precio alto', 'Se fue con la competencia', 'Interesado'. Prefiere reusar una de las etiquetas existentes del tenant que aparecen en el contexto. Puedes llamarla varias veces para poner mas de una.",
+            """{"type":"object","properties":{"etiqueta":{"type":"string","description":"Nombre corto de la etiqueta (<=60 chars)."}},"required":["etiqueta"]}""");
 
     /// <summary>Herramientas de COMUNICACION para un nodo de decision/compuerta (ADR-0120): las mismas del
     /// llenado menos las de formulario. El medio disponible decide cuales se ofrecen.</summary>
@@ -426,6 +473,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Envia un correo. 'para' (email) y 'asunto' y 'cuerpo' obligatorios.",
                 """{"type":"object","properties":{"para":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["para","asunto","cuerpo"]}"""));
         }
+        // ADR-0124: etiquetar la tarea con el motivo (siempre disponible; el runner aplica lo que el agente pida).
+        tools.Add(BuildTagTool());
         return tools;
     }
 
@@ -488,6 +537,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         int? retryMinutes = null;
+        var requestedTags = new List<string>();
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
 
@@ -612,6 +662,21 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         emailsSent++;
                     }
                 }
+                else if (call.Name == "etiquetar_tarea")
+                {
+                    // ADR-0124: el agente clasifica la tarea con el motivo. Solo se acumula; el runner la aplica.
+                    var tag = ReadTagName(call.ArgumentsJson);
+                    if (string.IsNullOrWhiteSpace(tag))
+                    {
+                        result = """{"error": "falta 'etiqueta' (texto corto)"}""";
+                    }
+                    else
+                    {
+                        if (requestedTags.Count < MaxTagsPerStep
+                            && !requestedTags.Contains(tag!, StringComparer.OrdinalIgnoreCase)) { requestedTags.Add(tag!); }
+                        result = $$"""{"ok": true, "mensaje": "etiqueta '{{tag}}' marcada para la tarea"}""";
+                    }
+                }
                 else
                 {
                     result = call.Name switch
@@ -633,7 +698,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null,
-                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest, RetryInMinutes: retryMinutes);
+                Fields: fields.Count > 0 ? fields : null, CallRequest: callRequest, RetryInMinutes: retryMinutes,
+                RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
 
         // ADR-0092: el agente pidio preguntar por WhatsApp -> el runner envia y pausa el paso; los campos ya
@@ -643,7 +709,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             return new WorkflowAgentInvocationResult(
                 true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
                 agent.Provider, model, inTokens, outTokens, Route: null,
-                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest, RetryInMinutes: retryMinutes);
+                Fields: fields.Count > 0 ? fields : null, WhatsAppRequest: whatsAppRequest, RetryInMinutes: retryMinutes,
+                RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
 
         if (!finished || fields.Count == 0)
@@ -657,7 +724,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
 
         return new WorkflowAgentInvocationResult(
             true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
-            agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields);
+            agent.Provider, model, inTokens, outTokens, Route: null, Fields: fields,
+            RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
     }
 
     private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
@@ -705,6 +773,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Envia un correo electronico (para avisar, pedir o confirmar algo). 'destinatario' obligatorio (email); 'asunto' y 'cuerpo' obligatorios (los redactas tu con lo que sabes del caso). NO espera respuesta: es solo un envio. El remitente lo fija la empresa.",
                 """{"type":"object","properties":{"destinatario":{"type":"string"},"asunto":{"type":"string"},"cuerpo":{"type":"string"}},"required":["destinatario","asunto","cuerpo"]}"""));
         }
+        // ADR-0124: etiquetar la tarea con el motivo (siempre disponible).
+        tools.Add(BuildTagTool());
         return tools;
     }
 

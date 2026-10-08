@@ -370,7 +370,10 @@ public sealed class BrowserRunService(
     private sealed record ProcesarArchivosConfig(
         string? Carpeta = null, string? Patron = "*.zip", string? Formato = "DianUbl",
         string? Destino = "ConciliacionBot", string? LlaveDedup = "CUFE",
-        bool AutoImportar = true, bool MoverProcesados = true);
+        bool AutoImportar = true, bool MoverProcesados = true,
+        // Espera a que la carpeta se "asiente" (sin archivos nuevos) antes de parsear, para no correr a mitad
+        // de las descargas. Robusto por construccion (mira el filesystem, no depende de la señal del bucle).
+        int EsperarAsentarSegundos = 30, int GraciaInicialSegundos = 150, int MaxEsperaSegundos = 900);
 
     /// <summary>Procesa (server-side) los archivos ya descargados: parsea cada ZIP (DIAN UBL), hace UPSERT por
     /// CUFE en la fuente Bot (sin duplicar), mueve los procesados y -si AutoImportar- los lleva al CCD del mes.
@@ -398,11 +401,34 @@ public sealed class BrowserRunService(
         var patron = string.IsNullOrWhiteSpace(cfg.Patron) ? "*.zip" : cfg.Patron!;
         var nuestroNit = vars.TryGetValue("NIT_EMPRESA", out var ne) ? ne.Trim() : "";
 
+        // Esperar a que las descargas se ASIENTEN: encuesta la carpeta hasta que el conteo no cambie durante
+        // EsperarAsentarSegundos (y haya >=1), con una gracia inicial para que empiecen a llegar y un tope.
+        // Robusto por construccion: mira el filesystem, no depende de la señal (fragil) del bucle del navegador.
+        if (cfg.EsperarAsentarSegundos > 0)
+        {
+            const int intervalo = 5;
+            int lastCount = -1, estableSeg = 0, total = 0;
+            while (total < cfg.MaxEsperaSegundos)
+            {
+                var n = Directory.GetFiles(carpeta, patron).Length;
+                if (n == lastCount) { estableSeg += intervalo; } else { estableSeg = 0; lastCount = n; }
+                if (n > 0 && estableSeg >= cfg.EsperarAsentarSegundos) { break; }
+                if (n == 0 && total >= cfg.GraciaInicialSegundos) { break; }
+                await Task.Delay(TimeSpan.FromSeconds(intervalo), ct);
+                total += intervalo;
+            }
+        }
+
+        // Scope/DbContext FRESCO tras la espera: la conexion del scope original puede quedar stale durante una
+        // descarga larga (timeout de Npgsql). El tenant ambiente sigue activo (filtro global + ITenantContext).
+        using var dbScope = scopeFactory.CreateScope();
+        var fdb = dbScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+
         var archivos = Directory.GetFiles(carpeta, patron);
         if (archivos.Length == 0)
         {
             var m = "No hay archivos para procesar en la carpeta.";
-            await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, m, ct);
+            await RecordStepRunAsync(fdb, flowId, step.Name, true, 0, 0, 0, m, ct);
             return new StepRunResult(true, false, null, null, null, 0, 0, 0, m);
         }
 
@@ -418,10 +444,10 @@ public sealed class BrowserRunService(
             catch { doc = null; }
             if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe)) { fallidos++; continue; }
 
-            var existente = await db.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
+            var existente = await fdb.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
             if (existente is null)
             {
-                db.ConciliacionDianBotDummies.Add(new ConciliacionDianBotDummy
+                fdb.ConciliacionDianBotDummies.Add(new ConciliacionDianBotDummy
                 {
                     TenantId = tenantId, Cufe = doc.Cufe, TipoDoc = doc.TipoDoc, FechaDoc = doc.Fecha,
                     NombreEmisor = doc.NombreEmisor, NitEmisor = doc.NitEmisor, PrefijoFolio = doc.NumFactura,
@@ -446,7 +472,7 @@ public sealed class BrowserRunService(
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
             okFiles.Add(archivo);
         }
-        await db.SaveChangesAsync(ct);
+        await fdb.SaveChangesAsync(ct);
 
         // Mover a /procesados SOLO despues de confirmar (evita perder archivos si el guardado falla).
         if (cfg.MoverProcesados && okFiles.Count > 0)
@@ -462,10 +488,10 @@ public sealed class BrowserRunService(
         int importados = 0;
         if (cfg.AutoImportar)
         {
-            var svc = scope.ServiceProvider.GetRequiredService<IConciliacionDianService>();
+            var svc = dbScope.ServiceProvider.GetRequiredService<IConciliacionDianService>();
             foreach (var (anio, mes) in periodos)
             {
-                var ccd = await db.ConciliacionDianDocumentos.FirstOrDefaultAsync(d => d.Anio == anio && d.Mes == mes, ct);
+                var ccd = await fdb.ConciliacionDianDocumentos.FirstOrDefaultAsync(d => d.Anio == anio && d.Mes == mes, ct);
                 Guid? docId = ccd?.Id;
                 if (docId is null)
                 {
@@ -480,7 +506,7 @@ public sealed class BrowserRunService(
             + (fallidos > 0 ? $", {fallidos} con error" : "")
             + (cfg.AutoImportar ? $"; {importados} importados a conciliacion ({periodos.Count} periodo/s)" : "")
             + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + ".";
-        await RecordStepRunAsync(db, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
+        await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
     }
 

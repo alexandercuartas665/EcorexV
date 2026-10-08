@@ -15268,3 +15268,13 @@ Peticion: crear tenant cliente ACUARTAS, un usuario administrador y un tablero. 
   (Por hacer/En progreso/En revision/Completado, ultima is_done). id bcd1811f-c12f-5671-bae6-6bcb82379d0c.
 Validado: POST /auth/login -> 302 /inicio. Tenant/correo no existian. Backup ecorex-2026-10-07-2010.
 Sin secretos en el repo (cedula solo al hash).
+
+## 2026-10-07 (cont.) - ACUARTAS: 18 tareas del cronograma A&D cargadas al tablero
+
+Peticion: cargar AD_GROUP_Cronograma_Ejecutivo.xlsx (hoja Cronograma, 18 hitos) como tareas al tablero
+"A&D GROUP TECH S.A.S" de ACUARTAS. ETL por SQL desde el Excel (openpyxl):
+- 18 task_items (T00001..T00018), priority Medium, status Pending, board_id + column_id='Por hacer',
+  board_sort_order=#hito, start_date=Inicio, due_date=Fin. title=Hito; description="Fase: X |
+  Responsable: Y | Hito #N" (los responsables son texto libre, no usuarios del tenant).
+- tenant_sequences code 'T05' next_value=19 (para que la app siga en T00019 sin colisionar).
+Todas en la columna "Por hacer". Backup ecorex-2026-10-07-2217.

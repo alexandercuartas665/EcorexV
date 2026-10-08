@@ -15255,3 +15255,16 @@ disenador. DEFID b17bd8c8-b060-5271-b2d6-ce7a00125eb5. Backup ecorex-2026-09-24-
   Suite Application.Tests 1081/1081; build de la solucion verde. Commit 5738540c en worktree-form-builder-chat.
 - Siguiente: nada pendiente de la ronda. El asistente sigue MERGEADO al tronco pero SIN desplegar (migraciones sin
   aplicar en prod). Bloqueos: ninguno. Deploy: a la senal del usuario (se pide OK explicito por version).
+
+## 2026-10-07 - Nuevo tenant ACUARTAS + admin + tablero (prod)
+
+Peticion: crear tenant cliente ACUARTAS, un usuario administrador y un tablero. Creado por SQL (ETL):
+- tenants: ACUARTAS (Active, Standard, CO/COP, America/Bogota). id e41e998a-93ed-52be-bad3-5e28edb58b91.
+- menu_views 'Completo' + clon de los 63 nodos del menu 'Completo' de BITCODE (remapeo padre/hijo via CTE
+  MATERIALIZED) para que el tenant sea usable.
+- platform_users: alexander_cuartas665@msn.com, 'Alexander Cuartas Bejarano', auth local, Active,
+  password_hash PBKDF2 (clave = cedula 80001976). tenant_users: rol Owner, OwnOnly, menu Completo.
+- task_boards: 'A&D GROUP TECH S.A.S' (kind Activities, status OnTime) + 4 columnas
+  (Por hacer/En progreso/En revision/Completado, ultima is_done). id bcd1811f-c12f-5671-bae6-6bcb82379d0c.
+Validado: POST /auth/login -> 302 /inicio. Tenant/correo no existian. Backup ecorex-2026-10-07-2010.
+Sin secretos en el repo (cedula solo al hash).

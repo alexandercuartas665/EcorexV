@@ -77,7 +77,14 @@ public enum ScrapeStepKind
     /// segun un formato (p.ej. factura DIAN UBL de un ZIP) y vuelca los datos a un destino, sin duplicar
     /// (llave configurable, p.ej. CUFE). Opcional: auto-importar al modulo destino y mover los procesados.
     /// La config (carpeta, patron, formato, destino, llave, autoimportar, mover) va en MappingJson.</summary>
-    ProcesarArchivos = 19
+    ProcesarArchivos = 19,
+
+    /// <summary>Ingesta por API del proveedor de facturacion electronica NEWTON (recepcion, server-side):
+    /// autentica con un Auth-Token, lista los documentos electronicos recibidos y DESCARGA cada uno como
+    /// {CUFE}.xml y {CUFE}_newton.pdf en una carpeta propia (configurable). No aterriza en el modulo por si
+    /// solo (de eso se encarga ProcesarArchivos / una fase posterior). La config (variables de URL y token,
+    /// carpeta, dias atras, bajar xml/pdf, tope, solo nuevos) va en MappingJson.</summary>
+    IngestaNewton = 20
 }
 
 /// <summary>

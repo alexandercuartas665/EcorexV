@@ -378,8 +378,28 @@
                                         </div>
                                     }
                                 }
+                                else if (_sKind == ScrapeStepKind.IngestaNewton)
+                                {
+                                    <div class="xd-help">Baja los documentos recibidos en NEWTON (API) como <code>{CUFE}.xml</code> y <code>{CUFE}_newton.pdf</code> a una carpeta propia. Las credenciales salen de variables del flujo (la del token debe ser <b>secreta</b>).</div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Variable con la URL base</label><input class="xd-input mono" placeholder="NEWTON_URL" @bind="_nwUrlVar" /></div>
+                                        <div class="xd-prop"><label>Variable con el Auth-Token (secreta)</label><input class="xd-input mono" placeholder="NEWTON_TOKEN" @bind="_nwTokenVar" /></div>
+                                    </div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Variable con la carpeta destino</label><input class="xd-input mono" placeholder="RutaDescargaNewton" @bind="_nwCarpetaVar" /><div class="xd-help">Si esa variable no existe, usa una subcarpeta <code>Newton</code> de <code>RutaDescargaBot</code>.</div></div>
+                                        <div class="xd-prop"><label>Dias hacia atras</label><input class="xd-input" type="number" @bind="_nwDiasAtras" /></div>
+                                    </div>
+                                    <div class="xd-two">
+                                        <label class="xd-check"><input type="checkbox" @bind="_nwBajarXml" /> Bajar XML (&#123;CUFE&#125;.xml)</label>
+                                        <label class="xd-check"><input type="checkbox" @bind="_nwBajarPdf" /> Bajar PDF (&#123;CUFE&#125;_newton.pdf)</label>
+                                    </div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Tope de documentos (0 = todos)</label><input class="xd-input" type="number" @bind="_nwMax" /></div>
+                                        <label class="xd-check"><input type="checkbox" @bind="_nwSoloNuevos" /> Solo nuevos (no re-baja PDF si ya existe)</label>
+                                    </div>
+                                }
 
-                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp)
+                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
                                 {
                                     <div class="xd-prop">
                                         <label>Guardar salida como (motor: variable del flujo)</label>
@@ -453,7 +473,7 @@
                                     }
                                 }
 
-                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp)
+                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
                                 {
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
@@ -717,6 +737,16 @@
     private string _sOtpVar = "TOKEN";
     private string _sOtpTimeout = "120";
     private OtpReadResult? _otpTest;
+
+    // Paso "Ingesta NEWTON" (IngestaNewton): su config va serializada en MappingJson.
+    private string _nwUrlVar = "NEWTON_URL";
+    private string _nwTokenVar = "NEWTON_TOKEN";
+    private string _nwCarpetaVar = "RutaDescargaNewton";
+    private int _nwDiasAtras = 45;
+    private bool _nwBajarXml = true;
+    private bool _nwBajarPdf = true;
+    private int _nwMax = 0;
+    private bool _nwSoloNuevos = true;
 
     // Editor de variable
     private bool _showVarEditor;
@@ -1072,9 +1102,34 @@
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
         }
+
+        // Paso "Ingesta NEWTON": su config vive en MappingJson.
+        _nwUrlVar = "NEWTON_URL"; _nwTokenVar = "NEWTON_TOKEN"; _nwCarpetaVar = "RutaDescargaNewton";
+        _nwDiasAtras = 45; _nwBajarXml = true; _nwBajarPdf = true; _nwMax = 0; _nwSoloNuevos = true;
+        if (s?.Kind == ScrapeStepKind.IngestaNewton && !string.IsNullOrWhiteSpace(s.MappingJson))
+        {
+            try
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<NewtonStepConfig>(s.MappingJson!,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (cfg is not null)
+                {
+                    _nwUrlVar = string.IsNullOrWhiteSpace(cfg.UrlVar) ? "NEWTON_URL" : cfg.UrlVar!;
+                    _nwTokenVar = string.IsNullOrWhiteSpace(cfg.TokenVar) ? "NEWTON_TOKEN" : cfg.TokenVar!;
+                    _nwCarpetaVar = string.IsNullOrWhiteSpace(cfg.CarpetaVar) ? "RutaDescargaNewton" : cfg.CarpetaVar!;
+                    _nwDiasAtras = cfg.DiasAtras > 0 ? cfg.DiasAtras : 45;
+                    _nwBajarXml = cfg.BajarXml; _nwBajarPdf = cfg.BajarPdf; _nwMax = cfg.Max; _nwSoloNuevos = cfg.SoloNuevos;
+                }
+            }
+            catch { /* json viejo/otra cosa: se deja el default */ }
+        }
     }
 
     private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+
+    private sealed record NewtonStepConfig(
+        string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN", string? CarpetaVar = "RutaDescargaNewton",
+        string? Carpeta = null, int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true, int Max = 0, bool SoloNuevos = true);
 
     private async Task ProbarOtpAsync()
     {
@@ -1095,12 +1150,16 @@
             var order = _editingStepId is null ? _selected.Steps.Count : _selected.Steps.First(x => x.Id == _editingStepId).Order;
             var toolJson = string.IsNullOrWhiteSpace(_sToolAllow) ? null
                 : System.Text.Json.JsonSerializer.Serialize(_sToolAllow.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-            // El paso "Leer token de correo" guarda su config en MappingJson.
+            // Los pasos "Leer token de correo" y "Ingesta NEWTON" guardan su config en MappingJson.
             var mappingJson = _sKind == ScrapeStepKind.LeerCorreoOtp
                 ? System.Text.Json.JsonSerializer.Serialize(new OtpStepConfig(
                     ParseGuid(_sOtpMailbox), NullIfBlank(_sOtpFrom), NullIfBlank(_sOtpSubject),
                     string.IsNullOrWhiteSpace(_sOtpRegex) ? @"\b(\d{4,8})\b" : _sOtpRegex.Trim(),
                     string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120))
+                : _sKind == ScrapeStepKind.IngestaNewton
+                ? System.Text.Json.JsonSerializer.Serialize(new NewtonStepConfig(
+                    NullIfBlank(_nwUrlVar), NullIfBlank(_nwTokenVar), NullIfBlank(_nwCarpetaVar), null,
+                    _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos))
                 : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,
@@ -1269,6 +1328,8 @@
         ScrapeStepKind.CerrarDron => "Cerrar dron (legacy)",
         ScrapeStepKind.Mouse => "Mouse (legacy)",
         ScrapeStepKind.LeerCorreoOtp => "Leer token de correo",
+        ScrapeStepKind.ProcesarArchivos => "Procesar archivos descargados",
+        ScrapeStepKind.IngestaNewton => "Ingesta NEWTON (API)",
         _ => k.ToString()
     };
 
@@ -1303,6 +1364,8 @@
         ScrapeStepKind.Screenshot => "Captura de pantalla.",
         ScrapeStepKind.Ai => $"Un agente de IA maneja el navegador (tope {s.MaxSteps?.ToString() ?? "-"} pasos / {s.MaxSeconds?.ToString() ?? "-"} s).",
         ScrapeStepKind.LeerCorreoOtp => "Lee un OTP/token de un buzon por correo (IMAP) y lo pone en una variable del flujo.",
+        ScrapeStepKind.ProcesarArchivos => "Parsea (server-side) los archivos ya descargados y los vuelca al modulo destino, sin duplicar.",
+        ScrapeStepKind.IngestaNewton => "Baja por la API de NEWTON los documentos recibidos como {CUFE}.xml y {CUFE}_newton.pdf a una carpeta propia.",
         _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };

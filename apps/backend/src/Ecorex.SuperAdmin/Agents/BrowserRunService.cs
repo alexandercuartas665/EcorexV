@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Automatizaciones.ConciliacionDian;
 using Ecorex.Application.Common;
@@ -71,6 +73,10 @@ public sealed class BrowserRunService(
     TimeProvider? clock = null) : IBrowserRunService
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+
+    /// <summary>Cliente HTTP compartido para las ingestas por API (p.ej. NEWTON). El servicio es Singleton,
+    /// asi que se reusa una sola instancia (evita agotar sockets). Timeout amplio: la descarga de PDFs puede tardar.</summary>
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
     /// <summary>Una corrida Running mas vieja que esto se da por colgada (el canal ya habria fallado sus
     /// acciones; esto solo limpia lo que quedo tras un reinicio del proceso).</summary>
@@ -203,6 +209,14 @@ public sealed class BrowserRunService(
             if (step.Kind == ScrapeStepKind.ProcesarArchivos)
             {
                 return await RunProcesarArchivosStepAsync(scope, db, flowId, tenantId, step, vars, ct);
+            }
+
+            // Paso "Ingesta NEWTON" (API del proveedor de facturacion electronica): NO va al navegador.
+            // Autentica con Auth-Token, lista los documentos recibidos y DESCARGA cada {CUFE}.xml / {CUFE}_newton.pdf
+            // a su carpeta propia. Fase 1: solo descarga (ProcesarArchivos / fase posterior aterriza en el modulo).
+            if (step.Kind == ScrapeStepKind.IngestaNewton)
+            {
+                return await RunIngestaNewtonStepAsync(db, flowId, step, vars, ct);
             }
 
             if (step.Kind == ScrapeStepKind.Ai)
@@ -508,6 +522,192 @@ public sealed class BrowserRunService(
             + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + ".";
         await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
+    }
+
+    private sealed record IngestaNewtonConfig(
+        string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN",
+        string? CarpetaVar = "RutaDescargaNewton", string? Carpeta = null,
+        int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true,
+        int Max = 0, bool SoloNuevos = true);
+
+    /// <summary>Ingesta NEWTON (Fase 1: DESCARGA). Autentica con Auth-Token (variable secreta del flujo), lista
+    /// /documentos-electronicos?include=events y baja cada {CUFE}.xml y {CUFE}_newton.pdf a una carpeta PROPIA
+    /// (CarpetaVar, por defecto RutaDescargaNewton; si no, una subcarpeta "Newton" de RutaDescargaBot). No aterriza
+    /// en el modulo (de eso se encarga ProcesarArchivos / una fase posterior).</summary>
+    private async Task<StepRunResult> RunIngestaNewtonStepAsync(
+        IApplicationDbContext db, Guid flowId, ScrapeStep step,
+        IReadOnlyDictionary<string, string> vars, CancellationToken ct)
+    {
+        IngestaNewtonConfig cfg = new();
+        if (!string.IsNullOrWhiteSpace(step.MappingJson))
+        {
+            try { cfg = JsonSerializer.Deserialize<IngestaNewtonConfig>(step.MappingJson!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg; }
+            catch { /* json viejo/invalido: defaults */ }
+        }
+
+        async Task FailLogAsync(string msg) => await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, msg, ct);
+
+        // Credenciales desde las variables del flujo (la secreta ya viene descifrada en 'vars').
+        var urlBase = (vars.TryGetValue(cfg.UrlVar ?? "NEWTON_URL", out var u) ? u : "").Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(urlBase)) { urlBase = "https://facturacion.eycproveedores.com/api"; }
+        var token = vars.TryGetValue(cfg.TokenVar ?? "NEWTON_TOKEN", out var t) ? t.Trim() : "";
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            var m = $"Falta el Auth-Token: define la variable secreta '{cfg.TokenVar ?? "NEWTON_TOKEN"}' en el flujo.";
+            await FailLogAsync(m);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+
+        // Carpeta PROPIA de NEWTON: CarpetaVar -> subcarpeta "Newton" de RutaDescargaBot -> error.
+        var carpeta = !string.IsNullOrWhiteSpace(cfg.Carpeta) ? ResolveVars(cfg.Carpeta!, vars)
+            : (!string.IsNullOrWhiteSpace(cfg.CarpetaVar) && vars.TryGetValue(cfg.CarpetaVar!, out var rn) && !string.IsNullOrWhiteSpace(rn) ? rn.Trim()
+            : (vars.TryGetValue("RutaDescargaBot", out var rb) && !string.IsNullOrWhiteSpace(rb) ? Path.Combine(rb.Trim(), "Newton") : null));
+        if (string.IsNullOrWhiteSpace(carpeta))
+        {
+            var m = $"No hay carpeta destino: define la variable '{cfg.CarpetaVar ?? "RutaDescargaNewton"}' (o RutaDescargaBot).";
+            await FailLogAsync(m);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+        try { Directory.CreateDirectory(carpeta); } catch { /* best-effort */ }
+
+        var nuestroNit = vars.TryGetValue("NIT_EMPRESA", out var ne) ? ne.Trim() : "";
+
+        async Task<HttpResponseMessage> GetAsync(string url)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("Auth-Token", token);
+            return await _http.SendAsync(req, ct);
+        }
+
+        // 1) Validar el token (GET /login).
+        try
+        {
+            using var loginResp = await GetAsync(urlBase + "/login");
+            if (!loginResp.IsSuccessStatusCode)
+            {
+                var body = await loginResp.Content.ReadAsStringAsync(ct);
+                var m = $"Login NEWTON fallo ({(int)loginResp.StatusCode}): {Trunc(body, 200)}";
+                await FailLogAsync(m);
+                return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+            }
+        }
+        catch (Exception ex)
+        {
+            var m = $"No se pudo conectar a NEWTON: {ex.Message}";
+            await FailLogAsync(m);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+
+        // 2) Listar documentos recibidos (ultimos DiasAtras).
+        var desde = DateTime.UtcNow.AddDays(-Math.Abs(cfg.DiasAtras)).ToString("yyyy-MM-dd");
+        var listUrl = $"{urlBase}/documentos-electronicos?include=events&order=-created_at&from={desde}";
+        JsonElement docsRoot;
+        try
+        {
+            using var listResp = await GetAsync(listUrl);
+            var body = await listResp.Content.ReadAsStringAsync(ct);
+            if (!listResp.IsSuccessStatusCode)
+            {
+                var m = $"Listar NEWTON fallo ({(int)listResp.StatusCode}): {Trunc(body, 200)}";
+                await FailLogAsync(m);
+                return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+            }
+            using var jd = JsonDocument.Parse(body);
+            // NEWTON puede responder un arreglo [ ... ] o un objeto { "data": [ ... ] }.
+            docsRoot = jd.RootElement.ValueKind == JsonValueKind.Array ? jd.RootElement.Clone()
+                : (jd.RootElement.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Array ? d.Clone() : default);
+        }
+        catch (Exception ex)
+        {
+            var m = $"No se pudo leer el listado de NEWTON: {ex.Message}";
+            await FailLogAsync(m);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+
+        if (docsRoot.ValueKind != JsonValueKind.Array)
+        {
+            var m = "NEWTON no devolvio un listado de documentos.";
+            await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, m, ct);
+            return new StepRunResult(true, false, null, null, null, 0, 0, 0, m);
+        }
+
+        int total = docsRoot.GetArrayLength();
+        int xmlBajados = 0, pdfBajados = 0, pdfOmitidos = 0, errores = 0, i = 0;
+        foreach (var doc in docsRoot.EnumerateArray())
+        {
+            if (cfg.Max > 0 && i >= cfg.Max) { break; }
+            i++;
+            var eventId = FirstString(doc, "id", "event_id", "eventId");
+            if (string.IsNullOrWhiteSpace(eventId)) { errores++; continue; }
+            try
+            {
+                string? xml = null;
+                if (cfg.BajarXml)
+                {
+                    using var xr = await GetAsync($"{urlBase}/documentos-electronicos/{eventId}/xml");
+                    if (xr.IsSuccessStatusCode) { xml = await xr.Content.ReadAsStringAsync(ct); }
+                }
+                // CUFE para nombrar: del XML (si se bajo), o el eventId como respaldo.
+                string cufe = "";
+                if (!string.IsNullOrWhiteSpace(xml))
+                {
+                    try { cufe = DianUblParser.ParseXml(xml!, nuestroNit)?.Cufe ?? ""; } catch { }
+                }
+                var nombre = SafeName(string.IsNullOrWhiteSpace(cufe) ? eventId : cufe);
+
+                if (cfg.BajarXml && !string.IsNullOrWhiteSpace(xml))
+                {
+                    try { await File.WriteAllTextAsync(Path.Combine(carpeta, nombre + ".xml"), xml, new UTF8Encoding(false), ct); xmlBajados++; }
+                    catch { errores++; }
+                }
+
+                if (cfg.BajarPdf)
+                {
+                    var pdfPath = Path.Combine(carpeta, nombre + "_newton.pdf");
+                    if (cfg.SoloNuevos && File.Exists(pdfPath)) { pdfOmitidos++; }
+                    else
+                    {
+                        using var pr = await GetAsync($"{urlBase}/documentos-electronicos/{eventId}/pdf");
+                        if (pr.IsSuccessStatusCode)
+                        {
+                            var bytes = await pr.Content.ReadAsByteArrayAsync(ct);
+                            if (bytes.Length > 0) { await File.WriteAllBytesAsync(pdfPath, bytes, ct); pdfBajados++; }
+                            else { errores++; }
+                        }
+                        else { errores++; }
+                    }
+                }
+            }
+            catch { errores++; }
+        }
+
+        var detalle = $"NEWTON: {total} documento(s); {xmlBajados} XML y {pdfBajados} PDF bajados a '{carpeta}'"
+            + (pdfOmitidos > 0 ? $", {pdfOmitidos} PDF ya existian" : "")
+            + (errores > 0 ? $", {errores} con error" : "") + ".";
+        await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
+        return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);
+    }
+
+    private static string Trunc(string? s, int n) => string.IsNullOrEmpty(s) ? "" : (s.Length <= n ? s : s[..n]);
+
+    private static string SafeName(string s)
+    {
+        foreach (var c in Path.GetInvalidFileNameChars()) { s = s.Replace(c, '_'); }
+        return s.Trim();
+    }
+
+    private static string FirstString(JsonElement o, params string[] keys)
+    {
+        if (o.ValueKind != JsonValueKind.Object) { return ""; }
+        foreach (var k in keys)
+        {
+            if (o.TryGetProperty(k, out var v) && v.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+            {
+                return v.ValueKind == JsonValueKind.String ? (v.GetString() ?? "") : v.ToString();
+            }
+        }
+        return "";
     }
 
     /// <summary>Reemplaza @@VAR@@ y {{VAR}} por el valor de la variable (para rutas configurables).</summary>

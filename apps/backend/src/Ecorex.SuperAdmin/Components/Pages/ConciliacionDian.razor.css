@@ -163,8 +163,10 @@
 .cd-col-mass, .cd-col-reset { flex: 1; font-size: 12px; font-weight: 600; padding: 6px 8px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface-2, #f8fafc); color: var(--ink-2, #4b5563); cursor: pointer; }
 .cd-col-mass:hover, .cd-col-reset:hover { background: var(--line-2, #e5e7eb); }
 
-/* Encabezados: arrastrables, con caret de menu y tirador de ancho */
-.cd-grid th.cd-th { position: relative; cursor: grab; user-select: none; }
+/* Encabezados: arrastrables, con caret de menu y tirador de ancho.
+   OJO: NO poner position:relative aqui; pisaria el position:sticky del header (top:0) por
+   especificidad y el encabezado dejaria de quedar fijo. El sticky ya sirve de ancla para .cd-rz. */
+.cd-grid th.cd-th { cursor: grab; user-select: none; }
 .cd-grid th.cd-th:active { cursor: grabbing; }
 .cd-grid th.cd-th.cd-th-over { box-shadow: inset 2px 0 0 var(--brand, #4f46e5); }
 .cd-th-lbl { cursor: pointer; }

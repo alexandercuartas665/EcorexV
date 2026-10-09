@@ -266,6 +266,9 @@ public interface IApplicationDbContext
     DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies { get; }
     DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies { get; }
 
+    // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
+    DbSet<UserTablePreference> UserTablePreferences { get; }
+
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
     DbSet<ContactWorkflow> ContactWorkflows { get; }

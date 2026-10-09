@@ -1,10 +1,14 @@
 @page "/conciliacion-dian"
 @attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Application.Preferences
 @using Ecorex.Domain.Enums
 @inject IConciliacionDianService Svc
+@inject IUserTablePrefsService Prefs
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Conciliacion DIAN Compras - ECOREX.tareas</PageTitle>
 
@@ -85,115 +89,271 @@ else
         }
     </div>
 
-    <div class="cd-colbar">
-        <div class="cd-coldd">
-            <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleColMenu" title="Elige hasta que columna quieres dejar fija al desplazar en horizontal">
-                Columnas fijas@(_frozenCols > 0 ? $" ({_frozenCols})" : "")
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="margin-left:4px;vertical-align:-1px;"><path d="M6 9l6 6 6-6"/></svg>
+    @* ---- Barra de herramientas de la grilla: Ordenar | Agrupar | Columnas | Columnas fijas ---- *@
+    <div class="cd-toolbar">
+        @* Ordenar (multi-criterio) *@
+        <div class="cd-dd">
+            <button class="cd-tbtn @(_sorts.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("sort"))" title="Ordenar por una o varias columnas">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h11M3 12h7M3 18h4M18 5v14M18 19l3-3M18 19l-3-3"/></svg>
+                <span>Ordenar@(_sorts.Count > 0 ? $" ({_sorts.Count})" : "")</span>
             </button>
-            @if (_frozenCols > 0)
+            @if (_openMenu == "sort")
             {
-                <span class="cd-colbar-hint">Fijas hasta <strong>@_colNames[_frozenCols - 1]</strong></span>
-            }
-            @if (_colMenuOpen)
-            {
-                <div class="cd-coldd-overlay" @onclick="CloseColMenu"></div>
-                <div class="cd-coldd-panel">
-                    <div class="cd-coldd-title">Fijar columnas (se congelan desde la 1.a hasta la que elijas)</div>
-                    <button type="button" class="cd-coldd-item @(_frozenCols == 0 ? "on" : "")" @onclick="() => SetFrozenAsync(0)">
-                        <span class="cd-coldd-dot off"></span>Ninguna (quitar fijas)
-                    </button>
-                    @for (int i = 0; i < _colNames.Length; i++)
+                <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+                <div class="cd-dd-panel">
+                    <div class="cd-dd-title">Ordenar por</div>
+                    @if (_sorts.Count == 0) { <div class="cd-dd-empty">Sin orden aplicado.</div> }
+                    @foreach (var s in _sorts.ToList())
                     {
-                        var idx = i;
-                        <button type="button" class="cd-coldd-item @(_frozenCols == idx + 1 ? "on" : "")" @onclick="() => SetFrozenAsync(idx + 1)">
-                            <span class="cd-coldd-dot @(_frozenCols >= idx + 1 ? "fx" : "")"></span>@_colNames[idx]
-                        </button>
+                        var sc = s;
+                        <div class="cd-dd-row">
+                            <select class="cd-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
+                                @foreach (var col in _allCols)
+                                {
+                                    <option value="@col.Key" selected="@(col.Key == sc.K)">@col.Label</option>
+                                }
+                            </select>
+                            <button class="cd-dd-dir" @onclick="() => ToggleSortDir(sc)" title="Cambiar direccion">@(sc.Dir >= 0 ? "A→Z" : "Z→A")</button>
+                            <button class="cd-dd-del" @onclick="() => RemoveSort(sc)" title="Quitar">&times;</button>
+                        </div>
+                    }
+                    <button class="cd-dd-add" @onclick="AddSort">+ Agregar orden</button>
+                </div>
+            }
+        </div>
+
+        @* Agrupar (apilable) -> genera subtotales + cantidad *@
+        <div class="cd-dd">
+            <button class="cd-tbtn @(_groups.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("group"))" title="Agrupar (genera subtotales y cantidad de registros)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+                <span>Agrupar@(_groups.Count > 0 ? $" ({_groups.Count})" : "")</span>
+            </button>
+            @if (_openMenu == "group")
+            {
+                <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+                <div class="cd-dd-panel">
+                    <div class="cd-dd-title">Agrupar por</div>
+                    @if (_groups.Count == 0) { <div class="cd-dd-empty">Sin agrupacion. Al agrupar se muestran subtotales de montos y cantidad por grupo.</div> }
+                    @for (int gi = 0; gi < _groups.Count; gi++)
+                    {
+                        var idx = gi;
+                        <div class="cd-dd-row">
+                            <select class="cd-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
+                                @foreach (var col in _allCols.Where(x => x.Groupable))
+                                {
+                                    <option value="@col.Key" selected="@(col.Key == _groups[idx])">@col.Label</option>
+                                }
+                            </select>
+                            <button class="cd-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
+                        </div>
+                    }
+                    @if (_groups.Count < _allCols.Count(x => x.Groupable))
+                    {
+                        <button class="cd-dd-add" @onclick="AddGroup">+ Agregar agrupacion</button>
                     }
                 </div>
             }
         </div>
+
+        @* Columnas: mover, mostrar/ocultar, restablecer *@
+        <div class="cd-dd">
+            <button class="cd-tbtn" @onclick="@(() => ToggleMenu("cols"))" title="Mover, mostrar u ocultar columnas">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+                <span>Columnas@(_hidden.Count > 0 ? $" ({_order.Count - _hidden.Count}/{_order.Count})" : "")</span>
+            </button>
+            @if (_openMenu == "cols")
+            {
+                <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+                <div class="cd-dd-panel cd-dd-cols">
+                    <div class="cd-dd-title">Columnas (arrastra el encabezado para reordenar)</div>
+                    <div class="cd-collist">
+                        @for (int ci = 0; ci < _order.Count; ci++)
+                        {
+                            var idx = ci;
+                            var col = ColByKey(_order[idx]);
+                            if (col is null) { continue; }
+                            <div class="cd-colit">
+                                <button class="cd-col-mv" disabled="@(idx == 0)" @onclick="() => MoveCol(idx, -1)">▲</button>
+                                <button class="cd-col-mv" disabled="@(idx == _order.Count - 1)" @onclick="() => MoveCol(idx, 1)">▼</button>
+                                <span class="cd-col-name">@col.Label</span>
+                                <button class="cd-col-eye @(_hidden.Contains(col.Key) ? "" : "on")" @onclick="() => ToggleHidden(col.Key)" title="@(_hidden.Contains(col.Key) ? "Mostrar" : "Ocultar")">
+                                    @(_hidden.Contains(col.Key) ? "oculta" : "visible")
+                                </button>
+                            </div>
+                        }
+                    </div>
+                    <div class="cd-col-acts">
+                        <button class="cd-col-mass" @onclick="ShowAllCols">Mostrar todas</button>
+                        <button class="cd-col-reset" @onclick="ResetCols">Restablecer</button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* Columnas fijas (freeze) *@
+        <div class="cd-dd">
+            <button class="cd-tbtn @(_frozen > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("freeze"))" title="Fijar columnas a la izquierda al desplazar en horizontal">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v6H4zM4 10v10M9 10v10"/></svg>
+                <span>Columnas fijas@(_frozen > 0 ? $" ({_frozen})" : "")</span>
+            </button>
+            @if (_openMenu == "freeze")
+            {
+                <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+                <div class="cd-dd-panel">
+                    <div class="cd-dd-title">Fijar desde la 1.a hasta...</div>
+                    <button class="cd-dd-item @(_frozen == 0 ? "on" : "")" @onclick="() => SetFrozenAsync(0)">Ninguna (quitar fijas)</button>
+                    <button class="cd-dd-item @(_frozen == 1 ? "on" : "")" @onclick="() => SetFrozenAsync(1)">Columna de seleccion</button>
+                    @{ var vis = VisibleCols().ToList(); }
+                    @for (int fi = 0; fi < vis.Count; fi++)
+                    {
+                        var n = fi + 2; // +1 por la columna de seleccion, +1 por indice->conteo
+                        <button class="cd-dd-item @(_frozen == n ? "on" : "")" @onclick="() => SetFrozenAsync(n)">@vis[fi].Label</button>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="cd-toolbar-spacer"></div>
+        @if (_groups.Count > 0)
+        {
+            <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
+        }
     </div>
 
     <div class="cd-grid-wrap">
         <table class="cd-grid">
             <thead>
                 <tr>
-                    <th><input type="checkbox" @onchange="OnSelectAll" checked="@_allSelected" /></th>
-                    <th>Tipo DOC DIAN</th>
-                    <th>Fecha Emision</th>
-                    <th>Nombre Proveedor</th>
-                    <th>NIT</th>
-                    <th>Num Factura Prov.</th>
-                    <th>Num Factura SOLDARCO</th>
-                    <th>Orden Compra</th>
-                    <th class="num">Subtotal Bruto</th>
-                    <th class="num">Descuento</th>
-                    <th class="num">Subtotal Neto</th>
-                    <th class="num">IVA Desc.</th>
-                    <th class="num">Total antes Ret.</th>
-                    <th class="num">Retefuente</th>
-                    <th class="num">ICA</th>
-                    <th class="num">Total Factura</th>
-                    <th>Tipo Pago</th>
-                    <th>Plataforma</th>
-                    <th>Aprobada</th>
-                    <th>RUT</th>
-                    <th>Ev.30</th>
-                    <th>Ev.32</th>
-                    <th>Ev.33</th>
-                    <th>Ev.31</th>
-                    <th>Ev.34</th>
+                    <th class="cd-th-sel"><input type="checkbox" @onchange="OnSelectAll" checked="@_allSelected" /></th>
+                    @foreach (var col in VisibleCols())
+                    {
+                        var c = col;
+                        var sort = _sorts.FirstOrDefault(s => s.K == c.Key);
+                        var arrow = sort is null ? "" : (sort.Dir >= 0 ? " ▲" : " ▼");
+                        <th class="cd-th @(c.Num ? "num" : "")" draggable="true" data-col="@c.Key"
+                            style="@(_widths.TryGetValue(c.Key, out var w) ? $"width:{w}px" : "")"
+                            @ondragstart="() => _dragCol = c.Key"
+                            @ondragover:preventDefault="true"
+                            @ondrop="() => OnDropCol(c.Key)">
+                            <span class="cd-th-lbl" @onclick="() => QuickSort(c.Key)">@c.Label@arrow</span>
+                            <button class="cd-th-caret" @onclick="e => OpenColMenu(c, e)" @onclick:stopPropagation="true" title="Opciones de la columna">▾</button>
+                            <span class="cd-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
+                        </th>
+                    }
                 </tr>
             </thead>
             <tbody>
                 @if (_renglones.Count == 0)
                 {
-                    <tr><td colspan="25" class="cd-empty-row">Sin renglones en esta pestana (con el filtro actual).</td></tr>
+                    <tr><td colspan="@ColSpanAll" class="cd-empty-row">Sin renglones en esta pestana (con el filtro actual).</td></tr>
                 }
-                @foreach (var r in _renglones)
+                else
                 {
-                    <tr class="@(r.MarkerColor is null ? "" : "cd-marked")" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="Clic derecho para marcar con color">
-                        <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")"><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
-                        <td>@r.TipoDocDian</td>
-                        <td>@r.FechaEmision.ToString("dd/MM/yyyy")</td>
-                        <td>@r.NombreProveedor</td>
-                        <td>@r.NitProveedor</td>
-                        <td><span class="cd-pill info">@r.NumFacturaProveedor</span></td>
-                        <td>
-                            @if (r.NumFacturaSoldarco == "Inconsistencia!")
-                            {
-                                <span class="cd-pill danger">Inconsistencia!</span>
-                            }
-                            else if (!string.IsNullOrEmpty(r.NumFacturaSoldarco))
-                            {
-                                <span class="cd-pill primary">@r.NumFacturaSoldarco</span>
-                            }
-                            else { <span class="cd-muted">-</span> }
-                        </td>
-                        <td><input class="cd-in cd-oc" value="@r.OrdenCompraSoldarco" @onchange="e => OnOcChanged(r, e)" /></td>
-                        <td class="num">@Fmt(r.SubtotalBruto)</td>
-                        <td class="num">@Fmt(r.DescuentoComercial)</td>
-                        <td class="num">@Fmt(r.SubtotalNeto)</td>
-                        <td class="num">@Fmt(r.IvaDescontable)</td>
-                        <td class="num">@Fmt(r.TotalAntesRetenciones)</td>
-                        <td class="num">@Fmt(r.RetRetefuente)</td>
-                        <td class="num">@Fmt(r.RetIca)</td>
-                        <td class="num"><strong>@Fmt(r.TotalFactura)</strong></td>
-                        <td>@r.TipoPago</td>
-                        <td>@(r.PlataformaProveedor ? Si() : No())</td>
-                        <td><label class="cd-switch"><input type="checkbox" checked="@r.FacturaAprobada" @onchange="e => OnAprobadaChanged(r, e)" /><span></span></label></td>
-                        <td>@(string.IsNullOrWhiteSpace(r.RutEscaneado) ? "-" : r.RutEscaneado)</td>
-                        <td>@(r.Evento30 ? Check() : Dash())</td>
-                        <td>@(r.Evento32 ? Check() : Dash())</td>
-                        <td>@(r.Evento33 ? Check() : Dash())</td>
-                        <td>@(r.Evento31 ? Check() : Dash())</td>
-                        <td>@(r.Evento34 ? Check() : Dash())</td>
-                    </tr>
+                    @foreach (var it in _gridItems)
+                    {
+                        @if (it.Kind == GKind.Group)
+                        {
+                            <tr class="cd-grp @(it.Level > 0 ? "cd-grp2" : "")">
+                                <td colspan="@ColSpanAll">
+                                    <span class="cd-grp-lbl" style="padding-left:@(it.Level * 18)px">@it.Label</span>
+                                    <span class="cd-grp-n">@it.Count reg.</span>
+                                </td>
+                            </tr>
+                        }
+                        else if (it.Kind == GKind.Subtotal)
+                        {
+                            <tr class="cd-sub @(it.Grand ? "cd-sub-grand" : "")">
+                                <td class="cd-mark-cell"></td>
+                                @{ var labelPut = false; }
+                                @foreach (var c in VisibleCols())
+                                {
+                                    <td class="@(c.Num ? "num" : null)">
+                                        @if (c.Num && it.Sums!.TryGetValue(c.Key, out var sv))
+                                        {
+                                            <strong>@Fmt(sv)</strong>
+                                        }
+                                        else if (!c.Num && !labelPut)
+                                        {
+                                            labelPut = true;
+                                            <span class="cd-sub-lbl">@(it.Grand ? "TOTAL GENERAL" : "Subtotal") · @it.Count reg.</span>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                        else
+                        {
+                            var r = it.R!;
+                            <tr class="@(r.MarkerColor is null ? "" : "cd-marked")" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="Clic derecho para marcar con color">
+                                <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")"><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
+                                @foreach (var col in VisibleCols())
+                                {
+                                    var c = col;
+                                    <td class="@(c.Num ? "num" : null)">
+                                        @switch (c.Key)
+                                        {
+                                            case "tipodoc": <text>@r.TipoDocDian</text> break;
+                                            case "fecha": <text>@r.FechaEmision.ToString("dd/MM/yyyy")</text> break;
+                                            case "proveedor": <text>@r.NombreProveedor</text> break;
+                                            case "nit": <text>@r.NitProveedor</text> break;
+                                            case "numprov": <span class="cd-pill info">@r.NumFacturaProveedor</span> break;
+                                            case "numsol":
+                                                if (r.NumFacturaSoldarco == "Inconsistencia!") { <span class="cd-pill danger">Inconsistencia!</span> }
+                                                else if (!string.IsNullOrEmpty(r.NumFacturaSoldarco)) { <span class="cd-pill primary">@r.NumFacturaSoldarco</span> }
+                                                else { <span class="cd-muted">-</span> }
+                                                break;
+                                            case "oc": <input class="cd-in cd-oc" value="@r.OrdenCompraSoldarco" @onchange="e => OnOcChanged(r, e)" /> break;
+                                            case "sub_bruto": <text>@Fmt(r.SubtotalBruto)</text> break;
+                                            case "descuento": <text>@Fmt(r.DescuentoComercial)</text> break;
+                                            case "sub_neto": <text>@Fmt(r.SubtotalNeto)</text> break;
+                                            case "iva": <text>@Fmt(r.IvaDescontable)</text> break;
+                                            case "total_antes_ret": <text>@Fmt(r.TotalAntesRetenciones)</text> break;
+                                            case "retefuente": <text>@Fmt(r.RetRetefuente)</text> break;
+                                            case "ica": <text>@Fmt(r.RetIca)</text> break;
+                                            case "total": <strong>@Fmt(r.TotalFactura)</strong> break;
+                                            case "tipopago": <text>@r.TipoPago</text> break;
+                                            case "plataforma": <text>@(r.PlataformaProveedor ? Si() : No())</text> break;
+                                            case "aprobada": <label class="cd-switch"><input type="checkbox" checked="@r.FacturaAprobada" @onchange="e => OnAprobadaChanged(r, e)" /><span></span></label> break;
+                                            case "rut": <text>@(string.IsNullOrWhiteSpace(r.RutEscaneado) ? "-" : r.RutEscaneado)</text> break;
+                                            case "ev30": <text>@(r.Evento30 ? Check() : Dash())</text> break;
+                                            case "ev32": <text>@(r.Evento32 ? Check() : Dash())</text> break;
+                                            case "ev33": <text>@(r.Evento33 ? Check() : Dash())</text> break;
+                                            case "ev31": <text>@(r.Evento31 ? Check() : Dash())</text> break;
+                                            case "ev34": <text>@(r.Evento34 ? Check() : Dash())</text> break;
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    }
                 }
             </tbody>
         </table>
     </div>
+
+    @if (_colMenuOpen && _colMenuCol is not null)
+    {
+        <div class="cd-ctx-overlay" @onclick="CloseColMenu" @oncontextmenu:preventDefault="true"></div>
+        <div class="cd-ctx-menu" style="left:@(Px(_colMenuX)); top:@(Px(_colMenuY));">
+            <div class="cd-ctx-title">@_colMenuCol.Label</div>
+            <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, 1)">Ordenar A → Z</button>
+            <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, -1)">Ordenar Z → A</button>
+            @if (_colMenuCol.Groupable)
+            {
+                @if (_groups.Contains(_colMenuCol.Key))
+                {
+                    <button class="cd-ctx-item" @onclick="() => RemoveGroupKey(_colMenuCol.Key)">Quitar agrupacion</button>
+                }
+                else
+                {
+                    <button class="cd-ctx-item" @onclick="() => AddGroupKey(_colMenuCol.Key)">Agrupar por este campo</button>
+                }
+            }
+            <button class="cd-ctx-item" @onclick="() => FijarHastaAsync(_colMenuCol.Key)">Fijar hasta esta columna</button>
+            <div class="cd-ctx-sep"></div>
+            <button class="cd-ctx-item" @onclick="() => HideColFromMenu(_colMenuCol.Key)">Ocultar columna</button>
+        </div>
+    }
 
     @if (_menuOpen)
     {
@@ -245,52 +405,237 @@ else
         (EstadoConciliacionDian.Procesado, "Procesados"),
     };
 
-    // ---- Columnas fijas (freeze) configurables por el usuario ----
-    // El usuario elige hasta que columna congelar; se guarda en localStorage (por navegador).
-    private int _frozenCols;
-    private bool _colMenuOpen;
-    private bool _freezeReady;
-    private static readonly string[] _colNames =
+    // ======================= MOTOR DE TABLA (columnas, orden, grupos, fijas) =======================
+    private const string TableKey = "conciliacion-dian";
+
+    private sealed record GridCol(string Key, string Label, bool Num, bool Groupable);
+
+    private static readonly GridCol[] _allCols =
     {
-        "Seleccion", "Tipo DOC DIAN", "Fecha Emision", "Nombre Proveedor", "NIT",
-        "Num Factura Prov.", "Num Factura SOLDARCO", "Orden Compra", "Subtotal Bruto", "Descuento",
-        "Subtotal Neto", "IVA Desc.", "Total antes Ret.", "Retefuente", "ICA",
-        "Total Factura", "Tipo Pago", "Plataforma", "Aprobada", "RUT",
-        "Ev.30", "Ev.32", "Ev.33", "Ev.31", "Ev.34",
+        new("tipodoc", "Tipo DOC DIAN", false, true),
+        new("fecha", "Fecha Emision", false, true),
+        new("proveedor", "Nombre Proveedor", false, true),
+        new("nit", "NIT", false, true),
+        new("numprov", "Num Factura Prov.", false, false),
+        new("numsol", "Num Factura SOLDARCO", false, false),
+        new("oc", "Orden Compra", false, false),
+        new("sub_bruto", "Subtotal Bruto", true, false),
+        new("descuento", "Descuento", true, false),
+        new("sub_neto", "Subtotal Neto", true, false),
+        new("iva", "IVA Desc.", true, false),
+        new("total_antes_ret", "Total antes Ret.", true, false),
+        new("retefuente", "Retefuente", true, false),
+        new("ica", "ICA", true, false),
+        new("total", "Total Factura", true, false),
+        new("tipopago", "Tipo Pago", false, true),
+        new("plataforma", "Plataforma", false, true),
+        new("aprobada", "Aprobada", false, true),
+        new("rut", "RUT", false, false),
+        new("ev30", "Ev.30", false, true),
+        new("ev32", "Ev.32", false, true),
+        new("ev33", "Ev.33", false, true),
+        new("ev31", "Ev.31", false, true),
+        new("ev34", "Ev.34", false, true),
     };
 
-    private void ToggleColMenu() => _colMenuOpen = !_colMenuOpen;
-    private void CloseColMenu() => _colMenuOpen = false;
+    private sealed class SortSpec { public string K { get; set; } = ""; public int Dir { get; set; } = 1; }
 
-    private async Task SetFrozenAsync(int n)
+    private List<string> _order = _allCols.Select(c => c.Key).ToList();
+    private HashSet<string> _hidden = new();
+    private Dictionary<string, int> _widths = new();
+    private List<SortSpec> _sorts = new();
+    private List<string> _groups = new();
+    private int _frozen;
+
+    private string? _dragCol;
+    private string? _openMenu; // "sort" | "group" | "cols" | "freeze"
+
+    private GridCol? ColByKey(string k) => _allCols.FirstOrDefault(c => c.Key == k);
+    private IEnumerable<GridCol> VisibleCols() => _order.Select(ColByKey).Where(c => c is not null && !_hidden.Contains(c!.Key)).Select(c => c!);
+    private int ColSpanAll => 1 + VisibleCols().Count();
+
+    // ---- Items renderizables (grupos + filas + subtotales) ----
+    private enum GKind { Group, Data, Subtotal }
+    private sealed class GridItem
     {
-        _frozenCols = n;
-        _colMenuOpen = false;
+        public GKind Kind;
+        public int Level;
+        public string? Label;
+        public int Count;
+        public ConciliacionDianRenglonDto? R;
+        public Dictionary<string, decimal>? Sums;
+        public bool Grand;
+    }
+    private List<GridItem> _gridItems = new();
+
+    private static readonly string[] _moneyKeys =
+        { "sub_bruto", "descuento", "sub_neto", "iva", "total_antes_ret", "retefuente", "ica", "total" };
+
+    private static decimal Money(string key, ConciliacionDianRenglonDto r) => key switch
+    {
+        "sub_bruto" => r.SubtotalBruto,
+        "descuento" => r.DescuentoComercial,
+        "sub_neto" => r.SubtotalNeto,
+        "iva" => r.IvaDescontable,
+        "total_antes_ret" => r.TotalAntesRetenciones,
+        "retefuente" => r.RetRetefuente,
+        "ica" => r.RetIca,
+        "total" => r.TotalFactura,
+        _ => 0m,
+    };
+
+    private static string GroupText(string key, ConciliacionDianRenglonDto r)
+    {
+        var v = key switch
+        {
+            "tipodoc" => r.TipoDocDian,
+            "fecha" => r.FechaEmision.ToString("dd/MM/yyyy"),
+            "proveedor" => r.NombreProveedor,
+            "nit" => r.NitProveedor,
+            "numsol" => r.NumFacturaSoldarco,
+            "oc" => r.OrdenCompraSoldarco,
+            "tipopago" => r.TipoPago,
+            "plataforma" => r.PlataformaProveedor ? "Si" : "No",
+            "aprobada" => r.FacturaAprobada ? "Aprobada" : "Pendiente",
+            "rut" => r.RutEscaneado ?? "",
+            "ev30" => r.Evento30 ? "Si" : "No",
+            "ev32" => r.Evento32 ? "Si" : "No",
+            "ev33" => r.Evento33 ? "Si" : "No",
+            "ev31" => r.Evento31 ? "Si" : "No",
+            "ev34" => r.Evento34 ? "Si" : "No",
+            _ => "",
+        };
+        return string.IsNullOrWhiteSpace(v) ? "(sin dato)" : v;
+    }
+
+    private sealed class ObjCmp : IComparer<object?>
+    {
+        public static readonly ObjCmp I = new();
+        public int Compare(object? a, object? b)
+        {
+            if (a is decimal da && b is decimal db) { return da.CompareTo(db); }
+            if (a is DateTimeOffset ta && b is DateTimeOffset tb) { return ta.CompareTo(tb); }
+            return string.Compare(a?.ToString(), b?.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static object SortKey(string key, ConciliacionDianRenglonDto r)
+    {
+        if (_moneyKeys.Contains(key)) { return Money(key, r); }
+        if (key == "fecha") { return r.FechaEmision; }
+        return GroupText(key, r);
+    }
+
+    private IEnumerable<ConciliacionDianRenglonDto> Sorted(IEnumerable<ConciliacionDianRenglonDto> src)
+    {
+        if (_sorts.Count == 0) { return src; }
+        IOrderedEnumerable<ConciliacionDianRenglonDto>? o = null;
+        foreach (var s in _sorts)
+        {
+            var sc = s;
+            Func<ConciliacionDianRenglonDto, object> ks = r => SortKey(sc.K, r);
+            o = o is null
+                ? (sc.Dir >= 0 ? src.OrderBy(ks, ObjCmp.I) : src.OrderByDescending(ks, ObjCmp.I))
+                : (sc.Dir >= 0 ? o.ThenBy(ks, ObjCmp.I) : o.ThenByDescending(ks, ObjCmp.I));
+        }
+        return o!;
+    }
+
+    private static Dictionary<string, decimal> SumsOf(IEnumerable<ConciliacionDianRenglonDto> rows)
+    {
+        var d = new Dictionary<string, decimal>();
+        var list = rows as IList<ConciliacionDianRenglonDto> ?? rows.ToList();
+        foreach (var k in _moneyKeys) { d[k] = list.Sum(r => Money(k, r)); }
+        return d;
+    }
+
+    private void BuildItems(List<ConciliacionDianRenglonDto> rows, int level, List<GridItem> outl)
+    {
+        if (level >= _groups.Count)
+        {
+            foreach (var r in Sorted(rows)) { outl.Add(new GridItem { Kind = GKind.Data, R = r }); }
+            return;
+        }
+        var key = _groups[level];
+        var label = ColByKey(key)?.Label ?? key;
+        var groups = rows.GroupBy(r => GroupText(key, r)).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var g in groups)
+        {
+            var glist = g.ToList();
+            outl.Add(new GridItem { Kind = GKind.Group, Level = level, Label = $"{label}: {g.Key}", Count = glist.Count });
+            BuildItems(glist, level + 1, outl);
+            outl.Add(new GridItem { Kind = GKind.Subtotal, Level = level, Count = glist.Count, Sums = SumsOf(glist), Grand = false });
+        }
+    }
+
+    private void RebuildItems()
+    {
+        var items = new List<GridItem>();
+        BuildItems(_renglones.ToList(), 0, items);
+        // Total general (cantidad + sumas) al pie, siempre.
+        if (_renglones.Count > 0)
+        {
+            items.Add(new GridItem { Kind = GKind.Subtotal, Count = _renglones.Count, Sums = SumsOf(_renglones), Grand = true });
+        }
+        _gridItems = items;
+    }
+
+    // ---- Persistencia de preferencias (por usuario, en BD) ----
+    private sealed class PrefsDto
+    {
+        public List<string>? order { get; set; }
+        public List<string>? hidden { get; set; }
+        public Dictionary<string, int>? widths { get; set; }
+        public List<SortSpec>? sorts { get; set; }
+        public List<string>? groups { get; set; }
+        public int frozen { get; set; }
+    }
+
+    private async Task LoadPrefsAsync()
+    {
         try
         {
-            await JS.InvokeVoidAsync("ecorexCdCols.setFrozen", n);
-            await JS.InvokeVoidAsync("ecorexCdCols.apply", n);
+            var json = await Prefs.GetAsync(TableKey);
+            if (string.IsNullOrWhiteSpace(json)) { return; }
+            var p = JsonSerializer.Deserialize<PrefsDto>(json);
+            if (p is null) { return; }
+            // Orden: respeta lo guardado, agrega al final las columnas nuevas, descarta claves desconocidas.
+            var known = _allCols.Select(c => c.Key).ToHashSet();
+            var ord = (p.order ?? new()).Where(known.Contains).Distinct().ToList();
+            foreach (var k in _allCols.Select(c => c.Key)) { if (!ord.Contains(k)) { ord.Add(k); } }
+            _order = ord;
+            _hidden = (p.hidden ?? new()).Where(known.Contains).ToHashSet();
+            _widths = (p.widths ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+            _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
+            _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
+            _frozen = Math.Max(0, p.frozen);
         }
-        catch { /* JS aun no listo */ }
+        catch { /* preferencias corruptas: se ignoran, se usa el default */ }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task SavePrefsAsync()
     {
-        if (firstRender)
+        try
         {
-            try { _frozenCols = await JS.InvokeAsync<int>("ecorexCdCols.getFrozen"); }
-            catch { _frozenCols = 0; }
-            _freezeReady = true;
-            if (_frozenCols > 0) { StateHasChanged(); } // refresca el contador del boton
+            var json = JsonSerializer.Serialize(new PrefsDto
+            {
+                order = _order,
+                hidden = _hidden.ToList(),
+                widths = _widths,
+                sorts = _sorts,
+                groups = _groups,
+                frozen = _frozen,
+            });
+            await Prefs.SaveAsync(TableKey, json);
         }
-        // Reaplica tras cada render: las filas se regeneran en ReloadAsync y pierden el estilo inline.
-        if (_freezeReady)
-        {
-            try { await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozenCols); } catch { }
-        }
+        catch { /* no bloquear la UI por un fallo de guardado */ }
     }
 
-    protected override async Task OnInitializedAsync() => await LoadDocsAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPrefsAsync();
+        await LoadDocsAsync();
+    }
 
     private async Task LoadDocsAsync()
     {
@@ -313,6 +658,7 @@ else
         _counts = new Dictionary<EstadoConciliacionDian, int>(await Svc.ContarPorEstadoAsync(_selectedDocId, f));
         _renglones = (await Svc.ListRenglonesAsync(_selectedDocId, _activeTab, f)).ToList();
         _allSelected = _renglones.Count > 0 && _renglones.All(r => r.Seleccionado);
+        RebuildItems();
         StateHasChanged();
     }
 
@@ -398,6 +744,130 @@ else
         var val = e.Value is bool b && b;
         await Svc.SetSeleccionAsync(_renglones.Select(r => r.Id).ToList(), val);
         await ReloadAsync();
+    }
+
+    // ---- Menus de la barra ----
+    private void ToggleMenu(string m) { _openMenu = _openMenu == m ? null : m; }
+    private void CloseMenu() { _openMenu = null; }
+
+    // ---- Ordenar ----
+    private void QuickSort(string key)
+    {
+        if (_sorts.Count == 1 && _sorts[0].K == key) { _sorts[0].Dir = -_sorts[0].Dir; }
+        else { _sorts = new() { new SortSpec { K = key, Dir = 1 } }; }
+        RebuildItems(); _ = SavePrefsAsync();
+    }
+    private void SetSingleSort(string key, int dir) { _sorts = new() { new SortSpec { K = key, Dir = dir } }; CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+    private void AddSort()
+    {
+        var used = _sorts.Select(s => s.K).ToHashSet();
+        var nx = _allCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
+        _sorts.Add(new SortSpec { K = nx.Key, Dir = 1 }); RebuildItems(); _ = SavePrefsAsync();
+    }
+    private void ChangeSortField(SortSpec s, ChangeEventArgs e) { s.K = e.Value?.ToString() ?? s.K; RebuildItems(); _ = SavePrefsAsync(); }
+    private void ToggleSortDir(SortSpec s) { s.Dir = -s.Dir; RebuildItems(); _ = SavePrefsAsync(); }
+    private void RemoveSort(SortSpec s) { _sorts.Remove(s); RebuildItems(); _ = SavePrefsAsync(); }
+
+    // ---- Agrupar ----
+    private void AddGroup()
+    {
+        var used = _groups.ToHashSet();
+        var nx = _allCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
+        if (nx is not null) { _groups.Add(nx.Key); RebuildItems(); _ = SavePrefsAsync(); }
+    }
+    private void ChangeGroupField(int idx, ChangeEventArgs e) { if (idx >= 0 && idx < _groups.Count) { _groups[idx] = e.Value?.ToString() ?? _groups[idx]; RebuildItems(); _ = SavePrefsAsync(); } }
+    private void RemoveGroup(int idx) { if (idx >= 0 && idx < _groups.Count) { _groups.RemoveAt(idx); RebuildItems(); _ = SavePrefsAsync(); } }
+    private void AddGroupKey(string key) { if (!_groups.Contains(key)) { _groups.Add(key); } CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+    private void RemoveGroupKey(string key) { _groups.Remove(key); CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+
+    // ---- Columnas: mover / ocultar ----
+    private void MoveCol(int idx, int dir)
+    {
+        var ni = idx + dir;
+        if (ni < 0 || ni >= _order.Count) { return; }
+        (_order[idx], _order[ni]) = (_order[ni], _order[idx]);
+        _ = SavePrefsAsync();
+    }
+    private void OnDropCol(string targetKey)
+    {
+        var src = _dragCol;
+        _dragCol = null;
+        if (src is null || src == targetKey) { return; }
+        var from = _order.IndexOf(src);
+        var to = _order.IndexOf(targetKey);
+        if (from < 0 || to < 0) { return; }
+        _order.RemoveAt(from);
+        to = _order.IndexOf(targetKey); // recalcular tras remover (el indice pudo correrse)
+        _order.Insert(to, src);         // deja la arrastrada ANTES de la columna destino
+        _ = SavePrefsAsync();
+    }
+    private void ToggleHidden(string key) { if (!_hidden.Remove(key)) { _hidden.Add(key); } _ = SavePrefsAsync(); }
+    private void HideColFromMenu(string key) { _hidden.Add(key); CloseColMenu(); _ = SavePrefsAsync(); }
+    private void ShowAllCols() { _hidden.Clear(); _ = SavePrefsAsync(); }
+    private void ResetCols() { _order = _allCols.Select(c => c.Key).ToList(); _hidden.Clear(); _widths.Clear(); _ = SavePrefsAsync(); }
+
+    // ---- Menu contextual de columna (caret del header) ----
+    private bool _colMenuOpen;
+    private double _colMenuX, _colMenuY;
+    private GridCol? _colMenuCol;
+    private void OpenColMenu(GridCol c, Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        _colMenuCol = c; _colMenuX = e.ClientX; _colMenuY = e.ClientY; _colMenuOpen = true; _openMenu = null;
+    }
+    private void CloseColMenu() { _colMenuOpen = false; _colMenuCol = null; }
+
+    // ---- Columnas fijas ----
+    private async Task SetFrozenAsync(int n)
+    {
+        _frozen = n; _openMenu = null;
+        await SavePrefsAsync();
+        await ApplyFreezeAsync();
+    }
+    private async Task FijarHastaAsync(string key)
+    {
+        var vis = VisibleCols().ToList();
+        var pos = vis.FindIndex(c => c.Key == key);
+        CloseColMenu();
+        if (pos < 0) { return; }
+        _frozen = pos + 2; // +1 sel, +1 indice->conteo
+        await SavePrefsAsync();
+        await ApplyFreezeAsync();
+    }
+    private async Task ApplyFreezeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozen); } catch { }
+    }
+
+    // ---- Redimensionar columnas (desde JS) ----
+    private DotNetObjectReference<ConciliacionDian>? _selfRef;
+
+    [JSInvokable]
+    public async Task OnColumnResized(string key, int width)
+    {
+        if (width <= 0) { _widths.Remove(key); } else { _widths[key] = width; }
+        await SavePrefsAsync();
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+        }
+        // Reaplica freeze + rewire de resize tras cada render (las filas se regeneran).
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozen);
+            if (_selfRef is not null) { await JS.InvokeVoidAsync("ecorexCdCols.wireResize", _selfRef); }
+        }
+        catch { }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        return ValueTask.CompletedTask;
     }
 
     // ---- Marcador de color por fila (menu contextual, persistente) ----

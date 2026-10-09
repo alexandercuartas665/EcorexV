@@ -280,6 +280,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies => Set<ConciliacionDianBotDummy>();
     public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
+    public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2703,6 +2704,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.Referencia).HasMaxLength(80).IsRequired();
             b.Property(x => x.DocumentoInterno).HasMaxLength(80);
             b.HasIndex(x => new { x.TenantId, x.Referencia });
+        });
+
+        modelBuilder.Entity<UserTablePreference>(b =>
+        {
+            b.Property(x => x.TableKey).HasMaxLength(80).IsRequired();
+            // Contenido como jsonb (PostgreSQL) / nvarchar(max) (SQL Server): flexible, evoluciona sin migraciones.
+            b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType).IsRequired();
+            // Una preferencia por (tenant, usuario, tabla).
+            b.HasIndex(x => new { x.TenantId, x.UserId, x.TableKey }).IsUnique();
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

@@ -115,29 +115,86 @@
 }
 .cd-ctx-clear:hover { background: var(--line-2, #e5e7eb); }
 
-/* ---- Columnas fijas (freeze) configurables ---- */
-.cd-colbar { display: flex; align-items: center; gap: 12px; margin: 2px 0 8px; }
-.cd-coldd { position: relative; display: inline-flex; align-items: center; gap: 12px; }
-.cd-colbar-hint { font-size: 12px; color: var(--ink-3, #6b7280); }
+/* ---- Barra de herramientas de la grilla (Ordenar / Agrupar / Columnas / Columnas fijas) ---- */
+.cd-toolbar { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; flex-wrap: wrap; }
+.cd-toolbar-spacer { flex: 1; }
+.cd-toolbar-hint { font-size: 12px; color: var(--ink-3, #6b7280); }
+.cd-dd { position: relative; display: inline-flex; }
+.cd-tbtn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600;
+    color: var(--ink-2, #4b5563); background: var(--surface, #fff);
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px; cursor: pointer;
+}
+.cd-tbtn:hover { border-color: var(--ink-3, #9ca3af); }
+.cd-tbtn.on { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-tbtn svg { opacity: .85; }
 
-.cd-coldd-overlay { position: fixed; inset: 0; z-index: 3900; background: transparent; }
-.cd-coldd-panel {
+.cd-dd-overlay { position: fixed; inset: 0; z-index: 3900; background: transparent; }
+.cd-dd-panel {
     position: absolute; top: calc(100% + 6px); left: 0; z-index: 3901;
-    min-width: 240px; max-height: 340px; overflow: auto;
+    min-width: 280px; max-height: 360px; overflow: auto;
     background: var(--surface, #fff); border: 1px solid var(--line-2, #d1d5db);
-    border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px;
+    border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 8px;
 }
-.cd-coldd-title { font-size: 11.5px; font-weight: 600; color: var(--ink-3, #6b7280); padding: 6px 8px 8px; }
-.cd-coldd-item {
-    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-    font-size: 12.5px; color: var(--ink, #1f2937); padding: 6px 8px; cursor: pointer;
-    background: transparent; border: 0; border-radius: 7px;
-}
-.cd-coldd-item:hover { background: var(--brand-soft, #f5f7ff); }
-.cd-coldd-item.on { background: var(--brand-soft, #eef2ff); font-weight: 700; color: var(--brand, #4f46e5); }
-.cd-coldd-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--line-2, #d1d5db); background: transparent; }
-.cd-coldd-dot.fx { background: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); }
-.cd-coldd-dot.off { background: transparent; }
+.cd-dd-cols { min-width: 260px; }
+.cd-dd-title { font-size: 11.5px; font-weight: 600; color: var(--ink-3, #6b7280); padding: 2px 6px 8px; }
+.cd-dd-empty { font-size: 12px; color: var(--ink-3, #9ca3af); padding: 4px 6px 8px; }
+.cd-dd-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.cd-dd-dir { height: 32px; min-width: 52px; font-size: 12px; font-weight: 700; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface-2, #f8fafc); color: var(--ink-2, #4b5563); cursor: pointer; }
+.cd-dd-del { height: 32px; width: 32px; font-size: 16px; line-height: 1; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface, #fff); color: var(--ink-3, #9ca3af); cursor: pointer; }
+.cd-dd-del:hover { color: #b91c1c; border-color: #fca5a5; }
+.cd-dd-add { width: 100%; margin-top: 2px; font-size: 12.5px; font-weight: 600; padding: 7px 8px; cursor: pointer; background: var(--surface-2, #f3f4f6); border: 1px dashed var(--line-2, #d1d5db); border-radius: 7px; color: var(--brand, #4f46e5); }
+.cd-dd-add:hover { background: var(--brand-soft, #eef2ff); }
+.cd-dd-item { display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--ink, #1f2937); padding: 7px 8px; cursor: pointer; background: transparent; border: 0; border-radius: 7px; }
+.cd-dd-item:hover { background: var(--brand-soft, #f5f7ff); }
+.cd-dd-item.on { background: var(--brand-soft, #eef2ff); font-weight: 700; color: var(--brand, #4f46e5); }
+
+/* Gestor de Columnas */
+.cd-collist { display: flex; flex-direction: column; gap: 2px; }
+.cd-colit { display: flex; align-items: center; gap: 4px; padding: 3px 4px; border-radius: 7px; }
+.cd-colit:hover { background: var(--surface-2, #f8fafc); }
+.cd-col-mv { width: 22px; height: 22px; font-size: 10px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 5px; background: var(--surface, #fff); color: var(--ink-2, #4b5563); cursor: pointer; padding: 0; }
+.cd-col-mv:disabled { opacity: .35; cursor: default; }
+.cd-col-name { flex: 1; font-size: 12.5px; color: var(--ink, #1f2937); padding: 0 4px; }
+.cd-col-eye { font-size: 11px; font-weight: 600; padding: 2px 8px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 999px; background: var(--surface, #fff); color: var(--ink-3, #9ca3af); cursor: pointer; }
+.cd-col-eye.on { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-col-acts { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line, #f1f5f9); }
+.cd-col-mass, .cd-col-reset { flex: 1; font-size: 12px; font-weight: 600; padding: 6px 8px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface-2, #f8fafc); color: var(--ink-2, #4b5563); cursor: pointer; }
+.cd-col-mass:hover, .cd-col-reset:hover { background: var(--line-2, #e5e7eb); }
+
+/* Encabezados: arrastrables, con caret de menu y tirador de ancho */
+.cd-grid th.cd-th { position: relative; cursor: grab; user-select: none; }
+.cd-grid th.cd-th:active { cursor: grabbing; }
+.cd-grid th.cd-th.cd-th-over { box-shadow: inset 2px 0 0 var(--brand, #4f46e5); }
+.cd-th-lbl { cursor: pointer; }
+.cd-th-caret { opacity: 0; margin-left: 4px; font-size: 11px; line-height: 1; border: 0; background: transparent; color: var(--ink-3, #9ca3af); cursor: pointer; padding: 0 2px; }
+.cd-grid th.cd-th:hover .cd-th-caret { opacity: 1; }
+.cd-th-caret:hover { color: var(--brand, #4f46e5); }
+.cd-rz { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; }
+.cd-rz:hover { box-shadow: inset -2px 0 0 var(--brand, #4f46e5); }
+
+/* Menu contextual de columna (caret): reusa el look del menu de color */
+.cd-ctx-item { display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--ink, #1f2937); padding: 7px 10px; cursor: pointer; background: transparent; border: 0; border-radius: 7px; }
+.cd-ctx-item:hover { background: var(--brand-soft, #f5f7ff); }
+.cd-ctx-sep { height: 1px; background: var(--line, #f1f5f9); margin: 4px 2px; }
+
+/* Filas de grupo + subtotales */
+.cd-grid tbody tr.cd-grp td { background: var(--surface-2, #eef2f7); font-weight: 700; color: var(--ink, #1f2937); padding: 7px 10px; border-bottom: 1px solid var(--line-2, #e5e7eb); }
+.cd-grid tbody tr.cd-grp2 td { background: var(--surface-2, #f3f6fa); }
+.cd-grp-lbl { font-weight: 700; }
+.cd-grp-n { margin-left: 10px; font-size: 11px; font-weight: 700; color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); border-radius: 999px; padding: 1px 8px; }
+.cd-grid tbody tr.cd-sub td { background: var(--surface-2, #f8fafc); font-size: 12px; color: var(--ink-2, #4b5563); border-top: 1px dashed var(--line-2, #e5e7eb); border-bottom: 1px solid var(--line-2, #e5e7eb); }
+.cd-grid tbody tr.cd-sub td strong { color: var(--ink, #1f2937); }
+.cd-sub-lbl { font-weight: 700; color: var(--ink-2, #4b5563); white-space: nowrap; }
+.cd-grid tbody tr.cd-sub-grand td { background: var(--brand-soft, #eef2ff); color: var(--ink, #1f2937); font-size: 12.5px; border-top: 2px solid var(--brand, #4f46e5); }
+.cd-grid tbody tr.cd-sub-grand td strong { color: var(--brand, #4f46e5); }
+
+/* Celdas congeladas: fondo opaco para que no se transparente lo que pasa por debajo. */
+.cd-grid td.cd-frozen { background: var(--surface, #fff); }
+.cd-grid tbody tr:hover td.cd-frozen { background: var(--brand-soft, #f5f7ff); }
+.cd-grid tbody tr.cd-marked td.cd-frozen { background: #fbfcff; }
+.cd-grid tbody tr.cd-grp td.cd-frozen, .cd-grid tbody tr.cd-sub td.cd-frozen { background: var(--surface-2, #f8fafc); }
 
 /* Celdas congeladas: fondo opaco para que no se transparente lo que pasa por debajo. */
 .cd-grid td.cd-frozen { background: var(--surface, #fff); }

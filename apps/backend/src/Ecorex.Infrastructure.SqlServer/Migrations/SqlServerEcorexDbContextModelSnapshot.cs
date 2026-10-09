@@ -15507,6 +15507,58 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("tercero_vinculos", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.UserTablePreference", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("PreferencesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("preferences_json");
+
+                    b.Property<string>("TableKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("table_key");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_table_preferences");
+
+                    b.HasIndex("TenantId", "UserId", "TableKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_table_preferences_tenant_id_user_id_table_key");
+
+                    b.ToTable("user_table_preferences", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.VoiceCall", b =>
                 {
                     b.Property<Guid>("Id")

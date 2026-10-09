@@ -515,6 +515,7 @@
                                             <span class="xd-var-name">@v.Name</span>
                                             <span class="xd-var-value">@(v.IsSecret ? "********" : (v.HasValue ? "(con valor)" : "(vacia)"))</span>
                                             @if (v.IsSecret) { <span class="xd-lock" title="Secreta (cifrada)">&#128274;</span> }
+                                            <button class="xd-icon-btn" title="Editar" @onclick="() => OpenVarEditorFor(v)">&#9998;</button>
                                             <button class="xd-icon-btn" title="Eliminar" @onclick="() => DeleteVariableAsync(v.Id)">&times;</button>
                                         </div>
                                     }
@@ -527,15 +528,30 @@
 
                             @if (_showVarEditor)
                             {
-                                <div class="xd-step-editor">
-                                    <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="USER" @bind="_vName" /></div>
-                                    <div class="xd-prop"><label>Valor</label><input class="xd-input" type="@(_vSecret ? "password" : "text")" @bind="_vValue" /></div>
-                                    <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra y no se puede consultar)</label>
-                                    @if (_varError is not null) { <div class="xd-error-box">@_varError</div> }
-                                    <div class="xd-props-actions">
-                                        <button class="xd-btn primary" @onclick="SaveVariableAsync" disabled="@_busy">Guardar</button>
-                                        <button class="xd-btn" @onclick="() => _showVarEditor = false">Cancelar</button>
+                                <div class="xd-modal-backdrop" @onclick="() => _showVarEditor = false">
+                                  <div class="xd-modal" @onclick:stopPropagation="true">
+                                    <div class="xd-modal-head">
+                                        <div class="xd-card-title" style="font-size:14px;">@(_vEditId is null ? "Nueva variable" : "Editar variable")</div>
+                                        <button class="xd-icon-btn" title="Cerrar" @onclick="() => _showVarEditor = false">&times;</button>
                                     </div>
+                                    <div class="xd-modal-body">
+                                        <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="USER" @bind="_vName" /></div>
+                                        <div class="xd-prop">
+                                            <label>Valor</label>
+                                            <input class="xd-input" type="@(_vSecret ? "password" : "text")" placeholder="@(_vEditId is null ? "" : "Dejar vacio para conservar el valor actual")" @bind="_vValue" />
+                                        </div>
+                                        <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra y no se puede consultar)</label>
+                                        @if (_vEditId is not null)
+                                        {
+                                            <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 0;">Si cambias el tipo (secreta/no), reingresa el valor.</div>
+                                        }
+                                        @if (_varError is not null) { <div class="xd-error-box">@_varError</div> }
+                                        <div class="xd-props-actions">
+                                            <button class="xd-btn primary" @onclick="SaveVariableAsync" disabled="@_busy">Guardar</button>
+                                            <button class="xd-btn" @onclick="() => _showVarEditor = false">Cancelar</button>
+                                        </div>
+                                    </div>
+                                  </div>
                                 </div>
                             }
                         </div>
@@ -704,6 +720,7 @@
 
     // Editor de variable
     private bool _showVarEditor;
+    private Guid? _vEditId;
     private string? _varError;
     private string _vName = "";
     private string _vValue = "";
@@ -1144,8 +1161,17 @@
     private void OpenVarEditor()
     {
         _varError = null;
+        _vEditId = null;
         _showVarEditor = true;
         _vName = ""; _vValue = ""; _vSecret = true;
+    }
+
+    private void OpenVarEditorFor(ScrapeVariableDto v)
+    {
+        _varError = null;
+        _vEditId = v.Id;
+        _showVarEditor = true;
+        _vName = v.Name; _vValue = ""; _vSecret = v.IsSecret;
     }
 
     private async Task SaveVariableAsync()
@@ -1156,7 +1182,7 @@
         try
         {
             var saved = await FlowSvc.SaveVariableAsync(new SaveScrapeVariableRequest(
-                null, _selected.Id, _vName, NullIfBlank(_vValue), _vSecret), _actor);
+                _vEditId, _selected.Id, _vName, NullIfBlank(_vValue), _vSecret), _actor);
             if (saved is null) { _varError = "No se pudo guardar."; return; }
             _showVarEditor = false;
             await SelectFlowAsync(_selected.Id);

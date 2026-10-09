@@ -80,15 +80,6 @@ else
         <button class="btn btn-link btn-sm" @onclick="LimpiarFiltro" disabled="@_busy">Limpiar</button>
     </div>
 
-    <div class="cd-tabs">
-        @foreach (var t in _tabs)
-        {
-            <button class="cd-tab @(t.Estado == _activeTab ? "on" : "")" @onclick="() => SetTabAsync(t.Estado)">
-                @t.Label <span class="cd-badge">@(_counts.TryGetValue(t.Estado, out var c) ? c : 0)</span>
-            </button>
-        }
-    </div>
-
     @* ---- Barra de herramientas de la grilla: Ordenar | Agrupar | Columnas | Columnas fijas ---- *@
     <div class="cd-toolbar">
         @* Ordenar (multi-criterio) *@
@@ -217,6 +208,15 @@ else
         @if (_groups.Count > 0)
         {
             <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
+        }
+    </div>
+
+    <div class="cd-tabs">
+        @foreach (var t in _tabs)
+        {
+            <button class="cd-tab @(t.Estado == _activeTab ? "on" : "")" @onclick="() => SetTabAsync(t.Estado)">
+                @t.Label <span class="cd-badge">@(_counts.TryGetValue(t.Estado, out var c) ? c : 0)</span>
+            </button>
         }
     </div>
 

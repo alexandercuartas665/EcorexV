@@ -218,6 +218,7 @@ public class ActividadesToolsetTests
     // Conversations/TaskItemAttachments, asi que basta con lanzar en esos.
     private sealed class FakeActDb(InnerDb inner) : IApplicationDbContext
     {
+        public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => inner.ActividadSubcategorias;
 
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();

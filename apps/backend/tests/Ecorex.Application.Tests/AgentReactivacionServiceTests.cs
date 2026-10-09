@@ -98,6 +98,7 @@ public class AgentReactivacionServiceTests
 
     private sealed class FakeAppDb(InnerDb inner) : IApplicationDbContext
     {
+        public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Tercero> Terceros => throw new NotSupportedException();
         public DbSet<Conversation> Conversations => inner.Conversations;
 

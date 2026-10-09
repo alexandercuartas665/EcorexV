@@ -136,6 +136,7 @@ public class ContactWorkflowDispatcherTests
     // el resto de la interfaz no se toca (NotUsed) -mismo patron que ScheduledUpsertRunTests-.
     private sealed class FakeAppDb(InnerDb inner) : IApplicationDbContext
     {
+        public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => inner.Tenants;
         public DbSet<Tercero> Terceros => inner.Terceros;
         public DbSet<TerceroFiltro> TerceroFiltros => inner.TerceroFiltros;

@@ -45,6 +45,7 @@ public class TenantUserServiceTests
     // Adaptador minimo de IApplicationDbContext: expone solo los 3 conjuntos usados; el resto lanza.
     private sealed class FakeAppDb(InnerDb inner) : IApplicationDbContext
     {
+        public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => inner.PlatformUsers;
         public DbSet<TenantUser> TenantUsers => inner.TenantUsers;
         public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => inner.SuperAdminAuditLogs;

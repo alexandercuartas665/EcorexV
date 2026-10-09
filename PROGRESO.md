@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-09 - Release v0.16.191: formulario obligatorio POR SALIDA en compuertas (ADR-0077 v2) + backlog del tronco
+
+- DESPLEGADO en prod v0.16.191 (2026-10-09). El deploy construye el HEAD, asi que ademas de esta feature ship
+  todo lo acumulado desde v0.16.188: motor de tabla + DRON /conciliacion-dian (sesion paralela), ADR-0124
+  (etiquetar tarea por el agente), y reabrir con doble confirmacion + motivo. Prod auto-aplico las 3 migraciones
+  PG al arrancar (AddConciliacionMarkerColor, AddUserTablePreferences, AddWorkflowNodeFormRequiredRoutes).
+- ADR-0077 v2 (feature de la sesion): en una COMPUERTA el formulario del nodo puede ser obligatorio en unas
+  salidas y opcional en otras. Modelo `WorkflowNodeForm.RequiredRoutesJson` (jsonb, claves = BpmnElementId del
+  destino, estable al publicar; null/vacio = todas, compat. atras). Enforcement en el camino HUMANO
+  (`CompleteGatewayChoiceAsync` resuelve la salida elegida y la pasa a `FirstUnfilledRequiredFormAsync`). El
+  agente y el enlace de decision van directo a `ChooseGatewayRouteAsync`, no pasan por ese bloqueo. Disenador:
+  casilla por salida en "Recursos y componentes" (compuerta con >=2 salidas; Task conserva el checkbox simple).
+  Export/import + draft->publicado conservan la config. Verificado en vivo (FT-C-008 en la compuerta "Cliente
+  Decide si compra": destildar "no compra" guardo RequiredRoutesJson=["Event_...comprar"]; restaurado tras probar).
+- Build verde; unitarias Application 1112. Commits a7d199c6 (release) + feat anterior; push tronco + espejo main.
+- Bloqueos: ninguno. GOTCHA deploy: prod auto-migra al arrancar (Program.cs MigrateAsync x2), el healthcheck del
+  script puede dar HTTP 000 si corre antes de terminar seeding; verificar version en /login (no en "/").
+
 ## 2026-10-08 - Etiquetar la tarea segun la salida del flujo via herramienta del agente (ADR-0124)
 
 - Objetivo: que el agente de nodo clasifique la tarea segun como termine el caso (p.ej. al enrutar a "Cliente

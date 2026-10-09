@@ -16794,6 +16794,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
 
+                    b.Property<string>("RequiredRoutesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("required_routes_json");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");

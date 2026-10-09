@@ -1611,12 +1611,31 @@ else
             @foreach (var f in (node.Forms ?? new List<FlowNodeFormDto>()))
             {
                 var ff = f;
+                var routes = GatewayRoutesFor(node);
                 <span class="fe-chip @(ff.IsRequired ? "req" : "")">
                     Formulario @ff.Code - @ff.Title
-                    <label class="fe-chip-req" title="Obligatorio: hay que enviarlo para cerrar/decidir el paso">
-                        <input type="checkbox" checked="@ff.IsRequired"
-                               @onchange="@(e => ToggleFormRequiredAsync(node, ff, e))" /> obligatorio
-                    </label>
+                    @if (routes.Count >= 2)
+                    {
+                        @* Compuerta: el obligatorio es POR SALIDA (ADR-0077 v2). Marca en que salidas hay que enviarlo. *@
+                        <span class="fe-chip-req" title="Obligatorio por salida: marca en que salidas de la compuerta hay que enviar el formulario para poder elegir esa ruta.">
+                            obligatorio en:
+                            @foreach (var r in routes)
+                            {
+                                var rk = r.Key;
+                                <label style="margin-left:7px;white-space:nowrap;">
+                                    <input type="checkbox" checked="@FormRequiredForRoute(ff, rk)"
+                                           @onchange="@(e => ToggleFormRouteRequiredAsync(node, ff, rk, (bool)(e.Value ?? false)))" /> @r.Label
+                                </label>
+                            }
+                        </span>
+                    }
+                    else
+                    {
+                        <label class="fe-chip-req" title="Obligatorio: hay que enviarlo para cerrar/decidir el paso">
+                            <input type="checkbox" checked="@ff.IsRequired"
+                                   @onchange="@(e => ToggleFormRequiredAsync(node, ff, e))" /> obligatorio
+                        </label>
+                    }
                     <label class="fe-chip-req" title="Cargar al llegar: si esta activo, el formulario se crea solo al activarse el paso. Si lo apagas, no se crea automaticamente; se agrega a mano cuando se necesite.">
                         <input type="checkbox" checked="@ff.AutoCreateOnArrival"
                                @onchange="@(e => ToggleFormAutoCreateAsync(node, ff, e))" /> cargar al llegar
@@ -2416,6 +2435,42 @@ else
     {
         var autoCreate = e.Value is bool b && b;
         var result = await DesignSvc.SetNodeFormAutoCreateAsync(node.Id, form.DefinitionId, autoCreate);
+        if (!result.IsOk) { _error = result.Error; }
+        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+    }
+
+    // ---- Obligatorio POR SALIDA (compuertas, ADR-0077 v2) ----
+
+    /// <summary>Salidas (aristas salientes) de una compuerta exclusiva: clave = BpmnElementId del nodo DESTINO
+    /// (estable al publicar), etiqueta = nombre del destino (o de la arista). Vacio si el nodo no es compuerta
+    /// con al menos 2 salidas (entonces el formulario usa el "obligatorio" simple de siempre).</summary>
+    private IReadOnlyList<(string Key, string Label)> GatewayRoutesFor(FlowCanvasNodeDto node)
+    {
+        if (_canvas is null || node.NodeType != WorkflowNodeType.ExclusiveGateway) { return Array.Empty<(string, string)>(); }
+        var nodesById = _canvas.Nodes.ToDictionary(n => n.Id);
+        var routes = new List<(string, string)>();
+        foreach (var edge in _canvas.Edges.Where(x => x.SourceNodeId == node.Id))
+        {
+            if (!nodesById.TryGetValue(edge.TargetNodeId, out var tgt) || string.IsNullOrWhiteSpace(tgt.BpmnElementId)) { continue; }
+            var label = !string.IsNullOrWhiteSpace(tgt.Name) ? tgt.Name!
+                : (!string.IsNullOrWhiteSpace(edge.Name) ? edge.Name! : tgt.BpmnElementId);
+            routes.Add((tgt.BpmnElementId, label));
+        }
+        return routes.Count >= 2 ? routes : Array.Empty<(string, string)>();
+    }
+
+    /// <summary>True si el formulario es obligatorio para esa salida: IsRequired y (sin lista = todas, o la lista la incluye).</summary>
+    private static bool FormRequiredForRoute(FlowNodeFormDto form, string routeKey)
+        => form.IsRequired && (form.RequiredRoutes is null || form.RequiredRoutes.Count == 0 || form.RequiredRoutes.Contains(routeKey));
+
+    private async Task ToggleFormRouteRequiredAsync(FlowCanvasNodeDto node, FlowNodeFormDto form, string routeKey, bool on)
+    {
+        var routes = GatewayRoutesFor(node);
+        // Conjunto ACTUAL de salidas obligatorias (resolviendo "sin lista = todas") y se aplica el toggle.
+        var set = routes.Select(r => r.Key).Where(k => FormRequiredForRoute(form, k)).ToList();
+        if (on) { if (!set.Contains(routeKey)) { set.Add(routeKey); } }
+        else { set.Remove(routeKey); }
+        var result = await DesignSvc.SetNodeFormRequiredRoutesAsync(node.Id, form.DefinitionId, set);
         if (!result.IsOk) { _error = result.Error; }
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
     }

@@ -184,6 +184,11 @@ public interface IWorkflowDesignService
     /// formulario.</summary>
     Task<WorkflowResult<bool>> SetNodeFormRequiredAsync(Guid nodeId, Guid formDefinitionId, bool required, CancellationToken cancellationToken = default);
 
+    /// <summary>Obligatorio POR SALIDA (compuertas, ADR-0077 v2): fija las salidas (BpmnElementId del nodo destino)
+    /// donde el formulario es obligatorio. Vacio = no obligatorio en ninguna; con elementos = obligatorio solo en
+    /// esas. El enforcement de la compuerta exige el form solo si la salida elegida esta en la lista.</summary>
+    Task<WorkflowResult<bool>> SetNodeFormRequiredRoutesAsync(Guid nodeId, Guid formDefinitionId, IReadOnlyList<string>? requiredRouteKeys, CancellationToken cancellationToken = default);
+
     /// <summary>Marca si el formulario del nodo se CREA automaticamente al llegar al paso (true, por defecto)
     /// o no (false: queda para agregarlo a mano). Hermana de <see cref="SetNodeFormRequiredAsync"/>.</summary>
     Task<WorkflowResult<bool>> SetNodeFormAutoCreateAsync(Guid nodeId, Guid formDefinitionId, bool autoCreate, CancellationToken cancellationToken = default);

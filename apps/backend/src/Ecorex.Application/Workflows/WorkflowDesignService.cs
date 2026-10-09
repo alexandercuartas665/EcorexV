@@ -284,7 +284,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     // Sin esto, al editar un flujo publicado el "cargar al llegar" (AutoCreateOnArrival, que
                     // por defecto es true) se reseteaba a true en TODOS los formularios de nodo: si el usuario
                     // lo habia puesto en false, se perdia al derivar el borrador. Se copia como IsRequired.
-                    AutoCreateOnArrival = form.AutoCreateOnArrival
+                    AutoCreateOnArrival = form.AutoCreateOnArrival,
+                    // Obligatorio por salida (las claves son BpmnElementId del destino, estables entre versiones).
+                    RequiredRoutesJson = form.RequiredRoutesJson
                 });
             }
         }
@@ -1432,8 +1434,51 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             return WorkflowResult<bool>.NotFound("El nodo no tiene ese formulario vinculado.");
         }
         existing.IsRequired = required;
+        // Al volver al obligatorio simple (todo/nada) se limpia la config por salida para no dejar restos.
+        existing.RequiredRoutesJson = null;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Obligatorio POR SALIDA (compuertas, ADR-0077 v2). <paramref name="requiredRouteKeys"/> = claves de
+    /// salida (BpmnElementId del nodo destino) donde el form es obligatorio. Vacio = no obligatorio en ninguna
+    /// (IsRequired=false). Con elementos = obligatorio solo en esas (IsRequired=true + lista). El enforcement en la
+    /// compuerta usa esta lista; null en BD sigue significando "obligatorio en todas" (compat. atras).</summary>
+    public async Task<WorkflowResult<bool>> SetNodeFormRequiredRoutesAsync(Guid nodeId, Guid formDefinitionId, IReadOnlyList<string>? requiredRouteKeys, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.WorkflowNodeForms
+            .FirstOrDefaultAsync(f => f.NodeId == nodeId && f.DefinitionId == formDefinitionId, cancellationToken);
+        if (existing is null)
+        {
+            return WorkflowResult<bool>.NotFound("El nodo no tiene ese formulario vinculado.");
+        }
+        var keys = (requiredRouteKeys ?? Array.Empty<string>())
+            .Select(k => (k ?? string.Empty).Trim()).Where(k => k.Length > 0).Distinct().ToList();
+        if (keys.Count == 0)
+        {
+            existing.IsRequired = false;
+            existing.RequiredRoutesJson = null;
+        }
+        else
+        {
+            existing.IsRequired = true;
+            existing.RequiredRoutesJson = System.Text.Json.JsonSerializer.Serialize(keys);
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Parsea el arreglo JSON de claves de salida (BpmnElementId destino) de un WorkflowNodeForm.</summary>
+    private static IReadOnlyList<string> ParseRouteKeys(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try
+        {
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json!);
+            return list is null ? Array.Empty<string>()
+                : list.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0).Distinct().ToList();
+        }
+        catch { return Array.Empty<string>(); }
     }
 
     public async Task<WorkflowResult<bool>> SetNodeFormAutoCreateAsync(Guid nodeId, Guid formDefinitionId, bool autoCreate, CancellationToken cancellationToken = default)
@@ -1885,14 +1930,14 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         var forms = await _db.WorkflowNodeForms.AsNoTracking()
             .Where(f => nodeIds.Contains(f.NodeId))
             .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id,
-                (f, d) => new { f.NodeId, f.SortOrder, f.IsRequired, f.AutoCreateOnArrival, d.Id, d.Code, d.Title })
+                (f, d) => new { f.NodeId, f.SortOrder, f.IsRequired, f.AutoCreateOnArrival, f.RequiredRoutesJson, d.Id, d.Code, d.Title })
             .ToListAsync(cancellationToken);
         // Un nodo puede tener VARIOS formularios: se agrupan en orden.
         var formsByNode = forms
             .GroupBy(f => f.NodeId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<FlowNodeFormDto>)g
                 .OrderBy(x => x.SortOrder)
-                .Select(x => new FlowNodeFormDto(x.Id, x.Code, x.Title, x.IsRequired, x.AutoCreateOnArrival))
+                .Select(x => new FlowNodeFormDto(x.Id, x.Code, x.Title, x.IsRequired, x.AutoCreateOnArrival, ParseRouteKeys(x.RequiredRoutesJson)))
                 .ToList());
 
         var rules = await _db.WorkflowNodeRules.AsNoTracking()

@@ -2003,6 +2003,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
             // Carga automatica al llegar al paso: por defecto true (comportamiento previo).
             b.Property(x => x.AutoCreateOnArrival).HasDefaultValue(true);
+            // Obligatorio por salida (compuertas): jsonb con las claves de salida donde el form es obligatorio.
+            b.Property(x => x.RequiredRoutesJson).HasColumnType(jsonColumnType);
         });
 
         // Agente de IA por nodo (ola 1): el gemelo no humano de WorkflowNodePolicy.

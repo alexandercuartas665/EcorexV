@@ -28,6 +28,15 @@ public class WorkflowNodeForm : TenantEntity
     public bool IsRequired { get; set; }
 
     /// <summary>
+    /// OBLIGATORIO POR SALIDA (solo compuertas): cuando el nodo es una compuerta, el formulario puede ser
+    /// obligatorio en UNAS salidas y opcional en otras. Lista JSON de las claves de salida (el BpmnElementId
+    /// del nodo DESTINO, estable al publicar) donde el formulario SI es obligatorio. Semantica (solo aplica si
+    /// <see cref="IsRequired"/> es true): null/vacio = obligatorio en TODAS las salidas (compat. atras); con
+    /// elementos = obligatorio SOLO en esas, opcional en el resto. En nodos que no son compuerta no se usa.
+    /// </summary>
+    public string? RequiredRoutesJson { get; set; }
+
+    /// <summary>
     /// CARGA AUTOMATICA al llegar al paso: si es true (por defecto), al activarse el paso de este nodo el
     /// formulario se materializa solo (se crea el borrador y aparece "Pendiente" en la tarea, como siempre).
     /// Si es false, el formulario NO se crea automaticamente al llegar; queda disponible para agregarlo a mano

@@ -66,7 +66,7 @@ public sealed class FlowPackageService : IFlowPackageService
                 var ex = await _forms.ExportAsync(nf.DefinitionId, cancellationToken);
                 if (ex.IsOk && ex.Value is not null)
                 {
-                    forms.Add(new FlowPackageForm(ex.Value, nf.SortOrder, nf.IsRequired, nf.AutoCreateOnArrival));
+                    forms.Add(new FlowPackageForm(ex.Value, nf.SortOrder, nf.IsRequired, nf.AutoCreateOnArrival, ParsePackedRoutes(nf.RequiredRoutesJson)));
                 }
             }
 
@@ -206,6 +206,11 @@ public sealed class FlowPackageService : IFlowPackageService
                         var newDef = res.Value.Id;
                         await _design.SetNodeFormAsync(nodeId, newDef, cancellationToken);
                         await _design.SetNodeFormRequiredAsync(nodeId, newDef, pf.IsRequired, cancellationToken);
+                        // Obligatorio por salida (ADR-0077 v2): las claves son BpmnElementId, estables en el paquete.
+                        if (pf.RequiredRoutes is { Count: > 0 })
+                        {
+                            await _design.SetNodeFormRequiredRoutesAsync(nodeId, newDef, pf.RequiredRoutes, cancellationToken);
+                        }
                         await _design.SetNodeFormAutoCreateAsync(nodeId, newDef, pf.AutoCreateOnArrival, cancellationToken);
                         formsImported++;
                     }
@@ -273,6 +278,19 @@ public sealed class FlowPackageService : IFlowPackageService
 
     /// <summary>Serializa el paquete al formato de grafo que consume ImportJsonAsync
     /// (id/nombre/categoria/descripcion + nodos + conexiones).</summary>
+    /// <summary>Claves de salida (BpmnElementId destino) obligatorias de un WorkflowNodeForm (ADR-0077 v2), para el paquete.</summary>
+    private static IReadOnlyList<string>? ParsePackedRoutes(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<string>>(json!);
+            var keys = list?.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0).Distinct().ToList();
+            return keys is { Count: > 0 } ? keys : null;
+        }
+        catch { return null; }
+    }
+
     private static string BuildGraphJson(FlowPackage pkg, string processCode)
     {
         var graph = new

@@ -878,7 +878,11 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
 
         // Formulario OBLIGATORIO (ADR-0077): en una compuerta atendida, no se puede ELEGIR la ruta (ni saltar
         // a otro nodo) hasta enviar el formulario requerido del nodo -- p.ej. confirmar que el cliente acepta.
-        if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken) is { } missingForm)
+        // ADR-0077 v2: el obligatorio puede configurarse POR SALIDA; se resuelve la clave (BpmnElementId) del nodo
+        // destino elegido para que un form obligatorio solo en OTRAS salidas no bloquee esta.
+        var chosenRouteBpmnId = (await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.Id == targetNodeId).Select(n => n.BpmnElementId).FirstOrDefaultAsync(cancellationToken))?.Trim();
+        if (await FirstUnfilledRequiredFormAsync(step, node, cancellationToken, chosenRouteBpmnId) is { } missingForm)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid(
                 $"Esta compuerta requiere el formulario '{missingForm}'. Diligencialo antes de elegir la ruta (se envia solo al avanzar).");
@@ -894,14 +898,29 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
     /// "{numero}-{n}" (los generos/segundos formularios de la tarea, ADR-0078): antes se exigia el numero EXACTO,
     /// asi que enviar la variante "-1" dejaba el paso bloqueado. Devuelve el titulo (o el codigo) para nombrarlo.</summary>
     private async Task<string?> FirstUnfilledRequiredFormAsync(
-        WorkflowStepHistory step, WorkflowNode node, CancellationToken cancellationToken)
+        WorkflowStepHistory step, WorkflowNode node, CancellationToken cancellationToken,
+        // ADR-0077 v2: en una compuerta, la clave de la salida ELEGIDA (BpmnElementId del nodo destino). Si viene,
+        // un form obligatorio que tenga lista de salidas y NO incluya esta, se considera OPCIONAL (no bloquea).
+        // Null (cierre de un paso Task) = sin filtro por salida: el obligatorio aplica como siempre.
+        string? chosenRouteBpmnId = null)
     {
         var required = await _db.WorkflowNodeForms.AsNoTracking()
             .Where(f => f.NodeId == node.Id && f.IsRequired)
             .Join(_db.FormDefinitions.AsNoTracking(), f => f.DefinitionId, d => d.Id,
-                (f, d) => new { d.Id, d.Title, d.Code })
+                (f, d) => new { d.Id, d.Title, d.Code, f.RequiredRoutesJson })
             .ToListAsync(cancellationToken);
         if (required.Count == 0) { return null; }
+
+        // Filtro por salida (compuerta): deja fuera los obligatorios que NO aplican a la salida elegida.
+        if (!string.IsNullOrWhiteSpace(chosenRouteBpmnId))
+        {
+            required = required.Where(x =>
+            {
+                var routes = ParseRequiredRouteKeys(x.RequiredRoutesJson);
+                return routes.Count == 0 || routes.Contains(chosenRouteBpmnId!);
+            }).ToList();
+            if (required.Count == 0) { return null; }
+        }
 
         var taskNumber = await _db.WorkflowInstances.AsNoTracking()
             .Where(i => i.Id == step.InstanceId && i.TaskItemId != null)
@@ -936,6 +955,20 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return string.IsNullOrWhiteSpace(def.Title) ? def.Code : def.Title; // este obligatorio: ni enviado ni con datos
         }
         return null;
+    }
+
+    /// <summary>Claves de salida (BpmnElementId destino) donde un WorkflowNodeForm es obligatorio (ADR-0077 v2).
+    /// Vacio = obligatorio en todas las salidas (compat. atras).</summary>
+    private static IReadOnlyList<string> ParseRequiredRouteKeys(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try
+        {
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json!);
+            return list is null ? Array.Empty<string>()
+                : list.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0).ToList();
+        }
+        catch { return Array.Empty<string>(); }
     }
 
     // ---- Helpers ----

@@ -32,7 +32,10 @@ public sealed record FlowNodeRuleDto(
 
 /// <summary>Formulario vinculado a un nodo (fila del acordeon Recursos). Un nodo admite VARIOS.
 /// IsRequired (ADR-0077): si es true, hay que ENVIARLO para poder cerrar/decidir el paso.</summary>
-public sealed record FlowNodeFormDto(Guid DefinitionId, string Code, string Title, bool IsRequired = false, bool AutoCreateOnArrival = true);
+public sealed record FlowNodeFormDto(Guid DefinitionId, string Code, string Title, bool IsRequired = false, bool AutoCreateOnArrival = true,
+    // Obligatorio POR SALIDA (compuertas, ADR-0077 v2): claves de salida (BpmnElementId del nodo destino) donde el
+    // form es obligatorio. Null/vacio con IsRequired=true = obligatorio en TODAS las salidas. No aplica en nodos Task.
+    IReadOnlyList<string>? RequiredRoutes = null);
 
 /// <summary>Nodo del canvas con layout y vinculos (formularios y reglas).</summary>
 public sealed record FlowCanvasNodeDto(

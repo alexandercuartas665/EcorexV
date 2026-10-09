@@ -45,7 +45,10 @@ public sealed record FlowPackageForm(
     string ExportJson,
     int SortOrder,
     bool IsRequired,
-    bool AutoCreateOnArrival);
+    bool AutoCreateOnArrival,
+    // Obligatorio POR SALIDA (compuertas, ADR-0077 v2): claves de salida (BpmnElementId destino) donde es
+    // obligatorio. Null/vacio = todas (compat. atras y paquetes viejos). Las claves son estables en el paquete.
+    IReadOnlyList<string>? RequiredRoutes = null);
 
 /// <summary>Agente del nodo referenciado por NOMBRE (no viajan ids de tenant ni colmena/whatsapp/lineas).</summary>
 public sealed record FlowPackageAgent(

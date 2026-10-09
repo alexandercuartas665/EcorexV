@@ -1065,6 +1065,32 @@
     </div>
 }
 
+@* ---- Confirmacion al SACAR una tarea de una columna de cierre (reabrir): solo mueve, no cambia estado/concepto ---- *@
+@if (_pendingReopenTarget is not null)
+{
+    <div class="tk-closeask-overlay" @onclick="@(() => CancelReopen())" @onclick:stopPropagation="true">
+        <div class="tk-closeask" @onclick:stopPropagation="true">
+            <div class="tk-closeask-h">Reabrir actividad</div>
+            <p class="tk-closeask-sub">Esta tarea esta en la columna de cierre <strong>@_pendingReopenFromName</strong>. Vas a sacarla a <strong>@_pendingReopenTarget.Name</strong> y se reabrira.</p>
+            <div class="tk-closeask-sub" style="margin:0 0 6px;font-weight:600;color:var(--foreground,var(--ink));">Motivo del movimiento <span style="font-weight:500;color:var(--ink-3);">(queda en la bitacora)</span></div>
+            <textarea rows="2" placeholder="Por que reabres esta actividad?" @bind="_reopenReason" @bind:event="oninput" disabled="@_busy"
+                      style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border,var(--line-2));border-radius:9px;font:inherit;font-size:13px;resize:vertical;"></textarea>
+            <div class="tk-closeask-foot">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => CancelReopen())" disabled="@_busy">Cancelar</button>
+                @if (!_reopenArmed)
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="@(() => _reopenArmed = true)" disabled="@(_busy || string.IsNullOrWhiteSpace(_reopenReason))">Continuar</button>
+                }
+                else
+                {
+                    <span style="align-self:center;font-size:12.5px;font-weight:700;color:var(--danger,#b4232a);">Seguro?</span>
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => ConfirmReopenAsync())" disabled="@_busy">Si, reabrir</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @* ---- Modal renombrar columna ---- *@
 @if (_rcOpen)
 {
@@ -1866,6 +1892,15 @@
     private Guid _pendingCloseTaskId;
     private int _pendingCloseSortOrder;
 
+    // Confirmacion (doble + motivo) al SACAR una tarea de una columna de cierre (reabrir): solo mueve (no cambia
+    // estado ni concepto), pero exige motivo y una confirmacion en 2 pasos; el motivo va a la bitacora.
+    private ActivityBoardColumnDto? _pendingReopenTarget;
+    private Guid _pendingReopenTaskId;
+    private int _pendingReopenSortOrder;
+    private string? _pendingReopenFromName;
+    private string _reopenReason = "";
+    private bool _reopenArmed;
+
     private async Task MoveAsync(Guid taskId, ActivityBoardColumnDto target, int sortOrder)
     {
         // Si cae en una columna de cierre y el tablero tiene conceptos, se exige elegir uno (prompt).
@@ -1877,7 +1912,44 @@
             StateHasChanged();
             return;
         }
+        // SACAR de una columna de cierre a una NO de cierre (reabrir): se confirma antes de mover. Solo mueve
+        // (no cambia estado ni concepto). No aplica si el destino es de cierre (cubierto arriba) ni al reordenar
+        // en la misma columna.
+        var sourceCol = _detail?.Columns.FirstOrDefault(c => c.Cards.Any(x => x.Id == taskId));
+        if (sourceCol is not null && sourceCol.IsDone && !target.IsDone && sourceCol.Id != target.Id)
+        {
+            _pendingReopenTaskId = taskId;
+            _pendingReopenTarget = target;
+            _pendingReopenSortOrder = sortOrder;
+            _pendingReopenFromName = sourceCol.Name;
+            _reopenReason = "";
+            _reopenArmed = false;
+            StateHasChanged();
+            return;
+        }
         await DoMoveAsync(taskId, target.Id, sortOrder, null);
+    }
+
+    private void CancelReopen()
+    {
+        _pendingReopenTarget = null;
+        _pendingReopenTaskId = Guid.Empty;
+        _pendingReopenFromName = null;
+        _reopenReason = "";
+        _reopenArmed = false;
+    }
+
+    private async Task ConfirmReopenAsync()
+    {
+        var taskId = _pendingReopenTaskId;
+        var target = _pendingReopenTarget;
+        var sortOrder = _pendingReopenSortOrder;
+        var motivo = _reopenReason;
+        CancelReopen();
+        if (target is not null)
+        {
+            await DoMoveAsync(taskId, target.Id, sortOrder, null, motivo);
+        }
     }
 
     private void CancelClose()
@@ -1898,9 +1970,9 @@
         }
     }
 
-    private async Task DoMoveAsync(Guid taskId, Guid columnId, int sortOrder, string? closeReason)
+    private async Task DoMoveAsync(Guid taskId, Guid columnId, int sortOrder, string? closeReason, string? moveNote = null)
     {
-        var result = await BoardsSvc.MoveTaskAsync(taskId, columnId, sortOrder, await ActorAsync(), await ActorNameAsync(), closeReason);
+        var result = await BoardsSvc.MoveTaskAsync(taskId, columnId, sortOrder, await ActorAsync(), await ActorNameAsync(), closeReason, moveNote);
         if (!result.IsOk)
         {
             _toasts?.Error(result.Error ?? "No se pudo mover la tarea.");

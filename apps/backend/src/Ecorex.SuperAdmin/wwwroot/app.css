@@ -1839,7 +1839,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-conflict svg { width: 16px; height: 16px; flex: none; }
 .tk-conflict.tk-action-error { background: oklch(0.6 0.22 22 / 0.08); border-color: oklch(0.6 0.22 22 / 0.4); color: var(--destructive); }
 /* Prompt de motivo de cierre (opcional) al mover a una columna final. */
-.tk-closeask-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 60; border-radius: inherit; }
+.tk-closeask-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 1000; padding: 16px; }
 .tk-closeask { width: min(420px, 92%); background: var(--card, var(--surface)); border: 1px solid var(--border, var(--line)); border-radius: 14px; box-shadow: 0 16px 40px -12px rgba(0,0,0,.4); padding: 18px 20px; }
 .tk-closeask-h { font-size: 15px; font-weight: 800; color: var(--foreground, var(--ink)); }
 .tk-closeask-h span { font-weight: 600; color: var(--muted-foreground, var(--ink-3)); font-size: 12.5px; }

@@ -670,7 +670,7 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     // ---- Movimiento de tarjetas ----
 
-    public async Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, string? closeReason = null, CancellationToken cancellationToken = default)
+    public async Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, string? closeReason = null, string? moveNote = null, CancellationToken cancellationToken = default)
     {
         var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
         if (task is null)
@@ -731,6 +731,9 @@ public sealed class ActivityBoardService : IActivityBoardService
         }
         if (!sameColumn)
         {
+            // Motivo del movimiento (ej. al REABRIR sacando de una columna de cierre): queda en la bitacora.
+            var note = (moveNote ?? string.Empty).Trim();
+            if (note.Length > 500) { note = note[..500]; }
             _db.TaskItemActivities.Add(new TaskItemActivity
             {
                 TenantId = task.TenantId,
@@ -738,7 +741,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                 Type = TaskActivityType.Action,
                 ActorUserId = actorUserId,
                 ActorName = string.IsNullOrWhiteSpace(actorName) ? "Sistema" : actorName.Trim(),
-                Text = $"movio la tarea a la columna '{column.Name}'"
+                Text = $"movio la tarea a la columna '{column.Name}'" + (note.Length == 0 ? "" : $". Motivo: {note}")
             });
         }
 

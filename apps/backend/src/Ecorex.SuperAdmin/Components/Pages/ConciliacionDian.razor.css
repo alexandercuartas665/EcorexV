@@ -114,3 +114,35 @@
     background: var(--surface-2, #f3f4f6); border: 1px solid var(--line-2, #d1d5db); border-radius: 7px;
 }
 .cd-ctx-clear:hover { background: var(--line-2, #e5e7eb); }
+
+/* ---- Columnas fijas (freeze) configurables ---- */
+.cd-colbar { display: flex; align-items: center; gap: 12px; margin: 2px 0 8px; }
+.cd-coldd { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+.cd-colbar-hint { font-size: 12px; color: var(--ink-3, #6b7280); }
+
+.cd-coldd-overlay { position: fixed; inset: 0; z-index: 3900; background: transparent; }
+.cd-coldd-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 3901;
+    min-width: 240px; max-height: 340px; overflow: auto;
+    background: var(--surface, #fff); border: 1px solid var(--line-2, #d1d5db);
+    border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px;
+}
+.cd-coldd-title { font-size: 11.5px; font-weight: 600; color: var(--ink-3, #6b7280); padding: 6px 8px 8px; }
+.cd-coldd-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    font-size: 12.5px; color: var(--ink, #1f2937); padding: 6px 8px; cursor: pointer;
+    background: transparent; border: 0; border-radius: 7px;
+}
+.cd-coldd-item:hover { background: var(--brand-soft, #f5f7ff); }
+.cd-coldd-item.on { background: var(--brand-soft, #eef2ff); font-weight: 700; color: var(--brand, #4f46e5); }
+.cd-coldd-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--line-2, #d1d5db); background: transparent; }
+.cd-coldd-dot.fx { background: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); }
+.cd-coldd-dot.off { background: transparent; }
+
+/* Celdas congeladas: fondo opaco para que no se transparente lo que pasa por debajo. */
+.cd-grid td.cd-frozen { background: var(--surface, #fff); }
+.cd-grid tbody tr:hover td.cd-frozen { background: var(--brand-soft, #f5f7ff); }
+.cd-grid tbody tr.cd-marked td.cd-frozen { background: #fbfcff; }
+/* Borde derecho en la ultima columna fija, para separar visualmente del area que scrollea. */
+.cd-grid th.cd-frozen-edge, .cd-grid td.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
+.cd-grid thead th.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }

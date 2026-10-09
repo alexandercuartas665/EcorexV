@@ -85,6 +85,36 @@ else
         }
     </div>
 
+    <div class="cd-colbar">
+        <div class="cd-coldd">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ToggleColMenu" title="Elige hasta que columna quieres dejar fija al desplazar en horizontal">
+                Columnas fijas@(_frozenCols > 0 ? $" ({_frozenCols})" : "")
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="margin-left:4px;vertical-align:-1px;"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            @if (_frozenCols > 0)
+            {
+                <span class="cd-colbar-hint">Fijas hasta <strong>@_colNames[_frozenCols - 1]</strong></span>
+            }
+            @if (_colMenuOpen)
+            {
+                <div class="cd-coldd-overlay" @onclick="CloseColMenu"></div>
+                <div class="cd-coldd-panel">
+                    <div class="cd-coldd-title">Fijar columnas (se congelan desde la 1.a hasta la que elijas)</div>
+                    <button type="button" class="cd-coldd-item @(_frozenCols == 0 ? "on" : "")" @onclick="() => SetFrozenAsync(0)">
+                        <span class="cd-coldd-dot off"></span>Ninguna (quitar fijas)
+                    </button>
+                    @for (int i = 0; i < _colNames.Length; i++)
+                    {
+                        var idx = i;
+                        <button type="button" class="cd-coldd-item @(_frozenCols == idx + 1 ? "on" : "")" @onclick="() => SetFrozenAsync(idx + 1)">
+                            <span class="cd-coldd-dot @(_frozenCols >= idx + 1 ? "fx" : "")"></span>@_colNames[idx]
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
     <div class="cd-grid-wrap">
         <table class="cd-grid">
             <thead>
@@ -214,6 +244,51 @@ else
         (EstadoConciliacionDian.Buzon, "Documentos en Buzon"),
         (EstadoConciliacionDian.Procesado, "Procesados"),
     };
+
+    // ---- Columnas fijas (freeze) configurables por el usuario ----
+    // El usuario elige hasta que columna congelar; se guarda en localStorage (por navegador).
+    private int _frozenCols;
+    private bool _colMenuOpen;
+    private bool _freezeReady;
+    private static readonly string[] _colNames =
+    {
+        "Seleccion", "Tipo DOC DIAN", "Fecha Emision", "Nombre Proveedor", "NIT",
+        "Num Factura Prov.", "Num Factura SOLDARCO", "Orden Compra", "Subtotal Bruto", "Descuento",
+        "Subtotal Neto", "IVA Desc.", "Total antes Ret.", "Retefuente", "ICA",
+        "Total Factura", "Tipo Pago", "Plataforma", "Aprobada", "RUT",
+        "Ev.30", "Ev.32", "Ev.33", "Ev.31", "Ev.34",
+    };
+
+    private void ToggleColMenu() => _colMenuOpen = !_colMenuOpen;
+    private void CloseColMenu() => _colMenuOpen = false;
+
+    private async Task SetFrozenAsync(int n)
+    {
+        _frozenCols = n;
+        _colMenuOpen = false;
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexCdCols.setFrozen", n);
+            await JS.InvokeVoidAsync("ecorexCdCols.apply", n);
+        }
+        catch { /* JS aun no listo */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { _frozenCols = await JS.InvokeAsync<int>("ecorexCdCols.getFrozen"); }
+            catch { _frozenCols = 0; }
+            _freezeReady = true;
+            if (_frozenCols > 0) { StateHasChanged(); } // refresca el contador del boton
+        }
+        // Reaplica tras cada render: las filas se regeneran en ReloadAsync y pierden el estilo inline.
+        if (_freezeReady)
+        {
+            try { await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozenCols); } catch { }
+        }
+    }
 
     protected override async Task OnInitializedAsync() => await LoadDocsAsync();
 

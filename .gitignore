@@ -102,3 +102,6 @@ Script/
 # desde la CDN oficial en runtime; NO se versionan. Ver docs/motor-reportes-ola2-embed-bold.md
 apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/boldreports/
 apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/jquery/
+
+# Salida de build aislada para dev (NO versionar)
+/apps/backend/appout5263/

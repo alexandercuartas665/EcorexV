@@ -15301,3 +15301,17 @@ Peticion: cargar AD_GROUP_Cronograma_Ejecutivo.xlsx (hoja Cronograma, 18 hitos) 
   Responsable: Y | Hito #N" (los responsables son texto libre, no usuarios del tenant).
 - tenant_sequences code 'T05' next_value=19 (para que la app siga en T00019 sin colisionar).
 Todas en la columna "Por hacer". Backup ecorex-2026-10-07-2217.
+
+## 2026-10-09 - SKY SYSTEM: limpieza de datos de prueba (items + clientes + actividades)
+
+Peticion: el tenant SKY termino sus pruebas y pidio borrar todos los items, clientes y actividades.
+Dry-run previo (conteos) + confirmacion explicita del usuario (incl. tabla rasa de citas/prospecto).
+Borrado ATOMICO por SQL (una transaccion, backup previo ecorex-2026-10-09-0940). tenant 019f2d5f-...:
+- Orden por FKs: NULL de auto-refs (task parent/source/workflow_instance_id) -> DELETE workflow_instances
+  (13, cascada form_flow_links/node_notes/step_histories) -> DELETE task_items (17, cascada activities 88/
+  assignments/attachments/checklist 3/tags/worklogs 2) -> DELETE citas+prospectos ligados -> NULL
+  terceros.empresa_id -> DELETE terceros (316, cascada contactos 7/notas 5/categorias/oportunidades 6) ->
+  DELETE items (22, cascada imagenes 12/stocks 25).
+Verificacion post: items=0, terceros=0, task_items=0, workflow_instances=0, citas_ligadas=0.
+NO se toco: usuarios, tableros, formularios, flujos (definiciones), contenedores, menus, config de items
+(grupos/tipos/campos). Excepcion ETL (sin AdminAuditLog).

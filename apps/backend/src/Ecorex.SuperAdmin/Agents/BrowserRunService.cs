@@ -815,6 +815,12 @@ public sealed class BrowserRunService(
                     {
                         // Tenant-scoped por el filtro global (el tenant ambiente sigue activo). Solo renglones que existen.
                         var rengs = await fdb.ConciliacionDianRenglones.Where(r => cufesEv.Contains(r.Cufe)).ToListAsync(ct);
+                        // DIAGNOSTICO: por que se reflejan (o no) eventos. Cuantos CUFE con eventos, cuantos cruzan un renglon,
+                        // y 3 ejemplos de CUFE-con-evento que NO tienen renglon (para ver si es falta de cruce real).
+                        var setReng = rengs.Select(r => r.Cufe).ToHashSet(StringComparer.Ordinal);
+                        var sinRenglon = cufesEv.Where(c => !setReng.Contains(c)).Take(3).Select(c => c.Length > 20 ? c[..20] + "…" : c).ToList();
+                        log.LogInformation("IngestaNewton reflejo: {ConEv} CUFE con evento(s); {Cruzan} cruzan un renglon; ej. sin renglon: {Ej}",
+                            cufesEv.Count, rengs.Count, sinRenglon.Count == 0 ? "(ninguno)" : string.Join(", ", sinRenglon));
                         foreach (var r in rengs)
                         {
                             if (!evPorCufe.TryGetValue(r.Cufe, out var f)) { continue; }

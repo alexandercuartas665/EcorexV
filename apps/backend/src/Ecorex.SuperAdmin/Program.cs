@@ -161,6 +161,11 @@ builder.Services.AddAuthorizationBuilder()
     // para no cambiar el acceso. TODO (paso 2 / Ola B2): restringir a Owner/Admin del tenant
     // (claim tenant_role) -es gobierno del tenant- y hacer cumplir el set efectivo por modulo.
     .AddPolicy("RolesPermisos.Administrar", p => p.RequireClaim("tenant_id"))
+    // Requerimientos y Compras (Capa 10, Ola 6). Ver/operar la grilla: cualquier miembro del tenant.
+    // Configurar origenes + matriz de proveedores y EJECUTAR la compra (crea una actividad): gobierno
+    // del modulo, restringido a Owner/Admin del tenant (claim tenant_role).
+    .AddPolicy("Compras.Ver", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Compras.Configurar", p => p.RequireClaim("tenant_role", "Owner", "Admin"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu

@@ -1,5 +1,5 @@
 @page "/requerimientos-config"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "Compras.Configurar")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Requerimientos
 @using Ecorex.Domain.Enums

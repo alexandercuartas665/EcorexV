@@ -42,8 +42,8 @@ public sealed class RequerimientoService : IRequerimientoService
         var hijosPorReq = (await _db.RequerimientoCompraHijos.AsNoTracking()
                 .Where(h => reqIds.Contains(h.RequerimientoId))
                 .GroupBy(h => h.RequerimientoId)
-                .Select(g => new { g.Key, Count = g.Count(), Suma = g.Sum(x => x.Cantidad) }).ToListAsync(ct))
-            .ToDictionary(x => x.Key, x => (x.Count, x.Suma));
+                .Select(g => new { g.Key, Count = g.Count(), Suma = g.Sum(x => x.Cantidad), Monto = g.Sum(x => x.Cantidad * x.PrecioUnitario) }).ToListAsync(ct))
+            .ToDictionary(x => x.Key, x => (x.Count, x.Suma, x.Monto));
 
         return rows.Select(r => new RequerimientoDto(
             r.Id, r.OrigenId,
@@ -53,7 +53,8 @@ public sealed class RequerimientoService : IRequerimientoService
             r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
             r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
             hijosPorReq.TryGetValue(r.Id, out var h) ? h.Count : 0,
-            hijosPorReq.TryGetValue(r.Id, out var h2) ? h2.Suma : 0m)).ToList();
+            hijosPorReq.TryGetValue(r.Id, out var h2) ? h2.Suma : 0m,
+            hijosPorReq.TryGetValue(r.Id, out var h3) ? h3.Monto : 0m)).ToList();
     }
 
     public async Task<RequerimientoDto?> CrearAsync(CrearRequerimientoRequest req, CancellationToken ct = default)
@@ -99,6 +100,32 @@ public sealed class RequerimientoService : IRequerimientoService
         _db.RequerimientosCompra.Remove(r);
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    public async Task<RequerimientoDto?> CerrarAsync(Guid id, CancellationToken ct = default)
+    {
+        var r = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) { return null; }
+        if (r.Estado != RequerimientoEstado.Ejecutado)
+        {
+            throw new InvalidOperationException("Solo se puede cerrar una necesidad Ejecutada.");
+        }
+        r.Estado = RequerimientoEstado.Cerrado;
+        await _db.SaveChangesAsync(ct);
+        return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
+    }
+
+    public async Task<RequerimientoDto?> ReabrirAsync(Guid id, CancellationToken ct = default)
+    {
+        var r = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) { return null; }
+        if (r.Estado != RequerimientoEstado.Cerrado)
+        {
+            throw new InvalidOperationException("Solo se puede reabrir una necesidad Cerrada.");
+        }
+        r.Estado = RequerimientoEstado.Ejecutado;
+        await _db.SaveChangesAsync(ct);
+        return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
     }
 
     public async Task<PlanificacionDto?> GetPlanificacionAsync(Guid requerimientoId, CancellationToken ct = default)
@@ -154,6 +181,7 @@ public sealed class RequerimientoService : IRequerimientoService
             h.CaracteristicasDespacho = (inp.CaracteristicasDespacho ?? "").Trim();
             h.TiempoEntrega = (inp.TiempoEntrega ?? "").Trim();
             h.ProveedorId = inp.ProveedorId;
+            h.PrecioUnitario = inp.PrecioUnitario < 0 ? 0 : inp.PrecioUnitario;
             // El hijo pasa a 'Con proveedor' si se le asigno uno (no se pisa si ya esta ejecutado).
             if (h.TaskItemId is null)
             {
@@ -186,7 +214,7 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && proveedores.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario)).ToList());
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
@@ -272,6 +300,11 @@ public sealed class RequerimientoService : IRequerimientoService
         if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega: {hijo.TiempoEntrega}\n"); }
         if (!string.IsNullOrWhiteSpace(hijo.CaracteristicasDespacho)) { desc.Append($"Despacho: {hijo.CaracteristicasDespacho}\n"); }
         if (provNombre is not null) { desc.Append($"Proveedor: {provNombre}\n"); }
+        if (hijo.PrecioUnitario > 0)
+        {
+            desc.Append($"Precio unitario: {hijo.PrecioUnitario:#,##0.##}\n");
+            desc.Append($"Total estimado: {(hijo.Cantidad * hijo.PrecioUnitario):#,##0.##}\n");
+        }
 
         var req = new CreateTaskItemRequest(
             Title: titulo,

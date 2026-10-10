@@ -10523,6 +10523,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_programada_compra");
 
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("precio_unitario");
+
                     b.Property<Guid?>("ProveedorId")
                         .HasColumnType("uuid")
                         .HasColumnName("proveedor_id");

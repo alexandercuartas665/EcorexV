@@ -18,7 +18,8 @@ public sealed record RequerimientoDto(
     RequerimientoEstado Estado,
     string ClaveAgrupacion,
     int CantidadHijos,
-    decimal CantidadPlanificada);
+    decimal CantidadPlanificada,
+    decimal MontoTotal);
 
 /// <summary>Filtro de la grilla de necesidades.</summary>
 public sealed record RequerimientoFiltro(string? Texto = null, RequerimientoEstado? Estado = null, Guid? OrigenId = null);
@@ -46,7 +47,12 @@ public sealed record RequerimientoHijoDto(
     Guid? ProveedorId,
     string? ProveedorNombre,
     RequerimientoEstado Estado,
-    Guid? TaskItemId);
+    Guid? TaskItemId,
+    decimal PrecioUnitario)
+{
+    /// <summary>Total del hijo = Cantidad * PrecioUnitario (Ola 6).</summary>
+    public decimal Total => Cantidad * PrecioUnitario;
+}
 
 /// <summary>Entrada para crear/editar un hijo (Id null = nuevo).</summary>
 public sealed record HijoInput(
@@ -55,7 +61,8 @@ public sealed record HijoInput(
     DateTimeOffset? FechaProgramadaCompra,
     string? CaracteristicasDespacho,
     string? TiempoEntrega,
-    Guid? ProveedorId);
+    Guid? ProveedorId,
+    decimal PrecioUnitario);
 
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
@@ -87,6 +94,12 @@ public interface IRequerimientoService
     Task<IReadOnlyList<RequerimientoDto>> ListAsync(RequerimientoFiltro filtro, CancellationToken ct = default);
     Task<RequerimientoDto?> CrearAsync(CrearRequerimientoRequest req, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+
+    // ---- Ola 6: ciclo de vida (cerrar/reabrir) ----
+    /// <summary>Cierra una necesidad Ejecutada (compra terminada): Ejecutado -> Cerrado.</summary>
+    Task<RequerimientoDto?> CerrarAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Reabre una necesidad Cerrada: Cerrado -> Ejecutado.</summary>
+    Task<RequerimientoDto?> ReabrirAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>Items activos del modulo de Inventarios para el selector.</summary>
     Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default);

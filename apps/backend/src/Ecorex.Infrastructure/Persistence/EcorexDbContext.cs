@@ -2792,6 +2792,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.TiempoEntrega).HasMaxLength(120);
             b.Property(x => x.Estado).HasConversion<int>();
             b.Property(x => x.Cantidad).HasPrecision(18, 4);
+            b.Property(x => x.PrecioUnitario).HasPrecision(18, 4);
             // FK al padre. Restrict: el borrado del padre lo maneja el servicio (sin cascada implicita).
             b.HasOne(x => x.Requerimiento).WithMany(r => r.Hijos)
                 .HasForeignKey(x => x.RequerimientoId).OnDelete(DeleteBehavior.Restrict);

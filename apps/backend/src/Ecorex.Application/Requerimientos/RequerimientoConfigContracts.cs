@@ -27,10 +27,30 @@ public sealed record SaveRequerimientoOrigenRequest(
     Guid? SubcategoriaCompraId,
     bool Activo);
 
+/// <summary>Una fila de la matriz de proveedores (con nombres resueltos para mostrar).</summary>
+public sealed record RequerimientoReglaDto(
+    Guid Id,
+    RequerimientoDimension Dimension,
+    string ValorDimension,
+    string? ValorNombre,
+    Guid ProveedorId,
+    string? ProveedorNombre,
+    int Prioridad,
+    bool Aprendida,
+    bool Activo);
+
+/// <summary>Alta/edicion de una regla de la matriz. Id null = alta.</summary>
+public sealed record SaveReglaRequest(
+    Guid? Id,
+    RequerimientoDimension Dimension,
+    string ValorDimension,
+    Guid ProveedorId,
+    int Prioridad,
+    bool Activo);
+
 /// <summary>
-/// Configuracion del modulo de Requerimientos (Capa 10, Ola 1): CRUD de ORIGENES (de donde viene cada
-/// necesidad y que subcategoria/proceso del modulo de Actividades EJECUTA la compra de ese genero). La
-/// matriz de proveedores (Ola 4) se agrega aparte. Tenant-scoped por el filtro global.
+/// Configuracion del modulo de Requerimientos (Capa 10): ORIGENES (Ola 1) + MATRIZ de proveedores (Ola 4).
+/// Tenant-scoped por el filtro global.
 /// </summary>
 public interface IRequerimientoConfigService
 {
@@ -42,4 +62,13 @@ public interface IRequerimientoConfigService
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default);
     /// <summary>Formularios publicados/activos para elegir la fuente (TipoFuente=Formulario).</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListFormulariosAsync(CancellationToken ct = default);
+
+    // ---- Ola 4: matriz de proveedores por dimension del item ----
+    Task<IReadOnlyList<RequerimientoReglaDto>> ListReglasAsync(CancellationToken ct = default);
+    Task<RequerimientoReglaDto?> SaveReglaAsync(SaveReglaRequest req, CancellationToken ct = default);
+    Task<bool> DeleteReglaAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Proveedores del Directorio General (Tercero) para el selector.</summary>
+    Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default);
+    /// <summary>Valores posibles de una dimension (catalogo de inventario: tipo/grupo/subgrupo/marca/item).</summary>
+    Task<IReadOnlyList<RequerimientoOpcionDto>> ListValoresDimensionAsync(RequerimientoDimension dimension, CancellationToken ct = default);
 }

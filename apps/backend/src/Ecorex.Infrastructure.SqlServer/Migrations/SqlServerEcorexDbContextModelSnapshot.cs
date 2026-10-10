@@ -12088,6 +12088,96 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("storage_configs", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.StoredFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BlobPath")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)")
+                        .HasColumnName("blob_path");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Extension")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("extension");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("Ref1")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("ref1");
+
+                    b.Property<string>("Ref2")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("ref2");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_stored_files");
+
+                    b.HasIndex("TenantId", "Module", "Ref1")
+                        .HasDatabaseName("ix_stored_files_tenant_id_module_ref1");
+
+                    b.HasIndex("TenantId", "Module", "Ref1", "Ref2", "FileName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_stored_files_tenant_id_module_ref1_ref2_file_name")
+                        .HasFilter("[ref1] IS NOT NULL AND [ref2] IS NOT NULL");
+
+                    b.ToTable("stored_files", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.SubserieCampo", b =>
                 {
                     b.Property<Guid>("Id")

@@ -269,6 +269,9 @@ public interface IApplicationDbContext
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }
 
+    // Registro UNIFICADO de archivos en almacenamiento (Azure Blob/disco), transversal a todos los modulos.
+    DbSet<StoredFile> StoredFiles { get; }
+
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
     DbSet<ContactWorkflow> ContactWorkflows { get; }

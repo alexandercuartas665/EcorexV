@@ -234,6 +234,8 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ec
 // Radicacion real de eventos RADIAN en NEWTON (Fase 2, acto legal irreversible). Lo usa ConciliacionDianService
 // (modulo /conciliacion-dian) cuando el usuario confirma el envio; el dry-run no lo necesita.
 builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
+// Gestor UNIFICADO de archivos (Azure Blob / disco), transversal a todos los modulos. Registra en StoredFile.
+builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).
@@ -846,6 +848,14 @@ Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.RetellWebhookEndpoints.MapRetellWebhook(app);
 // Web Reporting API de Bold (Ola 2): controllers del visor/diseniador RDL.
 app.MapControllers();
+
+// Descarga/visor UNIFICADO de archivos: /archivo/{id}. Sirve el binario (inline) por su llave StoredFile.
+// Requiere sesion; ReadAsync esta tenant-scoped por el filtro global, asi que un tenant no ve archivos de otro.
+app.MapGet("/archivo/{id:guid}", async (Guid id, Ecorex.Application.Storage.IFileStorageService files, CancellationToken ct) =>
+{
+    var content = await files.ReadAsync(id, ct);
+    return content is null ? Results.NotFound() : Results.File(content.Content, content.ContentType);
+}).RequireAuthorization();
 
 app.MapPost("/auth/login", async (
     HttpContext http,

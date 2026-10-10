@@ -281,6 +281,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
+    public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2715,6 +2716,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType).IsRequired();
             // Una preferencia por (tenant, usuario, tabla).
             b.HasIndex(x => new { x.TenantId, x.UserId, x.TableKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<StoredFile>(b =>
+        {
+            b.Property(x => x.Module).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Ref1).HasMaxLength(160);
+            b.Property(x => x.Ref2).HasMaxLength(60);
+            b.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            b.Property(x => x.ContentType).HasMaxLength(160);
+            b.Property(x => x.Extension).HasMaxLength(16);
+            b.Property(x => x.BlobPath).HasMaxLength(512).IsRequired();
+            b.Property(x => x.Provider).HasMaxLength(20).IsRequired();
+            // Busqueda tipica: por modulo + referencia de negocio (p. ej. todos los archivos de un CUFE).
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1 });
+            // Idempotencia: no duplicar el mismo archivo logico (modulo + ref1 + ref2 + nombre) por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1, x.Ref2, x.FileName }).IsUnique();
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

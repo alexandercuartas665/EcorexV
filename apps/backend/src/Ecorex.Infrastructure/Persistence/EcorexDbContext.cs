@@ -283,6 +283,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
     public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+    // Requerimientos y Compras (Capa 10).
+    public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
+    public DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas => Set<RequerimientoProveedorRegla>();
+    public DbSet<RequerimientoCompra> RequerimientosCompra => Set<RequerimientoCompra>();
+    public DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos => Set<RequerimientoCompraHijo>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2748,6 +2753,49 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1 });
             // Idempotencia: no duplicar el mismo archivo logico (modulo + ref1 + ref2 + nombre) por tenant.
             b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1, x.Ref2, x.FileName }).IsUnique();
+        });
+
+        // ---- Requerimientos y Compras (Capa 10) ----
+
+        modelBuilder.Entity<RequerimientoOrigen>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(160).IsRequired();
+            b.Property(x => x.Area).HasMaxLength(160);
+            b.Property(x => x.TipoFuente).HasConversion<int>();
+            b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
+        });
+
+        modelBuilder.Entity<RequerimientoProveedorRegla>(b =>
+        {
+            b.Property(x => x.Dimension).HasConversion<int>();
+            b.Property(x => x.ValorDimension).HasMaxLength(200).IsRequired();
+            // Una regla por (tenant, dimension, valor, proveedor); evita duplicar la misma sugerencia.
+            b.HasIndex(x => new { x.TenantId, x.Dimension, x.ValorDimension, x.ProveedorId }).IsUnique();
+        });
+
+        modelBuilder.Entity<RequerimientoCompra>(b =>
+        {
+            b.Property(x => x.Area).HasMaxLength(160);
+            b.Property(x => x.Descripcion).HasMaxLength(400);
+            b.Property(x => x.UnidadMedida).HasMaxLength(40);
+            b.Property(x => x.ClaveAgrupacion).HasMaxLength(200);
+            b.Property(x => x.Estado).HasConversion<int>();
+            b.Property(x => x.Cantidad).HasPrecision(18, 4);
+            b.HasOne(x => x.Origen).WithMany().HasForeignKey(x => x.OrigenId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(x => new { x.TenantId, x.Estado });
+            b.HasIndex(x => new { x.TenantId, x.ClaveAgrupacion });
+        });
+
+        modelBuilder.Entity<RequerimientoCompraHijo>(b =>
+        {
+            b.Property(x => x.CaracteristicasDespacho).HasMaxLength(400);
+            b.Property(x => x.TiempoEntrega).HasMaxLength(120);
+            b.Property(x => x.Estado).HasConversion<int>();
+            b.Property(x => x.Cantidad).HasPrecision(18, 4);
+            // FK al padre. Restrict: el borrado del padre lo maneja el servicio (sin cascada implicita).
+            b.HasOne(x => x.Requerimiento).WithMany(r => r.Hijos)
+                .HasForeignKey(x => x.RequerimientoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.RequerimientoId });
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

@@ -645,6 +645,19 @@ public sealed class BrowserRunService(
         // Diagnostico (como eventos_muestra del legacy): cuantos docs traen events[] y una muestra del 1er evento,
         // para poder ajustar el mapeo contra la forma real que devuelva NEWTON.
         int conEventos = 0; string muestraEvento = "";
+        // Fallback de CUFE sin re-bajar el XML: usa el mapeo EventId->Cufe que ya quedo en la fuente NEWTON
+        // (poblado en corridas previas). Asi una corrida de solo-aterrizaje (BajarXml=false) es rapida.
+        var cufePorEvento = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (cfg.MarcarPlataforma || cfg.ReflejarEventos)
+        {
+            try
+            {
+                var pares = await db.ConciliacionDianNewtonDummies.Where(n => n.EventId != "")
+                    .Select(n => new { n.EventId, n.Cufe }).ToListAsync(ct);
+                foreach (var p in pares) { cufePorEvento[p.EventId] = p.Cufe; }
+            }
+            catch { /* best-effort */ }
+        }
         foreach (var doc in docsRoot.EnumerateArray())
         {
             if (cfg.Max > 0 && i >= cfg.Max) { break; }
@@ -665,12 +678,13 @@ public sealed class BrowserRunService(
                     using var xr = await GetAsync($"{urlBase}/documentos-electronicos/{eventId}/xml");
                     if (xr.IsSuccessStatusCode) { xml = await xr.Content.ReadAsStringAsync(ct); }
                 }
-                // CUFE para nombrar / aterrizar: del XML (si se bajo), o el eventId como respaldo.
+                // CUFE para nombrar / aterrizar: del XML (si se bajo); si no, del mapeo EventId->Cufe ya guardado.
                 string cufe = "";
                 if (!string.IsNullOrWhiteSpace(xml))
                 {
                     try { cufe = DianUblParser.ParseXml(xml!, nuestroNit)?.Cufe ?? ""; } catch { }
                 }
+                if (string.IsNullOrWhiteSpace(cufe) && cufePorEvento.TryGetValue(eventId, out var mappedCufe)) { cufe = mappedCufe; }
                 var nombre = SafeName(string.IsNullOrWhiteSpace(cufe) ? eventId : cufe);
 
                 if (cfg.BajarXml && !string.IsNullOrWhiteSpace(xml))

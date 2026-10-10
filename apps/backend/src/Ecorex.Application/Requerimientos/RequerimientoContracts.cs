@@ -44,6 +44,7 @@ public sealed record RequerimientoHijoDto(
     string CaracteristicasDespacho,
     string TiempoEntrega,
     Guid? ProveedorId,
+    string? ProveedorNombre,
     RequerimientoEstado Estado,
     Guid? TaskItemId);
 
@@ -53,7 +54,8 @@ public sealed record HijoInput(
     decimal Cantidad,
     DateTimeOffset? FechaProgramadaCompra,
     string? CaracteristicasDespacho,
-    string? TiempoEntrega);
+    string? TiempoEntrega,
+    Guid? ProveedorId);
 
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
@@ -89,4 +91,11 @@ public interface IRequerimientoService
     /// <summary>Reemplaza el conjunto de hijos de una necesidad. Valida que la suma NO exceda al padre;
     /// pone el padre en Planificado si queda con hijos (o Recibido si queda sin ninguno). Devuelve el nuevo estado.</summary>
     Task<PlanificacionDto?> GuardarHijosAsync(GuardarHijosRequest req, CancellationToken ct = default);
+
+    // ---- Ola 4: proveedores ----
+    /// <summary>Proveedores del Directorio General para el selector del hijo.</summary>
+    Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default);
+    /// <summary>Sugiere un proveedor para un item segun la matriz: gana la regla mas especifica que aplique
+    /// (Referencia > Marca > Subgrupo > Grupo > Categoria; a igual especificidad, por prioridad). Null si ninguna.</summary>
+    Task<RequerimientoOpcionDto?> SugerirProveedorAsync(Guid itemId, CancellationToken ct = default);
 }

@@ -179,13 +179,14 @@ else
                                 <th style="padding:7px 10px;">Fecha de compra</th>
                                 <th style="padding:7px 10px;">Despacho</th>
                                 <th style="padding:7px 10px;">Tiempo de entrega</th>
+                                <th style="padding:7px 10px;">Proveedor</th>
                                 <th style="padding:7px 10px;"></th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (_pHijos.Count == 0)
                             {
-                                <tr><td colspan="5" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
+                                <tr><td colspan="6" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
                             }
                             @foreach (var h in _pHijos)
                             {
@@ -195,6 +196,16 @@ else
                                     <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
                                     <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
                                     <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
+                                    <td style="padding:5px 8px;white-space:nowrap;">
+                                        <select style="width:170px;height:30px;padding:0 6px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Prov">
+                                            <option value="">(sin proveedor)</option>
+                                            @foreach (var p in _proveedores) { <option value="@p.Id">@p.Nombre</option> }
+                                        </select>
+                                        @if (_planItemId is not null)
+                                        {
+                                            <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
+                                        }
+                                    </td>
                                     <td style="padding:5px 8px;text-align:right;"><button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button></td>
                                 </tr>
                             }
@@ -243,6 +254,8 @@ else
     private Guid _planReqId;
     private string _planProducto = "";
     private decimal _planCantidadPadre;
+    private Guid? _planItemId;
+    private List<RequerimientoOpcionDto> _proveedores = new();
     private sealed class HijoEdit
     {
         public Guid? Id;
@@ -250,6 +263,7 @@ else
         public DateTime? Fecha;
         public string Despacho = "";
         public string Entrega = "";
+        public string Prov = "";
     }
     private List<HijoEdit> _pHijos = new();
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
@@ -259,6 +273,7 @@ else
     {
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
+        _proveedores = (await Svc.ListProveedoresAsync()).ToList();
         await ReloadAsync();
     }
 
@@ -334,6 +349,7 @@ else
     {
         _planError = null;
         _planReqId = r.Id;
+        _planItemId = r.ItemId;
         var plan = await Svc.GetPlanificacionAsync(r.Id);
         _planProducto = plan?.Producto ?? r.Descripcion;
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
@@ -344,6 +360,7 @@ else
             Fecha = h.FechaProgramadaCompra?.DateTime,
             Despacho = h.CaracteristicasDespacho,
             Entrega = h.TiempoEntrega,
+            Prov = h.ProveedorId?.ToString() ?? "",
         }).ToList();
         _showPlan = true;
     }
@@ -363,12 +380,27 @@ else
             var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(h => new HijoInput(
                 h.Id, h.Cantidad,
                 h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                h.Despacho, h.Entrega)).ToList());
+                h.Despacho, h.Entrega,
+                Guid.TryParse(h.Prov, out var pv) ? pv : null)).ToList());
             var plan = await Svc.GuardarHijosAsync(req);
             if (plan is null) { _planError = "No se pudo guardar."; return; }
             _showPlan = false;
             _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
             await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task SugerirAsync(HijoEdit h)
+    {
+        if (_planItemId is not Guid itemId) { return; }
+        _busy = true;
+        try
+        {
+            var sug = await Svc.SugerirProveedorAsync(itemId);
+            if (sug is null) { _planError = "La matriz no tiene un proveedor para este producto."; }
+            else { h.Prov = sug.Id.ToString(); _planError = null; }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }

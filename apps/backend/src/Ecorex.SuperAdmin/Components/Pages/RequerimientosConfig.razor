@@ -70,6 +70,106 @@ else
     </div>
 }
 
+@* ---- Ola 4: Matriz de proveedores ---- *@
+<div style="display:flex;align-items:center;justify-content:space-between;margin:26px 0 8px;">
+    <div>
+        <h2 style="font-size:14px;font-weight:700;margin:0;color:var(--ink-2,#4b5563);">Matriz de proveedores</h2>
+        <p class="page-sub" style="margin:2px 0 0;font-size:12px;">Asocia un proveedor del Directorio a una dimension del producto (referencia, marca, subgrupo, grupo o categoria). Al planificar, la regla MAS especifica que aplique sugiere el proveedor.</p>
+    </div>
+    <button class="btn btn-primary btn-sm" @onclick="() => OpenRegla(null)" disabled="@_busy">+ Nueva regla</button>
+</div>
+
+@if (_reglas.Count == 0)
+{
+    <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">
+        Sin reglas todavia. Agrega la primera (p.ej. marca "ACME" -> proveedor "Distribuidora X").
+    </div>
+}
+else
+{
+    <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
+                    <th style="padding:9px 12px;">Dimension</th>
+                    <th style="padding:9px 12px;">Valor</th>
+                    <th style="padding:9px 12px;">Proveedor</th>
+                    <th style="padding:9px 12px;text-align:right;">Prioridad</th>
+                    <th style="padding:9px 12px;">Origen</th>
+                    <th style="padding:9px 12px;">Activo</th>
+                    <th style="padding:9px 12px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _reglas)
+                {
+                    <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                        <td style="padding:9px 12px;font-weight:600;">@DimensionLabel(r.Dimension)</td>
+                        <td style="padding:9px 12px;">@(r.ValorNombre ?? r.ValorDimension)</td>
+                        <td style="padding:9px 12px;">@(r.ProveedorNombre ?? "(proveedor)")</td>
+                        <td style="padding:9px 12px;text-align:right;">@r.Prioridad</td>
+                        <td style="padding:9px 12px;">@(r.Aprendida ? "Aprendida" : "Manual")</td>
+                        <td style="padding:9px 12px;">@(r.Activo ? "Si" : "No")</td>
+                        <td style="padding:9px 12px;text-align:right;white-space:nowrap;">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenRegla(r)" disabled="@_busy">Editar</button>
+                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteReglaAsync(r.Id)" disabled="@_busy">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_showRegla)
+{
+    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showRegla = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">@(_reglaId is null ? "Nueva regla" : "Editar regla")</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _showRegla = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Dimension
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rDimension" @bind:after="OnDimensionChanged">
+                        @foreach (var d in Enum.GetValues<RequerimientoDimension>())
+                        {
+                            <option value="@d">@DimensionLabel(d)</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Valor de la dimension
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rValor">
+                        <option value="">(elige un valor)</option>
+                        @foreach (var v in _valores)
+                        {
+                            <option value="@v.Id">@v.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proveedor
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rProveedor">
+                        <option value="">(elige un proveedor)</option>
+                        @foreach (var p in _proveedores)
+                        {
+                            <option value="@p.Id">@p.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Prioridad (menor gana primero)
+                    <input type="number" min="0" step="1" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rPrioridad" />
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_rActivo" /> Activo</label>
+                @if (_reglaError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_reglaError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveReglaAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showRegla = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showEditor)
 {
     <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showEditor = false">
@@ -142,6 +242,19 @@ else
     private string _eSubcategoriaId = "";
     private bool _eActivo = true;
 
+    // ---- Ola 4: matriz de proveedores ----
+    private List<RequerimientoReglaDto> _reglas = new();
+    private List<RequerimientoOpcionDto> _proveedores = new();
+    private List<RequerimientoOpcionDto> _valores = new();
+    private bool _showRegla;
+    private string? _reglaError;
+    private Guid? _reglaId;
+    private RequerimientoDimension _rDimension = RequerimientoDimension.Marca;
+    private string _rValor = "";
+    private string _rProveedor = "";
+    private int _rPrioridad = 100;
+    private bool _rActivo = true;
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
@@ -149,6 +262,8 @@ else
         _origenes = (await Svc.ListOrigenesAsync()).ToList();
         _subcategorias = (await Svc.ListSubcategoriasAsync()).ToList();
         _formularios = (await Svc.ListFormulariosAsync()).ToList();
+        _reglas = (await Svc.ListReglasAsync()).ToList();
+        _proveedores = (await Svc.ListProveedoresAsync()).ToList();
     }
 
     private void OpenEditor(RequerimientoOrigenDto? o)
@@ -191,6 +306,64 @@ else
         try { await Svc.DeleteOrigenAsync(id); await LoadAsync(); }
         finally { _busy = false; }
     }
+
+    // ---- Ola 4: matriz de proveedores ----
+    private async Task OpenRegla(RequerimientoReglaDto? r)
+    {
+        _reglaError = null;
+        _reglaId = r?.Id;
+        _rDimension = r?.Dimension ?? RequerimientoDimension.Marca;
+        _rPrioridad = r?.Prioridad ?? 100;
+        _rActivo = r?.Activo ?? true;
+        _rProveedor = r?.ProveedorId.ToString() ?? "";
+        _valores = (await Svc.ListValoresDimensionAsync(_rDimension)).ToList();
+        _rValor = r?.ValorDimension ?? "";
+        _showRegla = true;
+    }
+
+    private async Task OnDimensionChanged()
+    {
+        _valores = (await Svc.ListValoresDimensionAsync(_rDimension)).ToList();
+        _rValor = "";
+    }
+
+    private async Task SaveReglaAsync()
+    {
+        _reglaError = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveReglaRequest(
+                _reglaId, _rDimension, _rValor,
+                Guid.TryParse(_rProveedor, out var p) ? p : Guid.Empty,
+                _rPrioridad, _rActivo);
+            var saved = await Svc.SaveReglaAsync(req);
+            if (saved is null) { _reglaError = "No se pudo guardar."; return; }
+            _showRegla = false;
+            _msg = $"Regla guardada: {DimensionLabel(saved.Dimension)} -> {saved.ProveedorNombre}.";
+            await LoadAsync();
+        }
+        catch (Exception ex) { _reglaError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteReglaAsync(Guid id)
+    {
+        _busy = true;
+        try { await Svc.DeleteReglaAsync(id); await LoadAsync(); }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string DimensionLabel(RequerimientoDimension d) => d switch
+    {
+        RequerimientoDimension.Referencia => "Referencia (item)",
+        RequerimientoDimension.Marca => "Marca",
+        RequerimientoDimension.Subgrupo => "Subgrupo",
+        RequerimientoDimension.Grupo => "Grupo",
+        RequerimientoDimension.Categoria => "Categoria (tipo)",
+        _ => d.ToString()
+    };
 
     private static string TipoFuenteLabel(RequerimientoFuenteTipo t) => t switch
     {

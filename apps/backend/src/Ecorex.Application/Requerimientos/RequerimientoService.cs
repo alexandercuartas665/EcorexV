@@ -105,7 +105,10 @@ public sealed class RequerimientoService : IRequerimientoService
         var hijos = await _db.RequerimientoCompraHijos.AsNoTracking()
             .Where(h => h.RequerimientoId == requerimientoId)
             .OrderBy(h => h.FechaProgramadaCompra).ToListAsync(ct);
-        return BuildPlanificacion(r, hijos);
+        var provIds = hijos.Where(h => h.ProveedorId != null).Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provs = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        return BuildPlanificacion(r, hijos, provs);
     }
 
     public async Task<PlanificacionDto?> GuardarHijosAsync(GuardarHijosRequest req, CancellationToken ct = default)
@@ -147,6 +150,12 @@ public sealed class RequerimientoService : IRequerimientoService
             h.FechaProgramadaCompra = inp.FechaProgramadaCompra;
             h.CaracteristicasDespacho = (inp.CaracteristicasDespacho ?? "").Trim();
             h.TiempoEntrega = (inp.TiempoEntrega ?? "").Trim();
+            h.ProveedorId = inp.ProveedorId;
+            // El hijo pasa a 'Con proveedor' si se le asigno uno (no se pisa si ya esta ejecutado).
+            if (h.TaskItemId is null)
+            {
+                h.Estado = inp.ProveedorId is not null ? RequerimientoEstado.ConProveedor : RequerimientoEstado.Planificado;
+            }
         }
 
         // El padre pasa a Planificado si queda con hijos; vuelve a Recibido si queda sin ninguno.
@@ -160,7 +169,8 @@ public sealed class RequerimientoService : IRequerimientoService
         return await GetPlanificacionAsync(padre.Id, ct);
     }
 
-    private static PlanificacionDto BuildPlanificacion(RequerimientoCompra r, List<RequerimientoCompraHijo> hijos)
+    private static PlanificacionDto BuildPlanificacion(RequerimientoCompra r, List<RequerimientoCompraHijo> hijos,
+        IReadOnlyDictionary<Guid, string> proveedores)
     {
         var planificada = hijos.Sum(h => h.Cantidad);
         return new PlanificacionDto(
@@ -171,7 +181,44 @@ public sealed class RequerimientoService : IRequerimientoService
             r.Cantidad - planificada,
             hijos.Select(h => new RequerimientoHijoDto(
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
-                h.ProveedorId, h.Estado, h.TaskItemId)).ToList());
+                h.ProveedorId,
+                h.ProveedorId is Guid p && proveedores.TryGetValue(p, out var pn) ? pn : null,
+                h.Estado, h.TaskItemId)).ToList());
+    }
+
+    public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
+        => await _db.Terceros.AsNoTracking().OrderBy(t => t.Nombre)
+            .Select(t => new RequerimientoOpcionDto(t.Id, t.Nombre)).Take(2000).ToListAsync(ct);
+
+    public async Task<RequerimientoOpcionDto?> SugerirProveedorAsync(Guid itemId, CancellationToken ct = default)
+    {
+        var item = await _db.Items.AsNoTracking().FirstOrDefaultAsync(i => i.Id == itemId, ct);
+        if (item is null) { return null; }
+
+        // De MAS especifico a mas general: Referencia > Marca > Subgrupo > Grupo > Categoria. Gana el primero que aplique.
+        var orden = new (Domain.Enums.RequerimientoDimension Dim, Guid? Val)[]
+        {
+            (Domain.Enums.RequerimientoDimension.Referencia, item.Id),
+            (Domain.Enums.RequerimientoDimension.Marca, item.BrandId),
+            (Domain.Enums.RequerimientoDimension.Subgrupo, item.SubgroupId),
+            (Domain.Enums.RequerimientoDimension.Grupo, item.GroupId),
+            (Domain.Enums.RequerimientoDimension.Categoria, item.ItemTypeId),
+        };
+        foreach (var (dim, val) in orden)
+        {
+            if (val is not Guid g) { continue; }
+            var valStr = g.ToString();
+            var regla = await _db.RequerimientoProveedorReglas.AsNoTracking()
+                .Where(x => x.Activo && x.Dimension == dim && x.ValorDimension == valStr)
+                .OrderBy(x => x.Prioridad).FirstOrDefaultAsync(ct);
+            if (regla is not null)
+            {
+                var nombre = await _db.Terceros.AsNoTracking().Where(t => t.Id == regla.ProveedorId)
+                    .Select(t => t.Nombre).FirstOrDefaultAsync(ct);
+                return new RequerimientoOpcionDto(regla.ProveedorId, nombre ?? "(proveedor)");
+            }
+        }
+        return null;
     }
 
     public async Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default)

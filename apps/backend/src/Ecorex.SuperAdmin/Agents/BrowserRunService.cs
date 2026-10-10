@@ -642,10 +642,19 @@ public sealed class BrowserRunService(
         int xmlBajados = 0, pdfBajados = 0, pdfOmitidos = 0, errores = 0, i = 0;
         // Aterrizaje: por doc, CUFE + si tiene representacion grafica (PDF en disco) + eventos RADIAN del listado.
         var landed = new List<(string Cufe, string EventId, bool PdfOk, bool E30, bool E31, bool E32, bool E33, bool E34)>();
+        // Diagnostico (como eventos_muestra del legacy): cuantos docs traen events[] y una muestra del 1er evento,
+        // para poder ajustar el mapeo contra la forma real que devuelva NEWTON.
+        int conEventos = 0; string muestraEvento = "";
         foreach (var doc in docsRoot.EnumerateArray())
         {
             if (cfg.Max > 0 && i >= cfg.Max) { break; }
             i++;
+            if (doc.ValueKind == JsonValueKind.Object && doc.TryGetProperty("events", out var evsDiag)
+                && evsDiag.ValueKind == JsonValueKind.Array && evsDiag.GetArrayLength() > 0)
+            {
+                conEventos++;
+                if (muestraEvento.Length == 0) { muestraEvento = Trunc(evsDiag[0].GetRawText(), 300); }
+            }
             var eventId = FirstString(doc, "id", "event_id", "eventId");
             if (string.IsNullOrWhiteSpace(eventId)) { errores++; continue; }
             try
@@ -766,10 +775,12 @@ public sealed class BrowserRunService(
             catch (Exception ex) { log.LogWarning(ex, "IngestaNewton: fallo el aterrizaje en el modulo"); }
         }
 
+        if (cfg.ReflejarEventos) { log.LogInformation("IngestaNewton eventos: {ConEventos} doc(s) con events[]; muestra={Muestra}", conEventos, muestraEvento); }
+
         var detalle = $"NEWTON: {total} documento(s); {xmlBajados} XML y {pdfBajados} PDF bajados a '{carpeta}'"
             + (pdfOmitidos > 0 ? $", {pdfOmitidos} PDF ya existian" : "")
             + (cfg.MarcarPlataforma ? $"; {plataforma} en plataforma (fuente NEWTON)" : "")
-            + (cfg.ReflejarEventos ? $"; {eventosReng} renglon(es) con eventos reflejados" : "")
+            + (cfg.ReflejarEventos ? $"; {conEventos} doc(s) con eventos en NEWTON -> {eventosReng} renglon(es) reflejados" : "")
             + (errores > 0 ? $", {errores} con error" : "") + ".";
         await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);

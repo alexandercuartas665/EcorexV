@@ -90,6 +90,7 @@ public class DirectorioToolsetContactTests
     private sealed class FakeAppDb(InnerDb inner) : IApplicationDbContext
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
         public DbSet<Tercero> Terceros => inner.Terceros;
         public DbSet<Conversation> Conversations => inner.Conversations;
 

@@ -41,6 +41,7 @@ public class ContenedorDatosToolsetTests
     private sealed class FakeAppDb(InnerDb inner) : IApplicationDbContext
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();
         public DbSet<TenantUser> TenantUsers => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => throw new NotSupportedException();

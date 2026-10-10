@@ -1,6 +1,9 @@
 @page "/requerimientos-compra"
 @attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Requerimientos
+@using Ecorex.Domain.Enums
+@inject IRequerimientoService Svc
 
 <PageTitle>Requerimientos de Compra - ECOREX.tareas</PageTitle>
 
@@ -13,10 +16,273 @@
             <span>Compras</span>
         </div>
         <h1 class="page-title" style="margin-top:12px;">Requerimientos de Compra</h1>
-        <p class="page-sub" style="margin-bottom:0;">Gestiona las necesidades de compra que llegan desde varias areas, agrupalas por producto, planifica la compra con granularidad y dispara la actividad de compra que corresponda.</p>
+        <p class="page-sub" style="margin-bottom:0;">Necesidades de compra de varias areas. Agrupalas por producto, planifica (Ola 3) y dispara la compra (Ola 5).</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" @onclick="() => OpenAlta()" disabled="@_busy">+ Nueva necesidad</button>
     </div>
 </div>
 
-<div class="cd-msg" style="margin-top:14px;">
-    Modulo en construccion (Ola 0: cimientos). Aqui vivira la grilla de necesidades (reusa el motor de tabla de la conciliacion): filtros, agrupar por producto con totales, division en registros hijos, proveedor y ejecucion -> actividad.
+@if (!string.IsNullOrEmpty(_msg))
+{
+    <div style="margin:10px 0 14px;padding:10px 14px;border-radius:10px;background:var(--brand-soft,#eef2ff);color:var(--ink,#1f2937);font-size:13px;">@_msg</div>
+}
+
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;">
+    <input class="cd-in" style="height:32px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;min-width:200px;" placeholder="Buscar producto o area" @bind="_fTexto" />
+    <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_fEstado">
+        <option value="">Todos los estados</option>
+        @foreach (var e in Enum.GetValues<RequerimientoEstado>())
+        {
+            <option value="@e">@EstadoLabel(e)</option>
+        }
+    </select>
+    <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_fOrigen">
+        <option value="">Todos los origenes</option>
+        @foreach (var o in _origenes)
+        {
+            <option value="@o.Id">@o.Nombre</option>
+        }
+    </select>
+    <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_busy">Aplicar</button>
+    <button class="btn btn-link btn-sm" @onclick="LimpiarFiltro" disabled="@_busy">Limpiar</button>
+    <div style="flex:1"></div>
+    <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" @bind="_agrupar" @bind:after="StateHasChanged" /> Agrupar por producto</label>
 </div>
+
+@if (_rows.Count == 0)
+{
+    <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">
+        Sin necesidades todavia. Crea una con "+ Nueva necesidad".
+    </div>
+}
+else
+{
+    <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
+            <thead>
+                <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
+                    <th style="padding:8px 10px;">Producto</th>
+                    <th style="padding:8px 10px;">Area</th>
+                    <th style="padding:8px 10px;">Origen</th>
+                    <th style="padding:8px 10px;text-align:right;">Cantidad</th>
+                    <th style="padding:8px 10px;">Unidad</th>
+                    <th style="padding:8px 10px;">Fecha necesidad</th>
+                    <th style="padding:8px 10px;">Estado</th>
+                    <th style="padding:8px 10px;">Hijos</th>
+                    <th style="padding:8px 10px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_agrupar)
+                {
+                    @foreach (var g in _grupos)
+                    {
+                        <tr style="background:#e2e5ea;font-weight:700;">
+                            <td colspan="3" style="padding:7px 10px;">@g.Nombre</td>
+                            <td style="padding:7px 10px;text-align:right;">@Fmt(g.TotalCantidad)</td>
+                            <td colspan="4" style="padding:7px 10px;"><span style="font-size:11px;font-weight:700;color:var(--brand,#4f46e5);background:var(--brand-soft,#eef2ff);border-radius:999px;padding:1px 8px;">@g.Items.Count pedido(s)</span></td>
+                            <td></td>
+                        </tr>
+                        @foreach (var r in g.Items)
+                        {
+                            @RowMarkup(r)
+                        }
+                    }
+                }
+                else
+                {
+                    @foreach (var r in _rows)
+                    {
+                        @RowMarkup(r)
+                    }
+                }
+                <tr style="background:var(--brand-soft,#eef2ff);font-weight:700;border-top:2px solid var(--brand,#4f46e5);">
+                    <td colspan="3" style="padding:8px 10px;">TOTAL GENERAL</td>
+                    <td style="padding:8px 10px;text-align:right;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.Cantidad))</td>
+                    <td colspan="4" style="padding:8px 10px;">@_rows.Count necesidad(es)</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_showAlta)
+{
+    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showAlta = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">Nueva necesidad de compra</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _showAlta = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Origen
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aOrigen">
+                        <option value="">(sin origen / manual)</option>
+                        @foreach (var o in _origenes) { <option value="@o.Id">@o.Nombre</option> }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Item (del modulo de Inventarios)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aItem">
+                        <option value="">(producto libre - escribe la descripcion)</option>
+                        @foreach (var it in _items) { <option value="@it.Id">@(string.IsNullOrWhiteSpace(it.Sku) ? it.Nombre : $"{it.Sku} - {it.Nombre}")</option> }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Descripcion (si no eliges item)
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Producto a comprar" @bind="_aDescripcion" />
+                </label>
+                <div style="display:flex;gap:12px;">
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Cantidad
+                        <input type="number" step="any" min="0" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aCantidad" />
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Unidad
+                        <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="unid / caja / kg" @bind="_aUnidad" />
+                    </label>
+                </div>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Area solicitante
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Proyectos / Oficina / Inventario" @bind="_aArea" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Fecha de necesidad
+                    <input type="date" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aFecha" />
+                </label>
+                @if (_altaError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_altaError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="CrearAsync" disabled="@_busy">Crear</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showAlta = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _busy;
+    private string? _msg;
+    private List<RequerimientoDto> _rows = new();
+    private List<RequerimientoOpcionDto> _origenes = new();
+    private List<ItemOpcionDto> _items = new();
+
+    private string? _fTexto;
+    private string _fEstado = "";
+    private string _fOrigen = "";
+    private bool _agrupar;
+
+    private bool _showAlta;
+    private string? _altaError;
+    private string _aOrigen = "";
+    private string _aItem = "";
+    private string _aDescripcion = "";
+    private decimal _aCantidad = 1;
+    private string _aUnidad = "";
+    private string _aArea = "";
+    private DateTime? _aFecha;
+
+    private sealed record Grupo(string Nombre, decimal TotalCantidad, List<RequerimientoDto> Items);
+    private List<Grupo> _grupos = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
+        _items = (await Svc.ListItemsAsync()).ToList();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        var filtro = new RequerimientoFiltro(
+            string.IsNullOrWhiteSpace(_fTexto) ? null : _fTexto,
+            Enum.TryParse<RequerimientoEstado>(_fEstado, out var e) ? e : null,
+            Guid.TryParse(_fOrigen, out var o) ? o : null);
+        _rows = (await Svc.ListAsync(filtro)).ToList();
+        RebuildGrupos();
+        StateHasChanged();
+    }
+
+    private void RebuildGrupos()
+    {
+        _grupos = _rows
+            .GroupBy(r => r.ClaveAgrupacion)
+            .Select(g => new Grupo(
+                g.First().ItemNombre ?? g.First().Descripcion,
+                g.Sum(x => x.Cantidad),
+                g.ToList()))
+            .OrderBy(g => g.Nombre)
+            .ToList();
+    }
+
+    private async Task LimpiarFiltro()
+    {
+        _fTexto = null; _fEstado = ""; _fOrigen = "";
+        await ReloadAsync();
+    }
+
+    private void OpenAlta()
+    {
+        _altaError = null;
+        _aOrigen = ""; _aItem = ""; _aDescripcion = ""; _aCantidad = 1; _aUnidad = ""; _aArea = ""; _aFecha = null;
+        _showAlta = true;
+    }
+
+    private async Task CrearAsync()
+    {
+        _altaError = null;
+        _busy = true;
+        try
+        {
+            var req = new CrearRequerimientoRequest(
+                Guid.TryParse(_aOrigen, out var o) ? o : null,
+                _aArea,
+                Guid.TryParse(_aItem, out var i) ? i : null,
+                _aDescripcion,
+                _aCantidad,
+                _aUnidad,
+                _aFecha is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null);
+            var saved = await Svc.CrearAsync(req);
+            if (saved is null) { _altaError = "No se pudo crear."; return; }
+            _showAlta = false;
+            _msg = $"Necesidad '{saved.Descripcion}' creada.";
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _altaError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try { await Svc.DeleteAsync(id); await ReloadAsync(); }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private RenderFragment RowMarkup(RequerimientoDto r) => __builder =>
+    {
+        <tr style="border-top:1px solid var(--line,#f1f5f9);">
+            <td style="padding:8px 10px;">@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</td>
+            <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</td>
+            <td style="padding:8px 10px;">@(r.OrigenNombre ?? "-")</td>
+            <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(r.Cantidad)</td>
+            <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</td>
+            <td style="padding:8px 10px;">@(r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
+            <td style="padding:8px 10px;">@EstadoLabel(r.Estado)</td>
+            <td style="padding:8px 10px;text-align:center;">@(r.CantidadHijos > 0 ? r.CantidadHijos.ToString() : "-")</td>
+            <td style="padding:8px 10px;text-align:right;">
+                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
+            </td>
+        </tr>
+    };
+
+    private static string Fmt(decimal d) => d.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string EstadoLabel(RequerimientoEstado e) => e switch
+    {
+        RequerimientoEstado.Recibido => "Recibido",
+        RequerimientoEstado.Agrupado => "Agrupado",
+        RequerimientoEstado.Planificado => "Planificado",
+        RequerimientoEstado.ConProveedor => "Con proveedor",
+        RequerimientoEstado.Ejecutado => "Ejecutado",
+        RequerimientoEstado.Cerrado => "Cerrado",
+        _ => e.ToString()
+    };
+}

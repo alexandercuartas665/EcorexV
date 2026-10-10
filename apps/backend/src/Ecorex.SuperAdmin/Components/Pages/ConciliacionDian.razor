@@ -4,9 +4,11 @@
 @using System.Text.Json
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
 @using Ecorex.Application.Preferences
+@using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
 @inject IConciliacionDianService Svc
 @inject IUserTablePrefsService Prefs
+@inject IFileStorageService Files
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -286,7 +288,12 @@ else
                         {
                             var r = it.R!;
                             <tr class="@(r.MarkerColor is null ? "" : "cd-marked")" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="Clic derecho para marcar con color">
-                                <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")"><input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" /></td>
+                                <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")">
+                                    <input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" />
+                                    <button class="cd-files-btn" title="Ver archivos de la factura (DIAN / NEWTON)" @onclick="() => OpenFilesAsync(r)" @onclick:stopPropagation="true">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49"/></svg>
+                                    </button>
+                                </td>
                                 @foreach (var col in VisibleCols())
                                 {
                                     var c = col;
@@ -385,6 +392,43 @@ else
             <div class="cd-confirm-acts">
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CancelarEnvio" disabled="@_busy">Cancelar</button>
                 <button class="btn btn-danger btn-sm" @onclick="ConfirmarEnvioAsync" disabled="@_busy">Enviar de verdad (irreversible)</button>
+            </div>
+        </div>
+    }
+
+    @if (_filesOpen && _filesRenglon is { } fr)
+    {
+        <div class="cd-confirm-backdrop" @onclick="CloseFiles"></div>
+        <div class="cd-confirm" @onclick:stopPropagation="true">
+            <div class="cd-confirm-head">Archivos de la factura</div>
+            <div class="cd-confirm-body">
+                <div class="cd-muted" style="margin-bottom:10px;font-size:12px;">
+                    @fr.NombreProveedor &middot; Fact. @fr.NumFacturaProveedor &middot; CUFE @(fr.Cufe.Length > 18 ? fr.Cufe[..18] + "…" : fr.Cufe)
+                </div>
+                @if (_filesLoading)
+                {
+                    <div class="cd-muted">Cargando…</div>
+                }
+                else if (_filesList.Count == 0)
+                {
+                    <div class="cd-muted">No hay archivos para este CUFE todavia. Corre la ingesta / "Procesar" con la opcion "Subir al blob".</div>
+                }
+                else
+                {
+                    <div class="cd-filelist">
+                        @foreach (var f in _filesList)
+                        {
+                            <a class="cd-fileitem" href="@f.Url" target="_blank" rel="noopener">
+                                <span class="cd-file-tag @TagClass(f.Ref2)">@TagArchivo(f.Ref2)</span>
+                                <span class="cd-file-name">@f.FileName</span>
+                                <span class="cd-file-size">@FmtSize(f.SizeBytes)</span>
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="cd-confirm-acts">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseFiles">Cerrar</button>
             </div>
         </div>
     }
@@ -778,6 +822,29 @@ else
         }
         finally { _busy = false; _envioPreview = null; }
     }
+
+    // ---- Visor de archivos de la factura (por CUFE, desde el gestor unificado) ----
+    private bool _filesOpen, _filesLoading;
+    private ConciliacionDianRenglonDto? _filesRenglon;
+    private List<StoredFileDto> _filesList = new();
+
+    private async Task OpenFilesAsync(ConciliacionDianRenglonDto r)
+    {
+        _filesRenglon = r; _filesOpen = true; _filesLoading = true; _filesList = new();
+        try { _filesList = (await Files.ListAsync("ConciliacionDian", r.Cufe)).ToList(); }
+        catch { _filesList = new(); }
+        finally { _filesLoading = false; }
+    }
+    private void CloseFiles() { _filesOpen = false; _filesRenglon = null; _filesList = new(); }
+
+    private static string TagArchivo(string? ref2) => ref2 switch
+    {
+        "DIAN_PDF" => "DIAN PDF", "DIAN_XML" => "DIAN XML",
+        "NEWTON_PDF" => "NEWTON PDF", "NEWTON_XML" => "NEWTON XML",
+        _ => ref2 ?? "archivo",
+    };
+    private static string TagClass(string? ref2) => (ref2 ?? "").StartsWith("NEWTON") ? "nw" : "dn";
+    private static string FmtSize(long b) => b < 1024 ? $"{b} B" : (b < 1048576 ? $"{b / 1024.0:0.#} KB" : $"{b / 1048576.0:0.#} MB");
 
     private async Task OnOcChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
     {

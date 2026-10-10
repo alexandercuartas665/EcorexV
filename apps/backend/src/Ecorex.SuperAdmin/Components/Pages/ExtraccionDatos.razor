@@ -399,6 +399,7 @@
                                     </div>
                                     <label class="xd-check"><input type="checkbox" @bind="_nwMarcarPlataforma" /> Marcar Plataforma (puebla la fuente NEWTON por CUFE; el "Cruzar" enciende la columna Plataforma)</label>
                                     <label class="xd-check"><input type="checkbox" @bind="_nwReflejarEventos" /> Reflejar eventos RADIAN (Ev.30/32/33/31/34) del listado de NEWTON sobre el renglon por CUFE (solo marca Si)</label>
+                                    <label class="xd-check"><input type="checkbox" @bind="_nwSubirBlob" /> Subir los xml/pdf al blob por CUFE (para verlos desde el modulo de conciliacion)</label>
                                 }
 
                                 @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
@@ -751,6 +752,7 @@
     private bool _nwSoloNuevos = true;
     private bool _nwMarcarPlataforma = true;
     private bool _nwReflejarEventos = true;
+    private bool _nwSubirBlob = true;
 
     // Editor de variable
     private bool _showVarEditor;
@@ -1109,7 +1111,7 @@
 
         // Paso "Ingesta NEWTON": su config vive en MappingJson.
         _nwUrlVar = "NEWTON_URL"; _nwTokenVar = "NEWTON_TOKEN"; _nwCarpetaVar = "RutaDescargaNewton";
-        _nwDiasAtras = 45; _nwBajarXml = true; _nwBajarPdf = true; _nwMax = 0; _nwSoloNuevos = true; _nwMarcarPlataforma = true; _nwReflejarEventos = true;
+        _nwDiasAtras = 45; _nwBajarXml = true; _nwBajarPdf = true; _nwMax = 0; _nwSoloNuevos = true; _nwMarcarPlataforma = true; _nwReflejarEventos = true; _nwSubirBlob = true;
         if (s?.Kind == ScrapeStepKind.IngestaNewton && !string.IsNullOrWhiteSpace(s.MappingJson))
         {
             try
@@ -1125,6 +1127,7 @@
                     _nwBajarXml = cfg.BajarXml; _nwBajarPdf = cfg.BajarPdf; _nwMax = cfg.Max; _nwSoloNuevos = cfg.SoloNuevos;
                     _nwMarcarPlataforma = cfg.MarcarPlataforma;
                     _nwReflejarEventos = cfg.ReflejarEventos;
+                    _nwSubirBlob = cfg.SubirABlob;
                 }
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
@@ -1136,7 +1139,7 @@
     private sealed record NewtonStepConfig(
         string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN", string? CarpetaVar = "RutaDescargaNewton",
         string? Carpeta = null, int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true, int Max = 0,
-        bool SoloNuevos = true, bool MarcarPlataforma = true, bool ReflejarEventos = true);
+        bool SoloNuevos = true, bool MarcarPlataforma = true, bool ReflejarEventos = true, bool SubirABlob = true);
 
     private async Task ProbarOtpAsync()
     {
@@ -1166,7 +1169,7 @@
                 : _sKind == ScrapeStepKind.IngestaNewton
                 ? System.Text.Json.JsonSerializer.Serialize(new NewtonStepConfig(
                     NullIfBlank(_nwUrlVar), NullIfBlank(_nwTokenVar), NullIfBlank(_nwCarpetaVar), null,
-                    _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos, _nwMarcarPlataforma, _nwReflejarEventos))
+                    _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos, _nwMarcarPlataforma, _nwReflejarEventos, _nwSubirBlob))
                 : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,

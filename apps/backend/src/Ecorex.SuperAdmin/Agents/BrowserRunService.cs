@@ -7,6 +7,7 @@ using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.Rules;
 using Ecorex.Application.Scraping;
+using Ecorex.Application.Storage;
 using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -387,7 +388,10 @@ public sealed class BrowserRunService(
         bool AutoImportar = true, bool MoverProcesados = true,
         // Espera a que la carpeta se "asiente" (sin archivos nuevos) antes de parsear, para no correr a mitad
         // de las descargas. Robusto por construccion (mira el filesystem, no depende de la señal del bucle).
-        int EsperarAsentarSegundos = 30, int GraciaInicialSegundos = 150, int MaxEsperaSegundos = 900);
+        int EsperarAsentarSegundos = 30, int GraciaInicialSegundos = 150, int MaxEsperaSegundos = 900,
+        // Sube el PDF (representacion grafica) y el XML de cada ZIP al gestor unificado (Azure Blob) por CUFE,
+        // para poder verlos desde el modulo. Idempotente (no re-sube lo ya registrado).
+        bool SubirABlob = true);
 
     /// <summary>Procesa (server-side) los archivos ya descargados: parsea cada ZIP (DIAN UBL), hace UPSERT por
     /// CUFE en la fuente Bot (sin duplicar), mueve los procesados y -si AutoImportar- los lleva al CCD del mes.
@@ -450,6 +454,7 @@ public sealed class BrowserRunService(
         int nuevos = 0, actualizados = 0, fallidos = 0;
         var periodos = new HashSet<(int Anio, int Mes)>();
         var okFiles = new List<string>(); // archivos parseados OK: se mueven SOLO si SaveChanges confirma
+        var cufePorZip = new List<(string Cufe, string Archivo)>(); // para subir el PDF/XML del zip por CUFE
 
         foreach (var archivo in archivos)
         {
@@ -485,6 +490,7 @@ public sealed class BrowserRunService(
             }
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
             okFiles.Add(archivo);
+            cufePorZip.Add((doc.Cufe, archivo));
         }
         await fdb.SaveChangesAsync(ct);
 
@@ -516,9 +522,45 @@ public sealed class BrowserRunService(
             }
         }
 
+        // Sube al gestor unificado (blob) el PDF (representacion grafica) y el XML de cada ZIP, por CUFE. Idempotente.
+        int subidos = 0;
+        if (cfg.SubirABlob && cufePorZip.Count > 0)
+        {
+            var files = dbScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+            foreach (var (cufe, archivoOrig) in cufePorZip)
+            {
+                var zipFinal = cfg.MoverProcesados ? Path.Combine(procDir, Path.GetFileName(archivoOrig)) : archivoOrig;
+                if (!File.Exists(zipFinal)) { continue; }
+                var baseName = SafeName(cufe);
+                var faltaPdf = await files.FindAsync("ConciliacionDian", cufe, "DIAN_PDF", baseName + "_dian.pdf", ct) is null;
+                var faltaXml = await files.FindAsync("ConciliacionDian", cufe, "DIAN_XML", baseName + "_dian.xml", ct) is null;
+                if (!faltaPdf && !faltaXml) { continue; }
+                try
+                {
+                    using var zip = System.IO.Compression.ZipFile.OpenRead(zipFinal);
+                    var pdfEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
+                    var xmlEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+                    if (faltaPdf && pdfEntry is not null)
+                    {
+                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_PDF",
+                            baseName + "_dian.pdf", "application/pdf", ReadEntry(pdfEntry)), ct);
+                        subidos++;
+                    }
+                    if (faltaXml && xmlEntry is not null)
+                    {
+                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_XML",
+                            baseName + "_dian.xml", "text/xml", ReadEntry(xmlEntry)), ct);
+                        subidos++;
+                    }
+                }
+                catch { /* best-effort: no romper el paso por un zip corrupto */ }
+            }
+        }
+
         var detalle = $"Procesados {archivos.Length}: {nuevos} nuevos, {actualizados} actualizados"
             + (fallidos > 0 ? $", {fallidos} con error" : "")
             + (cfg.AutoImportar ? $"; {importados} importados a conciliacion ({periodos.Count} periodo/s)" : "")
+            + (cfg.SubirABlob ? $"; {subidos} archivo(s) al blob" : "")
             + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + ".";
         await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
@@ -534,7 +576,10 @@ public sealed class BrowserRunService(
         bool MarcarPlataforma = true,
         // Paso 2 del aterrizaje: refleja los eventos RADIAN que NEWTON ya trae en el listado (events[]) sobre el
         // renglon de la conciliacion por CUFE (Ev.30/32/33/31/34). Solo marca SI, nunca borra.
-        bool ReflejarEventos = true);
+        bool ReflejarEventos = true,
+        // Sube los {CUFE}.xml / {CUFE}_newton.pdf al gestor unificado de archivos (Azure Blob) por CUFE, para
+        // poder verlos desde el modulo. Idempotente (no re-sube lo ya registrado).
+        bool SubirABlob = true);
 
     /// <summary>Ingesta NEWTON (Fase 1: DESCARGA). Autentica con Auth-Token (variable secreta del flujo), lista
     /// /documentos-electronicos?include=events y baja cada {CUFE}.xml y {CUFE}_newton.pdf a una carpeta PROPIA
@@ -648,7 +693,7 @@ public sealed class BrowserRunService(
         // Fallback de CUFE sin re-bajar el XML: usa el mapeo EventId->Cufe que ya quedo en la fuente NEWTON
         // (poblado en corridas previas). Asi una corrida de solo-aterrizaje (BajarXml=false) es rapida.
         var cufePorEvento = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (cfg.MarcarPlataforma || cfg.ReflejarEventos)
+        if (cfg.MarcarPlataforma || cfg.ReflejarEventos || cfg.SubirABlob)
         {
             try
             {
@@ -722,8 +767,8 @@ public sealed class BrowserRunService(
         // ---- Aterrizaje en el modulo (scope FRESCO: el loop de descarga pudo tardar y dejar stale la conexion
         // del scope original). Paso 1: puebla la fuente NEWTON por CUFE (-> PlataformaProveedor via CruzarAsync).
         // Paso 2: refleja los eventos RADIAN del listado sobre el renglon por CUFE (solo marca SI, nunca borra).
-        int plataforma = 0, eventosReng = 0;
-        if ((cfg.MarcarPlataforma || cfg.ReflejarEventos) && landed.Count > 0)
+        int plataforma = 0, eventosReng = 0, subidos = 0;
+        if ((cfg.MarcarPlataforma || cfg.ReflejarEventos || cfg.SubirABlob) && landed.Count > 0)
         {
             try
             {
@@ -785,6 +830,20 @@ public sealed class BrowserRunService(
                 }
 
                 await fdb.SaveChangesAsync(ct);
+
+                // Sube los archivos al gestor unificado (blob) por CUFE, para verlos desde el modulo. Idempotente.
+                if (cfg.SubirABlob)
+                {
+                    var files = dbScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+                    foreach (var cufe in landed.Select(x => x.Cufe).Distinct())
+                    {
+                        var baseName = SafeName(cufe);
+                        subidos += await SubirSiFaltaAsync(files, "ConciliacionDian", cufe, "NEWTON_XML",
+                            Path.Combine(carpeta, baseName + ".xml"), baseName + ".xml", "text/xml", ct);
+                        subidos += await SubirSiFaltaAsync(files, "ConciliacionDian", cufe, "NEWTON_PDF",
+                            Path.Combine(carpeta, baseName + "_newton.pdf"), baseName + "_newton.pdf", "application/pdf", ct);
+                    }
+                }
             }
             catch (Exception ex) { log.LogWarning(ex, "IngestaNewton: fallo el aterrizaje en el modulo"); }
         }
@@ -795,6 +854,7 @@ public sealed class BrowserRunService(
             + (pdfOmitidos > 0 ? $", {pdfOmitidos} PDF ya existian" : "")
             + (cfg.MarcarPlataforma ? $"; {plataforma} en plataforma (fuente NEWTON)" : "")
             + (cfg.ReflejarEventos ? $"; {conEventos} doc(s) con eventos en NEWTON -> {eventosReng} renglon(es) reflejados" : "")
+            + (cfg.SubirABlob ? $"; {subidos} archivo(s) al blob" : "")
             + (errores > 0 ? $", {errores} con error" : "") + ".";
         await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);
@@ -852,6 +912,27 @@ public sealed class BrowserRunService(
     {
         foreach (var c in Path.GetInvalidFileNameChars()) { s = s.Replace(c, '_'); }
         return s.Trim();
+    }
+
+    /// <summary>Lee los bytes de una entrada de un ZIP.</summary>
+    private static byte[] ReadEntry(System.IO.Compression.ZipArchiveEntry entry)
+    {
+        using var s = entry.Open();
+        using var ms = new MemoryStream();
+        s.CopyTo(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>Sube un archivo del disco al gestor unificado (blob) por su clave logica (modulo+ref1+ref2+nombre),
+    /// solo si no estaba ya registrado (idempotente). Devuelve 1 si lo subio, 0 si no existia o ya estaba.</summary>
+    private static async Task<int> SubirSiFaltaAsync(IFileStorageService files, string module, string ref1,
+        string ref2, string path, string fileName, string contentType, CancellationToken ct)
+    {
+        if (!File.Exists(path)) { return 0; }
+        if (await files.FindAsync(module, ref1, ref2, fileName, ct) is not null) { return 0; }
+        var bytes = await File.ReadAllBytesAsync(path, ct);
+        await files.SaveAsync(new FileStorageSaveRequest(module, ref1, ref2, fileName, contentType, bytes), ct);
+        return 1;
     }
 
     private static string FirstString(JsonElement o, params string[] keys)

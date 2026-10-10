@@ -54,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<Preferences.IUserTablePrefsService, Preferences.UserTablePrefsService>();
         services.AddScoped<Preferences.ISavedFilterService, Preferences.SavedFilterService>();
         services.AddScoped<Requerimientos.IRequerimientoConfigService, Requerimientos.RequerimientoConfigService>();
+        services.AddScoped<Requerimientos.IRequerimientoService, Requerimientos.RequerimientoService>();
         services.AddScoped<Tenancy.ITenantApiService, Tenancy.TenantApiService>();
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();

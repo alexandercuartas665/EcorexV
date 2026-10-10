@@ -206,7 +206,20 @@ else
                                             <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
                                         }
                                     </td>
-                                    <td style="padding:5px 8px;text-align:right;"><button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button></td>
+                                    <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
+                                        @if (hi.TaskItemId is not null)
+                                        {
+                                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:3px 8px;border-radius:999px;">Ejecutada</span>
+                                        }
+                                        else
+                                        {
+                                            @if (hi.Id is not null)
+                                            {
+                                                <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de compra con el proceso del origen" @onclick="() => EjecutarAsync(hi)" disabled="@_busy">Ejecutar</button>
+                                            }
+                                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button>
+                                        }
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -224,6 +237,8 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private bool _busy;
     private string? _msg;
     private List<RequerimientoDto> _rows = new();
@@ -264,7 +279,20 @@ else
         public string Despacho = "";
         public string Entrega = "";
         public string Prov = "";
+        public Guid? TaskItemId;
+        public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
     }
+    private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
+    {
+        Id = h.Id,
+        Cantidad = h.Cantidad,
+        Fecha = h.FechaProgramadaCompra?.DateTime,
+        Despacho = h.CaracteristicasDespacho,
+        Entrega = h.TiempoEntrega,
+        Prov = h.ProveedorId?.ToString() ?? "",
+        TaskItemId = h.TaskItemId,
+        Estado = h.Estado,
+    };
     private List<HijoEdit> _pHijos = new();
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
@@ -353,15 +381,7 @@ else
         var plan = await Svc.GetPlanificacionAsync(r.Id);
         _planProducto = plan?.Producto ?? r.Descripcion;
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
-        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => new HijoEdit
-        {
-            Id = h.Id,
-            Cantidad = h.Cantidad,
-            Fecha = h.FechaProgramadaCompra?.DateTime,
-            Despacho = h.CaracteristicasDespacho,
-            Entrega = h.TiempoEntrega,
-            Prov = h.ProveedorId?.ToString() ?? "",
-        }).ToList();
+        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(MapHijo).ToList();
         _showPlan = true;
     }
 
@@ -404,6 +424,50 @@ else
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
+    }
+
+    private async Task EjecutarAsync(HijoEdit h)
+    {
+        if (h.Id is not Guid hid) { return; }
+        _planError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.EjecutarHijoAsync(hid, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo ejecutar la compra."; }
+            else
+            {
+                _msg = res.TaskNumber is { } num
+                    ? $"Compra ejecutada: actividad {num} creada."
+                    : "Compra ejecutada: actividad creada.";
+            }
+            // Refresca el modal y la grilla con el estado devuelto.
+            if (res.Plan is { } plan)
+            {
+                _planProducto = plan.Producto;
+                _planCantidadPadre = plan.CantidadPadre;
+                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+            }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
     }
 
     private RenderFragment RowMarkup(RequerimientoDto r) => __builder =>

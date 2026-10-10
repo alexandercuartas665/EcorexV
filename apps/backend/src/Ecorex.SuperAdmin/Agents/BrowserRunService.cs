@@ -531,7 +531,10 @@ public sealed class BrowserRunService(
         int Max = 0, bool SoloNuevos = true,
         // Paso 1 del aterrizaje: puebla la fuente NEWTON (ConciliacionDianNewtonDummy) por CUFE. El CruzarAsync
         // enciende PlataformaProveedor para los CUFE con representacion grafica (PDF).
-        bool MarcarPlataforma = true);
+        bool MarcarPlataforma = true,
+        // Paso 2 del aterrizaje: refleja los eventos RADIAN que NEWTON ya trae en el listado (events[]) sobre el
+        // renglon de la conciliacion por CUFE (Ev.30/32/33/31/34). Solo marca SI, nunca borra.
+        bool ReflejarEventos = true);
 
     /// <summary>Ingesta NEWTON (Fase 1: DESCARGA). Autentica con Auth-Token (variable secreta del flujo), lista
     /// /documentos-electronicos?include=events y baja cada {CUFE}.xml y {CUFE}_newton.pdf a una carpeta PROPIA
@@ -637,8 +640,8 @@ public sealed class BrowserRunService(
 
         int total = docsRoot.GetArrayLength();
         int xmlBajados = 0, pdfBajados = 0, pdfOmitidos = 0, errores = 0, i = 0;
-        // Aterrizaje (Paso 1): por doc, CUFE + si tiene representacion grafica (PDF en disco).
-        var landed = new List<(string Cufe, string EventId, bool PdfOk)>();
+        // Aterrizaje: por doc, CUFE + si tiene representacion grafica (PDF en disco) + eventos RADIAN del listado.
+        var landed = new List<(string Cufe, string EventId, bool PdfOk, bool E30, bool E31, bool E32, bool E33, bool E34)>();
         foreach (var doc in docsRoot.EnumerateArray())
         {
             if (cfg.Max > 0 && i >= cfg.Max) { break; }
@@ -686,57 +689,136 @@ public sealed class BrowserRunService(
 
                 if (!string.IsNullOrWhiteSpace(cufe))
                 {
-                    landed.Add((cufe, eventId, File.Exists(pdfPath)));
+                    var (e30, e31, e32, e33, e34) = MapEventos(doc);
+                    landed.Add((cufe, eventId, File.Exists(pdfPath), e30, e31, e32, e33, e34));
                 }
             }
             catch { errores++; }
         }
 
-        // ---- Aterrizaje Paso 1 (Plataforma): puebla la fuente NEWTON por CUFE. El CruzarAsync del modulo
-        // enciende PlataformaProveedor para los CUFE con GuidPdf != "" (= con representacion grafica). Scope
-        // FRESCO: el loop de descarga pudo tardar y dejar stale la conexion del scope original.
-        int plataforma = 0;
-        if (cfg.MarcarPlataforma && landed.Count > 0)
+        // ---- Aterrizaje en el modulo (scope FRESCO: el loop de descarga pudo tardar y dejar stale la conexion
+        // del scope original). Paso 1: puebla la fuente NEWTON por CUFE (-> PlataformaProveedor via CruzarAsync).
+        // Paso 2: refleja los eventos RADIAN del listado sobre el renglon por CUFE (solo marca SI, nunca borra).
+        int plataforma = 0, eventosReng = 0;
+        if ((cfg.MarcarPlataforma || cfg.ReflejarEventos) && landed.Count > 0)
         {
             try
             {
                 using var dbScope = scopeFactory.CreateScope();
                 var fdb = dbScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
-                // Dedup por CUFE; si vino repetido, basta con que alguno tenga PDF.
-                var porCufe = landed.GroupBy(x => x.Cufe)
-                    .ToDictionary(g => g.Key, g => (EventId: g.First().EventId, PdfOk: g.Any(x => x.PdfOk)));
-                var cufes = porCufe.Keys.ToList();
-                var existentes = await fdb.ConciliacionDianNewtonDummies
-                    .Where(n => cufes.Contains(n.Cufe)).ToListAsync(ct);
-                var mapaExist = existentes.ToDictionary(n => n.Cufe, StringComparer.Ordinal);
-                foreach (var (cufe, info) in porCufe)
+
+                if (cfg.MarcarPlataforma)
                 {
-                    var guidPdf = info.PdfOk ? SafeName(cufe) + "_newton.pdf" : "";
-                    if (mapaExist.TryGetValue(cufe, out var ex))
+                    // Dedup por CUFE; si vino repetido, basta con que alguno tenga PDF.
+                    var porCufe = landed.GroupBy(x => x.Cufe)
+                        .ToDictionary(g => g.Key, g => (EventId: g.First().EventId, PdfOk: g.Any(x => x.PdfOk)));
+                    var cufes = porCufe.Keys.ToList();
+                    var existentes = await fdb.ConciliacionDianNewtonDummies
+                        .Where(n => cufes.Contains(n.Cufe)).ToListAsync(ct);
+                    var mapaExist = existentes.ToDictionary(n => n.Cufe, StringComparer.Ordinal);
+                    foreach (var (cufe, info) in porCufe)
                     {
-                        ex.EventId = info.EventId;
-                        if (info.PdfOk) { ex.GuidPdf = guidPdf; } // solo marca; nunca borra un PDF ya registrado
-                    }
-                    else
-                    {
-                        fdb.ConciliacionDianNewtonDummies.Add(new ConciliacionDianNewtonDummy
+                        var guidPdf = info.PdfOk ? SafeName(cufe) + "_newton.pdf" : "";
+                        if (mapaExist.TryGetValue(cufe, out var ex))
                         {
-                            TenantId = tenantId, Cufe = cufe, EventId = info.EventId, GuidPdf = guidPdf,
-                        });
+                            ex.EventId = info.EventId;
+                            if (info.PdfOk) { ex.GuidPdf = guidPdf; } // solo marca; nunca borra un PDF ya registrado
+                        }
+                        else
+                        {
+                            fdb.ConciliacionDianNewtonDummies.Add(new ConciliacionDianNewtonDummy
+                            {
+                                TenantId = tenantId, Cufe = cufe, EventId = info.EventId, GuidPdf = guidPdf,
+                            });
+                        }
+                        plataforma++;
                     }
-                    plataforma++;
                 }
+
+                if (cfg.ReflejarEventos)
+                {
+                    // OR de eventos por CUFE (un CUFE puede venir con varios eventos).
+                    var evPorCufe = landed.GroupBy(x => x.Cufe).ToDictionary(g => g.Key, g => (
+                        E30: g.Any(x => x.E30), E31: g.Any(x => x.E31), E32: g.Any(x => x.E32),
+                        E33: g.Any(x => x.E33), E34: g.Any(x => x.E34)));
+                    var cufesEv = evPorCufe.Where(kv => kv.Value.E30 || kv.Value.E31 || kv.Value.E32 || kv.Value.E33 || kv.Value.E34)
+                        .Select(kv => kv.Key).ToList();
+                    if (cufesEv.Count > 0)
+                    {
+                        // Tenant-scoped por el filtro global (el tenant ambiente sigue activo). Solo renglones que existen.
+                        var rengs = await fdb.ConciliacionDianRenglones.Where(r => cufesEv.Contains(r.Cufe)).ToListAsync(ct);
+                        foreach (var r in rengs)
+                        {
+                            if (!evPorCufe.TryGetValue(r.Cufe, out var f)) { continue; }
+                            var changed = false;
+                            if (f.E30 && !r.Evento30) { r.Evento30 = true; changed = true; }
+                            if (f.E31 && !r.Evento31) { r.Evento31 = true; changed = true; }
+                            if (f.E32 && !r.Evento32) { r.Evento32 = true; changed = true; }
+                            if (f.E33 && !r.Evento33) { r.Evento33 = true; changed = true; }
+                            if (f.E34 && !r.Evento34) { r.Evento34 = true; changed = true; }
+                            if (changed) { eventosReng++; }
+                        }
+                    }
+                }
+
                 await fdb.SaveChangesAsync(ct);
             }
-            catch (Exception ex) { log.LogWarning(ex, "IngestaNewton: fallo el aterrizaje de plataforma"); }
+            catch (Exception ex) { log.LogWarning(ex, "IngestaNewton: fallo el aterrizaje en el modulo"); }
         }
 
         var detalle = $"NEWTON: {total} documento(s); {xmlBajados} XML y {pdfBajados} PDF bajados a '{carpeta}'"
             + (pdfOmitidos > 0 ? $", {pdfOmitidos} PDF ya existian" : "")
             + (cfg.MarcarPlataforma ? $"; {plataforma} en plataforma (fuente NEWTON)" : "")
+            + (cfg.ReflejarEventos ? $"; {eventosReng} renglon(es) con eventos reflejados" : "")
             + (errores > 0 ? $", {errores} con error" : "") + ".";
         await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);
+    }
+
+    // Eventos RADIAN que NEWTON ya trae en el listado (?include=events). Calca ColumnaEvento del legacy:
+    // identifica por codigo DIAN (030..034) o por nombre, revisando las claves habituales. Si no reconoce, "".
+    private static (bool E30, bool E31, bool E32, bool E33, bool E34) MapEventos(JsonElement doc)
+    {
+        bool e30 = false, e31 = false, e32 = false, e33 = false, e34 = false;
+        if (doc.ValueKind == JsonValueKind.Object && doc.TryGetProperty("events", out var evs) && evs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var ev in evs.EnumerateArray())
+            {
+                switch (ColumnaEvento(ev))
+                {
+                    case "30": e30 = true; break;
+                    case "31": e31 = true; break;
+                    case "32": e32 = true; break;
+                    case "33": e33 = true; break;
+                    case "34": e34 = true; break;
+                }
+            }
+        }
+        return (e30, e31, e32, e33, e34);
+    }
+
+    private static string ColumnaEvento(JsonElement ev)
+    {
+        var sb = new StringBuilder();
+        if (ev.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var k in new[] { "type", "event_type", "eventType", "tipo", "code", "codigo", "name", "nombre", "event" })
+            {
+                if (ev.TryGetProperty(k, out var v) && v.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined)
+                {
+                    sb.Append(' ').Append(v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString());
+                }
+            }
+        }
+        else { sb.Append(ev.ToString()); }
+        var t = sb.ToString().ToUpperInvariant();
+        if (t.Trim().Length == 0) { return ""; }
+        if (t.Contains("ACUSE") || t.Contains("030")) { return "30"; }
+        if (t.Contains("RECLAMO") || t.Contains("031")) { return "31"; }
+        if (t.Contains("PRESTACION") || t.Contains("032")) { return "32"; }
+        if (t.Contains("ACEPTACION") || t.Contains("033")) { return "33"; }
+        if (t.Contains("034")) { return "34"; }
+        return "";
     }
 
     private static string Trunc(string? s, int n) => string.IsNullOrEmpty(s) ? "" : (s.Length <= n ? s : s[..n]);

@@ -35,11 +35,12 @@ public sealed class RequerimientoService : IRequerimientoService
             .Where(o => origenIds.Contains(o.Id)).ToDictionaryAsync(o => o.Id, o => o.Nombre, ct);
         var items = await _db.Items.AsNoTracking()
             .Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => new { i.Name, i.Sku }, ct);
+        var reqIds = rows.Select(r => r.Id).ToList();
         var hijosPorReq = (await _db.RequerimientoCompraHijos.AsNoTracking()
-                .Where(h => rows.Select(r => r.Id).Contains(h.RequerimientoId))
+                .Where(h => reqIds.Contains(h.RequerimientoId))
                 .GroupBy(h => h.RequerimientoId)
-                .Select(g => new { g.Key, Count = g.Count() }).ToListAsync(ct))
-            .ToDictionary(x => x.Key, x => x.Count);
+                .Select(g => new { g.Key, Count = g.Count(), Suma = g.Sum(x => x.Cantidad) }).ToListAsync(ct))
+            .ToDictionary(x => x.Key, x => (x.Count, x.Suma));
 
         return rows.Select(r => new RequerimientoDto(
             r.Id, r.OrigenId,
@@ -48,7 +49,8 @@ public sealed class RequerimientoService : IRequerimientoService
             r.ItemId is Guid ii && items.TryGetValue(ii, out var it) ? it.Name : null,
             r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
             r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
-            hijosPorReq.TryGetValue(r.Id, out var hc) ? hc : 0)).ToList();
+            hijosPorReq.TryGetValue(r.Id, out var h) ? h.Count : 0,
+            hijosPorReq.TryGetValue(r.Id, out var h2) ? h2.Suma : 0m)).ToList();
     }
 
     public async Task<RequerimientoDto?> CrearAsync(CrearRequerimientoRequest req, CancellationToken ct = default)
@@ -94,6 +96,82 @@ public sealed class RequerimientoService : IRequerimientoService
         _db.RequerimientosCompra.Remove(r);
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    public async Task<PlanificacionDto?> GetPlanificacionAsync(Guid requerimientoId, CancellationToken ct = default)
+    {
+        var r = await _db.RequerimientosCompra.AsNoTracking().FirstOrDefaultAsync(x => x.Id == requerimientoId, ct);
+        if (r is null) { return null; }
+        var hijos = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => h.RequerimientoId == requerimientoId)
+            .OrderBy(h => h.FechaProgramadaCompra).ToListAsync(ct);
+        return BuildPlanificacion(r, hijos);
+    }
+
+    public async Task<PlanificacionDto?> GuardarHijosAsync(GuardarHijosRequest req, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return null; }
+        var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == req.RequerimientoId, ct);
+        if (padre is null) { return null; }
+
+        var inputs = req.Hijos ?? Array.Empty<HijoInput>();
+        if (inputs.Any(h => h.Cantidad <= 0)) { throw new InvalidOperationException("Cada registro hijo debe tener cantidad mayor que cero."); }
+        var suma = inputs.Sum(h => h.Cantidad);
+        // Decision: la suma de los hijos NO puede exceder al padre (se permite dejar restante).
+        if (suma > padre.Cantidad)
+        {
+            throw new InvalidOperationException($"La suma de los hijos ({suma:#,##0.##}) excede la cantidad del padre ({padre.Cantidad:#,##0.##}).");
+        }
+
+        var existentes = await _db.RequerimientoCompraHijos
+            .Where(h => h.RequerimientoId == req.RequerimientoId).ToListAsync(ct);
+        var mantenidos = inputs.Where(i => i.Id is not null).Select(i => i.Id!.Value).ToHashSet();
+
+        // Borra los que ya no estan (salvo que esten ejecutados: tienen TaskItemId).
+        foreach (var ex in existentes)
+        {
+            if (!mantenidos.Contains(ex.Id))
+            {
+                if (ex.TaskItemId is not null) { throw new InvalidOperationException("No se puede quitar un hijo ya ejecutado (tiene actividad)."); }
+                _db.RequerimientoCompraHijos.Remove(ex);
+            }
+        }
+
+        // Upsert de cada input.
+        foreach (var inp in inputs)
+        {
+            RequerimientoCompraHijo h;
+            if (inp.Id is Guid id && existentes.FirstOrDefault(e => e.Id == id) is { } found) { h = found; }
+            else { h = new RequerimientoCompraHijo { TenantId = tenantId, RequerimientoId = padre.Id, Estado = RequerimientoEstado.Planificado }; _db.RequerimientoCompraHijos.Add(h); }
+            h.Cantidad = inp.Cantidad;
+            h.FechaProgramadaCompra = inp.FechaProgramadaCompra;
+            h.CaracteristicasDespacho = (inp.CaracteristicasDespacho ?? "").Trim();
+            h.TiempoEntrega = (inp.TiempoEntrega ?? "").Trim();
+        }
+
+        // El padre pasa a Planificado si queda con hijos; vuelve a Recibido si queda sin ninguno.
+        // (No se pisa un estado mas avanzado como Ejecutado/Cerrado.)
+        if (padre.Estado is RequerimientoEstado.Recibido or RequerimientoEstado.Agrupado or RequerimientoEstado.Planificado)
+        {
+            padre.Estado = inputs.Count > 0 ? RequerimientoEstado.Planificado : RequerimientoEstado.Recibido;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetPlanificacionAsync(padre.Id, ct);
+    }
+
+    private static PlanificacionDto BuildPlanificacion(RequerimientoCompra r, List<RequerimientoCompraHijo> hijos)
+    {
+        var planificada = hijos.Sum(h => h.Cantidad);
+        return new PlanificacionDto(
+            r.Id,
+            r.Descripcion,
+            r.Cantidad,
+            planificada,
+            r.Cantidad - planificada,
+            hijos.Select(h => new RequerimientoHijoDto(
+                h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
+                h.ProveedorId, h.Estado, h.TaskItemId)).ToList());
     }
 
     public async Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default)

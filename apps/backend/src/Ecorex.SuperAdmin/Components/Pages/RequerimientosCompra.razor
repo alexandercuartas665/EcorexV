@@ -156,6 +156,62 @@ else
     </div>
 }
 
+@if (_showPlan)
+{
+    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showPlan = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:720px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">Planificar: @_planProducto</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _showPlan = false">&times;</button>
+            </div>
+            <div style="padding:14px 18px;">
+                <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:12px;">
+                    <span>Cantidad total: <strong>@Fmt(_planCantidadPadre)</strong></span>
+                    <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong></span>
+                    <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong></span>
+                </div>
+
+                <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                        <thead>
+                            <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
+                                <th style="padding:7px 10px;">Cantidad</th>
+                                <th style="padding:7px 10px;">Fecha de compra</th>
+                                <th style="padding:7px 10px;">Despacho</th>
+                                <th style="padding:7px 10px;">Tiempo de entrega</th>
+                                <th style="padding:7px 10px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_pHijos.Count == 0)
+                            {
+                                <tr><td colspan="5" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
+                            }
+                            @foreach (var h in _pHijos)
+                            {
+                                var hi = h;
+                                <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                    <td style="padding:5px 8px;"><input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" /></td>
+                                    <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
+                                    <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
+                                    <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
+                                    <td style="padding:5px 8px;text-align:right;"><button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
+                @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _busy;
     private string? _msg;
@@ -180,6 +236,24 @@ else
 
     private sealed record Grupo(string Nombre, decimal TotalCantidad, List<RequerimientoDto> Items);
     private List<Grupo> _grupos = new();
+
+    // ---- Ola 3: planificacion (division en hijos) ----
+    private bool _showPlan;
+    private string? _planError;
+    private Guid _planReqId;
+    private string _planProducto = "";
+    private decimal _planCantidadPadre;
+    private sealed class HijoEdit
+    {
+        public Guid? Id;
+        public decimal Cantidad = 1;
+        public DateTime? Fecha;
+        public string Despacho = "";
+        public string Entrega = "";
+    }
+    private List<HijoEdit> _pHijos = new();
+    private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
+    private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
 
     protected override async Task OnInitializedAsync()
     {
@@ -256,6 +330,50 @@ else
         finally { _busy = false; }
     }
 
+    private async Task OpenPlanificarAsync(RequerimientoDto r)
+    {
+        _planError = null;
+        _planReqId = r.Id;
+        var plan = await Svc.GetPlanificacionAsync(r.Id);
+        _planProducto = plan?.Producto ?? r.Descripcion;
+        _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
+        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => new HijoEdit
+        {
+            Id = h.Id,
+            Cantidad = h.Cantidad,
+            Fecha = h.FechaProgramadaCompra?.DateTime,
+            Despacho = h.CaracteristicasDespacho,
+            Entrega = h.TiempoEntrega,
+        }).ToList();
+        _showPlan = true;
+    }
+
+    private void AddHijoRow()
+    {
+        var resta = RestanteActual;
+        _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1 });
+    }
+
+    private async Task GuardarPlanAsync()
+    {
+        _planError = null;
+        _busy = true;
+        try
+        {
+            var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(h => new HijoInput(
+                h.Id, h.Cantidad,
+                h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+                h.Despacho, h.Entrega)).ToList());
+            var plan = await Svc.GuardarHijosAsync(req);
+            if (plan is null) { _planError = "No se pudo guardar."; return; }
+            _showPlan = false;
+            _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
     private RenderFragment RowMarkup(RequerimientoDto r) => __builder =>
     {
         <tr style="border-top:1px solid var(--line,#f1f5f9);">
@@ -266,8 +384,19 @@ else
             <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</td>
             <td style="padding:8px 10px;">@(r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
             <td style="padding:8px 10px;">@EstadoLabel(r.Estado)</td>
-            <td style="padding:8px 10px;text-align:center;">@(r.CantidadHijos > 0 ? r.CantidadHijos.ToString() : "-")</td>
-            <td style="padding:8px 10px;text-align:right;">
+            <td style="padding:8px 10px;text-align:center;">
+                @if (r.CantidadHijos > 0)
+                {
+                    <span title="Registros hijos (divisiones)">@r.CantidadHijos</span>
+                    @if (r.Cantidad - r.CantidadPlanificada > 0)
+                    {
+                        <span style="margin-left:6px;font-size:11px;color:#b45309;" title="Cantidad sin planificar">(resta @Fmt(r.Cantidad - r.CantidadPlanificada))</span>
+                    }
+                }
+                else { <span>-</span> }
+            </td>
+            <td style="padding:8px 10px;text-align:right;white-space:nowrap;">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
                 <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
             </td>
         </tr>

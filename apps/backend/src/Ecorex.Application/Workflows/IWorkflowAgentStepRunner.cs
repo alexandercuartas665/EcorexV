@@ -62,5 +62,9 @@ public enum WorkflowAgentStepOutcome
 
     /// <summary>ADR-0092: el agente PIDIO preguntar por WhatsApp. Se envio el mensaje y el paso quedo EN ESPERA
     /// (PendingWhatsAppConversationId); al entrar la respuesta, la ingesta de chat reanuda el agente.</summary>
-    WaitingForReply = 7
+    WaitingForReply = 7,
+
+    /// <summary>El agente REPROGRAMO su propio plazo (herramienta 'reprogramar_plazo'): el paso queda EN ESPERA
+    /// (AgentNextRetryAt) y el barrido lo vuelve a correr cuando venza, con el contexto actualizado.</summary>
+    Postponed = 8
 }

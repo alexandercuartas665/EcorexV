@@ -246,6 +246,13 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             return await PauseForWhatsAppAsync(step, nodeAgent, context, invocation.WhatsAppRequest, invocation.RetryInMinutes, cancellationToken);
         }
 
+        // El agente REPROGRAMO su propio plazo ('reprogramar_plazo'): el paso NO se resuelve; queda EN ESPERA y el
+        // barrido lo vuelve a correr cuando venza (AgentNextRetryAt). No envia nada ni retiene la conversacion.
+        if (invocation.PostponeMinutes is int postponeMin)
+        {
+            return await PostponeStepAsync(step, nodeAgent, postponeMin, cancellationToken);
+        }
+
         // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
         // formulario lo LLENA (ola C, Fields != null), y un Task de decision fija un RESULTADO.
         var isGateway = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
@@ -495,6 +502,40 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             "El agente {AgentId} pregunto por WhatsApp (conv {ConversationId}) en el paso {StepId}; queda en espera.",
             nodeAgent.AiAgentId, conversationId, step.Id);
         return WorkflowAgentStepOutcome.WaitingForReply;
+    }
+
+    /// <summary>
+    /// El agente REPROGRAMO su propio plazo ('reprogramar_plazo'): el paso NO se resuelve ni envia nada; queda EN
+    /// ESPERA (sigue IsCurrent/Pending) con AgentNextRetryAt = ahora + N min. AgentAttemptedAt bloquea el
+    /// re-barrido normal hasta que el reloj del reintento venza; ahi el dispatcher limpia ambos (AgentAttemptedAt y
+    /// AgentNextRetryAt) y el paso vuelve a correr como un intento fresco (mismo mecanismo que ADR-0121). Se fija
+    /// AgentDeadlineAt DESPUES del reintento como red de seguridad: el reaper solo cerraria el paso si, ya
+    /// reactivado, siguiera sin resolverse pasado el tope de espera.
+    /// </summary>
+    private async Task<WorkflowAgentStepOutcome> PostponeStepAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, int minutes, CancellationToken cancellationToken)
+    {
+        var now = _clock.GetUtcNow();
+        step.AgentAttemptedAt = now;                       // bloquea el re-barrido normal hasta que venza el plazo
+        step.AgentNextRetryAt = now.AddMinutes(minutes);   // el barrido lo reactiva al cumplirse
+        step.ExecutedByAiAgentId = null;                   // todavia no ejecuto: solo se pospuso
+        // Red de seguridad: el tope de espera cuenta DESPUES del reintento (no antes, para no reapear un plazo largo).
+        step.AgentDeadlineAt = now.AddMinutes(minutes).AddHours(WaitTimeoutHours);
+
+        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        await AddTaskNoteAsync(step,
+            $"el agente reprogramo su proximo intento en {minutes} min; el paso queda en espera y se reactivara al vencer el plazo",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "El agente {AgentId} reprogramo el plazo del paso {StepId} en {Minutes} min; queda en espera.",
+            nodeAgent.AiAgentId, step.Id, minutes);
+        return WorkflowAgentStepOutcome.Postponed;
     }
 
     /// <summary>Mapea la 'ruta' que devolvio el agente (clave = BpmnElementId del destino, o su nombre) a un

@@ -65,7 +65,12 @@ public sealed record WorkflowAgentInvocationResult(
     int? RetryInMinutes = null,
     // ADR-0124: etiquetas (por NOMBRE) que el agente pidio poner a la tarea via 'etiquetar_tarea' (el motivo con
     // matiz). El invoker solo las acumula; el RUNNER las resuelve/crea en el catalogo del tenant y las asigna.
-    IReadOnlyList<string>? RequestedTagNames = null)
+    IReadOnlyList<string>? RequestedTagNames = null,
+    // El agente POSPUSO su propio plazo (herramienta 'reprogramar_plazo'): el paso queda EN ESPERA y se vuelve a
+    // ejecutar cuando venza el plazo. A diferencia de RetryInMinutes (que ACOMPANA a una pregunta de WhatsApp),
+    // esto PAUSA el paso por si mismo sin enviar nada. El runner lo estampa en AgentNextRetryAt. Null = no
+    // reprogramo. Acotado a [5, 43200] (30 dias) por el lector de la herramienta.
+    int? PostponeMinutes = null)
 {
     public static WorkflowAgentInvocationResult Failed(string error, AiProvider provider = AiProvider.Claude, string model = "", int inputTokens = 0, int outputTokens = 0)
         => new(false, null, null, error, provider, model, inputTokens, outputTokens);

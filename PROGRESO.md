@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-10 - Agente venta/cierre: bitacora + tool consultar_tarea (SARA) + tool reprogramar_plazo (nodo) (SIN deploy)
+
+- Diagnostico (solo lectura en prod) de una prueba real de SARA (tenant AGROMETALICAS, tel 573217626882): SARA
+  creaba tareas en vez de entregar la cotizacion y no cerraba. Causa: no tiene tool para reenviar la cotizacion,
+  le sobran crear_tarea/crear_lead, y el flujo NO retuvo la conversacion (flow_hold NULL) -> la SARA normal
+  contesto ciega a la nota "no crear tareas". El nodo "Agente seguimiento inteligente" no tenia start_delay/sla.
+- Cambios implementados (3), build verde, Ecorex.Application.Tests 1112/1112 OK. Integration dual (Docker) NO corrida.
+  1) Bitacora mas completa (NodeNotifyService.RecordContactShareObservationAsync): nota rotulada con Tarea
+     (numero de caso) + Nodo que la genero + Cliente (nombre/tel) + Se envio (enlace de decision con opciones +
+     cotizacion). El titulo del AiAgentRunLog ahora lleva "- tarea Tnnnnn". Sin migracion.
+  2) SARA consulta la tarea (TasksToolset.consultar_tarea, SOLO LECTURA): por 'numero' (ej. T00303, que viene en
+     la nota del flujo) o la tarea ligada a la conversacion; devuelve estado/tablero/solicitante/adjuntos
+     (la cotizacion)/ultimas 10 anotaciones. NO aplica la whitelist de tableros (esa rige donde se CREAN tareas).
+  3) Nodo de flujo reprograma su plazo (WorkflowAgentInvoker tool 'reprogramar_plazo' en decision Y formulario;
+     WorkflowAgentStepRunner.PostponeStepAsync; nuevo WorkflowAgentInvocationResult.PostponeMinutes y outcome
+     Postponed). Setea AgentNextRetryAt = ahora + dias/horas/min (clamp 5..43200) y AgentAttemptedAt; el
+     WorkflowAgentStepDispatcher ya re-dispara por AgentNextRetryAt<=now (limpia ambos). AgentDeadlineAt se pone
+     DESPUES del reintento (no reapea un plazo largo). Reusa el campo de ADR-0121 -> SIN migracion.
+- Siguiente: el usuario prueba desde su telefono. Pendiente (no pedido aun): tool de REENVIAR la cotizacion
+  publicada (hoy no existe como IAgentToolset; QuoteRenderService solo esta en UI/reglas) y/o correr la
+  conversacion flow-held para que SARA enrute la compuerta al aprobar.
+- Bloqueos: ninguno. Deploy: PENDIENTE OK del usuario.
+
 ## 2026-10-10 - Gestor unificado de archivos Paso 2: subir DIAN/NEWTON al blob por CUFE + visor (SIN deploy)
 
 - Sobre la fundacion del Paso 1 (StoredFile + IFileStorageService + /archivo/{id}, commits 0d9543bc/dbfbd3d0):

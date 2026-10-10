@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-09 - Release v0.16.193: resiliencia del despachador de conversaciones del agente
+
+- Auditoria del "worker que se congela sin dejar rastro" (patron de 3 agujeros de un proyecto hermano).
+  AgentReplyDispatcher (agente CONVERSACIONAL, SARA) tenia los 3: catch solo en ILogger, cola en memoria, sin
+  reintento. OJO: fix A (EnableRetryOnFailure global) NO es seguro aqui -> hay 40+ transacciones manuales por EF
+  (WorkflowEngine, WorkflowDesignService, TaskItemService, FormResponseService, etc.) que reventarian con la
+  estrategia de reintento. (En el hermano no habia ninguna.) Por eso NO se toco.
+- Confirmacion con datos (prod, solo lectura): NO mostro un freeze activo. 0 conversaciones colgadas tras loguear
+  el Inbound; 1 solo Error en toda la bitacora; RunAsync bien instrumentado (Inbound/Prompt/Reply/Error) y con
+  muchos returns legitimos (paso de flujo dueno ADR-0092, asesor humano, lista negra, linea desconectada). Los
+  agujeros son REALES pero LATENTES. El worker del agente de FLUJO ya era robusto (cola en BD + rebarrido 30s).
+- Fix (solo SuperAdmin/RealTime/AgentReplyDispatcher.cs, sin migracion): C) reintento acotado (3 intentos, 15s);
+  B) al agotar, Error VISIBLE en /bitacora-agente (AiAgentRunLog, scope propio + CancellationToken.None); y un
+  BARRIDO de respaldo (cada 2 min, primero ~30s tras arranque, patron por-tenant) que reencola conversaciones con
+  un entrante sin responder -> tapa el caso "se perdio la cola en memoria por un deploy". Verificado local: la
+  query del barrido traduce y corre OK, encuentra candidato y RunAsync lo recoge.
+- DESPLEGADO v0.16.193 (2026-10-09). Sin migracion. Build verde; SuperAdmin.Tests 173.
+- Bloqueos: ninguno.
+
 ## 2026-10-09 - Release v0.16.192: reproducir notas de voz en el detalle de la tarea
 
 - El audio entrante ya se guardaba como TaskItemAttachment (AttachConversationMediaAsync), pero el visor de

@@ -105,3 +105,6 @@ apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/jquery/
 
 # Salida de build aislada para dev (NO versionar)
 /apps/backend/appout5263/
+
+# Salida de build aislada dev worktree requerimiento_compras (NO versionar)
+/apps/backend/appout5265/

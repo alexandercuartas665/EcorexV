@@ -1045,12 +1045,16 @@
                                             {
                                                 <img src="@a.Url" alt="@a.FileName" loading="lazy" />
                                             }
+                                            else if (IsAudioAtt(a))
+                                            {
+                                                <span class="tk-doc-ext">AUDIO</span>
+                                            }
                                             else
                                             {
                                                 <span class="tk-doc-ext">@AttExt(a)</span>
                                             }
                                         </div>
-                                        <div class="tk-doc-tile-name" title="@a.FileName">@a.FileName</div>
+                                        <div class="tk-doc-tile-name" title="@a.FileName">@DisplayName(a)</div>
                                         <div class="tk-doc-tile-meta">@FormatSize(a.SizeBytes) - @TaskUi.FormatRelative(a.CreatedAt)</div>
                                     </div>
                                 }
@@ -1063,7 +1067,7 @@
                                 var a = att;
                                 <div class="tk-attachment">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>
-                                    <a href="@a.Url" target="_blank" rel="noopener" download="@a.FileName" class="tk-attachment-name">@a.FileName</a>
+                                    <a href="@a.Url" target="_blank" rel="noopener" download="@a.FileName" class="tk-attachment-name" title="@a.FileName">@DisplayName(a)</a>
                                     <span class="tk-attachment-meta">@(a.UploadedByName ?? "-") - @TaskUi.FormatRelative(a.CreatedAt)</span>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenDocViewer(a))">Ver</button>
                                     @if (!readOnly)
@@ -1087,6 +1091,10 @@
                                             {
                                                 <img src="@a.Url" alt="@a.FileName" loading="lazy" />
                                             }
+                                            else if (IsAudioAtt(a))
+                                            {
+                                                <span class="tk-doc-ext sm">AUDIO</span>
+                                            }
                                             else
                                             {
                                                 <span class="tk-doc-ext sm">@AttExt(a)</span>
@@ -1098,7 +1106,7 @@
                                     @{ var cur = _detail.Attachments[Math.Clamp(_docIndex, 0, _detail.Attachments.Count - 1)]; }
                                     <div class="tk-doc-stage-head">
                                         <button type="button" class="tk-doc-nav" @onclick="DocPrev" disabled="@(_docIndex <= 0)" title="Anterior">&#8249;</button>
-                                        <span class="tk-doc-stage-name" title="@cur.FileName">@cur.FileName</span>
+                                        <span class="tk-doc-stage-name" title="@cur.FileName">@DisplayName(cur)</span>
                                         <button type="button" class="tk-doc-nav" @onclick="DocNext" disabled="@(_docIndex >= _detail.Attachments.Count - 1)" title="Siguiente">&#8250;</button>
                                         <a href="@cur.Url" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Abrir</a>
                                     </div>
@@ -1110,6 +1118,14 @@
                                         else if (IsPdfAtt(cur))
                                         {
                                             <iframe src="@cur.Url" title="@cur.FileName"></iframe>
+                                        }
+                                        else if (IsAudioAtt(cur))
+                                        {
+                                            <div class="tk-doc-noview">
+                                                <span class="tk-doc-ext lg">AUDIO</span>
+                                                <p>@DisplayName(cur)</p>
+                                                <audio src="@cur.Url" controls style="width:100%;max-width:440px;"></audio>
+                                            </div>
                                         }
                                         else
                                         {
@@ -2884,6 +2900,26 @@
         if (!string.IsNullOrEmpty(att.MimeType) && att.MimeType.Contains("pdf", StringComparison.OrdinalIgnoreCase))
             return true;
         return AttExt(att) == "PDF";
+    }
+
+    // Es audio (nota de voz .ogg/.opus, etc.) -> se reproduce en linea con <audio controls>. El mime real
+    // trae parametros (ej. "audio/ogg; codecs=opus"), por eso basta StartsWith("audio/").
+    private static bool IsAudioAtt(TaskItemAttachmentDto att)
+    {
+        if (!string.IsNullOrEmpty(att.MimeType) && att.MimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return AttExt(att) is "OGG" or "OGA" or "OPUS" or "MP3" or "WAV" or "M4A" or "AAC";
+    }
+
+    // Nombre AMABLE para mostrar: las notas de voz de WhatsApp/emulador llegan como "wa-....ogg" / "emu-....ogg"
+    // (hash criptico). Para esas se muestra "Nota de voz"; el resto conserva su FileName. No toca el dato guardado.
+    private static string DisplayName(TaskItemAttachmentDto att)
+    {
+        var name = att.FileName ?? "";
+        if (IsAudioAtt(att) && (name.StartsWith("wa-", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("emu-", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(name)))
+            return "Nota de voz";
+        return string.IsNullOrWhiteSpace(name) ? "(sin nombre)" : name;
     }
 
     // Tamano legible del archivo para las tarjetas de la galeria.

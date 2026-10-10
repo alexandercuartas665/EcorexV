@@ -1,9 +1,10 @@
 @page "/requerimientos-compra"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "Compras.Ver")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Requerimientos
 @using Ecorex.Domain.Enums
 @inject IRequerimientoService Svc
+@inject IJSRuntime JS
 
 <PageTitle>Requerimientos de Compra - ECOREX.tareas</PageTitle>
 
@@ -19,6 +20,7 @@
         <p class="page-sub" style="margin-bottom:0;">Necesidades de compra de varias areas. Agrupalas por producto, planifica (Ola 3) y dispara la compra (Ola 5).</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-outline-secondary" @onclick="ExportarAsync" disabled="@(_busy || _rows.Count == 0)" title="Descargar la vista actual en CSV (lo abre Excel)">Exportar</button>
         <button class="btn btn-primary" @onclick="() => OpenAlta()" disabled="@_busy">+ Nueva necesidad</button>
     </div>
 </div>
@@ -26,6 +28,24 @@
 @if (!string.IsNullOrEmpty(_msg))
 {
     <div style="margin:10px 0 14px;padding:10px 14px;border-radius:10px;background:var(--brand-soft,#eef2ff);color:var(--ink,#1f2937);font-size:13px;">@_msg</div>
+}
+
+@if (_rows.Count > 0)
+{
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
+        @foreach (var e in Enum.GetValues<RequerimientoEstado>())
+        {
+            var n = _rows.Count(r => r.Estado == e);
+            <div style="display:flex;flex-direction:column;min-width:96px;padding:8px 12px;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;background:var(--surface,#fff);@(n == 0 ? "opacity:.5;" : "")">
+                <span style="font-size:11px;color:var(--ink-3,#6b7280);">@EstadoLabel(e)</span>
+                <span style="font-size:18px;font-weight:800;color:var(--ink,#1f2937);">@n</span>
+            </div>
+        }
+        <div style="display:flex;flex-direction:column;min-width:120px;padding:8px 12px;border:1px solid var(--brand,#4f46e5);border-radius:10px;background:var(--brand-soft,#eef2ff);">
+            <span style="font-size:11px;color:var(--brand,#4f46e5);">Monto total</span>
+            <span style="font-size:18px;font-weight:800;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.MontoTotal))</span>
+        </div>
+    </div>
 }
 
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;">
@@ -66,6 +86,7 @@ else
                     <th style="padding:8px 10px;">Area</th>
                     <th style="padding:8px 10px;">Origen</th>
                     <th style="padding:8px 10px;text-align:right;">Cantidad</th>
+                    <th style="padding:8px 10px;text-align:right;">Monto</th>
                     <th style="padding:8px 10px;">Unidad</th>
                     <th style="padding:8px 10px;">Fecha necesidad</th>
                     <th style="padding:8px 10px;">Estado</th>
@@ -81,6 +102,7 @@ else
                         <tr style="background:#e2e5ea;font-weight:700;">
                             <td colspan="3" style="padding:7px 10px;">@g.Nombre</td>
                             <td style="padding:7px 10px;text-align:right;">@Fmt(g.TotalCantidad)</td>
+                            <td style="padding:7px 10px;text-align:right;">@Fmt(g.TotalMonto)</td>
                             <td colspan="4" style="padding:7px 10px;"><span style="font-size:11px;font-weight:700;color:var(--brand,#4f46e5);background:var(--brand-soft,#eef2ff);border-radius:999px;padding:1px 8px;">@g.Items.Count pedido(s)</span></td>
                             <td></td>
                         </tr>
@@ -100,6 +122,7 @@ else
                 <tr style="background:var(--brand-soft,#eef2ff);font-weight:700;border-top:2px solid var(--brand,#4f46e5);">
                     <td colspan="3" style="padding:8px 10px;">TOTAL GENERAL</td>
                     <td style="padding:8px 10px;text-align:right;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.Cantidad))</td>
+                    <td style="padding:8px 10px;text-align:right;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.MontoTotal))</td>
                     <td colspan="4" style="padding:8px 10px;">@_rows.Count necesidad(es)</td>
                     <td></td>
                 </tr>
@@ -169,6 +192,7 @@ else
                     <span>Cantidad total: <strong>@Fmt(_planCantidadPadre)</strong></span>
                     <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong></span>
                     <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong></span>
+                    <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
                 <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
@@ -180,13 +204,15 @@ else
                                 <th style="padding:7px 10px;">Despacho</th>
                                 <th style="padding:7px 10px;">Tiempo de entrega</th>
                                 <th style="padding:7px 10px;">Proveedor</th>
+                                <th style="padding:7px 10px;text-align:right;">Precio unit.</th>
+                                <th style="padding:7px 10px;text-align:right;">Total</th>
                                 <th style="padding:7px 10px;"></th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (_pHijos.Count == 0)
                             {
-                                <tr><td colspan="6" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
+                                <tr><td colspan="8" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
                             }
                             @foreach (var h in _pHijos)
                             {
@@ -206,6 +232,8 @@ else
                                             <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
                                         }
                                     </td>
+                                    <td style="padding:5px 8px;text-align:right;"><input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" /></td>
+                                    <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(hi.Cantidad * hi.Precio)</td>
                                     <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
                                         @if (hi.TaskItemId is not null)
                                         {
@@ -213,7 +241,7 @@ else
                                         }
                                         else
                                         {
-                                            @if (hi.Id is not null)
+                                            @if (hi.Id is not null && _canConfig)
                                             {
                                                 <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de compra con el proceso del origen" @onclick="() => EjecutarAsync(hi)" disabled="@_busy">Ejecutar</button>
                                             }
@@ -260,8 +288,9 @@ else
     private string _aArea = "";
     private DateTime? _aFecha;
 
-    private sealed record Grupo(string Nombre, decimal TotalCantidad, List<RequerimientoDto> Items);
+    private sealed record Grupo(string Nombre, decimal TotalCantidad, decimal TotalMonto, List<RequerimientoDto> Items);
     private List<Grupo> _grupos = new();
+    private bool _canConfig;
 
     // ---- Ola 3: planificacion (division en hijos) ----
     private bool _showPlan;
@@ -279,6 +308,7 @@ else
         public string Despacho = "";
         public string Entrega = "";
         public string Prov = "";
+        public decimal Precio;
         public Guid? TaskItemId;
         public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
     }
@@ -290,6 +320,7 @@ else
         Despacho = h.CaracteristicasDespacho,
         Entrega = h.TiempoEntrega,
         Prov = h.ProveedorId?.ToString() ?? "",
+        Precio = h.PrecioUnitario,
         TaskItemId = h.TaskItemId,
         Estado = h.Estado,
     };
@@ -299,6 +330,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        _canConfig = await IsOwnerOrAdminAsync();
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
         _proveedores = (await Svc.ListProveedoresAsync()).ToList();
@@ -323,6 +355,7 @@ else
             .Select(g => new Grupo(
                 g.First().ItemNombre ?? g.First().Descripcion,
                 g.Sum(x => x.Cantidad),
+                g.Sum(x => x.MontoTotal),
                 g.ToList()))
             .OrderBy(g => g.Nombre)
             .ToList();
@@ -401,7 +434,8 @@ else
                 h.Id, h.Cantidad,
                 h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
                 h.Despacho, h.Entrega,
-                Guid.TryParse(h.Prov, out var pv) ? pv : null)).ToList());
+                Guid.TryParse(h.Prov, out var pv) ? pv : null,
+                h.Precio)).ToList());
             var plan = await Svc.GuardarHijosAsync(req);
             if (plan is null) { _planError = "No se pudo guardar."; return; }
             _showPlan = false;
@@ -470,6 +504,71 @@ else
         return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
     }
 
+    private async Task<bool> IsOwnerOrAdminAsync()
+    {
+        if (AuthState is null) { return false; }
+        var st = await AuthState;
+        return st.User.FindAll("tenant_role").Any(c => c.Value is "Owner" or "Admin");
+    }
+
+    private async Task CerrarAsync(Guid id)
+    {
+        _msg = null;
+        _busy = true;
+        try { await Svc.CerrarAsync(id); await ReloadAsync(); _msg = "Necesidad cerrada."; }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ReabrirAsync(Guid id)
+    {
+        _msg = null;
+        _busy = true;
+        try { await Svc.ReabrirAsync(id); await ReloadAsync(); _msg = "Necesidad reabierta."; }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ExportarAsync()
+    {
+        // CSV de la vista actual (ya filtrada). Respeta la agrupacion por producto cuando esta activa.
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Producto;Area;Origen;Cantidad;Monto;Unidad;Fecha necesidad;Estado;Hijos");
+        void Linea(RequerimientoDto r) => sb.AppendLine(string.Join(';', new[]
+        {
+            Csv((r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")),
+            Csv(r.Area), Csv(r.OrigenNombre ?? ""),
+            Fmt(r.Cantidad), Fmt(r.MontoTotal), Csv(r.UnidadMedida),
+            r.FechaNecesidad?.ToString("yyyy-MM-dd") ?? "",
+            Csv(EstadoLabel(r.Estado)), r.CantidadHijos.ToString()
+        }));
+
+        if (_agrupar)
+        {
+            foreach (var g in _grupos)
+            {
+                sb.AppendLine($"{Csv(g.Nombre)};;;{Fmt(g.TotalCantidad)};{Fmt(g.TotalMonto)};;;{g.Items.Count} pedido(s);");
+                foreach (var r in g.Items) { Linea(r); }
+            }
+        }
+        else
+        {
+            foreach (var r in _rows) { Linea(r); }
+        }
+        sb.AppendLine($"TOTAL GENERAL;;;{Fmt(_rows.Sum(r => r.Cantidad))};{Fmt(_rows.Sum(r => r.MontoTotal))};;;{_rows.Count} necesidad(es);");
+
+        var nombre = $"requerimientos-compra-{DateTime.Now:yyyyMMdd-HHmm}.csv";
+        // BOM para que Excel respete los acentos/UTF-8.
+        await JS.InvokeVoidAsync("ecorexMenuConfig.downloadText", nombre, "﻿" + sb.ToString(), "text/csv;charset=utf-8");
+    }
+
+    private static string Csv(string? s)
+    {
+        s ??= "";
+        if (s.Contains(';') || s.Contains('"') || s.Contains('\n')) { return "\"" + s.Replace("\"", "\"\"") + "\""; }
+        return s;
+    }
+
     private RenderFragment RowMarkup(RequerimientoDto r) => __builder =>
     {
         <tr style="border-top:1px solid var(--line,#f1f5f9);">
@@ -477,6 +576,7 @@ else
             <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</td>
             <td style="padding:8px 10px;">@(r.OrigenNombre ?? "-")</td>
             <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(r.Cantidad)</td>
+            <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">@(r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "-")</td>
             <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</td>
             <td style="padding:8px 10px;">@(r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
             <td style="padding:8px 10px;">@EstadoLabel(r.Estado)</td>
@@ -493,6 +593,14 @@ else
             </td>
             <td style="padding:8px 10px;text-align:right;white-space:nowrap;">
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
+                @if (_canConfig && r.Estado == RequerimientoEstado.Ejecutado)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" title="Marcar la compra como terminada" @onclick="() => CerrarAsync(r.Id)" disabled="@_busy">Cerrar</button>
+                }
+                @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
+                }
                 <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
             </td>
         </tr>

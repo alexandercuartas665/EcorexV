@@ -10518,6 +10518,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_programada_compra");
 
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("precio_unitario");
+
                     b.Property<Guid?>("ProveedorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("proveedor_id");

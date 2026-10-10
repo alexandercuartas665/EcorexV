@@ -76,6 +76,8 @@ public sealed class RequerimientoCompraHijo : TenantEntity
     public string TiempoEntrega { get; set; } = string.Empty;
     /// <summary>Proveedor elegido (Tercero del Directorio General).</summary>
     public Guid? ProveedorId { get; set; }
+    /// <summary>Precio unitario pactado/estimado de la compra (Ola 6). El total del hijo = Cantidad * PrecioUnitario.</summary>
+    public decimal PrecioUnitario { get; set; }
     public RequerimientoEstado Estado { get; set; } = RequerimientoEstado.Planificado;
     /// <summary>Actividad (TaskItem) generada al ejecutar la compra de este hijo.</summary>
     public Guid? TaskItemId { get; set; }

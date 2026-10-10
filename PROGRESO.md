@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-10 - Gestor unificado de archivos Paso 2: subir DIAN/NEWTON al blob por CUFE + visor (SIN deploy)
+
+- Sobre la fundacion del Paso 1 (StoredFile + IFileStorageService + /archivo/{id}, commits 0d9543bc/dbfbd3d0):
+  se cableo la conciliacion DIAN para que los documentos descargados queden en Azure Blob agrupados por CUFE y
+  se vean desde el modulo al click sobre la factura.
+- IngestaNewton (BrowserRunService): tras aterrizar, sube {CUFE}.xml (NEWTON_XML) y {CUFE}_newton.pdf
+  (NEWTON_PDF) por CUFE via SubirSiFaltaAsync (idempotente). Fix: el mapeo EventId->Cufe (para resolver el CUFE
+  sin re-bajar el XML en modo BajarXml=false) ahora tambien se puebla cuando SubirABlob va solo.
+- ProcesarArchivos (BrowserRunService): extrae del ZIP la 1a entrada .pdf y .xml y las sube como DIAN_PDF /
+  DIAN_XML por CUFE (helper ReadEntry).
+- ExtraccionDatos: casilla "Subir los xml/pdf al blob por CUFE" en el paso Newton.
+- ConciliacionDian: boton clip por renglon -> visor con los archivos del CUFE (tags DIAN/NEWTON) enlazados a
+  /archivo/{id}.
+- VALIDADO E2E (SOLDARCO, dev contra Azure real, 2026-10-10): corrida solo-blob del paso Newton -> 1064 filas
+  (532 CUFE x xml+pdf) provider=AzureBlob ~81MB; re-proceso de 2 ZIP DIAN -> DIAN_PDF/XML; el visor de la
+  factura PR32461461 muestra los 4 tipos y /archivo/{id} sirve los bytes (200; text/xml y application/pdf).
+  Config del paso Newton restaurada a completa (BajarXml/Pdf + MarcarPlataforma + ReflejarEventos + SubirABlob).
+- Commit 8791e84a (tronco fase-0/clon-backbone). SIN push / SIN deploy (pendiente OK del usuario). Sin migracion
+  nueva (StoredFile ya migrado en el Paso 1).
+- Siguiente: Paso 3 (migrar al gestor unificado los stores existentes: items/avatares/chat/plantillas) + habilitar
+  el blob en PROD (/servidor-almacenamiento) + corrida real de un evento NEWTON cuando el usuario lo autorice.
+- Bloqueos: ninguno.
+
 ## 2026-10-09 - Release v0.16.193: resiliencia del despachador de conversaciones del agente
 
 - Auditoria del "worker que se congela sin dejar rastro" (patron de 3 agujeros de un proyecto hermano).

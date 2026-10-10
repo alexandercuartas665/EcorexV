@@ -2211,7 +2211,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("000896", "Reportes con IA", "Reportes: autoria por IA (ADR-0051).", "/reportes/ia", ModuleArea.Sistema, false),
             ("000897", "Reportes imprimibles", "Reportes: imprimibles Bold RDL (ADR-0051).", "/reportes/imprimibles", ModuleArea.Sistema, false),
             ("000898", "Administrador de reportes", "Reportes: asignacion de reportes a roles (ADR-0051).", "/reportes/admin", ModuleArea.Sistema, false),
-            ("000899", "Galeria de reportes", "Reportes: galeria de tarjetas + visor de doble vista (ADR-0051).", "/reportes/galeria", ModuleArea.Sistema, false)
+            ("000899", "Galeria de reportes", "Reportes: galeria de tarjetas + visor de doble vista (ADR-0051).", "/reportes/galeria", ModuleArea.Sistema, false),
+            ("001680", "Requerimientos de Compra", "Gestion de necesidades de compra multi-fuente (Capa 10).", "/requerimientos-compra", ModuleArea.Operaciones, false),
+            ("001681", "Configuracion de Requerimientos", "Origenes y matriz de proveedores del modulo de compras.", "/requerimientos-config", ModuleArea.Operaciones, false)
         };
 
         var existing = await _db.ModuleDefinitions
@@ -3025,6 +3027,12 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(automz.Id, "Conciliacion DIAN Compras", "conciliacion-dian", "001679");
         Item(automz.Id, "Buzones OTP", "extraccion-buzones", "000731");
 
+        // ---- Seccion: Compras (slug compras) -- modulo Requerimientos y Compras (Capa 10) ----
+        // Backfill idempotente para BD ya sembradas: EnsureRequerimientosCompraMenuAsync.
+        var compras = Add(MenuNodeKind.Section, "Compras", null, "compras", iconKey: "cube");
+        Item(compras.Id, "Requerimientos de Compra", "requerimientos-compra", "001680");
+        Item(compras.Id, "Configuracion de Requerimientos", "requerimientos-config", "001681");
+
         // ---- Seccion: Sistema - Inventarios (slug inv) ----
         var inv = Add(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
         // Los cinco catalogos (bodegas 000556, grupos 000506, marcas 000502, subgrupos 000606
@@ -3213,6 +3221,88 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("Buzones OTP", "extraccion-buzones", "000731"),
         };
         foreach (var (name, route, legacy) in automzItems)
+        {
+            var itemExists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == view.Id && n.Route == route, cancellationToken);
+            if (itemExists) { continue; }
+            var maxChild = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.ParentId == section.Id)
+                .Select(n => (int?)n.SortOrder).MaxAsync(cancellationToken) ?? section.SortOrder;
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = view.Id,
+                ParentId = section.Id,
+                Kind = MenuNodeKind.Item,
+                Name = name,
+                IconKey = null,
+                LegacyCode = legacy,
+                Route = route,
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxChild + 1
+            });
+            changed = true;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        if (changed) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE del modulo "Requerimientos y Compras" (Capa 10): crea la seccion "Compras" y sus
+    /// items en TODAS las vistas de menu del tenant si aun no existen. Cubre tenants YA sembrados y, a
+    /// diferencia del patron clasico (solo IsDefault), tambien las vistas personalizadas/copias que usan los
+    /// usuarios (p.ej. "Completo (copia)"), para que el modulo aparezca de verdad para TODOS. No duplica.
+    /// </summary>
+    public async Task EnsureRequerimientosCompraMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .OrderBy(v => v.SortOrder)
+            .ToListAsync(cancellationToken);
+        foreach (var view in views)
+        {
+            await EnsureComprasMenuInViewAsync(tenantId, view, cancellationToken);
+        }
+    }
+
+    private async Task EnsureComprasMenuInViewAsync(Guid tenantId, MenuView view, CancellationToken cancellationToken)
+    {
+        // Seccion "Compras" (slug compras): reusa la que exista o la crea.
+        var section = await _db.MenuNodes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(n => n.MenuViewId == view.Id
+                && n.Kind == MenuNodeKind.Section && n.Route == "compras", cancellationToken);
+        var changed = false;
+        if (section is null)
+        {
+            var maxSort = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == view.Id && n.ParentId == null)
+                .Select(n => (int?)n.SortOrder).MaxAsync(cancellationToken) ?? 0;
+            section = new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = view.Id,
+                ParentId = null,
+                Kind = MenuNodeKind.Section,
+                Name = "Compras",
+                IconKey = "cube",
+                Route = "compras",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxSort + 1
+            };
+            _db.MenuNodes.Add(section);
+            await _db.SaveChangesAsync(cancellationToken); // materializa el Id para los items hijos.
+            changed = true;
+        }
+
+        var comprasItems = new (string Name, string Route, string Legacy)[]
+        {
+            ("Requerimientos de Compra", "requerimientos-compra", "001680"),
+            ("Configuracion de Requerimientos", "requerimientos-config", "001681"),
+        };
+        foreach (var (name, route, legacy) in comprasItems)
         {
             var itemExists = await _db.MenuNodes.IgnoreQueryFilters()
                 .AnyAsync(n => n.MenuViewId == view.Id && n.Route == route, cancellationToken);

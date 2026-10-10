@@ -269,6 +269,12 @@ public interface IApplicationDbContext
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }
 
+    // Requerimientos y Compras (Capa 10): origenes + matriz de proveedores + necesidades + division en hijos.
+    DbSet<RequerimientoOrigen> RequerimientoOrigenes { get; }
+    DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas { get; }
+    DbSet<RequerimientoCompra> RequerimientosCompra { get; }
+    DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos { get; }
+
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
     DbSet<ContactWorkflow> ContactWorkflows { get; }

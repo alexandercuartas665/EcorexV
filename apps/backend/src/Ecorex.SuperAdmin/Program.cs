@@ -705,6 +705,23 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_CONCILIACIONDI
     }
 }
 
+// Modulo Requerimientos y Compras (Capa 10): grupo de menu "Compras" + sus 2 items, en TODOS los tenants
+// ya sembrados (los nuevos ya lo traen via EnsureDefaultMenuAsync). Idempotente (ECOREX_MENU_REQUERIMIENTOS=true).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_REQUERIMIENTOS"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureRequerimientosCompraMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-requerimientos] 'Compras' habilitado para {Name}", t.Name);
+    }
+}
+
 // Reportes (ADR-0051): grupo de menu "Reportes" con sus 4 items + registro de modulos en el catalogo
 // global, en los tenants CLIENTE (Kind = Standard). El Route de cada item es el ModuleKey de la matriz
 // de roles, asi la gobernanza (Ver/Crear/Disenar/Administrar) sale sola. Idempotente (ECOREX_MENU_REPORTES=true).

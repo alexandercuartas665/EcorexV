@@ -205,3 +205,18 @@
 /* Borde derecho en la ultima columna fija, para separar visualmente del area que scrollea. */
 .cd-grid th.cd-frozen-edge, .cd-grid td.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
 .cd-grid thead th.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
+
+/* ---- Dialogo de confirmacion: radicar eventos en NEWTON (irreversible) ---- */
+.cd-confirm-backdrop { position: fixed; inset: 0; z-index: 4100; background: rgba(15,23,42,.45); }
+.cd-confirm {
+    position: fixed; z-index: 4101; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: min(460px, 92vw); background: var(--surface, #fff); border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.28); overflow: hidden;
+}
+.cd-confirm-head { padding: 14px 18px; font-size: 15px; font-weight: 800; color: var(--ink, #1f2937); border-bottom: 1px solid var(--line, #f1f5f9); }
+.cd-confirm-body { padding: 16px 18px; font-size: 13px; color: var(--ink-2, #4b5563); line-height: 1.5; }
+.cd-confirm-body p { margin: 0 0 10px; }
+.cd-confirm-warn { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 9px; padding: 8px 10px; font-size: 12.5px; }
+.cd-confirm-acts { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line, #f1f5f9); background: var(--surface-2, #f8fafc); }
+.cd-confirm-acts .btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.cd-confirm-acts .btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }

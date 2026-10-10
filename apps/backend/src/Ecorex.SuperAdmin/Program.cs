@@ -231,6 +231,9 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IAgentProgressBroadcaster,
 builder.Services.AddScoped<Ecorex.Application.Notifications.INotificationBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRNotificationBroadcaster>();
 // Formularios-modulo (ola F4): bandeja en vivo.
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRFormRecordBroadcaster>();
+// Radicacion real de eventos RADIAN en NEWTON (Fase 2, acto legal irreversible). Lo usa ConciliacionDianService
+// (modulo /conciliacion-dian) cuando el usuario confirma el envio; el dry-run no lo necesita.
+builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).

@@ -67,7 +67,8 @@ else
         <div style="flex:1"></div>
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
-        <button class="btn btn-primary btn-sm" @onclick="ProcesarAsync" disabled="@_busy" title="Radica eventos RADIAN (MOCK en Fase 1)">Procesar seleccionados</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
+        <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
     </div>
 
     <div class="cd-filtros">
@@ -368,6 +369,23 @@ else
                 }
             </div>
             <button type="button" class="cd-ctx-clear" @onclick="() => SetColorAsync(null)">Sin color</button>
+        </div>
+    }
+
+    @if (_showEnviarConfirm && _envioPreview is { } prev)
+    {
+        <div class="cd-confirm-backdrop" @onclick="CancelarEnvio"></div>
+        <div class="cd-confirm" @onclick:stopPropagation="true">
+            <div class="cd-confirm-head">Radicar eventos en NEWTON</div>
+            <div class="cd-confirm-body">
+                <p class="cd-confirm-warn">⚠️ Esto radica eventos RADIAN ante la DIAN. <strong>Es irreversible.</strong></p>
+                <p>Se enviaran <strong>@prev.EventosEnviados evento(s)</strong> en <strong>@prev.FacturasElegibles factura(s)</strong> aprobada(s) con plataforma (secuencia ACUSE &rarr; RECIBO &rarr; ACEPTACION, solo los que falten).</p>
+                @if (prev.SinEventId > 0) { <p class="cd-muted">@prev.SinEventId sin EventId de NEWTON se omiten (corre la ingesta).</p> }
+            </div>
+            <div class="cd-confirm-acts">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CancelarEnvio" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-danger btn-sm" @onclick="ConfirmarEnvioAsync" disabled="@_busy">Enviar de verdad (irreversible)</button>
+            </div>
         </div>
     }
 }
@@ -707,17 +725,58 @@ else
         finally { _busy = false; }
     }
 
-    private async Task ProcesarAsync()
+    // ---- Radicacion de eventos RADIAN en NEWTON ----
+    private bool _showEnviarConfirm;
+    private ConciliacionRadicacionResult? _envioPreview; // resultado del dry-run previo a confirmar
+
+    private static string RadicacionMsg(ConciliacionRadicacionResult r, string prefijo) =>
+        $"{prefijo}: {r.EventosEnviados} evento(s) en {r.FacturasElegibles} factura(s) aprobada(s) con plataforma"
+        + (r.SinPlataforma > 0 ? $"; {r.SinPlataforma} sin plataforma (omitidas)" : "")
+        + (r.SinEventId > 0 ? $"; {r.SinEventId} sin EventId de NEWTON (corre la ingesta)" : "")
+        + (r.Fallidos > 0 ? $"; {r.Fallidos} con error" : "") + ".";
+
+    private async Task SimularEventosAsync()
     {
         _busy = true; _msg = null;
         try
         {
-            var r = await Svc.ProcesarEventosAsync(_selectedDocId, Array.Empty<Guid>());
-            _msg = $"Eventos (MOCK Fase 1): {r.FacturasProcesadas} factura(s), {r.EventosMarcados} evento(s) marcados"
-                 + (r.SinPlataforma > 0 ? $", {r.SinPlataforma} sin plataforma (omitidas)." : ".");
-            await ReloadAsync();
+            var r = await Svc.RadicarEventosAsync(_selectedDocId, Array.Empty<Guid>(), simular: true);
+            _msg = RadicacionMsg(r, "Simulacion (no se radico nada)");
         }
         finally { _busy = false; }
+    }
+
+    // "Enviar a Newton": primero corre un dry-run para saber cuanto se radicaria y pide confirmacion.
+    private async Task PrepararEnvioAsync()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            _envioPreview = await Svc.RadicarEventosAsync(_selectedDocId, Array.Empty<Guid>(), simular: true);
+            if (_envioPreview.EventosEnviados == 0)
+            {
+                _msg = RadicacionMsg(_envioPreview, "No hay eventos para radicar");
+                _envioPreview = null;
+                return;
+            }
+            _showEnviarConfirm = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private void CancelarEnvio() { _showEnviarConfirm = false; _envioPreview = null; }
+
+    private async Task ConfirmarEnvioAsync()
+    {
+        _showEnviarConfirm = false;
+        _busy = true; _msg = null;
+        try
+        {
+            var r = await Svc.RadicarEventosAsync(_selectedDocId, Array.Empty<Guid>(), simular: false);
+            _msg = r.Error is not null ? $"No se pudo radicar: {r.Error}" : RadicacionMsg(r, "Radicado en NEWTON");
+            await ReloadAsync();
+        }
+        finally { _busy = false; _envioPreview = null; }
     }
 
     private async Task OnOcChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)

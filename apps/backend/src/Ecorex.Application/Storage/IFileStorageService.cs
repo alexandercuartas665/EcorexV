@@ -42,4 +42,8 @@ public interface IFileStorageService
     /// <summary>Busca un archivo ya registrado por su clave logica (module+ref1+ref2+fileName). Para idempotencia
     /// (no re-subir dos veces el mismo documento). Null si no existe.</summary>
     Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default);
+
+    /// <summary>Devuelve el conjunto de Ref1 (p. ej. CUFEs) que tienen AL MENOS un archivo en el modulo, para el
+    /// tenant activo. Para que la UI muestre el acceso a archivos solo en las filas que si tienen documentos.</summary>
+    Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default);
 }

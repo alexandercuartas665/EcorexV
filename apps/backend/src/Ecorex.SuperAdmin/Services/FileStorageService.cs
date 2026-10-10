@@ -148,6 +148,16 @@ public sealed class FileStorageService(
         return f is null ? null : Map(f);
     }
 
+    public async Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)
+    {
+        var mod = Clean(module, "archivos");
+        return await db.StoredFiles.AsNoTracking()
+            .Where(f => f.Module == mod && f.Ref1 != null && f.Ref1 != "")
+            .Select(f => f.Ref1!)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
     private static StoredFileDto Map(StoredFile f) =>
         new(f.Id, f.Module, f.Ref1, f.Ref2, f.FileName, f.ContentType, f.SizeBytes, f.CreatedAt, f.Provider);
 

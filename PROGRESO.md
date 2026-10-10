@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-09 - Release v0.16.192: reproducir notas de voz en el detalle de la tarea
+
+- El audio entrante ya se guardaba como TaskItemAttachment (AttachConversationMediaAsync), pero el visor de
+  "Documentos" solo tenia preview para imagen y PDF; las notas de voz .ogg caian en "Vista previa no disponible".
+- Fix (solo UI, TaskDetailModal.razor, sin migracion): IsAudioAtt (mime audio/* o ext ogg/oga/opus/mp3/wav/m4a/
+  aac) -> el visor muestra `<audio controls>`. DisplayName: wa-*.ogg / emu-*.ogg se muestran como "Nota de voz"
+  (el resto conserva su nombre). Galeria/lista/filmstrip/titulo: badge AUDIO + nombre amable. No toca el dato.
+- Verificado: build verde; el .ogg sirve en prod (GET /uploads/.../*.ogg -> 200, video/ogg, 63KB; `<audio>` lo
+  reproduce igual). No se pudo probar en vivo local (los archivos subidos no estan en la copia local, solo la BD).
+- DESPLEGADO v0.16.192 (2026-10-09). Sin migracion. Commits 95e98de3 (feat) + release; push tronco + espejo main.
+- Bloqueos: ninguno. Extra no hecho (opcional del hand-off): volcar la TRANSCRIPCION del audio a la descripcion/
+  comentario de la tarea para leerla sin reproducir.
+
 ## 2026-10-09 - Release v0.16.191: formulario obligatorio POR SALIDA en compuertas (ADR-0077 v2) + backlog del tronco
 
 - DESPLEGADO en prod v0.16.191 (2026-10-09). El deploy construye el HEAD, asi que ademas de esta feature ship

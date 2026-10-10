@@ -397,6 +397,7 @@
                                         <div class="xd-prop"><label>Tope de documentos (0 = todos)</label><input class="xd-input" type="number" @bind="_nwMax" /></div>
                                         <label class="xd-check"><input type="checkbox" @bind="_nwSoloNuevos" /> Solo nuevos (no re-baja PDF si ya existe)</label>
                                     </div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_nwMarcarPlataforma" /> Marcar Plataforma (puebla la fuente NEWTON por CUFE; el "Cruzar" enciende la columna Plataforma)</label>
                                 }
 
                                 @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
@@ -747,6 +748,7 @@
     private bool _nwBajarPdf = true;
     private int _nwMax = 0;
     private bool _nwSoloNuevos = true;
+    private bool _nwMarcarPlataforma = true;
 
     // Editor de variable
     private bool _showVarEditor;
@@ -1105,7 +1107,7 @@
 
         // Paso "Ingesta NEWTON": su config vive en MappingJson.
         _nwUrlVar = "NEWTON_URL"; _nwTokenVar = "NEWTON_TOKEN"; _nwCarpetaVar = "RutaDescargaNewton";
-        _nwDiasAtras = 45; _nwBajarXml = true; _nwBajarPdf = true; _nwMax = 0; _nwSoloNuevos = true;
+        _nwDiasAtras = 45; _nwBajarXml = true; _nwBajarPdf = true; _nwMax = 0; _nwSoloNuevos = true; _nwMarcarPlataforma = true;
         if (s?.Kind == ScrapeStepKind.IngestaNewton && !string.IsNullOrWhiteSpace(s.MappingJson))
         {
             try
@@ -1119,6 +1121,7 @@
                     _nwCarpetaVar = string.IsNullOrWhiteSpace(cfg.CarpetaVar) ? "RutaDescargaNewton" : cfg.CarpetaVar!;
                     _nwDiasAtras = cfg.DiasAtras > 0 ? cfg.DiasAtras : 45;
                     _nwBajarXml = cfg.BajarXml; _nwBajarPdf = cfg.BajarPdf; _nwMax = cfg.Max; _nwSoloNuevos = cfg.SoloNuevos;
+                    _nwMarcarPlataforma = cfg.MarcarPlataforma;
                 }
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
@@ -1129,7 +1132,8 @@
 
     private sealed record NewtonStepConfig(
         string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN", string? CarpetaVar = "RutaDescargaNewton",
-        string? Carpeta = null, int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true, int Max = 0, bool SoloNuevos = true);
+        string? Carpeta = null, int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true, int Max = 0,
+        bool SoloNuevos = true, bool MarcarPlataforma = true);
 
     private async Task ProbarOtpAsync()
     {
@@ -1159,7 +1163,7 @@
                 : _sKind == ScrapeStepKind.IngestaNewton
                 ? System.Text.Json.JsonSerializer.Serialize(new NewtonStepConfig(
                     NullIfBlank(_nwUrlVar), NullIfBlank(_nwTokenVar), NullIfBlank(_nwCarpetaVar), null,
-                    _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos))
+                    _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos, _nwMarcarPlataforma))
                 : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,

@@ -216,7 +216,7 @@ public sealed class BrowserRunService(
             // a su carpeta propia. Fase 1: solo descarga (ProcesarArchivos / fase posterior aterriza en el modulo).
             if (step.Kind == ScrapeStepKind.IngestaNewton)
             {
-                return await RunIngestaNewtonStepAsync(db, flowId, step, vars, ct);
+                return await RunIngestaNewtonStepAsync(db, flowId, tenantId, step, vars, ct);
             }
 
             if (step.Kind == ScrapeStepKind.Ai)
@@ -528,14 +528,17 @@ public sealed class BrowserRunService(
         string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN",
         string? CarpetaVar = "RutaDescargaNewton", string? Carpeta = null,
         int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true,
-        int Max = 0, bool SoloNuevos = true);
+        int Max = 0, bool SoloNuevos = true,
+        // Paso 1 del aterrizaje: puebla la fuente NEWTON (ConciliacionDianNewtonDummy) por CUFE. El CruzarAsync
+        // enciende PlataformaProveedor para los CUFE con representacion grafica (PDF).
+        bool MarcarPlataforma = true);
 
     /// <summary>Ingesta NEWTON (Fase 1: DESCARGA). Autentica con Auth-Token (variable secreta del flujo), lista
     /// /documentos-electronicos?include=events y baja cada {CUFE}.xml y {CUFE}_newton.pdf a una carpeta PROPIA
     /// (CarpetaVar, por defecto RutaDescargaNewton; si no, una subcarpeta "Newton" de RutaDescargaBot). No aterriza
     /// en el modulo (de eso se encarga ProcesarArchivos / una fase posterior).</summary>
     private async Task<StepRunResult> RunIngestaNewtonStepAsync(
-        IApplicationDbContext db, Guid flowId, ScrapeStep step,
+        IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step,
         IReadOnlyDictionary<string, string> vars, CancellationToken ct)
     {
         IngestaNewtonConfig cfg = new();
@@ -634,6 +637,8 @@ public sealed class BrowserRunService(
 
         int total = docsRoot.GetArrayLength();
         int xmlBajados = 0, pdfBajados = 0, pdfOmitidos = 0, errores = 0, i = 0;
+        // Aterrizaje (Paso 1): por doc, CUFE + si tiene representacion grafica (PDF en disco).
+        var landed = new List<(string Cufe, string EventId, bool PdfOk)>();
         foreach (var doc in docsRoot.EnumerateArray())
         {
             if (cfg.Max > 0 && i >= cfg.Max) { break; }
@@ -648,7 +653,7 @@ public sealed class BrowserRunService(
                     using var xr = await GetAsync($"{urlBase}/documentos-electronicos/{eventId}/xml");
                     if (xr.IsSuccessStatusCode) { xml = await xr.Content.ReadAsStringAsync(ct); }
                 }
-                // CUFE para nombrar: del XML (si se bajo), o el eventId como respaldo.
+                // CUFE para nombrar / aterrizar: del XML (si se bajo), o el eventId como respaldo.
                 string cufe = "";
                 if (!string.IsNullOrWhiteSpace(xml))
                 {
@@ -662,9 +667,9 @@ public sealed class BrowserRunService(
                     catch { errores++; }
                 }
 
+                var pdfPath = Path.Combine(carpeta, nombre + "_newton.pdf");
                 if (cfg.BajarPdf)
                 {
-                    var pdfPath = Path.Combine(carpeta, nombre + "_newton.pdf");
                     if (cfg.SoloNuevos && File.Exists(pdfPath)) { pdfOmitidos++; }
                     else
                     {
@@ -678,12 +683,57 @@ public sealed class BrowserRunService(
                         else { errores++; }
                     }
                 }
+
+                if (!string.IsNullOrWhiteSpace(cufe))
+                {
+                    landed.Add((cufe, eventId, File.Exists(pdfPath)));
+                }
             }
             catch { errores++; }
         }
 
+        // ---- Aterrizaje Paso 1 (Plataforma): puebla la fuente NEWTON por CUFE. El CruzarAsync del modulo
+        // enciende PlataformaProveedor para los CUFE con GuidPdf != "" (= con representacion grafica). Scope
+        // FRESCO: el loop de descarga pudo tardar y dejar stale la conexion del scope original.
+        int plataforma = 0;
+        if (cfg.MarcarPlataforma && landed.Count > 0)
+        {
+            try
+            {
+                using var dbScope = scopeFactory.CreateScope();
+                var fdb = dbScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+                // Dedup por CUFE; si vino repetido, basta con que alguno tenga PDF.
+                var porCufe = landed.GroupBy(x => x.Cufe)
+                    .ToDictionary(g => g.Key, g => (EventId: g.First().EventId, PdfOk: g.Any(x => x.PdfOk)));
+                var cufes = porCufe.Keys.ToList();
+                var existentes = await fdb.ConciliacionDianNewtonDummies
+                    .Where(n => cufes.Contains(n.Cufe)).ToListAsync(ct);
+                var mapaExist = existentes.ToDictionary(n => n.Cufe, StringComparer.Ordinal);
+                foreach (var (cufe, info) in porCufe)
+                {
+                    var guidPdf = info.PdfOk ? SafeName(cufe) + "_newton.pdf" : "";
+                    if (mapaExist.TryGetValue(cufe, out var ex))
+                    {
+                        ex.EventId = info.EventId;
+                        if (info.PdfOk) { ex.GuidPdf = guidPdf; } // solo marca; nunca borra un PDF ya registrado
+                    }
+                    else
+                    {
+                        fdb.ConciliacionDianNewtonDummies.Add(new ConciliacionDianNewtonDummy
+                        {
+                            TenantId = tenantId, Cufe = cufe, EventId = info.EventId, GuidPdf = guidPdf,
+                        });
+                    }
+                    plataforma++;
+                }
+                await fdb.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) { log.LogWarning(ex, "IngestaNewton: fallo el aterrizaje de plataforma"); }
+        }
+
         var detalle = $"NEWTON: {total} documento(s); {xmlBajados} XML y {pdfBajados} PDF bajados a '{carpeta}'"
             + (pdfOmitidos > 0 ? $", {pdfOmitidos} PDF ya existian" : "")
+            + (cfg.MarcarPlataforma ? $"; {plataforma} en plataforma (fuente NEWTON)" : "")
             + (errores > 0 ? $", {errores} con error" : "") + ".";
         await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);

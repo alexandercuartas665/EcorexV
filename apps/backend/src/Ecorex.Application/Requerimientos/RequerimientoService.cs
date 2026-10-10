@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -9,11 +10,13 @@ public sealed class RequerimientoService : IRequerimientoService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly ITaskItemService _tasks;
 
-    public RequerimientoService(IApplicationDbContext db, ITenantContext tenant)
+    public RequerimientoService(IApplicationDbContext db, ITenantContext tenant, ITaskItemService tasks)
     {
         _db = db;
         _tenant = tenant;
+        _tasks = tasks;
     }
 
     public async Task<IReadOnlyList<RequerimientoDto>> ListAsync(RequerimientoFiltro filtro, CancellationToken ct = default)
@@ -219,6 +222,140 @@ public sealed class RequerimientoService : IRequerimientoService
             }
         }
         return null;
+    }
+
+    public async Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid) { return new EjecutarCompraResultado(false, "Sin tenant en contexto.", null, null, null); }
+
+        var hijo = await _db.RequerimientoCompraHijos.FirstOrDefaultAsync(h => h.Id == hijoId, ct);
+        if (hijo is null) { return new EjecutarCompraResultado(false, "No se encontro el registro a ejecutar.", null, null, null); }
+        // Idempotencia: si ya tiene actividad, no se crea otra.
+        if (hijo.TaskItemId is not null)
+        {
+            return new EjecutarCompraResultado(false, "Esta compra ya fue ejecutada (ya tiene actividad).", hijo.TaskItemId, null, await GetPlanificacionAsync(hijo.RequerimientoId, ct));
+        }
+
+        var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
+        if (padre is null) { return new EjecutarCompraResultado(false, "No se encontro la necesidad padre.", null, null, null); }
+
+        // El proceso de compra (subcategoria) lo define el ORIGEN de la necesidad.
+        Guid? subcategoriaId = null;
+        if (padre.OrigenId is Guid oid)
+        {
+            subcategoriaId = await _db.RequerimientoOrigenes.AsNoTracking()
+                .Where(o => o.Id == oid).Select(o => o.SubcategoriaCompraId).FirstOrDefaultAsync(ct);
+        }
+        if (subcategoriaId is null)
+        {
+            return new EjecutarCompraResultado(false,
+                "El origen de esta necesidad no tiene un proceso de compra (subcategoria) configurado. Asignalo en Configuracion de Requerimientos.",
+                null, null, await GetPlanificacionAsync(padre.Id, ct));
+        }
+
+        // Datos del proveedor (para enlazar el Tercero y llevar su correo/telefono a la actividad).
+        string? provNombre = null, provEmail = null, provTel = null;
+        if (hijo.ProveedorId is Guid pid)
+        {
+            var prov = await _db.Terceros.AsNoTracking().Where(t => t.Id == pid)
+                .Select(t => new { t.Nombre, t.Email, t.Telefono }).FirstOrDefaultAsync(ct);
+            provNombre = prov?.Nombre; provEmail = prov?.Email; provTel = prov?.Telefono;
+        }
+
+        var titulo = $"Compra: {padre.Descripcion} x {hijo.Cantidad:#,##0.##}";
+        if (titulo.Length > 200) { titulo = titulo[..200]; }
+        var desc = new System.Text.StringBuilder();
+        desc.Append("Compra programada generada desde Requerimientos de Compra.\n");
+        desc.Append($"Producto: {padre.Descripcion}\n");
+        desc.Append($"Cantidad: {hijo.Cantidad:#,##0.##} {padre.UnidadMedida}\n");
+        if (hijo.FechaProgramadaCompra is { } fp) { desc.Append($"Fecha programada de compra: {fp:yyyy-MM-dd}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega: {hijo.TiempoEntrega}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.CaracteristicasDespacho)) { desc.Append($"Despacho: {hijo.CaracteristicasDespacho}\n"); }
+        if (provNombre is not null) { desc.Append($"Proveedor: {provNombre}\n"); }
+
+        var req = new CreateTaskItemRequest(
+            Title: titulo,
+            ActivityTypeId: null,
+            SubcategoriaId: subcategoriaId,
+            BoardId: null,
+            Description: desc.ToString().TrimEnd(),
+            RequesterName: provNombre,
+            RequesterEmail: provEmail,
+            RequesterPhone: provTel,
+            TerceroId: hijo.ProveedorId,
+            DueDate: hijo.FechaProgramadaCompra);
+
+        var created = await _tasks.CreateAsync(req, actorUserId, actorName, ct);
+        if (!created.IsOk || created.Value is null)
+        {
+            return new EjecutarCompraResultado(false, created.Error ?? "No se pudo crear la actividad de compra.", null, null, await GetPlanificacionAsync(padre.Id, ct));
+        }
+        var taskId = created.Value.Item.Id;
+        var taskNumber = created.Value.Item.Number;
+
+        // Enlaza y avanza el estado del hijo.
+        hijo.TaskItemId = taskId;
+        hijo.Estado = RequerimientoEstado.Ejecutado;
+
+        // El padre pasa a Ejecutado cuando TODOS sus hijos estan ejecutados.
+        var hermanos = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => h.RequerimientoId == padre.Id && h.Id != hijo.Id)
+            .Select(h => h.Estado).ToListAsync(ct);
+        if (hermanos.All(e => e == RequerimientoEstado.Ejecutado))
+        {
+            padre.Estado = RequerimientoEstado.Ejecutado;
+        }
+
+        // Aprendizaje: graba/actualiza una regla Aprendida en la dimension MAS especifica del item -> proveedor.
+        if (hijo.ProveedorId is Guid provId && padre.ItemId is Guid itemId)
+        {
+            await AprenderReglaAsync(itemId, provId, ct);
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new EjecutarCompraResultado(true, null, taskId, taskNumber, await GetPlanificacionAsync(padre.Id, ct));
+    }
+
+    /// <summary>Memoria del ultimo ejercicio de compra: upsert de una regla Aprendida en la dimension MAS
+    /// especifica que tenga el item (Referencia > Marca > Subgrupo > Grupo > Categoria).</summary>
+    private async Task AprenderReglaAsync(Guid itemId, Guid proveedorId, CancellationToken ct)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return; }
+        var item = await _db.Items.AsNoTracking().FirstOrDefaultAsync(i => i.Id == itemId, ct);
+        if (item is null) { return; }
+
+        var orden = new (RequerimientoDimension Dim, Guid? Val)[]
+        {
+            (RequerimientoDimension.Referencia, item.Id),
+            (RequerimientoDimension.Marca, item.BrandId),
+            (RequerimientoDimension.Subgrupo, item.SubgroupId),
+            (RequerimientoDimension.Grupo, item.GroupId),
+            (RequerimientoDimension.Categoria, item.ItemTypeId),
+        };
+        var elegida = orden.FirstOrDefault(o => o.Val is not null);
+        if (elegida.Val is not Guid dimVal) { return; }
+        var valStr = dimVal.ToString();
+
+        var existente = await _db.RequerimientoProveedorReglas
+            .FirstOrDefaultAsync(x => x.Dimension == elegida.Dim && x.ValorDimension == valStr && x.ProveedorId == proveedorId, ct);
+        if (existente is null)
+        {
+            _db.RequerimientoProveedorReglas.Add(new RequerimientoProveedorRegla
+            {
+                TenantId = tenantId,
+                Dimension = elegida.Dim,
+                ValorDimension = valStr,
+                ProveedorId = proveedorId,
+                Prioridad = 50, // aprendida: pisa por prioridad a reglas manuales mas altas (100 por defecto)
+                Aprendida = true,
+                Activo = true,
+            });
+        }
+        else
+        {
+            existente.Aprendida = true;
+            existente.Activo = true;
+        }
     }
 
     public async Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default)

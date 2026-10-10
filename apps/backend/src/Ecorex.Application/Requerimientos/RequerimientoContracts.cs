@@ -69,6 +69,14 @@ public sealed record PlanificacionDto(
     decimal CantidadSinPlanificar,
     IReadOnlyList<RequerimientoHijoDto> Hijos);
 
+/// <summary>Resultado de ejecutar una compra (Ola 5): la actividad creada + la planificacion refrescada.</summary>
+public sealed record EjecutarCompraResultado(
+    bool Ok,
+    string? Error,
+    Guid? TaskItemId,
+    string? TaskNumber,
+    PlanificacionDto? Plan);
+
 /// <summary>
 /// Operativa del modulo de Requerimientos (Capa 10, Ola 2): recepcion (alta manual) + listado para la
 /// grilla + agrupacion por producto. La ingesta automatica desde formularios se define en una fase
@@ -98,4 +106,12 @@ public interface IRequerimientoService
     /// <summary>Sugiere un proveedor para un item segun la matriz: gana la regla mas especifica que aplique
     /// (Referencia > Marca > Subgrupo > Grupo > Categoria; a igual especificidad, por prioridad). Null si ninguna.</summary>
     Task<RequerimientoOpcionDto?> SugerirProveedorAsync(Guid itemId, CancellationToken ct = default);
+
+    // ---- Ola 5: ejecutar compra -> Actividad + aprendizaje ----
+    /// <summary>Ejecuta la compra de un registro HIJO: crea una Actividad (TaskItem) con la subcategoria/proceso
+    /// del origen, enlaza el TaskItemId al hijo y lo pone en Ejecutado (el padre pasa a Ejecutado cuando TODOS
+    /// sus hijos estan ejecutados). Si el hijo tiene proveedor, APRENDE la matriz: graba/actualiza una regla
+    /// Aprendida en la dimension MAS especifica del item -> ese proveedor. Idempotente: si el hijo ya tiene
+    /// actividad, no crea otra.</summary>
+    Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
 }

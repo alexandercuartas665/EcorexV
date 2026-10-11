@@ -312,27 +312,6 @@
     border-top: 1px solid var(--line, #f1f5f9); background: var(--surface, #fff);
 }
 .cd-fb-foot-spacer { flex: 1; }
-
-.cd-fb-group { border: 1.5px solid var(--line-2, #e5e7eb); border-radius: 12px; background: var(--surface, #fff); padding: 10px 12px; }
-.cd-fb-group .cd-fb-group { background: var(--surface-2, #f8fafc); margin: 2px 0; }
-.cd-fb-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.cd-fb-opsw { display: inline-flex; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px; overflow: hidden; }
-.cd-fb-op { border: 0; background: var(--surface, #fff); color: var(--ink-2, #4b5563); font-size: 12px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
-.cd-fb-op + .cd-fb-op { border-left: 1px solid var(--line-2, #e5e7eb); }
-.cd-fb-op.on { background: var(--brand, #4f46e5); color: #fff; }
-.cd-fb-group-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.cd-fb-add {
-    border: 1px dashed var(--line-2, #cbd5e1); background: var(--surface, #fff); color: var(--brand, #4f46e5);
-    font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 8px; cursor: pointer;
-}
-.cd-fb-add:hover { border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
-.cd-fb-empty { font-size: 12px; color: var(--ink-3, #9ca3af); padding: 6px 2px; }
-.cd-fb-cond { display: flex; align-items: center; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
-.cd-fb-field { min-width: 180px; }
-.cd-fb-op2 { min-width: 150px; }
-.cd-fb-val { min-width: 130px; }
-.cd-fb-and { font-size: 12px; color: var(--ink-3, #9ca3af); }
-.cd-fb-conn {
-    display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--ink-3, #9ca3af);
-    letter-spacing: .06em; margin: 2px 0 2px 4px;
-}
+/* Los estilos del editor de grupos (cd-fb-group/op/add/cond/field...) viven en
+   ConciliacionFilterGroup.razor.css: son de un componente hijo y el aislamiento de CSS de Blazor
+   impide que las reglas de este archivo (del padre) alcancen sus elementos. */

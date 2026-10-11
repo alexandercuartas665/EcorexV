@@ -1,0 +1,45 @@
+/* Estilos del editor recursivo de grupos del constructor de filtros. Viven AQUI (no en
+   ConciliacionDian.razor.css) porque el aislamiento de CSS de Blazor scope-a los estilos por
+   componente: las reglas del padre NO alcanzan los elementos de este componente hijo. */
+
+/* Inputs/selects base (replicado de cd-in del padre, que no cruza el aislamiento). */
+.cd-in {
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 8px;
+    background: var(--surface, #fff);
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink, #1f2937);
+    outline: none;
+}
+.cd-in:focus { border-color: var(--ink-3, #6b7280); }
+
+/* Boton de borrar (×), replicado de cd-dd-del del padre. */
+.cd-dd-del { height: 32px; width: 32px; font-size: 16px; line-height: 1; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface, #fff); color: var(--ink-3, #9ca3af); cursor: pointer; }
+.cd-dd-del:hover { color: #b91c1c; border-color: #fca5a5; }
+
+.cd-fb-group { border: 1.5px solid var(--line-2, #e5e7eb); border-radius: 12px; background: var(--surface, #fff); padding: 10px 12px; }
+.cd-fb-group .cd-fb-group { background: var(--surface-2, #f8fafc); margin: 2px 0; }
+.cd-fb-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.cd-fb-opsw { display: inline-flex; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px; overflow: hidden; }
+.cd-fb-op { border: 0; background: var(--surface, #fff); color: var(--ink-2, #4b5563); font-size: 12px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
+.cd-fb-op + .cd-fb-op { border-left: 1px solid var(--line-2, #e5e7eb); }
+.cd-fb-op.on { background: var(--brand, #4f46e5); color: #fff; }
+.cd-fb-group-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.cd-fb-add {
+    border: 1px dashed var(--line-2, #cbd5e1); background: var(--surface, #fff); color: var(--brand, #4f46e5);
+    font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+}
+.cd-fb-add:hover { border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-fb-empty { font-size: 12px; color: var(--ink-3, #9ca3af); padding: 6px 2px; }
+.cd-fb-cond { display: flex; align-items: center; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+.cd-fb-field { min-width: 180px; }
+.cd-fb-op2 { min-width: 150px; }
+.cd-fb-val { min-width: 130px; }
+.cd-fb-and { font-size: 12px; color: var(--ink-3, #9ca3af); }
+.cd-fb-conn {
+    display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--ink-3, #9ca3af);
+    letter-spacing: .06em; margin: 2px 0 2px 4px;
+}

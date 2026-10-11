@@ -1,0 +1,112 @@
+@namespace Ecorex.SuperAdmin.Components.Pages.Conciliacion
+
+@* Editor recursivo de un grupo del constructor de filtros (grupos AND/OR anidables). Se renderiza a si mismo
+   para los subgrupos. Muta los FilterNode compartidos y avisa con OnChanged para que la pagina re-evalue. *@
+
+<div class="cd-fb-group">
+    <div class="cd-fb-group-head">
+        <div class="cd-fb-opsw">
+            <button class="cd-fb-op @(Group.Op == "and" ? "on" : "")" @onclick="@(() => SetOp("and"))">Y (todas)</button>
+            <button class="cd-fb-op @(Group.Op == "or" ? "on" : "")" @onclick="@(() => SetOp("or"))">O (alguna)</button>
+        </div>
+        <div class="cd-fb-group-actions">
+            <button class="cd-fb-add" @onclick="AddCondition">+ Condici&oacute;n</button>
+            <button class="cd-fb-add" @onclick="AddSubgroup">+ Grupo</button>
+            @if (Depth > 0)
+            {
+                <button class="cd-dd-del" title="Quitar grupo" @onclick="RemoveSelf">&times;</button>
+            }
+        </div>
+    </div>
+
+    @if (Group.Children.Count == 0)
+    {
+        <div class="cd-fb-empty">Grupo vac&iacute;o. Agrega una condici&oacute;n o un subgrupo.</div>
+    }
+
+    @for (int i = 0; i < Group.Children.Count; i++)
+    {
+        var child = Group.Children[i];
+        if (i > 0)
+        {
+            <div class="cd-fb-conn">@(Group.Op == "or" ? "O" : "Y")</div>
+        }
+        if (child.Kind == "group")
+        {
+            <ConciliacionFilterGroup Group="child" Depth="Depth + 1" OnChanged="OnChanged" OnRemove="@(() => RemoveChild(child))" />
+        }
+        else
+        {
+            var c = child;
+            var fld = ConciliacionFilter.FieldByKey(c.Field);
+            <div class="cd-fb-cond">
+                <select class="cd-in cd-fb-field" @onchange="e => ChangeField(c, e)">
+                    <option value="" selected="@string.IsNullOrEmpty(c.Field)">Campo&hellip;</option>
+                    @foreach (var f in ConciliacionFilter.Fields)
+                    {
+                        <option value="@f.Key" selected="@(f.Key == c.Field)">@f.Label</option>
+                    }
+                </select>
+                @if (fld is { } ff)
+                {
+                    <select class="cd-in cd-fb-op2" @onchange="e => ChangeOperator(c, e)">
+                        <option value="" selected="@string.IsNullOrEmpty(c.Operator)">Operador&hellip;</option>
+                        @foreach (var op in ConciliacionFilter.OperatorsFor(ff.Type))
+                        {
+                            <option value="@op.Key" selected="@(op.Key == c.Operator)">@op.Label</option>
+                        }
+                    </select>
+                    @if (ConciliacionFilter.OperatorNeedsValue(c.Operator))
+                    {
+                        var isDate = ff.Type == FilterFieldType.Date;
+                        <input type="@(isDate ? "date" : "text")" class="cd-in cd-fb-val" placeholder="valor" value="@c.Value" @onchange="e => ChangeValue(c, e)" />
+                        @if (ConciliacionFilter.OperatorNeedsValue2(c.Operator))
+                        {
+                            <span class="cd-fb-and">y</span>
+                            <input type="@(isDate ? "date" : "text")" class="cd-in cd-fb-val" placeholder="valor" value="@c.Value2" @onchange="e => ChangeValue2(c, e)" />
+                        }
+                    }
+                }
+                <button class="cd-dd-del" title="Quitar condici&oacute;n" @onclick="@(() => RemoveChild(c))">&times;</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FilterNode Group { get; set; } = default!;
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    /// <summary>Lo invoca el padre para quitar ESTE grupo de su lista (solo subgrupos, Depth &gt; 0).</summary>
+    [Parameter] public EventCallback OnRemove { get; set; }
+
+    private async Task Changed() => await OnChanged.InvokeAsync();
+
+    private async Task SetOp(string op) { Group.Op = op; await Changed(); }
+
+    private async Task AddCondition() { Group.Children.Add(FilterNode.NewCond()); await Changed(); }
+    private async Task AddSubgroup() { Group.Children.Add(FilterNode.NewGroup("and")); await Changed(); }
+
+    private async Task RemoveChild(FilterNode child) { Group.Children.Remove(child); await Changed(); }
+    private async Task RemoveSelf() { await OnRemove.InvokeAsync(); }
+
+    private async Task ChangeField(FilterNode c, ChangeEventArgs e)
+    {
+        c.Field = e.Value?.ToString() ?? "";
+        // Al cambiar el campo, el operador anterior puede no aplicar: lo reseteo.
+        c.Operator = "";
+        c.Value = null; c.Value2 = null;
+        await Changed();
+    }
+
+    private async Task ChangeOperator(FilterNode c, ChangeEventArgs e)
+    {
+        c.Operator = e.Value?.ToString() ?? "";
+        if (!ConciliacionFilter.OperatorNeedsValue(c.Operator)) { c.Value = null; }
+        if (!ConciliacionFilter.OperatorNeedsValue2(c.Operator)) { c.Value2 = null; }
+        await Changed();
+    }
+
+    private async Task ChangeValue(FilterNode c, ChangeEventArgs e) { c.Value = e.Value?.ToString(); await Changed(); }
+    private async Task ChangeValue2(FilterNode c, ChangeEventArgs e) { c.Value2 = e.Value?.ToString(); await Changed(); }
+}

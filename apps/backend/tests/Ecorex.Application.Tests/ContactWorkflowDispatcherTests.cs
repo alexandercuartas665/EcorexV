@@ -138,6 +138,7 @@ public class ContactWorkflowDispatcherTests
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => inner.Tenants;
         public DbSet<Tercero> Terceros => inner.Terceros;
         public DbSet<TerceroFiltro> TerceroFiltros => inner.TerceroFiltros;

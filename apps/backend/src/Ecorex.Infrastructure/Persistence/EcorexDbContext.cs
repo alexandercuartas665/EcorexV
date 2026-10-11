@@ -281,6 +281,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
+    public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
@@ -2716,6 +2717,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType).IsRequired();
             // Una preferencia por (tenant, usuario, tabla).
             b.HasIndex(x => new { x.TenantId, x.UserId, x.TableKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<SavedFilter>(b =>
+        {
+            b.Property(x => x.Module).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.CreatedByName).HasMaxLength(160);
+            // Arbol de condiciones como jsonb (PostgreSQL) / nvarchar(max) (SQL Server).
+            b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
+            // Un filtro por (tenant, modulo, nombre): "Guardar" con nombre existente reemplaza.
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Name }).IsUnique();
         });
 
         modelBuilder.Entity<StoredFile>(b =>

@@ -11022,6 +11022,69 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("saas_plan_limits", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.SavedFilter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedByName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("created_by_name");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("definition_json");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_saved_filters");
+
+                    b.HasIndex("TenantId", "Module", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_saved_filters_tenant_id_module_name");
+
+                    b.ToTable("saved_filters", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJob", b =>
                 {
                     b.Property<Guid>("Id")

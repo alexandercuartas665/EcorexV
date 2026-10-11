@@ -6,9 +6,12 @@
 @using Ecorex.Application.Preferences
 @using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Pages.Conciliacion
 @inject IConciliacionDianService Svc
 @inject IUserTablePrefsService Prefs
+@inject ISavedFilterService SavedFilters
 @inject IFileStorageService Files
+@inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -74,13 +77,45 @@ else
     </div>
 
     <div class="cd-filtros">
-        <label>Proveedor <input class="cd-in" @bind="_fProveedor" placeholder="nombre o NIT" /></label>
-        <label>Desde <input type="date" class="cd-in" @bind="_fDesde" /></label>
-        <label>Hasta <input type="date" class="cd-in" @bind="_fHasta" /></label>
-        <label>Doc desde <input class="cd-in cd-num" @bind="_fDocDesde" /></label>
-        <label>Doc hasta <input class="cd-in cd-num" @bind="_fDocHasta" /></label>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_busy">Aplicar filtro</button>
-        <button class="btn btn-link btn-sm" @onclick="LimpiarFiltro" disabled="@_busy">Limpiar</button>
+        <button class="cd-tbtn @(FilterCount > 0 ? "on" : "")" @onclick="OpenFilterBuilder" title="Construye un filtro con condiciones Y/O anidadas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+            <span>Filtros@(FilterCount > 0 ? $" ({FilterCount})" : "")</span>
+        </button>
+
+        <div class="cd-dd">
+            <button class="cd-tbtn" @onclick="@(() => ToggleMenu("saved"))" title="Filtros guardados del equipo">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                <span>Guardados@(_savedFilters.Count > 0 ? $" ({_savedFilters.Count})" : "")</span>
+            </button>
+            @if (_openMenu == "saved")
+            {
+                <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+                <div class="cd-dd-panel" style="min-width:280px;">
+                    <div class="cd-dd-title">Filtros del equipo</div>
+                    @if (_savedFilters.Count == 0)
+                    {
+                        <div class="cd-dd-empty">No hay filtros guardados. Arma uno en "Filtros" y usa "Guardar".</div>
+                    }
+                    else
+                    {
+                        @foreach (var sf in _savedFilters)
+                        {
+                            var sfx = sf;
+                            <div class="cd-dd-row">
+                                <button class="cd-saved-apply" @onclick="() => ApplySavedAsync(sfx)" title="@($"Autor: {sfx.CreatedByName ?? "-"}")">@sfx.Name</button>
+                                <button class="cd-dd-del" @onclick="() => DeleteSavedAsync(sfx)" title="Eliminar">&times;</button>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+
+        @if (FilterCount > 0)
+        {
+            <span class="cd-filter-active">@FilterCount condici@(FilterCount == 1 ? "ón" : "ones") activa@(FilterCount == 1 ? "" : "s")@(_activeFilterName is { } nm ? $" · {nm}" : "")</span>
+            <button class="btn btn-link btn-sm" @onclick="ClearFilter" disabled="@_busy">Limpiar</button>
+        }
     </div>
 
     @* ---- Barra de herramientas de la grilla: Ordenar | Agrupar | Columnas | Columnas fijas ---- *@
@@ -456,6 +491,30 @@ else
             </div>
         </div>
     }
+
+    @if (_filterOpen)
+    {
+        <div class="cd-doc-backdrop" @onclick="CloseFilterBuilder"></div>
+        <div class="cd-fb-modal" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Constructor de filtros</div>
+                    <div class="cd-doc-title-sub">Combina condiciones con Y / O. Puedes anidar grupos. Se aplica en vivo.</div>
+                </div>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CloseFilterBuilder">&times;</button>
+            </div>
+            <div class="cd-fb-body">
+                <ConciliacionFilterGroup Group="_filterRoot" Depth="0" OnChanged="OnFilterChanged" />
+            </div>
+            <div class="cd-fb-foot">
+                <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
+                <div class="cd-fb-foot-spacer"></div>
+                <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" @bind:event="oninput" />
+                <button class="btn btn-outline-secondary btn-sm" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
+                <button class="btn btn-primary btn-sm" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -476,12 +535,15 @@ else
     private int _nuevoMes = DateTime.UtcNow.Month;
     private int _nuevoAnio = DateTime.UtcNow.Year;
 
-    // Filtros
-    private string? _fProveedor;
-    private DateTime? _fDesde;
-    private DateTime? _fHasta;
-    private string? _fDocDesde;
-    private string? _fDocHasta;
+    // ---- Constructor de filtros (arbol AND/OR anidado; se evalua en cliente sobre los renglones del tab) ----
+    private const string FilterModule = "ConciliacionDian";
+    private FilterNode _filterRoot = FilterNode.NewGroup("and");
+    private bool _filterOpen;
+    private string? _saveName;
+    private string? _activeFilterName;
+    private List<SavedFilterDto> _savedFilters = new();
+    private string? _userName;
+    private int FilterCount => ConciliacionFilter.CountConditions(_filterRoot);
 
     private readonly (EstadoConciliacionDian Estado, string Label)[] _tabs =
     {
@@ -654,16 +716,90 @@ else
         }
     }
 
+    private bool CufeTieneArchivos(string cufe) => _cufesConArchivos.Contains(cufe);
+
     private void RebuildItems()
     {
+        // Filtro del constructor (cliente): se aplica sobre los renglones del tab antes de agrupar/sumar.
+        var src = FilterCount > 0
+            ? _renglones.Where(r => ConciliacionFilter.Evaluate(_filterRoot, r, CufeTieneArchivos)).ToList()
+            : _renglones.ToList();
         var items = new List<GridItem>();
-        BuildItems(_renglones.ToList(), 0, items);
-        // Total general (cantidad + sumas) al pie, siempre.
-        if (_renglones.Count > 0)
+        BuildItems(src, 0, items);
+        // Total general (cantidad + sumas) al pie, siempre (sobre lo filtrado).
+        if (src.Count > 0)
         {
-            items.Add(new GridItem { Kind = GKind.Subtotal, Count = _renglones.Count, Sums = SumsOf(_renglones), Grand = true });
+            items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
         }
         _gridItems = items;
+    }
+
+    // ---- Acciones del constructor de filtros ----
+    private void OpenFilterBuilder()
+    {
+        CloseMenu();
+        if (_filterRoot.Children.Count == 0) { _filterRoot.Children.Add(FilterNode.NewCond()); }
+        _filterOpen = true;
+    }
+    private void CloseFilterBuilder() { _filterOpen = false; }
+
+    private void OnFilterChanged()
+    {
+        _activeFilterName = null; // al editar a mano ya no corresponde a un guardado
+        RebuildItems();
+        StateHasChanged();
+    }
+
+    private void ClearFilter()
+    {
+        _filterRoot = FilterNode.NewGroup("and");
+        _activeFilterName = null; _saveName = null;
+        RebuildItems();
+    }
+
+    private void ClearFilterTree()
+    {
+        _filterRoot = FilterNode.NewGroup("and");
+        _filterRoot.Children.Add(FilterNode.NewCond());
+        _activeFilterName = null;
+        RebuildItems();
+    }
+
+    private async Task LoadSavedFiltersAsync()
+    {
+        try { _savedFilters = (await SavedFilters.ListAsync(FilterModule)).ToList(); }
+        catch { _savedFilters = new(); }
+    }
+
+    private async Task SaveFilterAsync()
+    {
+        var name = (_saveName ?? "").Trim();
+        if (name.Length == 0 || FilterCount == 0) { return; }
+        var json = JsonSerializer.Serialize(_filterRoot);
+        var saved = await SavedFilters.SaveAsync(FilterModule, name, json, _userName);
+        if (saved is not null) { _activeFilterName = saved.Name; }
+        await LoadSavedFiltersAsync();
+    }
+
+    private async Task ApplySavedAsync(SavedFilterDto sf)
+    {
+        CloseMenu();
+        try
+        {
+            var tree = JsonSerializer.Deserialize<FilterNode>(sf.DefinitionJson);
+            _filterRoot = tree ?? FilterNode.NewGroup("and");
+            _activeFilterName = sf.Name;
+            _saveName = sf.Name;
+            RebuildItems();
+        }
+        catch { /* definicion corrupta: se ignora */ }
+    }
+
+    private async Task DeleteSavedAsync(SavedFilterDto sf)
+    {
+        await SavedFilters.DeleteAsync(sf.Id);
+        if (_activeFilterName == sf.Name) { _activeFilterName = null; }
+        await LoadSavedFiltersAsync();
     }
 
     // ---- Persistencia de preferencias (por usuario, en BD) ----
@@ -719,7 +855,14 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            _userName = auth.User.Identity?.Name;
+        }
+        catch { /* sin nombre: se guarda sin autoria */ }
         await LoadPrefsAsync();
+        await LoadSavedFiltersAsync();
         await LoadDocsAsync();
     }
 
@@ -730,12 +873,8 @@ else
         if (_docs.Count > 0) { await ReloadAsync(); }
     }
 
-    private ConciliacionDianFiltro Filtro() => new(
-        string.IsNullOrWhiteSpace(_fProveedor) ? null : _fProveedor,
-        _fDesde is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null,
-        _fHasta is { } h ? new DateTimeOffset(h, TimeSpan.Zero) : null,
-        string.IsNullOrWhiteSpace(_fDocDesde) ? null : _fDocDesde,
-        string.IsNullOrWhiteSpace(_fDocHasta) ? null : _fDocHasta);
+    // El filtrado fino lo hace el constructor en cliente; al servidor se le piden todos los renglones del tab.
+    private static ConciliacionDianFiltro Filtro() => new();
 
     private async Task ReloadAsync()
     {
@@ -758,7 +897,6 @@ else
     private async Task SetTabAsync(EstadoConciliacionDian estado) { _activeTab = estado; await ReloadAsync(); }
 
     private void ToggleCrear() { _showCrear = !_showCrear; _msg = null; }
-    private async Task LimpiarFiltro() { _fProveedor = null; _fDesde = null; _fHasta = null; _fDocDesde = null; _fDocHasta = null; await ReloadAsync(); }
 
     private async Task SeedDummyAsync()
     {

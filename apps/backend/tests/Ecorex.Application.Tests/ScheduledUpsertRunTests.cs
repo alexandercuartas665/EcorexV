@@ -40,6 +40,7 @@ public class ScheduledUpsertRunTests
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
         public DbSet<DataContainerRow> DataContainerRows => inner.DataContainerRows;
         public DbSet<DataContainerCell> DataContainerCells => inner.DataContainerCells;
         public DbSet<DataContainerLink> DataContainerLinks => inner.DataContainerLinks;

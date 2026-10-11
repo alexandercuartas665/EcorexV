@@ -299,6 +299,13 @@
     color: var(--ink, #1f2937); font-size: 13px; padding: 4px 6px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cd-saved-apply:hover { background: var(--brand-soft, #eef2ff); color: var(--brand, #4f46e5); }
+.cd-saved-ico {
+    flex: 0 0 auto; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface, #fff);
+    color: var(--ink-3, #9ca3af); cursor: pointer; line-height: 0;
+}
+.cd-saved-ico:hover { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-saved-del:hover { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
 
 .cd-fb-modal {
     position: fixed; z-index: 4101; top: 50%; left: 50%; transform: translate(-50%, -50%);

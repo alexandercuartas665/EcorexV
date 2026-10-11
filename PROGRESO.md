@@ -25,6 +25,29 @@
   conversacion flow-held para que SARA enrute la compuerta al aprobar.
 - Bloqueos: ninguno. Deploy: PENDIENTE OK del usuario.
 
+## 2026-10-10 - Conciliacion DIAN: visor grande de documentos + constructor de filtros; diagnostico de eventos NEWTON (SIN deploy)
+
+- VISOR DE DOCUMENTOS (commit 570ca9c0): el mini-modal de archivos de la factura pasa a un modal grande de 2
+  columnas: izquierda miniaturas en vivo (iframe escalado) de cada documento, derecha visor grande (PDF nativo /
+  XML) que conmuta al hacer click. El clip por renglon solo aparece si ese CUFE tiene archivos
+  (IFileStorageService.ListRefsWithFilesAsync). Validado: factura PR32461461 muestra los 4 tipos y conmuta.
+- DIAGNOSTICO "los estados no se marcan" (NO es bug, commit 245adf2c agrega el log): tras una corrida completa,
+  la marca de plataforma (en Newton) SI funciono (80/109) pero los eventos RADIAN quedaron en 0. El log de
+  diagnostico confirma: de 536 docs de NEWTON, 104 traen eventos (ACUSE_DE_RECIBO, etc.) y CERO cruzan un
+  renglon cargado. Son compras ya gestionadas (p.ej. GLOBAL MENSAJERIA 7bbe315a, 7-sep, con acuse) que el scrape
+  de DIAN no trajo; los 109 renglones cargados estan todos PENDIENTES. El motor refleja bien cuando hay cruce.
+- CONSTRUCTOR DE FILTROS (commit 2e62d589): reemplaza los filtros fijos por un armador de condiciones con grupos
+  AND/OR ANIDABLES (componente recursivo). Operadores por tipo (texto contiene/vacio..., numero, fecha, bool,
+  estado RADIAN sin/con/ev30-34). Campos: factura, montos, En Newton, Tiene archivos, Aprobada. Evaluacion en
+  CLIENTE sobre el tab; subtotales recalculan sobre lo filtrado. Filtros GUARDADOS y COMPARTIDOS por el tenant
+  (entidad SavedFilter + ISavedFilterService; menu Guardados aplicar/eliminar; Guardar persiste el jsonb con
+  autoria) o aplicar temporal. Migracion dual AddSavedFilters (PG aplicada a dev al arrancar). Validado E2E:
+  "En Newton=no" -> 24/104 (= BD), "estado sin ninguno" -> 104, "con alguno" -> 0, anidado OK, guardar+aplicar OK.
+- OJO multi-sesion: otra sesion construia WorkflowAgentFollowUp en el MISMO working tree; su migracion entro a
+  mitad de un build y causo un PendingModelChangesWarning transitorio (se rebuildeo con el snapshot ya consistente).
+  El commit del constructor de filtros se hizo con staging por-hunk para NO incluir el trabajo de esa otra sesion.
+- SIN push / SIN deploy (pendiente OK del usuario).
+
 ## 2026-10-10 - Gestor unificado de archivos Paso 2: subir DIAN/NEWTON al blob por CUFE + visor (SIN deploy)
 
 - Sobre la fundacion del Paso 1 (StoredFile + IFileStorageService + /archivo/{id}, commits 0d9543bc/dbfbd3d0):

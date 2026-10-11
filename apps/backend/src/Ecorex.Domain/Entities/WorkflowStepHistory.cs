@@ -122,6 +122,14 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentNextRetryAt { get; set; }
 
+    /// <summary>
+    /// Indice de la CADENCIA de seguimiento por plazos (WorkflowNode.AgentFollowUpJson): cuantos contactos/
+    /// recordatorios ha enviado ya el agente en este paso. Arranca en 0; se incrementa en cada pausa por
+    /// WhatsApp cuando el nodo tiene cadencia configurada, y sirve para elegir el siguiente plazo de la lista.
+    /// Al agotarse la lista, el agente deja de insistir. Sobrevive a los relanzamientos (misma fila del paso).
+    /// </summary>
+    public int AgentFollowUpIndex { get; set; }
+
     /// <summary>CYCLESTART legacy: primer nodo de un ciclo abierto por reinicio.</summary>
     public bool IsCycleStart { get; set; }
 

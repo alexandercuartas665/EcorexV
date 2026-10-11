@@ -1541,6 +1541,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.SlaJson).HasColumnType(jsonColumnType);
             // Tiempo para arrancar (Plazos v2 - ADR-0119): jsonb, mismo shape que SlaJson.
             b.Property(x => x.StartDelayJson).HasColumnType(jsonColumnType);
+            // Cadencia de seguimiento por plazos (lista de esperas entre recordatorios del agente): jsonb array.
+            b.Property(x => x.AgentFollowUpJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
             // Concepto de cierre que el flujo estampa al llegar a una columna de cierre (ADR-0123).

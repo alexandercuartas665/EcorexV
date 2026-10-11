@@ -16642,6 +16642,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("AgentFollowUpJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("agent_follow_up_json");
+
                     b.Property<bool>("AllowsAssignment")
                         .HasColumnType("boolean")
                         .HasColumnName("allows_assignment");
@@ -17175,6 +17179,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("agent_failure_reason");
+
+                    b.Property<int>("AgentFollowUpIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_follow_up_index");
 
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("timestamp with time zone")

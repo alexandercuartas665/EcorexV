@@ -257,6 +257,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.NotifyJson = RemapDecisionTargets(sourceNode.NotifyJson, oldToNewNodeId);
             draftNode.SlaJson = sourceNode.SlaJson;
             draftNode.StartDelayJson = sourceNode.StartDelayJson; // Plazos v2 (ADR-0119): metadato, no viaja en el XML.
+            draftNode.AgentFollowUpJson = sourceNode.AgentFollowUpJson; // Cadencia de seguimiento: metadato, no viaja en el XML.
             draftNode.RuntimeLayoutDx = sourceNode.RuntimeLayoutDx; // Layout del runtime (ADR-0051 v2): se conserva al publicar.
             draftNode.RuntimeLayoutDy = sourceNode.RuntimeLayoutDy;
             if (sourceNode.RestartNodeId is Guid restartId
@@ -941,6 +942,26 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             trimmed = parsed.IsEmpty ? null : StepSla.Build(parsed.Days, parsed.Hours, parsed.Minutes, parsed.DayMode);
         }
         node.StartDelayJson = trimmed;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAgentFollowUpAsync(
+        Guid nodeId, string? agentFollowUpJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Cadencia de seguimiento por plazos: metadato del nodo, editable sobre publicada, no regenera el XML.
+        // Se re-normaliza por StepSlaList (lista de {days,hours,minutes}); lista vacia -> null (sin cadencia).
+        var trimmed = string.IsNullOrWhiteSpace(agentFollowUpJson) ? null : agentFollowUpJson.Trim();
+        if (trimmed is not null)
+        {
+            trimmed = StepSlaList.Build(StepSlaList.ReadRows(trimmed));
+        }
+        node.AgentFollowUpJson = trimmed;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }
@@ -1977,6 +1998,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
                 n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson,
+                n.AgentFollowUpJson,
                 n.RuntimeLayoutDx, n.RuntimeLayoutDy, n.CloseReason);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(

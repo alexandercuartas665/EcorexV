@@ -152,6 +152,17 @@ public class WorkflowNode : TenantEntity
     public string? StartDelayJson { get; set; }
 
     /// <summary>
+    /// SEGUIMIENTO POR PLAZOS (cadencia de reintentos) de un nodo con AGENTE: una LISTA ordenada de esperas
+    /// entre relanzamientos. JSON array de objetos {days,hours,minutes} (ver StepSla / StepSlaList). El 1er
+    /// elemento es el primer contacto (tipicamente 0 = inmediato); los siguientes son la espera ANTES de cada
+    /// recordatorio si el cliente no respondio. Al agotarse la lista el agente DEJA de insistir (no se cierra:
+    /// el paso sigue vigente esperando respuesta o a una persona). Null/vacio = sin cadencia (comportamiento
+    /// previo: el agente se auto-reprograma via 'programar_reintento', o no reintenta). Lo re-dispara el barrido
+    /// por AgentNextRetryAt; el indice de la cadencia vive en WorkflowStepHistory.AgentFollowUpIndex.
+    /// </summary>
+    public string? AgentFollowUpJson { get; set; }
+
+    /// <summary>
     /// Desplazamiento manual (dx, dy) del nodo en el DIAGRAMA DE LA TAREA (runtime), persistido y COMPARTIDO
     /// entre usuarios (ADR-0051 v2). Se suma al auto-layout por capas. Null = el nodo sigue el layout calculado.
     /// Es solo presentacion del runtime; no afecta el editor BPMN (X/Y) ni la ejecucion.

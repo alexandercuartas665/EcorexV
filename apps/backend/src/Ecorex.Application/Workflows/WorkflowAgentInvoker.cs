@@ -270,7 +270,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         int? retryMinutes = null;
-        int? postponeMinutes = null;
         var requestedTags = new List<string>();
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
@@ -342,21 +341,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
                         : $$"""{"ok": true, "mensaje": "reintento programado en {{retryMinutes}} min si el cliente no responde"}""";
                 }
-                else if (call.Name == "reprogramar_plazo")
-                {
-                    // El agente POSPONE su propio disparo: el paso queda en espera y se re-ejecuta al vencer el
-                    // plazo. A diferencia de 'programar_reintento', pausa POR SI MISMO (no acompana a una pregunta).
-                    postponeMinutes = ReadPostponeMinutes(call.ArgumentsJson);
-                    if (postponeMinutes is int pm)
-                    {
-                        pausing = true;
-                        result = $$"""{"ok": true, "mensaje": "plazo reprogramado; el paso se reactivara en {{pm}} min"}""";
-                    }
-                    else
-                    {
-                        result = """{"error": "indica 'dias'/'horas'/'en_minutos' (total 5..43200) para reprogramar el plazo"}""";
-                    }
-                }
                 else if (call.Name == "enviar_correo" && canSendEmail)
                 {
                     if (emailsSent >= MaxEmailsPerStep)
@@ -411,15 +395,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 agent.Provider, model, inTokens, outTokens, Route: null, Fields: null, WhatsAppRequest: whatsAppRequest,
                 RetryInMinutes: retryMinutes, RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
-        // El agente pidio reprogramar su propio plazo -> el runner pospone el paso (se reactiva al vencer).
-        if (postponeMinutes is not null)
-        {
-            return new WorkflowAgentInvocationResult(
-                true, Result: null, Comment: null, Error: null,
-                agent.Provider, model, inTokens, outTokens, Route: null, Fields: null,
-                PostponeMinutes: postponeMinutes, RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
-        }
-
         if (string.IsNullOrWhiteSpace(decisionText))
         {
             return WorkflowAgentInvocationResult.Failed(
@@ -499,8 +474,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         }
         // ADR-0124: etiquetar la tarea con el motivo (siempre disponible; el runner aplica lo que el agente pida).
         tools.Add(BuildTagTool());
-        // Reprogramar el propio plazo (siempre disponible; no requiere linea de WhatsApp).
-        tools.Add(BuildPostponeTool());
         return tools;
     }
 
@@ -563,7 +536,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentCallRequest? callRequest = null;
         WorkflowAgentWhatsAppRequest? whatsAppRequest = null;
         int? retryMinutes = null;
-        int? postponeMinutes = null;
         var requestedTags = new List<string>();
         var emailsSent = 0;
         int inTokens = 0, outTokens = 0;
@@ -675,21 +647,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
                         : $$"""{"ok": true, "mensaje": "reintento programado en {{retryMinutes}} min si el cliente no responde"}""";
                 }
-                else if (call.Name == "reprogramar_plazo")
-                {
-                    // El agente pospone su propio disparo: termina el bucle y el runner reprograma el paso (se
-                    // reactiva al vencer; los campos ya fijados se conservan).
-                    postponeMinutes = ReadPostponeMinutes(call.ArgumentsJson);
-                    if (postponeMinutes is int pm)
-                    {
-                        finished = true;
-                        result = $$"""{"ok": true, "mensaje": "plazo reprogramado; el paso se reactivara en {{pm}} min"}""";
-                    }
-                    else
-                    {
-                        result = """{"error": "indica 'dias'/'horas'/'en_minutos' (total 5..43200) para reprogramar el plazo"}""";
-                    }
-                }
                 else if (call.Name == "enviar_correo" && canSendEmail)
                 {
                     // ADR-0093: el agente envia un correo (sincrono, sin pausa; el correo entrante no existe).
@@ -755,16 +712,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
         }
 
-        // El agente pidio reprogramar su propio plazo -> el runner pospone el paso (los campos fijados se conservan).
-        if (postponeMinutes is not null)
-        {
-            return new WorkflowAgentInvocationResult(
-                true, Result: null, Comment: Clip(finalComment, 2000), Error: null,
-                agent.Provider, model, inTokens, outTokens, Route: null,
-                Fields: fields.Count > 0 ? fields : null, PostponeMinutes: postponeMinutes,
-                RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
-        }
-
         if (!finished || fields.Count == 0)
         {
             var why = fields.Count == 0
@@ -827,8 +774,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         }
         // ADR-0124: etiquetar la tarea con el motivo (siempre disponible).
         tools.Add(BuildTagTool());
-        // Reprogramar el propio plazo (siempre disponible; no requiere linea de WhatsApp).
-        tools.Add(BuildPostponeTool());
         return tools;
     }
 
@@ -838,42 +783,6 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         => new("programar_reintento",
             "Programa TU PROPIO siguiente intento por si el cliente no responde a tu pregunta. 'en_minutos' es cuanto esperar antes de reintentar (ej. 1440 = 1 dia; min 5, max 43200). Usala en el MISMO turno que 'preguntar_whatsapp'. Si llega esa hora y el cliente sigue sin responder, volveras a correr con el contexto actualizado para enviarle un recordatorio (o rendirte si ya insististe). Si el cliente responde antes, el reintento se cancela solo.",
             """{"type":"object","properties":{"en_minutos":{"type":"integer"}},"required":["en_minutos"]}""");
-
-    /// <summary>Herramienta para que el agente POSPONGA su propio plazo (reprogramar cuando volver a actuar). A
-    /// diferencia de 'programar_reintento' (que acompana a una pregunta), esta PAUSA el paso por si misma y no
-    /// requiere linea de WhatsApp: sirve para "esperar al lunes" o "contactar en 2 dias".</summary>
-    private static AiToolSpec BuildPostponeTool()
-        => new("reprogramar_plazo",
-            "Pospone TU PROPIO siguiente intento en este paso: el caso queda EN ESPERA y vuelves a correr cuando se " +
-            "cumpla el plazo, con el contexto actualizado. Usala cuando debas esperar antes de volver a actuar (ej. " +
-            "'el cliente pidio que lo contacte en 2 dias', 'esperar al lunes'). Indica el tiempo con 'dias' y/o 'horas' " +
-            "y/o 'en_minutos' (se suman; minimo 5 minutos, maximo 43200 = 30 dias). Esto NO cierra el paso ni elige una " +
-            "ruta: solo lo reprograma.",
-            """{"type":"object","properties":{"dias":{"type":"integer"},"horas":{"type":"integer"},"en_minutos":{"type":"integer"}}}""");
-
-    /// <summary>Lee 'dias'/'horas'/'en_minutos' de 'reprogramar_plazo' y los SUMA en minutos, acotado a [5, 43200]
-    /// (30 dias). Null si no se indico ningun tiempo valido (&gt; 0).</summary>
-    private static int? ReadPostponeMinutes(string argsJson)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
-            var root = doc.RootElement;
-            static int Part(JsonElement root, string name)
-            {
-                if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var e)) { return 0; }
-                return e.ValueKind switch
-                {
-                    JsonValueKind.Number when e.TryGetInt32(out var i) => i,
-                    JsonValueKind.String when int.TryParse(e.GetString(), out var i) => i,
-                    _ => 0
-                };
-            }
-            var total = (Part(root, "dias") * 1440) + (Part(root, "horas") * 60) + Part(root, "en_minutos");
-            return total > 0 ? Math.Clamp(total, 5, 43200) : (int?)null;
-        }
-        catch (JsonException) { return null; }
-    }
 
     /// <summary>Lee 'en_minutos' de 'programar_reintento', acotado a [5, 43200] (30 dias). Null si no es valido.</summary>
     private static int? ReadRetryMinutes(string argsJson)

@@ -891,6 +891,38 @@ else
                     Cuanto deberia DEMORAR el paso. El vencimiento = inicio + esta duracion. "Habil" cuenta solo
                     dias laborales; horas y minutos siempre son tiempo real. Deja todo en 0 para quitar la duracion.
                 </div>
+
+                @* ---- Bloque 3: cadencia de SEGUIMIENTO por plazos (nodos con AGENTE) ---- *@
+                <div class="fe-lbl" style="font-weight:700;margin:14px 0 4px;border-top:1px solid var(--line-2,#eee);padding-top:12px;">Seguimiento (plazos)</div>
+                <div class="fe-acc-note" style="margin-bottom:8px;">
+                    Para un nodo con AGENTE: la cadencia de recordatorios si el cliente no responde. El 1er plazo es
+                    el primer contacto (dejalo en 0 = inmediato); cada siguiente es la espera ANTES del proximo
+                    recordatorio. Al terminar la lista el agente deja de insistir (no se cierra: queda esperando).
+                    Cada recordatorio enviado queda en la bitacora de la tarea.
+                </div>
+                @for (var i = 0; i < _followUps.Count; i++)
+                {
+                    var row = _followUps[i];
+                    var idx = i;
+                    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px;">
+                        <div style="width:24px;text-align:center;font-weight:700;color:var(--t-2,#888);padding-bottom:8px;">@(idx + 1)</div>
+                        <div>
+                            <label class="fe-lbl">Dias</label>
+                            <input class="fe-input sm" type="number" min="0" max="365" style="width:70px" @bind="row.Days" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Horas</label>
+                            <input class="fe-input sm" type="number" min="0" max="23" style="width:70px" @bind="row.Hours" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Minutos</label>
+                            <input class="fe-input sm" type="number" min="0" max="59" style="width:70px" @bind="row.Minutes" />
+                        </div>
+                        <button class="fe-btn" style="padding:6px 10px;" @onclick="@(() => _followUps.RemoveAt(idx))" title="Quitar plazo">&times;</button>
+                    </div>
+                }
+                <button class="fe-btn" @onclick="@(() => _followUps.Add(new FollowUpRow()))">+ Agregar plazo</button>
+
                 @if (!string.IsNullOrEmpty(_slaError))
                 {
                     <div class="fe-acc-note" style="color:var(--t-rose);margin-top:6px;">@_slaError</div>
@@ -2158,6 +2190,9 @@ else
     private int _startHours;
     private int _startMinutes;
     private StepSlaDayMode _startMode = StepSlaDayMode.Calendar;
+    // Cadencia de seguimiento por plazos (nodos con agente): lista editable de esperas entre recordatorios.
+    private sealed class FollowUpRow { public int Days { get; set; } public int Hours { get; set; } public int Minutes { get; set; } }
+    private List<FollowUpRow> _followUps = new();
 
     private void OpenSlaModalAsync()
     {
@@ -2168,6 +2203,8 @@ else
         var start = StepSla.Read(node.StartDelayJson);
         _startImmediate = start.IsEmpty;
         _startDays = start.Days; _startHours = start.Hours; _startMinutes = start.Minutes; _startMode = start.DayMode;
+        _followUps = StepSlaList.ReadRows(node.AgentFollowUpJson)
+            .Select(r => new FollowUpRow { Days = r.Days, Hours = r.Hours, Minutes = r.Minutes }).ToList();
         _slaModalOpen = true;
     }
 
@@ -2188,6 +2225,11 @@ else
             if (!result.IsOk) { _slaError = result.Error; return; }
             var startResult = await DesignSvc.SetNodeStartDelayAsync(node.Id, startJson);
             if (!startResult.IsOk) { _slaError = startResult.Error; return; }
+            // Cadencia de seguimiento: serializa las filas (acotadas) a un JSON array; lista vacia => sin cadencia.
+            var followUpJson = StepSlaList.Build(_followUps.Select(r =>
+                (Math.Clamp(r.Days, 0, 365), Math.Clamp(r.Hours, 0, 23), Math.Clamp(r.Minutes, 0, 59))));
+            var followUpResult = await DesignSvc.SetNodeAgentFollowUpAsync(node.Id, followUpJson);
+            if (!followUpResult.IsOk) { _slaError = followUpResult.Error; return; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _slaModalOpen = false;
         });

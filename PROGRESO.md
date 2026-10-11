@@ -2,6 +2,38 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-11 - Release v0.16.194: cadencia de seguimiento por config + retoma de linea + import de formularios por archivos
+
+- CADENCIA DE SEGUIMIENTO POR CONFIG (reemplaza el tool reprogramar_plazo del dia anterior, que se REVIRTIO a
+  pedido del usuario: "solo el mecanico"). WorkflowNode.AgentFollowUpJson = lista ordenada de plazos
+  {days,hours,minutes} (1er elemento = primer contacto, p.ej. 0=inmediato; siguientes = espera antes de cada
+  recordatorio). WorkflowStepHistory.AgentFollowUpIndex = contador que sobrevive relanzamientos. StepSlaList
+  (parse/build de la lista). WorkflowDesignService.SetNodeAgentFollowUpAsync + draft-copy + DTO + UI en el modal
+  de Plazos del diseñador (bloque "Seguimiento (plazos)", lista editable). El runner (PauseForWhatsAppAsync)
+  calcula AgentNextRetryAt desde la lista por el indice; al agotarse NO insiste mas y NO cierra (AgentDeadlineAt
+  =null, "deja de insistir y espera", decision del usuario); cada recordatorio -> nota en la bitacora de la
+  tarea. Sin cadencia configurada = comportamiento previo (ADR-0121). Migracion dual AddWorkflowAgentFollowUp
+  (agent_follow_up_json en workflow_nodes, agent_follow_up_index en workflow_step_histories).
+- RETOMA DE LINEA (ADR-0122 cambiado): antes el guard "un solo dueno de la linea" BLOQUEABA al nuevo. Ahora
+  gana la TAREA MAS RECIENTE (por TaskItem.CreatedAt). En PauseForWhatsAppAsync, si otro paso vigente tiene el
+  hold del contacto en la linea: si el que actua es de un caso mas nuevo (o igual) TOMA EL CONTROL (hold se
+  transfiere al enviar) y el caso VIEJO se devuelve a una persona (se le limpia PendingWhatsAppConversationId/
+  next_retry/deadline + nota "la linea la tomo un caso mas reciente (Tnnnnn)"), se libera SOLO tras envio OK; si
+  el que actua es mas viejo, se hace a un lado (ReturnToPerson). Helper TaskMetaAsync. Descubierto probando:
+  reusar el mismo numero en varios casos activos chocaba.
+- IMPORT DE FORMULARIOS POR ARCHIVOS (Formularios.razor /formularios): se quito la caja de texto (pegar JSON);
+  ahora <InputFile multiple accept=".json"> (uno o varios archivos, como el import de flujos pero MULTI), importa
+  cada archivo via FormsSvc.ImportAsync (crea nuevo con codigo unico) y muestra resultado por archivo; si solo
+  uno OK abre su constructor. "Disponible en super admin" = ya es la consola unificada (Ecorex.SuperAdmin).
+- Build 0 errores; Ecorex.Application.Tests 1112/1112. Integration dual (Docker) NO corrida. Migracion dual
+  aplicada a BD local al arrancar.
+- NOTA arbol compartido: otra sesion commiteo trabajo de conciliacion-dian (245adf2c..924761d1) + dejo
+  ConciliacionDian.razor/.css MODIFICADOS sin commitear (WIP de ellos, EXCLUIDOS de este commit). Su migracion
+  AddSavedFilters quedo en PG pero FALTA la dual SQL Server (su pendiente; no afecta prod=PostgreSQL).
+- Siguiente: Parte B (arnes del agente del nodo: tool listar formularios/impresiones por nombre + reenviar
+  cotizacion, protegido por el prompt del nodo). El usuario sigue con las pruebas.
+- Bloqueos: ninguno.
+
 ## 2026-10-10 - Agente venta/cierre: bitacora + tool consultar_tarea (SARA) + tool reprogramar_plazo (nodo) (SIN deploy)
 
 - Diagnostico (solo lectura en prod) de una prueba real de SARA (tenant AGROMETALICAS, tel 573217626882): SARA

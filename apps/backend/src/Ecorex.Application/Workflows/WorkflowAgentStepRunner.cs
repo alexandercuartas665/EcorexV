@@ -246,13 +246,6 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             return await PauseForWhatsAppAsync(step, nodeAgent, context, invocation.WhatsAppRequest, invocation.RetryInMinutes, cancellationToken);
         }
 
-        // El agente REPROGRAMO su propio plazo ('reprogramar_plazo'): el paso NO se resuelve; queda EN ESPERA y el
-        // barrido lo vuelve a correr cuando venza (AgentNextRetryAt). No envia nada ni retiene la conversacion.
-        if (invocation.PostponeMinutes is int postponeMin)
-        {
-            return await PostponeStepAsync(step, nodeAgent, postponeMin, cancellationToken);
-        }
-
         // El tipo de nodo decide la FORMA de la decision: una COMPUERTA elige una RUTA (ola B), un Task con
         // formulario lo LLENA (ola C, Fields != null), y un Task de decision fija un RESULTADO.
         var isGateway = context.Node.NodeType == WorkflowNodeType.ExclusiveGateway;
@@ -437,24 +430,38 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             }
         }
 
-        // ADR-0122: UN SOLO DUENO. Si la conversacion con este contacto por esta linea ya la tomo OTRO paso
-        // vigente del flujo, no se toma en paralelo (evita que dos nodos le escriban al mismo cliente y que su
-        // respuesta reanude a ambos). Si el dueno anotado ya no esta vigente, se puede retomar (abajo se re-anota).
+        // ADR-0122 (RETOMA): un solo dueno de la linea, pero gana la tarea MAS RECIENTE. Si la conversacion con
+        // este contacto por esta linea ya la tiene OTRO paso vigente, se compara por fecha de creacion de la tarea:
+        //  - este paso es de un caso MAS NUEVO (o igual) -> TOMA EL CONTROL (el hold se transfiere abajo al enviar)
+        //    y el caso VIEJO se devuelve a una persona (se libera tras un envio OK, no antes);
+        //  - este paso es de un caso MAS VIEJO -> se hace a un lado (no le quita la linea al caso mas reciente).
         var digits = new string(request.Numero.Where(char.IsDigit).ToArray());
         var existingHolder = await _db.Conversations.AsNoTracking()
             .Where(c => c.WhatsAppLineId == lineId && c.ContactPhone == digits && c.FlowHoldStepId != null)
             .Select(c => c.FlowHoldStepId)
             .FirstOrDefaultAsync(cancellationToken);
-        if (existingHolder is Guid holder && holder != step.Id)
+        WorkflowStepHistory? takeoverHolder = null;
+        string? actingTaskNumber = null;
+        if (existingHolder is Guid holderId && holderId != step.Id)
         {
-            var holderActive = await _db.WorkflowStepHistories.AsNoTracking()
-                .AnyAsync(s => s.Id == holder && s.IsCurrent && s.Status == WorkflowStepStatus.Pending, cancellationToken);
-            if (holderActive)
+            var holder = await _db.WorkflowStepHistories
+                .FirstOrDefaultAsync(s => s.Id == holderId, cancellationToken);
+            if (holder is not null && holder.IsCurrent && holder.Status == WorkflowStepStatus.Pending)
             {
-                return await ReturnToPersonAsync(
-                    step, nodeAgent,
-                    "La conversacion con este contacto ya la esta atendiendo otro paso del flujo por la misma linea; no se toma en paralelo.",
-                    cancellationToken);
+                var acting = await TaskMetaAsync(step.InstanceId, cancellationToken);
+                var held = await TaskMetaAsync(holder.InstanceId, cancellationToken);
+                if (acting.CreatedAt >= held.CreatedAt)
+                {
+                    takeoverHolder = holder;        // se libera DESPUES de enviar (si el envio falla, no se toca)
+                    actingTaskNumber = acting.Number;
+                }
+                else
+                {
+                    return await ReturnToPersonAsync(
+                        step, nodeAgent,
+                        $"La linea de este contacto la esta atendiendo un caso mas reciente ({held.Number}); este paso queda para una persona.",
+                        cancellationToken);
+                }
             }
         }
 
@@ -466,6 +473,22 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             return await ReturnToPersonAsync(
                 step, nodeAgent, $"No se pudo enviar el WhatsApp: {sent.Error}", cancellationToken);
+        }
+
+        // RETOMA: el envio salio -> se devuelve a una persona el caso VIEJO que tenia la linea, y se le limpia la
+        // espera de WhatsApp para que la respuesta del cliente reanude SOLO este caso (el mas reciente).
+        if (takeoverHolder is not null)
+        {
+            takeoverHolder.AgentAttemptedAt ??= _clock.GetUtcNow();   // ya no lo re-barre el gestor de plazos
+            takeoverHolder.PendingWhatsAppConversationId = null;      // suelta la conversacion (la toma este paso)
+            takeoverHolder.AgentNextRetryAt = null;
+            takeoverHolder.AgentDeadlineAt = null;
+            takeoverHolder.ExecutedByAiAgentId = null;
+            takeoverHolder.AgentFailureReason = Clip(
+                $"La linea de WhatsApp la tomo un caso mas reciente ({actingTaskNumber}); este caso queda para atencion humana.", 500);
+            await AddTaskNoteAsync(takeoverHolder,
+                $"la linea de WhatsApp de este contacto la tomo un caso mas reciente ({actingTaskNumber}); el paso queda para una persona",
+                cancellationToken);
         }
 
         // PAUSA: el paso sigue vigente y Pending, marcado como en espera de esta conversacion. AgentAttemptedAt
@@ -482,16 +505,41 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             heldConv.FlowHoldStepId = step.Id;
             heldConv.FlowHoldNodeId = step.NodeId;
         }
-        // Fecha limite (B): si la respuesta nunca llega, el reaper cerrara el paso pasada esta hora.
-        step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
-        // ADR-0121: si el agente se auto-reprogramo ("por si no responde"), se estampa el reintento. Al cumplirse
-        // (sin respuesta del cliente) el barrido re-corre al agente para que envie un recordatorio.
-        step.AgentNextRetryAt = retryMinutes is int rm ? _clock.GetUtcNow().AddMinutes(rm) : null;
+        // CADENCIA POR CONFIG (gestor de plazos): si el NODO tiene una lista de plazos de seguimiento, el "cuando"
+        // del proximo relanzamiento lo manda esa lista (no el modelo). AgentFollowUpIndex cuenta los recordatorios
+        // ya enviados y sobrevive a los relanzamientos. Tras agotarse la lista, el agente DEJA de insistir (no se
+        // cierra: el paso queda vigente esperando respuesta o a una persona) -> sin fecha limite dura.
+        var now = _clock.GetUtcNow();
+        var followUpJson = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.Id == step.NodeId).Select(n => n.AgentFollowUpJson)
+            .FirstOrDefaultAsync(cancellationToken);
+        var schedule = StepSlaList.ReadMinutes(followUpJson);
+        int sentSoFar = 0;
+        if (schedule.Count > 0)
+        {
+            sentSoFar = step.AgentFollowUpIndex + 1;         // contando el recordatorio recien enviado
+            step.AgentFollowUpIndex = sentSoFar;
+            // El 1er elemento de la lista (indice 0) es el primer contacto; los siguientes son la espera ANTES de
+            // cada recordatorio. Un plazo en 0 (o fuera de rango) = fin de la cadencia (no re-dispara en bucle).
+            var nextMin = sentSoFar < schedule.Count ? schedule[sentSoFar] : 0;
+            step.AgentNextRetryAt = nextMin > 0 ? now.AddMinutes(nextMin) : null;
+            step.AgentDeadlineAt = null;                      // sin agotar (lo pidio el usuario): no se cierra por tiempo
+        }
+        else
+        {
+            // Sin cadencia configurada: comportamiento previo. Fecha limite dura (B) + reintento que el propio
+            // agente se auto-programo (ADR-0121, herramienta 'programar_reintento').
+            step.AgentDeadlineAt = now.AddHours(WaitTimeoutHours);
+            step.AgentNextRetryAt = retryMinutes is int rm ? now.AddMinutes(rm) : null;
+        }
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
-        await AddTaskNoteAsync(step,
-            $"el agente pregunto por WhatsApp para conseguir un dato ('{Clip(request.Pregunta, 200)}'); el paso espera la respuesta",
-            cancellationToken);
+        var nota = schedule.Count > 0
+            ? (step.AgentNextRetryAt is not null
+                ? $"gestor de plazos: recordatorio {sentSoFar} enviado al cliente por WhatsApp ('{Clip(request.Pregunta, 160)}'); proximo intento programado si no responde"
+                : $"gestor de plazos: recordatorio {sentSoFar} enviado al cliente por WhatsApp ('{Clip(request.Pregunta, 160)}'); fin de la cadencia, el paso queda esperando respuesta")
+            : $"el agente pregunto por WhatsApp para conseguir un dato ('{Clip(request.Pregunta, 200)}'); el paso espera la respuesta";
+        await AddTaskNoteAsync(step, nota, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {
@@ -502,40 +550,6 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             "El agente {AgentId} pregunto por WhatsApp (conv {ConversationId}) en el paso {StepId}; queda en espera.",
             nodeAgent.AiAgentId, conversationId, step.Id);
         return WorkflowAgentStepOutcome.WaitingForReply;
-    }
-
-    /// <summary>
-    /// El agente REPROGRAMO su propio plazo ('reprogramar_plazo'): el paso NO se resuelve ni envia nada; queda EN
-    /// ESPERA (sigue IsCurrent/Pending) con AgentNextRetryAt = ahora + N min. AgentAttemptedAt bloquea el
-    /// re-barrido normal hasta que el reloj del reintento venza; ahi el dispatcher limpia ambos (AgentAttemptedAt y
-    /// AgentNextRetryAt) y el paso vuelve a correr como un intento fresco (mismo mecanismo que ADR-0121). Se fija
-    /// AgentDeadlineAt DESPUES del reintento como red de seguridad: el reaper solo cerraria el paso si, ya
-    /// reactivado, siguiera sin resolverse pasado el tope de espera.
-    /// </summary>
-    private async Task<WorkflowAgentStepOutcome> PostponeStepAsync(
-        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, int minutes, CancellationToken cancellationToken)
-    {
-        var now = _clock.GetUtcNow();
-        step.AgentAttemptedAt = now;                       // bloquea el re-barrido normal hasta que venza el plazo
-        step.AgentNextRetryAt = now.AddMinutes(minutes);   // el barrido lo reactiva al cumplirse
-        step.ExecutedByAiAgentId = null;                   // todavia no ejecuto: solo se pospuso
-        // Red de seguridad: el tope de espera cuenta DESPUES del reintento (no antes, para no reapear un plazo largo).
-        step.AgentDeadlineAt = now.AddMinutes(minutes).AddHours(WaitTimeoutHours);
-
-        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
-        await AddTaskNoteAsync(step,
-            $"el agente reprogramo su proximo intento en {minutes} min; el paso queda en espera y se reactivara al vencer el plazo",
-            cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
-        if (transaction is not null)
-        {
-            await transaction.CommitAsync(cancellationToken);
-        }
-
-        _logger.LogInformation(
-            "El agente {AgentId} reprogramo el plazo del paso {StepId} en {Minutes} min; queda en espera.",
-            nodeAgent.AiAgentId, step.Id, minutes);
-        return WorkflowAgentStepOutcome.Postponed;
     }
 
     /// <summary>Mapea la 'ruta' que devolvio el agente (clave = BpmnElementId del destino, o su nombre) a un
@@ -992,6 +1006,18 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// Deja la nota en la bitacora de la tarea asociada (si el flujo nacio de una). Es lo que hace
     /// legible el episodio para el humano que abre el caso, sin obligarlo a mirar el historial tecnico.
     /// </summary>
+    /// <summary>Fecha de creacion + numero de la TAREA detras de una instancia de flujo, para decidir la "tarea
+    /// mas reciente" en la retoma de linea (ADR-0122). Si la instancia no tiene tarea, devuelve MinValue/"?".</summary>
+    private async Task<(DateTimeOffset CreatedAt, string Number)> TaskMetaAsync(Guid instanceId, CancellationToken cancellationToken)
+    {
+        var meta = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == instanceId)
+            .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, t => t.Id,
+                (i, t) => new { t.CreatedAt, t.Number })
+            .FirstOrDefaultAsync(cancellationToken);
+        return meta is null ? (DateTimeOffset.MinValue, "?") : (meta.CreatedAt, meta.Number);
+    }
+
     private async Task AddTaskNoteAsync(WorkflowStepHistory step, string text, CancellationToken cancellationToken)
     {
         var taskId = await _db.WorkflowInstances.AsNoTracking()

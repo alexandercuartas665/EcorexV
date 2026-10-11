@@ -63,6 +63,9 @@ public sealed record FlowCanvasNodeDto(
     string? SlaJson = null,
     // Tiempo para ARRANCAR el paso (Plazos v2, ADR-0119), mismo shape que SlaJson. Null = Inmediato.
     string? StartDelayJson = null,
+    // Cadencia de seguimiento por plazos (lista de esperas entre recordatorios del agente), JSON array de
+    // {days,hours,minutes}. Null/vacio = sin cadencia. Metadato, no viaja en el XML.
+    string? AgentFollowUpJson = null,
     // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
     int? RuntimeLayoutDx = null,
     int? RuntimeLayoutDy = null,

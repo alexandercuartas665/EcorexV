@@ -7,6 +7,7 @@
 @using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Pages.Conciliacion
+@using ClosedXML.Excel
 @inject IConciliacionDianService Svc
 @inject IUserTablePrefsService Prefs
 @inject ISavedFilterService SavedFilters
@@ -246,6 +247,12 @@ else
                 </div>
             }
         </div>
+
+        @* Exportar a Excel: respeta filtro, columnas visibles, orden y agrupacion (con subtotales) ACTUALES *@
+        <button class="cd-tbtn" @onclick="ExportExcelAsync" disabled="@_busy" title="Exporta a Excel respetando el filtro, las columnas y la agrupacion actuales (incluye subtotales y total general)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span>Exportar Excel</span>
+        </button>
 
         <div class="cd-toolbar-spacer"></div>
         @if (_groups.Count > 0)
@@ -659,6 +666,107 @@ else
             _ => "",
         };
         return string.IsNullOrWhiteSpace(v) ? "(sin dato)" : v;
+    }
+
+    // Valor de texto crudo por columna para una FILA (export): como GroupText pero sin el "(sin dato)".
+    private static string CellStr(string key, ConciliacionDianRenglonDto r) => key switch
+    {
+        "tipodoc" => r.TipoDocDian,
+        "fecha" => r.FechaEmision.ToString("dd/MM/yyyy"),
+        "proveedor" => r.NombreProveedor,
+        "nit" => r.NitProveedor,
+        "numprov" => r.NumFacturaProveedor,
+        "numsol" => r.NumFacturaSoldarco,
+        "oc" => r.OrdenCompraSoldarco,
+        "tipopago" => r.TipoPago,
+        "plataforma" => r.PlataformaProveedor ? "Si" : "No",
+        "aprobada" => r.FacturaAprobada ? "Aprobada" : "Pendiente",
+        "rut" => r.RutEscaneado ?? "",
+        "ev30" => r.Evento30 ? "Si" : "No",
+        "ev32" => r.Evento32 ? "Si" : "No",
+        "ev33" => r.Evento33 ? "Si" : "No",
+        "ev31" => r.Evento31 ? "Si" : "No",
+        "ev34" => r.Evento34 ? "Si" : "No",
+        _ => "",
+    };
+
+    // Exporta a Excel EXACTAMENTE la vista actual (_gridItems): columnas visibles en su orden, filtro,
+    // ordenamiento y agrupacion con cabeceras de grupo + subtotales + TOTAL GENERAL.
+    private async Task ExportExcelAsync()
+    {
+        if (_busy) { return; }
+        _busy = true; _msg = null;
+        try
+        {
+            var vis = VisibleCols().ToList();
+            if (vis.Count == 0) { _msg = "No hay columnas visibles para exportar."; return; }
+            var lblCol = vis.FindIndex(c => !c.Num); if (lblCol < 0) { lblCol = 0; } // etiqueta de subtotal en la 1a col no numerica
+
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Conciliacion DIAN");
+            var rowN = 1;
+
+            // Encabezado
+            for (var i = 0; i < vis.Count; i++)
+            {
+                var cell = ws.Cell(rowN, i + 1);
+                cell.Value = vis[i].Label;
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F2937");
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = vis[i].Num ? XLAlignmentHorizontalValues.Right : XLAlignmentHorizontalValues.Left;
+            }
+            ws.SheetView.FreezeRows(1);
+            rowN++;
+
+            foreach (var it in _gridItems)
+            {
+                if (it.Kind == GKind.Group)
+                {
+                    var cell = ws.Cell(rowN, 1);
+                    cell.Value = it.Label ?? "";
+                    ws.Range(rowN, 1, rowN, vis.Count).Merge();
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+                    if (it.Level > 0) { cell.Style.Alignment.Indent = it.Level; }
+                    rowN++;
+                }
+                else if (it.Kind == GKind.Data && it.R is { } r)
+                {
+                    for (var i = 0; i < vis.Count; i++)
+                    {
+                        var c = vis[i];
+                        var cell = ws.Cell(rowN, i + 1);
+                        if (_moneyKeys.Contains(c.Key)) { cell.Value = Money(c.Key, r); cell.Style.NumberFormat.Format = "#,##0.00"; }
+                        else if (c.Key == "fecha") { cell.Value = r.FechaEmision.DateTime; cell.Style.DateFormat.Format = "dd/MM/yyyy"; }
+                        else { cell.Value = CellStr(c.Key, r); }
+                    }
+                    rowN++;
+                }
+                else if (it.Kind == GKind.Subtotal)
+                {
+                    for (var i = 0; i < vis.Count; i++)
+                    {
+                        var c = vis[i];
+                        var cell = ws.Cell(rowN, i + 1);
+                        if (c.Num && it.Sums is { } s && s.TryGetValue(c.Key, out var sv)) { cell.Value = sv; cell.Style.NumberFormat.Format = "#,##0.00"; }
+                        cell.Style.Font.Bold = true;
+                        cell.Style.Fill.BackgroundColor = it.Grand ? XLColor.FromHtml("#D1D5DB") : XLColor.FromHtml("#F3F4F6");
+                    }
+                    ws.Cell(rowN, lblCol + 1).Value = (it.Grand ? "TOTAL GENERAL" : "Subtotal") + " · " + it.Count + " reg.";
+                    rowN++;
+                }
+            }
+
+            ws.Columns().AdjustToContents();
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            var fname = $"Conciliacion_DIAN_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", fname, Convert.ToBase64String(ms.ToArray()),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex) { _msg = "Error al exportar a Excel: " + ex.Message; }
+        finally { _busy = false; }
     }
 
     private sealed class ObjCmp : IComparer<object?>

@@ -66,6 +66,11 @@ public sealed record FlowCanvasNodeDto(
     // Cadencia de seguimiento por plazos (lista de esperas entre recordatorios del agente), JSON array de
     // {days,hours,minutes}. Null/vacio = sin cadencia. Metadato, no viaja en el XML.
     string? AgentFollowUpJson = null,
+    // Tope configurable de preguntas/recordatorios por WhatsApp por actividad antes de pasar a una persona.
+    // Null = valor por defecto del codigo. Metadato, no viaja en el XML.
+    int? AgentMaxAsks = null,
+    // Traspaso por salida de compuerta: mapa JSON { BpmnElementId destino -> nota para SARA }. Null = sin traspaso.
+    string? AgentRouteHandoffJson = null,
     // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
     int? RuntimeLayoutDx = null,
     int? RuntimeLayoutDy = null,

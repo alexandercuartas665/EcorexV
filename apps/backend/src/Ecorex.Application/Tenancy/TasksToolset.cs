@@ -119,6 +119,14 @@ public sealed class TasksToolset : ITasksToolset
         var priorTurn = AgentTaskIdempotency.TryGetTurnResult("crear_tarea");
         if (priorTurn is not null) { return new AgentToolResult(priorTurn, SessionCompleted: true); }
 
+        // Candado de cierre-por-flujo: si un flujo ya cerro este caso (conversacion marcada), SARA NO crea una
+        // tarea (el flujo es el dueno; evita duplicados aunque el modelo lo pida). NO-OP, sin cerrar sesion.
+        if (AiToolRunContext.ConversationId is Guid flowConvId
+            && await AgentTaskIdempotency.IsFlowHandledCloseAsync(_db, flowConvId, DateTimeOffset.UtcNow, ct))
+        {
+            return Ok(new { ok = true, idempotente = true, mensaje = "El caso ya fue cerrado y gestionado por un flujo; no se crea una tarea nueva." });
+        }
+
         var tableroNombre = Str(args, "tablero");
         var titulo = Str(args, "titulo");
         if (string.IsNullOrWhiteSpace(titulo)) { return Err("Falta el titulo de la tarea (titulo)."); }

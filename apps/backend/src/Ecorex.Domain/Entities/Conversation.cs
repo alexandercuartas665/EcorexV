@@ -57,4 +57,17 @@ public class Conversation : TenantEntity
     /// <summary>ADR-0122: el NODO del flujo que tomo esta conversacion (ver <see cref="FlowHoldStepId"/>). Es "el
     /// id del nodo que lo hizo", para atender la respuesta desde ese flujo y ese nodo.</summary>
     public Guid? FlowHoldNodeId { get; set; }
+
+    /// <summary>
+    /// CIERRE-POR-FLUJO (traspaso a SARA): cuando el agente de un flujo enruta la compuerta de cierre de este caso,
+    /// se estampa AQUI el momento. SARA (agente de la linea) lee esta marca para NO crear tarea/lead duplicados: el
+    /// caso ya lo gestiono el flujo. Acotado a la actividad por <see cref="FlowHandledTaskId"/>. Se limpia cuando un
+    /// flujo NUEVO toma la linea (el flujo que entra es el que atiende) y se ignora pasada una ventana corta (para
+    /// no bloquear un cierre legitimo futuro en la misma conversacion). Null = no hay cierre-por-flujo pendiente.
+    /// </summary>
+    public DateTimeOffset? FlowHandledCloseAt { get; set; }
+
+    /// <summary>La ACTIVIDAD (tarea) cuyo cierre gestiono el flujo (ver <see cref="FlowHandledCloseAt"/>). Acota la
+    /// marca a ese caso. Null = sin cierre-por-flujo pendiente.</summary>
+    public Guid? FlowHandledTaskId { get; set; }
 }

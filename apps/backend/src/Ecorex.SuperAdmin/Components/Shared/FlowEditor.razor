@@ -423,6 +423,39 @@ else
                                   placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
                     </div>
 
+                    @* Tope CONFIGURABLE de conversaciones por WhatsApp por actividad (antes estaba fijo en el codigo). *@
+                    <div>
+                        <label class="fe-label">MAXIMO DE CONVERSACIONES POR ACTIVIDAD</label>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <input class="fe-input sm" type="number" min="0" max="50" style="width:90px" @bind="_maxAsks" placeholder="4" />
+                            <span class="fe-acc-note" style="margin:0;flex:1;">Cuantas veces el agente le escribe al cliente por WhatsApp en UNA actividad antes de pasar el paso a una persona (se cuenta por actividad, arranca en cero). 0 = usar el valor por defecto (4).</span>
+                        </div>
+                    </div>
+
+                    @* TRASPASO POR SALIDA (solo compuertas con >=2 salidas): nota por salida que el flujo le deja a
+                       SARA (agente de la linea) al enrutar. Gobierna como sigue SARA y evita que cree duplicados. *@
+                    @if (agentNode.NodeType == WorkflowNodeType.ExclusiveGateway)
+                    {
+                        var handoffRoutes = GatewayRoutesFor(agentNode);
+                        @if (handoffRoutes.Count >= 2)
+                        {
+                            <div>
+                                <label class="fe-label">NOTA PARA SARA AL TOMAR CADA SALIDA (TRASPASO)</label>
+                                <span class="fe-acc-note" style="margin:0 0 6px;display:block;">Cuando el agente enruta la compuerta por una salida, el flujo le deja esta nota a SARA (el agente de la linea) para que sepa como continuar. Mientras la nota este vigente, SARA <b>no</b> crea tareas ni leads por ese cierre (el flujo ya gestiona el caso). Deja una salida vacia para no enviar nada.</span>
+                                @foreach (var r in handoffRoutes)
+                                {
+                                    var rk = r.Key;
+                                    <div style="margin-bottom:8px;">
+                                        <label class="fe-label" style="font-weight:600;text-transform:none;">@r.Label</label>
+                                        <textarea class="fe-textarea" value="@RouteHandoffFor(rk)"
+                                                  @oninput="@(e => _routeHandoffs[rk] = e.Value?.ToString() ?? string.Empty)"
+                                                  placeholder="Ej: El cliente acepto; agradece y confirma que el equipo procede con el pedido. No crees tareas ni leads."></textarea>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
                     @* AYUDA: que herramientas tiene el agente y como pedirselas desde el prompt extra. Va en un
                        acordeon (<details>) cerrado por defecto para no ocupar espacio en el modal. *@
                     <details class="fe-help">
@@ -895,10 +928,10 @@ else
                 @* ---- Bloque 3: cadencia de SEGUIMIENTO por plazos (nodos con AGENTE) ---- *@
                 <div class="fe-lbl" style="font-weight:700;margin:14px 0 4px;border-top:1px solid var(--line-2,#eee);padding-top:12px;">Seguimiento (plazos)</div>
                 <div class="fe-acc-note" style="margin-bottom:8px;">
-                    Para un nodo con AGENTE: la cadencia de recordatorios si el cliente no responde. El 1er plazo es
-                    el primer contacto (dejalo en 0 = inmediato); cada siguiente es la espera ANTES del proximo
-                    recordatorio. Al terminar la lista el agente deja de insistir (no se cierra: queda esperando).
-                    Cada recordatorio enviado queda en la bitacora de la tarea.
+                    Para un nodo con AGENTE: la cadencia de recordatorios si el cliente no responde. El primer
+                    contacto es INMEDIATO; cada plazo de la lista es la espera ANTES del siguiente recordatorio.
+                    Ej. 10 min y luego 20 min = recordar a los 10, luego a los 20, y luego dejar de insistir (no se
+                    cierra: queda esperando). Cada recordatorio enviado queda en la bitacora de la tarea.
                 </div>
                 @for (var i = 0; i < _followUps.Count; i++)
                 {
@@ -1880,6 +1913,8 @@ else
     {
         _agentSaved = _nodeAgent;
         _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+        _maxAsks = Selected?.AgentMaxAsks ?? 0;   // tope de conversaciones por actividad (0 = por defecto)
+        LoadRouteHandoffs(Selected);              // notas de traspaso por salida (compuerta)
         _agentModalOpen = true;
     }
 
@@ -1888,6 +1923,8 @@ else
     {
         _nodeAgent = _agentSaved;
         _agentExtraPromptDraft = _agentSaved?.ExtraPrompt;
+        _maxAsks = Selected?.AgentMaxAsks ?? 0;
+        LoadRouteHandoffs(Selected);
         _agentModalOpen = false;
     }
 
@@ -1914,7 +1951,19 @@ else
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
-            // Fuente de verdad: recargar lo persistido y cerrar.
+            // Tope de conversaciones por actividad (metadato del nodo): 0 = por defecto (null).
+            var maxAsksRes = await DesignSvc.SetNodeAgentMaxAsksAsync(node.Id, _maxAsks > 0 ? _maxAsks : (int?)null);
+            if (!maxAsksRes.IsOk) { _error = maxAsksRes.Error; return; }
+            // Traspaso por salida (compuerta): nota por salida para SARA. Se omiten salidas vacias; el servicio
+            // normaliza y guarda null si no queda ninguna. Metadato del nodo, editable sobre publicada.
+            var handoffMap = _routeHandoffs
+                .Where(kv => !string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.Trim());
+            var handoffJson = handoffMap.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(handoffMap) : null;
+            var handoffRes = await DesignSvc.SetNodeAgentRouteHandoffAsync(node.Id, handoffJson);
+            if (!handoffRes.IsOk) { _error = handoffRes.Error; return; }
+            // Fuente de verdad: recargar lo persistido (canvas para el nodo + agente) y cerrar.
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
             _agentModalOpen = false;
@@ -2193,6 +2242,27 @@ else
     // Cadencia de seguimiento por plazos (nodos con agente): lista editable de esperas entre recordatorios.
     private sealed class FollowUpRow { public int Days { get; set; } public int Hours { get; set; } public int Minutes { get; set; } }
     private List<FollowUpRow> _followUps = new();
+    // Tope de conversaciones por actividad del AGENTE del nodo (0 = usar el valor por defecto del codigo).
+    private int _maxAsks;
+    // Traspaso por salida (compuerta con agente): nota por salida que el flujo le deja a SARA. Key = BpmnElementId
+    // del nodo destino de la salida (igual que GatewayRoutesFor / ResolveRouteTargetAsync).
+    private Dictionary<string, string> _routeHandoffs = new();
+
+    private string RouteHandoffFor(string routeKey)
+        => _routeHandoffs.TryGetValue(routeKey, out var v) ? v : string.Empty;
+
+    /// <summary>Carga el mapa de traspaso por salida desde el JSON del nodo (BpmnElementId destino -> nota).</summary>
+    private void LoadRouteHandoffs(FlowCanvasNodeDto? node)
+    {
+        _routeHandoffs = new();
+        if (string.IsNullOrWhiteSpace(node?.AgentRouteHandoffJson)) { return; }
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(node!.AgentRouteHandoffJson!);
+            if (map is not null) { _routeHandoffs = map; }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido: se trata como sin traspaso */ }
+    }
 
     private void OpenSlaModalAsync()
     {

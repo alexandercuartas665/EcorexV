@@ -42,6 +42,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly Voice.IRetellVoiceService _voice;
     private readonly IWorkflowAgentWhatsApp _whatsApp;
     private readonly IAgentProgressBroadcaster _progress;
+    private readonly ITaskBroadcaster _taskBroadcaster;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
 
@@ -80,6 +81,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         Voice.IRetellVoiceService voice,
         IWorkflowAgentWhatsApp whatsApp,
         IAgentProgressBroadcaster progress,
+        ITaskBroadcaster taskBroadcaster,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -93,31 +95,78 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _voice = voice;
         _whatsApp = whatsApp;
         _progress = progress;
+        _taskBroadcaster = taskBroadcaster;
         _clock = clock;
         _logger = logger;
     }
 
     public async Task<WorkflowAgentStepOutcome> RunAsync(Guid stepId, CancellationToken cancellationToken = default)
     {
-        // ---- Fase 1: leer ----
+        // ---- Fase 1: RECLAMAR el paso (claim atomico) ----
 
-        // Sin filtro manual por TenantId (regla 1 de CLAUDE.md): un paso de otro tenant simplemente
-        // no existe para esta consulta, asi que el aislamiento no depende de que nadie se acuerde.
+        // Antes de nada se RECLAMA el paso con un UPDATE condicional: marca AgentAttemptedAt solo si el paso
+        // SIGUE vigente, Pending y SIN intentar. Esto evita que DOS despachadores -incluso de procesos
+        // distintos que comparten la misma BD de desarrollo- corran el MISMO paso en paralelo. Ese era el bug
+        // que cerraba "no desea comprar" por silencio: una instancia preguntaba por WhatsApp y otra (con un
+        // binario viejo, sin el guard de seguimiento) enrutaba la compuerta a la vez. Con el claim, solo UNA
+        // corrida gana el UPDATE y el resto se retira. Sin filtro manual por TenantId (regla 1 de CLAUDE.md):
+        // el filtro global ya excluye del UPDATE cualquier paso de otro tenant.
+        var claimedAt = _clock.GetUtcNow();
+        var claimed = await _db.WorkflowStepHistories
+            .Where(s => s.Id == stepId && s.IsCurrent && s.Status == WorkflowStepStatus.Pending
+                && s.AgentAttemptedAt == null && (s.StartAt == null || s.StartAt <= claimedAt))
+            .ExecuteUpdateAsync(
+                set => set.SetProperty(s => s.AgentAttemptedAt, (DateTimeOffset?)claimedAt), cancellationToken);
+        if (claimed == 0)
+        {
+            // Otra corrida ya lo tomo, o ya no aplica (cerrado, no vigente, o aun no arranca): nada que hacer.
+            return WorkflowAgentStepOutcome.AlreadyAttempted;
+        }
+
+        // La entidad rastreada se materializa DESPUES del claim, asi su token de concurrencia (xmin) ya refleja
+        // el UPDATE y el SaveChanges posterior del paso no choca con el propio claim.
         var step = await _db.WorkflowStepHistories.FirstOrDefaultAsync(s => s.Id == stepId, cancellationToken);
         if (step is null)
         {
             return WorkflowAgentStepOutcome.NotApplicable;
         }
-        if (!step.IsCurrent || step.Status != WorkflowStepStatus.Pending)
-        {
-            // El paso ya se cerro (o lo cerro una persona mientras el barrido lo tomaba).
-            return WorkflowAgentStepOutcome.NotApplicable;
-        }
-        if (step.AgentAttemptedAt is not null)
-        {
-            return WorkflowAgentStepOutcome.AlreadyAttempted;
-        }
 
+        try
+        {
+            return await RunClaimedAsync(step, cancellationToken);
+        }
+        catch
+        {
+            // El paso revento sin resolverse: se SUELTA el claim (solo si sigue siendo el nuestro y el paso no
+            // avanzo) para que el proximo ciclo del despachador lo reintente, igual que antes de existir el claim.
+            await ReleaseClaimAsync(stepId, claimedAt);
+            throw;
+        }
+    }
+
+    /// <summary>Suelta el claim atomico (AgentAttemptedAt) de un paso que revento sin resolverse, para que el
+    /// proximo ciclo del despachador lo reintente. Solo lo suelta si SIGUE siendo nuestro claim (misma marca) y
+    /// el paso no avanzo (vigente y Pending): asi nunca "revive" un paso que si se resolvio por otra via. Corre
+    /// con CancellationToken.None (debe soltar aunque el error haya sido una cancelacion) y es best-effort: nunca
+    /// tapa la excepcion original.</summary>
+    private async Task ReleaseClaimAsync(Guid stepId, DateTimeOffset claimedAt)
+    {
+        try
+        {
+            await _db.WorkflowStepHistories
+                .Where(s => s.Id == stepId && s.AgentAttemptedAt == claimedAt
+                    && s.IsCurrent && s.Status == WorkflowStepStatus.Pending)
+                .ExecuteUpdateAsync(
+                    set => set.SetProperty(s => s.AgentAttemptedAt, (DateTimeOffset?)null), CancellationToken.None);
+        }
+        catch { /* best-effort: soltar el claim nunca debe ocultar el error que lo provoco */ }
+    }
+
+    /// <summary>Cuerpo del paso una vez RECLAMADO (ver RunAsync): arma el contexto, llama al proveedor y decide.
+    /// Se separo de RunAsync para que el claim atomico y la liberacion en caso de error queden en un solo lugar.</summary>
+    private async Task<WorkflowAgentStepOutcome> RunClaimedAsync(
+        WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
         var nodeAgent = await _db.WorkflowNodeAgents.AsNoTracking()
             .FirstOrDefaultAsync(a => a.NodeId == step.NodeId, cancellationToken);
         if (nodeAgent is null)
@@ -207,6 +256,34 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         AppendRun(step, attemptNo, runTokens, rounds,
             invocation.Ok ? "ok" : ("no pudo: " + (invocation.Error ?? "sin detalle")));
 
+        // Bitacora del agente (/bitacora-agente): se registra SIEMPRE (antes solo cuando el agente resolvia OK)
+        // el CONTEXTO que recibio el agente (con el mapa del flujo y la respuesta fresca del cliente) y su DECISION
+        // -incluidos los "no pudo" y los "sigue esperando"-, para ver QUE recibio y POR QUE decidio asi. El agente
+        // de la linea (SARA) tambien lo lee como contexto. Best-effort: nunca rompe el paso.
+        try { await LogAgentDecisionToBitacoraAsync(step, context, invocation, cancellationToken); }
+        catch (Exception ex) { _logger.LogWarning(ex, "No se pudo registrar la decision del agente en /bitacora-agente (paso {StepId}).", step.Id); }
+
+        // GUARD DE SEGUIMIENTO (raiz del bug de "la linea perdida"): una COMPUERTA con cadencia NUNCA se rinde por
+        // SILENCIO. Si el cliente no ha dado una respuesta fresca y el agente NO eligio enviar un recordatorio ni
+        // llamar, el paso SIGUE EN ESPERA -aunque el agente haya dicho "no puedo decidir" o la corrida fallara-: no
+        // se devuelve a una persona ni se suelta la conversacion. Si se soltara, SARA retomaria la linea y cerraria
+        // el caso por su cuenta (creando tarea/lead), que es justo lo que no queremos. Va ANTES del chequeo !Ok
+        // porque "debo esperar la respuesta" vuelve como !Ok y antes caia a ReturnToPerson.
+        if (context.Node.NodeType == WorkflowNodeType.ExclusiveGateway
+            && context.WhatsAppReplyResult is null
+            && invocation.WhatsAppRequest is null && invocation.CallRequest is null)
+        {
+            var waitFollowUpJson = await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.Id == step.NodeId).Select(n => n.AgentFollowUpJson)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(waitFollowUpJson))
+            {
+                _logger.LogInformation(
+                    "Paso {StepId}: compuerta de seguimiento SIN respuesta fresca del cliente; se mantiene EN ESPERA (no se devuelve a persona por silencio).", step.Id);
+                return await KeepWaitingForReplyAsync(step, nodeAgent, waitFollowUpJson!, cancellationToken);
+            }
+        }
+
         if (!invocation.Ok)
         {
             return await ReturnToPersonAsync(
@@ -214,13 +291,6 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 invocation.Error ?? "El agente no pudo resolver el paso.",
                 cancellationToken);
         }
-
-        // Bitacora del agente (/bitacora-agente): si el paso atiende a un cliente por WhatsApp (el nodo tiene
-        // linea y la tarea tiene telefono con conversacion), se deja el CONTEXTO que recibio el agente (con el
-        // mapa del flujo) y su DECISION, atribuidos al agente de la linea. Asi el razonamiento del agente del
-        // nodo (no solo "preguntó/respondió") queda visible para depurar. Best-effort: nunca rompe el paso.
-        try { await LogAgentDecisionToBitacoraAsync(step, context, invocation, cancellationToken); }
-        catch (Exception ex) { _logger.LogWarning(ex, "No se pudo registrar la decision del agente en /bitacora-agente (paso {StepId}).", step.Id); }
 
         // ADR-0124: el agente pidio etiquetar la tarea (el motivo con matiz) via 'etiquetar_tarea'. Se resuelven/
         // crean en el catalogo del tenant y se asignan a la tarea. Best-effort: nunca rompe el paso.
@@ -257,6 +327,17 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         string? routeLabel = null;
         if (isGateway)
         {
+            // GUARD SEGUIMIENTO (decision del usuario): un nodo con CADENCIA de seguimiento ESPERA la respuesta
+            // del cliente. El agente NO decide la compuerta por su cuenta: solo enruta cuando el cliente da una
+            // respuesta REAL (WhatsAppReplyResult). Sin respuesta nueva, el paso SIGUE EN ESPERA -nunca se rinde,
+            // ni siquiera agotada la cadencia- en vez de cerrar "no desea comprar" por silencio.
+            var followUpJson = await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.Id == step.NodeId).Select(n => n.AgentFollowUpJson)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(followUpJson) && context.WhatsAppReplyResult is null)
+            {
+                return await KeepWaitingForReplyAsync(step, nodeAgent, followUpJson!, cancellationToken);
+            }
             if (string.IsNullOrWhiteSpace(invocation.Route))
             {
                 return await ReturnToPersonAsync(
@@ -325,6 +406,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                     step, nodeAgent,
                     $"El agente eligio {decision} pero el flujo no lo acepto: {completed.Error}",
                     cancellationToken);
+            }
+            // Traspaso por salida (compuerta): si el nodo tiene una nota configurada para la salida elegida, el
+            // flujo se la deja a SARA (como mensaje de la conversacion) y marca el caso como cerrado-por-flujo para
+            // que SARA no cree duplicados. Best-effort: nunca rompe el paso ya cerrado.
+            if (isGateway && routeTargetId is Guid handoffTargetId)
+            {
+                try { await EmitRouteHandoffAsync(step, context, handoffTargetId, cancellationToken); }
+                catch (Exception ex) { _logger.LogWarning(ex, "No se pudo emitir el traspaso por salida a SARA (paso {StepId}).", step.Id); }
             }
             return WorkflowAgentStepOutcome.Completed;
         }
@@ -398,6 +487,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _logger.LogInformation(
             "El agente {AgentId} solicito una llamada ({CallId}) en el paso {StepId}; queda en espera.",
             nodeAgent.AiAgentId, placed.CallId, step.Id);
+        await BroadcastRefreshAsync(step, cancellationToken);   // refresca la tarjeta a "en espera" sin reabrir
         return WorkflowAgentStepOutcome.WaitingForCall;
     }
 
@@ -416,12 +506,19 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 step, nodeAgent, "El paso no tiene una linea de WhatsApp configurada para preguntar.", cancellationToken);
         }
 
-        // Tope de reintentos: si ya se venia preguntando en una conversacion y hay demasiados salientes, se corta.
+        // Tope de preguntas POR ACTIVIDAD: se cuentan solo los salientes de ESTE paso (posteriores a su inicio,
+        // step.CreatedAt), no los de toda la conversacion compartida (linea+telefono) -que acumula preguntas de
+        // actividades anteriores al reusar un numero-. Asi el contador arranca en cero por cada actividad nueva.
         if (step.PendingWhatsAppConversationId is Guid ongoing)
         {
+            // Tope CONFIGURABLE por nodo (AgentMaxAsks); null/<=0 = el valor por defecto del codigo.
+            var maxAsks = (await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => n.Id == step.NodeId).Select(n => n.AgentMaxAsks)
+                .FirstOrDefaultAsync(cancellationToken)) is int cfg && cfg > 0 ? cfg : MaxWhatsAppAsks;
             var asked = await _db.Messages.AsNoTracking()
-                .CountAsync(m => m.ConversationId == ongoing && m.Direction == Domain.Enums.MessageDirection.Outbound, cancellationToken);
-            if (asked >= MaxWhatsAppAsks)
+                .CountAsync(m => m.ConversationId == ongoing && m.Direction == Domain.Enums.MessageDirection.Outbound
+                    && m.SentAt >= step.CreatedAt, cancellationToken);
+            if (asked >= maxAsks)
             {
                 return await ReturnToPersonAsync(
                     step, nodeAgent,
@@ -504,6 +601,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             heldConv.FlowHoldStepId = step.Id;
             heldConv.FlowHoldNodeId = step.NodeId;
+            // Un flujo que TOMA la linea es el que atiende: limpia cualquier marca de cierre-por-flujo anterior,
+            // para que el candado de SARA no quede pegado de un caso ya cerrado cuando empieza este nuevo episodio.
+            heldConv.FlowHandledCloseAt = null;
+            heldConv.FlowHandledTaskId = null;
         }
         // CADENCIA POR CONFIG (gestor de plazos): si el NODO tiene una lista de plazos de seguimiento, el "cuando"
         // del proximo relanzamiento lo manda esa lista (no el modelo). AgentFollowUpIndex cuenta los recordatorios
@@ -519,9 +620,11 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         {
             sentSoFar = step.AgentFollowUpIndex + 1;         // contando el recordatorio recien enviado
             step.AgentFollowUpIndex = sentSoFar;
-            // El 1er elemento de la lista (indice 0) es el primer contacto; los siguientes son la espera ANTES de
-            // cada recordatorio. Un plazo en 0 (o fuera de rango) = fin de la cadencia (no re-dispara en bucle).
-            var nextMin = sentSoFar < schedule.Count ? schedule[sentSoFar] : 0;
+            // El PRIMER contacto es inmediato (al llegar el paso); cada elemento de la lista es la espera ANTES del
+            // SIGUIENTE recordatorio. Asi [10,20] = recordar a los 10 min, luego a los 20, y luego dejar de insistir.
+            // Tras el recordatorio N-esimo el proximo plazo es schedule[N-1]; si no hay mas (o es 0), fin de la
+            // cadencia (no re-dispara en bucle).
+            var nextMin = (sentSoFar - 1) < schedule.Count ? schedule[sentSoFar - 1] : 0;
             step.AgentNextRetryAt = nextMin > 0 ? now.AddMinutes(nextMin) : null;
             step.AgentDeadlineAt = null;                      // sin agotar (lo pidio el usuario): no se cierra por tiempo
         }
@@ -549,6 +652,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _logger.LogInformation(
             "El agente {AgentId} pregunto por WhatsApp (conv {ConversationId}) en el paso {StepId}; queda en espera.",
             nodeAgent.AiAgentId, conversationId, step.Id);
+        await BroadcastRefreshAsync(step, cancellationToken);   // refresca la tarjeta a "en espera" sin reabrir
         return WorkflowAgentStepOutcome.WaitingForReply;
     }
 
@@ -889,6 +993,11 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             sb.Append("Sin ruta ni resultado explicito.");
         }
         if (!string.IsNullOrWhiteSpace(invocation.Comment)) { sb.Append("\nComentario del agente: ").Append(invocation.Comment!.Trim()); }
+        if (!invocation.Ok && !string.IsNullOrWhiteSpace(invocation.Error)) { sb.Append("\nNO PUDO RESOLVER: ").Append(invocation.Error!.Trim()); }
+        // Respuesta FRESCA del cliente que el agente recibio en esta corrida (o su ausencia): clave para depurar
+        // por que decidio como decidio (silencio -> debe esperar; respuesta real -> enruta).
+        sb.Append("\nRespuesta fresca del cliente en el contexto: ")
+          .Append(context.WhatsAppReplyResult is { } wr && !string.IsNullOrWhiteSpace(wr.ReplyText) ? $"\"{wr.ReplyText!.Trim()}\"" : "(ninguna; el cliente no ha respondido)");
         if (invocation.Fields is { Count: > 0 })
         {
             sb.Append("\nCampos del formulario: ")
@@ -1016,6 +1125,157 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 (i, t) => new { t.CreatedAt, t.Number })
             .FirstOrDefaultAsync(cancellationToken);
         return meta is null ? (DateTimeOffset.MinValue, "?") : (meta.CreatedAt, meta.Number);
+    }
+
+    /// <summary>
+    /// SEGUIMIENTO (decision del usuario): el agente de un nodo con cadencia NO decide la compuerta por su
+    /// cuenta. Sin una respuesta real del cliente, el paso SIGUE EN ESPERA: avanza el indice de la cadencia y
+    /// programa el proximo recordatorio; al AGOTARSE la cadencia, espera INDEFINIDAMENTE (AgentNextRetryAt y
+    /// AgentDeadlineAt en null) -nunca se rinde ni enruta "no desea comprar" por silencio-. Conserva
+    /// PendingWhatsAppConversationId (sigue reteniendo la conversacion para recibir la respuesta del cliente).
+    /// </summary>
+    private async Task<WorkflowAgentStepOutcome> KeepWaitingForReplyAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, string followUpJson, CancellationToken cancellationToken)
+    {
+        var now = _clock.GetUtcNow();
+        var schedule = StepSlaList.ReadMinutes(followUpJson);
+        // Mismo indexado que la pausa por WhatsApp: tras el ciclo N, el proximo plazo es schedule[N-1]; agotado = 0.
+        var idx = step.AgentFollowUpIndex + 1;
+        step.AgentFollowUpIndex = idx;
+        var nextMin = (idx - 1) < schedule.Count ? schedule[idx - 1] : 0;
+        step.AgentAttemptedAt = now;                 // no re-barrer hasta el proximo plazo (o la respuesta)
+        step.AgentNextRetryAt = nextMin > 0 ? now.AddMinutes(nextMin) : null;
+        step.AgentDeadlineAt = null;                 // no se cierra por tiempo: espera la respuesta del cliente
+        step.ExecutedByAiAgentId = null;             // no resolvio: sigue esperando
+
+        // ADR-0122: re-asegura que ESTE paso SIGUE siendo el dueno de la linea mientras espera, para que SARA
+        // (agente de la linea) se calle y la respuesta del cliente llegue a ESTE paso, no a SARA. Si por una
+        // corrida anterior se solto, se vuelve a tomar. Es la pieza que evita que SARA cierre el caso por su cuenta.
+        if (step.PendingWhatsAppConversationId is Guid waitConvId)
+        {
+            var waitConv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == waitConvId, cancellationToken);
+            if (waitConv is not null)
+            {
+                waitConv.FlowHoldStepId = step.Id;
+                waitConv.FlowHoldNodeId = step.NodeId;
+            }
+        }
+
+        await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        await AddTaskNoteAsync(step, nextMin > 0
+            ? "sin respuesta del cliente; el paso SIGUE EN ESPERA (el agente no decide solo); proximo recordatorio programado"
+            : "sin respuesta del cliente y cadencia agotada; el paso SIGUE EN ESPERA de la respuesta (el agente no se rinde ni decide solo)",
+            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) { await transaction.CommitAsync(cancellationToken); }
+
+        await BroadcastRefreshAsync(step, cancellationToken);
+        _logger.LogInformation(
+            "Paso {StepId}: el agente intento decidir sin respuesta del cliente; se mantiene en espera (seguimiento).", step.Id);
+        return WorkflowAgentStepOutcome.WaitingForReply;
+    }
+
+    /// <summary>TRASPASO POR SALIDA (compuerta con agente): al enrutar la compuerta, si el nodo tiene una nota
+    /// configurada para la salida elegida (WorkflowNode.AgentRouteHandoffJson, mapa BpmnElementId destino -> nota),
+    /// el flujo se la deja a SARA como MENSAJE de la conversacion (SARA solo lee Messages, no la bitacora del
+    /// agente) y marca el caso como cerrado-por-flujo (Conversation.FlowHandledCloseAt/TaskId) para que SARA no
+    /// cree tarea/lead duplicados. Best-effort: nunca rompe el paso ya cerrado.</summary>
+    private async Task EmitRouteHandoffAsync(
+        WorkflowStepHistory step, WorkflowAgentContextDto context, Guid routeTargetId, CancellationToken cancellationToken)
+    {
+        // Nota configurada para ESTA salida (clave = BpmnElementId del nodo destino, igual que ResolveRouteTargetAsync).
+        var handoffJson = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.Id == step.NodeId).Select(n => n.AgentRouteHandoffJson)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(handoffJson)) { return; }
+        var exitKey = await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.Id == routeTargetId).Select(n => n.BpmnElementId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(exitKey)) { return; }
+        string? note = null;
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(handoffJson!);
+            map?.TryGetValue(exitKey!, out note);
+        }
+        catch (System.Text.Json.JsonException) { return; }
+        if (string.IsNullOrWhiteSpace(note)) { return; }   // esta salida no tiene traspaso configurado
+
+        // Conversacion del caso: misma clave (linea, telefono) del envio por WhatsApp. El telefono del cliente
+        // puede venir sin indicativo y la conversacion con el, asi que se empareja por sufijo (la mas reciente).
+        if (context.Assignment?.WhatsAppLineId is not Guid lineId) { return; }
+        var phone = new string((context.Task?.RequesterPhone ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (phone.Length < 7) { return; }
+        var conv = await _db.Conversations
+            .Where(c => c.WhatsAppLineId == lineId && (c.ContactPhone == phone || c.ContactPhone.EndsWith(phone)))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (conv is null) { return; }   // sin conversacion: nada que traspasar
+
+        var now = _clock.GetUtcNow();
+        var taskId = context.Task?.TaskItemId;
+        conv.LastMessageAt = now;
+        conv.FlowHandledCloseAt = now;      // marca de cierre-por-flujo (la lee el candado de SARA)
+        conv.FlowHandledTaskId = taskId;    // acotada a esta actividad
+
+        // La nota como MENSAJE (lo que SARA ingiere como contexto). Mismo patron que las notas del flujo.
+        _db.Messages.Add(new Message
+        {
+            TenantId = step.TenantId,
+            ConversationId = conv.Id,
+            Direction = MessageDirection.Outbound,
+            Body = note!.Trim(),
+            MessageType = "text",
+            SentByName = "Flujo (cierre)",
+            SentAt = now
+        });
+        if (taskId is Guid tid)
+        {
+            _db.TaskItemActivities.Add(new TaskItemActivity
+            {
+                TenantId = step.TenantId,
+                TaskItemId = tid,
+                Type = TaskActivityType.Action,
+                ActorName = "Sistema (flujo)",
+                Text = Clip($"Traspaso a SARA (cierre del flujo): {note!.Trim()}", 2000)!
+            });
+        }
+        var boundAgentId = await _db.AiAgentLineBindings.AsNoTracking()
+            .Where(b => b.WhatsAppLineId == lineId).Select(b => (Guid?)b.AgentId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (boundAgentId is Guid aid)
+        {
+            _db.AiAgentRunLogs.Add(new AiAgentRunLog
+            {
+                TenantId = step.TenantId,
+                ConversationId = conv.Id,
+                AgentId = aid,
+                OccurredAt = now,
+                Kind = AiAgentRunLogKind.Info,
+                Title = $"Traspaso del flujo a SARA - tarea {context.Task?.Number}",
+                Content = note!.Trim()
+            });
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Refresca EN VIVO el detalle abierto (incl. el diagrama del flujo) via TaskChanged, para que una
+    /// PAUSA del agente -que no cambia el estado de la tarea, asi que no dispara TaskChanged por si sola- deje de
+    /// verse "pensando" y muestre "en espera" con su proximo recordatorio. Best-effort: nunca rompe el paso.</summary>
+    private async Task BroadcastRefreshAsync(WorkflowStepHistory step, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var t = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => i.Id == step.InstanceId)
+                .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, x => x.Id, (i, x) => new { x.Id, x.Status })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (t is not null)
+            {
+                await _taskBroadcaster.TaskChangedAsync(step.TenantId, t.Id, t.Status, cancellationToken);
+            }
+        }
+        catch { /* best-effort: el refresco en vivo nunca debe romper el paso */ }
     }
 
     private async Task AddTaskNoteAsync(WorkflowStepHistory step, string text, CancellationToken cancellationToken)

@@ -258,6 +258,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.SlaJson = sourceNode.SlaJson;
             draftNode.StartDelayJson = sourceNode.StartDelayJson; // Plazos v2 (ADR-0119): metadato, no viaja en el XML.
             draftNode.AgentFollowUpJson = sourceNode.AgentFollowUpJson; // Cadencia de seguimiento: metadato, no viaja en el XML.
+            draftNode.AgentMaxAsks = sourceNode.AgentMaxAsks; // Tope de preguntas configurable: metadato, no viaja en el XML.
+            draftNode.AgentRouteHandoffJson = sourceNode.AgentRouteHandoffJson; // Traspaso por salida a SARA: metadato, no viaja en el XML.
             draftNode.RuntimeLayoutDx = sourceNode.RuntimeLayoutDx; // Layout del runtime (ADR-0051 v2): se conserva al publicar.
             draftNode.RuntimeLayoutDy = sourceNode.RuntimeLayoutDy;
             if (sourceNode.RestartNodeId is Guid restartId
@@ -964,6 +966,55 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         node.AgentFollowUpJson = trimmed;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAgentMaxAsksAsync(
+        Guid nodeId, int? maxAsks, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // null o <=0 = usar el valor por defecto del codigo; si no, se acota a un rango sano [1, 50].
+        node.AgentMaxAsks = maxAsks is int v && v > 0 ? Math.Clamp(v, 1, 50) : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAgentRouteHandoffAsync(
+        Guid nodeId, string? handoffJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Traspaso por salida: mapa { BpmnElementId destino -> nota }. Metadato del nodo, editable sobre publicada,
+        // no regenera el XML. Se re-normaliza: se descartan claves/valores vacios; mapa vacio -> null (sin traspaso).
+        node.AgentRouteHandoffJson = NormalizeRouteHandoff(handoffJson);
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Re-normaliza el mapa de traspaso por salida { BpmnElementId -> nota }: descarta claves/notas vacias;
+    /// devuelve null si queda vacio o el JSON es invalido. Acota cada nota a 2000 chars.</summary>
+    private static string? NormalizeRouteHandoff(string? handoffJson)
+    {
+        if (string.IsNullOrWhiteSpace(handoffJson)) { return null; }
+        Dictionary<string, string>? map;
+        try { map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(handoffJson); }
+        catch (System.Text.Json.JsonException) { return null; }
+        if (map is null || map.Count == 0) { return null; }
+        var clean = new Dictionary<string, string>();
+        foreach (var (k, val) in map)
+        {
+            var key = (k ?? string.Empty).Trim();
+            var note = (val ?? string.Empty).Trim();
+            if (key.Length == 0 || note.Length == 0) { continue; }
+            clean[key] = note.Length > 2000 ? note[..2000] : note;
+        }
+        return clean.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(clean);
     }
 
     public async Task<WorkflowResult<bool>> SetNodeNotePositionAsync(
@@ -1998,7 +2049,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
                 n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson,
-                n.AgentFollowUpJson,
+                n.AgentFollowUpJson, n.AgentMaxAsks, n.AgentRouteHandoffJson,
                 n.RuntimeLayoutDx, n.RuntimeLayoutDy, n.CloseReason);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(

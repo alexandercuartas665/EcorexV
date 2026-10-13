@@ -49,4 +49,22 @@ public static class AgentTaskIdempotency
             .FirstOrDefaultAsync(cancellationToken);
         return hit is null ? null : (hit.Id, hit.Number);
     }
+
+    // ---- Candado de cierre-por-flujo: SARA no crea tarea/lead si un flujo ya cerro este caso ----
+
+    /// <summary>Ventana durante la cual una marca de cierre-por-flujo (Conversation.FlowHandledCloseAt) bloquea la
+    /// creacion por SARA. El flujo la limpia al TOMAR la linea de un caso nuevo; la ventana es una red de seguridad
+    /// para que una marca vieja no bloquee para siempre un cierre legitimo futuro en la misma conversacion.</summary>
+    public static readonly TimeSpan FlowHandledCloseWindow = TimeSpan.FromHours(24);
+
+    /// <summary>True si la conversacion tiene una marca RECIENTE (dentro de la ventana) de cierre gestionado por un
+    /// flujo: en ese caso SARA NO debe crear tarea ni lead (el flujo ya es dueno del caso y evitamos duplicados).</summary>
+    public static async Task<bool> IsFlowHandledCloseAsync(
+        IApplicationDbContext db, Guid conversationId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        var at = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == conversationId).Select(c => c.FlowHandledCloseAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        return at is DateTimeOffset t && now >= t && (now - t) <= FlowHandledCloseWindow;
+    }
 }

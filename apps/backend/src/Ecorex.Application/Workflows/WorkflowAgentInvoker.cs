@@ -32,19 +32,27 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     private readonly IAiProviderClient _client;
     private readonly IAgentBrowserFetch _browserFetch;
     private readonly IEmailSender _email;
+    private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
+    private readonly Notifications.INotificationChannelSender _sender;
 
     /// <summary>ADR-0093: tope de correos por paso, red de seguridad anti-bucle (el bucle ya tiene su tope de rondas).</summary>
     private const int MaxEmailsPerStep = 3;
 
+    /// <summary>Tope de impresiones (documentos) que el agente puede ENVIAR por paso (anti-bucle / anti-spam).</summary>
+    private const int MaxDocsPerStep = 3;
+
     public WorkflowAgentInvoker(
         IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client,
-        IAgentBrowserFetch browserFetch, IEmailSender email)
+        IAgentBrowserFetch browserFetch, IEmailSender email,
+        Forms.IQuoteDocumentRenderer quoteDoc, Notifications.INotificationChannelSender sender)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
         _browserFetch = browserFetch;
         _email = email;
+        _quoteDoc = quoteDoc;
+        _sender = sender;
     }
 
     public async Task<WorkflowAgentInvocationResult> InvokeAsync(
@@ -272,6 +280,9 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         int? retryMinutes = null;
         var requestedTags = new List<string>();
         var emailsSent = 0;
+        var docsSent = 0;
+        var docNudged = false;        // red de seguridad de envio de documento: se fuerza una sola vez
+        var impresionSentOk = false;  // true solo si 'enviar_impresion' devolvio ok (el PDF SI salio)
         int inTokens = 0, outTokens = 0;
 
         onProgress?.Invoke(esCompuerta ? "Leyendo el caso para elegir la ruta..." : "Leyendo el caso para decidir...", 0);
@@ -368,11 +379,60 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         result = $$"""{"ok": true, "mensaje": "etiqueta '{{tag}}' marcada para la tarea"}""";
                     }
                 }
+                else if (call.Name == "listar_formularios" && canAskWhatsApp)
+                {
+                    result = await ExecuteListFormsAsync(cancellationToken);
+                }
+                else if (call.Name == "enviar_impresion" && canAskWhatsApp)
+                {
+                    if (docsSent >= MaxDocsPerStep)
+                    {
+                        result = $$"""{"ok": false, "error": "ya se enviaron {{MaxDocsPerStep}} documentos en este paso (tope)"}""";
+                    }
+                    else
+                    {
+                        result = await ExecuteSendImpresionAsync(call.ArgumentsJson, context, cancellationToken);
+                        docsSent++;
+                        try
+                        {
+                            using var okDoc = JsonDocument.Parse(result);
+                            if (okDoc.RootElement.ValueKind == JsonValueKind.Object
+                                && okDoc.RootElement.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True)
+                            {
+                                impresionSentOk = true;
+                            }
+                        }
+                        catch (JsonException) { /* si no parsea, se trata como no-ok */ }
+                    }
+                    // El resultado del envio del documento (OK o el motivo del fallo) se deja en la bitacora del
+                    // paso: asi un "no llego el documento" deja de ser invisible y se ve si el agente lo envio o no.
+                    onProgress?.Invoke(DescribeImpresionOutcome(result), inTokens + outTokens);
+                }
                 else
                 {
                     result = $$"""{"error": "herramienta '{{call.Name}}' no disponible"}""";
                 }
                 messages.Add(new AiToolMessage("tool", result, ToolCallId: call.Id, ToolName: call.Name));
+            }
+
+            // RED DE SEGURIDAD DE ENVIO DE DOCUMENTO: si el agente va a PAUSAR mandando un WhatsApp que AFIRMA que
+            // ya reenvio/adjunto la cotizacion u otro documento, pero NO llamo 'enviar_impresion' en esta corrida, es
+            // una PROMESA VACIA (el cliente nunca recibe el PDF). Se le fuerza UNA vez: en vez de pausar, se le pide
+            // llamar 'enviar_impresion' ahora. Si de verdad no iba a enviar nada, puede reformular sin afirmarlo.
+            if (pausing && whatsAppRequest is not null && !impresionSentOk && !docNudged
+                && ClaimsDocumentSendWithoutTool(whatsAppRequest.Pregunta))
+            {
+                docNudged = true;
+                pausing = false;
+                whatsAppRequest = null;
+                messages.Add(new AiToolMessage("user",
+                    "[SISTEMA] Afirmaste al cliente que le reenviaste/adjuntaste la cotizacion o un documento, pero NO " +
+                    "invocaste la herramienta 'enviar_impresion' en esta corrida: eso seria una PROMESA VACIA (el cliente " +
+                    "NO recibe nada). Es OBLIGATORIO: si vas a decirle que le enviaste el documento, LLAMA AHORA " +
+                    "'enviar_impresion' con el formulario correcto (usa 'listar_formularios' si no sabes el nombre). Si NO " +
+                    "ibas a enviar un documento, reformula tu mensaje sin afirmar que lo enviaste."));
+                onProgress?.Invoke("Red de seguridad: afirmo enviar el documento sin hacerlo; se le pide enviarlo.", inTokens + outTokens);
+                continue;
             }
 
             // Una llamada o un WhatsApp PAUSAN el paso: el runner los coloca/envia y el paso espera la respuesta.
@@ -465,6 +525,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato que necesitas para decidir. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se envia. El paso quedara EN ESPERA de la respuesta y luego retomaras la decision. Usala si el dato depende del cliente y no esta en el contexto.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
             tools.Add(BuildRetryTool());
+            tools.Add(BuildListFormsTool());
+            tools.Add(BuildSendImpresionTool());
         }
         if (canSendEmail)
         {
@@ -487,12 +549,25 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         sb.AppendLine("Tienes herramientas para CONSEGUIR lo que te falte antes de decidir:");
         if (canAskWhatsApp) { sb.AppendLine("- 'preguntar_whatsapp': pregunta al cliente por WhatsApp (el paso espera la respuesta y la recibiras para decidir)."); }
         if (canAskWhatsApp) { sb.AppendLine("- 'programar_reintento': cuando le preguntes al cliente, PROGRAMA tambien un reintento (en_minutos) por si no responde; al cumplirse, volveras a correr para enviarle un recordatorio. Si responde antes, se cancela solo."); }
+        if (canAskWhatsApp) { sb.AppendLine("- 'listar_formularios': lista los formularios del caso y las plantillas de impresion que puedes reenviar al cliente (ej. la cotizacion)."); }
+        if (canAskWhatsApp) { sb.AppendLine("- 'enviar_impresion': ENVIA de verdad al cliente, por WhatsApp, el PDF de un formulario del caso (ej. la cotizacion). Es la UNICA forma de hacer llegar el documento; sin esta herramienta el cliente NO recibe nada."); }
         if (canCall) { sb.AppendLine("- 'llamar_telefono': coloca una llamada para conseguir el dato."); }
         if (canSearchWeb) { sb.AppendLine("- 'buscar_web': abre una pagina y extrae un dato."); }
         if (canSendEmail) { sb.AppendLine("- 'enviar_correo': envia un correo."); }
         sb.AppendLine();
         sb.AppendLine("IMPORTANTE: se te dio un medio de comunicacion con el cliente; lo evidente es USARLO para llegar a la decision.");
         sb.AppendLine("Si el dato que necesitas depende del cliente y no esta en el contexto, PREGUNTASELO por ese medio en vez de responder puede_resolver=false.");
+        if (canAskWhatsApp)
+        {
+            sb.AppendLine();
+            sb.AppendLine("ENVIAR DOCUMENTOS AL CLIENTE: si el cliente pide la cotizacion o cualquier documento del caso -o que se lo REENVIES porque lo borro o no lo vio- tu accion OBLIGATORIA es llamar 'enviar_impresion' para mandarselo de verdad. PROHIBIDO decir 'ya te lo envio', 'te lo mando', 'permiteme un momento mientras lo recupero' o cualquier promesa de envio SIN haber llamado 'enviar_impresion' en este MISMO turno: prometer sin enviar es un error grave (el cliente se queda esperando un documento que nunca llega). Si no sabes el nombre exacto del formulario o de la plantilla, llama primero 'listar_formularios'. Si 'enviar_impresion' responde ok=false, NO afirmes que ya lo enviaste: reintenta con el nombre correcto o avisale al cliente del problema con sinceridad.");
+            sb.AppendLine("DESPUES DE ENVIAR EL DOCUMENTO: 'enviar_impresion' ya hace llegar el PDF; NO termines el turno en seco despues de llamarla. Confirma al cliente con 'preguntar_whatsapp' (ej. 'Te acabo de reenviar la cotizacion; cualquier duda me dices. Deseas que avancemos con la compra?'), lo que ademas deja el paso EN ESPERA de su respuesta para seguir atendiendolo. Nunca cierres la corrida justo despues de 'enviar_impresion' sin una accion valida (ni ruta, ni resultado, ni pregunta): si lo haces, el paso se devuelve a una persona y se pierde la atencion automatica.");
+        }
+        if (context.Node.NodeType == WorkflowNodeType.ExclusiveGateway && canAskWhatsApp)
+        {
+            sb.AppendLine();
+            sb.AppendLine("REGLA CLAVE (esta COMPUERTA espera la respuesta del cliente): el SILENCIO del cliente NO es una decision. NUNCA elijas una ruta mientras el cliente NO haya respondido. Si el cliente aun no respondio, tu unica accion valida es 'preguntar_whatsapp' para enviarle un recordatorio; si ya insististe lo suficiente, responde puede_resolver=false para SEGUIR ESPERANDO. JAMAS cierres como 'no desea comprar' (ni ninguna ruta) por falta de respuesta. Elige una ruta SOLO cuando el cliente de una respuesta CLARA.");
+        }
         sb.AppendLine("Solo cuando YA tengas lo necesario (o sea imposible conseguirlo), responde el JSON de decision descrito arriba, sin llamar mas herramientas.");
         return sb.ToString();
     }
@@ -538,6 +613,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         int? retryMinutes = null;
         var requestedTags = new List<string>();
         var emailsSent = 0;
+        var docsSent = 0;
         int inTokens = 0, outTokens = 0;
 
         // Capa 2 (ADR-0091): primer latido de progreso, antes de la primera llamada al proveedor.
@@ -676,6 +752,23 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         result = $$"""{"ok": true, "mensaje": "etiqueta '{{tag}}' marcada para la tarea"}""";
                     }
                 }
+                else if (call.Name == "listar_formularios" && canAskWhatsApp)
+                {
+                    result = await ExecuteListFormsAsync(cancellationToken);
+                }
+                else if (call.Name == "enviar_impresion" && canAskWhatsApp)
+                {
+                    if (docsSent >= MaxDocsPerStep)
+                    {
+                        result = $$"""{"ok": false, "error": "ya se enviaron {{MaxDocsPerStep}} documentos en este paso (tope)"}""";
+                    }
+                    else
+                    {
+                        result = await ExecuteSendImpresionAsync(call.ArgumentsJson, context, cancellationToken);
+                        docsSent++;
+                    }
+                    onProgress?.Invoke(DescribeImpresionOutcome(result), inTokens + outTokens);
+                }
                 else
                 {
                     result = call.Name switch
@@ -764,6 +857,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
             tools.Add(BuildRetryTool());
+            tools.Add(BuildListFormsTool());
+            tools.Add(BuildSendImpresionTool());
         }
         if (canSendEmail)
         {
@@ -776,6 +871,28 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         tools.Add(BuildTagTool());
         return tools;
     }
+
+    /// <summary>Parte B: lista formularios del tenant + impresiones (plantillas) disponibles, por NOMBRE. Solo
+    /// lectura. El prompt del nodo decide que esta autorizado a reenviar.</summary>
+    private static AiToolSpec BuildListFormsTool()
+        => new("listar_formularios",
+            "Lista los FORMULARIOS del tenant y las IMPRESIONES (plantillas de impresion) disponibles, por NOMBRE. " +
+            "Usala para saber que puedes reenviar al cliente (ej. la cotizacion) antes de llamar 'enviar_impresion'. " +
+            "Solo lectura. Reenvia unicamente lo que te AUTORICEN las instrucciones de este paso.",
+            """{"type":"object","properties":{}}""");
+
+    /// <summary>Parte B: envia al CLIENTE del caso la impresion (PDF) de un formulario de ESTE caso. El
+    /// destinatario es fijo (el cliente de la tarea); el prompt del nodo decide que formulario/impresion esta
+    /// autorizado a mandar.</summary>
+    private static AiToolSpec BuildSendImpresionTool()
+        => new("enviar_impresion",
+            "Envia al CLIENTE de este caso, por WhatsApp, la IMPRESION (PDF) de un formulario de ESTE caso (ej. " +
+            "reenviar la cotizacion si el cliente la pide de nuevo). 'formulario' = nombre o codigo del formulario " +
+            "(ver listar_formularios); 'impresion' = nombre de la plantilla de impresion (opcional; por defecto la " +
+            "predeterminada); 'mensaje' = texto corto opcional que acompana el archivo. El destinatario es SIEMPRE el " +
+            "cliente de la tarea (no puedes elegir otro numero). Envia SOLO lo que te AUTORICEN las instrucciones de " +
+            "este paso: nunca mandes documentos ni datos que no esten autorizados aqui.",
+            """{"type":"object","properties":{"formulario":{"type":"string"},"impresion":{"type":"string"},"mensaje":{"type":"string"}},"required":["formulario"]}""");
 
     /// <summary>ADR-0121: herramienta para que el agente se AUTO-REPROGRAME (reintento por silencio del cliente).
     /// Se usa JUNTO con 'preguntar_whatsapp': "le escribo ahora y me reprogramo en X por si no responde".</summary>
@@ -1128,6 +1245,190 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             : JsonSerializer.Serialize(new { ok = false, error = sent.Error ?? "no se pudo enviar el correo" });
     }
 
+    /// <summary>Parte B: lista los formularios del tenant (por titulo/codigo) y las impresiones (plantillas) del
+    /// tenant (por nombre). Solo lectura; todo tenant-scoped por el filtro global.</summary>
+    private async Task<string> ExecuteListFormsAsync(CancellationToken cancellationToken)
+    {
+        var forms = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => !d.IsArchived)
+            .OrderBy(d => d.Title)
+            .Select(d => new { d.Title, d.Code })
+            .Take(100)
+            .ToListAsync(cancellationToken);
+        var templates = await _db.QuoteTemplates.AsNoTracking()
+            .OrderByDescending(t => t.IsDefault).ThenBy(t => t.Name)
+            .Select(t => new { t.Name, t.IsDefault })
+            .Take(50)
+            .ToListAsync(cancellationToken);
+        return JsonSerializer.Serialize(new
+        {
+            ok = true,
+            formularios = forms.Select(f => new { nombre = f.Title, codigo = f.Code }),
+            impresiones = templates.Select(t => new { nombre = t.Name, predeterminada = t.IsDefault })
+        });
+    }
+
+    /// <summary>Parte B: envia al CLIENTE del caso la impresion (PDF) de un formulario de ESTE caso. Resuelve la
+    /// respuesta del formulario ANCLADA a la tarea (Reference == numero o "numero-n", como NodeNotifyService), la
+    /// renderiza con la plantilla elegida (o la predeterminada) y la manda por la linea del nodo al telefono del
+    /// cliente de la tarea (destinatario FIJO: no se puede elegir otro numero). La autorizacion de que se puede
+    /// enviar la gobierna el PROMPT del nodo.</summary>
+    private async Task<string> ExecuteSendImpresionAsync(
+        string argsJson, WorkflowAgentContextDto context, CancellationToken cancellationToken)
+    {
+        if (context.Assignment?.WhatsAppLineId is not Guid lineId)
+        {
+            return """{"ok": false, "error": "este paso no tiene una linea de WhatsApp para enviar"}""";
+        }
+        if (context.Task is not { } task)
+        {
+            return """{"ok": false, "error": "no hay una tarea en este caso para resolver el documento"}""";
+        }
+        var phone = NullIfBlank(task.RequesterPhone) ?? NullIfBlank(task.Tercero?.Telefono);
+        if (phone is null)
+        {
+            return """{"ok": false, "error": "no hay telefono del cliente en la tarea para enviar"}""";
+        }
+
+        string? formName, templateName, caption;
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson);
+            var root = doc.RootElement;
+            formName = ArgStr(root, "formulario");
+            templateName = ArgStr(root, "impresion");
+            caption = ArgStr(root, "mensaje");
+        }
+        catch (JsonException) { return """{"ok": false, "error": "argumentos JSON invalidos"}"""; }
+
+        if (string.IsNullOrWhiteSpace(formName))
+        {
+            return """{"ok": false, "error": "falta 'formulario' (nombre o codigo)"}""";
+        }
+
+        var fn = formName.Trim().ToLower();
+        var num = task.Number;
+
+        // Definiciones (no archivadas) cuyo titulo o codigo normalice al nombre pedido. Puede haber homonimas
+        // (ej. "Cotizacion" FRM-CRM-COT del CRM y "COTIZACION" COT del flujo); el desempate es por la respuesta.
+        var matchIds = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => !d.IsArchived && (d.Title.ToLower() == fn || d.Code.ToLower() == fn))
+            .Select(d => d.Id)
+            .ToListAsync(cancellationToken);
+
+        Guid? templateId = null;
+        if (!string.IsNullOrWhiteSpace(templateName))
+        {
+            var tn = templateName.Trim().ToLower();
+            var tplId = await _db.QuoteTemplates.AsNoTracking()
+                .Where(t => t.Name.ToLower() == tn).Select(t => (Guid?)t.Id).FirstOrDefaultAsync(cancellationToken);
+            if (tplId is null)
+            {
+                return JsonSerializer.Serialize(new { ok = false, error = $"no existe una impresion '{templateName}'" });
+            }
+            templateId = tplId;
+        }
+
+        // Documentos (respuestas de formulario diligenciadas) anclados a ESTE caso (Reference == num o "num-n").
+        var caseDocs = await (
+            from r in _db.FormResponses.AsNoTracking()
+            where r.Reference != null && (r.Reference == num || r.Reference.StartsWith(num + "-"))
+            join d in _db.FormDefinitions.AsNoTracking() on r.DefinitionId equals d.Id
+            where !d.IsArchived
+            select new { ResponseId = r.Id, DefId = d.Id, d.Title, d.Code, r.IsActive, r.CreatedAt }
+        ).ToListAsync(cancellationToken);
+        if (caseDocs.Count == 0)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = $"este caso ({num}) no tiene ningun documento (formulario diligenciado) para enviar." });
+        }
+
+        // Eleccion: PRIMERO el documento cuya definicion calzo con el nombre pedido (la activa mas reciente). Si el
+        // nombre NO calzo con ninguna definicion del caso -el agente a veces pasa la REFERENCIA del caso (ej
+        // "T00090-1") o un nombre aproximado-, se cae en CUALQUIER documento del caso, PREFIRIENDO una cotizacion.
+        // Asi un argumento equivocado del agente no deja al cliente sin su documento.
+        var chosen =
+            (matchIds.Count > 0
+                ? caseDocs.Where(c => matchIds.Contains(c.DefId))
+                    .OrderByDescending(c => c.IsActive).ThenBy(c => c.CreatedAt).FirstOrDefault()
+                : null)
+            ?? caseDocs
+                .OrderByDescending(c => ((c.Title ?? "") + " " + (c.Code ?? "")).ToLower().Contains("cotiz"))
+                .ThenByDescending(c => c.IsActive).ThenBy(c => c.CreatedAt).First();
+        var rid = chosen.ResponseId;
+        var formTitle = chosen.Title;
+
+        Forms.QuoteDocument? pdf;
+        try { pdf = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, cancellationToken); }
+        catch (Exception ex) { return JsonSerializer.Serialize(new { ok = false, error = $"no se pudo generar el PDF: {ex.Message}" }); }
+        if (pdf is null)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = "no se pudo generar el PDF (plantilla vacia o render fallido)" });
+        }
+
+        var b64 = Convert.ToBase64String(pdf.Bytes);
+        bool sent;
+        try
+        {
+            sent = await _sender.SendWhatsAppDocumentAsync(
+                lineId, phone, b64, pdf.MimeType, pdf.FileName, NullIfBlank(caption), Guid.Empty, cancellationToken);
+        }
+        catch (Exception ex) { return JsonSerializer.Serialize(new { ok = false, error = $"error enviando el documento: {ex.Message}" }); }
+        if (!sent)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = "no se pudo enviar el documento por esta linea (el proveedor puede no soportar envio directo de archivo; se requeriria una plantilla con encabezado de documento)" });
+        }
+
+        // Traza (#2): el conector solo ENVIA; aqui dejamos el documento como SALIENTE en el hilo del cliente para
+        // que se vea en la conversacion y en la bitacora (antes el PDF salia por el proveedor pero no quedaba
+        // ningun mensaje registrado). Best-effort: registrar la traza NUNCA invalida un envio ya realizado.
+        try
+        {
+            var conv = await _db.Conversations
+                .FirstOrDefaultAsync(c => c.WhatsAppLineId == lineId && c.ContactPhone == phone, cancellationToken);
+            var sentAt = DateTimeOffset.UtcNow;
+            if (conv is null)
+            {
+                var tenantId = await _db.WhatsAppLines.AsNoTracking()
+                    .Where(l => l.Id == lineId).Select(l => l.TenantId).FirstOrDefaultAsync(cancellationToken);
+                conv = new Ecorex.Domain.Entities.Conversation
+                {
+                    TenantId = tenantId,
+                    ContactPhone = phone,
+                    WhatsAppLineId = lineId,
+                    LastMessageAt = sentAt
+                };
+                _db.Conversations.Add(conv);
+            }
+            else
+            {
+                conv.LastMessageAt = sentAt;
+            }
+            _db.Messages.Add(new Ecorex.Domain.Entities.Message
+            {
+                TenantId = conv.TenantId,
+                ConversationId = conv.Id,
+                Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
+                Body = NullIfBlank(caption) ?? $"Documento enviado: {pdf.FileName}",
+                MessageType = "document",
+                MediaType = Ecorex.Domain.Enums.MessageMediaType.Document,
+                MediaMimeType = pdf.MimeType,
+                MediaFileName = pdf.FileName,
+                SentByName = "Agente de IA",
+                SentAt = sentAt
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch { /* best-effort: la traza no debe tumbar un envio ya hecho */ }
+
+        return JsonSerializer.Serialize(new { ok = true, mensaje = $"impresion de '{formTitle}' enviada al cliente" });
+    }
+
+    private static string? ArgStr(JsonElement root, string name)
+        => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s!.Trim();
+
     /// <summary>Validacion minima de email (hay un '@' con algo antes y un dominio con punto despues).</summary>
     private static bool IsLikelyEmail(string value)
     {
@@ -1157,6 +1458,40 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// <summary>Capa 2 (ADR-0091): describe en una linea legible lo que el agente hizo en una ronda, para
     /// mostrarlo como su "pensamiento" en vivo. Prefiere el texto propio del modelo (su narracion) si lo hay;
     /// si no, deriva una etiqueta de las herramientas que invoco. Nunca inventa: refleja lo que de verdad paso.</summary>
+    /// <summary>True si el texto AFIRMA (en pasado/hecho) que ya se reenvio/adjunto la cotizacion u otro documento.
+    /// Insensible a acentos. Solo detecta afirmaciones de envio COMPLETADO (no ofertas tipo "quieres que te lo
+    /// reenvie?"), para no forzar un envio que el cliente no pidio.</summary>
+    private static bool ClaimsDocumentSendWithoutTool(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = StripAccentsLower(text!);
+        string[] claims =
+        {
+            "acabo de reenvi", "acabo de enviar", "acabo de mandar", "acabo de compartir",
+            "te reenvie", "te reenvio ", "te he reenviado", "te lo reenvie", "ya te reenvie",
+            "te he enviado", "te lo envie", "te la envie", "ya te envie", "ya te lo envie",
+            "te acabo de", "enviado la cotiz", "enviada la cotiz", "adjunto la cotiz", "adjunto el documento",
+            "te mande la cotiz", "te comparto la cotiz"
+        };
+        foreach (var c in claims) { if (t.Contains(c)) { return true; } }
+        return false;
+    }
+
+    /// <summary>Minusculas sin acentos (para comparar texto del modelo de forma robusta).</summary>
+    private static string StripAccentsLower(string s)
+    {
+        var norm = s.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new StringBuilder(norm.Length);
+        foreach (var ch in norm)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(ch);
+            }
+        }
+        return sb.ToString();
+    }
+
     private static string DescribeRound(string? modelText, IEnumerable<string> toolNames)
     {
         var names = toolNames.ToList();
@@ -1164,6 +1499,8 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         string action =
             names.Contains("enviar_formulario") ? "Cerrando el paso..."
             : names.Contains("fijar_campos") ? "Diligenciando el formulario..."
+            : names.Contains("enviar_impresion") ? "Enviando el documento al cliente..."
+            : names.Contains("listar_formularios") ? "Buscando que documento reenviar..."
             : webCount > 1 ? $"Consultando {webCount} paginas en la web..."
             : webCount == 1 ? "Consultando la web..."
             : names.Contains("ver_formulario") ? "Revisando el formulario..."
@@ -1174,6 +1511,25 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // El texto del modelo (si viene) es su propia narracion: se muestra tal cual, acotado. Si no, la accion.
         var text = Clip(modelText, 160);
         return string.IsNullOrWhiteSpace(text) ? action : text!;
+    }
+
+    /// <summary>Describe en una linea el RESULTADO de 'enviar_impresion' para la bitacora del paso: si el
+    /// documento se envio al cliente o, si no, el motivo exacto. Asi un "no llego el documento" deja de ser
+    /// invisible: queda claro si el agente lo envio de verdad o solo lo prometio.</summary>
+    private static string DescribeImpresionOutcome(string resultJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(resultJson) ? "{}" : resultJson);
+            var root = doc.RootElement;
+            var ok = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
+            if (ok) { return "Documento enviado al cliente."; }
+            var error = root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            return string.IsNullOrWhiteSpace(error) ? "No pudo enviar el documento." : $"No pudo enviar el documento: {Clip(error, 140)}";
+        }
+        catch (JsonException) { return "No pudo enviar el documento."; }
     }
 }
 

@@ -143,6 +143,14 @@ public sealed class ActividadesToolset : IActividadesToolset
         var priorTurn = AgentTaskIdempotency.TryGetTurnResult("crear_actividad");
         if (priorTurn is not null) { return new AgentToolResult(priorTurn, SessionCompleted: true); }
 
+        // Candado de cierre-por-flujo: si un flujo ya cerro este caso (conversacion marcada), SARA NO crea una
+        // actividad (el flujo es el dueno; evita duplicados aunque el modelo lo pida). NO-OP, sin cerrar sesion.
+        if (AiToolRunContext.ConversationId is Guid flowConvId
+            && await AgentTaskIdempotency.IsFlowHandledCloseAsync(_db, flowConvId, DateTimeOffset.UtcNow, ct))
+        {
+            return Ok(new { ok = true, idempotente = true, mensaje = "El caso ya fue cerrado y gestionado por un flujo; no se crea una actividad nueva." });
+        }
+
         var concepto = Str(args, "concepto");
         var sub = await ResolveConceptoAsync(concepto, ct);
         if (sub is null) { return await ConceptoNoExisteAsync(concepto, ct); }

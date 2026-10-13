@@ -3175,6 +3175,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("FlowHandledCloseAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("flow_handled_close_at");
+
+                    b.Property<Guid?>("FlowHandledTaskId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_handled_task_id");
+
                     b.Property<Guid?>("FlowHoldNodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("flow_hold_node_id");
@@ -16645,6 +16653,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("AgentFollowUpJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("agent_follow_up_json");
+
+                    b.Property<int?>("AgentMaxAsks")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_max_asks");
+
+                    b.Property<string>("AgentRouteHandoffJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("agent_route_handoff_json");
 
                     b.Property<bool>("AllowsAssignment")
                         .HasColumnType("boolean")

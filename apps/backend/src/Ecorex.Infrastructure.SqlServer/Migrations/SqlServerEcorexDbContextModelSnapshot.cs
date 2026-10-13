@@ -3175,6 +3175,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("FlowHandledCloseAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("flow_handled_close_at");
+
+                    b.Property<Guid?>("FlowHandledTaskId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_handled_task_id");
+
                     b.Property<Guid?>("FlowHoldNodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("flow_hold_node_id");
@@ -16650,6 +16658,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("AgentFollowUpJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("agent_follow_up_json");
+
+                    b.Property<int?>("AgentMaxAsks")
+                        .HasColumnType("int")
+                        .HasColumnName("agent_max_asks");
+
+                    b.Property<string>("AgentRouteHandoffJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("agent_route_handoff_json");
 
                     b.Property<bool>("AllowsAssignment")
                         .HasColumnType("bit")

@@ -62,7 +62,11 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
     }
 
     /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el
-    /// texto del ultimo mensaje ENTRANTE de esa conversacion para que el agente lo use al reanudarse.</summary>
+    /// texto de la RESPUESTA FRESCA del cliente para que el agente la use al reanudarse. "Fresca" = un entrante
+    /// POSTERIOR al ultimo saliente: la conversacion es compartida por (linea, telefono), asi que un entrante
+    /// VIEJO (de otro caso o de antes del recordatorio) NO es una respuesta a lo que preguntamos. Si no hay
+    /// respuesta fresca, devuelve null -> el paso sigue "en espera" (BuildWhatsAppAwaitingSinceAsync) y el agente
+    /// NO decide con datos viejos.</summary>
     private async Task<WorkflowAgentWhatsAppReplyDto?> BuildWhatsAppReplyResultAsync(
         Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
     {
@@ -70,8 +74,14 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         {
             return null;
         }
+        // Hora del ULTIMO saliente de la conversacion: la respuesta debe ser POSTERIOR a el para ser una
+        // respuesta a nuestra ultima pregunta (no un entrante viejo de la conversacion compartida).
+        var lastOut = await _db.Messages.AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound)
+            .MaxAsync(m => (DateTimeOffset?)m.SentAt, cancellationToken);
         var reply = await _db.Messages.AsNoTracking()
-            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound)
+            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound
+                && (lastOut == null || m.SentAt > lastOut))
             .OrderByDescending(m => m.SentAt)
             .Select(m => m.Body)
             .FirstOrDefaultAsync(cancellationToken);

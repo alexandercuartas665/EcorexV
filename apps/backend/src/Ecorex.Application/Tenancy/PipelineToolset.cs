@@ -74,6 +74,14 @@ public sealed class PipelineToolset : IPipelineToolset
 
     private async Task<AgentToolResult> CreateLeadAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
+        // Candado de cierre-por-flujo: si un flujo ya cerro este caso (conversacion marcada), SARA NO crea un lead
+        // (el flujo es el dueno; evita duplicados aunque el modelo lo pida). NO-OP, sin cerrar sesion.
+        if (AiToolRunContext.ConversationId is Guid flowConvId
+            && await AgentTaskIdempotency.IsFlowHandledCloseAsync(_db, flowConvId, DateTimeOffset.UtcNow, ct))
+        {
+            return Ok(new { ok = true, idempotente = true, mensaje = "El caso ya fue cerrado y gestionado por un flujo; no se crea un lead nuevo." });
+        }
+
         var nombre = Str(args, "cliente_nombre");
         if (string.IsNullOrWhiteSpace(nombre)) { return Err("Falta el nombre del cliente (cliente_nombre)."); }
         var telefono = Str(args, "cliente_telefono");

@@ -352,6 +352,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     WhatsAppLineId = agent.WhatsAppLineId,
                     WhatsAppTemplateName = agent.WhatsAppTemplateName,
                     WhatsAppTemplateLang = agent.WhatsAppTemplateLang,
+                    ColdWindowMinutes = agent.ColdWindowMinutes,
                     ExtraPrompt = agent.ExtraPrompt,
                     CanSendEmail = agent.CanSendEmail,
                     OnFailure = agent.OnFailure,
@@ -1586,6 +1587,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
+                    x.ColdWindowMinutes,
                     x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute))
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -1640,6 +1642,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
+            existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
     }
 
@@ -1696,6 +1699,10 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             ? null : input.WhatsAppTemplateName.Trim();
         existing.WhatsAppTemplateLang = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateLang)
             ? null : input.WhatsAppTemplateLang.Trim();
+        // Umbral de frio: solo tiene sentido con plantilla (es cuando se usa en frio); si no hay plantilla o el valor
+        // no es positivo, se limpia. Tope duro de 30 dias para evitar valores absurdos.
+        existing.ColdWindowMinutes = existing.WhatsAppTemplateName is null || input.ColdWindowMinutes is not int cw || cw <= 0
+            ? null : Math.Min(cw, 43200);
         // ADR-0093: instrucciones por paso + permiso de correo.
         existing.ExtraPrompt = string.IsNullOrWhiteSpace(input.ExtraPrompt) ? null : input.ExtraPrompt.Trim();
         existing.CanSendEmail = input.CanSendEmail;
@@ -1712,6 +1719,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, existing.Autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
+            existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
     }
 

@@ -16840,6 +16840,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("can_send_email");
 
+                    b.Property<int?>("ColdWindowMinutes")
+                        .HasColumnType("int")
+                        .HasColumnName("cold_window_minutes");
+
                     b.Property<Guid?>("ColmenaClientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("colmena_client_id");

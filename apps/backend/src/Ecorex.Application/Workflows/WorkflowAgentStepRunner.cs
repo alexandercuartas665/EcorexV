@@ -564,7 +564,8 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         var sent = await _whatsApp.AskAsync(new WhatsAppAskCommand(
             step.TenantId, lineId, request.Numero, request.Pregunta,
-            context.Assignment.WhatsAppTemplateName, context.Assignment.WhatsAppTemplateLang), cancellationToken);
+            context.Assignment.WhatsAppTemplateName, context.Assignment.WhatsAppTemplateLang,
+            context.Assignment.ColdWindowMinutes), cancellationToken);
 
         if (!sent.Sent || sent.ConversationId is not Guid conversationId)
         {

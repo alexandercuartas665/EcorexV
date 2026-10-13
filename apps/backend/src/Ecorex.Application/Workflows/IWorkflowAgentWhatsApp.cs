@@ -23,7 +23,8 @@ public interface IWorkflowAgentWhatsApp
 /// <param name="TemplateName">Plantilla aprobada para el primer contacto en frio. Null = solo ventana abierta.</param>
 /// <param name="TemplateLang">Idioma de la plantilla (ej. "es"); se asume "es" si viene vacio con plantilla.</param>
 public sealed record WhatsAppAskCommand(
-    Guid TenantId, Guid LineId, string Phone, string Question, string? TemplateName, string? TemplateLang);
+    Guid TenantId, Guid LineId, string Phone, string Question, string? TemplateName, string? TemplateLang,
+    int? ColdWindowMinutes = null);
 
 /// <summary>Resultado del envio. <paramref name="ConversationId"/> es la conversacion en la que el paso espera
 /// la respuesta (no null cuando <paramref name="Sent"/> es true).</summary>

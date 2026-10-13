@@ -57,6 +57,8 @@ public sealed record WorkflowAgentAssignmentDto(
     Guid? VoiceAiAgentId = null,
     // ADR-0092 WhatsApp: linea + plantilla (para contacto en frio). Null en la linea = sin 'preguntar_whatsapp'.
     Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // Minutos de frio para usar la plantilla (null = por defecto; ver WorkflowNodeAgent.ColdWindowMinutes).
+    int? ColdWindowMinutes = null,
     // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
     string? ExtraPrompt = null, bool CanSendEmail = false);
 

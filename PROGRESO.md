@@ -2,6 +2,54 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-13 - v0.16.197: reenvio robusto de cotizacion + rompe-hielo con umbral configurable + selector de plantilla + adjuntos acotados
+
+- REENVIO DE COTIZACION (red de seguridad nueva, WorkflowAgentInvoker): el agente del flujo no reenviaba el PDF
+  cuando el cliente lo pedia ("me la mandas de nuevo / la perdi / no me llego"); respondia "confirmame si la
+  recibiste" y luego "no pudo resolver" -> SARA tomaba el relevo y desviaba a un asesor (visto en prod, caso
+  T00320). La red existente solo cachaba FALSAS AFIRMACIONES del agente; se agrego AsksToResendDocument que
+  detecta el PEDIDO del cliente (reenvio/perdi/borre/no llego + mencion de doc/cotiz) y, si el agente va a
+  pausar sin llamar enviar_impresion, lo FUERZA una vez a reenviar de verdad. Validado en local (reenvia el PDF
+  + confirma). Sin migracion.
+- ROMPE-HIELO CON UMBRAL CONFIGURABLE (ADR-0120+): WorkflowNodeAgent.ColdWindowMinutes (int?, null = default).
+  AskAsync: con umbral configurado TODAS las lineas respetan la "ventana de frio" (minutos desde el ultimo
+  entrante del cliente) -> vencida = PLANTILLA, dentro = texto libre; en YCloud/Cloud se capa a 1440 (24h,
+  Meta). Permite EMULAR la ventana de Meta en local (Evolution) con un umbral corto (ej. 2 min) para probar el
+  cambio frio->plantilla sin esperar 24h. Validado E2E local (frio->plantilla saludo_cotizacion, caliente->texto
+  libre). Plomeria: WhatsAppAskCommand, Assignment DTO, context builder, runner. Migracion DUAL
+  AddWorkflowNodeAgentColdWindow (cold_window_minutes).
+- SELECTOR DE PLANTILLA (FlowEditor): "PLANTILLA CONTACTO EN FRIO" paso de input de texto a dropdown de las
+  plantillas ACTIVAS del tenant (etiqueta con idioma/proveedor/estado); al elegir autocompleta el idioma; bajo
+  el dropdown, casilla "usar la plantilla cuando la conversacion este en frio" + campo de minutos. Solo UI.
+- ADJUNTOS ACOTADOS AL ENGAGEMENT (ya descrito antes): AttachConversationMediaAsync (TasksToolset +
+  ActividadesToolset) adjunta solo media con SentAt > cutoff (MAS reciente de AgentContextResetAt y la tarea
+  ANTERIOR de la conversacion; fallback 72h). Evita arrastrar media vieja del hilo de un contacto recurrente.
+- GOTCHA de dev: un segundo server (appout5263) sobre la MISMA BD intercepta pulsos con build viejo -> duplica
+  saludos y enmascara features nuevas. Detener el fantasma antes de probar.
+- Build verde (Application + SuperAdmin). Migraciones duales aplicadas a BD local al arrancar. Multi-tenant
+  intacto.
+- Siguiente: el usuario sigue con pruebas; pendientes de backlog la falla #1 de prod (carrera flujo<->SARA que
+  duplica saludos: retener la linea desde el envio de la cotizacion) y dar a SARA capacidad de reenvio.
+- Bloqueos: ninguno.
+
+## 2026-10-13 - v0.16.196 (NO desplegado, incluido en v0.16.197): adjuntos de la tarea acotados al engagement actual
+
+- SINTOMA (prod EPRING): T00053 (contacto recurrente, conversacion 01a0b672) quedo con un adjunto de hace un
+  mes (18-sep) mezclado con los 3 del lead del 13-oct. Causa: AttachConversationMediaAsync adjuntaba TODA la
+  media entrante de la conversacion SIN filtro de fecha; una conversacion de contacto recurrente es UNA sola
+  fila que vive meses, asi que cada tarea nueva arrastraba media de interacciones anteriores.
+- FIX (solo query, sin migracion): adjuntar media con SentAt > cutoff, cutoff = MAS reciente de (1)
+  Conversation.AgentContextResetAt (el motor de cierre lo setea al "olvidar" al cliente = inicio del engagement
+  actual) y (2) CreatedAt de la tarea ANTERIOR de esa conversacion (TaskItems WHERE conversation_id=conv AND
+  id<>taskId, MAX) para que cada tarea se lleve solo SU media; si ambos son null (primer lead sin reset),
+  fallback de 72h. Se usa SentAt (fecha real del mensaje), no CreatedAt de la fila. Aplicado en AMBAS
+  herramientas de cierre: TasksToolset (crear_tarea) y ActividadesToolset (crear_actividad). El filtro por
+  TIPO no se toca (sigue adjuntando imagen/pdf/audio); solo se acota por FECHA.
+- Build Application verde (9 warnings preexistentes, 0 nuevos). Multi-tenant intacto (ya scoped por el filtro
+  global). El adjunto viejo de T00053 ya se habia limpiado a mano en prod (backup ecorex-2026-10-13-1038).
+- Siguiente: a espera de OK del usuario para commit+deploy.
+- Bloqueos: ninguno.
+
 ## 2026-10-11 - Release v0.16.194: cadencia de seguimiento por config + retoma de linea + import de formularios por archivos
 
 - CADENCIA DE SEGUIMIENTO POR CONFIG (reemplaza el tool reprogramar_plazo del dia anterior, que se REVIRTIO a

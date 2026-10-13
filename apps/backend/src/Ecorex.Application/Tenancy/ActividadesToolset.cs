@@ -347,11 +347,29 @@ public sealed class ActividadesToolset : IActividadesToolset
         if (AiToolRunContext.ConversationId is not Guid convId) { return 0; }
         if (_tenant.TenantId is not Guid tenantId) { return 0; }
 
+        // Acotar la media al ENGAGEMENT ACTUAL (ver TasksToolset.AttachConversationMediaAsync): una
+        // conversacion de contacto recurrente vive meses, asi que el corte es el MAS reciente de
+        // agent_context_reset_at y la fecha de la actividad ANTERIOR de esta conversacion; si no hay
+        // ninguno, fallback de 72h. Evita arrastrar archivos viejos de leads anteriores. Usa SentAt.
+        var resetAt = await _db.Conversations.AsNoTracking()
+            .Where(c => c.Id == convId)
+            .Select(c => c.AgentContextResetAt)
+            .FirstOrDefaultAsync(ct);
+        var prevTaskAt = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == convId && t.Id != taskId)
+            .MaxAsync(t => (DateTimeOffset?)t.CreatedAt, ct);
+
+        var bounds = new List<DateTimeOffset>();
+        if (resetAt.HasValue) { bounds.Add(resetAt.Value); }
+        if (prevTaskAt.HasValue) { bounds.Add(prevTaskAt.Value); }
+        var cutoff = bounds.Count > 0 ? bounds.Max() : DateTimeOffset.UtcNow.AddHours(-72);
+
         var media = await _db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == convId
                 && m.Direction == MessageDirection.Inbound
                 && m.MediaType != MessageMediaType.None
-                && m.MediaUrl != null)
+                && m.MediaUrl != null
+                && m.SentAt > cutoff)
             .OrderBy(m => m.Id)
             .Select(m => new { m.MediaUrl, m.MediaMimeType })
             .ToListAsync(ct);

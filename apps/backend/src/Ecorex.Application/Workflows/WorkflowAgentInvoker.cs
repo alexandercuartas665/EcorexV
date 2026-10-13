@@ -282,7 +282,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         var emailsSent = 0;
         var docsSent = 0;
         var docNudged = false;        // red de seguridad de envio de documento: se fuerza una sola vez
+        var resendNudged = false;     // red de seguridad de REENVIO pedido por el cliente: se fuerza una sola vez
         var impresionSentOk = false;  // true solo si 'enviar_impresion' devolvio ok (el PDF SI salio)
+        // Respuesta FRESCA del cliente en esta corrida (para detectar si PIDIO que le reenvien el documento).
+        var freshClientReply = context.WhatsAppReplyResult?.ReplyText;
         int inTokens = 0, outTokens = 0;
 
         onProgress?.Invoke(esCompuerta ? "Leyendo el caso para elegir la ruta..." : "Leyendo el caso para decidir...", 0);
@@ -432,6 +435,26 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                     "'enviar_impresion' con el formulario correcto (usa 'listar_formularios' si no sabes el nombre). Si NO " +
                     "ibas a enviar un documento, reformula tu mensaje sin afirmar que lo enviaste."));
                 onProgress?.Invoke("Red de seguridad: afirmo enviar el documento sin hacerlo; se le pide enviarlo.", inTokens + outTokens);
+                continue;
+            }
+
+            // RED DE SEGURIDAD DE REENVIO PEDIDO POR EL CLIENTE: si en su mensaje FRESCO el cliente pidio que le
+            // reenvien la cotizacion/documento (lo perdio, lo borro, no le llego, "mandamela de nuevo") y el agente
+            // va a PAUSAR preguntandole algo (tipico: "confirmame si la recibiste") SIN haber llamado
+            // 'enviar_impresion' en esta corrida, el documento NO sale. Se le fuerza UNA vez a reenviarlo de verdad.
+            if (pausing && whatsAppRequest is not null && !impresionSentOk && !resendNudged
+                && AsksToResendDocument(freshClientReply))
+            {
+                resendNudged = true;
+                pausing = false;
+                whatsAppRequest = null;
+                messages.Add(new AiToolMessage("user",
+                    "[SISTEMA] El cliente PIDIO que le REENVIES la cotizacion/documento (dijo que lo perdio, lo borro, no " +
+                    "le llego, o que se lo mandes de nuevo). NO basta con preguntarle si lo recibio ni prometerle que ya " +
+                    "se lo envias: es OBLIGATORIO llamar AHORA 'enviar_impresion' para reenviarselo de verdad (usa " +
+                    "'listar_formularios' si no sabes el nombre del formulario). Solo DESPUES de enviarlo, confirma con " +
+                    "'preguntar_whatsapp'."));
+                onProgress?.Invoke("Red de seguridad: el cliente pidio reenvio y no se llamo enviar_impresion; se fuerza el envio.", inTokens + outTokens);
                 continue;
             }
 
@@ -1475,6 +1498,36 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         };
         foreach (var c in claims) { if (t.Contains(c)) { return true; } }
         return false;
+    }
+
+    /// <summary>True si el cliente PIDE que le reenvien la cotizacion/documento (lo perdio, lo borro, no le llego,
+    /// "mandamela de nuevo"). Insensible a acentos. Sirve para forzar 'enviar_impresion' cuando el agente responderia
+    /// solo "confirmame si la recibiste" en vez de reenviar de verdad.</summary>
+    private static bool AsksToResendDocument(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var t = StripAccentsLower(text!);
+        // Debe referirse a un documento/cotizacion o a reenviarlo; evita falsos positivos de un "no me llego" suelto.
+        var mentionsDoc = t.Contains("cotiz") || t.Contains("documento") || t.Contains("pdf")
+            || t.Contains("archivo") || t.Contains("propuesta") || t.Contains("la cotizacion");
+        string[] resendAsks =
+        {
+            "reenvia", "reenviame", "reenviar", "me la mandas de nuevo", "me lo mandas de nuevo",
+            "mandamela de nuevo", "mandamelo de nuevo", "enviamela de nuevo", "enviamelo de nuevo",
+            "mandamela", "mandamelo", "enviamela", "enviamelo", "pasamela", "pasamelo",
+            "compartemela", "de nuevo la cotiz", "otra vez la cotiz", "la perdi", "lo perdi",
+            "la borre", "lo borre", "no me llego", "no me ha llegado", "no la recibi", "no lo recibi",
+            "no me la enviaste", "no me lo enviaste", "nunca me llego", "me la vuelves a", "me lo vuelves a"
+        };
+        var asksResend = false;
+        foreach (var a in resendAsks) { if (t.Contains(a)) { asksResend = true; break; } }
+        if (!asksResend) { return false; }
+        // Un "la perdi / la borre / no me llego" ya implica el documento del caso; los verbos de reenvio generales
+        // (mandamela, reenvia) exigen que se mencione un documento para no disparar con cualquier "mandame X".
+        var impliesDoc = t.Contains("la perdi") || t.Contains("lo perdi") || t.Contains("la borre")
+            || t.Contains("lo borre") || t.Contains("no me llego") || t.Contains("no la recibi")
+            || t.Contains("no lo recibi") || t.Contains("de nuevo la cotiz") || t.Contains("otra vez la cotiz");
+        return mentionsDoc || impliesDoc;
     }
 
     /// <summary>Minusculas sin acentos (para comparar texto del modelo de forma robusta).</summary>

@@ -535,9 +535,20 @@ else
                     {
                         <div class="fe-grid-2">
                             <div>
-                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO (NOMBRE)</label>
-                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
-                                       @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))" />
+                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO</label>
+                                <select class="fe-input" value="@(_nodeAgent.WhatsAppTemplateName ?? "")"
+                                        @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))">
+                                    <option value="">Sin plantilla (solo ventana de 24h)</option>
+                                    @foreach (var t in _whatsAppTemplates)
+                                    {
+                                        <option value="@t.Name">@t.Name (@t.Language@(t.Provider is not null ? ", " + t.Provider : "")@(t.Status == WhatsAppTemplateStatus.Approved ? "" : " - " + t.Status))</option>
+                                    }
+                                    @* Si la plantilla guardada ya no esta en la lista (inactiva/borrada), se conserva como opcion para no perderla. *@
+                                    @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateName) && !_whatsAppTemplates.Any(t => t.Name == _nodeAgent.WhatsAppTemplateName))
+                                    {
+                                        <option value="@_nodeAgent.WhatsAppTemplateName">@_nodeAgent.WhatsAppTemplateName (configurada, no esta activa)</option>
+                                    }
+                                </select>
                             </div>
                             <div>
                                 <label class="fe-label">IDIOMA DE LA PLANTILLA</label>
@@ -545,6 +556,23 @@ else
                                        @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(agentNode, e))" />
                             </div>
                         </div>
+                        @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateName))
+                        {
+                            <label class="fe-check" style="margin-top:8px">
+                                <input type="checkbox" checked="@(_nodeAgent.ColdWindowMinutes is not null)"
+                                       @onchange="@(e => OnNodeColdWindowToggleAsync(agentNode, e))" />
+                                <span>Usar la plantilla cuando la conversacion este en frio (definir el tiempo sin respuesta del cliente)</span>
+                            </label>
+                            @if (_nodeAgent.ColdWindowMinutes is not null)
+                            {
+                                <div style="margin-top:6px;max-width:260px">
+                                    <label class="fe-label">CONSIDERAR EN FRIO TRAS (MINUTOS)</label>
+                                    <input class="fe-input" type="number" min="1" value="@_nodeAgent.ColdWindowMinutes"
+                                           @onchange="@(e => OnNodeColdWindowMinutesChangedAsync(agentNode, e))" />
+                                </div>
+                                <div class="fe-acc-note" style="margin:4px 0 0">Tras ese tiempo sin que el cliente escriba, el agente usa la plantilla (rompe el hielo). En lineas YCloud/Cloud se capa a 1440 (24h) porque Meta igual corta el texto libre pasadas 24h. 1440 = 24h, 4320 = 3 dias, 21600 = 15 dias. Para PROBAR en local (Evolution) usa un valor corto, ej. 2.</div>
+                            }
+                        }
                     }
                     <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
 
@@ -1037,6 +1065,8 @@ else
     private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
     private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
     private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
+    // Plantillas HSM activas del tenant, para elegir la de "contacto en frio" por lista (no teclear el nombre).
+    private IReadOnlyList<WhatsAppTemplateDto> _whatsAppTemplates = [];
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
     // Borrador/commit del modal del agente (como las notificaciones): mientras el modal esta abierto, _nodeAgent
@@ -1253,6 +1283,7 @@ else
                 _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
                 _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
                 _whatsAppLines = await DesignSvc.ListWhatsAppLinesAsync();
+                _whatsAppTemplates = await TemplatesSvc.ListAsync();   // solo activas (includeInactive=false)
                 _agentCatalogLoaded = true;
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
@@ -1947,7 +1978,8 @@ else
                     _nodeAgent.ColmenaClientId, _nodeAgent.ColmenaSessionKey, _nodeAgent.VoiceAiAgentId,
                     _nodeAgent.WhatsAppLineId, _nodeAgent.WhatsAppTemplateName, _nodeAgent.WhatsAppTemplateLang,
                     _agentExtraPromptDraft, _nodeAgent.CanSendEmail,
-                    _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute);
+                    _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute,
+                    _nodeAgent.ColdWindowMinutes);
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
@@ -2005,7 +2037,8 @@ else
         // El prompt viene del borrador LOCAL (vivo por oninput): asi un guardado de otro campo no lo pierde.
         _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false,
         _nodeAgent?.OnFailure ?? WorkflowAgentFailureAction.ReturnToHuman,
-        _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute);
+        _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute,
+        _nodeAgent?.ColdWindowMinutes);
 
     private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
@@ -2055,10 +2088,36 @@ else
     }
 
     private Task OnNodeWhatsAppTemplateChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateName = e.Value?.ToString() });
+    {
+        var name = e.Value?.ToString();
+        name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        // Al elegir una plantilla de la lista se autocompleta su idioma (el campo sigue editable por si se quiere
+        // forzar otra variante); al dejar "Sin plantilla" el service limpia tambien el idioma.
+        var tpl = name is null ? null : _whatsAppTemplates.FirstOrDefault(t => t.Name == name);
+        var res = CurrentAgentRes();
+        return SaveNodeResourcesAsync(node, res with
+        {
+            WhatsAppTemplateName = name,
+            WhatsAppTemplateLang = name is null ? null : (tpl?.Language ?? res.WhatsAppTemplateLang)
+        });
+    }
 
     private Task OnNodeWhatsAppTemplateLangChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
         => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateLang = e.Value?.ToString() });
+
+    // Umbral de frio: al activar la casilla se arranca en 1440 (24h); al apagarla se limpia (null = comportamiento
+    // por defecto). El tiempo se edita en minutos en el campo de abajo.
+    private Task OnNodeColdWindowToggleAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var on = e.Value is bool b && b;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColdWindowMinutes = on ? 1440 : (int?)null });
+    }
+
+    private Task OnNodeColdWindowMinutesChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var m = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : (int?)null;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColdWindowMinutes = m });
+    }
 
     // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo. El texto vive en _agentExtraPromptDraft
     // (oninput); aqui solo se persiste al salir del campo (blur). CurrentAgentRes ya toma el draft.
@@ -2081,6 +2140,7 @@ else
                 WhatsAppLineId = input.WhatsAppLineId,
                 WhatsAppTemplateName = input.WhatsAppTemplateName,
                 WhatsAppTemplateLang = input.WhatsAppTemplateLang,
+                ColdWindowMinutes = input.ColdWindowMinutes,
                 ExtraPrompt = input.ExtraPrompt,
                 CanSendEmail = input.CanSendEmail,
                 OnFailure = input.OnFailure,

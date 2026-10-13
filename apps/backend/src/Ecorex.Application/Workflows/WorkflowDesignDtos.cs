@@ -107,6 +107,8 @@ public sealed record FlowNodeAgentDto(
     Guid? ColmenaClientId = null, string? ColmenaSessionKey = null, Guid? VoiceAiAgentId = null,
     // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp' (opcionales, permiso por nodo).
     Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // Minutos de frio para usar la plantilla (null = por defecto: 24h Meta / Evolution siempre texto libre).
+    int? ColdWindowMinutes = null,
     // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo.
     string? ExtraPrompt = null, bool CanSendEmail = false,
     // Politica de FALLO: que hacer si el agente no resuelve el paso.
@@ -120,7 +122,8 @@ public sealed record FlowNodeAgentResourcesInput(
     Guid? WhatsAppLineId, string? WhatsAppTemplateName, string? WhatsAppTemplateLang,
     string? ExtraPrompt, bool CanSendEmail,
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
-    int FailureRetries = 0, string? FailureRoute = null);
+    int FailureRetries = 0, string? FailureRoute = null,
+    int? ColdWindowMinutes = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(

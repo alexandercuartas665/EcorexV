@@ -347,11 +347,33 @@ public sealed class TasksToolset : ITasksToolset
         if (AiToolRunContext.ConversationId is not Guid convId) { return 0; }
         if (_tenant.TenantId is not Guid tenantId) { return 0; }
 
+        // Acotar la media al ENGAGEMENT ACTUAL: una conversacion de un contacto recurrente es UNA sola
+        // fila que vive meses, asi que adjuntar toda su media entrante arrastraba archivos de leads
+        // anteriores (p.ej. una imagen de hace un mes en una tarea de hoy). El corte (cutoff) es el MAS
+        // reciente de: (1) agent_context_reset_at (el motor de cierre lo setea al "olvidar" al cliente =
+        // inicio del engagement actual) y (2) la fecha de la tarea ANTERIOR creada desde esta misma
+        // conversacion (para que cada tarea se lleve solo SU media). Si no hay ninguno (primer lead sin
+        // reset), un fallback de recencia de 72h evita traer lo viejo. Se usa SentAt (fecha real del
+        // mensaje), no CreatedAt de la fila.
+        var resetAt = await _db.Conversations.AsNoTracking()
+            .Where(c => c.Id == convId)
+            .Select(c => c.AgentContextResetAt)
+            .FirstOrDefaultAsync(ct);
+        var prevTaskAt = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == convId && t.Id != taskId)
+            .MaxAsync(t => (DateTimeOffset?)t.CreatedAt, ct);
+
+        var bounds = new List<DateTimeOffset>();
+        if (resetAt.HasValue) { bounds.Add(resetAt.Value); }
+        if (prevTaskAt.HasValue) { bounds.Add(prevTaskAt.Value); }
+        var cutoff = bounds.Count > 0 ? bounds.Max() : DateTimeOffset.UtcNow.AddHours(-72);
+
         var media = await _db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == convId
                 && m.Direction == MessageDirection.Inbound
                 && m.MediaType != MessageMediaType.None
-                && m.MediaUrl != null)
+                && m.MediaUrl != null
+                && m.SentAt > cutoff)
             .OrderBy(m => m.Id)
             .Select(m => new { m.MediaUrl, m.MediaMimeType })
             .ToListAsync(ct);

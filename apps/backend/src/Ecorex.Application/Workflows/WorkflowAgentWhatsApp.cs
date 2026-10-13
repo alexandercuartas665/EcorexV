@@ -61,14 +61,35 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
         // (WhatsAppProvider?) no materializaba bien y caia como "no Evolution"). El provider se lee del enum real.
         var line = await _db.WhatsAppLines.AsNoTracking()
             .FirstOrDefaultAsync(l => l.Id == command.LineId, cancellationToken);
-        var noMetaWindow = line is not null
-            && (line.Provider == WhatsAppProvider.Evolution || line.Provider == WhatsAppProvider.Emulator);
+        var isMetaLine = line is not null
+            && (line.Provider == WhatsAppProvider.Cloud || line.Provider == WhatsAppProvider.YCloud);
 
-        // Ventana de 24h: hay un entrante reciente en esta conversacion? (Evolution/Emulator: siempre "abierta".)
+        // Umbral de "frio" (ADR-0120+): por defecto la ventana de 24h de Meta. Si el nodo configuro
+        // ColdWindowMinutes, se usa ese tiempo (permite emular/adelantar el frio para probar, p.ej. 2 min) y ademas
+        // hace que las lineas SIN ventana de Meta (Evolution/Emulator) RESPETEN la ventana en vez de mandar siempre
+        // texto libre. En lineas Meta se CAPA a 24h porque Meta igual corta el texto libre pasadas 24h.
+        var hasColdThreshold = command.ColdWindowMinutes is int cwm && cwm > 0;
+        TimeSpan window;
+        if (hasColdThreshold)
+        {
+            var minutes = command.ColdWindowMinutes!.Value;
+            if (isMetaLine) { minutes = Math.Min(minutes, (int)ServiceWindow.TotalMinutes); }
+            window = TimeSpan.FromMinutes(minutes);
+        }
+        else
+        {
+            window = ServiceWindow;
+        }
+
+        // Sin umbral configurado, Evolution/Emulator no tienen ventana de Meta -> siempre "abierta" (texto libre).
+        // Con umbral configurado, TODAS las lineas respetan la ventana (asi se puede probar el frio en Evolution).
+        var noMetaWindow = !isMetaLine && !hasColdThreshold;
+
+        // Ventana: hay un entrante del cliente dentro del umbral en esta conversacion?
         var windowOpen = noMetaWindow;
         if (!windowOpen && conversation is not null)
         {
-            var since = now - ServiceWindow;
+            var since = now - window;
             windowOpen = await _db.Messages.AnyAsync(
                 m => m.ConversationId == conversation.Id && m.Direction == MessageDirection.Inbound && m.SentAt >= since,
                 cancellationToken);

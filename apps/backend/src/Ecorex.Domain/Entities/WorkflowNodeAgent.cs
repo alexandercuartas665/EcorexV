@@ -62,6 +62,13 @@ public class WorkflowNodeAgent : TenantEntity
     /// tiene valor. Null con plantilla presente = se asume "es".</summary>
     public string? WhatsAppTemplateLang { get; set; }
 
+    /// <summary>Minutos de "frio" tras el ultimo mensaje ENTRANTE del cliente para usar la PLANTILLA en vez de
+    /// texto libre. Null = comportamiento por defecto (YCloud/Cloud: la ventana de 24h de Meta; Evolution/Emulator:
+    /// siempre texto libre). Con valor: la conversacion se considera "en frio" pasado ese tiempo y se usa la
+    /// plantilla; aplica tambien a Evolution (para emular la ventana y poder probar). En YCloud/Cloud se capa a
+    /// 1440 (24h) porque Meta igual corta el texto libre pasadas 24h.</summary>
+    public int? ColdWindowMinutes { get; set; }
+
     // ---- ADR-0093: potenciar el agente en el nodo (instrucciones por paso + correo) ----
 
     /// <summary>Instrucciones EXTRA para el agente SOLO en este paso, que se anteponen a su prompt de sistema

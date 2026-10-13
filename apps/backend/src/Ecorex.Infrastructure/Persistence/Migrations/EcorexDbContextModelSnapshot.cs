@@ -16835,6 +16835,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("can_send_email");
 
+                    b.Property<int?>("ColdWindowMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("cold_window_minutes");
+
                     b.Property<Guid?>("ColmenaClientId")
                         .HasColumnType("uuid")
                         .HasColumnName("colmena_client_id");

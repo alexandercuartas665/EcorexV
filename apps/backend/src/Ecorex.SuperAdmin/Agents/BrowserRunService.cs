@@ -403,8 +403,11 @@ public sealed class BrowserRunService(
         ProcesarArchivosConfig cfg = new();
         if (!string.IsNullOrWhiteSpace(step.MappingJson))
         {
-            try { cfg = JsonSerializer.Deserialize<ProcesarArchivosConfig>(step.MappingJson!,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg; }
+            try
+            {
+                cfg = JsonSerializer.Deserialize<ProcesarArchivosConfig>(step.MappingJson!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg;
+            }
             catch { /* json viejo/invalido: defaults */ }
         }
 
@@ -468,12 +471,24 @@ public sealed class BrowserRunService(
             {
                 fdb.ConciliacionDianBotDummies.Add(new ConciliacionDianBotDummy
                 {
-                    TenantId = tenantId, Cufe = doc.Cufe, TipoDoc = doc.TipoDoc, FechaDoc = doc.Fecha,
-                    NombreEmisor = doc.NombreEmisor, NitEmisor = doc.NitEmisor, PrefijoFolio = doc.NumFactura,
-                    IdCompra = "", SubtotalBruto = doc.SubtotalBruto, DescuentoComercial = doc.Descuento,
-                    Subtotal = doc.SubtotalNeto, Iva = doc.Iva, TotalAntesRet = doc.TotalAntesRet,
-                    RetencionFuente = doc.Retefuente, RetencionIca = doc.ReteIca, Total = doc.Total,
-                    TipoPago = doc.TipoPago, ProveedorTecnologico = "",
+                    TenantId = tenantId,
+                    Cufe = doc.Cufe,
+                    TipoDoc = doc.TipoDoc,
+                    FechaDoc = doc.Fecha,
+                    NombreEmisor = doc.NombreEmisor,
+                    NitEmisor = doc.NitEmisor,
+                    PrefijoFolio = doc.NumFactura,
+                    IdCompra = "",
+                    SubtotalBruto = doc.SubtotalBruto,
+                    DescuentoComercial = doc.Descuento,
+                    Subtotal = doc.SubtotalNeto,
+                    Iva = doc.Iva,
+                    TotalAntesRet = doc.TotalAntesRet,
+                    RetencionFuente = doc.Retefuente,
+                    RetencionIca = doc.ReteIca,
+                    Total = doc.Total,
+                    TipoPago = doc.TipoPago,
+                    ProveedorTecnologico = "",
                 });
                 nuevos++;
             }
@@ -592,8 +607,11 @@ public sealed class BrowserRunService(
         IngestaNewtonConfig cfg = new();
         if (!string.IsNullOrWhiteSpace(step.MappingJson))
         {
-            try { cfg = JsonSerializer.Deserialize<IngestaNewtonConfig>(step.MappingJson!,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg; }
+            try
+            {
+                cfg = JsonSerializer.Deserialize<IngestaNewtonConfig>(step.MappingJson!,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? cfg;
+            }
             catch { /* json viejo/invalido: defaults */ }
         }
 
@@ -796,7 +814,10 @@ public sealed class BrowserRunService(
                         {
                             fdb.ConciliacionDianNewtonDummies.Add(new ConciliacionDianNewtonDummy
                             {
-                                TenantId = tenantId, Cufe = cufe, EventId = info.EventId, GuidPdf = guidPdf,
+                                TenantId = tenantId,
+                                Cufe = cufe,
+                                EventId = info.EventId,
+                                GuidPdf = guidPdf,
                             });
                         }
                         plataforma++;

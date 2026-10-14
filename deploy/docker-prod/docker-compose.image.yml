@@ -41,6 +41,8 @@ services:
       ECOREX_MENU_REPORTES: "true"
       # Backfill idempotente del menu "Compras" (Requerimientos y Compras, Capa 10) a todos los tenants al arrancar.
       ECOREX_MENU_REQUERIMIENTOS: "true"
+      # Backfill idempotente del menu "Conciliacion DIAN Compras" (seccion Automatizaciones) a todos los tenants.
+      ECOREX_MENU_CONCILIACIONDIAN: "true"
       ECOREX_SEED_ADMIN_PASSWORD: "${ECOREX_SEED_ADMIN_PASSWORD}"
       ECOREX_MGMT_API_KEY: "${ECOREX_MGMT_API_KEY}"
       ECOREX_PUBLIC_BASE_URL: "${ECOREX_PUBLIC_BASE_URL:-}"

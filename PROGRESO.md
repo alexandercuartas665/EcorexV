@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-14 - Plantilla de frio del agente: parametros (bindings) + archivo del header por nodo (SIN deploy)
+
+- El agente del flujo, al mandar la plantilla de frio, antes solo metia su pregunta en la 1a variable. Ahora:
+  - PARAMETROS: WorkflowNodeAgent.WhatsAppTemplateVarsJson = mapa {variable -> expresion}; cada variable de la
+    plantilla (orden de VariablesJson) se resuelve con tokens ({tarea.cliente}, {tarea.numero}, {empresa.*},
+    {sistema.fecha}, {form.x}, texto fijo, o {agente.mensaje} = el texto que el agente genero). Reusa
+    INotifyTokenResolver (el mismo del nodo de notificacion). Sin bindings = compat (pregunta -> 1a variable).
+  - ARCHIVO DEL HEADER POR NODO: WorkflowNodeAgent.WhatsAppTemplateHeaderMediaUrl = URL publica del archivo
+    (logo u otro) subido en el modal del agente (InputFile -> ITemplateMediaStore.PublishAsync); se manda como
+    header override (YCloud/Evolution, mismo camino del nodo de notificacion). Vacio = header fijo de la plantilla.
+  - UI (FlowEditor, bajo el dropdown de plantilla): bloque "Parametros de la plantilla" (1 campo por variable) +
+    "Archivo del encabezado" (upload + quitar), solo si la plantilla tiene variables / header de media.
+  - Plomeria: WhatsAppAskCommand (+BodyParams/HeaderMediaType/HeaderMediaUrl), AskAsync, runner
+    (ResolveColdTemplateAsync + inyeccion de INotifyTokenResolver), DTOs, context builder, WorkflowDesignService.
+  - Migracion DUAL AddAgentColdTemplateVarsAndHeader (whats_app_template_vars_json jsonb +
+    whats_app_template_header_media_url). Build Ecorex.sln VERDE, EF has-pending-model-changes="No changes" PG+SQL.
+- PENDIENTE: aplicar migracion local + probar E2E (arnes) + bump + deploy a senal del usuario. NO desplegado.
+- Bloqueos: ninguno.
+
 ## 2026-10-14 - v0.16.198: DEPLOY del modulo Requerimientos y Compras (Capa 10) a prod
 
 - Release del modulo ya integrado al tronco (ver entrada de integracion abajo). AppVersion 0.16.197 -> 0.16.198.

@@ -24,7 +24,11 @@ public interface IWorkflowAgentWhatsApp
 /// <param name="TemplateLang">Idioma de la plantilla (ej. "es"); se asume "es" si viene vacio con plantilla.</param>
 public sealed record WhatsAppAskCommand(
     Guid TenantId, Guid LineId, string Phone, string Question, string? TemplateName, string? TemplateLang,
-    int? ColdWindowMinutes = null);
+    int? ColdWindowMinutes = null,
+    // Parametros del cuerpo de la plantilla YA resueltos (en el orden de su VariablesJson) y el archivo del header
+    // configurado por nodo (tipo image/document/video + URL publica). Null = compat: la pregunta va a la 1a variable.
+    IReadOnlyList<string>? TemplateBodyParams = null,
+    string? TemplateHeaderMediaType = null, string? TemplateHeaderMediaUrl = null);
 
 /// <summary>Resultado del envio. <paramref name="ConversationId"/> es la conversacion en la que el paso espera
 /// la respuesta (no null cuando <paramref name="Sent"/> es true).</summary>

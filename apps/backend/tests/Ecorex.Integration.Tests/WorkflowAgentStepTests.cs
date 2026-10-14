@@ -455,6 +455,7 @@ public abstract class WorkflowAgentStepTestsBase
             new FakeWorkflowAgentWhatsApp(),
             new Ecorex.Application.Tenancy.NoOpAgentProgressBroadcaster(),
             new Ecorex.Application.Tenancy.NoOpTaskBroadcaster(),
+            new Ecorex.Application.Workflows.NotifyTokenResolver(ctx, TimeProvider.System),
             TimeProvider.System,
             NullLogger<WorkflowAgentStepRunner>.Instance);
     }

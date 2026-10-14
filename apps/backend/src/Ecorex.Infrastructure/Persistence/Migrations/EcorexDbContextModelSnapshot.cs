@@ -17198,6 +17198,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("whats_app_line_id");
 
+                    b.Property<string>("WhatsAppTemplateHeaderMediaUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("whats_app_template_header_media_url");
+
                     b.Property<string>("WhatsAppTemplateLang")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
@@ -17207,6 +17212,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("whats_app_template_name");
+
+                    b.Property<string>("WhatsAppTemplateVarsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("whats_app_template_vars_json");
 
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");

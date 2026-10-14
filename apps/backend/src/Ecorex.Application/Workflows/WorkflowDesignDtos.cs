@@ -113,7 +113,9 @@ public sealed record FlowNodeAgentDto(
     string? ExtraPrompt = null, bool CanSendEmail = false,
     // Politica de FALLO: que hacer si el agente no resuelve el paso.
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
-    int FailureRetries = 0, string? FailureRoute = null);
+    int FailureRetries = 0, string? FailureRoute = null,
+    // Binding de parametros de la plantilla de frio + URL del archivo del header por nodo (al final: append-only).
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
 
 /// <summary>ADR-0093: estado COMPLETO de los recursos del agente del nodo, para guardarlo de una en el modal
 /// (evita una firma con muchos parametros). Cada campo null/false = recurso deshabilitado.</summary>
@@ -123,7 +125,8 @@ public sealed record FlowNodeAgentResourcesInput(
     string? ExtraPrompt, bool CanSendEmail,
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
     int FailureRetries = 0, string? FailureRoute = null,
-    int? ColdWindowMinutes = null);
+    int? ColdWindowMinutes = null,
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(

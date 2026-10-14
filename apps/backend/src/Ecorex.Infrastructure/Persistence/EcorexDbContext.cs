@@ -2043,6 +2043,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // un flujo se desconecta, no se borra. Nombre/idioma de plantilla acotados.
             b.Property(x => x.WhatsAppTemplateName).HasMaxLength(200);
             b.Property(x => x.WhatsAppTemplateLang).HasMaxLength(20);
+            // Binding de parametros de la plantilla de frio (jsonb) + URL del archivo del header por nodo.
+            b.Property(x => x.WhatsAppTemplateVarsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.WhatsAppTemplateHeaderMediaUrl).HasMaxLength(1024);
             b.HasOne(x => x.WhatsAppLine).WithMany()
                 .HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
             // ADR-0093: instrucciones por paso + permiso de correo. Prompt acotado; bool con default para las

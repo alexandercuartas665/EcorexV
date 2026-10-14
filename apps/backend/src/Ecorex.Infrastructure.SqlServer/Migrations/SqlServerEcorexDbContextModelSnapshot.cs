@@ -17203,6 +17203,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("whats_app_line_id");
 
+                    b.Property<string>("WhatsAppTemplateHeaderMediaUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)")
+                        .HasColumnName("whats_app_template_header_media_url");
+
                     b.Property<string>("WhatsAppTemplateLang")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
@@ -17212,6 +17217,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("whats_app_template_name");
+
+                    b.Property<string>("WhatsAppTemplateVarsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("whats_app_template_vars_json");
 
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");

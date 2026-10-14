@@ -353,6 +353,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     WhatsAppTemplateName = agent.WhatsAppTemplateName,
                     WhatsAppTemplateLang = agent.WhatsAppTemplateLang,
                     ColdWindowMinutes = agent.ColdWindowMinutes,
+                    WhatsAppTemplateVarsJson = agent.WhatsAppTemplateVarsJson,
+                    WhatsAppTemplateHeaderMediaUrl = agent.WhatsAppTemplateHeaderMediaUrl,
                     ExtraPrompt = agent.ExtraPrompt,
                     CanSendEmail = agent.CanSendEmail,
                     OnFailure = agent.OnFailure,
@@ -1588,7 +1590,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
                     x.ColdWindowMinutes,
-                    x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute))
+                    x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute,
+                    x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1643,7 +1646,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
             existing.ColdWindowMinutes,
-            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
     }
 
     public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
@@ -1703,6 +1707,11 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         // no es positivo, se limpia. Tope duro de 30 dias para evitar valores absurdos.
         existing.ColdWindowMinutes = existing.WhatsAppTemplateName is null || input.ColdWindowMinutes is not int cw || cw <= 0
             ? null : Math.Min(cw, 43200);
+        // Binding de parametros + archivo del header: solo tienen sentido con plantilla; sin plantilla se limpian.
+        existing.WhatsAppTemplateVarsJson = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateVarsJson)
+            ? null : input.WhatsAppTemplateVarsJson.Trim();
+        existing.WhatsAppTemplateHeaderMediaUrl = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateHeaderMediaUrl)
+            ? null : input.WhatsAppTemplateHeaderMediaUrl.Trim();
         // ADR-0093: instrucciones por paso + permiso de correo.
         existing.ExtraPrompt = string.IsNullOrWhiteSpace(input.ExtraPrompt) ? null : input.ExtraPrompt.Trim();
         existing.CanSendEmail = input.CanSendEmail;
@@ -1720,7 +1729,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
             existing.ColdWindowMinutes,
-            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

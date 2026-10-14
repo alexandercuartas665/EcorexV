@@ -17,6 +17,7 @@
 @inject ITenantUserService TenantUsersSvc
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppTemplateService TemplatesSvc
+@inject Ecorex.Application.Notifications.ITemplateMediaStore MediaStore
 @inject IQuoteTemplateService QuoteTemplatesSvc
 @inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject IJSRuntime JS
@@ -572,6 +573,39 @@ else
                                 </div>
                                 <div class="fe-acc-note" style="margin:4px 0 0">Tras ese tiempo sin que el cliente escriba, el agente usa la plantilla (rompe el hielo). En lineas YCloud/Cloud se capa a 1440 (24h) porque Meta igual corta el texto libre pasadas 24h. 1440 = 24h, 4320 = 3 dias, 21600 = 15 dias. Para PROBAR en local (Evolution) usa un valor corto, ej. 2.</div>
                             }
+                            @if (_whatsAppTemplates.FirstOrDefault(t => t.Name == _nodeAgent.WhatsAppTemplateName) is { } selTpl)
+                            {
+                                @if (selTpl.Variables.Count > 0)
+                                {
+                                    <div class="fe-modal-section" style="margin-top:10px">Parametros de la plantilla</div>
+                                    <div class="fe-acc-note" style="margin:0 0 6px">Ata cada variable de la plantilla a un token o texto. Vacio = se llena por nombre si coincide.</div>
+                                    @foreach (var v in selTpl.Variables)
+                                    {
+                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                                            <code style="min-width:92px">@("{{" + v.Token + "}}")</code>
+                                            <input class="fe-input" style="flex:1" placeholder="@("ej. {tarea.cliente}" + (string.IsNullOrWhiteSpace(v.Example) ? "" : "  (" + v.Example + ")"))"
+                                                   value="@_templateVars.GetValueOrDefault(v.Token)"
+                                                   @onchange="@(e => OnTemplateVarChangedAsync(agentNode, v.Token, e))" />
+                                        </div>
+                                    }
+                                    <div class="fe-acc-note" style="margin:6px 0 0">Tokens: {tarea.cliente}, {tarea.numero}, {tarea.telefono}, {empresa.nombre}, {sistema.fecha}, {form.&lt;campo&gt;}, texto fijo, o {agente.mensaje} (el texto que el agente genera).</div>
+                                }
+                                @if (selTpl.HeaderType == WhatsAppTemplateHeaderType.Image || selTpl.HeaderType == WhatsAppTemplateHeaderType.Document || selTpl.HeaderType == WhatsAppTemplateHeaderType.Video)
+                                {
+                                    <div class="fe-modal-section" style="margin-top:10px">Archivo del encabezado (@selTpl.HeaderType)</div>
+                                    <div class="fe-acc-note" style="margin:0 0 6px">El archivo (logo u otro) del encabezado de la plantilla. Vacio = se usa el fijo de la plantilla (si tiene).</div>
+                                    @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateHeaderMediaUrl))
+                                    {
+                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                            <a href="@_nodeAgent.WhatsAppTemplateHeaderMediaUrl" target="_blank" style="font-size:12px;word-break:break-all;flex:1">@_nodeAgent.WhatsAppTemplateHeaderMediaUrl</a>
+                                            <button class="fe-btn sm" type="button" @onclick="@(() => OnTemplateHeaderRemove(agentNode))">Quitar</button>
+                                        </div>
+                                    }
+                                    <InputFile OnChange="@(e => OnTemplateHeaderUploadAsync(agentNode, e))" class="fe-input" />
+                                    @if (_tplHeaderUploading) { <div class="fe-acc-note" style="margin:4px 0 0">Subiendo archivo...</div> }
+                                    @if (_tplHeaderUploadError is not null) { <div class="text-danger small" style="margin:4px 0 0">@_tplHeaderUploadError</div> }
+                                }
+                            }
                         }
                     }
                     <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
@@ -1067,6 +1101,10 @@ else
     private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
     // Plantillas HSM activas del tenant, para elegir la de "contacto en frio" por lista (no teclear el nombre).
     private IReadOnlyList<WhatsAppTemplateDto> _whatsAppTemplates = [];
+    // Bindings de variables de la plantilla de frio (variable -> expresion/token); se serializa a WhatsAppTemplateVarsJson.
+    private Dictionary<string, string> _templateVars = new(StringComparer.OrdinalIgnoreCase);
+    private bool _tplHeaderUploading;
+    private string? _tplHeaderUploadError;
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
     // Borrador/commit del modal del agente (como las notificaciones): mientras el modal esta abierto, _nodeAgent
@@ -1288,6 +1326,7 @@ else
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            LoadTemplateVars();
         }
         else
         {
@@ -1954,6 +1993,7 @@ else
     {
         _nodeAgent = _agentSaved;
         _agentExtraPromptDraft = _agentSaved?.ExtraPrompt;
+        LoadTemplateVars();
         _maxAsks = Selected?.AgentMaxAsks ?? 0;
         LoadRouteHandoffs(Selected);
         _agentModalOpen = false;
@@ -1979,7 +2019,8 @@ else
                     _nodeAgent.WhatsAppLineId, _nodeAgent.WhatsAppTemplateName, _nodeAgent.WhatsAppTemplateLang,
                     _agentExtraPromptDraft, _nodeAgent.CanSendEmail,
                     _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute,
-                    _nodeAgent.ColdWindowMinutes);
+                    _nodeAgent.ColdWindowMinutes,
+                    _nodeAgent.WhatsAppTemplateVarsJson, _nodeAgent.WhatsAppTemplateHeaderMediaUrl);
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
@@ -1998,6 +2039,7 @@ else
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            LoadTemplateVars();
             _agentModalOpen = false;
         });
     }
@@ -2038,7 +2080,8 @@ else
         _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false,
         _nodeAgent?.OnFailure ?? WorkflowAgentFailureAction.ReturnToHuman,
         _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute,
-        _nodeAgent?.ColdWindowMinutes);
+        _nodeAgent?.ColdWindowMinutes,
+        _nodeAgent?.WhatsAppTemplateVarsJson, _nodeAgent?.WhatsAppTemplateHeaderMediaUrl);
 
     private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
@@ -2119,6 +2162,59 @@ else
         return SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColdWindowMinutes = m });
     }
 
+    // ---- Parametros de la plantilla de frio (binding variable -> token) + archivo del header por nodo ----
+
+    /// <summary>Carga _templateVars desde el JSON persistido del nodo (variable -> expresion).</summary>
+    private void LoadTemplateVars()
+    {
+        _templateVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var json = _nodeAgent?.WhatsAppTemplateVarsJson;
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (map is not null)
+            {
+                foreach (var kv in map) { if (!string.IsNullOrWhiteSpace(kv.Value)) { _templateVars[kv.Key] = kv.Value; } }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido -> sin bindings */ }
+    }
+
+    private string? SerializeTemplateVars()
+        => _templateVars.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(_templateVars);
+
+    private Task OnTemplateVarChangedAsync(FlowCanvasNodeDto node, string varToken, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val)) { _templateVars.Remove(varToken); }
+        else { _templateVars[varToken] = val.Trim(); }
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateVarsJson = SerializeTemplateVars() });
+    }
+
+    private async Task OnTemplateHeaderUploadAsync(FlowCanvasNodeDto node, InputFileChangeEventArgs e)
+    {
+        _tplHeaderUploadError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        // Tope 16 MB (limite de WhatsApp para documentos/video; imagenes mucho menos).
+        if (file.Size > 16 * 1024 * 1024) { _tplHeaderUploadError = "El archivo supera 16 MB."; return; }
+        _tplHeaderUploading = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(16 * 1024 * 1024).CopyToAsync(ms);
+            var url = await MediaStore.PublishAsync(ms.ToArray(), file.Name);
+            if (string.IsNullOrWhiteSpace(url)) { _tplHeaderUploadError = "No se pudo publicar el archivo (storage no configurado)."; return; }
+            await SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateHeaderMediaUrl = url });
+        }
+        catch (Exception ex) { _tplHeaderUploadError = "Error al subir: " + ex.Message; }
+        finally { _tplHeaderUploading = false; }
+    }
+
+    private Task OnTemplateHeaderRemove(FlowCanvasNodeDto node)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateHeaderMediaUrl = null });
+
     // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo. El texto vive en _agentExtraPromptDraft
     // (oninput); aqui solo se persiste al salir del campo (blur). CurrentAgentRes ya toma el draft.
     private Task OnNodeExtraPromptChangedAsync(FlowCanvasNodeDto node)
@@ -2141,6 +2237,8 @@ else
                 WhatsAppTemplateName = input.WhatsAppTemplateName,
                 WhatsAppTemplateLang = input.WhatsAppTemplateLang,
                 ColdWindowMinutes = input.ColdWindowMinutes,
+                WhatsAppTemplateVarsJson = input.WhatsAppTemplateVarsJson,
+                WhatsAppTemplateHeaderMediaUrl = input.WhatsAppTemplateHeaderMediaUrl,
                 ExtraPrompt = input.ExtraPrompt,
                 CanSendEmail = input.CanSendEmail,
                 OnFailure = input.OnFailure,

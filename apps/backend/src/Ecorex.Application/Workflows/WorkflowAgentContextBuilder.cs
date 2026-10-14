@@ -231,6 +231,7 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
                     x.ColdWindowMinutes,
+                    x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl,
                     x.ExtraPrompt, x.CanSendEmail))
             .FirstOrDefaultAsync(cancellationToken);
 

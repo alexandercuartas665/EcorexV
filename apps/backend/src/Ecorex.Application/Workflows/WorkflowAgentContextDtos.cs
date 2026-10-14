@@ -59,6 +59,8 @@ public sealed record WorkflowAgentAssignmentDto(
     Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
     // Minutos de frio para usar la plantilla (null = por defecto; ver WorkflowNodeAgent.ColdWindowMinutes).
     int? ColdWindowMinutes = null,
+    // Binding de parametros de la plantilla de frio ({variable -> expresion}) + URL del archivo del header por nodo.
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
     // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
     string? ExtraPrompt = null, bool CanSendEmail = false);
 

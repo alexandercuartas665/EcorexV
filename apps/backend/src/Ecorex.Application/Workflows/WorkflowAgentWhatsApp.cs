@@ -105,8 +105,15 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
         else if (!string.IsNullOrWhiteSpace(command.TemplateName))
         {
             var lang = string.IsNullOrWhiteSpace(command.TemplateLang) ? "es" : command.TemplateLang!.Trim();
+            // Parametros resueltos por el runner (bindings de variables -> tokens); si no vienen, compat: la
+            // pregunta del agente va a la unica/primera variable. Archivo del header configurado por nodo (override).
+            var bodyParams = command.TemplateBodyParams is { Count: > 0 }
+                ? command.TemplateBodyParams
+                : new[] { command.Question.Trim() };
             send = await _connector.SendTemplateAsync(command.LineId, phone, command.TemplateName!.Trim(), lang,
-                new[] { command.Question.Trim() }, actorUserId: Guid.Empty, cancellationToken: cancellationToken);
+                bodyParams, actorUserId: Guid.Empty,
+                headerMediaType: command.TemplateHeaderMediaType, headerMediaUrl: command.TemplateHeaderMediaUrl,
+                cancellationToken: cancellationToken);
         }
         else
         {

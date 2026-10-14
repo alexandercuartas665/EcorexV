@@ -43,6 +43,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private readonly IWorkflowAgentWhatsApp _whatsApp;
     private readonly IAgentProgressBroadcaster _progress;
     private readonly ITaskBroadcaster _taskBroadcaster;
+    private readonly INotifyTokenResolver _tokens;
     private readonly TimeProvider _clock;
     private readonly ILogger<WorkflowAgentStepRunner> _logger;
 
@@ -82,6 +83,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         IWorkflowAgentWhatsApp whatsApp,
         IAgentProgressBroadcaster progress,
         ITaskBroadcaster taskBroadcaster,
+        INotifyTokenResolver tokens,
         TimeProvider clock,
         ILogger<WorkflowAgentStepRunner> logger)
     {
@@ -96,6 +98,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         _whatsApp = whatsApp;
         _progress = progress;
         _taskBroadcaster = taskBroadcaster;
+        _tokens = tokens;
         _clock = clock;
         _logger = logger;
     }
@@ -562,10 +565,14 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             }
         }
 
+        // Plantilla de frio: resuelve los parametros del cuerpo (bindings de variables -> tokens) y el archivo del
+        // header configurado por nodo. Null = compat (la pregunta del agente va a la 1a variable, sin header override).
+        var cold = await ResolveColdTemplateAsync(step, context, request, cancellationToken);
         var sent = await _whatsApp.AskAsync(new WhatsAppAskCommand(
             step.TenantId, lineId, request.Numero, request.Pregunta,
             context.Assignment.WhatsAppTemplateName, context.Assignment.WhatsAppTemplateLang,
-            context.Assignment.ColdWindowMinutes), cancellationToken);
+            context.Assignment.ColdWindowMinutes,
+            cold.BodyParams, cold.HeaderType, cold.HeaderUrl), cancellationToken);
 
         if (!sent.Sent || sent.ConversationId is not Guid conversationId)
         {
@@ -1116,6 +1123,116 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// Deja la nota en la bitacora de la tarea asociada (si el flujo nacio de una). Es lo que hace
     /// legible el episodio para el humano que abre el caso, sin obligarlo a mirar el historial tecnico.
     /// </summary>
+    /// <summary>Resuelve, para la plantilla de frio del agente, los PARAMETROS del cuerpo (bindings de variables a
+    /// tokens, en el orden de VariablesJson) y el ARCHIVO del header configurado por nodo. Devuelve (null,null,null)
+    /// cuando no hay nada configurado -> compat: la pregunta del agente va a la 1a variable, sin header override.</summary>
+    private async Task<(IReadOnlyList<string>? BodyParams, string? HeaderType, string? HeaderUrl)> ResolveColdTemplateAsync(
+        WorkflowStepHistory step, WorkflowAgentContextDto context, WorkflowAgentWhatsAppRequest request, CancellationToken ct)
+    {
+        var a = context.Assignment;
+        if (a?.WhatsAppTemplateName is null) { return (null, null, null); }
+        var headerUrl = string.IsNullOrWhiteSpace(a.WhatsAppTemplateHeaderMediaUrl) ? null : a.WhatsAppTemplateHeaderMediaUrl!.Trim();
+        var bindings = ParseTemplateVarBindings(a.WhatsAppTemplateVarsJson);
+        if (bindings.Count == 0 && headerUrl is null) { return (null, null, null); }   // nada configurado -> compat
+
+        var tpl = await _db.WhatsAppTemplates.AsNoTracking()
+            .Where(t => t.Name == a.WhatsAppTemplateName && t.IsActive)
+            .Select(t => new { t.VariablesJson, t.HeaderType })
+            .FirstOrDefaultAsync(ct);
+        if (tpl is null) { return (null, null, headerUrl); }
+
+        IReadOnlyList<string>? bodyParams = null;
+        if (bindings.Count > 0)
+        {
+            var taskId = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(ct);
+            var task = taskId is Guid tid ? await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tid, ct) : null;
+            if (task is not null)
+            {
+                var tokens = new Dictionary<string, string>(await _tokens.BuildAsync(task, ct), StringComparer.OrdinalIgnoreCase);
+                // Token especial: el texto que el agente genero (por si una variable lo quiere en vez de un dato fijo).
+                tokens["agente.mensaje"] = request.Pregunta ?? string.Empty;
+                tokens["agente.pregunta"] = request.Pregunta ?? string.Empty;
+                foreach (var (varName, expr) in bindings)
+                {
+                    if (!string.IsNullOrWhiteSpace(expr)) { tokens[varName] = _tokens.Render(expr, tokens); }
+                }
+                bodyParams = BuildTemplateBodyParams(tpl.VariablesJson, tokens);
+            }
+        }
+
+        string? headerType = null;
+        if (headerUrl is not null)
+        {
+            headerType = tpl.HeaderType switch
+            {
+                WhatsAppTemplateHeaderType.Image => "image",
+                WhatsAppTemplateHeaderType.Video => "video",
+                WhatsAppTemplateHeaderType.Document => "document",
+                _ => null
+            };
+            if (headerType is null) { headerUrl = null; }   // la plantilla no tiene header de media: sin override
+        }
+        return (bodyParams, headerType, headerUrl);
+    }
+
+    /// <summary>Parsea el JSON de bindings { "variable": "expresion" } del nodo. Vacio/invalido -> mapa vacio.</summary>
+    private static Dictionary<string, string> ParseTemplateVarBindings(string? json)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) { return map; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var v = p.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(v)) { map[p.Name] = v!; }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido -> sin bindings */ }
+        return map;
+    }
+
+    /// <summary>Arma los parametros del cuerpo en el ORDEN de VariablesJson de la plantilla (cada elemento trae la
+    /// propiedad "token" = nombre de la variable, o es un string). El valor sale del mapa de tokens; vacio si falta.</summary>
+    private static IReadOnlyList<string> BuildTemplateBodyParams(string? variablesJson, IReadOnlyDictionary<string, string> tokens)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return result; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(variablesJson);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) { return result; }
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                string? token = null;
+                if (el.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    foreach (var p in el.EnumerateObject())
+                    {
+                        if (string.Equals(p.Name, "token", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            token = p.Value.GetString();
+                            break;
+                        }
+                    }
+                }
+                else if (el.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    token = el.GetString();
+                }
+                result.Add(token is not null && tokens.TryGetValue(token, out var val) ? val : string.Empty);
+            }
+        }
+        catch (System.Text.Json.JsonException) { return new List<string>(); }
+        return result;
+    }
+
     /// <summary>Fecha de creacion + numero de la TAREA detras de una instancia de flujo, para decidir la "tarea
     /// mas reciente" en la retoma de linea (ADR-0122). Si la instancia no tiene tarea, devuelve MinValue/"?".</summary>
     private async Task<(DateTimeOffset CreatedAt, string Number)> TaskMetaAsync(Guid instanceId, CancellationToken cancellationToken)

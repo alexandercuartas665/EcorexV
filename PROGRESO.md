@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-14 - v0.16.198: DEPLOY del modulo Requerimientos y Compras (Capa 10) a prod
+
+- Release del modulo ya integrado al tronco (ver entrada de integracion abajo). AppVersion 0.16.197 -> 0.16.198.
+- Prod ya tenia AddStoredFiles + AddSavedFilters (entraron en v0.16.197); este deploy aplica SOLO las 2
+  migraciones del modulo: AddRequerimientosCompra + AddRequerimientoMontoHijo (auto-migrate al arrancar).
+- Menu "Compras" a TODOS los tenants de prod: se agrego ECOREX_MENU_REQUERIMIENTOS="true" al env del compose
+  (host /opt/ecorex/docker-compose.image.yml + repo deploy/docker-prod/docker-compose.image.yml); el backfill
+  EnsureRequerimientosCompraMenuAsync corre al arrancar (idempotente), junto a ECOREX_MENU_REPORTES.
+- Backup previo: pg_dump custom de prod -> /opt/ecorex/backups/ecorex-predeploy-20261014-100335.dump (102M).
+- Validado en local antes del deploy: menu "Compras" backfilleado a los 9 tenants locales, paginas
+  /requerimientos-compra y /requerimientos-config renderizan con datos reales (AGROMETALICAS).
+- Bloqueos: ninguno.
+
 ## 2026-10-14 - Integracion modulo Requerimientos y Compras (Capa 10) al tronco (SIN deploy)
 
 - Se integro la rama `requerimiento_compras` (worktree C:\DesarrolloIA\ecorex-requerimiento-compras) al tronco

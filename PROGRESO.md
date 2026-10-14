@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-14 - Integracion modulo Requerimientos y Compras (Capa 10) al tronco (SIN deploy)
+
+- Se integro la rama `requerimiento_compras` (worktree C:\DesarrolloIA\ecorex-requerimiento-compras) al tronco
+  fase-0/clon-backbone via CHERRY-PICK del rango efc8269c^..6da5284b (Olas 0-6), para excluir el commit
+  eefc9553 (.gitignore de appout5265, build dev del worktree) como pidio el hand-off. Commits resultantes:
+  f8808826 (Ola 0) .. 6ffe25e6 (Ola 6).
+- Conflictos resueltos (todos ADITIVOS, la rama forko en v0.16.192 y el tronco avanzo a v0.16.197):
+  IApplicationDbContext.cs y EcorexDbContext.cs (DbSets + config de las 4 entidades nuevas, conservando
+  SavedFilter/StoredFile del tronco), DependencyInjection.cs (registro RequerimientoConfigService). Los dos
+  ModelSnapshot.cs auto-fusionaron la UNION (Requerimiento + entidades nuevas del tronco). Olas 2-6 sin
+  conflicto.
+- Se actualizaron 10 fakes de IApplicationDbContext en Ecorex.Application.Tests (stubs de los 4 DbSets nuevos
+  RequerimientoOrigenes/ProveedorReglas/RequerimientosCompra/CompraHijos como NotSupportedException).
+- VERIFICACION: dotnet build Ecorex.sln VERDE (0 errores, incluidos tests). EF
+  has-pending-model-changes = "No changes" en AMBOS contextos (EcorexDbContext PG y SqlServerEcorexDbContext),
+  o sea los snapshots fusionados cuadran con el modelo. BD dev PG (5442) ya tiene las 2 migraciones
+  Requerimiento aplicadas + las 4 tablas (confirmado); historial consistente con el codigo fusionado.
+- Entra: 4 entidades (RequerimientoOrigen/ProveedorRegla/Compra/CompraHijo), paginas /requerimientos-compra y
+  /requerimientos-config, policies Compras.Ver/Compras.Configurar, menu "Compras" para todos los tenants.
+  Migraciones duales (AddRequerimientosCompra + AddRequerimientoMontoHijo, PG+SQL Server). Multi-tenant con
+  filtro global.
+- PENDIENTE: SQL Server dev NO tiene las migraciones aplicadas (solo PG dev las tiene); aplicar en entornos
+  SQL Server. NO desplegado (pedido del hand-off: solo integrar). Decidir push del tronco a origin.
+- Bloqueos: ninguno.
+
 ## 2026-10-13 - v0.16.197: reenvio robusto de cotizacion + rompe-hielo con umbral configurable + selector de plantilla + adjuntos acotados
 
 - REENVIO DE COTIZACION (red de seguridad nueva, WorkflowAgentInvoker): el agente del flujo no reenviaba el PDF

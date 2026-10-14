@@ -48,6 +48,10 @@ public class TenantUserServiceTests
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompraHijo> RequerimientoCompraHijos => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => inner.PlatformUsers;
         public DbSet<TenantUser> TenantUsers => inner.TenantUsers;
         public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => inner.SuperAdminAuditLogs;

@@ -15,11 +15,13 @@ public sealed class ConciliacionDianService : IConciliacionDianService
 
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly INewtonEventSender? _sender;
 
-    public ConciliacionDianService(IApplicationDbContext db, ITenantContext tenant)
+    public ConciliacionDianService(IApplicationDbContext db, ITenantContext tenant, INewtonEventSender? sender = null)
     {
         _db = db;
         _tenant = tenant;
+        _sender = sender;
     }
 
     // Normaliza un numero de factura para el cruce: deja solo letras/digitos, en mayuscula (el molde quitaba
@@ -262,27 +264,61 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<ConciliacionEventosResult> ProcesarEventosAsync(
-        Guid documentoId, IReadOnlyList<Guid> renglonIds, CancellationToken ct = default)
+    // Secuencia RADIAN que se radica: 030 (acuse) -> 032 (recibo del bien/servicio) -> 033 (aceptacion expresa).
+    private static readonly (string Tipo, Func<ConciliacionDianRenglon, bool> YaHecho, Action<ConciliacionDianRenglon> Marcar)[] _secuenciaRadian =
+    {
+        ("ACUSE_DE_RECIBO",       r => r.Evento30, r => r.Evento30 = true),
+        ("RECIBO_DE_PRESTACION",  r => r.Evento32, r => r.Evento32 = true),
+        ("ACEPTACION_EXPRESA",    r => r.Evento33, r => r.Evento33 = true),
+    };
+
+    public async Task<ConciliacionRadicacionResult> RadicarEventosAsync(
+        Guid documentoId, IReadOnlyList<Guid> renglonIds, bool simular, CancellationToken ct = default)
     {
         var q = _db.ConciliacionDianRenglones.Where(r => r.DocumentoId == documentoId);
         q = renglonIds.Count > 0 ? q.Where(r => renglonIds.Contains(r.Id)) : q.Where(r => r.Seleccionado);
         var rows = await q.ToListAsync(ct);
 
-        int procesadas = 0, marcados = 0, sinPlataforma = 0;
+        // EventId de NEWTON por CUFE (poblado por la ingesta). Sin EventId no se puede radicar.
+        var cufes = rows.Select(r => r.Cufe).Distinct().ToList();
+        var eventIdPorCufe = await _db.ConciliacionDianNewtonDummies
+            .Where(n => cufes.Contains(n.Cufe) && n.EventId != "")
+            .Select(n => new { n.Cufe, n.EventId })
+            .ToDictionaryAsync(x => x.Cufe, x => x.EventId, ct);
+
+        int elegibles = 0, enviados = 0, fallidos = 0, sinPlataforma = 0, sinEventId = 0;
+        var changed = false;
+
+        if (!simular && _sender is null)
+        {
+            return new(0, 0, 0, 0, 0, false, "Envio real no disponible (INewtonEventSender no configurado).");
+        }
+
         foreach (var r in rows)
         {
             if (!r.FacturaAprobada) { continue; }
             if (!r.PlataformaProveedor) { sinPlataforma++; continue; }
-            // MOCK Fase 1: marca la secuencia RADIAN 030 -> 032 -> 033 sin llamar la API real de NEWTON
-            // (acto legal irreversible ante la DIAN; la integracion real va en Fase 2).
-            if (!r.Evento30) { r.Evento30 = true; marcados++; }
-            if (!r.Evento32) { r.Evento32 = true; marcados++; }
-            if (!r.Evento33) { r.Evento33 = true; marcados++; }
-            procesadas++;
+            var pendientes = _secuenciaRadian.Where(e => !e.YaHecho(r)).ToList();
+            if (pendientes.Count == 0) { continue; }
+            elegibles++;
+
+            if (!eventIdPorCufe.TryGetValue(r.Cufe, out var eventId) || string.IsNullOrWhiteSpace(eventId))
+            {
+                sinEventId++;
+                continue;
+            }
+
+            foreach (var e in pendientes)
+            {
+                if (simular) { enviados++; continue; } // DRY-RUN: cuenta lo que se enviaria; NO llama a NEWTON ni marca.
+
+                var (ok, _) = await _sender!.SendEventAsync(eventId, e.Tipo, ct);
+                if (ok) { e.Marcar(r); enviados++; changed = true; } else { fallidos++; }
+            }
         }
-        if (marcados > 0) { await _db.SaveChangesAsync(ct); }
-        return new(procesadas, marcados, sinPlataforma);
+
+        if (changed) { await _db.SaveChangesAsync(ct); }
+        return new(elegibles, enviados, fallidos, sinPlataforma, sinEventId, simular, null);
     }
 
     // Estado derivado: Buzon/Procesado (ramas del molde) se respetan; el nucleo mueve Conciliar<->Conciliado

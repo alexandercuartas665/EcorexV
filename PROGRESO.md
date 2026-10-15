@@ -2,6 +2,283 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-15 - Agente del FLUJO: mismo fix anti-rafaga que SARA (Fix A + Fix B) (SIN deploy)
+
+- CONTEXTO: tras validar el fix de SARA en prod, el usuario pregunto si los agentes que viven en el FLUJO
+  (WorkflowAgentStepRunner/ContextBuilder, otro camino que SARA) tienen el mismo problema de rafagas. SI lo tienen,
+  por DOS huecos distintos (ninguno cubierto por el cursor de SARA, que vive en AgentConversationService):
+  - HUECO 1 (rafaga partida): BuildWhatsAppReplyResultAsync leia UN solo entrante
+    (OrderByDescending(SentAt).First). "necesito 4 laminas" + "mi cedula es 10199857" -> solo leia la cedula.
+  - HUECO 2 (mensaje durante la corrida): la frescura se anclaba en el ULTIMO SALIENTE; si el paso mandaba su
+    respuesta, un entrante llegado antes quedaba "antes del saliente" y se tragia. (El RE-DISPARO ya estaba
+    protegido: ChatIngest limpia AgentAttemptedAt con tracking -> AuditableTenantInterceptor bumpea Version++ ->
+    el "pisado" del paso revienta por concurrencia y el barrido lo re-corre. No hizo falta tocar el despachador.)
+- FIX (opcion del usuario: A + B completo):
+  - FIX A (agregar rafaga): BuildWhatsAppReplyResultAsync junta TODOS los entrantes frescos (orden cronologico,
+    tope 15 msgs / 1500 chars) en vez de solo el ultimo.
+  - FIX B (cursor anti-rafaga del flujo): WorkflowStepHistory.WhatsAppAnsweredInboundAt (gemelo del de SARA).
+    floor = WhatsAppAnsweredInboundAt ?? ultimo_saliente (1a vez cae al saliente -> filtra chatter viejo; despues
+    manda el cursor -> un saliente nuestro no deja mensajes "antes del saliente"). El runner avanza el cursor =
+    LatestInboundAt al armar el contexto (se persiste con el cierre/pausa; si revienta, rollback).
+  - DTO WorkflowAgentWhatsAppReplyDto (+LatestInboundAt). Migracion DUAL AddStepWhatsAppAnsweredInbound
+    (whats_app_answered_inbound_at). Build Ecorex.sln VERDE; Application.Tests 1112/1112; migracion PG aplicada al
+    local (ecorex@5442).
+- PRUEBA (integracion DUAL, deterministica, sin IA): AgentFlow_WhatsAppReply_AggregatesBurst_AndCursorPreventsStranding
+  en WorkflowAgentStepTests. Fase A: dos entrantes de rafaga se juntan y el chatter viejo (anterior a la pregunta) se
+  excluye. Fase B: con cursor=t+13s y un saliente nuestro en t+20s, un entrante tardio en t+16s SI se lee (con el ancla
+  vieja del ultimo saliente se tragaba) y los ya respondidos no se re-sirven. 16/16 verde (PG + SQL Server).
+- DE PASO: 2 tests pre-existentes de WorkflowAgentStepTests estaban stale (esperaban NotApplicable donde el claim
+  atomico ahora devuelve AlreadyAttempted para claimed==0: idempotencia L77 y aislamiento cross-tenant L263). Se
+  corrigio la EXPECTATIVA (el comportamiento real es correcto; el aislamiento sigue garantizado por Calls==0). No es
+  del fix de rafaga; estaban rojos en el tronco desde el trabajo del "claim atomico".
+- PENDIENTE: a senal del usuario -> commit+push+deploy + prueba en vivo. NO desplegado (sin bump de version).
+- Bloqueos: ninguno.
+
+## 2026-10-14 - v0.16.199: SARA no ignora mensajes llegados durante su propia corrida (cursor anti-rafaga)
+
+- SINTOMA (prod AGROMETALICAS/SARA, linea 573113168626): cliente manda A (20:50:16), luego la cedula B
+  (20:50:40) mientras SARA procesa A; SARA respondio 20:50:44 y volvio a pedir la cedula -> bucle, ignoro B.
+- CAUSA (verificada): (1) AgentConversationService.RunAsync toma UNA foto de la BD al inicio (ultimos 30 msgs) y
+  no la relee; B entro despues de la foto. (2) el guard "si messages[^1] es Outbound -> return" mataba la corrida
+  de respaldo: la saliente de SARA (SentAt=now, 20:50:44) quedaba como ultimo mensaje y B nunca se contestaba.
+- FIX (opcion B del hand-off): Conversation.LastAnsweredInboundAt (cursor del ultimo entrante respondido).
+  - RunAsync calcula snapshotInboundAt = max(SentAt de los inbound de la foto); al enviar OK persiste
+    LastAnsweredInboundAt = snapshotInboundAt (via ExecuteUpdateAsync).
+  - Se reemplaza el guard L104: corre solo si hay un inbound con SentAt > cursor (sin responder); si no, return.
+    Asi la corrida de respaldo (la agenda el 2o inbound en ChatIngestService + el barrido de 2min del dispatcher)
+    procesa B. Ademas se mantiene: si el ULTIMO es saliente de un HUMANO (SentByTenantUserId != null; la saliente
+    del agente va con actor Guid.Empty -> null) SARA sigue callada.
+  - Se respetan los candados: paso de flujo dueno, silencio por asesor humano (lead asignado), FlowHandledCloseAt.
+    El dispatcher sigue secuencial (sin doble respuesta).
+  - Migracion DUAL AddConversationLastAnsweredInbound (last_answered_inbound_at). AppVersion 0.16.198 -> 0.16.199.
+- PENDIENTE: build+tests+prueba /dev/inbound (A, luego B ~20s despues) + deploy a senal del usuario. NO desplegado.
+- Bloqueos: ninguno.
+
+## 2026-10-14 - Plantilla de frio del agente: parametros (bindings) + archivo del header por nodo (SIN deploy)
+
+- El agente del flujo, al mandar la plantilla de frio, antes solo metia su pregunta en la 1a variable. Ahora:
+  - PARAMETROS: WorkflowNodeAgent.WhatsAppTemplateVarsJson = mapa {variable -> expresion}; cada variable de la
+    plantilla (orden de VariablesJson) se resuelve con tokens ({tarea.cliente}, {tarea.numero}, {empresa.*},
+    {sistema.fecha}, {form.x}, texto fijo, o {agente.mensaje} = el texto que el agente genero). Reusa
+    INotifyTokenResolver (el mismo del nodo de notificacion). Sin bindings = compat (pregunta -> 1a variable).
+  - ARCHIVO DEL HEADER POR NODO: WorkflowNodeAgent.WhatsAppTemplateHeaderMediaUrl = URL publica del archivo
+    (logo u otro) subido en el modal del agente (InputFile -> ITemplateMediaStore.PublishAsync); se manda como
+    header override (YCloud/Evolution, mismo camino del nodo de notificacion). Vacio = header fijo de la plantilla.
+  - UI (FlowEditor, bajo el dropdown de plantilla): bloque "Parametros de la plantilla" (1 campo por variable) +
+    "Archivo del encabezado" (upload + quitar), solo si la plantilla tiene variables / header de media.
+  - Plomeria: WhatsAppAskCommand (+BodyParams/HeaderMediaType/HeaderMediaUrl), AskAsync, runner
+    (ResolveColdTemplateAsync + inyeccion de INotifyTokenResolver), DTOs, context builder, WorkflowDesignService.
+  - Migracion DUAL AddAgentColdTemplateVarsAndHeader (whats_app_template_vars_json jsonb +
+    whats_app_template_header_media_url). Build Ecorex.sln VERDE, EF has-pending-model-changes="No changes" PG+SQL.
+- PENDIENTE: aplicar migracion local + probar E2E (arnes) + bump + deploy a senal del usuario. NO desplegado.
+- Bloqueos: ninguno.
+
+## 2026-10-14 - v0.16.198: DEPLOY del modulo Requerimientos y Compras (Capa 10) a prod
+
+- Release del modulo ya integrado al tronco (ver entrada de integracion abajo). AppVersion 0.16.197 -> 0.16.198.
+- Prod ya tenia AddStoredFiles + AddSavedFilters (entraron en v0.16.197); este deploy aplica SOLO las 2
+  migraciones del modulo: AddRequerimientosCompra + AddRequerimientoMontoHijo (auto-migrate al arrancar).
+- Menu "Compras" a TODOS los tenants de prod: se agrego ECOREX_MENU_REQUERIMIENTOS="true" al env del compose
+  (host /opt/ecorex/docker-compose.image.yml + repo deploy/docker-prod/docker-compose.image.yml); el backfill
+  EnsureRequerimientosCompraMenuAsync corre al arrancar (idempotente), junto a ECOREX_MENU_REPORTES.
+- Backup previo: pg_dump custom de prod -> /opt/ecorex/backups/ecorex-predeploy-20261014-100335.dump (102M).
+- Validado en local antes del deploy: menu "Compras" backfilleado a los 9 tenants locales, paginas
+  /requerimientos-compra y /requerimientos-config renderizan con datos reales (AGROMETALICAS).
+- Bloqueos: ninguno.
+
+## 2026-10-14 - Integracion modulo Requerimientos y Compras (Capa 10) al tronco (SIN deploy)
+
+- Se integro la rama `requerimiento_compras` (worktree C:\DesarrolloIA\ecorex-requerimiento-compras) al tronco
+  fase-0/clon-backbone via CHERRY-PICK del rango efc8269c^..6da5284b (Olas 0-6), para excluir el commit
+  eefc9553 (.gitignore de appout5265, build dev del worktree) como pidio el hand-off. Commits resultantes:
+  f8808826 (Ola 0) .. 6ffe25e6 (Ola 6).
+- Conflictos resueltos (todos ADITIVOS, la rama forko en v0.16.192 y el tronco avanzo a v0.16.197):
+  IApplicationDbContext.cs y EcorexDbContext.cs (DbSets + config de las 4 entidades nuevas, conservando
+  SavedFilter/StoredFile del tronco), DependencyInjection.cs (registro RequerimientoConfigService). Los dos
+  ModelSnapshot.cs auto-fusionaron la UNION (Requerimiento + entidades nuevas del tronco). Olas 2-6 sin
+  conflicto.
+- Se actualizaron 10 fakes de IApplicationDbContext en Ecorex.Application.Tests (stubs de los 4 DbSets nuevos
+  RequerimientoOrigenes/ProveedorReglas/RequerimientosCompra/CompraHijos como NotSupportedException).
+- VERIFICACION: dotnet build Ecorex.sln VERDE (0 errores, incluidos tests). EF
+  has-pending-model-changes = "No changes" en AMBOS contextos (EcorexDbContext PG y SqlServerEcorexDbContext),
+  o sea los snapshots fusionados cuadran con el modelo. BD dev PG (5442) ya tiene las 2 migraciones
+  Requerimiento aplicadas + las 4 tablas (confirmado); historial consistente con el codigo fusionado.
+- Entra: 4 entidades (RequerimientoOrigen/ProveedorRegla/Compra/CompraHijo), paginas /requerimientos-compra y
+  /requerimientos-config, policies Compras.Ver/Compras.Configurar, menu "Compras" para todos los tenants.
+  Migraciones duales (AddRequerimientosCompra + AddRequerimientoMontoHijo, PG+SQL Server). Multi-tenant con
+  filtro global.
+- PENDIENTE: SQL Server dev NO tiene las migraciones aplicadas (solo PG dev las tiene); aplicar en entornos
+  SQL Server. NO desplegado (pedido del hand-off: solo integrar). Decidir push del tronco a origin.
+- Bloqueos: ninguno.
+
+## 2026-10-13 - v0.16.197: reenvio robusto de cotizacion + rompe-hielo con umbral configurable + selector de plantilla + adjuntos acotados
+
+- REENVIO DE COTIZACION (red de seguridad nueva, WorkflowAgentInvoker): el agente del flujo no reenviaba el PDF
+  cuando el cliente lo pedia ("me la mandas de nuevo / la perdi / no me llego"); respondia "confirmame si la
+  recibiste" y luego "no pudo resolver" -> SARA tomaba el relevo y desviaba a un asesor (visto en prod, caso
+  T00320). La red existente solo cachaba FALSAS AFIRMACIONES del agente; se agrego AsksToResendDocument que
+  detecta el PEDIDO del cliente (reenvio/perdi/borre/no llego + mencion de doc/cotiz) y, si el agente va a
+  pausar sin llamar enviar_impresion, lo FUERZA una vez a reenviar de verdad. Validado en local (reenvia el PDF
+  + confirma). Sin migracion.
+- ROMPE-HIELO CON UMBRAL CONFIGURABLE (ADR-0120+): WorkflowNodeAgent.ColdWindowMinutes (int?, null = default).
+  AskAsync: con umbral configurado TODAS las lineas respetan la "ventana de frio" (minutos desde el ultimo
+  entrante del cliente) -> vencida = PLANTILLA, dentro = texto libre; en YCloud/Cloud se capa a 1440 (24h,
+  Meta). Permite EMULAR la ventana de Meta en local (Evolution) con un umbral corto (ej. 2 min) para probar el
+  cambio frio->plantilla sin esperar 24h. Validado E2E local (frio->plantilla saludo_cotizacion, caliente->texto
+  libre). Plomeria: WhatsAppAskCommand, Assignment DTO, context builder, runner. Migracion DUAL
+  AddWorkflowNodeAgentColdWindow (cold_window_minutes).
+- SELECTOR DE PLANTILLA (FlowEditor): "PLANTILLA CONTACTO EN FRIO" paso de input de texto a dropdown de las
+  plantillas ACTIVAS del tenant (etiqueta con idioma/proveedor/estado); al elegir autocompleta el idioma; bajo
+  el dropdown, casilla "usar la plantilla cuando la conversacion este en frio" + campo de minutos. Solo UI.
+- ADJUNTOS ACOTADOS AL ENGAGEMENT (ya descrito antes): AttachConversationMediaAsync (TasksToolset +
+  ActividadesToolset) adjunta solo media con SentAt > cutoff (MAS reciente de AgentContextResetAt y la tarea
+  ANTERIOR de la conversacion; fallback 72h). Evita arrastrar media vieja del hilo de un contacto recurrente.
+- GOTCHA de dev: un segundo server (appout5263) sobre la MISMA BD intercepta pulsos con build viejo -> duplica
+  saludos y enmascara features nuevas. Detener el fantasma antes de probar.
+- Build verde (Application + SuperAdmin). Migraciones duales aplicadas a BD local al arrancar. Multi-tenant
+  intacto.
+- Siguiente: el usuario sigue con pruebas; pendientes de backlog la falla #1 de prod (carrera flujo<->SARA que
+  duplica saludos: retener la linea desde el envio de la cotizacion) y dar a SARA capacidad de reenvio.
+- Bloqueos: ninguno.
+
+## 2026-10-13 - v0.16.196 (NO desplegado, incluido en v0.16.197): adjuntos de la tarea acotados al engagement actual
+
+- SINTOMA (prod EPRING): T00053 (contacto recurrente, conversacion 01a0b672) quedo con un adjunto de hace un
+  mes (18-sep) mezclado con los 3 del lead del 13-oct. Causa: AttachConversationMediaAsync adjuntaba TODA la
+  media entrante de la conversacion SIN filtro de fecha; una conversacion de contacto recurrente es UNA sola
+  fila que vive meses, asi que cada tarea nueva arrastraba media de interacciones anteriores.
+- FIX (solo query, sin migracion): adjuntar media con SentAt > cutoff, cutoff = MAS reciente de (1)
+  Conversation.AgentContextResetAt (el motor de cierre lo setea al "olvidar" al cliente = inicio del engagement
+  actual) y (2) CreatedAt de la tarea ANTERIOR de esa conversacion (TaskItems WHERE conversation_id=conv AND
+  id<>taskId, MAX) para que cada tarea se lleve solo SU media; si ambos son null (primer lead sin reset),
+  fallback de 72h. Se usa SentAt (fecha real del mensaje), no CreatedAt de la fila. Aplicado en AMBAS
+  herramientas de cierre: TasksToolset (crear_tarea) y ActividadesToolset (crear_actividad). El filtro por
+  TIPO no se toca (sigue adjuntando imagen/pdf/audio); solo se acota por FECHA.
+- Build Application verde (9 warnings preexistentes, 0 nuevos). Multi-tenant intacto (ya scoped por el filtro
+  global). El adjunto viejo de T00053 ya se habia limpiado a mano en prod (backup ecorex-2026-10-13-1038).
+- Siguiente: a espera de OK del usuario para commit+deploy.
+- Bloqueos: ninguno.
+
+## 2026-10-11 - Release v0.16.194: cadencia de seguimiento por config + retoma de linea + import de formularios por archivos
+
+- CADENCIA DE SEGUIMIENTO POR CONFIG (reemplaza el tool reprogramar_plazo del dia anterior, que se REVIRTIO a
+  pedido del usuario: "solo el mecanico"). WorkflowNode.AgentFollowUpJson = lista ordenada de plazos
+  {days,hours,minutes} (1er elemento = primer contacto, p.ej. 0=inmediato; siguientes = espera antes de cada
+  recordatorio). WorkflowStepHistory.AgentFollowUpIndex = contador que sobrevive relanzamientos. StepSlaList
+  (parse/build de la lista). WorkflowDesignService.SetNodeAgentFollowUpAsync + draft-copy + DTO + UI en el modal
+  de Plazos del diseñador (bloque "Seguimiento (plazos)", lista editable). El runner (PauseForWhatsAppAsync)
+  calcula AgentNextRetryAt desde la lista por el indice; al agotarse NO insiste mas y NO cierra (AgentDeadlineAt
+  =null, "deja de insistir y espera", decision del usuario); cada recordatorio -> nota en la bitacora de la
+  tarea. Sin cadencia configurada = comportamiento previo (ADR-0121). Migracion dual AddWorkflowAgentFollowUp
+  (agent_follow_up_json en workflow_nodes, agent_follow_up_index en workflow_step_histories).
+- RETOMA DE LINEA (ADR-0122 cambiado): antes el guard "un solo dueno de la linea" BLOQUEABA al nuevo. Ahora
+  gana la TAREA MAS RECIENTE (por TaskItem.CreatedAt). En PauseForWhatsAppAsync, si otro paso vigente tiene el
+  hold del contacto en la linea: si el que actua es de un caso mas nuevo (o igual) TOMA EL CONTROL (hold se
+  transfiere al enviar) y el caso VIEJO se devuelve a una persona (se le limpia PendingWhatsAppConversationId/
+  next_retry/deadline + nota "la linea la tomo un caso mas reciente (Tnnnnn)"), se libera SOLO tras envio OK; si
+  el que actua es mas viejo, se hace a un lado (ReturnToPerson). Helper TaskMetaAsync. Descubierto probando:
+  reusar el mismo numero en varios casos activos chocaba.
+- IMPORT DE FORMULARIOS POR ARCHIVOS (Formularios.razor /formularios): se quito la caja de texto (pegar JSON);
+  ahora <InputFile multiple accept=".json"> (uno o varios archivos, como el import de flujos pero MULTI), importa
+  cada archivo via FormsSvc.ImportAsync (crea nuevo con codigo unico) y muestra resultado por archivo; si solo
+  uno OK abre su constructor. "Disponible en super admin" = ya es la consola unificada (Ecorex.SuperAdmin).
+- Build 0 errores; Ecorex.Application.Tests 1112/1112. Integration dual (Docker) NO corrida. Migracion dual
+  aplicada a BD local al arrancar.
+- NOTA arbol compartido: otra sesion commiteo trabajo de conciliacion-dian (245adf2c..924761d1) + dejo
+  ConciliacionDian.razor/.css MODIFICADOS sin commitear (WIP de ellos, EXCLUIDOS de este commit). Su migracion
+  AddSavedFilters quedo en PG pero FALTA la dual SQL Server (su pendiente; no afecta prod=PostgreSQL).
+- Siguiente: Parte B (arnes del agente del nodo: tool listar formularios/impresiones por nombre + reenviar
+  cotizacion, protegido por el prompt del nodo). El usuario sigue con las pruebas.
+- Bloqueos: ninguno.
+
+## 2026-10-10 - Agente venta/cierre: bitacora + tool consultar_tarea (SARA) + tool reprogramar_plazo (nodo) (SIN deploy)
+
+- Diagnostico (solo lectura en prod) de una prueba real de SARA (tenant AGROMETALICAS, tel 573217626882): SARA
+  creaba tareas en vez de entregar la cotizacion y no cerraba. Causa: no tiene tool para reenviar la cotizacion,
+  le sobran crear_tarea/crear_lead, y el flujo NO retuvo la conversacion (flow_hold NULL) -> la SARA normal
+  contesto ciega a la nota "no crear tareas". El nodo "Agente seguimiento inteligente" no tenia start_delay/sla.
+- Cambios implementados (3), build verde, Ecorex.Application.Tests 1112/1112 OK. Integration dual (Docker) NO corrida.
+  1) Bitacora mas completa (NodeNotifyService.RecordContactShareObservationAsync): nota rotulada con Tarea
+     (numero de caso) + Nodo que la genero + Cliente (nombre/tel) + Se envio (enlace de decision con opciones +
+     cotizacion). El titulo del AiAgentRunLog ahora lleva "- tarea Tnnnnn". Sin migracion.
+  2) SARA consulta la tarea (TasksToolset.consultar_tarea, SOLO LECTURA): por 'numero' (ej. T00303, que viene en
+     la nota del flujo) o la tarea ligada a la conversacion; devuelve estado/tablero/solicitante/adjuntos
+     (la cotizacion)/ultimas 10 anotaciones. NO aplica la whitelist de tableros (esa rige donde se CREAN tareas).
+  3) Nodo de flujo reprograma su plazo (WorkflowAgentInvoker tool 'reprogramar_plazo' en decision Y formulario;
+     WorkflowAgentStepRunner.PostponeStepAsync; nuevo WorkflowAgentInvocationResult.PostponeMinutes y outcome
+     Postponed). Setea AgentNextRetryAt = ahora + dias/horas/min (clamp 5..43200) y AgentAttemptedAt; el
+     WorkflowAgentStepDispatcher ya re-dispara por AgentNextRetryAt<=now (limpia ambos). AgentDeadlineAt se pone
+     DESPUES del reintento (no reapea un plazo largo). Reusa el campo de ADR-0121 -> SIN migracion.
+- Siguiente: el usuario prueba desde su telefono. Pendiente (no pedido aun): tool de REENVIAR la cotizacion
+  publicada (hoy no existe como IAgentToolset; QuoteRenderService solo esta en UI/reglas) y/o correr la
+  conversacion flow-held para que SARA enrute la compuerta al aprobar.
+- Bloqueos: ninguno. Deploy: PENDIENTE OK del usuario.
+
+## 2026-10-10 - Conciliacion DIAN: visor grande de documentos + constructor de filtros; diagnostico de eventos NEWTON (SIN deploy)
+
+- VISOR DE DOCUMENTOS (commit 570ca9c0): el mini-modal de archivos de la factura pasa a un modal grande de 2
+  columnas: izquierda miniaturas en vivo (iframe escalado) de cada documento, derecha visor grande (PDF nativo /
+  XML) que conmuta al hacer click. El clip por renglon solo aparece si ese CUFE tiene archivos
+  (IFileStorageService.ListRefsWithFilesAsync). Validado: factura PR32461461 muestra los 4 tipos y conmuta.
+- DIAGNOSTICO "los estados no se marcan" (NO es bug, commit 245adf2c agrega el log): tras una corrida completa,
+  la marca de plataforma (en Newton) SI funciono (80/109) pero los eventos RADIAN quedaron en 0. El log de
+  diagnostico confirma: de 536 docs de NEWTON, 104 traen eventos (ACUSE_DE_RECIBO, etc.) y CERO cruzan un
+  renglon cargado. Son compras ya gestionadas (p.ej. GLOBAL MENSAJERIA 7bbe315a, 7-sep, con acuse) que el scrape
+  de DIAN no trajo; los 109 renglones cargados estan todos PENDIENTES. El motor refleja bien cuando hay cruce.
+- CONSTRUCTOR DE FILTROS (commit 2e62d589): reemplaza los filtros fijos por un armador de condiciones con grupos
+  AND/OR ANIDABLES (componente recursivo). Operadores por tipo (texto contiene/vacio..., numero, fecha, bool,
+  estado RADIAN sin/con/ev30-34). Campos: factura, montos, En Newton, Tiene archivos, Aprobada. Evaluacion en
+  CLIENTE sobre el tab; subtotales recalculan sobre lo filtrado. Filtros GUARDADOS y COMPARTIDOS por el tenant
+  (entidad SavedFilter + ISavedFilterService; menu Guardados aplicar/eliminar; Guardar persiste el jsonb con
+  autoria) o aplicar temporal. Migracion dual AddSavedFilters (PG aplicada a dev al arrancar). Validado E2E:
+  "En Newton=no" -> 24/104 (= BD), "estado sin ninguno" -> 104, "con alguno" -> 0, anidado OK, guardar+aplicar OK.
+- OJO multi-sesion: otra sesion construia WorkflowAgentFollowUp en el MISMO working tree; su migracion entro a
+  mitad de un build y causo un PendingModelChangesWarning transitorio (se rebuildeo con el snapshot ya consistente).
+  El commit del constructor de filtros se hizo con staging por-hunk para NO incluir el trabajo de esa otra sesion.
+- SIN push / SIN deploy (pendiente OK del usuario).
+
+## 2026-10-10 - Gestor unificado de archivos Paso 2: subir DIAN/NEWTON al blob por CUFE + visor (SIN deploy)
+
+- Sobre la fundacion del Paso 1 (StoredFile + IFileStorageService + /archivo/{id}, commits 0d9543bc/dbfbd3d0):
+  se cableo la conciliacion DIAN para que los documentos descargados queden en Azure Blob agrupados por CUFE y
+  se vean desde el modulo al click sobre la factura.
+- IngestaNewton (BrowserRunService): tras aterrizar, sube {CUFE}.xml (NEWTON_XML) y {CUFE}_newton.pdf
+  (NEWTON_PDF) por CUFE via SubirSiFaltaAsync (idempotente). Fix: el mapeo EventId->Cufe (para resolver el CUFE
+  sin re-bajar el XML en modo BajarXml=false) ahora tambien se puebla cuando SubirABlob va solo.
+- ProcesarArchivos (BrowserRunService): extrae del ZIP la 1a entrada .pdf y .xml y las sube como DIAN_PDF /
+  DIAN_XML por CUFE (helper ReadEntry).
+- ExtraccionDatos: casilla "Subir los xml/pdf al blob por CUFE" en el paso Newton.
+- ConciliacionDian: boton clip por renglon -> visor con los archivos del CUFE (tags DIAN/NEWTON) enlazados a
+  /archivo/{id}.
+- VALIDADO E2E (SOLDARCO, dev contra Azure real, 2026-10-10): corrida solo-blob del paso Newton -> 1064 filas
+  (532 CUFE x xml+pdf) provider=AzureBlob ~81MB; re-proceso de 2 ZIP DIAN -> DIAN_PDF/XML; el visor de la
+  factura PR32461461 muestra los 4 tipos y /archivo/{id} sirve los bytes (200; text/xml y application/pdf).
+  Config del paso Newton restaurada a completa (BajarXml/Pdf + MarcarPlataforma + ReflejarEventos + SubirABlob).
+- Commit 8791e84a (tronco fase-0/clon-backbone). SIN push / SIN deploy (pendiente OK del usuario). Sin migracion
+  nueva (StoredFile ya migrado en el Paso 1).
+- Siguiente: Paso 3 (migrar al gestor unificado los stores existentes: items/avatares/chat/plantillas) + habilitar
+  el blob en PROD (/servidor-almacenamiento) + corrida real de un evento NEWTON cuando el usuario lo autorice.
+- Bloqueos: ninguno.
+
+## 2026-10-09 - Release v0.16.193: resiliencia del despachador de conversaciones del agente
+
+- Auditoria del "worker que se congela sin dejar rastro" (patron de 3 agujeros de un proyecto hermano).
+  AgentReplyDispatcher (agente CONVERSACIONAL, SARA) tenia los 3: catch solo en ILogger, cola en memoria, sin
+  reintento. OJO: fix A (EnableRetryOnFailure global) NO es seguro aqui -> hay 40+ transacciones manuales por EF
+  (WorkflowEngine, WorkflowDesignService, TaskItemService, FormResponseService, etc.) que reventarian con la
+  estrategia de reintento. (En el hermano no habia ninguna.) Por eso NO se toco.
+- Confirmacion con datos (prod, solo lectura): NO mostro un freeze activo. 0 conversaciones colgadas tras loguear
+  el Inbound; 1 solo Error en toda la bitacora; RunAsync bien instrumentado (Inbound/Prompt/Reply/Error) y con
+  muchos returns legitimos (paso de flujo dueno ADR-0092, asesor humano, lista negra, linea desconectada). Los
+  agujeros son REALES pero LATENTES. El worker del agente de FLUJO ya era robusto (cola en BD + rebarrido 30s).
+- Fix (solo SuperAdmin/RealTime/AgentReplyDispatcher.cs, sin migracion): C) reintento acotado (3 intentos, 15s);
+  B) al agotar, Error VISIBLE en /bitacora-agente (AiAgentRunLog, scope propio + CancellationToken.None); y un
+  BARRIDO de respaldo (cada 2 min, primero ~30s tras arranque, patron por-tenant) que reencola conversaciones con
+  un entrante sin responder -> tapa el caso "se perdio la cola en memoria por un deploy". Verificado local: la
+  query del barrido traduce y corre OK, encuentra candidato y RunAsync lo recoge.
+- DESPLEGADO v0.16.193 (2026-10-09). Sin migracion. Build verde; SuperAdmin.Tests 173.
+- Bloqueos: ninguno.
+
 ## 2026-10-09 - Release v0.16.192: reproducir notas de voz en el detalle de la tarea
 
 - El audio entrante ya se guardaba como TaskItemAttachment (AttachConversationMediaAsync), pero el visor de

@@ -51,3 +51,8 @@ public sealed record ConciliacionCruceResult(int Cruzadas, int Inconsistencias, 
 
 /// <summary>Resultado (mock en Fase 1) de la radicacion de eventos RADIAN.</summary>
 public sealed record ConciliacionEventosResult(int FacturasProcesadas, int EventosMarcados, int SinPlataforma);
+
+/// <summary>Resultado de radicar eventos RADIAN en NEWTON. Si <see cref="Simulado"/> es true fue un dry-run
+/// (NO se llamo a la API; nada se radico ni se marco). Si es false fue el envio REAL (irreversible).</summary>
+public sealed record ConciliacionRadicacionResult(
+    int FacturasElegibles, int EventosEnviados, int Fallidos, int SinPlataforma, int SinEventId, bool Simulado, string? Error);

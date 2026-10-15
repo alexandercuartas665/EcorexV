@@ -257,6 +257,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             draftNode.NotifyJson = RemapDecisionTargets(sourceNode.NotifyJson, oldToNewNodeId);
             draftNode.SlaJson = sourceNode.SlaJson;
             draftNode.StartDelayJson = sourceNode.StartDelayJson; // Plazos v2 (ADR-0119): metadato, no viaja en el XML.
+            draftNode.AgentFollowUpJson = sourceNode.AgentFollowUpJson; // Cadencia de seguimiento: metadato, no viaja en el XML.
+            draftNode.AgentMaxAsks = sourceNode.AgentMaxAsks; // Tope de preguntas configurable: metadato, no viaja en el XML.
+            draftNode.AgentRouteHandoffJson = sourceNode.AgentRouteHandoffJson; // Traspaso por salida a SARA: metadato, no viaja en el XML.
             draftNode.RuntimeLayoutDx = sourceNode.RuntimeLayoutDx; // Layout del runtime (ADR-0051 v2): se conserva al publicar.
             draftNode.RuntimeLayoutDy = sourceNode.RuntimeLayoutDy;
             if (sourceNode.RestartNodeId is Guid restartId
@@ -349,6 +352,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     WhatsAppLineId = agent.WhatsAppLineId,
                     WhatsAppTemplateName = agent.WhatsAppTemplateName,
                     WhatsAppTemplateLang = agent.WhatsAppTemplateLang,
+                    ColdWindowMinutes = agent.ColdWindowMinutes,
+                    WhatsAppTemplateVarsJson = agent.WhatsAppTemplateVarsJson,
+                    WhatsAppTemplateHeaderMediaUrl = agent.WhatsAppTemplateHeaderMediaUrl,
                     ExtraPrompt = agent.ExtraPrompt,
                     CanSendEmail = agent.CanSendEmail,
                     OnFailure = agent.OnFailure,
@@ -945,6 +951,75 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    public async Task<WorkflowResult<bool>> SetNodeAgentFollowUpAsync(
+        Guid nodeId, string? agentFollowUpJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Cadencia de seguimiento por plazos: metadato del nodo, editable sobre publicada, no regenera el XML.
+        // Se re-normaliza por StepSlaList (lista de {days,hours,minutes}); lista vacia -> null (sin cadencia).
+        var trimmed = string.IsNullOrWhiteSpace(agentFollowUpJson) ? null : agentFollowUpJson.Trim();
+        if (trimmed is not null)
+        {
+            trimmed = StepSlaList.Build(StepSlaList.ReadRows(trimmed));
+        }
+        node.AgentFollowUpJson = trimmed;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAgentMaxAsksAsync(
+        Guid nodeId, int? maxAsks, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // null o <=0 = usar el valor por defecto del codigo; si no, se acota a un rango sano [1, 50].
+        node.AgentMaxAsks = maxAsks is int v && v > 0 ? Math.Clamp(v, 1, 50) : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    public async Task<WorkflowResult<bool>> SetNodeAgentRouteHandoffAsync(
+        Guid nodeId, string? handoffJson, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Traspaso por salida: mapa { BpmnElementId destino -> nota }. Metadato del nodo, editable sobre publicada,
+        // no regenera el XML. Se re-normaliza: se descartan claves/valores vacios; mapa vacio -> null (sin traspaso).
+        node.AgentRouteHandoffJson = NormalizeRouteHandoff(handoffJson);
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
+    /// <summary>Re-normaliza el mapa de traspaso por salida { BpmnElementId -> nota }: descarta claves/notas vacias;
+    /// devuelve null si queda vacio o el JSON es invalido. Acota cada nota a 2000 chars.</summary>
+    private static string? NormalizeRouteHandoff(string? handoffJson)
+    {
+        if (string.IsNullOrWhiteSpace(handoffJson)) { return null; }
+        Dictionary<string, string>? map;
+        try { map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(handoffJson); }
+        catch (System.Text.Json.JsonException) { return null; }
+        if (map is null || map.Count == 0) { return null; }
+        var clean = new Dictionary<string, string>();
+        foreach (var (k, val) in map)
+        {
+            var key = (k ?? string.Empty).Trim();
+            var note = (val ?? string.Empty).Trim();
+            if (key.Length == 0 || note.Length == 0) { continue; }
+            clean[key] = note.Length > 2000 ? note[..2000] : note;
+        }
+        return clean.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(clean);
+    }
+
     public async Task<WorkflowResult<bool>> SetNodeNotePositionAsync(
         Guid nodeId, int? offsetX, int? offsetY, CancellationToken cancellationToken = default)
     {
@@ -1514,7 +1589,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy,
                     x.ColmenaClientId, x.ColmenaSessionKey, x.VoiceAiAgentId,
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
-                    x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute))
+                    x.ColdWindowMinutes,
+                    x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute,
+                    x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1568,7 +1645,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
-            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
+            existing.ColdWindowMinutes,
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
     }
 
     public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
@@ -1624,6 +1703,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             ? null : input.WhatsAppTemplateName.Trim();
         existing.WhatsAppTemplateLang = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateLang)
             ? null : input.WhatsAppTemplateLang.Trim();
+        // Umbral de frio: solo tiene sentido con plantilla (es cuando se usa en frio); si no hay plantilla o el valor
+        // no es positivo, se limpia. Tope duro de 30 dias para evitar valores absurdos.
+        existing.ColdWindowMinutes = existing.WhatsAppTemplateName is null || input.ColdWindowMinutes is not int cw || cw <= 0
+            ? null : Math.Min(cw, 43200);
+        // Binding de parametros + archivo del header: solo tienen sentido con plantilla; sin plantilla se limpian.
+        existing.WhatsAppTemplateVarsJson = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateVarsJson)
+            ? null : input.WhatsAppTemplateVarsJson.Trim();
+        existing.WhatsAppTemplateHeaderMediaUrl = existing.WhatsAppTemplateName is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateHeaderMediaUrl)
+            ? null : input.WhatsAppTemplateHeaderMediaUrl.Trim();
         // ADR-0093: instrucciones por paso + permiso de correo.
         existing.ExtraPrompt = string.IsNullOrWhiteSpace(input.ExtraPrompt) ? null : input.ExtraPrompt.Trim();
         existing.CanSendEmail = input.CanSendEmail;
@@ -1640,7 +1728,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, existing.Autonomy,
             existing.ColmenaClientId, existing.ColmenaSessionKey, existing.VoiceAiAgentId,
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
-            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute));
+            existing.ColdWindowMinutes,
+            existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)
@@ -1977,6 +2067,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Color, n.Note, n.NoteOffsetX, n.NoteOffsetY, n.TargetBoardId, n.TargetColumnId, nodeForms,
                 n.JumpToDefinitionId, jumpName,
                 n.AssigneeSource, n.AssigneeFormFieldCode, n.NotifyJson, n.SlaJson, n.StartDelayJson,
+                n.AgentFollowUpJson, n.AgentMaxAsks, n.AgentRouteHandoffJson,
                 n.RuntimeLayoutDx, n.RuntimeLayoutDy, n.CloseReason);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(

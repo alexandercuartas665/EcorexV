@@ -17,6 +17,7 @@
 @inject ITenantUserService TenantUsersSvc
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppTemplateService TemplatesSvc
+@inject Ecorex.Application.Notifications.ITemplateMediaStore MediaStore
 @inject IQuoteTemplateService QuoteTemplatesSvc
 @inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject IJSRuntime JS
@@ -423,6 +424,39 @@ else
                                   placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
                     </div>
 
+                    @* Tope CONFIGURABLE de conversaciones por WhatsApp por actividad (antes estaba fijo en el codigo). *@
+                    <div>
+                        <label class="fe-label">MAXIMO DE CONVERSACIONES POR ACTIVIDAD</label>
+                        <div style="display:flex;gap:10px;align-items:center;">
+                            <input class="fe-input sm" type="number" min="0" max="50" style="width:90px" @bind="_maxAsks" placeholder="4" />
+                            <span class="fe-acc-note" style="margin:0;flex:1;">Cuantas veces el agente le escribe al cliente por WhatsApp en UNA actividad antes de pasar el paso a una persona (se cuenta por actividad, arranca en cero). 0 = usar el valor por defecto (4).</span>
+                        </div>
+                    </div>
+
+                    @* TRASPASO POR SALIDA (solo compuertas con >=2 salidas): nota por salida que el flujo le deja a
+                       SARA (agente de la linea) al enrutar. Gobierna como sigue SARA y evita que cree duplicados. *@
+                    @if (agentNode.NodeType == WorkflowNodeType.ExclusiveGateway)
+                    {
+                        var handoffRoutes = GatewayRoutesFor(agentNode);
+                        @if (handoffRoutes.Count >= 2)
+                        {
+                            <div>
+                                <label class="fe-label">NOTA PARA SARA AL TOMAR CADA SALIDA (TRASPASO)</label>
+                                <span class="fe-acc-note" style="margin:0 0 6px;display:block;">Cuando el agente enruta la compuerta por una salida, el flujo le deja esta nota a SARA (el agente de la linea) para que sepa como continuar. Mientras la nota este vigente, SARA <b>no</b> crea tareas ni leads por ese cierre (el flujo ya gestiona el caso). Deja una salida vacia para no enviar nada.</span>
+                                @foreach (var r in handoffRoutes)
+                                {
+                                    var rk = r.Key;
+                                    <div style="margin-bottom:8px;">
+                                        <label class="fe-label" style="font-weight:600;text-transform:none;">@r.Label</label>
+                                        <textarea class="fe-textarea" value="@RouteHandoffFor(rk)"
+                                                  @oninput="@(e => _routeHandoffs[rk] = e.Value?.ToString() ?? string.Empty)"
+                                                  placeholder="Ej: El cliente acepto; agradece y confirma que el equipo procede con el pedido. No crees tareas ni leads."></textarea>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
                     @* AYUDA: que herramientas tiene el agente y como pedirselas desde el prompt extra. Va en un
                        acordeon (<details>) cerrado por defecto para no ocupar espacio en el modal. *@
                     <details class="fe-help">
@@ -502,9 +536,20 @@ else
                     {
                         <div class="fe-grid-2">
                             <div>
-                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO (NOMBRE)</label>
-                                <input class="fe-input" value="@_nodeAgent.WhatsAppTemplateName" placeholder="ej. consulta_dato (plantilla aprobada)"
-                                       @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))" />
+                                <label class="fe-label">PLANTILLA CONTACTO EN FRIO</label>
+                                <select class="fe-input" value="@(_nodeAgent.WhatsAppTemplateName ?? "")"
+                                        @onchange="@(e => OnNodeWhatsAppTemplateChangedAsync(agentNode, e))">
+                                    <option value="">Sin plantilla (solo ventana de 24h)</option>
+                                    @foreach (var t in _whatsAppTemplates)
+                                    {
+                                        <option value="@t.Name">@t.Name (@t.Language@(t.Provider is not null ? ", " + t.Provider : "")@(t.Status == WhatsAppTemplateStatus.Approved ? "" : " - " + t.Status))</option>
+                                    }
+                                    @* Si la plantilla guardada ya no esta en la lista (inactiva/borrada), se conserva como opcion para no perderla. *@
+                                    @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateName) && !_whatsAppTemplates.Any(t => t.Name == _nodeAgent.WhatsAppTemplateName))
+                                    {
+                                        <option value="@_nodeAgent.WhatsAppTemplateName">@_nodeAgent.WhatsAppTemplateName (configurada, no esta activa)</option>
+                                    }
+                                </select>
                             </div>
                             <div>
                                 <label class="fe-label">IDIOMA DE LA PLANTILLA</label>
@@ -512,6 +557,56 @@ else
                                        @onchange="@(e => OnNodeWhatsAppTemplateLangChangedAsync(agentNode, e))" />
                             </div>
                         </div>
+                        @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateName))
+                        {
+                            <label class="fe-check" style="margin-top:8px">
+                                <input type="checkbox" checked="@(_nodeAgent.ColdWindowMinutes is not null)"
+                                       @onchange="@(e => OnNodeColdWindowToggleAsync(agentNode, e))" />
+                                <span>Usar la plantilla cuando la conversacion este en frio (definir el tiempo sin respuesta del cliente)</span>
+                            </label>
+                            @if (_nodeAgent.ColdWindowMinutes is not null)
+                            {
+                                <div style="margin-top:6px;max-width:260px">
+                                    <label class="fe-label">CONSIDERAR EN FRIO TRAS (MINUTOS)</label>
+                                    <input class="fe-input" type="number" min="1" value="@_nodeAgent.ColdWindowMinutes"
+                                           @onchange="@(e => OnNodeColdWindowMinutesChangedAsync(agentNode, e))" />
+                                </div>
+                                <div class="fe-acc-note" style="margin:4px 0 0">Tras ese tiempo sin que el cliente escriba, el agente usa la plantilla (rompe el hielo). En lineas YCloud/Cloud se capa a 1440 (24h) porque Meta igual corta el texto libre pasadas 24h. 1440 = 24h, 4320 = 3 dias, 21600 = 15 dias. Para PROBAR en local (Evolution) usa un valor corto, ej. 2.</div>
+                            }
+                            @if (_whatsAppTemplates.FirstOrDefault(t => t.Name == _nodeAgent.WhatsAppTemplateName) is { } selTpl)
+                            {
+                                @if (selTpl.Variables.Count > 0)
+                                {
+                                    <div class="fe-modal-section" style="margin-top:10px">Parametros de la plantilla</div>
+                                    <div class="fe-acc-note" style="margin:0 0 6px">Ata cada variable de la plantilla a un token o texto. Vacio = se llena por nombre si coincide.</div>
+                                    @foreach (var v in selTpl.Variables)
+                                    {
+                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                                            <code style="min-width:92px">@("{{" + v.Token + "}}")</code>
+                                            <input class="fe-input" style="flex:1" placeholder="@("ej. {tarea.cliente}" + (string.IsNullOrWhiteSpace(v.Example) ? "" : "  (" + v.Example + ")"))"
+                                                   value="@_templateVars.GetValueOrDefault(v.Token)"
+                                                   @onchange="@(e => OnTemplateVarChangedAsync(agentNode, v.Token, e))" />
+                                        </div>
+                                    }
+                                    <div class="fe-acc-note" style="margin:6px 0 0">Tokens: {tarea.cliente}, {tarea.numero}, {tarea.telefono}, {empresa.nombre}, {sistema.fecha}, {form.&lt;campo&gt;}, texto fijo, o {agente.mensaje} (el texto que el agente genera).</div>
+                                }
+                                @if (selTpl.HeaderType == WhatsAppTemplateHeaderType.Image || selTpl.HeaderType == WhatsAppTemplateHeaderType.Document || selTpl.HeaderType == WhatsAppTemplateHeaderType.Video)
+                                {
+                                    <div class="fe-modal-section" style="margin-top:10px">Archivo del encabezado (@selTpl.HeaderType)</div>
+                                    <div class="fe-acc-note" style="margin:0 0 6px">El archivo (logo u otro) del encabezado de la plantilla. Vacio = se usa el fijo de la plantilla (si tiene).</div>
+                                    @if (!string.IsNullOrWhiteSpace(_nodeAgent.WhatsAppTemplateHeaderMediaUrl))
+                                    {
+                                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                            <a href="@_nodeAgent.WhatsAppTemplateHeaderMediaUrl" target="_blank" style="font-size:12px;word-break:break-all;flex:1">@_nodeAgent.WhatsAppTemplateHeaderMediaUrl</a>
+                                            <button class="fe-btn sm" type="button" @onclick="@(() => OnTemplateHeaderRemove(agentNode))">Quitar</button>
+                                        </div>
+                                    }
+                                    <InputFile OnChange="@(e => OnTemplateHeaderUploadAsync(agentNode, e))" class="fe-input" />
+                                    @if (_tplHeaderUploading) { <div class="fe-acc-note" style="margin:4px 0 0">Subiendo archivo...</div> }
+                                    @if (_tplHeaderUploadError is not null) { <div class="text-danger small" style="margin:4px 0 0">@_tplHeaderUploadError</div> }
+                                }
+                            }
+                        }
                     }
                     <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
 
@@ -891,6 +986,38 @@ else
                     Cuanto deberia DEMORAR el paso. El vencimiento = inicio + esta duracion. "Habil" cuenta solo
                     dias laborales; horas y minutos siempre son tiempo real. Deja todo en 0 para quitar la duracion.
                 </div>
+
+                @* ---- Bloque 3: cadencia de SEGUIMIENTO por plazos (nodos con AGENTE) ---- *@
+                <div class="fe-lbl" style="font-weight:700;margin:14px 0 4px;border-top:1px solid var(--line-2,#eee);padding-top:12px;">Seguimiento (plazos)</div>
+                <div class="fe-acc-note" style="margin-bottom:8px;">
+                    Para un nodo con AGENTE: la cadencia de recordatorios si el cliente no responde. El primer
+                    contacto es INMEDIATO; cada plazo de la lista es la espera ANTES del siguiente recordatorio.
+                    Ej. 10 min y luego 20 min = recordar a los 10, luego a los 20, y luego dejar de insistir (no se
+                    cierra: queda esperando). Cada recordatorio enviado queda en la bitacora de la tarea.
+                </div>
+                @for (var i = 0; i < _followUps.Count; i++)
+                {
+                    var row = _followUps[i];
+                    var idx = i;
+                    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px;">
+                        <div style="width:24px;text-align:center;font-weight:700;color:var(--t-2,#888);padding-bottom:8px;">@(idx + 1)</div>
+                        <div>
+                            <label class="fe-lbl">Dias</label>
+                            <input class="fe-input sm" type="number" min="0" max="365" style="width:70px" @bind="row.Days" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Horas</label>
+                            <input class="fe-input sm" type="number" min="0" max="23" style="width:70px" @bind="row.Hours" />
+                        </div>
+                        <div>
+                            <label class="fe-lbl">Minutos</label>
+                            <input class="fe-input sm" type="number" min="0" max="59" style="width:70px" @bind="row.Minutes" />
+                        </div>
+                        <button class="fe-btn" style="padding:6px 10px;" @onclick="@(() => _followUps.RemoveAt(idx))" title="Quitar plazo">&times;</button>
+                    </div>
+                }
+                <button class="fe-btn" @onclick="@(() => _followUps.Add(new FollowUpRow()))">+ Agregar plazo</button>
+
                 @if (!string.IsNullOrEmpty(_slaError))
                 {
                     <div class="fe-acc-note" style="color:var(--t-rose);margin-top:6px;">@_slaError</div>
@@ -972,6 +1099,12 @@ else
     private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
     private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
     private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
+    // Plantillas HSM activas del tenant, para elegir la de "contacto en frio" por lista (no teclear el nombre).
+    private IReadOnlyList<WhatsAppTemplateDto> _whatsAppTemplates = [];
+    // Bindings de variables de la plantilla de frio (variable -> expresion/token); se serializa a WhatsAppTemplateVarsJson.
+    private Dictionary<string, string> _templateVars = new(StringComparer.OrdinalIgnoreCase);
+    private bool _tplHeaderUploading;
+    private string? _tplHeaderUploadError;
     private bool _agentCatalogLoaded;
     private FlowNodeAgentDto? _nodeAgent;
     // Borrador/commit del modal del agente (como las notificaciones): mientras el modal esta abierto, _nodeAgent
@@ -1188,10 +1321,12 @@ else
                 _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
                 _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
                 _whatsAppLines = await DesignSvc.ListWhatsAppLinesAsync();
+                _whatsAppTemplates = await TemplatesSvc.ListAsync();   // solo activas (includeInactive=false)
                 _agentCatalogLoaded = true;
             }
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            LoadTemplateVars();
         }
         else
         {
@@ -1848,6 +1983,8 @@ else
     {
         _agentSaved = _nodeAgent;
         _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+        _maxAsks = Selected?.AgentMaxAsks ?? 0;   // tope de conversaciones por actividad (0 = por defecto)
+        LoadRouteHandoffs(Selected);              // notas de traspaso por salida (compuerta)
         _agentModalOpen = true;
     }
 
@@ -1856,6 +1993,9 @@ else
     {
         _nodeAgent = _agentSaved;
         _agentExtraPromptDraft = _agentSaved?.ExtraPrompt;
+        LoadTemplateVars();
+        _maxAsks = Selected?.AgentMaxAsks ?? 0;
+        LoadRouteHandoffs(Selected);
         _agentModalOpen = false;
     }
 
@@ -1878,13 +2018,28 @@ else
                     _nodeAgent.ColmenaClientId, _nodeAgent.ColmenaSessionKey, _nodeAgent.VoiceAiAgentId,
                     _nodeAgent.WhatsAppLineId, _nodeAgent.WhatsAppTemplateName, _nodeAgent.WhatsAppTemplateLang,
                     _agentExtraPromptDraft, _nodeAgent.CanSendEmail,
-                    _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute);
+                    _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute,
+                    _nodeAgent.ColdWindowMinutes,
+                    _nodeAgent.WhatsAppTemplateVarsJson, _nodeAgent.WhatsAppTemplateHeaderMediaUrl);
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
-            // Fuente de verdad: recargar lo persistido y cerrar.
+            // Tope de conversaciones por actividad (metadato del nodo): 0 = por defecto (null).
+            var maxAsksRes = await DesignSvc.SetNodeAgentMaxAsksAsync(node.Id, _maxAsks > 0 ? _maxAsks : (int?)null);
+            if (!maxAsksRes.IsOk) { _error = maxAsksRes.Error; return; }
+            // Traspaso por salida (compuerta): nota por salida para SARA. Se omiten salidas vacias; el servicio
+            // normaliza y guarda null si no queda ninguna. Metadato del nodo, editable sobre publicada.
+            var handoffMap = _routeHandoffs
+                .Where(kv => !string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.Trim());
+            var handoffJson = handoffMap.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(handoffMap) : null;
+            var handoffRes = await DesignSvc.SetNodeAgentRouteHandoffAsync(node.Id, handoffJson);
+            if (!handoffRes.IsOk) { _error = handoffRes.Error; return; }
+            // Fuente de verdad: recargar lo persistido (canvas para el nodo + agente) y cerrar.
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _nodeAgent = await DesignSvc.GetNodeAgentAsync(node.Id);
             _agentExtraPromptDraft = _nodeAgent?.ExtraPrompt;
+            LoadTemplateVars();
             _agentModalOpen = false;
         });
     }
@@ -1924,7 +2079,9 @@ else
         // El prompt viene del borrador LOCAL (vivo por oninput): asi un guardado de otro campo no lo pierde.
         _agentExtraPromptDraft, _nodeAgent?.CanSendEmail ?? false,
         _nodeAgent?.OnFailure ?? WorkflowAgentFailureAction.ReturnToHuman,
-        _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute);
+        _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute,
+        _nodeAgent?.ColdWindowMinutes,
+        _nodeAgent?.WhatsAppTemplateVarsJson, _nodeAgent?.WhatsAppTemplateHeaderMediaUrl);
 
     private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
@@ -1974,10 +2131,89 @@ else
     }
 
     private Task OnNodeWhatsAppTemplateChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
-        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateName = e.Value?.ToString() });
+    {
+        var name = e.Value?.ToString();
+        name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        // Al elegir una plantilla de la lista se autocompleta su idioma (el campo sigue editable por si se quiere
+        // forzar otra variante); al dejar "Sin plantilla" el service limpia tambien el idioma.
+        var tpl = name is null ? null : _whatsAppTemplates.FirstOrDefault(t => t.Name == name);
+        var res = CurrentAgentRes();
+        return SaveNodeResourcesAsync(node, res with
+        {
+            WhatsAppTemplateName = name,
+            WhatsAppTemplateLang = name is null ? null : (tpl?.Language ?? res.WhatsAppTemplateLang)
+        });
+    }
 
     private Task OnNodeWhatsAppTemplateLangChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
         => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateLang = e.Value?.ToString() });
+
+    // Umbral de frio: al activar la casilla se arranca en 1440 (24h); al apagarla se limpia (null = comportamiento
+    // por defecto). El tiempo se edita en minutos en el campo de abajo.
+    private Task OnNodeColdWindowToggleAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var on = e.Value is bool b && b;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColdWindowMinutes = on ? 1440 : (int?)null });
+    }
+
+    private Task OnNodeColdWindowMinutesChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        var m = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : (int?)null;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { ColdWindowMinutes = m });
+    }
+
+    // ---- Parametros de la plantilla de frio (binding variable -> token) + archivo del header por nodo ----
+
+    /// <summary>Carga _templateVars desde el JSON persistido del nodo (variable -> expresion).</summary>
+    private void LoadTemplateVars()
+    {
+        _templateVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var json = _nodeAgent?.WhatsAppTemplateVarsJson;
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (map is not null)
+            {
+                foreach (var kv in map) { if (!string.IsNullOrWhiteSpace(kv.Value)) { _templateVars[kv.Key] = kv.Value; } }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido -> sin bindings */ }
+    }
+
+    private string? SerializeTemplateVars()
+        => _templateVars.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(_templateVars);
+
+    private Task OnTemplateVarChangedAsync(FlowCanvasNodeDto node, string varToken, ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val)) { _templateVars.Remove(varToken); }
+        else { _templateVars[varToken] = val.Trim(); }
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateVarsJson = SerializeTemplateVars() });
+    }
+
+    private async Task OnTemplateHeaderUploadAsync(FlowCanvasNodeDto node, InputFileChangeEventArgs e)
+    {
+        _tplHeaderUploadError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        // Tope 16 MB (limite de WhatsApp para documentos/video; imagenes mucho menos).
+        if (file.Size > 16 * 1024 * 1024) { _tplHeaderUploadError = "El archivo supera 16 MB."; return; }
+        _tplHeaderUploading = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(16 * 1024 * 1024).CopyToAsync(ms);
+            var url = await MediaStore.PublishAsync(ms.ToArray(), file.Name);
+            if (string.IsNullOrWhiteSpace(url)) { _tplHeaderUploadError = "No se pudo publicar el archivo (storage no configurado)."; return; }
+            await SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateHeaderMediaUrl = url });
+        }
+        catch (Exception ex) { _tplHeaderUploadError = "Error al subir: " + ex.Message; }
+        finally { _tplHeaderUploading = false; }
+    }
+
+    private Task OnTemplateHeaderRemove(FlowCanvasNodeDto node)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { WhatsAppTemplateHeaderMediaUrl = null });
 
     // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo. El texto vive en _agentExtraPromptDraft
     // (oninput); aqui solo se persiste al salir del campo (blur). CurrentAgentRes ya toma el draft.
@@ -2000,6 +2236,9 @@ else
                 WhatsAppLineId = input.WhatsAppLineId,
                 WhatsAppTemplateName = input.WhatsAppTemplateName,
                 WhatsAppTemplateLang = input.WhatsAppTemplateLang,
+                ColdWindowMinutes = input.ColdWindowMinutes,
+                WhatsAppTemplateVarsJson = input.WhatsAppTemplateVarsJson,
+                WhatsAppTemplateHeaderMediaUrl = input.WhatsAppTemplateHeaderMediaUrl,
                 ExtraPrompt = input.ExtraPrompt,
                 CanSendEmail = input.CanSendEmail,
                 OnFailure = input.OnFailure,
@@ -2158,6 +2397,30 @@ else
     private int _startHours;
     private int _startMinutes;
     private StepSlaDayMode _startMode = StepSlaDayMode.Calendar;
+    // Cadencia de seguimiento por plazos (nodos con agente): lista editable de esperas entre recordatorios.
+    private sealed class FollowUpRow { public int Days { get; set; } public int Hours { get; set; } public int Minutes { get; set; } }
+    private List<FollowUpRow> _followUps = new();
+    // Tope de conversaciones por actividad del AGENTE del nodo (0 = usar el valor por defecto del codigo).
+    private int _maxAsks;
+    // Traspaso por salida (compuerta con agente): nota por salida que el flujo le deja a SARA. Key = BpmnElementId
+    // del nodo destino de la salida (igual que GatewayRoutesFor / ResolveRouteTargetAsync).
+    private Dictionary<string, string> _routeHandoffs = new();
+
+    private string RouteHandoffFor(string routeKey)
+        => _routeHandoffs.TryGetValue(routeKey, out var v) ? v : string.Empty;
+
+    /// <summary>Carga el mapa de traspaso por salida desde el JSON del nodo (BpmnElementId destino -> nota).</summary>
+    private void LoadRouteHandoffs(FlowCanvasNodeDto? node)
+    {
+        _routeHandoffs = new();
+        if (string.IsNullOrWhiteSpace(node?.AgentRouteHandoffJson)) { return; }
+        try
+        {
+            var map = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(node!.AgentRouteHandoffJson!);
+            if (map is not null) { _routeHandoffs = map; }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido: se trata como sin traspaso */ }
+    }
 
     private void OpenSlaModalAsync()
     {
@@ -2168,6 +2431,8 @@ else
         var start = StepSla.Read(node.StartDelayJson);
         _startImmediate = start.IsEmpty;
         _startDays = start.Days; _startHours = start.Hours; _startMinutes = start.Minutes; _startMode = start.DayMode;
+        _followUps = StepSlaList.ReadRows(node.AgentFollowUpJson)
+            .Select(r => new FollowUpRow { Days = r.Days, Hours = r.Hours, Minutes = r.Minutes }).ToList();
         _slaModalOpen = true;
     }
 
@@ -2188,6 +2453,11 @@ else
             if (!result.IsOk) { _slaError = result.Error; return; }
             var startResult = await DesignSvc.SetNodeStartDelayAsync(node.Id, startJson);
             if (!startResult.IsOk) { _slaError = startResult.Error; return; }
+            // Cadencia de seguimiento: serializa las filas (acotadas) a un JSON array; lista vacia => sin cadencia.
+            var followUpJson = StepSlaList.Build(_followUps.Select(r =>
+                (Math.Clamp(r.Days, 0, 365), Math.Clamp(r.Hours, 0, 23), Math.Clamp(r.Minutes, 0, 59))));
+            var followUpResult = await DesignSvc.SetNodeAgentFollowUpAsync(node.Id, followUpJson);
+            if (!followUpResult.IsOk) { _slaError = followUpResult.Error; return; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
             _slaModalOpen = false;
         });

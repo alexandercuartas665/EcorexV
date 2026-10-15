@@ -219,6 +219,12 @@ public class ActividadesToolsetTests
     private sealed class FakeActDb(InnerDb inner) : IApplicationDbContext
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompraHijo> RequerimientoCompraHijos => throw new NotSupportedException();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => inner.ActividadSubcategorias;
 
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();

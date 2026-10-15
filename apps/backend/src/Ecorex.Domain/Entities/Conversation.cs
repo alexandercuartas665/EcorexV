@@ -33,6 +33,13 @@ public class Conversation : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentContextResetAt { get; set; }
 
+    /// <summary>Cursor anti-rafaga del agente conversacional (SARA): SentAt del ULTIMO mensaje ENTRANTE que el
+    /// agente ya respondio. Si llega un entrante DURANTE la corrida del agente (posterior a la foto que tomo de la
+    /// conversacion) queda con SentAt &gt; este cursor, y una corrida de respaldo lo detecta como "sin responder" y
+    /// lo contesta, en vez de ignorarlo porque el ultimo mensaje ya es la saliente del agente. Null = nunca
+    /// respondio (se comporta como MinValue). Solo lo AVANZA el agente al enviar; una saliente HUMANA no lo toca.</summary>
+    public DateTimeOffset? LastAnsweredInboundAt { get; set; }
+
     /// <summary>
     /// Reactivacion (secuencia de seguimiento del agente): cuantos PASOS de la secuencia ya se enviaron a
     /// esta conversacion (0 = ninguno). Se reinicia a 0 cuando el cliente vuelve a responder (revivio). El
@@ -57,4 +64,17 @@ public class Conversation : TenantEntity
     /// <summary>ADR-0122: el NODO del flujo que tomo esta conversacion (ver <see cref="FlowHoldStepId"/>). Es "el
     /// id del nodo que lo hizo", para atender la respuesta desde ese flujo y ese nodo.</summary>
     public Guid? FlowHoldNodeId { get; set; }
+
+    /// <summary>
+    /// CIERRE-POR-FLUJO (traspaso a SARA): cuando el agente de un flujo enruta la compuerta de cierre de este caso,
+    /// se estampa AQUI el momento. SARA (agente de la linea) lee esta marca para NO crear tarea/lead duplicados: el
+    /// caso ya lo gestiono el flujo. Acotado a la actividad por <see cref="FlowHandledTaskId"/>. Se limpia cuando un
+    /// flujo NUEVO toma la linea (el flujo que entra es el que atiende) y se ignora pasada una ventana corta (para
+    /// no bloquear un cierre legitimo futuro en la misma conversacion). Null = no hay cierre-por-flujo pendiente.
+    /// </summary>
+    public DateTimeOffset? FlowHandledCloseAt { get; set; }
+
+    /// <summary>La ACTIVIDAD (tarea) cuyo cierre gestiono el flujo (ver <see cref="FlowHandledCloseAt"/>). Acota la
+    /// marca a ese caso. Null = sin cierre-por-flujo pendiente.</summary>
+    public Guid? FlowHandledTaskId { get; set; }
 }

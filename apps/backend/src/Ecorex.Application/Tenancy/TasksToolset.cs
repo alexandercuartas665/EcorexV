@@ -56,6 +56,14 @@ public sealed class TasksToolset : ITasksToolset
             "cliente_identificacion) para que la tarea quede ligada al contacto y el asesor lo pueda contactar. " +
             "Devuelve un 'ticket' (numero de la solicitud) que DEBES entregarle al cliente como comprobante.",
             """{"type":"object","properties":{"tablero":{"type":"string","description":"Nombre exacto del tablero destino (ver listar_tableros)"},"titulo":{"type":"string","description":"Titulo corto de la tarea"},"descripcion":{"type":"string","description":"Detalle de lo que necesita el cliente"},"prioridad":{"type":"string","enum":["baja","media","alta","urgente"],"description":"Prioridad (opcional, por defecto media)"},"vence":{"type":"string","description":"Fecha limite ISO 8601 opcional (ej. 2026-08-10)"},"cliente_nombre":{"type":"string","description":"Nombre del cliente/contacto que solicita (opcional pero recomendado)"},"cliente_telefono":{"type":"string","description":"Telefono del cliente (opcional pero recomendado)"},"cliente_email":{"type":"string","description":"Email del cliente (opcional)"},"cliente_identificacion":{"type":"string","description":"Identificacion/NIT del cliente (opcional)"}},"required":["tablero","titulo"],"additionalProperties":false}"""),
+        new AiToolSpec(
+            "consultar_tarea",
+            "Consulta (SOLO LECTURA) los datos de una tarea/caso EXISTENTE: estado, tablero, solicitante, archivos " +
+            "adjuntos (como la cotizacion que ya se envio) y las ultimas anotaciones de la bitacora. Usala cuando el " +
+            "cliente pregunte por el estado de su solicitud, por su cotizacion ya enviada, o por el detalle de un caso. " +
+            "Indica 'numero' (ej. T00303) si lo conoces (suele venir en las notas internas del flujo); si lo omites, se " +
+            "consulta la tarea ligada a esta conversacion. NO crea ni modifica nada.",
+            """{"type":"object","properties":{"numero":{"type":"string","description":"Numero de la tarea/caso, ej. T00303 (opcional; si se omite se usa la tarea ligada a la conversacion actual)"}},"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -74,6 +82,7 @@ public sealed class TasksToolset : ITasksToolset
             {
                 "listar_tableros" => await ListBoardsAsync(cancellationToken),
                 "crear_tarea" => await CreateTaskAsync(args, actorUserId, cancellationToken),
+                "consultar_tarea" => await ConsultTaskAsync(args, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
         }
@@ -109,6 +118,14 @@ public sealed class TasksToolset : ITasksToolset
         // Capa 1 (ADR-0101): si crear_tarea ya cerro OK en ESTE turno, devuelve el mismo ticket sin duplicar.
         var priorTurn = AgentTaskIdempotency.TryGetTurnResult("crear_tarea");
         if (priorTurn is not null) { return new AgentToolResult(priorTurn, SessionCompleted: true); }
+
+        // Candado de cierre-por-flujo: si un flujo ya cerro este caso (conversacion marcada), SARA NO crea una
+        // tarea (el flujo es el dueno; evita duplicados aunque el modelo lo pida). NO-OP, sin cerrar sesion.
+        if (AiToolRunContext.ConversationId is Guid flowConvId
+            && await AgentTaskIdempotency.IsFlowHandledCloseAsync(_db, flowConvId, DateTimeOffset.UtcNow, ct))
+        {
+            return Ok(new { ok = true, idempotente = true, mensaje = "El caso ya fue cerrado y gestionado por un flujo; no se crea una tarea nueva." });
+        }
 
         var tableroNombre = Str(args, "tablero");
         var titulo = Str(args, "titulo");
@@ -254,6 +271,75 @@ public sealed class TasksToolset : ITasksToolset
         return new AgentToolResult(okJson, SessionCompleted: true);
     }
 
+    /// <summary>
+    /// SOLO LECTURA: consulta una tarea existente por numero (ej. T00303) o, si no se da, la ligada a la
+    /// conversacion en curso. Devuelve estado, tablero, solicitante, adjuntos (ej. la cotizacion enviada) y
+    /// las ultimas anotaciones de la bitacora, para que el agente responda al cliente sin crear nada. El
+    /// aislamiento por tenant lo garantiza el filtro global; no se aplica la whitelist de tableros (esa rige
+    /// DONDE se crean tareas, no que puede LEER el agente del caso que el cliente consulta).
+    /// </summary>
+    private async Task<AgentToolResult> ConsultTaskAsync(JsonElement args, CancellationToken ct)
+    {
+        var numero = Str(args, "numero");
+
+        TaskItem? task = null;
+        if (!string.IsNullOrWhiteSpace(numero))
+        {
+            var num = numero!.Trim();
+            task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Number == num, ct);
+        }
+        else if (AiToolRunContext.ConversationId is Guid convId)
+        {
+            task = await _db.TaskItems.AsNoTracking()
+                .Where(t => t.ConversationId == convId)
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        if (task is null)
+        {
+            return Err(string.IsNullOrWhiteSpace(numero)
+                ? "No hay una tarea ligada a esta conversacion. Pide al cliente el numero de caso (ej. T00303) para consultarla."
+                : $"No se encontro la tarea '{numero}'.");
+        }
+
+        var tablero = task.BoardId is Guid boardId
+            ? await _db.TaskBoards.AsNoTracking().Where(b => b.Id == boardId).Select(b => b.Name).FirstOrDefaultAsync(ct)
+            : null;
+
+        var adjuntos = await _db.TaskItemAttachments.AsNoTracking()
+            .Where(a => a.TaskItemId == task.Id)
+            .OrderBy(a => a.Id)
+            .Select(a => a.FileName)
+            .Take(20)
+            .ToListAsync(ct);
+
+        var bitacoraRows = await _db.TaskItemActivities.AsNoTracking()
+            .Where(a => a.TaskItemId == task.Id)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(10)
+            .Select(a => new { a.CreatedAt, a.ActorName, a.Text })
+            .ToListAsync(ct);
+
+        var payload = new
+        {
+            ok = true,
+            numero = task.Number,
+            titulo = task.Title,
+            estado = task.Status.ToString(),
+            tablero,
+            prioridad = task.Priority.ToString(),
+            vence = task.DueDate,
+            creada = task.CreatedAt,
+            solicitante = new { nombre = task.RequesterName, telefono = task.RequesterPhone, email = task.RequesterEmail },
+            adjuntos,
+            bitacora = bitacoraRows
+                .OrderBy(b => b.CreatedAt)
+                .Select(b => new { fecha = b.CreatedAt, actor = b.ActorName, texto = b.Text })
+        };
+        return Ok(payload);
+    }
+
     /// <summary>Adjunta a la tarea los archivos entrantes de la conversacion en curso (reusa la URL ya
     /// almacenada del media; no copia bytes). Devuelve cuantos adjunto.</summary>
     private async Task<int> AttachConversationMediaAsync(Guid taskId, CancellationToken ct)
@@ -261,11 +347,33 @@ public sealed class TasksToolset : ITasksToolset
         if (AiToolRunContext.ConversationId is not Guid convId) { return 0; }
         if (_tenant.TenantId is not Guid tenantId) { return 0; }
 
+        // Acotar la media al ENGAGEMENT ACTUAL: una conversacion de un contacto recurrente es UNA sola
+        // fila que vive meses, asi que adjuntar toda su media entrante arrastraba archivos de leads
+        // anteriores (p.ej. una imagen de hace un mes en una tarea de hoy). El corte (cutoff) es el MAS
+        // reciente de: (1) agent_context_reset_at (el motor de cierre lo setea al "olvidar" al cliente =
+        // inicio del engagement actual) y (2) la fecha de la tarea ANTERIOR creada desde esta misma
+        // conversacion (para que cada tarea se lleve solo SU media). Si no hay ninguno (primer lead sin
+        // reset), un fallback de recencia de 72h evita traer lo viejo. Se usa SentAt (fecha real del
+        // mensaje), no CreatedAt de la fila.
+        var resetAt = await _db.Conversations.AsNoTracking()
+            .Where(c => c.Id == convId)
+            .Select(c => c.AgentContextResetAt)
+            .FirstOrDefaultAsync(ct);
+        var prevTaskAt = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == convId && t.Id != taskId)
+            .MaxAsync(t => (DateTimeOffset?)t.CreatedAt, ct);
+
+        var bounds = new List<DateTimeOffset>();
+        if (resetAt.HasValue) { bounds.Add(resetAt.Value); }
+        if (prevTaskAt.HasValue) { bounds.Add(prevTaskAt.Value); }
+        var cutoff = bounds.Count > 0 ? bounds.Max() : DateTimeOffset.UtcNow.AddHours(-72);
+
         var media = await _db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == convId
                 && m.Direction == MessageDirection.Inbound
                 && m.MediaType != MessageMediaType.None
-                && m.MediaUrl != null)
+                && m.MediaUrl != null
+                && m.SentAt > cutoff)
             .OrderBy(m => m.Id)
             .Select(m => new { m.MediaUrl, m.MediaMimeType })
             .ToListAsync(ct);

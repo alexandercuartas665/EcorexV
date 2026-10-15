@@ -38,12 +38,13 @@ public sealed class NodeNotifyService : INodeNotifyService
     {
         try
         {
-            var notifyJson = await _db.WorkflowNodes.AsNoTracking()
+            var nodeInfo = await _db.WorkflowNodes.AsNoTracking()
                 .Where(n => n.Id == nodeId)
-                .Select(n => n.NotifyJson)
+                .Select(n => new { n.Name, n.NotifyJson })
                 .FirstOrDefaultAsync(cancellationToken);
-            var config = NodeNotifyConfig.Parse(notifyJson);
+            var config = NodeNotifyConfig.Parse(nodeInfo?.NotifyJson);
             if (config.IsEmpty) { return; }
+            var nodeName = nodeInfo?.Name;
 
             var step = await _db.WorkflowStepHistories.AsNoTracking()
                 .Where(s => s.Id == stepId)
@@ -78,7 +79,7 @@ public sealed class NodeNotifyService : INodeNotifyService
             {
                 try
                 {
-                    await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, cancellationToken);
+                    await DispatchRuleAsync(rule, task, step?.AssignedToTenantUserId, tokens, link, actorUserId, stepId, nodeName, cancellationToken);
                     _logger.LogInformation("[NODE-NOTIFY] regla {Canal} procesada (nodo {NodeId}, paso {StepId}).",
                         rule.Canal, nodeId, stepId);
                 }
@@ -100,7 +101,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     }
 
     private async Task DispatchRuleAsync(NodeNotifyRule rule, Domain.Entities.TaskItem? task, Guid? stepAssigneeId,
-        IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, Guid stepId, CancellationToken ct)
+        IReadOnlyDictionary<string, string> tokens, string? link, Guid actor, Guid stepId, string? nodeName, CancellationToken ct)
     {
         // Enlaces publicos de decision del cliente que ESTA regla emite: se genera (o reusa) un token por
         // salida y su URL /d/{token} se inyecta bajo la variable configurada (para el llenado por nombre de la
@@ -290,8 +291,11 @@ public sealed class NodeNotifyService : INodeNotifyService
                         // se renderiza aqui (antes iba en crudo) para que el contexto quede completo.
                         var notaAgenteRender = string.IsNullOrWhiteSpace(rule.NotaAgente)
                             ? null : _tokens.Render(rule.NotaAgente, tokens);
+                        var decisionLabels = rule.EnlacesDecision?
+                            .Where(d => !string.IsNullOrWhiteSpace(d.ButtonLabel))
+                            .Select(d => d.ButtonLabel!.Trim()).ToList();
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, rule.EnlacesDecision is { Count: > 0 }, cotDoc, notaAgenteRender, ct);
+                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, notaAgenteRender, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -383,8 +387,8 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// simple): reusa la conversacion si existe o la crea. Best-effort; el llamador la envuelve en try/catch.
     /// </summary>
     private async Task RecordContactShareObservationAsync(
-        Domain.Entities.TaskItem task, Guid lineId, string phone, bool hasDecisionLink,
-        Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
+        Domain.Entities.TaskItem task, Guid lineId, string phone, string? nodeName, bool hasDecisionLink,
+        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -407,17 +411,29 @@ public sealed class NodeNotifyService : INodeNotifyService
             conversation.LastMessageAt = now;
         }
 
+        // Observacion ENRIQUECIDA (rotulada): numero de caso/tarea, nodo que la genero, cliente y que se envio.
+        // Sirve de contexto para SARA (si el cliente responde) y para el agente del NODO (bitacora de actividad).
         var sb = new StringBuilder();
-        sb.Append("Nota interna del flujo: se le envio a este contacto un mensaje de WhatsApp");
-        if (hasDecisionLink) { sb.Append(" con un enlace de decision (el cliente puede responder por el enlace)"); }
-        if (cotDoc is not null)
-        {
-            sb.Append(hasDecisionLink ? " y" : " con");
-            sb.Append($" un archivo adjunto (cotizacion: {cotDoc.FileName})");
-        }
-        sb.Append($", en el proceso {task.Number}");
+        sb.Append("Nota interna del flujo: se envio un mensaje de WhatsApp al cliente.");
+        sb.Append($" Tarea: {task.Number}");
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
         sb.Append('.');
+        if (!string.IsNullOrWhiteSpace(nodeName)) { sb.Append($" Nodo que lo genero: {nodeName!.Trim()}."); }
+        if (!string.IsNullOrWhiteSpace(task.RequesterName))
+        {
+            sb.Append($" Cliente: {task.RequesterName!.Trim()}");
+            if (!string.IsNullOrWhiteSpace(task.RequesterPhone)) { sb.Append($" ({task.RequesterPhone!.Trim()})"); }
+            sb.Append('.');
+        }
+        var enviado = new List<string>();
+        if (hasDecisionLink)
+        {
+            enviado.Add(decisionLabels is { Count: > 0 }
+                ? $"enlace de decision (opciones: {string.Join(" / ", decisionLabels)})"
+                : "enlace de decision (el cliente puede responder por el enlace)");
+        }
+        if (cotDoc is not null) { enviado.Add($"cotizacion adjunta ({cotDoc.FileName})"); }
+        if (enviado.Count > 0) { sb.Append($" Se envio: {string.Join(" + ", enviado)}."); }
         // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
         // notaAgente YA viene renderizada con los tokens de la tarea ({tarea.cliente}, etc.) por el llamador.
         if (!string.IsNullOrWhiteSpace(notaAgente)) { sb.Append($" Contexto para el agente: {notaAgente.Trim()}"); }
@@ -463,7 +479,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                 AgentId = aid,
                 OccurredAt = now,
                 Kind = Domain.Enums.AiAgentRunLogKind.Info,
-                Title = "El flujo envio un mensaje al cliente",
+                Title = $"El flujo envio un mensaje al cliente - tarea {task.Number}",
                 Content = bitacoraText
             });
         }

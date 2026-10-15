@@ -514,9 +514,10 @@
                                                 }
                                                 else if (agentAwaiting)
                                                 {
-                                                    <div class="tk-flow-scheduled" title="El agente ya pregunto al cliente y espera su respuesta (no esta pensando). Al responder, el agente retoma; tambien puedes liberar la linea desde la Bitacora del agente.">
+                                                    var nextRetry = nn.AgentNextRetryAt is DateTimeOffset _nr ? _nr.ToLocalTime().ToString("dd MMM HH:mm") : null;
+                                                    <div class="tk-flow-scheduled" title="El agente ya pregunto al cliente y espera su respuesta (no esta pensando). Al responder, el agente retoma; tambien puedes liberar la linea desde la Bitacora del agente.@(nextRetry is not null ? " Si no responde, el agente volvera a insistir en la fecha indicada." : "")">
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                                                        <span>En espera de respuesta del cliente</span>
+                                                        <span>En espera de respuesta@(nextRetry is not null ? $" - proximo recordatorio {nextRetry}" : " del cliente")</span>
                                                     </div>
                                                 }
                                                 else if (agentWorking)

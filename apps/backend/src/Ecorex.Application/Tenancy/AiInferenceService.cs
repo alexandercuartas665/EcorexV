@@ -267,8 +267,13 @@ public sealed class AiInferenceService : IAiInferenceService
         // El audio NO se reenvia al modelo principal: ya recibio su contenido como texto ("Transcripcion del
         // audio: ..." arriba). Asi se evita el 400 de formato en la llamada principal y se ahorra payload; las
         // imagenes y los documentos si siguen fluyendo al modelo (listas completas).
+        // Candado de cierre-por-flujo: si un flujo ya cerro este caso (conversacion marcada), no forzamos el
+        // cierre (crear_lead) ni empujamos a SARA a registrar: el flujo es el dueno. El candado DURO vive ademas en
+        // los toolsets (crear_tarea/crear_actividad/crear_lead hacen NO-OP), esto solo evita el empujon inutil.
+        var flowHandledClose = conversationId is Guid fhcConv
+            && await AgentTaskIdempotency.IsFlowHandledCloseAsync(_db, fhcConv, DateTimeOffset.UtcNow, cancellationToken);
         var (result, sessionCompleted) = await RunToolLoopAsync(
-            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, images, documents, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
+            agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, work, images, documents, autonomous, actor, disabledTools, debugPrompts, flowHandledClose, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
         if (result.Ok)
@@ -445,7 +450,7 @@ CIUDAD:";
     /// </summary>
     private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
-        IReadOnlyList<AiChatTurn> turns, IReadOnlyList<AiInlineImage>? inImages, IReadOnlyList<AiInlineDocument>? inDocuments, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
+        IReadOnlyList<AiChatTurn> turns, IReadOnlyList<AiInlineImage>? inImages, IReadOnlyList<AiInlineDocument>? inDocuments, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, bool flowHandledClose, CancellationToken ct)
     {
         // Agregamos las herramientas de TODOS los toolsets registrados, omitiendo las que el agente
         // tiene deshabilitadas. Mapeamos cada nombre de herramienta a su toolset para el despacho.
@@ -510,7 +515,7 @@ CIUDAD:";
                 // Si afirma un cierre (registro/inscripcion/que un asesor lo contactara) pero NUNCA invoco
                 // una herramienta de cierre, lo forzamos una sola vez: no podemos prometerle al cliente que
                 // quedo en el pipeline si no creamos el lead/inscripcion.
-                if (!closeToolInvoked && !closeNudged && ClaimsCloseWithoutTool(completion.Text))
+                if (!flowHandledClose && !closeToolInvoked && !closeNudged && ClaimsCloseWithoutTool(completion.Text))
                 {
                     closeNudged = true;
                     messages.Add(new AiToolMessage("assistant", completion.Text));

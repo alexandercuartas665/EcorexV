@@ -106,7 +106,11 @@ public sealed record TaskFlowNodeDto(
     // El agente ya corrio y quedo EN ESPERA de una respuesta del cliente (pregunto por WhatsApp o pidio una
     // llamada): PendingWhatsAppConversationId / PendingVoiceCallId seteados. La UI muestra "En espera de
     // respuesta..." en vez de "trabajando" (el agente NO esta pensando: espera al cliente). ADR-0092/0120.
-    bool AwaitingReply = false);
+    bool AwaitingReply = false,
+    // Proximo recordatorio programado por el gestor de plazos (cadencia de seguimiento) o el reintento del
+    // agente (ADR-0121): la UI lo muestra en la tarjeta ("proximo recordatorio HH:MM") para que se vea CUANDO
+    // volvera a actuar. Null = sin proximo intento programado.
+    DateTimeOffset? AgentNextRetryAt = null);
 
 /// <summary>Una nota colaborativa del equipo sobre un nodo (autor + texto + fecha), para el menu del nodo.</summary>
 public sealed record TaskFlowNoteDto(string AuthorName, string Text, DateTimeOffset CreatedAt);

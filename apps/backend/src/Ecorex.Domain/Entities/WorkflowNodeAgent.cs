@@ -62,6 +62,25 @@ public class WorkflowNodeAgent : TenantEntity
     /// tiene valor. Null con plantilla presente = se asume "es".</summary>
     public string? WhatsAppTemplateLang { get; set; }
 
+    /// <summary>Minutos de "frio" tras el ultimo mensaje ENTRANTE del cliente para usar la PLANTILLA en vez de
+    /// texto libre. Null = comportamiento por defecto (YCloud/Cloud: la ventana de 24h de Meta; Evolution/Emulator:
+    /// siempre texto libre). Con valor: la conversacion se considera "en frio" pasado ese tiempo y se usa la
+    /// plantilla; aplica tambien a Evolution (para emular la ventana y poder probar). En YCloud/Cloud se capa a
+    /// 1440 (24h) porque Meta igual corta el texto libre pasadas 24h.</summary>
+    public int? ColdWindowMinutes { get; set; }
+
+    /// <summary>Binding de los PARAMETROS de la plantilla de frio: JSON { "<variable>": "<expresion>" } donde la
+    /// expresion admite tokens ({tarea.cliente}, {tarea.numero}, {empresa}, {sistema.fecha}, {form.x}), texto fijo
+    /// o el token especial {agente.mensaje} (= la pregunta que el agente genero). Al enviar en frio, cada variable
+    /// de la plantilla (en el orden de su VariablesJson) se resuelve con este mapa. Null/vacio = compatibilidad:
+    /// la pregunta del agente va a la primera variable.</summary>
+    public string? WhatsAppTemplateVarsJson { get; set; }
+
+    /// <summary>URL publica del ARCHIVO del encabezado (header media: logo/imagen/documento/video) a enviar con la
+    /// plantilla de frio, configurado POR NODO (header dinamico). Null = se usa el header fijo de la plantilla (si
+    /// tiene). El tipo de media sale del HeaderType de la plantilla.</summary>
+    public string? WhatsAppTemplateHeaderMediaUrl { get; set; }
+
     // ---- ADR-0093: potenciar el agente en el nodo (instrucciones por paso + correo) ----
 
     /// <summary>Instrucciones EXTRA para el agente SOLO en este paso, que se anteponen a su prompt de sistema

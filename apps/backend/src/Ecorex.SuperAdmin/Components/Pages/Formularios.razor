@@ -318,21 +318,33 @@
     <div class="fx-overlay" @onclick="CloseImport">
         <div class="fx-modal" @onclick:stopPropagation="true" style="max-width:660px;width:94vw;">
             <div class="fx-m-body">
-                <div class="fx-m-title">Importar formulario (JSON)</div>
-                <p class="fx-m-text">Pega el JSON exportado de un formulario. Se creara uno <b>nuevo</b>
-                   con codigo unico: nunca sobrescribe uno existente.</p>
-                <textarea class="fx-import-ta" rows="12" spellcheck="false"
-                          placeholder='{ &quot;formatVersion&quot;: 1, &quot;definition&quot;: { ... } }'
-                          @bind="_importJson" @bind:event="oninput"></textarea>
+                <div class="fx-m-title">Importar formularios (JSON)</div>
+                <p class="fx-m-text">Selecciona uno o varios archivos <b>.json</b> exportados de formularios.
+                   Por cada archivo se crea uno <b>nuevo</b> con codigo unico: nunca sobrescribe uno existente.</p>
+                <label style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px;border:2px dashed var(--line-2,#d9d9e3);border-radius:12px;cursor:pointer;color:var(--t-2,#6b7280);text-align:center;">
+                    <InputFile OnChange="OnImportFilesPicked" multiple accept=".json,application/json" />
+                    <span>@(_importFiles.Count == 0 ? "Selecciona uno o varios archivos .json de formularios" : $"{_importFiles.Count} archivo(s) seleccionado(s)")</span>
+                </label>
                 @if (_importError is not null)
                 {
                     <div class="fx-m-err">@_importError</div>
                 }
+                @if (_importResults.Count > 0)
+                {
+                    <ul style="margin:12px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">
+                        @foreach (var r in _importResults)
+                        {
+                            <li style="color:@(r.Ok ? "var(--t-emerald,#059669)" : "var(--t-rose,#e11d48)")">
+                                <b>@r.Name</b> &mdash; @r.Message
+                            </li>
+                        }
+                    </ul>
+                }
             </div>
             <div class="fx-m-foot">
-                <button class="fx-mbtn" @onclick="CloseImport" disabled="@_busy">Cancelar</button>
+                <button class="fx-mbtn" @onclick="CloseImport" disabled="@_busy">Cerrar</button>
                 <button class="fx-mbtn fx-mbtn-go" @onclick="DoImportAsync"
-                        disabled="@(_busy || string.IsNullOrWhiteSpace(_importJson))">Importar y abrir</button>
+                        disabled="@(_busy || _importFiles.Count == 0)">@(_busy ? "Importando..." : "Importar")</button>
             </div>
         </div>
     </div>
@@ -459,8 +471,11 @@
     private bool _showGallery;
     private bool _listView;
     private bool _importOpen;
-    private string _importJson = "";
     private string? _importError;
+    // Import por ARCHIVOS (uno o varios .json exportados), como el import de flujos. Sin caja de texto.
+    private sealed record ImportFileResult(string Name, bool Ok, string Message);
+    private readonly List<(string Name, string Json)> _importFiles = new();
+    private readonly List<ImportFileResult> _importResults = new();
 
     /// <summary>Pestana activa: false = activos (lo normal), true = el archivo.</summary>
     private bool _showArchived;
@@ -823,25 +838,73 @@
 
     private void OpenDesigner(Guid id) => Nav.NavigateTo($"/formularios/{id}/disenar");
 
-    private void OpenImport() { _importError = null; _importJson = ""; _importOpen = true; }
+    private void OpenImport() { _importError = null; _importFiles.Clear(); _importResults.Clear(); _importOpen = true; }
     private void CloseImport() { _importOpen = false; _importError = null; }
 
-    /// <summary>Importa un formulario desde JSON (crea uno NUEVO con codigo unico) y abre el constructor.</summary>
-    private async Task DoImportAsync()
+    /// <summary>Lee los archivos .json elegidos (uno o varios) a memoria; el boton "Importar" los procesa.
+    /// Igual que el import de flujos pero MULTI-archivo (cada archivo es un formulario exportado).</summary>
+    private async Task OnImportFilesPicked(InputFileChangeEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_importJson)) { return; }
-        _busy = true;
-        _importError = null;
+        _importError = null; _importResults.Clear(); _importFiles.Clear();
         try
         {
-            var result = await FormsSvc.ImportAsync(_importJson);
-            if (!result.IsOk || result.Value is null)
+            foreach (var file in e.GetMultipleFiles(50))
             {
-                _importError = result.Error ?? "No se pudo importar el formulario.";
-                return;
+                if (file.Size > 4 * 1024 * 1024)
+                {
+                    _importResults.Add(new ImportFileResult(file.Name, false, "supera ~4 MB; omitido"));
+                    continue;
+                }
+                using var stream = file.OpenReadStream(6 * 1024 * 1024);
+                using var reader = new StreamReader(stream);
+                var json = await reader.ReadToEndAsync();
+                _importFiles.Add((file.Name, json));
             }
-            _importOpen = false;
-            Nav.NavigateTo($"/formularios/{result.Value.Id}/disenar");
+        }
+        catch (Exception ex) { _importError = "No se pudo leer un archivo: " + ex.Message; }
+    }
+
+    /// <summary>Importa cada archivo seleccionado (crea uno NUEVO con codigo unico por archivo) y muestra el
+    /// resultado por archivo. Si exactamente uno se importo bien, abre su constructor (comodidad).</summary>
+    private async Task DoImportAsync()
+    {
+        if (_importFiles.Count == 0) { return; }
+        _busy = true;
+        _importError = null;
+        _importResults.Clear();
+        Guid? firstOkId = null;
+        var okCount = 0;
+        try
+        {
+            foreach (var (name, json) in _importFiles)
+            {
+                try
+                {
+                    var result = await FormsSvc.ImportAsync(json);
+                    if (result.IsOk && result.Value is not null)
+                    {
+                        okCount++;
+                        firstOkId ??= result.Value.Id;
+                        _importResults.Add(new ImportFileResult(name, true, $"creado ({result.Value.Code})"));
+                    }
+                    else
+                    {
+                        _importResults.Add(new ImportFileResult(name, false, result.Error ?? "no se pudo importar"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _importResults.Add(new ImportFileResult(name, false, "error: " + ex.Message));
+                }
+            }
+            _importFiles.Clear();
+            _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
+            // Un solo archivo importado OK y sin fallos: abrir su constructor como antes.
+            if (okCount == 1 && _importResults.Count == 1 && firstOkId is Guid id)
+            {
+                _importOpen = false;
+                Nav.NavigateTo($"/formularios/{id}/disenar");
+            }
         }
         finally { _busy = false; }
     }

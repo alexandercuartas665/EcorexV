@@ -269,6 +269,12 @@ public interface IApplicationDbContext
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }
 
+    // Filtros guardados y COMPARTIDOS por el tenant para una grilla/modulo (constructor AND/OR anidado).
+    DbSet<SavedFilter> SavedFilters { get; }
+
+    // Registro UNIFICADO de archivos en almacenamiento (Azure Blob/disco), transversal a todos los modulos.
+    DbSet<StoredFile> StoredFiles { get; }
+
     // Requerimientos y Compras (Capa 10): origenes + matriz de proveedores + necesidades + division en hijos.
     DbSet<RequerimientoOrigen> RequerimientoOrigenes { get; }
     DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas { get; }

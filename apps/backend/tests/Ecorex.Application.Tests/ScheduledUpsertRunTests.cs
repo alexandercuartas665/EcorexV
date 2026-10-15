@@ -39,6 +39,12 @@ public class ScheduledUpsertRunTests
     private sealed class FakeIngestDb(InnerDb inner) : IApplicationDbContext
     {
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCompraHijo> RequerimientoCompraHijos => throw new NotSupportedException();
         public DbSet<DataContainerRow> DataContainerRows => inner.DataContainerRows;
         public DbSet<DataContainerCell> DataContainerCells => inner.DataContainerCells;
         public DbSet<DataContainerLink> DataContainerLinks => inner.DataContainerLinks;

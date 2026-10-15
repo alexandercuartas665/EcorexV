@@ -122,6 +122,26 @@ public class WorkflowStepHistory : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentNextRetryAt { get; set; }
 
+    /// <summary>
+    /// Indice de la CADENCIA de seguimiento por plazos (WorkflowNode.AgentFollowUpJson): cuantos contactos/
+    /// recordatorios ha enviado ya el agente en este paso. Arranca en 0; se incrementa en cada pausa por
+    /// WhatsApp cuando el nodo tiene cadencia configurada, y sirve para elegir el siguiente plazo de la lista.
+    /// Al agotarse la lista, el agente deja de insistir. Sobrevive a los relanzamientos (misma fila del paso).
+    /// </summary>
+    public int AgentFollowUpIndex { get; set; }
+
+    /// <summary>
+    /// Cursor ANTI-RAFAGA del agente del flujo (gemelo de <see cref="Conversation.LastAnsweredInboundAt"/> para SARA):
+    /// SentAt del ULTIMO entrante de WhatsApp que este paso YA incorporo a una decision/pregunta. Dos efectos:
+    /// (1) ancla la "frescura" de la respuesta del cliente -el flujo lee los entrantes POSTERIORES a este cursor, no
+    /// a su ultimo saliente-, de modo que un mensaje llegado JUSTO ANTES de que el flujo mande su propia respuesta no
+    /// queda "antes del ultimo saliente" y se tragia; (2) un entrante llegado DURANTE la corrida queda con SentAt &gt;
+    /// cursor y, como el token de concurrencia hace reventar el "pisado" de AgentAttemptedAt, el barrido re-atiende
+    /// ese mensaje como fresco. La PRIMERA vez (null) cae al ultimo saliente, que sigue filtrando el chatter viejo de
+    /// la conversacion compartida (linea+telefono). Null = el paso aun no ha incorporado ningun entrante.
+    /// </summary>
+    public DateTimeOffset? WhatsAppAnsweredInboundAt { get; set; }
+
     /// <summary>CYCLESTART legacy: primer nodo de un ciclo abierto por reinicio.</summary>
     public bool IsCycleStart { get; set; }
 

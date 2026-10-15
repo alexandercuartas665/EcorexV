@@ -281,6 +281,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies => Set<ConciliacionDianNewtonDummy>();
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
+    public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
+    public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
     public DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas => Set<RequerimientoProveedorRegla>();
@@ -1544,6 +1546,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.SlaJson).HasColumnType(jsonColumnType);
             // Tiempo para arrancar (Plazos v2 - ADR-0119): jsonb, mismo shape que SlaJson.
             b.Property(x => x.StartDelayJson).HasColumnType(jsonColumnType);
+            // Cadencia de seguimiento por plazos (lista de esperas entre recordatorios del agente): jsonb array.
+            b.Property(x => x.AgentFollowUpJson).HasColumnType(jsonColumnType);
+            // Traspaso por salida de compuerta (mapa BpmnElementId destino -> nota para SARA): jsonb objeto.
+            b.Property(x => x.AgentRouteHandoffJson).HasColumnType(jsonColumnType);
             // Origen del asignado (ADR-0056): campo de formulario para el modo FormField.
             b.Property(x => x.AssigneeFormFieldCode).HasMaxLength(100);
             // Concepto de cierre que el flujo estampa al llegar a una columna de cierre (ADR-0123).
@@ -2037,6 +2043,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // un flujo se desconecta, no se borra. Nombre/idioma de plantilla acotados.
             b.Property(x => x.WhatsAppTemplateName).HasMaxLength(200);
             b.Property(x => x.WhatsAppTemplateLang).HasMaxLength(20);
+            // Binding de parametros de la plantilla de frio (jsonb) + URL del archivo del header por nodo.
+            b.Property(x => x.WhatsAppTemplateVarsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.WhatsAppTemplateHeaderMediaUrl).HasMaxLength(1024);
             b.HasOne(x => x.WhatsAppLine).WithMany()
                 .HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
             // ADR-0093: instrucciones por paso + permiso de correo. Prompt acotado; bool con default para las
@@ -2720,6 +2729,33 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType).IsRequired();
             // Una preferencia por (tenant, usuario, tabla).
             b.HasIndex(x => new { x.TenantId, x.UserId, x.TableKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<SavedFilter>(b =>
+        {
+            b.Property(x => x.Module).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.CreatedByName).HasMaxLength(160);
+            // Arbol de condiciones como jsonb (PostgreSQL) / nvarchar(max) (SQL Server).
+            b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
+            // Un filtro por (tenant, modulo, nombre): "Guardar" con nombre existente reemplaza.
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<StoredFile>(b =>
+        {
+            b.Property(x => x.Module).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Ref1).HasMaxLength(160);
+            b.Property(x => x.Ref2).HasMaxLength(60);
+            b.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            b.Property(x => x.ContentType).HasMaxLength(160);
+            b.Property(x => x.Extension).HasMaxLength(16);
+            b.Property(x => x.BlobPath).HasMaxLength(512).IsRequired();
+            b.Property(x => x.Provider).HasMaxLength(20).IsRequired();
+            // Busqueda tipica: por modulo + referencia de negocio (p. ej. todos los archivos de un CUFE).
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1 });
+            // Idempotencia: no duplicar el mismo archivo logico (modulo + ref1 + ref2 + nombre) por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1, x.Ref2, x.FileName }).IsUnique();
         });
 
         // ---- Requerimientos y Compras (Capa 10) ----

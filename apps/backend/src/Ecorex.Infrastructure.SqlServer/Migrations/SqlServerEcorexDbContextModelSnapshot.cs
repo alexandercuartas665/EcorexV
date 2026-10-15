@@ -3175,6 +3175,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("FlowHandledCloseAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("flow_handled_close_at");
+
+                    b.Property<Guid?>("FlowHandledTaskId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_handled_task_id");
+
                     b.Property<Guid?>("FlowHoldNodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("flow_hold_node_id");
@@ -3182,6 +3190,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("FlowHoldStepId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("flow_hold_step_id");
+
+                    b.Property<DateTimeOffset?>("LastAnsweredInboundAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_answered_inbound_at");
 
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("datetimeoffset")
@@ -11318,6 +11330,69 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("saas_plan_limits", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.SavedFilter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedByName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("created_by_name");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("definition_json");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_saved_filters");
+
+                    b.HasIndex("TenantId", "Module", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_saved_filters_tenant_id_module_name");
+
+                    b.ToTable("saved_filters", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJob", b =>
                 {
                     b.Property<Guid>("Id")
@@ -12382,6 +12457,96 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasName("pk_storage_configs");
 
                     b.ToTable("storage_configs", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.StoredFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BlobPath")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)")
+                        .HasColumnName("blob_path");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Extension")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("extension");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("Ref1")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("ref1");
+
+                    b.Property<string>("Ref2")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("ref2");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_stored_files");
+
+                    b.HasIndex("TenantId", "Module", "Ref1")
+                        .HasDatabaseName("ix_stored_files_tenant_id_module_ref1");
+
+                    b.HasIndex("TenantId", "Module", "Ref1", "Ref2", "FileName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_stored_files_tenant_id_module_ref1_ref2_file_name")
+                        .HasFilter("[ref1] IS NOT NULL AND [ref2] IS NOT NULL");
+
+                    b.ToTable("stored_files", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SubserieCampo", b =>
@@ -16790,6 +16955,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AgentFollowUpJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("agent_follow_up_json");
+
+                    b.Property<int?>("AgentMaxAsks")
+                        .HasColumnType("int")
+                        .HasColumnName("agent_max_asks");
+
+                    b.Property<string>("AgentRouteHandoffJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("agent_route_handoff_json");
+
                     b.Property<bool>("AllowsAssignment")
                         .HasColumnType("bit")
                         .HasColumnName("allows_assignment");
@@ -16963,6 +17140,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("can_send_email");
 
+                    b.Property<int?>("ColdWindowMinutes")
+                        .HasColumnType("int")
+                        .HasColumnName("cold_window_minutes");
+
                     b.Property<Guid?>("ColmenaClientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("colmena_client_id");
@@ -17026,6 +17207,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("whats_app_line_id");
 
+                    b.Property<string>("WhatsAppTemplateHeaderMediaUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)")
+                        .HasColumnName("whats_app_template_header_media_url");
+
                     b.Property<string>("WhatsAppTemplateLang")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
@@ -17035,6 +17221,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("whats_app_template_name");
+
+                    b.Property<string>("WhatsAppTemplateVarsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("whats_app_template_vars_json");
 
                     b.HasKey("Id")
                         .HasName("pk_workflow_node_agents");
@@ -17324,6 +17514,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("agent_failure_reason");
 
+                    b.Property<int>("AgentFollowUpIndex")
+                        .HasColumnType("int")
+                        .HasColumnName("agent_follow_up_index");
+
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("agent_next_retry_at");
@@ -17434,6 +17628,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("whats_app_answered_inbound_at");
 
                     b.HasKey("Id")
                         .HasName("pk_workflow_step_histories");

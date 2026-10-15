@@ -152,6 +152,36 @@ public class WorkflowNode : TenantEntity
     public string? StartDelayJson { get; set; }
 
     /// <summary>
+    /// SEGUIMIENTO POR PLAZOS (cadencia de reintentos) de un nodo con AGENTE: una LISTA ordenada de esperas
+    /// entre relanzamientos. JSON array de objetos {days,hours,minutes} (ver StepSla / StepSlaList). El primer
+    /// contacto es INMEDIATO (al llegar el paso); cada elemento de la lista es la espera ANTES del siguiente
+    /// recordatorio si el cliente no respondio. Ej. [10min,20min] = recordar a los 10, luego a los 20, luego
+    /// dejar de insistir. Al agotarse la lista el agente DEJA de insistir (no se cierra:
+    /// el paso sigue vigente esperando respuesta o a una persona). Null/vacio = sin cadencia (comportamiento
+    /// previo: el agente se auto-reprograma via 'programar_reintento', o no reintenta). Lo re-dispara el barrido
+    /// por AgentNextRetryAt; el indice de la cadencia vive en WorkflowStepHistory.AgentFollowUpIndex.
+    /// </summary>
+    public string? AgentFollowUpJson { get; set; }
+
+    /// <summary>
+    /// Tope CONFIGURABLE de preguntas/recordatorios por WhatsApp que el agente de este nodo puede enviar en UNA
+    /// actividad antes de pasar el paso a una persona (se cuentan solo los de ESTE paso, no la conversacion
+    /// compartida). Null = usa el valor por defecto del codigo (WorkflowAgentStepRunner.MaxWhatsAppAsks). Antes
+    /// estaba fijo en el codigo; ahora el diseñador lo puede ajustar por nodo (modal de Plazos).
+    /// </summary>
+    public int? AgentMaxAsks { get; set; }
+
+    /// <summary>
+    /// TRASPASO POR SALIDA (compuerta con agente): mapa JSON { "&lt;BpmnElementId del nodo DESTINO de la salida&gt;":
+    /// "&lt;nota/prompt para el agente de la linea (SARA)&gt;" }. Cuando el agente del flujo enruta la compuerta por
+    /// una salida, el flujo le deja esa nota a SARA (como mensaje de la conversacion) para gobernar su
+    /// comportamiento al retomar (ej. "agradece y confirma el pedido" vs "agradece y despidete"), y marca el caso
+    /// como cerrado-por-flujo para que SARA no cree duplicados. La clave es el mismo BpmnElementId de destino que
+    /// usan RequiredRoutesJson y ResolveRouteTargetAsync (estable al publicar). Null/vacio = sin traspaso.
+    /// </summary>
+    public string? AgentRouteHandoffJson { get; set; }
+
+    /// <summary>
     /// Desplazamiento manual (dx, dy) del nodo en el DIAGRAMA DE LA TAREA (runtime), persistido y COMPARTIDO
     /// entre usuarios (ADR-0051 v2). Se suma al auto-layout por capas. Null = el nodo sigue el layout calculado.
     /// Es solo presentacion del runtime; no afecta el editor BPMN (X/Y) ni la ejecucion.

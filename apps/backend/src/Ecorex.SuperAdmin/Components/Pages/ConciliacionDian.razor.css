@@ -205,3 +205,120 @@
 /* Borde derecho en la ultima columna fija, para separar visualmente del area que scrollea. */
 .cd-grid th.cd-frozen-edge, .cd-grid td.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
 .cd-grid thead th.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
+
+/* ---- Dialogo de confirmacion: radicar eventos en NEWTON (irreversible) ---- */
+.cd-confirm-backdrop { position: fixed; inset: 0; z-index: 4100; background: rgba(15,23,42,.45); }
+.cd-confirm {
+    position: fixed; z-index: 4101; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: min(460px, 92vw); background: var(--surface, #fff); border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.28); overflow: hidden;
+}
+.cd-confirm-head { padding: 14px 18px; font-size: 15px; font-weight: 800; color: var(--ink, #1f2937); border-bottom: 1px solid var(--line, #f1f5f9); }
+.cd-confirm-body { padding: 16px 18px; font-size: 13px; color: var(--ink-2, #4b5563); line-height: 1.5; }
+.cd-confirm-body p { margin: 0 0 10px; }
+.cd-confirm-warn { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 9px; padding: 8px 10px; font-size: 12.5px; }
+.cd-confirm-acts { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line, #f1f5f9); background: var(--surface-2, #f8fafc); }
+.cd-confirm-acts .btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.cd-confirm-acts .btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+
+/* ---- Visor de archivos de la factura (por CUFE) ---- */
+.cd-files-btn {
+    margin-left: 4px; width: 20px; height: 20px; padding: 0; vertical-align: middle;
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 5px; background: var(--surface, #fff);
+    color: var(--ink-3, #9ca3af); cursor: pointer; line-height: 0;
+}
+.cd-files-btn:hover { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-filelist { display: flex; flex-direction: column; gap: 6px; }
+.cd-fileitem {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; text-decoration: none;
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 9px; color: var(--ink, #1f2937); font-size: 12.5px;
+}
+.cd-fileitem:hover { background: var(--brand-soft, #f5f7ff); border-color: var(--brand, #4f46e5); }
+.cd-file-tag { font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.cd-file-tag.dn { background: #e0f2fe; color: #0369a1; }
+.cd-file-tag.nw { background: #ede9fe; color: #6d28d9; }
+.cd-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-file-size { color: var(--ink-3, #9ca3af); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* ---- Visor grande de documentos de la factura (miniaturas + visor) ---- */
+.cd-doc-backdrop { position: fixed; inset: 0; z-index: 4100; background: rgba(15,23,42,.5); }
+.cd-doc-modal {
+    position: fixed; z-index: 4101; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(1180px, 95vw); height: min(840px, 90vh); display: flex; flex-direction: column;
+    background: var(--surface, #fff); border: 1px solid var(--line, #f1f5f9); border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(15,23,42,.28); overflow: hidden;
+}
+.cd-doc-head {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    border-bottom: 1px solid var(--line, #f1f5f9); background: var(--surface-2, #f8fafc);
+}
+.cd-doc-title { flex: 1; min-width: 0; }
+.cd-doc-title-main { font-size: 15px; font-weight: 800; color: var(--ink, #1f2937); }
+.cd-doc-title-sub { font-size: 12px; color: var(--ink-3, #9ca3af); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-doc-close {
+    width: 30px; height: 30px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px;
+    background: var(--surface, #fff); color: var(--ink-2, #4b5563); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.cd-doc-close:hover { color: #dc2626; border-color: #fecaca; background: #fef2f2; }
+.cd-doc-body { flex: 1; display: flex; min-height: 0; }
+.cd-doc-list {
+    width: 232px; flex: 0 0 232px; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto; border-right: 1px solid var(--line, #f1f5f9); background: var(--surface-2, #f8fafc);
+}
+.cd-doc-thumb {
+    border: 1.5px solid var(--line-2, #e5e7eb); border-radius: 11px; background: var(--surface, #fff);
+    padding: 8px; cursor: pointer; transition: border-color .12s, box-shadow .12s;
+}
+.cd-doc-thumb:hover { border-color: var(--brand, #4f46e5); }
+.cd-doc-thumb.sel { border-color: var(--brand, #4f46e5); box-shadow: 0 0 0 3px var(--brand-soft, #eef2ff); }
+.cd-doc-thumb-box {
+    position: relative; width: 100%; height: 168px; overflow: hidden; border-radius: 7px;
+    background: #fff; border: 1px solid var(--line, #f1f5f9);
+}
+.cd-doc-thumb-box iframe {
+    position: absolute; top: 0; left: 0; width: 320%; height: 320%;
+    transform: scale(.3125); transform-origin: top left; border: 0;
+}
+.cd-doc-thumb-ovl { position: absolute; inset: 0; background: transparent; }
+.cd-doc-thumb-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.cd-doc-thumb-meta .cd-file-size { margin-left: auto; }
+.cd-doc-viewer { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #f3f4f6; }
+.cd-doc-viewer-bar {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px; font-size: 12.5px;
+    border-bottom: 1px solid var(--line, #f1f5f9); background: var(--surface, #fff);
+}
+.cd-doc-viewer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink, #1f2937); font-weight: 600; }
+.cd-doc-viewer-open { color: var(--brand, #4f46e5); text-decoration: none; font-weight: 700; white-space: nowrap; }
+.cd-doc-viewer-open:hover { text-decoration: underline; }
+.cd-doc-frame { flex: 1; width: 100%; border: 0; background: #f3f4f6; }
+
+/* ---- Constructor de filtros (modal + grupos AND/OR anidados) ---- */
+.cd-filter-active { font-size: 12px; color: var(--ink-2, #4b5563); font-weight: 600; }
+.cd-saved-apply {
+    flex: 1; text-align: left; background: transparent; border: 0; cursor: pointer;
+    color: var(--ink, #1f2937); font-size: 13px; padding: 4px 6px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-saved-apply:hover { background: var(--brand-soft, #eef2ff); color: var(--brand, #4f46e5); }
+.cd-saved-ico {
+    flex: 0 0 auto; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface, #fff);
+    color: var(--ink-3, #9ca3af); cursor: pointer; line-height: 0;
+}
+.cd-saved-ico:hover { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.cd-saved-del:hover { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
+
+.cd-fb-modal {
+    position: fixed; z-index: 4101; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(860px, 95vw); max-height: 88vh; display: flex; flex-direction: column;
+    background: var(--surface, #fff); border: 1px solid var(--line, #f1f5f9); border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(15,23,42,.28); overflow: hidden;
+}
+.cd-fb-body { flex: 1; overflow-y: auto; padding: 16px 18px; background: var(--surface-2, #f8fafc); }
+.cd-fb-foot {
+    display: flex; align-items: center; gap: 8px; padding: 12px 18px;
+    border-top: 1px solid var(--line, #f1f5f9); background: var(--surface, #fff);
+}
+.cd-fb-foot-spacer { flex: 1; }
+/* Los estilos del editor de grupos (cd-fb-group/op/add/cond/field...) viven en
+   ConciliacionFilterGroup.razor.css: son de un componente hijo y el aislamiento de CSS de Blazor
+   impide que las reglas de este archivo (del padre) alcancen sus elementos. */

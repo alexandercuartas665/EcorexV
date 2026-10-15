@@ -117,6 +117,20 @@ public interface IWorkflowDesignService
     /// si el nodo no existe.</summary>
     Task<WorkflowResult<bool>> SetNodeStartDelayAsync(Guid nodeId, string? startDelayJson, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija la CADENCIA de seguimiento por plazos del nodo (lista de esperas entre recordatorios del
+    /// agente): JSON array de {days,hours,minutes} (ver StepSlaList). Metadato del nodo, editable sobre publicada.
+    /// null/vacio = sin cadencia. NotFound si el nodo no existe.</summary>
+    Task<WorkflowResult<bool>> SetNodeAgentFollowUpAsync(Guid nodeId, string? agentFollowUpJson, CancellationToken cancellationToken = default);
+
+    /// <summary>Fija el TOPE de preguntas/recordatorios por WhatsApp por actividad del nodo (antes de pasar a una
+    /// persona). null o &lt;=0 = valor por defecto del codigo. Metadato del nodo, editable sobre publicada.</summary>
+    Task<WorkflowResult<bool>> SetNodeAgentMaxAsksAsync(Guid nodeId, int? maxAsks, CancellationToken cancellationToken = default);
+
+    /// <summary>Fija el TRASPASO POR SALIDA de una compuerta con agente: mapa JSON { BpmnElementId destino -> nota
+    /// para SARA } que el flujo deja al enrutar cada salida. null/vacio = sin traspaso. Metadato del nodo, editable
+    /// sobre publicada. NotFound si el nodo no existe.</summary>
+    Task<WorkflowResult<bool>> SetNodeAgentRouteHandoffAsync(Guid nodeId, string? handoffJson, CancellationToken cancellationToken = default);
+
     /// <summary>Fija el tablero + columna destino del nodo (enlace flujo &lt;-&gt; tableros); la actividad salta
     /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
     Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);

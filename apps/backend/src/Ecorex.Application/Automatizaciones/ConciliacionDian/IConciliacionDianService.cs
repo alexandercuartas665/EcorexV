@@ -36,10 +36,12 @@ public interface IConciliacionDianService
     Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default);
     Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default);
     Task SetSeleccionAsync(IReadOnlyList<Guid> renglonIds, bool seleccionado, CancellationToken ct = default);
-    /// <summary>MOCK en Fase 1: marca los eventos RADIAN 030/032/033 en los renglones aprobados con plataforma.
-    /// La API real de NEWTON (acto legal irreversible) va en Fase 2. Si renglonIds viene vacio, toma los
-    /// seleccionados del documento.</summary>
-    Task<ConciliacionEventosResult> ProcesarEventosAsync(Guid documentoId, IReadOnlyList<Guid> renglonIds, CancellationToken ct = default);
+    /// <summary>Radica los eventos RADIAN 030/032/033 (ACUSE / RECIBO_DE_PRESTACION / ACEPTACION_EXPRESA) en NEWTON
+    /// para los renglones aprobados con plataforma, por su EventId (de la fuente NEWTON, por CUFE). Solo envia los
+    /// que falten; marca el flag SOLO si el POST a NEWTON devolvio OK. Si <paramref name="simular"/> es true es un
+    /// DRY-RUN: NO llama a la API, no radica ni marca nada (solo cuenta que se enviaria). El envio real es un acto
+    /// LEGAL IRREVERSIBLE ante la DIAN. Si renglonIds viene vacio, toma los seleccionados del documento.</summary>
+    Task<ConciliacionRadicacionResult> RadicarEventosAsync(Guid documentoId, IReadOnlyList<Guid> renglonIds, bool simular, CancellationToken ct = default);
 
     /// <summary>Siembra datos DUMMY (fuentes bot/newton/erp + un CCD del mes actual) para el tenant activo, para
     /// poder validar el modulo en Fase 1. Idempotente. Devuelve un resumen legible.</summary>

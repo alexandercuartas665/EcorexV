@@ -100,8 +100,24 @@ public sealed class AgentConversationService : IAgentConversationService
         messages.Reverse();
         if (messages.Count == 0) { return; }
 
-        // Si el ultimo mensaje ya es nuestro (saliente), no hay nada nuevo que responder.
-        if (messages[^1].Direction == MessageDirection.Outbound) { return; }
+        // SentAt del ULTIMO entrante en ESTA foto: es hasta donde vamos a responder. Al final se persiste como
+        // cursor (LastAnsweredInboundAt). Un entrante llegado DESPUES de la foto queda con SentAt mayor y una
+        // corrida de respaldo lo vera "sin responder".
+        var snapshotInboundAt = messages
+            .Where(m => m.Direction == MessageDirection.Inbound)
+            .Select(m => (DateTimeOffset?)m.SentAt)
+            .Max();
+
+        // ASESOR HUMANO: si el ULTIMO mensaje es una saliente de una PERSONA (tiene SentByTenantUserId; la saliente
+        // del agente va con actor Guid.Empty -> SentByTenantUserId null), el agente se calla: el humano atiende.
+        if (messages[^1].Direction == MessageDirection.Outbound && messages[^1].SentByTenantUserId is not null) { return; }
+
+        // CURSOR ANTI-RAFAGA (reemplaza el viejo guard "ultimo = saliente -> return"): solo corremos si hay algun
+        // entrante SIN responder (SentAt posterior al cursor). Asi, un mensaje llegado durante la corrida anterior
+        // (que quedo despues de la saliente del agente por latencia del LLM) SI se procesa en la corrida de respaldo.
+        var answeredCursor = conv.LastAnsweredInboundAt ?? DateTimeOffset.MinValue;
+        var hasUnansweredInbound = messages.Any(m => m.Direction == MessageDirection.Inbound && m.SentAt > answeredCursor);
+        if (!hasUnansweredInbound) { return; }
 
         // Reacciones automaticas (emoji), ANTES de llamar al LLM: cero tokens. Reacciona a ~N de cada
         // M mensajes del cliente con un emoji al azar. Un mensaje que ya tiene reaccion no recibe otra.
@@ -267,6 +283,14 @@ public sealed class AgentConversationService : IAgentConversationService
         {
             await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Reply,
                 "Respuesta enviada", result.Text, AttachmentSummary(result.Attachments), cancellationToken);
+
+            // Avanza el cursor anti-rafaga: quedamos "al dia" hasta el ultimo entrante de la foto. Un mensaje que
+            // haya llegado despues (durante esta corrida) queda > cursor y lo toma la corrida de respaldo.
+            if (snapshotInboundAt is DateTimeOffset answeredAt)
+            {
+                await _db.Conversations.Where(c => c.Id == conversationId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastAnsweredInboundAt, answeredAt), cancellationToken);
+            }
         }
     }
 

@@ -82,7 +82,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 s.AgentRunLog,
                 s.StartAt,
                 s.PendingWhatsAppConversationId,
-                s.PendingVoiceCallId
+                s.PendingVoiceCallId,
+                s.AgentNextRetryAt,
+                s.AgentTokensUsed
             })
             .ToListAsync(cancellationToken);
         // Estado vigente de un nodo: mayor CicleIndex y, dentro del ciclo, el paso ACTUAL o el mas nuevo.
@@ -122,21 +124,16 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             })
             .ToListAsync(cancellationToken);
         var agentByNode = agentRows.ToDictionary(x => x.NodeId, x => x.AgentName);
-        var agentIdByNode = agentRows.ToDictionary(x => x.NodeId, x => x.AiAgentId);
         var agentCapsByNode = agentRows.ToDictionary(
             x => x.NodeId, x => (x.Web, x.Voice, x.WhatsApp, x.Email));
 
-        // Tokens de IA consumidos por cada agente en pasos de flujo (source='workflow-agent'). Se suma por
-        // agente y luego se atribuye al nodo que lo usa. El filtro global de tenant aisla el conteo.
-        var agentIds = agentRows.Select(x => x.AiAgentId).Distinct().ToList();
-        var tokensByAgent = agentIds.Count == 0
-            ? new Dictionary<Guid, long>()
-            : (await _db.AiUsageLogs.AsNoTracking()
-                .Where(u => u.AgentId != null && agentIds.Contains(u.AgentId.Value) && u.Source == "workflow-agent")
-                .GroupBy(u => u.AgentId!.Value)
-                .Select(g => new { AgentId = g.Key, Tokens = g.Sum(u => (long)u.TotalTokens) })
-                .ToListAsync(cancellationToken))
-                .ToDictionary(x => x.AgentId, x => x.Tokens);
+        // Tokens de IA consumidos POR ESTA ACTIVIDAD (instancia), por nodo: se suman los AgentTokensUsed de los
+        // pasos de ESTA instancia. Asi el contador es POR ACTIVIDAD (arranca en cero en cada actividad nueva) y
+        // NO el acumulado global del agente a traves de todas las actividades (antes se sumaba AiUsageLog por
+        // agente, lo que hacia que una actividad nueva ya mostrara el historico completo del agente).
+        var tokensByNode = histories
+            .GroupBy(h => h.NodeId)
+            .ToDictionary(g => g.Key, g => g.Sum(h => (long)(h.AgentTokensUsed ?? 0)));
 
         // Etiqueta del usuario = NOMBRE (display_name del platform user); si no hay, el correo. Para que
         // el diagrama muestre "Lilian Loaiza" y no el correo/cedula.
@@ -340,7 +337,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 ReopenStepId: canReopen ? h!.Id : (Guid?)null,
                 IsAbandoned: isAbandoned,
                 TeamNotes: notesByNode.TryGetValue(n.Id, out var teamNotes) ? teamNotes : null,
-                AgentTokens: isAuto && agentIdByNode.TryGetValue(n.Id, out var aid) && tokensByAgent.TryGetValue(aid, out var tk) ? tk : null,
+                AgentTokens: isAuto && tokensByNode.TryGetValue(n.Id, out var tk) && tk > 0 ? tk : null,
                 AgentWeb: isAuto && agentCapsByNode.TryGetValue(n.Id, out var caps) && caps.Web,
                 AgentVoice: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsV) && capsV.Voice,
                 AgentWhatsApp: isAuto && agentCapsByNode.TryGetValue(n.Id, out var capsW) && capsW.WhatsApp,
@@ -355,7 +352,9 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
                 // ADR-0092/0120: el agente del paso vigente quedo EN ESPERA de respuesta del cliente (WhatsApp o
                 // llamada). La UI lo muestra como "en espera", no "trabajando" (no esta pensando).
                 AwaitingReply: isAuto && h is { IsCurrent: true }
-                    && (h.PendingWhatsAppConversationId != null || h.PendingVoiceCallId != null));
+                    && (h.PendingWhatsAppConversationId != null || h.PendingVoiceCallId != null),
+                // Proximo recordatorio programado (cadencia de seguimiento / reintento ADR-0121) del paso vigente.
+                AgentNextRetryAt: isAuto && h is { IsCurrent: true } ? h.AgentNextRetryAt : null);
         }).ToList();
 
         var edges = canvas.Edges

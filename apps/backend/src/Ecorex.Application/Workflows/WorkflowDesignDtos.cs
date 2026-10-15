@@ -63,6 +63,14 @@ public sealed record FlowCanvasNodeDto(
     string? SlaJson = null,
     // Tiempo para ARRANCAR el paso (Plazos v2, ADR-0119), mismo shape que SlaJson. Null = Inmediato.
     string? StartDelayJson = null,
+    // Cadencia de seguimiento por plazos (lista de esperas entre recordatorios del agente), JSON array de
+    // {days,hours,minutes}. Null/vacio = sin cadencia. Metadato, no viaja en el XML.
+    string? AgentFollowUpJson = null,
+    // Tope configurable de preguntas/recordatorios por WhatsApp por actividad antes de pasar a una persona.
+    // Null = valor por defecto del codigo. Metadato, no viaja en el XML.
+    int? AgentMaxAsks = null,
+    // Traspaso por salida de compuerta: mapa JSON { BpmnElementId destino -> nota para SARA }. Null = sin traspaso.
+    string? AgentRouteHandoffJson = null,
     // Desplazamiento manual persistido del nodo en el diagrama de la tarea (ADR-0051 v2). Null = sin mover.
     int? RuntimeLayoutDx = null,
     int? RuntimeLayoutDy = null,
@@ -99,11 +107,15 @@ public sealed record FlowNodeAgentDto(
     Guid? ColmenaClientId = null, string? ColmenaSessionKey = null, Guid? VoiceAiAgentId = null,
     // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp' (opcionales, permiso por nodo).
     Guid? WhatsAppLineId = null, string? WhatsAppTemplateName = null, string? WhatsAppTemplateLang = null,
+    // Minutos de frio para usar la plantilla (null = por defecto: 24h Meta / Evolution siempre texto libre).
+    int? ColdWindowMinutes = null,
     // ADR-0093: instrucciones por paso (prompt extra) + permiso de correo.
     string? ExtraPrompt = null, bool CanSendEmail = false,
     // Politica de FALLO: que hacer si el agente no resuelve el paso.
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
-    int FailureRetries = 0, string? FailureRoute = null);
+    int FailureRetries = 0, string? FailureRoute = null,
+    // Binding de parametros de la plantilla de frio + URL del archivo del header por nodo (al final: append-only).
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
 
 /// <summary>ADR-0093: estado COMPLETO de los recursos del agente del nodo, para guardarlo de una en el modal
 /// (evita una firma con muchos parametros). Cada campo null/false = recurso deshabilitado.</summary>
@@ -112,7 +124,9 @@ public sealed record FlowNodeAgentResourcesInput(
     Guid? WhatsAppLineId, string? WhatsAppTemplateName, string? WhatsAppTemplateLang,
     string? ExtraPrompt, bool CanSendEmail,
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
-    int FailureRetries = 0, string? FailureRoute = null);
+    int FailureRetries = 0, string? FailureRoute = null,
+    int? ColdWindowMinutes = null,
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(

@@ -3191,6 +3191,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("flow_hold_step_id");
 
+                    b.Property<DateTimeOffset?>("LastAnsweredInboundAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_answered_inbound_at");
+
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_message_at");

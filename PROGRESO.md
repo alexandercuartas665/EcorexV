@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-14 - v0.16.199: SARA no ignora mensajes llegados durante su propia corrida (cursor anti-rafaga)
+
+- SINTOMA (prod AGROMETALICAS/SARA, linea 573113168626): cliente manda A (20:50:16), luego la cedula B
+  (20:50:40) mientras SARA procesa A; SARA respondio 20:50:44 y volvio a pedir la cedula -> bucle, ignoro B.
+- CAUSA (verificada): (1) AgentConversationService.RunAsync toma UNA foto de la BD al inicio (ultimos 30 msgs) y
+  no la relee; B entro despues de la foto. (2) el guard "si messages[^1] es Outbound -> return" mataba la corrida
+  de respaldo: la saliente de SARA (SentAt=now, 20:50:44) quedaba como ultimo mensaje y B nunca se contestaba.
+- FIX (opcion B del hand-off): Conversation.LastAnsweredInboundAt (cursor del ultimo entrante respondido).
+  - RunAsync calcula snapshotInboundAt = max(SentAt de los inbound de la foto); al enviar OK persiste
+    LastAnsweredInboundAt = snapshotInboundAt (via ExecuteUpdateAsync).
+  - Se reemplaza el guard L104: corre solo si hay un inbound con SentAt > cursor (sin responder); si no, return.
+    Asi la corrida de respaldo (la agenda el 2o inbound en ChatIngestService + el barrido de 2min del dispatcher)
+    procesa B. Ademas se mantiene: si el ULTIMO es saliente de un HUMANO (SentByTenantUserId != null; la saliente
+    del agente va con actor Guid.Empty -> null) SARA sigue callada.
+  - Se respetan los candados: paso de flujo dueno, silencio por asesor humano (lead asignado), FlowHandledCloseAt.
+    El dispatcher sigue secuencial (sin doble respuesta).
+  - Migracion DUAL AddConversationLastAnsweredInbound (last_answered_inbound_at). AppVersion 0.16.198 -> 0.16.199.
+- PENDIENTE: build+tests+prueba /dev/inbound (A, luego B ~20s despues) + deploy a senal del usuario. NO desplegado.
+- Bloqueos: ninguno.
+
 ## 2026-10-14 - Plantilla de frio del agente: parametros (bindings) + archivo del header por nodo (SIN deploy)
 
 - El agente del flujo, al mandar la plantilla de frio, antes solo metia su pregunta en la 1a variable. Ahora:

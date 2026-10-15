@@ -3191,6 +3191,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("flow_hold_step_id");
 
+                    b.Property<DateTimeOffset?>("LastAnsweredInboundAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_answered_inbound_at");
+
                     b.Property<DateTimeOffset?>("LastMessageAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_message_at");

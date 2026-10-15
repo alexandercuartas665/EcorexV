@@ -33,6 +33,13 @@ public class Conversation : TenantEntity
     /// </summary>
     public DateTimeOffset? AgentContextResetAt { get; set; }
 
+    /// <summary>Cursor anti-rafaga del agente conversacional (SARA): SentAt del ULTIMO mensaje ENTRANTE que el
+    /// agente ya respondio. Si llega un entrante DURANTE la corrida del agente (posterior a la foto que tomo de la
+    /// conversacion) queda con SentAt &gt; este cursor, y una corrida de respaldo lo detecta como "sin responder" y
+    /// lo contesta, en vez de ignorarlo porque el ultimo mensaje ya es la saliente del agente. Null = nunca
+    /// respondio (se comporta como MinValue). Solo lo AVANZA el agente al enviar; una saliente HUMANA no lo toca.</summary>
+    public DateTimeOffset? LastAnsweredInboundAt { get; set; }
+
     /// <summary>
     /// Reactivacion (secuencia de seguimiento del agente): cuantos PASOS de la secuencia ya se enviaron a
     /// esta conversacion (0 = ninguno). Se reinicia a 0 cuando el cliente vuelve a responder (revivio). El

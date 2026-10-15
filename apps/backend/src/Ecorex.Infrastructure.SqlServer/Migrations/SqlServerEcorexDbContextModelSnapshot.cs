@@ -17629,6 +17629,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("whats_app_answered_inbound_at");
+
                     b.HasKey("Id")
                         .HasName("pk_workflow_step_histories");
 

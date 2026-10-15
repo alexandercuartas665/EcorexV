@@ -73,8 +73,9 @@ public abstract class WorkflowAgentStepTestsBase
         Assert.True(usage.Success);
         Assert.Equal(150, usage.TotalTokens);
 
-        // IDEMPOTENCIA: volver a pasarlo por el runner no repite la llamada ni toca el paso.
-        Assert.Equal(WorkflowAgentStepOutcome.NotApplicable, await runner.RunAsync(scenario.AgentStepId));
+        // IDEMPOTENCIA: volver a pasarlo por el runner no repite la llamada ni toca el paso. El claim atomico
+        // no re-toma un paso ya cerrado (vigente+Pending+sin intentar deja de cumplirse) -> AlreadyAttempted.
+        Assert.Equal(WorkflowAgentStepOutcome.AlreadyAttempted, await runner.RunAsync(scenario.AgentStepId));
         Assert.Equal(1, invoker.Calls);
     }
 
@@ -260,7 +261,9 @@ public abstract class WorkflowAgentStepTestsBase
         {
             var invokerB = FakeWorkflowAgentInvoker.Answering("Approved", "Paso ajeno.");
             var runnerB = BuildRunner(ctxB, seedB, invokerB);
-            Assert.Equal(WorkflowAgentStepOutcome.NotApplicable, await runnerB.RunAsync(scenarioA.AgentStepId));
+            // El claim (acotado por el filtro global del tenant B) no empareja el paso de A -> claimed==0 ->
+            // AlreadyAttempted; la garantia real del aislamiento es que el proveedor NO se llamo (Calls==0).
+            Assert.Equal(WorkflowAgentStepOutcome.AlreadyAttempted, await runnerB.RunAsync(scenarioA.AgentStepId));
             Assert.Equal(0, invokerB.Calls);
 
             // El barrido acotado al tenant B tampoco toca nada de A.
@@ -372,6 +375,93 @@ public abstract class WorkflowAgentStepTestsBase
                 BuildRunner(ctx, seed, invoker), NullLogger<WorkflowAgentStepDispatcher>.Instance);
             Assert.Equal(1, await dispatcher.RunPendingForTenantAsync());
             Assert.Equal(1, invoker.Calls);
+        }
+    }
+
+    /// <summary>
+    /// ANTI-RAFAGA del agente del FLUJO (gemelo del fix de SARA). Un paso en espera de respuesta por WhatsApp
+    /// (PendingWhatsAppConversationId): (A) cuando el cliente responde en RAFAGA (dos mensajes seguidos), el
+    /// contexto JUNTA los dos -antes solo leia el ultimo-; (B) la frescura se ancla en el CURSOR del paso
+    /// (WhatsAppAnsweredInboundAt), no en el ultimo saliente, asi un mensaje llegado JUSTO ANTES de que el flujo
+    /// mande su propia respuesta NO queda "antes del saliente" y se tragia. Deterministico: no llama al modelo,
+    /// ejercita solo WorkflowAgentContextBuilder contra la BD real (matriz dual).
+    /// </summary>
+    [Fact]
+    public async Task AgentFlow_WhatsAppReply_AggregatesBurst_AndCursorPreventsStranding()
+    {
+        var seed = await SeedTenantAsync("AgentStep Rafaga");
+        ScenarioSeed scenario;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+        }
+
+        // Segundos enteros (sin fraccion): el round-trip por PG (us) / SQL Server (100ns) conserva el instante exacto,
+        // asi la comparacion de DateTimeOffset no falla por redondeo.
+        var t0 = new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);   // momento de la pregunta del flujo
+        Guid conversationId;
+
+        // Estado "esperando respuesta": una pregunta saliente (t0), chatter VIEJO anterior a la pregunta (no es
+        // respuesta a nosotros) y una RAFAGA de dos entrantes frescos (t0+10s, t0+13s). El paso toma la conversacion.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var conv = new Conversation { TenantId = seed.TenantId, ContactPhone = "573217626882" };
+            ctx.Conversations.Add(conv);
+            await ctx.SaveChangesAsync();
+            conversationId = conv.Id;
+
+            ctx.Messages.AddRange(
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
+                    Body = "hola de otro caso viejo", SentAt = t0.AddMinutes(-5) },               // chatter viejo (excluido)
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound,
+                    Body = "Para su pedido, cuantas laminas y su cedula?", SentAt = t0 },          // la pregunta del flujo
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
+                    Body = "necesito 4 laminas", SentAt = t0.AddSeconds(10) },                     // rafaga 1
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
+                    Body = "mi cedula es 10199857", SentAt = t0.AddSeconds(13) });                 // rafaga 2
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.PendingWhatsAppConversationId = conv.Id;
+            await ctx.SaveChangesAsync();
+        }
+
+        // FIX A: el contexto junta LOS DOS mensajes frescos (no solo el ultimo) y excluye el chatter viejo.
+        // El cursor (LatestInboundAt) apunta al mas reciente de la rafaga.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var result = await new WorkflowAgentContextBuilder(ctx).BuildAsync(scenario.AgentStepId);
+            Assert.True(result.IsOk, result.Error);
+            var reply = result.Value!.WhatsAppReplyResult;
+            Assert.NotNull(reply);
+            Assert.Contains("4 laminas", reply!.ReplyText);
+            Assert.Contains("10199857", reply.ReplyText);
+            Assert.DoesNotContain("caso viejo", reply.ReplyText);
+            Assert.Equal(t0.AddSeconds(13), reply.LatestInboundAt);
+        }
+
+        // FIX B: el paso ya respondio la rafaga (cursor = t0+13s) y MANDO su respuesta (saliente en t0+20s). Llega un
+        // mensaje nuevo en t0+16s: entro ANTES de nuestro saliente pero DESPUES del cursor. Con el ancla vieja (ultimo
+        // saliente) quedaria excluido y se tragia; con el cursor del paso SI se lee.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.WhatsAppAnsweredInboundAt = t0.AddSeconds(13);
+            ctx.Messages.AddRange(
+                new Message { TenantId = seed.TenantId, ConversationId = conversationId, Direction = MessageDirection.Inbound,
+                    Body = "en realidad son 6 laminas", SentAt = t0.AddSeconds(16) },              // llego antes del saliente
+                new Message { TenantId = seed.TenantId, ConversationId = conversationId, Direction = MessageDirection.Outbound,
+                    Body = "Perfecto, confirmo 4 laminas", SentAt = t0.AddSeconds(20) });          // nuestra respuesta
+            await ctx.SaveChangesAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var result = await new WorkflowAgentContextBuilder(ctx).BuildAsync(scenario.AgentStepId);
+            Assert.True(result.IsOk, result.Error);
+            var reply = result.Value!.WhatsAppReplyResult;
+            Assert.NotNull(reply);
+            Assert.Contains("6 laminas", reply!.ReplyText);                 // el mensaje tardio NO se tragia
+            Assert.DoesNotContain("4 laminas", reply.ReplyText);            // los ya respondidos no se re-sirven
+            Assert.Equal(t0.AddSeconds(16), reply.LatestInboundAt);
         }
     }
 

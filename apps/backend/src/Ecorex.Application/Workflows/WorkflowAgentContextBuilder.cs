@@ -61,12 +61,24 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             step.InstanceId, step.Id, nodeDto, priorData, taskDto, historyDto, flowMap, assignment, voiceCall, whatsAppReply, awaitingSince, availableTags));
     }
 
-    /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae el
-    /// texto de la RESPUESTA FRESCA del cliente para que el agente la use al reanudarse. "Fresca" = un entrante
-    /// POSTERIOR al ultimo saliente: la conversacion es compartida por (linea, telefono), asi que un entrante
-    /// VIEJO (de otro caso o de antes del recordatorio) NO es una respuesta a lo que preguntamos. Si no hay
-    /// respuesta fresca, devuelve null -> el paso sigue "en espera" (BuildWhatsAppAwaitingSinceAsync) y el agente
-    /// NO decide con datos viejos.</summary>
+    /// <summary>Tope de mensajes de una rafaga que se juntan como la respuesta del cliente. Una rafaga tipica son
+    /// 2-4 mensajes; este tope evita que una avalancha patologica infle el contexto. Si hay mas, se quedan los MAS
+    /// RECIENTES (el cursor avanza al ultimo, de modo que los descartados quedan marcados como ya vistos).</summary>
+    private const int MaxBurstMessages = 15;
+
+    /// <summary>Tope de caracteres del texto junto de la rafaga (generoso respecto a un solo mensaje: son varios).</summary>
+    private const int MaxBurstChars = 1500;
+
+    /// <summary>ADR-0092: si el paso esperaba una respuesta de WhatsApp (PendingWhatsAppConversationId), trae la
+    /// RESPUESTA FRESCA del cliente para que el agente la use al reanudarse. "Fresca" = un entrante POSTERIOR al
+    /// CURSOR anti-rafaga del paso (WhatsAppAnsweredInboundAt) o, la primera vez (cursor null), al ULTIMO SALIENTE:
+    /// la conversacion es compartida por (linea, telefono), asi que un entrante VIEJO (de otro caso o de antes del
+    /// recordatorio) NO es una respuesta a lo que preguntamos. Se JUNTAN todos los entrantes frescos (una rafaga:
+    /// el cliente manda "necesito 4 laminas" y luego "mi cedula es 10199857" como dos mensajes, y se leen los dos),
+    /// en orden cronologico. Anclar en el cursor -y no solo en el ultimo saliente- evita que un mensaje llegado
+    /// JUSTO ANTES de que el flujo mande su propia respuesta quede "antes del ultimo saliente" y se tragie. Si no
+    /// hay respuesta fresca, devuelve null -> el paso sigue "en espera" (BuildWhatsAppAwaitingSinceAsync) y el
+    /// agente NO decide con datos viejos.</summary>
     private async Task<WorkflowAgentWhatsAppReplyDto?> BuildWhatsAppReplyResultAsync(
         Domain.Entities.WorkflowStepHistory step, CancellationToken cancellationToken)
     {
@@ -74,22 +86,34 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         {
             return null;
         }
-        // Hora del ULTIMO saliente de la conversacion: la respuesta debe ser POSTERIOR a el para ser una
-        // respuesta a nuestra ultima pregunta (no un entrante viejo de la conversacion compartida).
-        var lastOut = await _db.Messages.AsNoTracking()
-            .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound)
-            .MaxAsync(m => (DateTimeOffset?)m.SentAt, cancellationToken);
-        var reply = await _db.Messages.AsNoTracking()
+        // Piso de frescura: manda el CURSOR (hasta cual entrante ya incorporo el paso). La primera vez (cursor null)
+        // cae al ULTIMO saliente, que filtra el chatter viejo de la conversacion compartida. Despues manda el cursor,
+        // de modo que un saliente nuestro NO deja mensajes del cliente "antes del ultimo saliente" (y los trague).
+        DateTimeOffset? floor = step.WhatsAppAnsweredInboundAt;
+        if (floor is null)
+        {
+            floor = await _db.Messages.AsNoTracking()
+                .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound)
+                .MaxAsync(m => (DateTimeOffset?)m.SentAt, cancellationToken);
+        }
+        var fresh = await _db.Messages.AsNoTracking()
             .Where(m => m.ConversationId == conversationId && m.Direction == Ecorex.Domain.Enums.MessageDirection.Inbound
-                && (lastOut == null || m.SentAt > lastOut))
-            .OrderByDescending(m => m.SentAt)
-            .Select(m => m.Body)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (reply is null)
+                && (floor == null || m.SentAt > floor))
+            .OrderByDescending(m => m.SentAt)   // los mas recientes primero: si hay mas que el tope, se quedan esos
+            .Take(MaxBurstMessages)
+            .Select(m => new { m.SentAt, m.Body })
+            .ToListAsync(cancellationToken);
+        if (fresh.Count == 0)
         {
             return null;
         }
-        return new WorkflowAgentWhatsAppReplyDto(Clip(reply, WorkflowAgentContextLimits.MaxValueChars));
+        var latest = fresh.Max(x => x.SentAt);
+        // Se devuelven en orden CRONOLOGICO (ascendente): se lee como el cliente los escribio.
+        var text = string.Join("\n", fresh
+            .OrderBy(x => x.SentAt)
+            .Select(x => x.Body?.Trim())
+            .Where(b => !string.IsNullOrWhiteSpace(b)));
+        return new WorkflowAgentWhatsAppReplyDto(Clip(text, MaxBurstChars), latest);
     }
 
     /// <summary>ADR-0121: si el paso esta esperando una respuesta de WhatsApp (PendingWhatsAppConversationId) y

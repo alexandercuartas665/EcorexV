@@ -2,6 +2,38 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-15 - Agente del FLUJO: mismo fix anti-rafaga que SARA (Fix A + Fix B) (SIN deploy)
+
+- CONTEXTO: tras validar el fix de SARA en prod, el usuario pregunto si los agentes que viven en el FLUJO
+  (WorkflowAgentStepRunner/ContextBuilder, otro camino que SARA) tienen el mismo problema de rafagas. SI lo tienen,
+  por DOS huecos distintos (ninguno cubierto por el cursor de SARA, que vive en AgentConversationService):
+  - HUECO 1 (rafaga partida): BuildWhatsAppReplyResultAsync leia UN solo entrante
+    (OrderByDescending(SentAt).First). "necesito 4 laminas" + "mi cedula es 10199857" -> solo leia la cedula.
+  - HUECO 2 (mensaje durante la corrida): la frescura se anclaba en el ULTIMO SALIENTE; si el paso mandaba su
+    respuesta, un entrante llegado antes quedaba "antes del saliente" y se tragia. (El RE-DISPARO ya estaba
+    protegido: ChatIngest limpia AgentAttemptedAt con tracking -> AuditableTenantInterceptor bumpea Version++ ->
+    el "pisado" del paso revienta por concurrencia y el barrido lo re-corre. No hizo falta tocar el despachador.)
+- FIX (opcion del usuario: A + B completo):
+  - FIX A (agregar rafaga): BuildWhatsAppReplyResultAsync junta TODOS los entrantes frescos (orden cronologico,
+    tope 15 msgs / 1500 chars) en vez de solo el ultimo.
+  - FIX B (cursor anti-rafaga del flujo): WorkflowStepHistory.WhatsAppAnsweredInboundAt (gemelo del de SARA).
+    floor = WhatsAppAnsweredInboundAt ?? ultimo_saliente (1a vez cae al saliente -> filtra chatter viejo; despues
+    manda el cursor -> un saliente nuestro no deja mensajes "antes del saliente"). El runner avanza el cursor =
+    LatestInboundAt al armar el contexto (se persiste con el cierre/pausa; si revienta, rollback).
+  - DTO WorkflowAgentWhatsAppReplyDto (+LatestInboundAt). Migracion DUAL AddStepWhatsAppAnsweredInbound
+    (whats_app_answered_inbound_at). Build Ecorex.sln VERDE; Application.Tests 1112/1112; migracion PG aplicada al
+    local (ecorex@5442).
+- PRUEBA (integracion DUAL, deterministica, sin IA): AgentFlow_WhatsAppReply_AggregatesBurst_AndCursorPreventsStranding
+  en WorkflowAgentStepTests. Fase A: dos entrantes de rafaga se juntan y el chatter viejo (anterior a la pregunta) se
+  excluye. Fase B: con cursor=t+13s y un saliente nuestro en t+20s, un entrante tardio en t+16s SI se lee (con el ancla
+  vieja del ultimo saliente se tragaba) y los ya respondidos no se re-sirven. 16/16 verde (PG + SQL Server).
+- DE PASO: 2 tests pre-existentes de WorkflowAgentStepTests estaban stale (esperaban NotApplicable donde el claim
+  atomico ahora devuelve AlreadyAttempted para claimed==0: idempotencia L77 y aislamiento cross-tenant L263). Se
+  corrigio la EXPECTATIVA (el comportamiento real es correcto; el aislamiento sigue garantizado por Calls==0). No es
+  del fix de rafaga; estaban rojos en el tronco desde el trabajo del "claim atomico".
+- PENDIENTE: a senal del usuario -> commit+push+deploy + prueba en vivo. NO desplegado (sin bump de version).
+- Bloqueos: ninguno.
+
 ## 2026-10-14 - v0.16.199: SARA no ignora mensajes llegados durante su propia corrida (cursor anti-rafaga)
 
 - SINTOMA (prod AGROMETALICAS/SARA, linea 573113168626): cliente manda A (20:50:16), luego la cedula B

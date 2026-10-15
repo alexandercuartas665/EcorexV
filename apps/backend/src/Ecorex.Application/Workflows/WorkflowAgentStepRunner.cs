@@ -188,6 +188,19 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         }
         var context = contextResult.Value;
 
+        // ANTI-RAFAGA (gemelo del fix de SARA): se avanza el cursor del paso hasta el ULTIMO entrante que esta foto
+        // incorporo. Efectos: (1) un mensaje que entre DURANTE la corrida queda con SentAt > cursor y, como ChatIngest
+        // bumpea el token de concurrencia al limpiar AgentAttemptedAt, el "pisado" de este paso revienta y el barrido
+        // re-atiende ese mensaje como fresco; (2) en el re-run, la frescura se ancla en el cursor (no en el ultimo
+        // saliente), asi un mensaje llegado antes de nuestra respuesta no queda "antes del saliente" y se tragia. Se
+        // persiste con el cierre/pausa de abajo (misma entidad rastreada); si la corrida revienta, el rollback lo
+        // revierte y el mensaje sigue "sin responder".
+        if (context.WhatsAppReplyResult?.LatestInboundAt is DateTimeOffset seenInbound
+            && seenInbound > (step.WhatsAppAnsweredInboundAt ?? DateTimeOffset.MinValue))
+        {
+            step.WhatsAppAnsweredInboundAt = seenInbound;
+        }
+
         // Cupo del plan (requisito d): un agente NO consume sin control. Si el limite es duro y ya
         // se agoto el mes, ni siquiera se llama al proveedor y el paso vuelve a una persona: el
         // proceso del cliente sigue corriendo aunque su cupo de IA se haya acabado.

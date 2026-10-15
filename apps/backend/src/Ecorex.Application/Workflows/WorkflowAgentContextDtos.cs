@@ -43,9 +43,11 @@ public sealed record WorkflowAgentContextDto(
 /// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>
 public sealed record WorkflowAgentVoiceCallDto(string? Transcript, string? CapturedJson);
 
-/// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092): el texto del ultimo
-/// mensaje entrante en la conversacion que el paso estaba esperando.</summary>
-public sealed record WorkflowAgentWhatsAppReplyDto(string? ReplyText);
+/// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092). <see cref="ReplyText"/>
+/// junta TODOS los mensajes entrantes frescos (una rafaga: "necesito 4 laminas" + "mi cedula es 10199857" llegan
+/// como dos mensajes y se leen los dos), en orden cronologico. <see cref="LatestInboundAt"/> es el SentAt del mas
+/// reciente de esos entrantes: el runner lo usa como cursor anti-rafaga (ver WorkflowStepHistory.WhatsAppAnsweredInboundAt).</summary>
+public sealed record WorkflowAgentWhatsAppReplyDto(string? ReplyText, DateTimeOffset? LatestInboundAt = null);
 
 /// <summary>Agente asignado al nodo del paso, su autonomia y los RECURSOS que se le habilitaron para
 /// conseguir datos (ADR-0091): un cliente Colmena (busqueda web) y/o un agente de voz (llamada Retell).</summary>

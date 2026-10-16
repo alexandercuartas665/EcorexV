@@ -2,6 +2,35 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-15 - Reenvio de cotizacion: envio de media por YCloud + herramienta de reenvio de SARA (SIN deploy)
+
+- SINTOMA (prod AGRO, T00366, numero 573217626882): el agente del flujo hizo seguimiento; el cliente pidio "no mira
+  se me borro la cotizacion"; el flujo intento reenviar y FALLO; luego SARA creo OTRA tarea (T00367) + lead y dijo
+  "un asesor te contactara", en vez de reenviar la cotizacion.
+- RAIZ (verificada con logs literales de prod, sin desplegar logger):
+  1. WhatsAppConnectorService.SendMediaAsync tenia un STUB para YCloud: "YCloud envia media por URL publica; el
+     envio por archivo (base64) no esta soportado en este corte" -> devolvia false SIEMPRE. Por eso enviar_impresion
+     del flujo fallo ("error de canal"); la ventana de 24h estaba ABIERTA, no era eso. La cotizacion original SI
+     llego porque el nodo de notificacion publica el PDF a URL (ITemplateMediaStore) y lo manda como plantilla con
+     header de documento (NodeNotifyService). El reenvio usaba el envio de documento crudo -> pegaba en el stub.
+  2. SARA no tiene herramienta de reenvio: ante el pedido creo tarea+lead (BACKLOG "SARA sin reenvio").
+- FIX (decidido con el usuario: ambas partes):
+  - PARTE 1: implementado el branch YCloud de SendMediaAsync: publica los bytes a URL publica (ITemplateMediaStore,
+    mismo almacen del header de plantilla; guard si la URL es localhost) y llama _ycloud.SendMediaAsync(..., mediaUrl).
+    Arregla el reenvio por YCloud para el flujo Y SARA (mensaje de SESION: requiere ventana 24h abierta). Se inyecta
+    ITemplateMediaStore en el conector; fallback NullTemplateMediaStore en Application DI (SuperAdmin registra el real
+    DESPUES y gana en prod). NotificationChannelSender.SendWhatsAppDocumentAsync ahora LOGUEA el motivo real (antes lo
+    tragaba un catch).
+  - PARTE 2: TasksToolset.reenviar_documento (gemelo del enviar_impresion del flujo, para SARA): resuelve linea+
+    telefono por la conversacion, el caso por numero (o el ligado), elige el documento (prefiere cotizacion),
+    renderiza el PDF (IQuoteDocumentRenderer) y lo envia (INotificationChannelSender); deja la saliente en el hilo.
+    NO cierra sesion ni crea tareas. Descripcion le dice a SARA: ante "mandame la cotizacion de nuevo" REENVIA, no
+    crees tarea; no transcribas valores en el chat (respeta "SARA no entrega valores"; reenviar el PDF oficial si).
+- Build Ecorex.sln VERDE; Application.Tests 1112/1112 (se agregaron stubs FakeQuoteDoc/FakeSender al test de whitelist).
+- PENDIENTE: a senal del usuario -> deploy + prueba en vivo del reenvio por YCloud. NO desplegado (sin bump).
+- Bloqueos: ninguno. Caveat: reenvio por YCloud solo con ventana de 24h abierta; en frio seria plantilla con header
+  de documento (fuera de este corte).
+
 ## 2026-10-15 - Agente del FLUJO: mismo fix anti-rafaga que SARA (Fix A + Fix B) (SIN deploy)
 
 - CONTEXTO: tras validar el fix de SARA en prod, el usuario pregunto si los agentes que viven en el FLUJO

@@ -57,8 +57,9 @@ public interface INotificationChannelSender
     Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default);
 
     /// <summary>Adjunta un DOCUMENTO (base64) a un telefono desde la linea, con caption opcional. Lo usan las
-    /// reglas de nodo para mandar el PDF de un formulario junto a la plantilla. Evolution lo envia como archivo;
-    /// YCloud requiere la media por URL publica (no soportado aqui, devuelve false).</summary>
+    /// reglas de nodo y el reenvio del agente para mandar el PDF de un formulario (ej. la cotizacion). Evolution lo
+    /// envia como archivo; YCloud publica el archivo a una URL publica (ECOREX_PUBLIC_BASE_URL) y lo manda por URL
+    /// -mensaje de sesion: requiere la ventana de 24h abierta-. Devuelve false si no se pudo (y registra el motivo).</summary>
     Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName,
         string? caption, Guid actorUserId, CancellationToken cancellationToken = default);
 

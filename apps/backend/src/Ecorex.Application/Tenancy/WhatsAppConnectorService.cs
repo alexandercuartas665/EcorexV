@@ -18,6 +18,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _timeProvider;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly Notifications.ITemplateMediaStore _mediaStore;
 
     public WhatsAppConnectorService(
         IApplicationDbContext db,
@@ -28,7 +29,8 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         IYCloudApiClient ycloud,
         IAuditWriter audit,
         TimeProvider timeProvider,
-        IHttpClientFactory httpFactory)
+        IHttpClientFactory httpFactory,
+        Notifications.ITemplateMediaStore mediaStore)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -39,6 +41,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         _audit = audit;
         _timeProvider = timeProvider;
         _httpFactory = httpFactory;
+        _mediaStore = mediaStore;
     }
 
     public async Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default)
@@ -511,8 +514,44 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
 
         if (line.Provider == WhatsAppProvider.YCloud)
         {
-            // YCloud envia media por URL publica; el runtime de ECOREX entrega en base64. Fuera de alcance por ahora.
-            return new LineSendResult(false, "YCloud envia media por URL publica; el envio por archivo (base64) no esta soportado en este corte.");
+            // YCloud envia media por URL PUBLICA (no base64): se publica el archivo a una URL accesible desde
+            // internet (ECOREX_PUBLIC_BASE_URL, mismo almacen que el header de las plantillas) y YCloud lo descarga
+            // al enviar. Es un mensaje de SESION: solo entrega con la ventana de 24h abierta (regla de Meta); en frio
+            // habria que mandar una plantilla con header de documento. En local (base localhost) Meta no lo alcanza.
+            var key = YCloudApiKey(line);
+            if (key is null || string.IsNullOrWhiteSpace(line.YCloudPhoneNumberId))
+            {
+                return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud.");
+            }
+            byte[] ycBytes;
+            try { ycBytes = Convert.FromBase64String(base64); }
+            catch { return new LineSendResult(false, "El adjunto no es base64 valido."); }
+
+            var leafName = string.IsNullOrWhiteSpace(fileName) ? $"archivo-{Guid.NewGuid():N}" : fileName!;
+            var publicUrl = await _mediaStore.PublishAsync(ycBytes, leafName, cancellationToken);
+            if (string.IsNullOrWhiteSpace(publicUrl))
+            {
+                return new LineSendResult(false,
+                    "No se pudo publicar el archivo a una URL publica para YCloud (falta ECOREX_PUBLIC_BASE_URL o el almacen de medios). YCloud descarga el archivo por URL, no acepta base64.");
+            }
+            if (publicUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase) || publicUrl.Contains("127.0.0.1"))
+            {
+                return new LineSendResult(false,
+                    $"La URL publica del archivo apunta a localhost ({publicUrl}); YCloud/Meta no la pueden descargar. Configura ECOREX_PUBLIC_BASE_URL con un dominio accesible desde internet.");
+            }
+
+            var ycKind = mediaType switch
+            {
+                MessageMediaType.Image => YCloudMediaKind.Image,
+                MessageMediaType.Video => YCloudMediaKind.Video,
+                MessageMediaType.Audio => YCloudMediaKind.Audio,
+                _ => YCloudMediaKind.Document
+            };
+            var ycCaption = string.IsNullOrWhiteSpace(caption) ? null : caption;
+            var yr = await _ycloud.SendMediaAsync(
+                key, line.YCloudPhoneNumberId!, digits, ycKind, publicUrl, ycCaption,
+                ycKind == YCloudMediaKind.Document ? leafName : null, cancellationToken);
+            return new LineSendResult(yr.IsSuccess, yr.Error, yr.MessageId);
         }
 
         var server = await ResolveServerAsync(cancellationToken);

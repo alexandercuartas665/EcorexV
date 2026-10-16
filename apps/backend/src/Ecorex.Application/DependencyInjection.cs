@@ -38,6 +38,10 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAdvisorService, Tenancy.AdvisorService>();
         services.AddScoped<Tenancy.IEvolutionConfigService, Tenancy.EvolutionConfigService>();
         services.AddScoped<Tenancy.IWhatsAppLineService, Tenancy.WhatsAppLineService>();
+        // Fallback de ITemplateMediaStore para contextos que solo cargan Application (el conector de WhatsApp lo
+        // inyecta para publicar el PDF como URL publica al enviar media por YCloud). En Ecorex.SuperAdmin se
+        // registra DESPUES el TemplateMediaStore real, que gana (ultima registracion) y publica de verdad.
+        services.AddScoped<Notifications.ITemplateMediaStore, Notifications.NullTemplateMediaStore>();
         services.AddScoped<Tenancy.IWhatsAppConnectorService, Tenancy.WhatsAppConnectorService>();
         services.AddScoped<Tenancy.IAgentCierreService, Tenancy.AgentCierreService>();
         services.AddScoped<Tenancy.IAgentReactivacionService, Tenancy.AgentReactivacionService>();

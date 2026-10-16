@@ -55,6 +55,34 @@ public class TasksToolsetBoardWhitelistTests
         public Guid? UserId => null;
     }
 
+    // Stubs de las dependencias de reenviar_documento: estos tests solo ejercitan crear_tarea/listar_tableros,
+    // nunca reenviar, asi que no se llaman.
+    private sealed class FakeQuoteDoc : Ecorex.Application.Forms.IQuoteDocumentRenderer
+    {
+        public Task<Ecorex.Application.Forms.QuoteDocument?> RenderResponsePdfAsync(
+            Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<Ecorex.Application.Forms.QuoteDocument?>(null);
+    }
+
+    private sealed class FakeSender : Ecorex.Application.Notifications.INotificationChannelSender
+    {
+        public Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+        public Task<Ecorex.Application.Notifications.WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
+            IReadOnlyDictionary<string, string> tokens, Guid actorUserId,
+            string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null,
+            string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null, string? headerMediaFileNameOverride = null,
+            IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new Ecorex.Application.Notifications.WhatsAppSendOutcome(false, "stub"));
+        public Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+        public Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName,
+            string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+        public Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+    }
+
     // ITaskItemService de mentira: captura el BoardId con el que se pidio crear y devuelve Ok.
     private sealed class FakeTasks : ITaskItemService
     {
@@ -362,7 +390,7 @@ public class TasksToolsetBoardWhitelistTests
 
         var db = new FakeAppDb(inner);
         var tasks = new FakeTasks();
-        return (new TasksToolset(db, tasks, new FakeTenant()), tasks, inner);
+        return (new TasksToolset(db, tasks, new FakeTenant(), new FakeQuoteDoc(), new FakeSender()), tasks, inner);
     }
 
     private static async Task<JsonElement> CreateAsync(TasksToolset ts, string? tablero, string titulo = "Necesito ayuda")

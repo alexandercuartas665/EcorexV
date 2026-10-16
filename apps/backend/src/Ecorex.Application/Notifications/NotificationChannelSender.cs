@@ -130,9 +130,21 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         {
             var res = await _wa.SendMediaAsync(lineId, phone, Domain.Enums.MessageMediaType.Document, base64,
                 mimeType, fileName, caption, actorUserId, remoteJid: null, cancellationToken);
+            // Se registra el motivo REAL del proveedor (antes se tragaba el error y solo quedaba un bool false, que
+            // dejaba al agente adivinando "error de canal"). Asi un fallo de envio de documento queda rastreable.
+            if (!res.Ok)
+            {
+                _logger.LogWarning(
+                    "No se pudo enviar el documento por WhatsApp (linea {LineId}, archivo {FileName}): {Error}",
+                    lineId, fileName, res.Error ?? "(sin detalle del proveedor)");
+            }
             return res.Ok;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Excepcion enviando documento por WhatsApp (linea {LineId}, archivo {FileName}).", lineId, fileName);
+            return false;
+        }
     }
 
     public async Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default)

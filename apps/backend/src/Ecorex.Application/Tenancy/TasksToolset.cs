@@ -21,12 +21,18 @@ public sealed class TasksToolset : ITasksToolset
     private readonly IApplicationDbContext _db;
     private readonly ITaskItemService _tasks;
     private readonly ITenantContext _tenant;
+    private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
+    private readonly Notifications.INotificationChannelSender _sender;
 
-    public TasksToolset(IApplicationDbContext db, ITaskItemService tasks, ITenantContext tenant)
+    public TasksToolset(
+        IApplicationDbContext db, ITaskItemService tasks, ITenantContext tenant,
+        Forms.IQuoteDocumentRenderer quoteDoc, Notifications.INotificationChannelSender sender)
     {
         _db = db;
         _tasks = tasks;
         _tenant = tenant;
+        _quoteDoc = quoteDoc;
+        _sender = sender;
     }
 
     public string GroupKey => "tareas";
@@ -64,6 +70,16 @@ public sealed class TasksToolset : ITasksToolset
             "Indica 'numero' (ej. T00303) si lo conoces (suele venir en las notas internas del flujo); si lo omites, se " +
             "consulta la tarea ligada a esta conversacion. NO crea ni modifica nada.",
             """{"type":"object","properties":{"numero":{"type":"string","description":"Numero de la tarea/caso, ej. T00303 (opcional; si se omite se usa la tarea ligada a la conversacion actual)"}},"additionalProperties":false}"""),
+        new AiToolSpec(
+            "reenviar_documento",
+            "REENVIA al cliente, por WhatsApp, el PDF de un documento YA generado del caso (tipicamente la " +
+            "COTIZACION). Usala cuando el cliente pida de nuevo la cotizacion o un documento del caso (ej. 'no me " +
+            "llego', 'se me borro', 'mandamela otra vez'): en ese caso NO crees una tarea, REENVIA el documento con " +
+            "esta herramienta. Indica 'numero' del caso si lo conoces (ej. T00303); si lo omites, se usa el caso " +
+            "ligado a esta conversacion. 'documento' es opcional (nombre o codigo del formulario; por defecto se " +
+            "reenvia la cotizacion del caso). Entrega el documento OFICIAL ya generado: no transcribas ni menciones " +
+            "valores en el chat. Solo entrega si la ventana de conversacion esta abierta (el cliente escribio hace poco).",
+            """{"type":"object","properties":{"numero":{"type":"string","description":"Numero del caso, ej. T00303 (opcional; por defecto el ligado a la conversacion)"},"documento":{"type":"string","description":"Nombre o codigo del formulario a reenviar (opcional; por defecto la cotizacion)"},"mensaje":{"type":"string","description":"Texto breve que acompana el documento (opcional)"}},"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -83,6 +99,7 @@ public sealed class TasksToolset : ITasksToolset
                 "listar_tableros" => await ListBoardsAsync(cancellationToken),
                 "crear_tarea" => await CreateTaskAsync(args, actorUserId, cancellationToken),
                 "consultar_tarea" => await ConsultTaskAsync(args, cancellationToken),
+                "reenviar_documento" => await ResendDocumentAsync(args, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
         }
@@ -338,6 +355,135 @@ public sealed class TasksToolset : ITasksToolset
                 .Select(b => new { fecha = b.CreatedAt, actor = b.ActorName, texto = b.Text })
         };
         return Ok(payload);
+    }
+
+    /// <summary>
+    /// REENVIA al cliente el PDF de un documento YA generado del caso (tipicamente la cotizacion). Gemelo para SARA
+    /// del 'enviar_impresion' del agente del flujo: resuelve la linea y el telefono por la conversacion actual, el
+    /// caso por numero (o el ligado a la conversacion), elige el documento del caso (preferiendo la cotizacion),
+    /// renderiza el PDF y lo envia por la linea; deja el documento como SALIENTE en el hilo. NO cierra la sesion ni
+    /// crea tareas: es la respuesta correcta cuando el cliente pide de nuevo su cotizacion.
+    /// </summary>
+    private async Task<AgentToolResult> ResendDocumentAsync(JsonElement args, CancellationToken ct)
+    {
+        if (AiToolRunContext.ConversationId is not Guid convId)
+        {
+            return Err("No hay una conversacion activa para reenviar el documento.");
+        }
+        var conv = await _db.Conversations.AsNoTracking()
+            .Where(c => c.Id == convId)
+            .Select(c => new { c.WhatsAppLineId, c.ContactPhone, c.TenantId })
+            .FirstOrDefaultAsync(ct);
+        if (conv is null || conv.WhatsAppLineId is not Guid lineId || string.IsNullOrWhiteSpace(conv.ContactPhone))
+        {
+            return Err("Esta conversacion no tiene una linea de WhatsApp y telefono para enviar el documento.");
+        }
+
+        // Caso: por numero explicito, o el ligado a la conversacion (igual que consultar_tarea).
+        var numero = Str(args, "numero");
+        TaskItem? task;
+        if (!string.IsNullOrWhiteSpace(numero))
+        {
+            var num = numero!.Trim();
+            task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Number == num, ct);
+        }
+        else
+        {
+            task = await _db.TaskItems.AsNoTracking()
+                .Where(t => t.ConversationId == convId)
+                .OrderByDescending(t => t.CreatedAt).FirstOrDefaultAsync(ct);
+        }
+        if (task is null)
+        {
+            return Err(string.IsNullOrWhiteSpace(numero)
+                ? "No hay un caso ligado a esta conversacion. Pide al cliente el numero (ej. T00303) para reenviar su documento."
+                : $"No se encontro el caso '{numero}'.");
+        }
+        var caseNum = task.Number;
+
+        // Documentos (respuestas diligenciadas) anclados al caso (Reference == num o "num-n"). Si el nombre pedido
+        // calza con una definicion, se prefiere esa; si no, CUALQUIER documento del caso, prefiriendo la cotizacion.
+        var formName = Str(args, "documento");
+        var fn = formName?.Trim().ToLower();
+        var matchIds = string.IsNullOrWhiteSpace(fn)
+            ? new List<Guid>()
+            : await _db.FormDefinitions.AsNoTracking()
+                .Where(d => !d.IsArchived && (d.Title.ToLower() == fn || d.Code.ToLower() == fn))
+                .Select(d => d.Id).ToListAsync(ct);
+
+        var caseDocs = await (
+            from r in _db.FormResponses.AsNoTracking()
+            where r.Reference != null && (r.Reference == caseNum || r.Reference.StartsWith(caseNum + "-"))
+            join d in _db.FormDefinitions.AsNoTracking() on r.DefinitionId equals d.Id
+            where !d.IsArchived
+            select new { ResponseId = r.Id, DefId = d.Id, d.Title, d.Code, r.IsActive, r.CreatedAt }
+        ).ToListAsync(ct);
+        if (caseDocs.Count == 0)
+        {
+            return Err($"El caso {caseNum} no tiene ningun documento (formulario diligenciado) para reenviar.");
+        }
+
+        var chosen =
+            (matchIds.Count > 0
+                ? caseDocs.Where(c => matchIds.Contains(c.DefId))
+                    .OrderByDescending(c => c.IsActive).ThenBy(c => c.CreatedAt).FirstOrDefault()
+                : null)
+            ?? caseDocs
+                .OrderByDescending(c => ((c.Title ?? "") + " " + (c.Code ?? "")).ToLower().Contains("cotiz"))
+                .ThenByDescending(c => c.IsActive).ThenBy(c => c.CreatedAt).First();
+
+        Forms.QuoteDocument? pdf;
+        try { pdf = await _quoteDoc.RenderResponsePdfAsync(chosen.ResponseId, null, ct); }
+        catch (Exception ex) { return Err($"No se pudo generar el PDF: {ex.Message}"); }
+        if (pdf is null)
+        {
+            return Err("No se pudo generar el PDF (plantilla vacia o render fallido).");
+        }
+
+        var caption = Str(args, "mensaje");
+        var captionClean = string.IsNullOrWhiteSpace(caption) ? null : caption!.Trim();
+        var b64 = Convert.ToBase64String(pdf.Bytes);
+        bool sent;
+        try
+        {
+            sent = await _sender.SendWhatsAppDocumentAsync(
+                lineId, conv.ContactPhone!, b64, pdf.MimeType, pdf.FileName, captionClean, Guid.Empty, ct);
+        }
+        catch (Exception ex) { return Err($"Error enviando el documento: {ex.Message}"); }
+        if (!sent)
+        {
+            return Err("No se pudo enviar el documento por esta linea. Puede ser que la ventana de conversacion de 24h " +
+                "este cerrada (el cliente debe haber escrito hace poco) o un problema de la linea. Si no se puede, crea " +
+                "una tarea para que un asesor lo reenvie.");
+        }
+
+        // Traza: el documento queda como SALIENTE en el hilo (se ve en la conversacion y la bitacora). Best-effort.
+        try
+        {
+            if (_tenant.TenantId is Guid tenantId)
+            {
+                var sentAt = DateTimeOffset.UtcNow;
+                _db.Messages.Add(new Message
+                {
+                    TenantId = tenantId,
+                    ConversationId = convId,
+                    Direction = MessageDirection.Outbound,
+                    Body = captionClean ?? $"Documento reenviado: {pdf.FileName}",
+                    MessageType = "document",
+                    MediaType = MessageMediaType.Document,
+                    MediaMimeType = pdf.MimeType,
+                    MediaFileName = pdf.FileName,
+                    SentByName = ActorName,
+                    SentAt = sentAt
+                });
+                var convRow = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == convId, ct);
+                if (convRow is not null) { convRow.LastMessageAt = sentAt; }
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+        catch { /* best-effort: la traza no debe invalidar un envio ya hecho */ }
+
+        return Ok(new { ok = true, caso = caseNum, mensaje = $"Documento '{pdf.FileName}' reenviado al cliente por WhatsApp." });
     }
 
     /// <summary>Adjunta a la tarea los archivos entrantes de la conversacion en curso (reusa la URL ya

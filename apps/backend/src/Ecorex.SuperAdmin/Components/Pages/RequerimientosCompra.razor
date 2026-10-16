@@ -513,7 +513,10 @@ else
 @if (_showPlan)
 {
     <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showPlan = false">
-        <div style="background:var(--surface,#fff);border-radius:12px;max-width:720px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+        <datalist id="req-prov-list">
+            @foreach (var p in _proveedores) { <option value="@p.Nombre"></option> }
+        </datalist>
+        <div style="background:var(--surface,#fff);border-radius:12px;width:80vw;max-width:80vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
                 <strong style="font-size:14px;">Planificar: @_planProducto</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showPlan = false">&times;</button>
@@ -553,31 +556,48 @@ else
                                     <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
                                     <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
                                     <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
-                                    <td style="padding:5px 8px;white-space:nowrap;">
-                                        <select style="width:170px;height:30px;padding:0 6px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Prov">
-                                            <option value="">(sin proveedor)</option>
-                                            @foreach (var p in _proveedores) { <option value="@p.Id">@p.Nombre</option> }
-                                        </select>
-                                        @if (_planItemId is not null)
+                                    <td style="padding:5px 8px;min-width:240px;">
+                                        <div style="display:flex;align-items:center;gap:6px;">
+                                            <input list="req-prov-list" style="width:200px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Escribe el proveedor..." value="@hi.ProvNombre" @onchange="e => OnProvChanged(hi, e)" />
+                                            @if (_planItemId is not null)
+                                            {
+                                                <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
+                                            }
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(hi.ProvNombre) && (!string.IsNullOrWhiteSpace(hi.Contacto) || !string.IsNullOrWhiteSpace(hi.Email) || !string.IsNullOrWhiteSpace(hi.Telefono)))
                                         {
-                                            <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
+                                            <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:3px;line-height:1.5;">
+                                                @if (!string.IsNullOrWhiteSpace(hi.Contacto)) { <span>Contacto: <strong>@hi.Contacto</strong></span> }
+                                                @if (!string.IsNullOrWhiteSpace(hi.Email)) { <span style="margin-left:8px;">Correo: @hi.Email</span> }
+                                                @if (!string.IsNullOrWhiteSpace(hi.Telefono)) { <span style="margin-left:8px;">Tel: @hi.Telefono</span> }
+                                            </div>
                                         }
                                     </td>
                                     <td style="padding:5px 8px;text-align:right;"><input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" /></td>
                                     <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(hi.Cantidad * hi.Precio)</td>
                                     <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
-                                        @if (hi.TaskItemId is not null)
-                                        {
-                                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:3px 8px;border-radius:999px;">Ejecutada</span>
-                                        }
-                                        else
-                                        {
-                                            @if (hi.Id is not null && _canConfig)
+                                        <div style="display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center;">
+                                            @if (hi.CotizacionTaskItemId is not null)
+                                            {
+                                                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#1d4ed8;background:rgba(29,78,216,.12);padding:3px 8px;border-radius:999px;">Cotizada</span>
+                                            }
+                                            else if (hi.Id is not null && _canConfig)
+                                            {
+                                                <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de cotizacion con el proceso de cotizacion del origen" @onclick="() => CotizarAsync(hi)" disabled="@_busy">Cotizar</button>
+                                            }
+                                            @if (hi.TaskItemId is not null)
+                                            {
+                                                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:3px 8px;border-radius:999px;">Ejecutada</span>
+                                            }
+                                            else if (hi.Id is not null && _canConfig)
                                             {
                                                 <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de compra con el proceso del origen" @onclick="() => EjecutarAsync(hi)" disabled="@_busy">Ejecutar</button>
                                             }
-                                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button>
-                                        }
+                                            @if (hi.TaskItemId is null)
+                                            {
+                                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button>
+                                            }
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -635,9 +655,14 @@ else
         public DateTime? Fecha;
         public string Despacho = "";
         public string Entrega = "";
-        public string Prov = "";
+        public string Prov = "";           // id del proveedor (Tercero)
+        public string ProvNombre = "";      // nombre visible en el autocompletado
+        public string? Contacto;            // nombre del contacto del proveedor
+        public string? Email;
+        public string? Telefono;
         public decimal Precio;
         public Guid? TaskItemId;
+        public Guid? CotizacionTaskItemId;
         public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
     }
     private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
@@ -648,8 +673,10 @@ else
         Despacho = h.CaracteristicasDespacho,
         Entrega = h.TiempoEntrega,
         Prov = h.ProveedorId?.ToString() ?? "",
+        ProvNombre = h.ProveedorNombre ?? "",
         Precio = h.PrecioUnitario,
         TaskItemId = h.TaskItemId,
+        CotizacionTaskItemId = h.CotizacionTaskItemId,
         Estado = h.Estado,
     };
     private List<HijoEdit> _pHijos = new();
@@ -1336,6 +1363,40 @@ else
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
         _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(MapHijo).ToList();
         _showPlan = true;
+        // Trae el contacto (nombre/correo/telefono) de los proveedores ya asignados.
+        foreach (var h in _pHijos) { await FillContactoAsync(h); }
+    }
+
+    private async Task FillContactoAsync(HijoEdit h)
+    {
+        if (Guid.TryParse(h.Prov, out var pid))
+        {
+            try
+            {
+                var c = await Svc.GetProveedorContactoAsync(pid);
+                h.Contacto = c?.Contacto; h.Email = c?.Email; h.Telefono = c?.Telefono;
+                if (c is not null && string.IsNullOrWhiteSpace(h.ProvNombre)) { h.ProvNombre = c.Nombre; }
+            }
+            catch { h.Contacto = null; h.Email = null; h.Telefono = null; }
+        }
+        else { h.Contacto = null; h.Email = null; h.Telefono = null; }
+    }
+
+    private async Task OnProvChanged(HijoEdit h, ChangeEventArgs e)
+    {
+        var txt = (e.Value?.ToString() ?? "").Trim();
+        h.ProvNombre = txt;
+        var match = _proveedores.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
+        if (match is not null)
+        {
+            h.Prov = match.Id.ToString();
+            await FillContactoAsync(h);
+        }
+        else
+        {
+            // Texto que no corresponde a un proveedor del Directorio: se deja sin proveedor.
+            h.Prov = ""; h.Contacto = null; h.Email = null; h.Telefono = null;
+        }
     }
 
     private void AddHijoRow()
@@ -1374,7 +1435,7 @@ else
         {
             var sug = await Svc.SugerirProveedorAsync(itemId);
             if (sug is null) { _planError = "La matriz no tiene un proveedor para este producto."; }
-            else { h.Prov = sug.Id.ToString(); _planError = null; }
+            else { h.Prov = sug.Id.ToString(); h.ProvNombre = sug.Nombre; await FillContactoAsync(h); _planError = null; }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
@@ -1402,6 +1463,37 @@ else
                 _planProducto = plan.Producto;
                 _planCantidadPadre = plan.CantidadPadre;
                 _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+            }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CotizarAsync(HijoEdit h)
+    {
+        if (h.Id is not Guid hid) { return; }
+        _planError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarHijoAsync(hid, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo crear la cotizacion."; }
+            else
+            {
+                _msg = res.TaskNumber is { } num
+                    ? $"Cotizacion creada: actividad {num}."
+                    : "Cotizacion creada.";
+            }
+            if (res.Plan is { } plan)
+            {
+                _planProducto = plan.Producto;
+                _planCantidadPadre = plan.CantidadPadre;
+                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
             }
             await ReloadAsync();
         }

@@ -49,11 +49,21 @@ public sealed record RequerimientoHijoDto(
     string? ProveedorNombre,
     RequerimientoEstado Estado,
     Guid? TaskItemId,
-    decimal PrecioUnitario)
+    decimal PrecioUnitario,
+    Guid? CotizacionTaskItemId = null)
 {
     /// <summary>Total del hijo = Cantidad * PrecioUnitario (Ola 6).</summary>
     public decimal Total => Cantidad * PrecioUnitario;
 }
+
+/// <summary>Datos de contacto de un proveedor (Tercero) para el autocompletado del modal: nombre del
+/// contacto + correo + telefono. Prefiere el contacto embebido; cae a los datos del propio proveedor.</summary>
+public sealed record ProveedorContactoDto(
+    Guid Id,
+    string Nombre,
+    string? Contacto,
+    string? Email,
+    string? Telefono);
 
 /// <summary>Entrada para crear/editar un hijo (Id null = nuevo).</summary>
 public sealed record HijoInput(
@@ -128,4 +138,13 @@ public interface IRequerimientoService
     /// Aprendida en la dimension MAS especifica del item -> ese proveedor. Idempotente: si el hijo ya tiene
     /// actividad, no crea otra.</summary>
     Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    // ---- Ola 8: cotizar + contacto del proveedor ----
+    /// <summary>Pide la COTIZACION de un registro HIJO: crea una Actividad (TaskItem) con la subcategoria de
+    /// COTIZACION del origen, enlaza el CotizacionTaskItemId al hijo. No cambia el estado de la compra.
+    /// Idempotente: si el hijo ya tiene actividad de cotizacion, no crea otra.</summary>
+    Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.</summary>
+    Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default);
 }

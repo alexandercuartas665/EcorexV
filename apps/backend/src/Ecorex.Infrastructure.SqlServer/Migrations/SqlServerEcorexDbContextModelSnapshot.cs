@@ -10514,6 +10514,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(400)")
                         .HasColumnName("caracteristicas_despacho");
 
+                    b.Property<Guid?>("CotizacionTaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("cotizacion_task_item_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -10615,6 +10619,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("SubcategoriaCompraId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("subcategoria_compra_id");
+
+                    b.Property<Guid?>("SubcategoriaCotizacionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("subcategoria_cotizacion_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")

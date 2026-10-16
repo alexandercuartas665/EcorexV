@@ -214,6 +214,15 @@ else
                         }
                     </select>
                 </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proceso de cotizacion (subcategoria que pide precio)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_eSubcategoriaCotizacionId">
+                        <option value="">(sin proceso de cotizacion)</option>
+                        @foreach (var s in _subcategorias)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </label>
                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_eActivo" /> Activo</label>
                 @if (_editError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_editError</div> }
             </div>
@@ -240,6 +249,7 @@ else
     private RequerimientoFuenteTipo _eTipoFuente = RequerimientoFuenteTipo.Manual;
     private string _eFuenteRefId = "";
     private string _eSubcategoriaId = "";
+    private string _eSubcategoriaCotizacionId = "";
     private bool _eActivo = true;
 
     // ---- Ola 4: matriz de proveedores ----
@@ -275,6 +285,7 @@ else
         _eTipoFuente = o?.TipoFuente ?? RequerimientoFuenteTipo.Manual;
         _eFuenteRefId = o?.FuenteRefId?.ToString() ?? "";
         _eSubcategoriaId = o?.SubcategoriaCompraId?.ToString() ?? "";
+        _eSubcategoriaCotizacionId = o?.SubcategoriaCotizacionId?.ToString() ?? "";
         _eActivo = o?.Activo ?? true;
         _showEditor = true;
     }
@@ -289,6 +300,7 @@ else
                 _editId, _eNombre, _eArea, _eTipoFuente,
                 Guid.TryParse(_eFuenteRefId, out var f) ? f : null,
                 Guid.TryParse(_eSubcategoriaId, out var s) ? s : null,
+                Guid.TryParse(_eSubcategoriaCotizacionId, out var sc) ? sc : null,
                 _eActivo);
             var saved = await Svc.SaveOrigenAsync(req);
             if (saved is null) { _editError = "No se pudo guardar."; return; }

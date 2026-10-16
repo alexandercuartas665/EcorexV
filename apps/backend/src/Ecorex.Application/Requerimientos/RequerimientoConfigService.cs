@@ -59,6 +59,7 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         // La fuente solo aplica cuando el tipo la usa (Formulario/Contenedor); en Manual se limpia.
         entity.FuenteRefId = req.TipoFuente == Domain.Enums.RequerimientoFuenteTipo.Manual ? null : req.FuenteRefId;
         entity.SubcategoriaCompraId = req.SubcategoriaCompraId;
+        entity.SubcategoriaCotizacionId = req.SubcategoriaCotizacionId;
         entity.Activo = req.Activo;
         await _db.SaveChangesAsync(ct);
 
@@ -211,5 +212,7 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
             o.FuenteRefId is Guid f && forms.TryGetValue(f, out var fn) ? fn : null,
             o.SubcategoriaCompraId,
             o.SubcategoriaCompraId is Guid s && subs.TryGetValue(s, out var sn) ? sn : null,
+            o.SubcategoriaCotizacionId,
+            o.SubcategoriaCotizacionId is Guid sc && subs.TryGetValue(sc, out var scn) ? scn : null,
             o.Activo);
 }

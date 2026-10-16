@@ -23,6 +23,8 @@ public sealed class RequerimientoOrigen : TenantEntity
     public Guid? FuenteRefId { get; set; }
     /// <summary>Subcategoria (concepto 000270) cuyo flujo/proceso ejecuta la compra de este genero.</summary>
     public Guid? SubcategoriaCompraId { get; set; }
+    /// <summary>Subcategoria (concepto 000270) cuyo flujo/proceso pide la COTIZACION de este genero.</summary>
+    public Guid? SubcategoriaCotizacionId { get; set; }
     public bool Activo { get; set; } = true;
 }
 
@@ -81,4 +83,6 @@ public sealed class RequerimientoCompraHijo : TenantEntity
     public RequerimientoEstado Estado { get; set; } = RequerimientoEstado.Planificado;
     /// <summary>Actividad (TaskItem) generada al ejecutar la compra de este hijo.</summary>
     public Guid? TaskItemId { get; set; }
+    /// <summary>Actividad (TaskItem) generada al pedir la COTIZACION de este hijo (paralela a la compra).</summary>
+    public Guid? CotizacionTaskItemId { get; set; }
 }

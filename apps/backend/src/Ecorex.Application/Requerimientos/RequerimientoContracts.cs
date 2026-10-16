@@ -19,7 +19,8 @@ public sealed record RequerimientoDto(
     string ClaveAgrupacion,
     int CantidadHijos,
     decimal CantidadPlanificada,
-    decimal MontoTotal);
+    decimal MontoTotal,
+    IReadOnlyList<RequerimientoHijoDto> Hijos);
 
 /// <summary>Filtro de la grilla de necesidades.</summary>
 public sealed record RequerimientoFiltro(string? Texto = null, RequerimientoEstado? Estado = null, Guid? OrigenId = null);

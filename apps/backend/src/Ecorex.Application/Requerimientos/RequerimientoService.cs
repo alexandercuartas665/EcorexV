@@ -39,22 +39,40 @@ public sealed class RequerimientoService : IRequerimientoService
         var items = await _db.Items.AsNoTracking()
             .Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => new { i.Name, i.Sku }, ct);
         var reqIds = rows.Select(r => r.Id).ToList();
-        var hijosPorReq = (await _db.RequerimientoCompraHijos.AsNoTracking()
-                .Where(h => reqIds.Contains(h.RequerimientoId))
-                .GroupBy(h => h.RequerimientoId)
-                .Select(g => new { g.Key, Count = g.Count(), Suma = g.Sum(x => x.Cantidad), Monto = g.Sum(x => x.Cantidad * x.PrecioUnitario) }).ToListAsync(ct))
-            .ToDictionary(x => x.Key, x => (x.Count, x.Suma, x.Monto));
+        // Carga TODOS los hijos (no solo el agregado): los necesita la grilla para las filas hijas expandibles
+        // y el export. Resuelve el nombre del proveedor en memoria.
+        var hijosRows = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => reqIds.Contains(h.RequerimientoId))
+            .OrderBy(h => h.FechaProgramadaCompra).ToListAsync(ct);
+        var provIds = hijosRows.Where(h => h.ProveedorId != null).Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provs = provIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        var hijosPorReq = hijosRows
+            .GroupBy(h => h.RequerimientoId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<RequerimientoHijoDto>)g.Select(h => new RequerimientoHijoDto(
+                h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
+                h.ProveedorId,
+                h.ProveedorId is Guid p && provs.TryGetValue(p, out var pn) ? pn : null,
+                h.Estado, h.TaskItemId, h.PrecioUnitario)).ToList());
+        var emptyHijos = (IReadOnlyList<RequerimientoHijoDto>)Array.Empty<RequerimientoHijoDto>();
 
-        return rows.Select(r => new RequerimientoDto(
-            r.Id, r.OrigenId,
-            r.OrigenId is Guid oi && origenes.TryGetValue(oi, out var on) ? on : null,
-            r.Area, r.ItemId,
-            r.ItemId is Guid ii && items.TryGetValue(ii, out var it) ? it.Name : null,
-            r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
-            r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
-            hijosPorReq.TryGetValue(r.Id, out var h) ? h.Count : 0,
-            hijosPorReq.TryGetValue(r.Id, out var h2) ? h2.Suma : 0m,
-            hijosPorReq.TryGetValue(r.Id, out var h3) ? h3.Monto : 0m)).ToList();
+        return rows.Select(r =>
+        {
+            var hl = hijosPorReq.TryGetValue(r.Id, out var hs) ? hs : emptyHijos;
+            return new RequerimientoDto(
+                r.Id, r.OrigenId,
+                r.OrigenId is Guid oi && origenes.TryGetValue(oi, out var on) ? on : null,
+                r.Area, r.ItemId,
+                r.ItemId is Guid ii && items.TryGetValue(ii, out var it) ? it.Name : null,
+                r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
+                r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
+                hl.Count,
+                hl.Sum(x => x.Cantidad),
+                hl.Sum(x => x.Total),
+                hl);
+        }).ToList();
     }
 
     public async Task<RequerimientoDto?> CrearAsync(CrearRequerimientoRequest req, CancellationToken ct = default)

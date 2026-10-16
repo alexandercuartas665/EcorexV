@@ -1,10 +1,17 @@
 @page "/requerimientos-compra"
 @attribute [Authorize(Policy = "Compras.Ver")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
 @using Ecorex.Application.Requerimientos
+@using Ecorex.Application.Preferences
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Pages.Requerimientos
+@using ClosedXML.Excel
 @inject IRequerimientoService Svc
+@inject IUserTablePrefsService Prefs
+@inject ISavedFilterService SavedFilters
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Requerimientos de Compra - ECOREX.tareas</PageTitle>
 
@@ -17,17 +24,16 @@
             <span>Compras</span>
         </div>
         <h1 class="page-title" style="margin-top:12px;">Requerimientos de Compra</h1>
-        <p class="page-sub" style="margin-bottom:0;">Necesidades de compra de varias areas. Agrupalas por producto, planifica (Ola 3) y dispara la compra (Ola 5).</p>
+        <p class="page-sub" style="margin-bottom:0;">Necesidades de compra de varias areas. Filtra, ordena, agrupa y exporta; expande cada compra para ver sus distribuciones.</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-outline-secondary" @onclick="ExportarAsync" disabled="@(_busy || _rows.Count == 0)" title="Descargar la vista actual en CSV (lo abre Excel)">Exportar</button>
         <button class="btn btn-primary" @onclick="() => OpenAlta()" disabled="@_busy">+ Nueva necesidad</button>
     </div>
 </div>
 
 @if (!string.IsNullOrEmpty(_msg))
 {
-    <div style="margin:10px 0 14px;padding:10px 14px;border-radius:10px;background:var(--brand-soft,#eef2ff);color:var(--ink,#1f2937);font-size:13px;">@_msg</div>
+    <div class="cd-msg">@_msg</div>
 }
 
 @if (_rows.Count > 0)
@@ -37,7 +43,7 @@
         {
             var n = _rows.Count(r => r.Estado == e);
             <div style="display:flex;flex-direction:column;min-width:96px;padding:8px 12px;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;background:var(--surface,#fff);@(n == 0 ? "opacity:.5;" : "")">
-                <span style="font-size:11px;color:var(--ink-3,#6b7280);">@EstadoLabel(e)</span>
+                <span style="font-size:11px;color:var(--ink-3,#6b7280);">@RequerimientoFilter.EstadoLabel(e)</span>
                 <span style="font-size:18px;font-weight:800;color:var(--ink,#1f2937);">@n</span>
             </div>
         }
@@ -48,86 +54,411 @@
     </div>
 }
 
-<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 10px;">
-    <input class="cd-in" style="height:32px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;min-width:200px;" placeholder="Buscar producto o area" @bind="_fTexto" />
-    <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_fEstado">
-        <option value="">Todos los estados</option>
-        @foreach (var e in Enum.GetValues<RequerimientoEstado>())
+@* ---- Constructor de filtros + guardados ---- *@
+<div class="cd-filtros">
+    <button class="cd-tbtn @(FilterCount > 0 ? "on" : "")" @onclick="OpenFilterBuilder" title="Construye un filtro con condiciones Y/O anidadas">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+        <span>Filtros@(FilterCount > 0 ? $" ({FilterCount})" : "")</span>
+    </button>
+
+    <div class="cd-dd">
+        <button class="cd-tbtn" @onclick="@(() => ToggleMenu("saved"))" title="Filtros guardados del equipo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            <span>Guardados@(_savedFilters.Count > 0 ? $" ({_savedFilters.Count})" : "")</span>
+        </button>
+        @if (_openMenu == "saved")
         {
-            <option value="@e">@EstadoLabel(e)</option>
+            <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="cd-dd-panel" style="min-width:280px;">
+                <div class="cd-dd-title">Filtros del equipo</div>
+                @if (_savedFilters.Count == 0)
+                {
+                    <div class="cd-dd-empty">No hay filtros guardados. Arma uno en "Filtros" y usa "Guardar".</div>
+                }
+                else
+                {
+                    @foreach (var sf in _savedFilters)
+                    {
+                        var sfx = sf;
+                        <div class="cd-dd-row">
+                            <button class="cd-saved-apply" @onclick="() => ApplySavedAsync(sfx)" title="@($"Aplicar · Autor: {sfx.CreatedByName ?? "-"}")">@sfx.Name</button>
+                            <button class="cd-saved-ico" @onclick="() => EditSaved(sfx)" title="Editar">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                            </button>
+                            <button class="cd-saved-ico cd-saved-del" @onclick="() => DeleteSavedAsync(sfx)" title="Eliminar">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
         }
-    </select>
-    <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_fOrigen">
-        <option value="">Todos los origenes</option>
-        @foreach (var o in _origenes)
+    </div>
+
+    @if (FilterCount > 0)
+    {
+        <span class="cd-filter-active">@FilterCount condici@(FilterCount == 1 ? "ón" : "ones") activa@(FilterCount == 1 ? "" : "s")@(_activeFilterName is { } nm ? $" · {nm}" : "")</span>
+        <button class="btn btn-link btn-sm" @onclick="ClearFilter" disabled="@_busy">Limpiar</button>
+    }
+</div>
+
+@* ---- Barra de herramientas de la grilla ---- *@
+<div class="cd-toolbar">
+    @* Ordenar (multi-criterio) *@
+    <div class="cd-dd">
+        <button class="cd-tbtn @(_sorts.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("sort"))" title="Ordenar por una o varias columnas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h11M3 12h7M3 18h4M18 5v14M18 19l3-3M18 19l-3-3"/></svg>
+            <span>Ordenar@(_sorts.Count > 0 ? $" ({_sorts.Count})" : "")</span>
+        </button>
+        @if (_openMenu == "sort")
         {
-            <option value="@o.Id">@o.Nombre</option>
+            <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="cd-dd-panel">
+                <div class="cd-dd-title">Ordenar por</div>
+                @if (_sorts.Count == 0) { <div class="cd-dd-empty">Sin orden aplicado.</div> }
+                @foreach (var s in _sorts.ToList())
+                {
+                    var sc = s;
+                    <div class="cd-dd-row">
+                        <select class="cd-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
+                            @foreach (var col in _allCols)
+                            {
+                                <option value="@col.Key" selected="@(col.Key == sc.K)">@col.Label</option>
+                            }
+                        </select>
+                        <button class="cd-dd-dir" @onclick="() => ToggleSortDir(sc)" title="Cambiar direccion">@(sc.Dir >= 0 ? "A→Z" : "Z→A")</button>
+                        <button class="cd-dd-del" @onclick="() => RemoveSort(sc)" title="Quitar">&times;</button>
+                    </div>
+                }
+                <button class="cd-dd-add" @onclick="AddSort">+ Agregar orden</button>
+            </div>
         }
-    </select>
-    <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync" disabled="@_busy">Aplicar</button>
-    <button class="btn btn-link btn-sm" @onclick="LimpiarFiltro" disabled="@_busy">Limpiar</button>
-    <div style="flex:1"></div>
-    <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" @bind="_agrupar" @bind:after="StateHasChanged" /> Agrupar por producto</label>
+    </div>
+
+    @* Agrupar (apilable) *@
+    <div class="cd-dd">
+        <button class="cd-tbtn @(_groups.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("group"))" title="Agrupar (genera subtotales y cantidad de registros)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>Agrupar@(_groups.Count > 0 ? $" ({_groups.Count})" : "")</span>
+        </button>
+        @if (_openMenu == "group")
+        {
+            <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="cd-dd-panel">
+                <div class="cd-dd-title">Agrupar por</div>
+                @if (_groups.Count == 0) { <div class="cd-dd-empty">Sin agrupacion. Al agrupar se muestran subtotales de cantidad y monto por grupo.</div> }
+                @for (int gi = 0; gi < _groups.Count; gi++)
+                {
+                    var idx = gi;
+                    <div class="cd-dd-row">
+                        <select class="cd-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
+                            @foreach (var col in _allCols.Where(x => x.Groupable))
+                            {
+                                <option value="@col.Key" selected="@(col.Key == _groups[idx])">@col.Label</option>
+                            }
+                        </select>
+                        <button class="cd-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
+                    </div>
+                }
+                @if (_groups.Count < _allCols.Count(x => x.Groupable))
+                {
+                    <button class="cd-dd-add" @onclick="AddGroup">+ Agregar agrupacion</button>
+                }
+            </div>
+        }
+    </div>
+
+    @* Columnas *@
+    <div class="cd-dd">
+        <button class="cd-tbtn" @onclick="@(() => ToggleMenu("cols"))" title="Mover, mostrar u ocultar columnas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+            <span>Columnas@(_hidden.Count > 0 ? $" ({_order.Count - _hidden.Count}/{_order.Count})" : "")</span>
+        </button>
+        @if (_openMenu == "cols")
+        {
+            <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="cd-dd-panel cd-dd-cols">
+                <div class="cd-dd-title">Columnas (arrastra el encabezado para reordenar)</div>
+                <div class="cd-collist">
+                    @for (int ci = 0; ci < _order.Count; ci++)
+                    {
+                        var idx = ci;
+                        var col = ColByKey(_order[idx]);
+                        if (col is null) { continue; }
+                        <div class="cd-colit">
+                            <button class="cd-col-mv" disabled="@(idx == 0)" @onclick="() => MoveCol(idx, -1)">▲</button>
+                            <button class="cd-col-mv" disabled="@(idx == _order.Count - 1)" @onclick="() => MoveCol(idx, 1)">▼</button>
+                            <span class="cd-col-name">@col.Label</span>
+                            <button class="cd-col-eye @(_hidden.Contains(col.Key) ? "" : "on")" @onclick="() => ToggleHidden(col.Key)" title="@(_hidden.Contains(col.Key) ? "Mostrar" : "Ocultar")">
+                                @(_hidden.Contains(col.Key) ? "oculta" : "visible")
+                            </button>
+                        </div>
+                    }
+                </div>
+                <div class="cd-col-acts">
+                    <button class="cd-col-mass" @onclick="ShowAllCols">Mostrar todas</button>
+                    <button class="cd-col-reset" @onclick="ResetCols">Restablecer</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* Columnas fijas *@
+    <div class="cd-dd">
+        <button class="cd-tbtn @(_frozen > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("freeze"))" title="Fijar columnas a la izquierda al desplazar en horizontal">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v6H4zM4 10v10M9 10v10"/></svg>
+            <span>Columnas fijas@(_frozen > 0 ? $" ({_frozen})" : "")</span>
+        </button>
+        @if (_openMenu == "freeze")
+        {
+            <div class="cd-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="cd-dd-panel">
+                <div class="cd-dd-title">Fijar desde la 1.a hasta...</div>
+                <button class="cd-dd-item @(_frozen == 0 ? "on" : "")" @onclick="() => SetFrozenAsync(0)">Ninguna (quitar fijas)</button>
+                <button class="cd-dd-item @(_frozen == 1 ? "on" : "")" @onclick="() => SetFrozenAsync(1)">Columna de expandir</button>
+                @{ var visf = VisibleCols().ToList(); }
+                @for (int fi = 0; fi < visf.Count; fi++)
+                {
+                    var n = fi + 2;
+                    <button class="cd-dd-item @(_frozen == n ? "on" : "")" @onclick="() => SetFrozenAsync(n)">@visf[fi].Label</button>
+                }
+            </div>
+        }
+    </div>
+
+    @* Expandir / colapsar distribuciones *@
+    <button class="cd-tbtn" @onclick="ExpandAll" title="Mostrar las distribuciones (hijos) de todas las compras">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
+        <span>Expandir todo</span>
+    </button>
+    <button class="cd-tbtn" @onclick="CollapseAll" title="Ocultar las distribuciones (hijos)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/></svg>
+        <span>Colapsar todo</span>
+    </button>
+
+    @* Exportar *@
+    <button class="cd-tbtn" @onclick="ExportCsvAsync" disabled="@(_busy || _rows.Count == 0)" title="Exporta a CSV (lo abre Excel) respetando filtro, columnas y agrupacion actuales; incluye las distribuciones">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        <span>CSV</span>
+    </button>
+    <button class="cd-tbtn" @onclick="ExportExcelAsync" disabled="@(_busy || _rows.Count == 0)" title="Exporta a Excel (.xlsx) respetando filtro, columnas, orden y agrupacion actuales; incluye subtotales y las distribuciones">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        <span>Exportar Excel</span>
+    </button>
+
+    <div class="cd-toolbar-spacer"></div>
+    @if (_groups.Count > 0)
+    {
+        <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
+    }
 </div>
 
 @if (_rows.Count == 0)
 {
-    <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">
-        Sin necesidades todavia. Crea una con "+ Nueva necesidad".
-    </div>
+    <div class="cd-empty">Sin necesidades todavia. Crea una con "+ Nueva necesidad".</div>
 }
 else
 {
-    <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
-        <table style="width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;">
+    <div class="cd-grid-wrap">
+        <table class="cd-grid">
             <thead>
-                <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
-                    <th style="padding:8px 10px;">Producto</th>
-                    <th style="padding:8px 10px;">Area</th>
-                    <th style="padding:8px 10px;">Origen</th>
-                    <th style="padding:8px 10px;text-align:right;">Cantidad</th>
-                    <th style="padding:8px 10px;text-align:right;">Monto</th>
-                    <th style="padding:8px 10px;">Unidad</th>
-                    <th style="padding:8px 10px;">Fecha necesidad</th>
-                    <th style="padding:8px 10px;">Estado</th>
-                    <th style="padding:8px 10px;">Hijos</th>
-                    <th style="padding:8px 10px;"></th>
+                <tr>
+                    <th class="cd-th-exp"></th>
+                    @foreach (var col in VisibleCols())
+                    {
+                        var c = col;
+                        var sort = _sorts.FirstOrDefault(s => s.K == c.Key);
+                        var arrow = sort is null ? "" : (sort.Dir >= 0 ? " ▲" : " ▼");
+                        <th class="cd-th @(c.Num ? "num" : "")" draggable="true" data-col="@c.Key"
+                            style="@(_widths.TryGetValue(c.Key, out var w) ? $"width:{w}px" : "")"
+                            @ondragstart="() => _dragCol = c.Key"
+                            @ondragover:preventDefault="true"
+                            @ondrop="() => OnDropCol(c.Key)">
+                            <span class="cd-th-lbl" @onclick="() => QuickSort(c.Key)">@c.Label@arrow</span>
+                            <button class="cd-th-caret" @onclick="e => OpenColMenu(c, e)" @onclick:stopPropagation="true" title="Opciones de la columna">▾</button>
+                            <span class="cd-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
+                        </th>
+                    }
+                    <th class="cd-th-acts">Acciones</th>
                 </tr>
             </thead>
             <tbody>
-                @if (_agrupar)
+                @foreach (var it in _gridItems)
                 {
-                    @foreach (var g in _grupos)
+                    @if (it.Kind == GKind.Group)
                     {
-                        <tr style="background:#e2e5ea;font-weight:700;">
-                            <td colspan="3" style="padding:7px 10px;">@g.Nombre</td>
-                            <td style="padding:7px 10px;text-align:right;">@Fmt(g.TotalCantidad)</td>
-                            <td style="padding:7px 10px;text-align:right;">@Fmt(g.TotalMonto)</td>
-                            <td colspan="4" style="padding:7px 10px;"><span style="font-size:11px;font-weight:700;color:var(--brand,#4f46e5);background:var(--brand-soft,#eef2ff);border-radius:999px;padding:1px 8px;">@g.Items.Count pedido(s)</span></td>
+                        <tr class="cd-grp @(it.Level > 0 ? "cd-grp2" : "")">
+                            <td colspan="@ColSpanAll">
+                                <span class="cd-grp-lbl" style="padding-left:@(it.Level * 18)px">@it.Label</span>
+                                <span class="cd-grp-n">@it.Count reg.</span>
+                            </td>
+                        </tr>
+                    }
+                    else if (it.Kind == GKind.Subtotal)
+                    {
+                        <tr class="cd-sub @(it.Grand ? "cd-sub-grand" : "")">
+                            <td class="cd-mark-cell"></td>
+                            @{ var labelPut = false; }
+                            @foreach (var c in VisibleCols())
+                            {
+                                <td class="@(c.Num ? "num" : null)">
+                                    @if (c.Num && it.Sums!.TryGetValue(c.Key, out var sv))
+                                    {
+                                        <strong>@Fmt(sv)</strong>
+                                    }
+                                    else if (!c.Num && !labelPut)
+                                    {
+                                        labelPut = true;
+                                        <span class="cd-sub-lbl">@(it.Grand ? "TOTAL GENERAL" : "Subtotal") · @it.Count reg.</span>
+                                    }
+                                </td>
+                            }
                             <td></td>
                         </tr>
-                        @foreach (var r in g.Items)
-                        {
-                            @RowMarkup(r)
-                        }
                     }
-                }
-                else
-                {
-                    @foreach (var r in _rows)
+                    else if (it.Kind == GKind.Child && it.R is { } pr && it.H is { } h)
                     {
-                        @RowMarkup(r)
+                        <tr class="req-child">
+                            <td class="cd-exp-cell"></td>
+                            @foreach (var col in VisibleCols())
+                            {
+                                var c = col;
+                                <td class="@(c.Num ? "num" : null) req-child-cell">
+                                    @switch (c.Key)
+                                    {
+                                        case "producto":
+                                            <span class="req-child-mark">↳</span>
+                                            <span>@(string.IsNullOrWhiteSpace(h.CaracteristicasDespacho) ? "Distribucion" : h.CaracteristicasDespacho)</span>
+                                            break;
+                                        case "unidad": <text>@pr.UnidadMedida</text> break;
+                                        case "proveedor": <text>@(string.IsNullOrWhiteSpace(h.ProveedorNombre) ? "(sin proveedor)" : h.ProveedorNombre)</text> break;
+                                        case "cantidad": <text>@Fmt(h.Cantidad)</text> break;
+                                        case "precio": <text>@(h.PrecioUnitario > 0 ? Fmt(h.PrecioUnitario) : "-")</text> break;
+                                        case "monto": <text>@(h.Total > 0 ? Fmt(h.Total) : "-")</text> break;
+                                        case "fecha": <text>@(h.FechaProgramadaCompra?.ToString("dd/MM/yyyy") ?? "-")</text> break;
+                                        case "estado":
+                                            <span>@RequerimientoFilter.EstadoLabel(h.Estado)</span>
+                                            @if (h.TaskItemId is not null)
+                                            {
+                                                <span class="req-badge-done" title="Compra ejecutada (actividad creada)">Ejecutada</span>
+                                            }
+                                            break;
+                                        default: <text></text> break;
+                                    }
+                                </td>
+                            }
+                            <td></td>
+                        </tr>
+                    }
+                    else if (it.R is { } r)
+                    {
+                        <tr>
+                            <td class="cd-exp-cell">
+                                @if (r.CantidadHijos > 0)
+                                {
+                                    <button class="req-exp-btn" @onclick="() => ToggleExpand(r.Id)" title="@(_expanded.Contains(r.Id) ? "Ocultar distribuciones" : "Ver distribuciones")">
+                                        @(_expanded.Contains(r.Id) ? "▾" : "▸")
+                                    </button>
+                                }
+                            </td>
+                            @foreach (var col in VisibleCols())
+                            {
+                                var c = col;
+                                <td class="@(c.Num ? "num" : null)">
+                                    @switch (c.Key)
+                                    {
+                                        case "producto":
+                                            <text>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</text>
+                                            break;
+                                        case "area": <text>@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</text> break;
+                                        case "origen": <text>@(r.OrigenNombre ?? "-")</text> break;
+                                        case "unidad": <text>@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</text> break;
+                                        case "proveedor": <span class="cd-muted">-</span> break;
+                                        case "cantidad": <text>@Fmt(r.Cantidad)</text> break;
+                                        case "precio": <span class="cd-muted">-</span> break;
+                                        case "monto": <text>@(r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "-")</text> break;
+                                        case "fecha": <text>@(r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</text> break;
+                                        case "estado": <text>@RequerimientoFilter.EstadoLabel(r.Estado)</text> break;
+                                        case "hijos":
+                                            @if (r.CantidadHijos > 0)
+                                            {
+                                                <span title="Distribuciones (hijos)">@r.CantidadHijos</span>
+                                                @if (r.Cantidad - r.CantidadPlanificada > 0)
+                                                {
+                                                    <span class="req-resta" title="Cantidad sin planificar">(resta @Fmt(r.Cantidad - r.CantidadPlanificada))</span>
+                                                }
+                                            }
+                                            else { <span class="cd-muted">-</span> }
+                                            break;
+                                        default: <text></text> break;
+                                    }
+                                </td>
+                            }
+                            <td class="req-acts">
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
+                                @if (_canConfig && r.Estado == RequerimientoEstado.Ejecutado)
+                                {
+                                    <button class="btn btn-outline-secondary btn-sm" title="Marcar la compra como terminada" @onclick="() => CerrarAsync(r.Id)" disabled="@_busy">Cerrar</button>
+                                }
+                                @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
+                                {
+                                    <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
+                                }
+                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
+                            </td>
+                        </tr>
                     }
                 }
-                <tr style="background:var(--brand-soft,#eef2ff);font-weight:700;border-top:2px solid var(--brand,#4f46e5);">
-                    <td colspan="3" style="padding:8px 10px;">TOTAL GENERAL</td>
-                    <td style="padding:8px 10px;text-align:right;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.Cantidad))</td>
-                    <td style="padding:8px 10px;text-align:right;color:var(--brand,#4f46e5);">@Fmt(_rows.Sum(r => r.MontoTotal))</td>
-                    <td colspan="4" style="padding:8px 10px;">@_rows.Count necesidad(es)</td>
-                    <td></td>
-                </tr>
             </tbody>
         </table>
+    </div>
+}
+
+@if (_colMenuOpen && _colMenuCol is not null)
+{
+    <div class="cd-ctx-overlay" @onclick="CloseColMenu" @oncontextmenu:preventDefault="true"></div>
+    <div class="cd-ctx-menu" style="left:@(Px(_colMenuX)); top:@(Px(_colMenuY));">
+        <div class="cd-ctx-title">@_colMenuCol.Label</div>
+        <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, 1)">Ordenar A → Z</button>
+        <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, -1)">Ordenar Z → A</button>
+        @if (_colMenuCol.Groupable)
+        {
+            @if (_groups.Contains(_colMenuCol.Key))
+            {
+                <button class="cd-ctx-item" @onclick="() => RemoveGroupKey(_colMenuCol.Key)">Quitar agrupacion</button>
+            }
+            else
+            {
+                <button class="cd-ctx-item" @onclick="() => AddGroupKey(_colMenuCol.Key)">Agrupar por este campo</button>
+            }
+        }
+        <button class="cd-ctx-item" @onclick="() => FijarHastaAsync(_colMenuCol.Key)">Fijar hasta esta columna</button>
+        <div class="cd-ctx-sep"></div>
+        <button class="cd-ctx-item" @onclick="() => HideColFromMenu(_colMenuCol.Key)">Ocultar columna</button>
+    </div>
+}
+
+@if (_filterOpen)
+{
+    <div class="cd-doc-backdrop" @onclick="CloseFilterBuilder"></div>
+    <div class="cd-fb-modal" @onclick:stopPropagation="true">
+        <div class="cd-doc-head">
+            <div class="cd-doc-title">
+                <div class="cd-doc-title-main">Constructor de filtros</div>
+                <div class="cd-doc-title-sub">Combina condiciones con Y / O. Puedes anidar grupos. Se aplica en vivo.</div>
+            </div>
+            <button class="cd-doc-close" title="Cerrar" @onclick="CloseFilterBuilder">&times;</button>
+        </div>
+        <div class="cd-fb-body">
+            <RequerimientoFilterGroup Group="_filterRoot" Depth="0" OnChanged="OnFilterChanged" />
+        </div>
+        <div class="cd-fb-foot">
+            <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
+            <div class="cd-fb-foot-spacer"></div>
+            <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" @bind:event="oninput" />
+            <button class="btn btn-outline-secondary btn-sm" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
+            <button class="btn btn-primary btn-sm" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
+        </div>
     </div>
 }
 
@@ -272,12 +603,10 @@ else
     private List<RequerimientoDto> _rows = new();
     private List<RequerimientoOpcionDto> _origenes = new();
     private List<ItemOpcionDto> _items = new();
+    private bool _canConfig;
+    private string? _userName;
 
-    private string? _fTexto;
-    private string _fEstado = "";
-    private string _fOrigen = "";
-    private bool _agrupar;
-
+    // Alta manual
     private bool _showAlta;
     private string? _altaError;
     private string _aOrigen = "";
@@ -288,11 +617,10 @@ else
     private string _aArea = "";
     private DateTime? _aFecha;
 
-    private sealed record Grupo(string Nombre, decimal TotalCantidad, decimal TotalMonto, List<RequerimientoDto> Items);
-    private List<Grupo> _grupos = new();
-    private bool _canConfig;
+    // Expansion de distribuciones (hijos) por fila (transitorio, no se persiste).
+    private HashSet<Guid> _expanded = new();
 
-    // ---- Ola 3: planificacion (division en hijos) ----
+    // ---- Planificacion (division en hijos) ----
     private bool _showPlan;
     private string? _planError;
     private Guid _planReqId;
@@ -328,9 +656,234 @@ else
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
 
+    // ---- Constructor de filtros (arbol AND/OR anidado; se evalua en cliente) ----
+    private const string FilterModule = "RequerimientosCompra";
+    private FilterNode _filterRoot = FilterNode.NewGroup("and");
+    private bool _filterOpen;
+    private string? _saveName;
+    private string? _activeFilterName;
+    private List<SavedFilterDto> _savedFilters = new();
+    private int FilterCount => RequerimientoFilter.CountConditions(_filterRoot);
+
+    // ======================= MOTOR DE TABLA =======================
+    private const string TableKey = "requerimientos-compra";
+
+    private sealed record GridCol(string Key, string Label, bool Num, bool Groupable);
+
+    private static readonly GridCol[] _allCols =
+    {
+        new("producto", "Producto", false, true),
+        new("area", "Area", false, true),
+        new("origen", "Origen", false, true),
+        new("estado", "Estado", false, true),
+        new("proveedor", "Proveedor", false, false),
+        new("cantidad", "Cantidad", true, false),
+        new("unidad", "Unidad", false, true),
+        new("precio", "Precio unit.", true, false),
+        new("monto", "Monto", true, false),
+        new("fecha", "Fecha necesidad", false, true),
+        new("hijos", "Distrib.", false, false),
+    };
+
+    private sealed class SortSpec { public string K { get; set; } = ""; public int Dir { get; set; } = 1; }
+
+    private List<string> _order = _allCols.Select(c => c.Key).ToList();
+    private HashSet<string> _hidden = new();
+    private Dictionary<string, int> _widths = new();
+    private List<SortSpec> _sorts = new();
+    private List<string> _groups = new();
+    private int _frozen;
+
+    private string? _dragCol;
+    private string? _openMenu;
+
+    private GridCol? ColByKey(string k) => _allCols.FirstOrDefault(c => c.Key == k);
+    private IEnumerable<GridCol> VisibleCols() => _order.Select(ColByKey).Where(c => c is not null && !_hidden.Contains(c!.Key)).Select(c => c!);
+    private int ColSpanAll => 2 + VisibleCols().Count();
+
+    private static readonly string[] _sumKeys = { "cantidad", "monto" };
+
+    private enum GKind { Group, Data, Child, Subtotal }
+    private sealed class GridItem
+    {
+        public GKind Kind;
+        public int Level;
+        public string? Label;
+        public int Count;
+        public RequerimientoDto? R;
+        public RequerimientoHijoDto? H;
+        public Dictionary<string, decimal>? Sums;
+        public bool Grand;
+    }
+    private List<GridItem> _gridItems = new();
+
+    private static decimal SumVal(string key, RequerimientoDto r) => key switch
+    {
+        "cantidad" => r.Cantidad,
+        "monto" => r.MontoTotal,
+        _ => 0m,
+    };
+
+    private static string GroupText(string key, RequerimientoDto r)
+    {
+        var v = key switch
+        {
+            "producto" => r.ItemNombre ?? r.Descripcion,
+            "area" => r.Area,
+            "origen" => r.OrigenNombre ?? "",
+            "unidad" => r.UnidadMedida,
+            "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
+            "fecha" => r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "",
+            _ => "",
+        };
+        return string.IsNullOrWhiteSpace(v) ? "(sin dato)" : v;
+    }
+
+    // Texto crudo por columna para una FILA PADRE (export): como GroupText pero sin "(sin dato)".
+    private static string CellStr(string key, RequerimientoDto r) => key switch
+    {
+        "producto" => (r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})"),
+        "area" => r.Area,
+        "origen" => r.OrigenNombre ?? "",
+        "unidad" => r.UnidadMedida,
+        "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
+        "proveedor" => "",
+        "fecha" => r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "",
+        "cantidad" => Fmt(r.Cantidad),
+        "precio" => "",
+        "monto" => r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "",
+        "hijos" => r.CantidadHijos > 0 ? r.CantidadHijos.ToString() : "",
+        _ => "",
+    };
+
+    // Texto crudo por columna para una FILA HIJA (export).
+    private static string ChildStr(string key, RequerimientoDto parent, RequerimientoHijoDto h) => key switch
+    {
+        "producto" => "  ↳ " + (string.IsNullOrWhiteSpace(h.CaracteristicasDespacho) ? "Distribucion" : h.CaracteristicasDespacho),
+        "unidad" => parent.UnidadMedida,
+        "proveedor" => h.ProveedorNombre ?? "(sin proveedor)",
+        "estado" => RequerimientoFilter.EstadoLabel(h.Estado) + (h.TaskItemId is not null ? " (Ejecutada)" : ""),
+        "fecha" => h.FechaProgramadaCompra?.ToString("dd/MM/yyyy") ?? "",
+        "cantidad" => Fmt(h.Cantidad),
+        "precio" => h.PrecioUnitario > 0 ? Fmt(h.PrecioUnitario) : "",
+        "monto" => h.Total > 0 ? Fmt(h.Total) : "",
+        _ => "",
+    };
+
+    private sealed class ObjCmp : IComparer<object?>
+    {
+        public static readonly ObjCmp I = new();
+        public int Compare(object? a, object? b)
+        {
+            if (a is decimal da && b is decimal db) { return da.CompareTo(db); }
+            if (a is DateTimeOffset ta && b is DateTimeOffset tb) { return ta.CompareTo(tb); }
+            return string.Compare(a?.ToString(), b?.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static object SortKey(string key, RequerimientoDto r) => key switch
+    {
+        "cantidad" => r.Cantidad,
+        "monto" => r.MontoTotal,
+        "precio" => 0m,
+        "hijos" => (decimal)r.CantidadHijos,
+        "fecha" => r.FechaNecesidad ?? DateTimeOffset.MinValue,
+        _ => GroupText(key, r),
+    };
+
+    private IEnumerable<RequerimientoDto> Sorted(IEnumerable<RequerimientoDto> src)
+    {
+        if (_sorts.Count == 0) { return src; }
+        IOrderedEnumerable<RequerimientoDto>? o = null;
+        foreach (var s in _sorts)
+        {
+            var sc = s;
+            Func<RequerimientoDto, object> ks = r => SortKey(sc.K, r);
+            o = o is null
+                ? (sc.Dir >= 0 ? src.OrderBy(ks, ObjCmp.I) : src.OrderByDescending(ks, ObjCmp.I))
+                : (sc.Dir >= 0 ? o.ThenBy(ks, ObjCmp.I) : o.ThenByDescending(ks, ObjCmp.I));
+        }
+        return o!;
+    }
+
+    private static Dictionary<string, decimal> SumsOf(IEnumerable<RequerimientoDto> rows)
+    {
+        var d = new Dictionary<string, decimal>();
+        var list = rows as IList<RequerimientoDto> ?? rows.ToList();
+        foreach (var k in _sumKeys) { d[k] = list.Sum(r => SumVal(k, r)); }
+        return d;
+    }
+
+    // Construye los items renderizables. expandChildren=true mete SIEMPRE las filas hijas (export);
+    // si es false, solo mete las hijas de las compras expandidas en la vista.
+    private void BuildItems(List<RequerimientoDto> rows, int level, List<GridItem> outl, bool expandChildren)
+    {
+        if (level >= _groups.Count)
+        {
+            foreach (var r in Sorted(rows))
+            {
+                outl.Add(new GridItem { Kind = GKind.Data, R = r });
+                if ((expandChildren || _expanded.Contains(r.Id)) && r.Hijos.Count > 0)
+                {
+                    foreach (var h in r.Hijos) { outl.Add(new GridItem { Kind = GKind.Child, R = r, H = h }); }
+                }
+            }
+            return;
+        }
+        var key = _groups[level];
+        var label = ColByKey(key)?.Label ?? key;
+        var groups = rows.GroupBy(r => GroupText(key, r)).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var g in groups)
+        {
+            var glist = g.ToList();
+            outl.Add(new GridItem { Kind = GKind.Group, Level = level, Label = $"{label}: {g.Key}", Count = glist.Count });
+            BuildItems(glist, level + 1, outl, expandChildren);
+            outl.Add(new GridItem { Kind = GKind.Subtotal, Level = level, Count = glist.Count, Sums = SumsOf(glist), Grand = false });
+        }
+    }
+
+    private List<RequerimientoDto> FilteredRows() => FilterCount > 0
+        ? _rows.Where(r => RequerimientoFilter.Evaluate(_filterRoot, r)).ToList()
+        : _rows.ToList();
+
+    private void RebuildItems()
+    {
+        var src = FilteredRows();
+        var items = new List<GridItem>();
+        BuildItems(src, 0, items, expandChildren: false);
+        if (src.Count > 0)
+        {
+            items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
+        }
+        _gridItems = items;
+    }
+
+    // ---- Expansion ----
+    private void ToggleExpand(Guid id)
+    {
+        if (!_expanded.Remove(id)) { _expanded.Add(id); }
+        RebuildItems();
+    }
+    private void ExpandAll()
+    {
+        _expanded = _rows.Where(r => r.CantidadHijos > 0).Select(r => r.Id).ToHashSet();
+        RebuildItems();
+    }
+    private void CollapseAll()
+    {
+        _expanded.Clear();
+        RebuildItems();
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _canConfig = await IsOwnerOrAdminAsync();
+        if (AuthState is not null)
+        {
+            try { var st = await AuthState; _userName = st.User.Identity?.Name; } catch { }
+        }
+        await LoadPrefsAsync();
+        await LoadSavedFiltersAsync();
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
         _proveedores = (await Svc.ListProveedoresAsync()).ToList();
@@ -339,34 +892,401 @@ else
 
     private async Task ReloadAsync()
     {
-        var filtro = new RequerimientoFiltro(
-            string.IsNullOrWhiteSpace(_fTexto) ? null : _fTexto,
-            Enum.TryParse<RequerimientoEstado>(_fEstado, out var e) ? e : null,
-            Guid.TryParse(_fOrigen, out var o) ? o : null);
-        _rows = (await Svc.ListAsync(filtro)).ToList();
-        RebuildGrupos();
+        // Carga TODO (el filtrado fino lo hace el constructor en cliente).
+        _rows = (await Svc.ListAsync(new RequerimientoFiltro())).ToList();
+        // Mantiene expandidas solo las que siguen existiendo.
+        _expanded.IntersectWith(_rows.Select(r => r.Id).ToHashSet());
+        RebuildItems();
         StateHasChanged();
     }
 
-    private void RebuildGrupos()
+    // ---------- Exportaciones ----------
+    private List<GridItem> BuildExportItems()
     {
-        _grupos = _rows
-            .GroupBy(r => r.ClaveAgrupacion)
-            .Select(g => new Grupo(
-                g.First().ItemNombre ?? g.First().Descripcion,
-                g.Sum(x => x.Cantidad),
-                g.Sum(x => x.MontoTotal),
-                g.ToList()))
-            .OrderBy(g => g.Nombre)
-            .ToList();
+        var src = FilteredRows();
+        var items = new List<GridItem>();
+        BuildItems(src, 0, items, expandChildren: true); // SIEMPRE todos los hijos
+        if (src.Count > 0)
+        {
+            items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
+        }
+        return items;
     }
 
-    private async Task LimpiarFiltro()
+    private async Task ExportCsvAsync()
     {
-        _fTexto = null; _fEstado = ""; _fOrigen = "";
-        await ReloadAsync();
+        var vis = VisibleCols().ToList();
+        if (vis.Count == 0) { _msg = "No hay columnas visibles para exportar."; return; }
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(string.Join(';', vis.Select(c => Csv(c.Label))));
+        foreach (var it in BuildExportItems())
+        {
+            if (it.Kind == GKind.Group)
+            {
+                sb.AppendLine(Csv(it.Label ?? "") + string.Concat(Enumerable.Repeat(";", vis.Count - 1)));
+            }
+            else if (it.Kind == GKind.Data && it.R is { } r)
+            {
+                sb.AppendLine(string.Join(';', vis.Select(c => Csv(CellStr(c.Key, r)))));
+            }
+            else if (it.Kind == GKind.Child && it.R is { } pr && it.H is { } h)
+            {
+                sb.AppendLine(string.Join(';', vis.Select(c => Csv(ChildStr(c.Key, pr, h)))));
+            }
+            else if (it.Kind == GKind.Subtotal)
+            {
+                var labelPut = false;
+                var cells = vis.Select(c =>
+                {
+                    if (c.Num && it.Sums!.TryGetValue(c.Key, out var sv)) { return Fmt(sv); }
+                    if (!c.Num && !labelPut) { labelPut = true; return Csv((it.Grand ? "TOTAL GENERAL" : "Subtotal") + " · " + it.Count + " reg."); }
+                    return "";
+                });
+                sb.AppendLine(string.Join(';', cells));
+            }
+        }
+        var nombre = $"requerimientos-compra-{DateTime.Now:yyyyMMdd-HHmm}.csv";
+        await JS.InvokeVoidAsync("ecorexMenuConfig.downloadText", nombre, "﻿" + sb.ToString(), "text/csv;charset=utf-8");
     }
 
+    private async Task ExportExcelAsync()
+    {
+        if (_busy) { return; }
+        _busy = true; _msg = null;
+        try
+        {
+            var vis = VisibleCols().ToList();
+            if (vis.Count == 0) { _msg = "No hay columnas visibles para exportar."; return; }
+            var lblCol = vis.FindIndex(c => !c.Num); if (lblCol < 0) { lblCol = 0; }
+
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Requerimientos");
+            var rowN = 1;
+
+            for (var i = 0; i < vis.Count; i++)
+            {
+                var cell = ws.Cell(rowN, i + 1);
+                cell.Value = vis[i].Label;
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F2937");
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = vis[i].Num ? XLAlignmentHorizontalValues.Right : XLAlignmentHorizontalValues.Left;
+            }
+            ws.SheetView.FreezeRows(1);
+            rowN++;
+
+            foreach (var it in BuildExportItems())
+            {
+                if (it.Kind == GKind.Group)
+                {
+                    var cell = ws.Cell(rowN, 1);
+                    cell.Value = it.Label ?? "";
+                    ws.Range(rowN, 1, rowN, vis.Count).Merge();
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2FF");
+                    if (it.Level > 0) { cell.Style.Alignment.Indent = it.Level; }
+                    rowN++;
+                }
+                else if (it.Kind == GKind.Data && it.R is { } r)
+                {
+                    for (var i = 0; i < vis.Count; i++)
+                    {
+                        var c = vis[i];
+                        var cell = ws.Cell(rowN, i + 1);
+                        if (c.Key == "cantidad") { cell.Value = r.Cantidad; cell.Style.NumberFormat.Format = "#,##0.##"; }
+                        else if (c.Key == "monto") { cell.Value = r.MontoTotal; cell.Style.NumberFormat.Format = "#,##0.00"; }
+                        else if (c.Key == "fecha" && r.FechaNecesidad is { } f) { cell.Value = f.DateTime; cell.Style.DateFormat.Format = "dd/MM/yyyy"; }
+                        else { cell.Value = CellStr(c.Key, r); }
+                    }
+                    rowN++;
+                }
+                else if (it.Kind == GKind.Child && it.R is { } pr && it.H is { } h)
+                {
+                    for (var i = 0; i < vis.Count; i++)
+                    {
+                        var c = vis[i];
+                        var cell = ws.Cell(rowN, i + 1);
+                        if (c.Key == "cantidad") { cell.Value = h.Cantidad; cell.Style.NumberFormat.Format = "#,##0.##"; }
+                        else if (c.Key == "precio") { cell.Value = h.PrecioUnitario; cell.Style.NumberFormat.Format = "#,##0.00"; }
+                        else if (c.Key == "monto") { cell.Value = h.Total; cell.Style.NumberFormat.Format = "#,##0.00"; }
+                        else if (c.Key == "fecha" && h.FechaProgramadaCompra is { } f) { cell.Value = f.DateTime; cell.Style.DateFormat.Format = "dd/MM/yyyy"; }
+                        else { cell.Value = ChildStr(c.Key, pr, h); }
+                        cell.Style.Font.Italic = true;
+                        cell.Style.Font.FontColor = XLColor.FromHtml("#6B7280");
+                    }
+                    rowN++;
+                }
+                else if (it.Kind == GKind.Subtotal)
+                {
+                    for (var i = 0; i < vis.Count; i++)
+                    {
+                        var c = vis[i];
+                        var cell = ws.Cell(rowN, i + 1);
+                        if (c.Num && it.Sums is { } s && s.TryGetValue(c.Key, out var sv)) { cell.Value = sv; cell.Style.NumberFormat.Format = c.Key == "monto" ? "#,##0.00" : "#,##0.##"; }
+                        cell.Style.Font.Bold = true;
+                        cell.Style.Fill.BackgroundColor = it.Grand ? XLColor.FromHtml("#D1D5DB") : XLColor.FromHtml("#F3F4F6");
+                    }
+                    ws.Cell(rowN, lblCol + 1).Value = (it.Grand ? "TOTAL GENERAL" : "Subtotal") + " · " + it.Count + " reg.";
+                    rowN++;
+                }
+            }
+
+            ws.Columns().AdjustToContents();
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            var fname = $"Requerimientos_Compra_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", fname, Convert.ToBase64String(ms.ToArray()),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex) { _msg = "Error al exportar a Excel: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string Csv(string? s)
+    {
+        s ??= "";
+        if (s.Contains(';') || s.Contains('"') || s.Contains('\n')) { return "\"" + s.Replace("\"", "\"\"") + "\""; }
+        return s;
+    }
+
+    // ---- Menus ----
+    private void ToggleMenu(string m) { _openMenu = _openMenu == m ? null : m; }
+    private void CloseMenu() { _openMenu = null; }
+
+    // ---- Constructor de filtros ----
+    private void OpenFilterBuilder()
+    {
+        CloseMenu();
+        if (_filterRoot.Children.Count == 0) { _filterRoot.Children.Add(FilterNode.NewCond()); }
+        _filterOpen = true;
+    }
+    private void CloseFilterBuilder() { _filterOpen = false; }
+    private void OnFilterChanged() { _activeFilterName = null; RebuildItems(); StateHasChanged(); }
+    private void ClearFilter() { _filterRoot = FilterNode.NewGroup("and"); _activeFilterName = null; _saveName = null; RebuildItems(); }
+    private void ClearFilterTree() { _filterRoot = FilterNode.NewGroup("and"); _filterRoot.Children.Add(FilterNode.NewCond()); _activeFilterName = null; RebuildItems(); }
+
+    private async Task LoadSavedFiltersAsync()
+    {
+        try { _savedFilters = (await SavedFilters.ListAsync(FilterModule)).ToList(); }
+        catch { _savedFilters = new(); }
+    }
+
+    private async Task SaveFilterAsync()
+    {
+        var name = (_saveName ?? "").Trim();
+        if (name.Length == 0 || FilterCount == 0) { return; }
+        var json = JsonSerializer.Serialize(_filterRoot);
+        var saved = await SavedFilters.SaveAsync(FilterModule, name, json, _userName);
+        if (saved is not null) { _activeFilterName = saved.Name; }
+        await LoadSavedFiltersAsync();
+    }
+
+    private async Task ApplySavedAsync(SavedFilterDto sf)
+    {
+        CloseMenu();
+        try
+        {
+            var tree = JsonSerializer.Deserialize<FilterNode>(sf.DefinitionJson);
+            _filterRoot = tree ?? FilterNode.NewGroup("and");
+            _activeFilterName = sf.Name;
+            _saveName = sf.Name;
+            RebuildItems();
+        }
+        catch { }
+    }
+
+    private void EditSaved(SavedFilterDto sf)
+    {
+        CloseMenu();
+        try
+        {
+            var tree = JsonSerializer.Deserialize<FilterNode>(sf.DefinitionJson);
+            _filterRoot = tree ?? FilterNode.NewGroup("and");
+        }
+        catch { _filterRoot = FilterNode.NewGroup("and"); }
+        if (_filterRoot.Children.Count == 0) { _filterRoot.Children.Add(FilterNode.NewCond()); }
+        _activeFilterName = sf.Name;
+        _saveName = sf.Name;
+        _filterOpen = true;
+        RebuildItems();
+    }
+
+    private async Task DeleteSavedAsync(SavedFilterDto sf)
+    {
+        await SavedFilters.DeleteAsync(sf.Id);
+        if (_activeFilterName == sf.Name) { _activeFilterName = null; }
+        await LoadSavedFiltersAsync();
+    }
+
+    // ---- Preferencias por usuario ----
+    private sealed class PrefsDto
+    {
+        public List<string>? order { get; set; }
+        public List<string>? hidden { get; set; }
+        public Dictionary<string, int>? widths { get; set; }
+        public List<SortSpec>? sorts { get; set; }
+        public List<string>? groups { get; set; }
+        public int frozen { get; set; }
+    }
+
+    private async Task LoadPrefsAsync()
+    {
+        try
+        {
+            var json = await Prefs.GetAsync(TableKey);
+            if (string.IsNullOrWhiteSpace(json)) { return; }
+            var p = JsonSerializer.Deserialize<PrefsDto>(json);
+            if (p is null) { return; }
+            var known = _allCols.Select(c => c.Key).ToHashSet();
+            var ord = (p.order ?? new()).Where(known.Contains).Distinct().ToList();
+            foreach (var k in _allCols.Select(c => c.Key)) { if (!ord.Contains(k)) { ord.Add(k); } }
+            _order = ord;
+            _hidden = (p.hidden ?? new()).Where(known.Contains).ToHashSet();
+            _widths = (p.widths ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+            _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
+            _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
+            _frozen = Math.Max(0, p.frozen);
+        }
+        catch { }
+    }
+
+    private async Task SavePrefsAsync()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(new PrefsDto
+            {
+                order = _order,
+                hidden = _hidden.ToList(),
+                widths = _widths,
+                sorts = _sorts,
+                groups = _groups,
+                frozen = _frozen,
+            });
+            await Prefs.SaveAsync(TableKey, json);
+        }
+        catch { }
+    }
+
+    // ---- Ordenar ----
+    private void QuickSort(string key)
+    {
+        if (_sorts.Count == 1 && _sorts[0].K == key) { _sorts[0].Dir = -_sorts[0].Dir; }
+        else { _sorts = new() { new SortSpec { K = key, Dir = 1 } }; }
+        RebuildItems(); _ = SavePrefsAsync();
+    }
+    private void SetSingleSort(string key, int dir) { _sorts = new() { new SortSpec { K = key, Dir = dir } }; CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+    private void AddSort()
+    {
+        var used = _sorts.Select(s => s.K).ToHashSet();
+        var nx = _allCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
+        _sorts.Add(new SortSpec { K = nx.Key, Dir = 1 }); RebuildItems(); _ = SavePrefsAsync();
+    }
+    private void ChangeSortField(SortSpec s, ChangeEventArgs e) { s.K = e.Value?.ToString() ?? s.K; RebuildItems(); _ = SavePrefsAsync(); }
+    private void ToggleSortDir(SortSpec s) { s.Dir = -s.Dir; RebuildItems(); _ = SavePrefsAsync(); }
+    private void RemoveSort(SortSpec s) { _sorts.Remove(s); RebuildItems(); _ = SavePrefsAsync(); }
+
+    // ---- Agrupar ----
+    private void AddGroup()
+    {
+        var used = _groups.ToHashSet();
+        var nx = _allCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
+        if (nx is not null) { _groups.Add(nx.Key); RebuildItems(); _ = SavePrefsAsync(); }
+    }
+    private void ChangeGroupField(int idx, ChangeEventArgs e) { if (idx >= 0 && idx < _groups.Count) { _groups[idx] = e.Value?.ToString() ?? _groups[idx]; RebuildItems(); _ = SavePrefsAsync(); } }
+    private void RemoveGroup(int idx) { if (idx >= 0 && idx < _groups.Count) { _groups.RemoveAt(idx); RebuildItems(); _ = SavePrefsAsync(); } }
+    private void AddGroupKey(string key) { if (!_groups.Contains(key)) { _groups.Add(key); } CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+    private void RemoveGroupKey(string key) { _groups.Remove(key); CloseColMenu(); RebuildItems(); _ = SavePrefsAsync(); }
+
+    // ---- Columnas: mover / ocultar ----
+    private void MoveCol(int idx, int dir)
+    {
+        var ni = idx + dir;
+        if (ni < 0 || ni >= _order.Count) { return; }
+        (_order[idx], _order[ni]) = (_order[ni], _order[idx]);
+        _ = SavePrefsAsync();
+    }
+    private void OnDropCol(string targetKey)
+    {
+        var src = _dragCol;
+        _dragCol = null;
+        if (src is null || src == targetKey) { return; }
+        var from = _order.IndexOf(src);
+        var to = _order.IndexOf(targetKey);
+        if (from < 0 || to < 0) { return; }
+        _order.RemoveAt(from);
+        to = _order.IndexOf(targetKey);
+        _order.Insert(to, src);
+        _ = SavePrefsAsync();
+    }
+    private void ToggleHidden(string key) { if (!_hidden.Remove(key)) { _hidden.Add(key); } _ = SavePrefsAsync(); }
+    private void HideColFromMenu(string key) { _hidden.Add(key); CloseColMenu(); _ = SavePrefsAsync(); }
+    private void ShowAllCols() { _hidden.Clear(); _ = SavePrefsAsync(); }
+    private void ResetCols() { _order = _allCols.Select(c => c.Key).ToList(); _hidden.Clear(); _widths.Clear(); _ = SavePrefsAsync(); }
+
+    // ---- Menu contextual de columna ----
+    private bool _colMenuOpen;
+    private double _colMenuX, _colMenuY;
+    private GridCol? _colMenuCol;
+    private void OpenColMenu(GridCol c, Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        _colMenuCol = c; _colMenuX = e.ClientX; _colMenuY = e.ClientY; _colMenuOpen = true; _openMenu = null;
+    }
+    private void CloseColMenu() { _colMenuOpen = false; _colMenuCol = null; }
+
+    // ---- Columnas fijas ----
+    private async Task SetFrozenAsync(int n)
+    {
+        _frozen = n; _openMenu = null;
+        await SavePrefsAsync();
+        await ApplyFreezeAsync();
+    }
+    private async Task FijarHastaAsync(string key)
+    {
+        var vis = VisibleCols().ToList();
+        var pos = vis.FindIndex(c => c.Key == key);
+        CloseColMenu();
+        if (pos < 0) { return; }
+        _frozen = pos + 2;
+        await SavePrefsAsync();
+        await ApplyFreezeAsync();
+    }
+    private async Task ApplyFreezeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozen); } catch { }
+    }
+
+    // ---- Redimensionar columnas (desde JS) ----
+    private DotNetObjectReference<RequerimientosCompra>? _selfRef;
+
+    [JSInvokable]
+    public async Task OnColumnResized(string key, int width)
+    {
+        if (width <= 0) { _widths.Remove(key); } else { _widths[key] = width; }
+        await SavePrefsAsync();
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { _selfRef = DotNetObjectReference.Create(this); }
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozen);
+            if (_selfRef is not null) { await JS.InvokeVoidAsync("ecorexCdCols.wireResize", _selfRef); }
+        }
+        catch { }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private static string Px(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
+
+    // ======================= Alta / planificacion / acciones =======================
     private void OpenAlta()
     {
         _altaError = null;
@@ -477,7 +1397,6 @@ else
                     ? $"Compra ejecutada: actividad {num} creada."
                     : "Compra ejecutada: actividad creada.";
             }
-            // Refresca el modal y la grilla con el estado devuelto.
             if (res.Plan is { } plan)
             {
                 _planProducto = plan.Producto;
@@ -487,6 +1406,22 @@ else
             await ReloadAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CerrarAsync(Guid id)
+    {
+        _msg = null; _busy = true;
+        try { await Svc.CerrarAsync(id); await ReloadAsync(); _msg = "Necesidad cerrada."; }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ReabrirAsync(Guid id)
+    {
+        _msg = null; _busy = true;
+        try { await Svc.ReabrirAsync(id); await ReloadAsync(); _msg = "Necesidad reabierta."; }
+        catch (Exception ex) { _msg = ex.Message; }
         finally { _busy = false; }
     }
 
@@ -511,111 +1446,5 @@ else
         return st.User.FindAll("tenant_role").Any(c => c.Value is "Owner" or "Admin");
     }
 
-    private async Task CerrarAsync(Guid id)
-    {
-        _msg = null;
-        _busy = true;
-        try { await Svc.CerrarAsync(id); await ReloadAsync(); _msg = "Necesidad cerrada."; }
-        catch (Exception ex) { _msg = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private async Task ReabrirAsync(Guid id)
-    {
-        _msg = null;
-        _busy = true;
-        try { await Svc.ReabrirAsync(id); await ReloadAsync(); _msg = "Necesidad reabierta."; }
-        catch (Exception ex) { _msg = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private async Task ExportarAsync()
-    {
-        // CSV de la vista actual (ya filtrada). Respeta la agrupacion por producto cuando esta activa.
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Producto;Area;Origen;Cantidad;Monto;Unidad;Fecha necesidad;Estado;Hijos");
-        void Linea(RequerimientoDto r) => sb.AppendLine(string.Join(';', new[]
-        {
-            Csv((r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")),
-            Csv(r.Area), Csv(r.OrigenNombre ?? ""),
-            Fmt(r.Cantidad), Fmt(r.MontoTotal), Csv(r.UnidadMedida),
-            r.FechaNecesidad?.ToString("yyyy-MM-dd") ?? "",
-            Csv(EstadoLabel(r.Estado)), r.CantidadHijos.ToString()
-        }));
-
-        if (_agrupar)
-        {
-            foreach (var g in _grupos)
-            {
-                sb.AppendLine($"{Csv(g.Nombre)};;;{Fmt(g.TotalCantidad)};{Fmt(g.TotalMonto)};;;{g.Items.Count} pedido(s);");
-                foreach (var r in g.Items) { Linea(r); }
-            }
-        }
-        else
-        {
-            foreach (var r in _rows) { Linea(r); }
-        }
-        sb.AppendLine($"TOTAL GENERAL;;;{Fmt(_rows.Sum(r => r.Cantidad))};{Fmt(_rows.Sum(r => r.MontoTotal))};;;{_rows.Count} necesidad(es);");
-
-        var nombre = $"requerimientos-compra-{DateTime.Now:yyyyMMdd-HHmm}.csv";
-        // BOM para que Excel respete los acentos/UTF-8.
-        await JS.InvokeVoidAsync("ecorexMenuConfig.downloadText", nombre, "﻿" + sb.ToString(), "text/csv;charset=utf-8");
-    }
-
-    private static string Csv(string? s)
-    {
-        s ??= "";
-        if (s.Contains(';') || s.Contains('"') || s.Contains('\n')) { return "\"" + s.Replace("\"", "\"\"") + "\""; }
-        return s;
-    }
-
-    private RenderFragment RowMarkup(RequerimientoDto r) => __builder =>
-    {
-        <tr style="border-top:1px solid var(--line,#f1f5f9);">
-            <td style="padding:8px 10px;">@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</td>
-            <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</td>
-            <td style="padding:8px 10px;">@(r.OrigenNombre ?? "-")</td>
-            <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(r.Cantidad)</td>
-            <td style="padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;">@(r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "-")</td>
-            <td style="padding:8px 10px;">@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</td>
-            <td style="padding:8px 10px;">@(r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
-            <td style="padding:8px 10px;">@EstadoLabel(r.Estado)</td>
-            <td style="padding:8px 10px;text-align:center;">
-                @if (r.CantidadHijos > 0)
-                {
-                    <span title="Registros hijos (divisiones)">@r.CantidadHijos</span>
-                    @if (r.Cantidad - r.CantidadPlanificada > 0)
-                    {
-                        <span style="margin-left:6px;font-size:11px;color:#b45309;" title="Cantidad sin planificar">(resta @Fmt(r.Cantidad - r.CantidadPlanificada))</span>
-                    }
-                }
-                else { <span>-</span> }
-            </td>
-            <td style="padding:8px 10px;text-align:right;white-space:nowrap;">
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
-                @if (_canConfig && r.Estado == RequerimientoEstado.Ejecutado)
-                {
-                    <button class="btn btn-outline-secondary btn-sm" title="Marcar la compra como terminada" @onclick="() => CerrarAsync(r.Id)" disabled="@_busy">Cerrar</button>
-                }
-                @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
-                {
-                    <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
-                }
-                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
-            </td>
-        </tr>
-    };
-
     private static string Fmt(decimal d) => d.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
-
-    private static string EstadoLabel(RequerimientoEstado e) => e switch
-    {
-        RequerimientoEstado.Recibido => "Recibido",
-        RequerimientoEstado.Agrupado => "Agrupado",
-        RequerimientoEstado.Planificado => "Planificado",
-        RequerimientoEstado.ConProveedor => "Con proveedor",
-        RequerimientoEstado.Ejecutado => "Ejecutado",
-        RequerimientoEstado.Cerrado => "Cerrado",
-        _ => e.ToString()
-    };
 }

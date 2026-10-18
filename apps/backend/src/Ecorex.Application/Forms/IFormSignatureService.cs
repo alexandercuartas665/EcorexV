@@ -49,7 +49,9 @@ public sealed record RequestSignatureInput(
     bool SendWhatsApp,
     string? Phone,
     string? Message,
-    Guid ActorUserId);
+    Guid ActorUserId,
+    // Vigencia en MINUTOS (1..525600). Si es > 0 MANDA sobre LinkHours (vencimientos cortos). 0 = usar LinkHours.
+    int LinkMinutes = 0);
 
 /// <summary>Resultado de emitir: el token en claro (una sola vez), el link absoluto y el estado del envio.</summary>
 public sealed record RequestSignatureResult(

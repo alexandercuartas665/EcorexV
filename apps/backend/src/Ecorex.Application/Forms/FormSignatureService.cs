@@ -70,7 +70,10 @@ public sealed class FormSignatureService : IFormSignatureService
         // Un solo link vivo por celda: revoca los previos no firmados.
         await RevokeLiveTokensAsync(input.ResponseId, input.FieldCode, input.RowId, input.ColumnId, cancellationToken);
 
-        var hours = input.LinkHours is < 1 or > 8760 ? 72 : input.LinkHours;
+        // Vigencia: minutos manda sobre horas (vencimientos cortos). Fuera de rango o ausente -> horas (default 72 h).
+        var expiresAt = input.LinkMinutes is >= 1 and <= 525600
+            ? DateTimeOffset.UtcNow.AddMinutes(input.LinkMinutes)
+            : DateTimeOffset.UtcNow.AddHours(input.LinkHours is < 1 or > 8760 ? 72 : input.LinkHours);
         var clearToken = GenerateToken();
         var token = new FormSignatureToken
         {
@@ -81,7 +84,7 @@ public sealed class FormSignatureService : IFormSignatureService
             RowId = input.RowId.Trim(),
             ColumnId = input.ColumnId.Trim(),
             RequireName = input.RequireName,
-            ExpiresAt = DateTimeOffset.UtcNow.AddHours(hours),
+            ExpiresAt = expiresAt,
         };
         _db.FormSignatureTokens.Add(token);
         await _db.SaveChangesAsync(cancellationToken);

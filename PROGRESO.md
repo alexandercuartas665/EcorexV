@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-18 - v0.16.203: firma por link con vigencia en MINUTOS (DESPLEGADO)
+
+- Pedido (sesion de diseno): la firma por link solo aceptaba horas enteras (linkHours 1..8760); se necesita
+  vencimientos cortos (ej. 30 min). Se agrega linkMinutes SIN romper lo existente.
+- FormGridSignatureConfig +LinkMinutes (ParseSignature lee "linkMinutes", valida 1..525600; fuera de rango/
+  ausente = 0 -> usar linkHours). RequestSignatureInput +LinkMinutes (default 0). FormSignatureService.RequestAsync:
+  ExpiresAt = minutos si LinkMinutes in [1..525600] (manda sobre horas), si no horas (default 72). DynamicFormRenderer
+  pasa sig.LinkMinutes. FormDesigner: campo "o minutos (manda)" en la columna Firma + case linkMinutes + default 0.
+- Test de integracion dual ampliado: emit con linkMinutes=30 -> ExpiresAt <= now+31min (no 72 h). 2/2 verde (PG+SQL).
+- v0.16.202 previo en prod: v0.16.203 lo reemplaza. Config a usar en la OT de AGRO: "signature": {"linkMinutes":30,
+  "requireName":true} (sin phoneField -> telefono del solicitante).
+
 ## 2026-10-18 - FEATURE E: firma por link (por fila de grilla), configurable (SIN deploy)
 
 - Pedido (decidido con el usuario): firma por LINK para la OT, POR FILA de grilla, almacenada en StoredFile,

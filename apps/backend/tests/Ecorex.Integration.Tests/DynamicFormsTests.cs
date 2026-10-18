@@ -872,6 +872,14 @@ public abstract class DynamicFormsTestsBase
         var anyLive = await ctx.FormSignatureTokens
             .AnyAsync(t => t.ResponseId == responseId && t.RevokedAt == null && t.SignedAt == null);
         Assert.False(anyLive);
+
+        // Vigencia en MINUTOS manda sobre horas (vencimientos cortos).
+        var emitMin = await sign.RequestAsync(new RequestSignatureInput(
+            responseId, "entregas", rowId, "firma", LinkHours: 72, RequireName: false,
+            SendWhatsApp: false, Phone: null, Message: null, ActorUserId: seed.TenantUserId, LinkMinutes: 30));
+        var tokMin = await ctx.FormSignatureTokens.SingleAsync(t => t.Id == emitMin.Value!.TokenId);
+        Assert.True(tokMin.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(31),
+            "con linkMinutes=30 el vencimiento debe ser por minutos, no por las 72 h");
     }
 
     private static string? FirmaCell(EcorexDbContext ctx, Guid responseId, string rowId)

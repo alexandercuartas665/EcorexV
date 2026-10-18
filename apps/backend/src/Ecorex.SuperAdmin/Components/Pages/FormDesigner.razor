@@ -2969,6 +2969,11 @@ else
                                                        @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "linkHours", e.Value?.ToString()))" />
                                             </div>
                                             <div class="fb-gcp-field fb-gcp-narrow">
+                                                <label>o minutos (manda)</label>
+                                                <input class="fb-input" type="number" min="0" max="525600" value="@sigc.LinkMinutes"
+                                                       @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "linkMinutes", e.Value?.ToString()))" />
+                                            </div>
+                                            <div class="fb-gcp-field fb-gcp-narrow">
                                                 <label>Pedir nombre</label>
                                                 <label class="fb-gridcol-req">
                                                     <input type="checkbox" checked="@sigc.RequireName"
@@ -4028,6 +4033,7 @@ else
                     {
                         ["phoneField"] = "",
                         ["linkHours"] = 72,
+                        ["linkMinutes"] = 0,
                         ["message"] = "",
                         ["requireName"] = false,
                     };
@@ -4059,6 +4065,10 @@ else
             {
                 case "linkHours":
                     sg["linkHours"] = int.TryParse(v, out var h) && h is >= 1 and <= 8760 ? h : 72;
+                    break;
+                case "linkMinutes":
+                    // > 0 manda sobre horas; 0/invalido = usar horas.
+                    sg["linkMinutes"] = int.TryParse(v, out var m) && m is >= 1 and <= 525600 ? m : 0;
                     break;
                 case "requireName":
                     sg["requireName"] = !string.IsNullOrEmpty(v);

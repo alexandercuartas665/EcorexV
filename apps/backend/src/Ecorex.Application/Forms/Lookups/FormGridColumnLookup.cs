@@ -119,6 +119,8 @@ public sealed record FormGridOptionsFromGrid(
 ///  - <see cref="PhoneField"/>: id de la columna de ESTA grilla que trae el telefono destino; si es null/vacio
 ///    se usa el telefono del solicitante de la tarea.
 ///  - <see cref="LinkHours"/>: vigencia del link en horas (1..8760; default 72).
+///  - <see cref="LinkMinutes"/>: vigencia del link en MINUTOS (1..525600). Si es &gt; 0 MANDA sobre LinkHours
+///    (para vencimientos cortos, ej. 30 min); 0/ausente = usar LinkHours.
 ///  - <see cref="Message"/>: texto del WhatsApp; admite el token {link} (si falta, se antepone un texto por defecto).
 ///  - <see cref="RequireName"/>: exige que el firmante teclee su nombre antes de firmar.
 /// </summary>
@@ -126,7 +128,8 @@ public sealed record FormGridSignatureConfig(
     string? PhoneField,
     int LinkHours,
     string? Message,
-    bool RequireName);
+    bool RequireName,
+    int LinkMinutes = 0);
 
 /// <summary>
 /// Extras de una columna de tabla que NO viven en FormGridColumn (calculo/agregado): lookup con
@@ -365,10 +368,17 @@ public static class FormGridColumnLookupParser
             else if (ph.ValueKind == JsonValueKind.String && int.TryParse(ph.GetString(), out var ns)) { hours = ns; }
         }
         if (hours is < 1 or > 8760) { hours = 72; }
+        var minutes = 0;
+        if (sg.TryGetProperty("linkMinutes", out var pm))
+        {
+            if (pm.ValueKind == JsonValueKind.Number && pm.TryGetInt32(out var nm)) { minutes = nm; }
+            else if (pm.ValueKind == JsonValueKind.String && int.TryParse(pm.GetString(), out var nms)) { minutes = nms; }
+        }
+        if (minutes is < 1 or > 525600) { minutes = 0; }
         var requireName = sg.TryGetProperty("requireName", out var rn)
             && (rn.ValueKind == JsonValueKind.True
                 || (rn.ValueKind == JsonValueKind.String && bool.TryParse(rn.GetString(), out var rb) && rb));
-        return new FormGridSignatureConfig(phoneField, hours, message, requireName);
+        return new FormGridSignatureConfig(phoneField, hours, message, requireName, minutes);
     }
 
     private static string? Trimmed(JsonElement obj, string name)

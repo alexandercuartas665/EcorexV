@@ -3237,7 +3237,8 @@ else
         var phone = ResolveSignaturePhone(sig, rows[rowIndex]);
         var input = new Ecorex.Application.Forms.RequestSignatureInput(
             _response.Id, q.FieldCode, rowId!, col.Id, sig.LinkHours, sig.RequireName,
-            SendWhatsApp: send, Phone: phone, Message: sig.Message, ActorUserId: SubmittedByTenantUserId ?? Guid.Empty);
+            SendWhatsApp: send, Phone: phone, Message: sig.Message, ActorUserId: SubmittedByTenantUserId ?? Guid.Empty,
+            LinkMinutes: sig.LinkMinutes);
 
         await _dbGate.WaitAsync();
         try

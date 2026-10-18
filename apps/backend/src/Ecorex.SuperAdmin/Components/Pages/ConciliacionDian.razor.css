@@ -391,3 +391,12 @@
 .cd-dyn-lkbtn.empty { color: var(--ink-3, #9ca3af); }
 .cd-dyn-lkbtn:disabled { cursor: default; opacity: .6; }
 .cd-dyn-lk { min-width: 220px; max-width: 320px; }
+/* Url */
+.cd-dyn-urlwrap { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; }
+.cd-dyn-link { color: var(--brand, #4f46e5); text-decoration: underline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-dyn-ed { border: 0; background: transparent; color: var(--ink-3, #9ca3af); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.cd-dyn-ed:hover { color: var(--brand, #4f46e5); }
+/* MultiSelect: popup de checkboxes */
+.cd-dyn-multi { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); min-width: 160px; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+.cd-dyn-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.cd-dyn-calc { font-variant-numeric: tabular-nums; color: var(--ink-2, #4b5563); }

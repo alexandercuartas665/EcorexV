@@ -4,6 +4,7 @@
 @using System.Text.Json
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
 @using Ecorex.Application.DataLookups
+@using Ecorex.Application.Formulas
 @using Ecorex.Application.Preferences
 @using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
@@ -399,7 +400,7 @@ else
                                                     }
                                                     else if (dd.Type == "Lookup")
                                                     {
-                                                        @if (_editingLookup is { } el && el.Renglon == r.Id && el.Def == dd.Id && LookupCfgFor(dd) is { } lkcfg)
+                                                        @if (IsEditing(r.Id, dd.Id) && LookupCfgFor(dd) is { } lkcfg)
                                                         {
                                                             <div class="cd-dyn-lk" @onclick:stopPropagation="true">
                                                                 <DataLookupField Config="lkcfg" Value="@val"
@@ -409,13 +410,56 @@ else
                                                         }
                                                         else
                                                         {
-                                                            var lbl = DynDisplay(r.Id, dd);
+                                                            var lbl = DynDisplay(r, dd);
                                                             <button type="button" class="cd-dyn-lkbtn @(string.IsNullOrEmpty(lbl) ? "empty" : "")"
                                                                     @onclick="() => OpenLookupEdit(r, dd)" disabled="@(LookupCfgFor(dd) is null)"
                                                                     title="Elegir del contenedor">
                                                                 @(string.IsNullOrEmpty(lbl) ? "—" : lbl)
                                                             </button>
                                                         }
+                                                    }
+                                                    else if (dd.Type == "Url")
+                                                    {
+                                                        @if (IsEditing(r.Id, dd.Id))
+                                                        {
+                                                            <input class="cd-in cd-dyn" type="url" value="@val" placeholder="https://..."
+                                                                   @onchange="e => SetDynValue(r, dd, e)" @onblur="CloseEdit" @onclick:stopPropagation="true" />
+                                                        }
+                                                        else if (!string.IsNullOrWhiteSpace(val))
+                                                        {
+                                                            <span class="cd-dyn-urlwrap">
+                                                                <a class="cd-dyn-link" href="@val" target="_blank" rel="noopener" @onclick:stopPropagation="true">@val</a>
+                                                                <button type="button" class="cd-dyn-ed" title="Editar" @onclick="() => OpenEdit(r, dd)">✎</button>
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button type="button" class="cd-dyn-lkbtn empty" @onclick="() => OpenEdit(r, dd)">—</button>
+                                                        }
+                                                    }
+                                                    else if (dd.Type == "MultiSelect")
+                                                    {
+                                                        @if (IsEditing(r.Id, dd.Id))
+                                                        {
+                                                            var sel = SplitMulti(val);
+                                                            <div class="cd-dyn-multi" @onclick:stopPropagation="true">
+                                                                @foreach (var op in dd.Options)
+                                                                {
+                                                                    <label class="cd-dyn-chk"><input type="checkbox" checked="@sel.Contains(op)" @onchange="e => ToggleMulti(r, dd, op, e)" /> @op</label>
+                                                                }
+                                                                <button type="button" class="cd-dyn-ed" @onclick="CloseEdit">Listo</button>
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button type="button" class="cd-dyn-lkbtn @(string.IsNullOrEmpty(val) ? "empty" : "")" @onclick="() => OpenEdit(r, dd)" title="Elegir varias">
+                                                                @(string.IsNullOrEmpty(val) ? "—" : val)
+                                                            </button>
+                                                        }
+                                                    }
+                                                    else if (dd.Type == "Calculated")
+                                                    {
+                                                        <span class="cd-dyn-calc">@DynDisplay(r, dd)</span>
                                                     }
                                                     else if (dd.Type == "Select")
                                                     {
@@ -848,13 +892,27 @@ else
                                 <button class="cd-ic cd-ic-del" @onclick="() => BorrarCampoAsync(fe)" title="Eliminar">&times;</button>
                             </div>
                         </div>
-                        @if (fe.Type == "Select")
+                        @if (fe.Type == "Select" || fe.Type == "MultiSelect")
                         {
                             <div class="cd-rule-grid">
                                 <div class="cd-rule-row">
                                     <label class="cd-rule-lbl">Opciones (separadas por coma)</label>
                                     <input class="cd-in" style="flex:1" value="@fe.OptionsText" @onchange="e => SetCampoOptions(fe, e)" placeholder="Ej: Alta, Media, Baja" />
                                 </div>
+                                @if (fe.Type == "MultiSelect")
+                                {
+                                    <div class="cd-rule-row"><span class="cd-muted">Multi-selección: se guardan varias opciones separadas por coma.</span></div>
+                                }
+                            </div>
+                        }
+                        else if (fe.Type == "Calculated")
+                        {
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Fórmula</label>
+                                    <input class="cd-in" style="flex:1" value="@fe.Formula" @onchange="e => SetCampoFormula(fe, e)" placeholder="Ej: {total} - {retefuente} - {ica}" />
+                                </div>
+                                <div class="cd-rule-row"><span class="cd-muted">Solo lectura. Referencia campos entre llaves: {total}, {sub_neto}, {iva}, {retefuente}, {ica}, {sub_bruto}, {descuento}, {total_antes_ret}... y tus campos a medida por su clave {mi_campo}. Operadores + - * / y funciones SUM, MIN, MAX, ABS, ROUND.</span></div>
                             </div>
                         }
                         else if (fe.Type == "Lookup")
@@ -1013,22 +1071,76 @@ else
     private Dictionary<Guid, DataLookupConfig> _lookupCfg = new();
     // Etiquetas resueltas por def -> (rowId -> etiqueta a mostrar). Para mostrar/ordenar/agrupar/filtrar/exportar.
     private Dictionary<Guid, Dictionary<string, string>> _lookupLabels = new();
-    // Celda de lookup en edicion (renglon, def): mientras esta activa se pinta el control typeahead.
-    private (Guid Renglon, Guid Def)? _editingLookup;
+    // Celda en edicion (renglon, def): Lookup pinta el typeahead; Url el input; MultiSelect el popup de checks.
+    private (Guid Renglon, Guid Def)? _editCell;
+    private bool IsEditing(Guid renglonId, Guid defId) => _editCell is { } e && e.Renglon == renglonId && e.Def == defId;
+    private void OpenEdit(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d) { _editCell = (r.Id, d.Id); }
+    private void CloseEdit() { _editCell = null; }
 
     private DataLookupConfig? LookupCfgFor(ConciliacionFieldDefDto d)
         => _lookupCfg.TryGetValue(d.Id, out var c) ? c : null;
 
-    /// <summary>Valor a MOSTRAR de un campo dinamico: para Lookup resuelve la etiqueta; resto, el valor crudo.</summary>
-    private string DynDisplay(Guid renglonId, ConciliacionFieldDefDto d)
+    /// <summary>Valor a MOSTRAR de un campo dinamico: Lookup -> etiqueta; Calculated -> formula; resto -> crudo.</summary>
+    private string DynDisplay(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d)
     {
-        var raw = DynVal(renglonId, d.Id);
+        if (d.Type == "Calculated") { return CalcValue(r, d); }
+        var raw = DynVal(r.Id, d.Id);
         if (d.Type == "Lookup")
         {
             if (string.IsNullOrEmpty(raw)) { return ""; }
             return _lookupLabels.TryGetValue(d.Id, out var m) && m.TryGetValue(raw, out var lbl) ? lbl : raw;
         }
         return raw;
+    }
+
+    // ---- MultiSelect: valores separados por coma ----
+    private static HashSet<string> SplitMulti(string? v) =>
+        (v ?? "").Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToHashSet();
+
+    private async Task ToggleMulti(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d, string option, ChangeEventArgs e)
+    {
+        var set = SplitMulti(DynVal(r.Id, d.Id));
+        if (e.Value is bool b && b) { set.Add(option); } else { set.Remove(option); }
+        // Mantener el orden de las opciones definidas.
+        var ordered = d.Options.Where(o => set.Contains(o)).ToList();
+        var val = string.Join(", ", ordered);
+        await Fields.SetValueAsync(r.Id, d.Id, val);
+        if (!_dynValues.TryGetValue(r.Id, out var dict)) { dict = new(); _dynValues[r.Id] = dict; }
+        dict[d.Id] = val;
+    }
+
+    // ---- Calculated: formula (en OptionsJson) evaluada por renglon ----
+    private Dictionary<Guid, FormulaNode?> _calcNodes = new();
+
+    private string CalcValue(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d)
+    {
+        if (!_calcNodes.TryGetValue(d.Id, out var node) || node is null) { return ""; }
+        try
+        {
+            var v = FormulaEngine.Evaluate(node, k => ResolveCalcRef(r, k));
+            return v is decimal dec ? FormulaEngine.Format(dec) : "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>Resuelve una referencia de la formula: campo estatico numerico, campo dinamico (slug) o 0.</summary>
+    private decimal ResolveCalcRef(ConciliacionDianRenglonDto r, string key)
+    {
+        switch (key)
+        {
+            case "sub_bruto": return r.SubtotalBruto;
+            case "descuento": return r.DescuentoComercial;
+            case "sub_neto": return r.SubtotalNeto;
+            case "iva": return r.IvaDescontable;
+            case "total_antes_ret": return r.TotalAntesRetenciones;
+            case "retefuente": return r.RetRetefuente;
+            case "ica": return r.RetIca;
+            case "total": return r.TotalFactura;
+        }
+        // Campo dinamico por su slug (no por "dyn:"): usa el valor mostrado (num) del campo.
+        var def = _dynDefs.FirstOrDefault(x => x.FieldKey == key);
+        if (def is not null && def.Type != "Calculated") { return FormulaEngine.ToNumber(DynVal(r.Id, def.Id)); }
+        return 0m;
     }
 
     // ---- Fase 3.1: exponer los campos dinamicos al MOTOR DE REGLAS y al CONSTRUCTOR DE FILTROS ----
@@ -1066,7 +1178,7 @@ else
 
     /// <summary>Resolver de valores dinamicos para el evaluador del filtro: (renglon, "dyn:key") -> valor.</summary>
     private string? DynFilterValue(ConciliacionDianRenglonDto r, string key)
-        => _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r.Id, d) : "";
+        => _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r, d) : "";
 
     private async Task LoadDynDefsAsync()
     {
@@ -1079,6 +1191,13 @@ else
         {
             var cfg = DataLookupConfig.TryParse(d.OptionsJson);
             if (cfg is not null) { _lookupCfg[d.Id] = cfg; }
+        }
+        // Formulas de los campos Calculated (se parsean una vez; se evaluan por renglon al mostrar).
+        _calcNodes = new();
+        foreach (var d in _dynDefs.Where(x => x.Type == "Calculated"))
+        {
+            var formula = FormulaFromJson(d.OptionsJson);
+            _calcNodes[d.Id] = string.IsNullOrWhiteSpace(formula) ? null : FormulaEngine.Parse(formula).Node;
         }
         // Asegura que las columnas dinamicas esten en el orden (al final) y limpia claves dyn obsoletas.
         var dynKeys = _dynCols.Select(c => c.Key).ToHashSet();
@@ -1119,7 +1238,7 @@ else
     private void OpenLookupEdit(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d)
     {
         if (LookupCfgFor(d) is null) { return; }
-        _editingLookup = (r.Id, d.Id);
+        _editCell = (r.Id, d.Id);
     }
 
     /// <summary>Guarda la seleccion de un campo Lookup (Id de fila) y refresca su etiqueta.</summary>
@@ -1140,7 +1259,7 @@ else
             }
             catch { }
         }
-        _editingLookup = null;
+        _editCell = null;
         RebuildItems();
     }
 
@@ -1169,6 +1288,7 @@ else
         public string Type = "Text";
         public int SortOrder;
         public string OptionsText = "";       // Select / MultiSelect: opciones separadas por coma
+        public string Formula = "";            // Calculated: expresion
         public bool Dirty;
         // Lookup (Lista del Contenedor): modelo -> tabla -> columna a mostrar.
         public Guid? ModelId;
@@ -1184,7 +1304,8 @@ else
     private static readonly (string Key, string Label)[] _tiposCampo =
     {
         ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
-        ("Select", "Lista (a mano)"), ("Lookup", "Lista del Contenedor"),
+        ("Select", "Lista (a mano)"), ("MultiSelect", "Multi-selección"),
+        ("Url", "Enlace (URL)"), ("Lookup", "Lista del Contenedor"), ("Calculated", "Calculado (fórmula)"),
     };
 
     private async Task AbrirConfigCamposAsync()
@@ -1198,6 +1319,7 @@ else
             {
                 Id = d.Id, FieldKey = d.FieldKey, Label = d.Label, Type = d.Type, SortOrder = d.SortOrder,
                 OptionsText = string.Join(", ", d.Options),
+                Formula = d.Type == "Calculated" ? FormulaFromJson(d.OptionsJson) : "",
             }).ToList();
             // Rehidratar la config de los campos Lookup (modelo/tabla/columna) y cargar sus listas.
             foreach (var fe in _fieldEditList.Where(x => x.Type == "Lookup"))
@@ -1262,8 +1384,24 @@ else
             var cName = fe.DisplayColId is Guid dc ? fe.Columns.FirstOrDefault(c => c.Id == dc)?.Name : null;
             optionsJson = new DataLookupConfig(tid, fe.ModelId, fe.DisplayColId, TableName: tName, DisplayColumnName: cName).ToJson();
         }
+        else if (fe.Type == "Calculated")
+        {
+            // options_json es jsonb: la formula se guarda como string JSON (entre comillas).
+            optionsJson = string.IsNullOrWhiteSpace(fe.Formula) ? null : JsonSerializer.Serialize(fe.Formula.Trim());
+        }
         return new(fe.Id, fe.FieldKey, fe.Label, fe.Type, fe.SortOrder, ParseOptions(fe.OptionsText), optionsJson);
     }
+
+    /// <summary>Extrae la formula cruda del options_json (guardado como string JSON para caber en jsonb).</summary>
+    private static string FormulaFromJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return ""; }
+        var t = json.TrimStart();
+        if (t.Length > 0 && t[0] == '"') { try { return JsonSerializer.Deserialize<string>(json) ?? ""; } catch { return ""; } }
+        return json; // compat: por si viniera cruda
+    }
+
+    private void SetCampoFormula(FieldEdit fe, ChangeEventArgs e) { fe.Formula = e.Value?.ToString() ?? ""; fe.Dirty = true; }
 
     private async Task AddCampoAsync()
     {
@@ -1355,7 +1493,7 @@ else
             "ev33" => r.Evento33 ? "Si" : "No",
             "ev31" => r.Evento31 ? "Si" : "No",
             "ev34" => r.Evento34 ? "Si" : "No",
-            _ => key.StartsWith("dyn:") && _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r.Id, d) : "",
+            _ => key.StartsWith("dyn:") && _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r, d) : "",
         };
         return string.IsNullOrWhiteSpace(v) ? "(sin dato)" : v;
     }
@@ -1433,7 +1571,7 @@ else
                         else if (c.Key == "fecha") { cell.Value = r.FechaEmision.DateTime; cell.Style.DateFormat.Format = "dd/MM/yyyy"; }
                         else if (c.Key.StartsWith("dyn:") && _dynByKey.TryGetValue(c.Key, out var dde))
                         {
-                            var dv = DynDisplay(r.Id, dde);
+                            var dv = DynDisplay(r, dde);
                             if (dde.Type == "Number" && decimal.TryParse(dv, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var dn)) { cell.Value = dn; cell.Style.NumberFormat.Format = "#,##0.00"; }
                             else { cell.Value = dv; }
                         }
@@ -1658,7 +1796,11 @@ else
             // Orden: respeta lo guardado, agrega al final las columnas nuevas, descarta claves desconocidas.
             var known = _allCols.Select(c => c.Key).Concat(_dynCols.Select(c => c.Key)).ToHashSet();
             var ord = (p.order ?? new()).Where(known.Contains).Distinct().ToList();
-            foreach (var k in _allCols.Select(c => c.Key)) { if (!ord.Contains(k)) { ord.Add(k); } }
+            // Agrega al final las columnas conocidas que falten: estaticas Y dinamicas (campos a medida nuevos).
+            foreach (var k in _allCols.Select(c => c.Key).Concat(_dynCols.Select(c => c.Key)))
+            {
+                if (!ord.Contains(k)) { ord.Add(k); }
+            }
             _order = ord;
             _hidden = (p.hidden ?? new()).Where(known.Contains).ToHashSet();
             _widths = (p.widths ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);

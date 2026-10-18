@@ -82,6 +82,23 @@ public class FormTemplateMergeTests
     }
 
     [Fact]
+    public void Firma_se_embebe_como_data_uri_en_impresion()
+    {
+        // FEATURE E (fix PDF/IMG): la celda de firma guarda "/archivo/{id}" (exige sesion); en PDF/IMG se embebe
+        // como data URI base64 para que cargue en el navegador headless anonimo.
+        const string data = """{ "entregas": { "value": "[{\"firma\":\"/archivo/abc\"}]", "type": "grid" } }""";
+        var gridOptions = new Dictionary<string, string?> { ["entregas"] = """[{"id":"firma","label":"Firma","signature":{}}]""" };
+        var map = new Dictionary<string, string> { ["/archivo/abc"] = "data:image/png;base64,QUJD" };
+        var tpl = "{{#tabla.entregas}}{{col.firma}}{{/tabla.entregas}}";
+
+        var html = FormTemplateMerge.Render(tpl, data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1", "T1",
+            fieldChoices: null, rowFilter: null, signatureDataUris: map);
+
+        Assert.Contains("<img src=\"data:image/png;base64,QUJD\"", html);
+        Assert.DoesNotContain("/archivo/abc", html); // ya no queda la URL que exige sesion
+    }
+
+    [Fact]
     public void Marcador_de_campo_inexistente_queda_vacio_y_no_rompe()
     {
         var html = FormTemplateMerge.Render(

@@ -36,6 +36,13 @@ public interface IFileStorageService
     /// <summary>Contenido de un archivo por su llave, para servirlo (o null si no existe / no es del tenant).</summary>
     Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Igual que <see cref="ReadAsync"/> pero SIN depender del tenant en contexto: busca el archivo por su llave
+    /// acotado al <paramref name="tenantId"/> dado (IgnoreQueryFilters). Para procesos sin sesion que ya conocen
+    /// el tenant del dueño del archivo (ej. render del PDF en loopback anonimo que embebe la firma como data URI).
+    /// </summary>
+    Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default);
+
     /// <summary>Elimina el archivo (binario + registro). Devuelve true si existia.</summary>
     Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default);
 

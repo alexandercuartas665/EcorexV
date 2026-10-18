@@ -26,6 +26,12 @@ public interface IFormSignatureService
     Task<IReadOnlyList<SignatureRowCell>> GetRowSummaryAsync(Guid responseId, string fieldCode, string rowId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Valor ACTUAL de una celda de firma (la ref "/archivo/{id}" si ya firmaron, o null). Para refrescar la OT
+    /// abierta sin reabrir el documento tras firmar por el link. Tenant-scoped.
+    /// </summary>
+    Task<string?> GetSignatureCellAsync(Guid responseId, string fieldCode, string rowId, string columnId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Visor anonimo (tenant ambient ya fijado): guarda la firma (PNG en data-URL), escribe la referencia
     /// /archivo/{id} en la celda de la fila y QUEMA el token. Concurrencia optimista de la respuesta.
     /// </summary>

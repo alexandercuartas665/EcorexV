@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-18 - v0.16.206: firma en PDF/IMG (data URI) + refrescar celda sin reabrir (DESPLEGADO)
+
+- (1) CRITICO: la firma no se imprimia en PDF/IMG. Raiz: RenderGridBlocks emitia <img src="/archivo/{id}">, que
+  exige sesion; Puppeteer navega en loopback ANONIMO -> 302 /login -> no cargaba (en navegador logueado si). Fix:
+  se EMBEBE la firma como data URI base64. IFileStorageService +ReadForTenantAsync (lee por tenant explicito con
+  IgnoreQueryFilters, sin sesion). FormTemplateRenderService inyecta el storage y arma el mapa "/archivo/{id}"->data URI
+  (BuildSignatureDataUrisAsync) pasado a FormTemplateMerge.Render/RenderGridBlocks; si no se resuelve, cae a la URL.
+- (2) MOLESTO: tras firmar por el link, la OT abierta no mostraba la firma hasta reabrir. IFormSignatureService
+  +GetSignatureCellAsync (valor actual de la celda); boton "Actualizar" en la celda (estado Sin firmar) que trae la
+  firma y refresca al instante sin reabrir.
+- Tests: FormTemplateMergeTests +Firma_se_embebe_como_data_uri_en_impresion (9/9 verde). Build de solucion verde.
+
 ## 2026-10-18 - v0.16.205: columna de grilla tipo FECHA (date) configurable (DESPLEGADO)
 
 - Pedido (sesion de diseno): las columnas de grilla solo eran text/select/seq/gestion/multicheck; se agrega tipo

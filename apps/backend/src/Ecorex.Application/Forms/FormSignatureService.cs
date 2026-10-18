@@ -166,6 +166,14 @@ public sealed class FormSignatureService : IFormSignatureService
         return cells;
     }
 
+    public async Task<string?> GetSignatureCellAsync(Guid responseId, string fieldCode, string rowId, string columnId, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.AsNoTracking().FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null) { return null; }
+        var row = FindRow(response.Data, fieldCode, rowId);
+        return row?.GetValueOrDefault(columnId);
+    }
+
     public async Task<FormResult<bool>> SignAsync(string token, string signatureDataUrl, string? signerName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(token) || token.Length > 128)

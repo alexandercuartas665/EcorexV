@@ -3225,6 +3225,7 @@ else
                 <span style="color:#6b7280">Sin firmar</span>
                 <button type="button" class="btn btn-sm btn-primary" @onclick="@(() => RequestSignatureAsync(q, rowIndex, col, sig, send: true))">Enviar a firmar</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => RequestSignatureAsync(q, rowIndex, col, sig, send: false))">Copiar link</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Traer la firma si el cliente ya firmo por el link" @onclick="@(() => RefreshSignatureCellAsync(q, rowIndex, col))">Actualizar</button>
             }
         </div>
         @if (_signCellNote.TryGetValue(GridCellKey(q, rowIndex, col.Id), out var note) && !string.IsNullOrEmpty(note))
@@ -3301,6 +3302,38 @@ else
         rows[rowIndex][col.Id] = null;
         _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
         _signCellNote.Remove(GridCellKey(q, rowIndex, col.Id));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshSignatureCellAsync(FormQuestionDto q, int rowIndex, FormGridColumn col)
+    {
+        if (_response is null) { return; }
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var rowId = rows[rowIndex].GetValueOrDefault(GestionRowIdKey);
+        var key = GridCellKey(q, rowIndex, col.Id);
+        if (string.IsNullOrWhiteSpace(rowId)) { _signCellNote[key] = "Aun no se ha pedido la firma en esta fila."; return; }
+
+        string? val;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            val = await SignSvc.GetSignatureCellAsync(_response.Id, q.FieldCode, rowId!, col.Id);
+        }
+        finally { _dbGate.Release(); }
+
+        if (!string.IsNullOrWhiteSpace(val))
+        {
+            // El cliente ya firmo por el link: la celda se refleja al instante (sin reabrir el documento).
+            rows[rowIndex][col.Id] = val;
+            _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+            _signCellNote.Remove(key);
+        }
+        else
+        {
+            _signCellNote[key] = "Aun sin firmar; intenta de nuevo en unos segundos.";
+        }
         await InvokeAsync(StateHasChanged);
     }
 

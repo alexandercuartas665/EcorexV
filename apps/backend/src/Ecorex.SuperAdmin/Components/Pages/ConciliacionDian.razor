@@ -148,7 +148,7 @@ else
                             <select class="cd-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
                                 @foreach (var col in _allCols)
                                 {
-                                    <option value="@col.Key" selected="@(col.Key == sc.K)">@col.Label</option>
+                                    <option value="@col.Key" selected="@(col.Key == sc.K)">@LabelOf(col)</option>
                                 }
                             </select>
                             <button class="cd-dd-dir" @onclick="() => ToggleSortDir(sc)" title="Cambiar direccion">@(sc.Dir >= 0 ? "A→Z" : "Z→A")</button>
@@ -179,7 +179,7 @@ else
                             <select class="cd-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
                                 @foreach (var col in _allCols.Where(x => x.Groupable))
                                 {
-                                    <option value="@col.Key" selected="@(col.Key == _groups[idx])">@col.Label</option>
+                                    <option value="@col.Key" selected="@(col.Key == _groups[idx])">@LabelOf(col)</option>
                                 }
                             </select>
                             <button class="cd-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
@@ -213,7 +213,7 @@ else
                             <div class="cd-colit">
                                 <button class="cd-col-mv" disabled="@(idx == 0)" @onclick="() => MoveCol(idx, -1)">▲</button>
                                 <button class="cd-col-mv" disabled="@(idx == _order.Count - 1)" @onclick="() => MoveCol(idx, 1)">▼</button>
-                                <span class="cd-col-name">@col.Label</span>
+                                <span class="cd-col-name">@LabelOf(col)</span>
                                 <button class="cd-col-eye @(_hidden.Contains(col.Key) ? "" : "on")" @onclick="() => ToggleHidden(col.Key)" title="@(_hidden.Contains(col.Key) ? "Mostrar" : "Ocultar")">
                                     @(_hidden.Contains(col.Key) ? "oculta" : "visible")
                                 </button>
@@ -245,7 +245,7 @@ else
                     @for (int fi = 0; fi < vis.Count; fi++)
                     {
                         var n = fi + 2; // +1 por la columna de seleccion, +1 por indice->conteo
-                        <button class="cd-dd-item @(_frozen == n ? "on" : "")" @onclick="() => SetFrozenAsync(n)">@vis[fi].Label</button>
+                        <button class="cd-dd-item @(_frozen == n ? "on" : "")" @onclick="() => SetFrozenAsync(n)">@LabelOf(vis[fi])</button>
                     }
                 </div>
             }
@@ -260,7 +260,7 @@ else
         <div class="cd-toolbar-spacer"></div>
         @if (_groups.Count > 0)
         {
-            <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
+            <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => LabelOf(g)))</span>
         }
     </div>
 
@@ -288,7 +288,7 @@ else
                             @ondragstart="() => _dragCol = c.Key"
                             @ondragover:preventDefault="true"
                             @ondrop="() => OnDropCol(c.Key)">
-                            <span class="cd-th-lbl" @onclick="() => QuickSort(c.Key)">@c.Label@arrow</span>
+                            <span class="cd-th-lbl" @onclick="() => QuickSort(c.Key)">@LabelOf(c)@arrow</span>
                             <button class="cd-th-caret" @onclick="e => OpenColMenu(c, e)" @onclick:stopPropagation="true" title="Opciones de la columna">▾</button>
                             <span class="cd-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
                         </th>
@@ -396,23 +396,37 @@ else
     {
         <div class="cd-ctx-overlay" @onclick="CloseColMenu" @oncontextmenu:preventDefault="true"></div>
         <div class="cd-ctx-menu" style="left:@(Px(_colMenuX)); top:@(Px(_colMenuY));">
-            <div class="cd-ctx-title">@_colMenuCol.Label</div>
-            <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, 1)">Ordenar A → Z</button>
-            <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, -1)">Ordenar Z → A</button>
-            @if (_colMenuCol.Groupable)
+            <div class="cd-ctx-title">@LabelOf(_colMenuCol)</div>
+            @if (_labelEditKey == _colMenuCol.Key)
             {
-                @if (_groups.Contains(_colMenuCol.Key))
-                {
-                    <button class="cd-ctx-item" @onclick="() => RemoveGroupKey(_colMenuCol.Key)">Quitar agrupacion</button>
-                }
-                else
-                {
-                    <button class="cd-ctx-item" @onclick="() => AddGroupKey(_colMenuCol.Key)">Agrupar por este campo</button>
-                }
+                <div class="cd-ctx-labeledit">
+                    <input class="cd-in" value="@_labelEditVal" @onchange="e => _labelEditVal = e.Value?.ToString() ?? string.Empty" @onkeydown="OnLabelKey" placeholder="Etiqueta a mostrar" />
+                    <div class="cd-ctx-labeledit-acts">
+                        <button class="btn btn-primary btn-sm" @onclick="GuardarEtiqueta">Guardar</button>
+                        <button class="btn btn-link btn-sm" @onclick="() => ResetEtiqueta(_colMenuCol!.Key)">Restablecer</button>
+                    </div>
+                </div>
             }
-            <button class="cd-ctx-item" @onclick="() => FijarHastaAsync(_colMenuCol.Key)">Fijar hasta esta columna</button>
-            <div class="cd-ctx-sep"></div>
-            <button class="cd-ctx-item" @onclick="() => HideColFromMenu(_colMenuCol.Key)">Ocultar columna</button>
+            else
+            {
+                <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, 1)">Ordenar A → Z</button>
+                <button class="cd-ctx-item" @onclick="() => SetSingleSort(_colMenuCol.Key, -1)">Ordenar Z → A</button>
+                @if (_colMenuCol.Groupable)
+                {
+                    @if (_groups.Contains(_colMenuCol.Key))
+                    {
+                        <button class="cd-ctx-item" @onclick="() => RemoveGroupKey(_colMenuCol.Key)">Quitar agrupacion</button>
+                    }
+                    else
+                    {
+                        <button class="cd-ctx-item" @onclick="() => AddGroupKey(_colMenuCol.Key)">Agrupar por este campo</button>
+                    }
+                }
+                <button class="cd-ctx-item" @onclick="() => FijarHastaAsync(_colMenuCol.Key)">Fijar hasta esta columna</button>
+                <div class="cd-ctx-sep"></div>
+                <button class="cd-ctx-item" @onclick="() => EditarEtiqueta(_colMenuCol)">&#9998; Editar etiqueta</button>
+                <button class="cd-ctx-item" @onclick="() => HideColFromMenu(_colMenuCol.Key)">Ocultar columna</button>
+            }
         </div>
     }
 
@@ -815,9 +829,14 @@ else
     private List<string> _order = _allCols.Select(c => c.Key).ToList();
     private HashSet<string> _hidden = new();
     private Dictionary<string, int> _widths = new();
+    private Dictionary<string, string> _labels = new(); // etiquetas a medida por columna (override del Label)
     private List<SortSpec> _sorts = new();
     private List<string> _groups = new();
     private int _frozen;
+
+    // Etiqueta visible de una columna: la personalizada si existe, si no la del catalogo.
+    private string LabelOf(GridCol c) => _labels.TryGetValue(c.Key, out var l) && !string.IsNullOrWhiteSpace(l) ? l : c.Label;
+    private string LabelOf(string key) => ColByKey(key) is { } c ? LabelOf(c) : key;
 
     private string? _dragCol;
     private string? _openMenu; // "sort" | "group" | "cols" | "freeze"
@@ -922,7 +941,7 @@ else
             for (var i = 0; i < vis.Count; i++)
             {
                 var cell = ws.Cell(rowN, i + 1);
-                cell.Value = vis[i].Label;
+                cell.Value = LabelOf(vis[i]);
                 cell.Style.Font.Bold = true;
                 cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F2937");
                 cell.Style.Font.FontColor = XLColor.White;
@@ -1030,7 +1049,7 @@ else
             return;
         }
         var key = _groups[level];
-        var label = ColByKey(key)?.Label ?? key;
+        var label = LabelOf(key);
         var groups = rows.GroupBy(r => GroupText(key, r)).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
         foreach (var g in groups)
         {
@@ -1151,6 +1170,7 @@ else
         public List<string>? order { get; set; }
         public List<string>? hidden { get; set; }
         public Dictionary<string, int>? widths { get; set; }
+        public Dictionary<string, string>? labels { get; set; }
         public List<SortSpec>? sorts { get; set; }
         public List<string>? groups { get; set; }
         public int frozen { get; set; }
@@ -1171,6 +1191,7 @@ else
             _order = ord;
             _hidden = (p.hidden ?? new()).Where(known.Contains).ToHashSet();
             _widths = (p.widths ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+            _labels = (p.labels ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
             _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
             _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
             _frozen = Math.Max(0, p.frozen);
@@ -1187,6 +1208,7 @@ else
                 order = _order,
                 hidden = _hidden.ToList(),
                 widths = _widths,
+                labels = _labels,
                 sorts = _sorts,
                 groups = _groups,
                 frozen = _frozen,
@@ -1607,6 +1629,24 @@ else
     }
     private void ToggleHidden(string key) { if (!_hidden.Remove(key)) { _hidden.Add(key); } _ = SavePrefsAsync(); }
     private void HideColFromMenu(string key) { _hidden.Add(key); CloseColMenu(); _ = SavePrefsAsync(); }
+
+    // ---- Editar etiqueta de columna (solo cambia el texto visible; se guarda en preferencias) ----
+    private string? _labelEditKey;
+    private string _labelEditVal = "";
+    private void EditarEtiqueta(GridCol c) { _labelEditKey = c.Key; _labelEditVal = LabelOf(c); }
+    private void GuardarEtiqueta()
+    {
+        if (_labelEditKey is { } k)
+        {
+            var v = (_labelEditVal ?? "").Trim();
+            var def = ColByKey(k)?.Label ?? k;
+            if (string.IsNullOrEmpty(v) || v == def) { _labels.Remove(k); } else { _labels[k] = v; }
+            _ = SavePrefsAsync();
+        }
+        _labelEditKey = null; CloseColMenu();
+    }
+    private void ResetEtiqueta(string key) { _labels.Remove(key); _labelEditKey = null; _ = SavePrefsAsync(); CloseColMenu(); }
+    private void OnLabelKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") { GuardarEtiqueta(); } }
     private void ShowAllCols() { _hidden.Clear(); _ = SavePrefsAsync(); }
     private void ResetCols() { _order = _allCols.Select(c => c.Key).ToList(); _hidden.Clear(); _widths.Clear(); _ = SavePrefsAsync(); }
 

@@ -170,11 +170,12 @@
 .cd-grid th.cd-th:active { cursor: grabbing; }
 .cd-grid th.cd-th.cd-th-over { box-shadow: inset 2px 0 0 var(--brand, #4f46e5); }
 .cd-th-lbl { cursor: pointer; }
-.cd-th-caret { opacity: 0; margin-left: 4px; font-size: 11px; line-height: 1; border: 0; background: transparent; color: var(--ink-3, #9ca3af); cursor: pointer; padding: 0 2px; }
+.cd-th-caret { opacity: .5; margin-left: 4px; font-size: 11px; line-height: 1; border: 0; background: transparent; color: var(--ink-3, #9ca3af); cursor: pointer; padding: 0 2px; }
 .cd-grid th.cd-th:hover .cd-th-caret { opacity: 1; }
 .cd-th-caret:hover { color: var(--brand, #4f46e5); }
 .cd-rz { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; }
-.cd-rz:hover { box-shadow: inset -2px 0 0 var(--brand, #4f46e5); }
+.cd-rz::after { content: ""; position: absolute; top: 25%; right: 2px; width: 2px; height: 50%; background: var(--line-2, #e5e7eb); border-radius: 1px; }
+.cd-rz:hover::after { background: var(--brand, #4f46e5); width: 3px; }
 
 /* Menu contextual de columna (caret): reusa el look del menu de color */
 .cd-ctx-item { display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--ink, #1f2937); padding: 7px 10px; cursor: pointer; background: transparent; border: 0; border-radius: 7px; }
@@ -375,3 +376,8 @@
 .cd-rules-body .cd-fb-op { border: 0; background: var(--surface, #fff); color: var(--ink-2, #4b5563); font-size: 12px; font-weight: 700; padding: 4px 10px; cursor: pointer; }
 .cd-rules-body .cd-fb-op + .cd-fb-op { border-left: 1px solid var(--line-2, #e5e7eb); }
 .cd-rules-body .cd-fb-op.on { background: var(--brand, #4f46e5); color: #fff; }
+
+/* ---- Editar etiqueta de columna (en el menu de columna) ---- */
+.cd-ctx-labeledit { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
+.cd-ctx-labeledit .cd-in { width: 100%; }
+.cd-ctx-labeledit-acts { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }

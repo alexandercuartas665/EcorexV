@@ -858,7 +858,7 @@ else
     @if (_fieldsConfigOpen)
     {
         <div class="cd-doc-backdrop" @onclick="CerrarConfigCampos"></div>
-        <div class="cd-rules-modal" style="width:min(720px,96vw);height:min(720px,88vh);" @onclick:stopPropagation="true">
+        <div class="cd-rules-modal" style="width:min(880px,96vw);height:min(680px,88vh);" @onclick:stopPropagation="true">
             <div class="cd-doc-head">
                 <div class="cd-doc-title">
                     <div class="cd-doc-title-main">Campos de la tabla</div>
@@ -866,93 +866,116 @@ else
                 </div>
                 <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfigCampos">&times;</button>
             </div>
-            <div class="cd-rules-body">
-                <div class="cd-rules-tb"><button class="cd-fb-add" @onclick="AddCampoAsync">+ Campo</button></div>
-                @if (_fieldEditList.Count == 0)
-                {
-                    <div class="cd-muted" style="padding:12px 2px;">Sin campos a medida. Agrega el primero.</div>
-                }
-                @for (var i = 0; i < _fieldEditList.Count; i++)
-                {
-                    var idx = i; var fe = _fieldEditList[idx];
-                    <div class="cd-rule-card">
-                        <div class="cd-rule-head">
-                            <span class="cd-rule-ord">@(idx + 1)</span>
-                            <input class="cd-in cd-rule-name" value="@fe.Label" @onchange="e => SetCampoLabel(fe, e)" placeholder="Etiqueta de la columna" />
-                            <select class="cd-in" style="width:130px;" @onchange="e => SetCampoType(fe, e)">
-                                @foreach (var t in _tiposCampo)
-                                {
-                                    <option value="@t.Key" selected="@(t.Key == fe.Type)">@t.Label</option>
-                                }
-                            </select>
-                            <div class="cd-rule-actions">
+            <div class="cd-fields-body">
+                @* ---- Izquierda: lista de campos ---- *@
+                <div class="cd-fields-list">
+                    <button class="cd-fb-add" style="width:100%;margin-bottom:8px;" @onclick="AddCampoAsync">+ Campo</button>
+                    @if (_fieldEditList.Count == 0)
+                    {
+                        <div class="cd-muted" style="padding:8px 2px;">Sin campos a medida. Agrega el primero.</div>
+                    }
+                    @for (var i = 0; i < _fieldEditList.Count; i++)
+                    {
+                        var idx = i; var fe = _fieldEditList[idx];
+                        <div class="cd-field-item @(fe.Id == _selFieldId ? "sel" : "")" @onclick="() => SelectCampo(fe)">
+                            <span class="cd-field-ord">@(idx + 1)</span>
+                            <div class="cd-field-meta">
+                                <div class="cd-field-name">
+                                    @(string.IsNullOrWhiteSpace(fe.Label) ? "(sin nombre)" : fe.Label)
+                                    @if (fe.Dirty) { <span class="cd-field-dot" title="Cambios sin guardar">●</span> }
+                                </div>
+                                <div class="cd-field-type">@TipoLabel(fe.Type)</div>
+                            </div>
+                            <div class="cd-field-acts" @onclick:stopPropagation="true">
                                 <button class="cd-ic" @onclick="() => MoveCampoAsync(idx, -1)" disabled="@(idx == 0)" title="Subir">&#8593;</button>
                                 <button class="cd-ic" @onclick="() => MoveCampoAsync(idx, 1)" disabled="@(idx == _fieldEditList.Count - 1)" title="Bajar">&#8595;</button>
-                                <button class="cd-ic-save @(fe.Dirty ? "on" : "")" @onclick="() => GuardarCampoAsync(fe)" disabled="@(!fe.Dirty)" title="Guardar">Guardar</button>
                                 <button class="cd-ic cd-ic-del" @onclick="() => BorrarCampoAsync(fe)" title="Eliminar">&times;</button>
                             </div>
                         </div>
-                        @if (fe.Type == "Select" || fe.Type == "MultiSelect")
-                        {
-                            <div class="cd-rule-grid">
-                                <div class="cd-rule-row">
-                                    <label class="cd-rule-lbl">Opciones (separadas por coma)</label>
-                                    <input class="cd-in" style="flex:1" value="@fe.OptionsText" @onchange="e => SetCampoOptions(fe, e)" placeholder="Ej: Alta, Media, Baja" />
-                                </div>
-                                @if (fe.Type == "MultiSelect")
+                    }
+                </div>
+                @* ---- Derecha: panel de configuracion del campo seleccionado ---- *@
+                <div class="cd-field-cfg">
+                    @if (SelField is { } sf)
+                    {
+                        <div class="cd-cfg-title">@(string.IsNullOrWhiteSpace(sf.Label) ? "Nuevo campo" : "Editar campo")</div>
+                        <div class="cd-cfg-row">
+                            <label class="cd-cfg-lbl">Etiqueta</label>
+                            <input class="cd-in" value="@sf.Label" @onchange="e => SetCampoLabel(sf, e)" placeholder="Nombre de la columna" />
+                        </div>
+                        <div class="cd-cfg-row">
+                            <label class="cd-cfg-lbl">Tipo</label>
+                            <select class="cd-in" @onchange="e => SetCampoType(sf, e)">
+                                @foreach (var t in _tiposCampo)
                                 {
-                                    <div class="cd-rule-row"><span class="cd-muted">Multi-selección: se guardan varias opciones separadas por coma.</span></div>
+                                    <option value="@t.Key" selected="@(t.Key == sf.Type)">@t.Label</option>
                                 }
-                            </div>
-                        }
-                        else if (fe.Type == "Calculated")
+                            </select>
+                        </div>
+
+                        @if (sf.Type == "Select" || sf.Type == "MultiSelect")
                         {
-                            <div class="cd-rule-grid">
-                                <div class="cd-rule-row">
-                                    <label class="cd-rule-lbl">Fórmula</label>
-                                    <input class="cd-in" style="flex:1" value="@fe.Formula" @onchange="e => SetCampoFormula(fe, e)" placeholder="Ej: {total} - {retefuente} - {ica}" />
-                                </div>
-                                <div class="cd-rule-row"><span class="cd-muted">Solo lectura. Referencia campos entre llaves: {total}, {sub_neto}, {iva}, {retefuente}, {ica}, {sub_bruto}, {descuento}, {total_antes_ret}... y tus campos a medida por su clave {mi_campo}. Operadores + - * / y funciones SUM, MIN, MAX, ABS, ROUND.</span></div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Opciones (separadas por coma)</label>
+                                <input class="cd-in" value="@sf.OptionsText" @onchange="e => SetCampoOptions(sf, e)" placeholder="Ej: Alta, Media, Baja" />
                             </div>
+                            @if (sf.Type == "MultiSelect")
+                            {
+                                <div class="cd-cfg-hint">Multi-selección: se guardan varias opciones separadas por coma.</div>
+                            }
                         }
-                        else if (fe.Type == "Lookup")
+                        else if (sf.Type == "Calculated")
                         {
-                            <div class="cd-rule-grid">
-                                <div class="cd-rule-row">
-                                    <label class="cd-rule-lbl">Modelo de datos</label>
-                                    <select class="cd-in" style="flex:1" @onchange="e => LkModelChanged(fe, e)">
-                                        <option value="">Todos los modelos</option>
-                                        @foreach (var m in _lkModels)
-                                        {
-                                            <option value="@m.Id" selected="@(fe.ModelId == m.Id)">@m.Name (@m.TableCount)</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="cd-rule-row">
-                                    <label class="cd-rule-lbl">Tabla</label>
-                                    <select class="cd-in" style="flex:1" @onchange="e => LkTableChanged(fe, e)">
-                                        <option value="">-- Elige una tabla --</option>
-                                        @foreach (var t in fe.Tables)
-                                        {
-                                            <option value="@t.Id" selected="@(fe.TableId == t.Id)">@t.Name</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="cd-rule-row">
-                                    <label class="cd-rule-lbl">Columna que se muestra</label>
-                                    <select class="cd-in" style="flex:1" @onchange="e => LkColumnChanged(fe, e)" disabled="@(fe.TableId is null)">
-                                        <option value="">(automatica: primera de texto)</option>
-                                        @foreach (var c in fe.Columns)
-                                        {
-                                            <option value="@c.Id" selected="@(fe.DisplayColId == c.Id)">@c.Name</option>
-                                        }
-                                    </select>
-                                </div>
-                                <div class="cd-rule-row"><span class="cd-muted">Busqueda con sugerencias sobre la tabla del Contenedor. Guarda la fila elegida (referencia viva).</span></div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Fórmula</label>
+                                <input class="cd-in" value="@sf.Formula" @onchange="e => SetCampoFormula(sf, e)" placeholder="Ej: {total} - {retefuente} - {ica}" />
                             </div>
+                            <div class="cd-cfg-hint">Solo lectura. Referencia campos entre llaves: {total}, {sub_neto}, {iva}, {retefuente}, {ica}, {sub_bruto}, {descuento}, {total_antes_ret}... y tus campos a medida por su clave {mi_campo}. Operadores + - * / y funciones SUM, MIN, MAX, ABS, ROUND.</div>
                         }
-                    </div>
-                }
+                        else if (sf.Type == "Lookup")
+                        {
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Modelo de datos</label>
+                                <select class="cd-in" @onchange="e => LkModelChanged(sf, e)">
+                                    <option value="">Todos los modelos</option>
+                                    @foreach (var m in _lkModels)
+                                    {
+                                        <option value="@m.Id" selected="@(sf.ModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Tabla</label>
+                                <select class="cd-in" @onchange="e => LkTableChanged(sf, e)">
+                                    <option value="">-- Elige una tabla --</option>
+                                    @foreach (var t in sf.Tables)
+                                    {
+                                        <option value="@t.Id" selected="@(sf.TableId == t.Id)">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Columna que se muestra</label>
+                                <select class="cd-in" @onchange="e => LkColumnChanged(sf, e)" disabled="@(sf.TableId is null)">
+                                    <option value="">(automatica: primera de texto)</option>
+                                    @foreach (var c in sf.Columns)
+                                    {
+                                        <option value="@c.Id" selected="@(sf.DisplayColId == c.Id)">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cd-cfg-hint">Busqueda con sugerencias sobre la tabla del Contenedor. Guarda la fila elegida (referencia viva).</div>
+                        }
+
+                        <div class="cd-cfg-actions">
+                            <button class="cd-ic-save @(sf.Dirty ? "on" : "")" @onclick="() => GuardarCampoAsync(sf)" disabled="@(!sf.Dirty)">Guardar</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cd-cfg-empty">Elegí un campo de la lista para editarlo, o creá uno con “+ Campo”.</div>
+                    }
+                </div>
             </div>
             <div class="cd-rules-foot">
                 <span class="cd-muted">Los campos aparecen como columnas al final de la tabla.</span>
@@ -1301,6 +1324,10 @@ else
     private bool _fieldsConfigOpen;
     private List<FieldEdit> _fieldEditList = new();
     private List<LookupModelDto> _lkModels = new();   // modelos de datos (compartido por el modal)
+    private Guid _selFieldId;                          // campo seleccionado en el panel de config (estilo Directorio)
+    private FieldEdit? SelField => _fieldEditList.FirstOrDefault(f => f.Id == _selFieldId);
+    private void SelectCampo(FieldEdit fe) { _selFieldId = fe.Id; }
+    private string TipoLabel(string type) => _tiposCampo.FirstOrDefault(t => t.Key == type).Label ?? type;
     private static readonly (string Key, string Label)[] _tiposCampo =
     {
         ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
@@ -1331,6 +1358,7 @@ else
                 try { fe.Tables = (await Lookups.ListTablesAsync(cfg.ModelId)).ToList(); } catch { }
                 try { fe.Columns = (await Lookups.ListColumnsAsync(cfg.TableId)).ToList(); } catch { }
             }
+            _selFieldId = _fieldEditList.FirstOrDefault()?.Id ?? Guid.Empty;
             _fieldsConfigOpen = true;
         }
         catch (Exception ex) { _msg = "Error al abrir campos: " + ex.Message; }
@@ -1407,7 +1435,7 @@ else
     {
         var fe = new FieldEdit { Label = "Nuevo campo", Type = "Text", SortOrder = _fieldEditList.Count };
         var saved = await Fields.SaveDefAsync(ToDto(fe));
-        if (saved is not null) { fe.Id = saved.Id; fe.FieldKey = saved.FieldKey; _fieldEditList.Add(fe); await RefreshDynAsync(); }
+        if (saved is not null) { fe.Id = saved.Id; fe.FieldKey = saved.FieldKey; _fieldEditList.Add(fe); _selFieldId = fe.Id; await RefreshDynAsync(); }
     }
 
     private async Task GuardarCampoAsync(FieldEdit fe)
@@ -1420,6 +1448,7 @@ else
     {
         await Fields.DeleteDefAsync(fe.Id);
         _fieldEditList.Remove(fe);
+        if (_selFieldId == fe.Id) { _selFieldId = _fieldEditList.FirstOrDefault()?.Id ?? Guid.Empty; }
         for (var k = 0; k < _fieldEditList.Count; k++) { _fieldEditList[k].SortOrder = k; }
         await Fields.ReorderDefsAsync(_fieldEditList.Select(x => x.Id).ToList());
         await RefreshDynAsync();

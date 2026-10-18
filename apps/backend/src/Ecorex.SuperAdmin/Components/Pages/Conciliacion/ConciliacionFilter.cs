@@ -43,7 +43,7 @@ public static class ConciliacionFilter
         new("proveedor", "Nombre proveedor", FilterFieldType.Text),
         new("nit", "NIT proveedor", FilterFieldType.Text),
         new("numprov", "N° factura proveedor", FilterFieldType.Text),
-        new("numsol", "N° factura SOLDARCO", FilterFieldType.Text),
+        new("numsol", "N° factura SISTEMA", FilterFieldType.Text),
         new("oc", "Orden de compra", FilterFieldType.Text),
         new("tipodoc", "Tipo doc DIAN", FilterFieldType.Text),
         new("tipopago", "Tipo de pago", FilterFieldType.Text),

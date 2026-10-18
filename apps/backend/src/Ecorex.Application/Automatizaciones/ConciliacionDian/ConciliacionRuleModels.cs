@@ -77,7 +77,7 @@ public static class ConciliacionRuleFields
     public static readonly IReadOnlyList<RuleField> All = new List<RuleField>
     {
         new("numprov", "N° factura proveedor", RuleFieldType.Text, false),
-        new("numsol", "N° factura SOLDARCO", RuleFieldType.Text, true),
+        new("numsol", "N° factura SISTEMA", RuleFieldType.Text, true),
         new("oc", "Orden de compra", RuleFieldType.Text, true),
         new("nit", "NIT proveedor", RuleFieldType.Text, false),
         new("proveedor", "Nombre proveedor", RuleFieldType.Text, false),

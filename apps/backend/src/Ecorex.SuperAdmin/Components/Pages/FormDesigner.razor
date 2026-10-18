@@ -2806,7 +2806,8 @@ else
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
                                                     @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(ext?.Lookup is null && ext?.Signature is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq)">Texto</option>
+                                                <option value="text" selected="@(ext?.Lookup is null && ext?.Signature is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq && !col.IsDate)">Texto</option>
+                                                <option value="date" selected="@(col.IsDate)">Fecha</option>
                                                 <option value="select" selected="@(ext?.Lookup is null && ext?.OptionsFromGrid is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
                                                 <option value="optionsFromGrid" selected="@(ext?.OptionsFromGrid is not null)">Lista desde otra grilla</option>
                                                 <option value="multicheck" selected="@(ext?.Lookup is null && col.Calc is null && col.IsMultiCheck)">Multi-seleccion (casillas)</option>
@@ -3991,6 +3992,12 @@ else
                     obj.Remove("calc");
                     obj.Remove("options");
                     obj["optionsFromGrid"] = new JsonObject { ["grid"] = "", ["valueField"] = "", ["labelField"] = "" };
+                    break;
+                case "date":
+                    // Columna FECHA: input type=date, valor ISO "yyyy-MM-dd".
+                    obj["type"] = "date";
+                    obj.Remove("calc");
+                    obj.Remove("options");
                     break;
                 case "multicheck":
                     obj["type"] = "multicheck";

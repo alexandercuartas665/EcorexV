@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-18 - v0.16.205: columna de grilla tipo FECHA (date) configurable (DESPLEGADO)
+
+- Pedido (sesion de diseno): las columnas de grilla solo eran text/select/seq/gestion/multicheck; se agrega tipo
+  FECHA nativo (la columna 'fecha' de 'entregas' en la OT AGRO se capturaba como texto libre, fragil para el
+  filtro de impresion por string exacto).
+- FormGridCalculator: +IsDate (Kind="date"; el parser ya acepta cualquier "type"/"controlType").
+- DynamicFormRenderer: celda date -> <input type=date> guardando ISO "yyyy-MM-dd" via SetGridCell; convive con los
+  extras (crossGrid/maxFrom/optionsFromGrid/calc). Compatibilidad: un valor viejo NO-ISO se muestra tal cual en un
+  input de texto (no se pierde).
+- FormDesigner: opcion "Fecha" en el selector de tipo de columna + case "date" en ChangeGridColumnTypeAsync.
+- Impresion: {{col.fecha}} imprime el valor (ISO). Build de solucion verde.
+- Siguiente (sesion de diseno): cambiar la columna 'fecha' de 'entregas' a type:"date" por SQL.
+
 ## 2026-10-18 - v0.16.204: impresion remision filtra VARIAS grillas por la misma fecha (DESPLEGADO)
 
 - Pedido (sesion de diseno): el rowFilter de impresion filtraba UNA sola grilla; la remision necesita filtrar por

@@ -2242,6 +2242,22 @@ else
                                             }
                                         </select>
                                     }
+                                    else if (col.IsDate)
+                                    {
+                                        @* Columna FECHA: input nativo type=date, se guarda en ISO "yyyy-MM-dd". Compatibilidad:
+                                           un valor viejo NO-ISO (texto libre) se muestra tal cual en un input de texto para no perderlo. *@
+                                        var isoOk = string.IsNullOrEmpty(cell) || System.Text.RegularExpressions.Regex.IsMatch(cell!, @"^\d{4}-\d{2}-\d{2}$");
+                                        if (isoOk)
+                                        {
+                                            <input type="date" class="form-control form-control-sm" value="@cell" disabled="@IsDisabled"
+                                                   @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                        }
+                                        else
+                                        {
+                                            <input type="text" class="form-control form-control-sm" value="@cell" disabled="@IsDisabled"
+                                                   @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                        }
+                                    }
                                     else if (col.IsSelect)
                                     {
                                         @* D3: columna de lista. El valor guardado sigue siendo el id de la opcion. *@

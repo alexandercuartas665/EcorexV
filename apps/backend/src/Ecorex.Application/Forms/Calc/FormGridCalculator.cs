@@ -62,6 +62,9 @@ public sealed record FormGridColumn(
     /// <summary>La columna es CONSECUTIVA (auto-numerada por posicion de fila): read-only, se guarda para imprimir.</summary>
     public bool IsSeq => string.Equals(Kind, "seq", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>La columna captura una FECHA (input type=date; se guarda en ISO "yyyy-MM-dd").</summary>
+    public bool IsDate => string.Equals(Kind, "date", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>El consecutivo es NUMERICO (1,2,3...). Por defecto (o cualquier otro valor) es de LETRAS.</summary>
     public bool SeqIsNumeric => string.Equals(Seq, "num", StringComparison.OrdinalIgnoreCase);
 }

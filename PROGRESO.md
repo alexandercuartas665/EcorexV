@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-18 - v0.16.204: impresion remision filtra VARIAS grillas por la misma fecha (DESPLEGADO)
+
+- Pedido (sesion de diseno): el rowFilter de impresion filtraba UNA sola grilla; la remision necesita filtrar por
+  una fecha TANTO las lineas (entregas) COMO la fila de la firma (remisiones).
+- FormTemplateRenderService: rowFilter ahora acepta VARIOS pares "gridCode.col=valor" separados por ';'
+  (ParseRowFilters -> mapa code->(col,val)); RenderGridBlocks aplica el par de cada grilla por su code. Compatible
+  con el formato de un solo par.
+- DynamicFormRenderer (dialogo de impresion): al elegir columna+valor, arma el rowFilter para TODAS las grillas
+  imprimibles que tengan esa columna (ej. 'fecha' en entregas y en remisiones) -> "g1.fecha=X;g2.fecha=X". Nota en UI.
+- Test unitario nuevo (FormTemplateMergeTests): rowFilter multi-grilla filtra lineas y firma por la misma fecha (verde).
+
 ## 2026-10-18 - v0.16.203: firma por link con vigencia en MINUTOS (DESPLEGADO)
 
 - Pedido (sesion de diseno): la firma por link solo aceptaba horas enteras (linkHours 1..8760); se necesita

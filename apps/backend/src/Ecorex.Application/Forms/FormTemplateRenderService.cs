@@ -175,9 +175,9 @@ public static class FormTemplateMerge
         // Campos de eleccion (Select/Radio/MultiCheck): fieldCode -> (options_json, esMulti). Con esto un
         // {{campo.x}} de un campo de lista imprime la ETIQUETA (o "A, B" en multi) en vez del id/JSON crudo.
         IReadOnlyDictionary<string, (string? OptionsJson, bool IsMulti)>? fieldChoices = null,
-        // FEATURE D: filtro de filas de UNA grilla para la impresion (ej. remision por fecha de entrega). Formato
-        // "gridCode.columnId=valor" (ej. "entregas.fecha=2026-10-16"): al emitir esa grilla solo pasan las filas
-        // cuya columna coincide. Null/vacio = todas las filas (comportamiento previo).
+        // FEATURE D: filtro de filas para la impresion (ej. remision por fecha). Formato "gridCode.columnId=valor"
+        // (ej. "entregas.fecha=2026-10-16"); acepta VARIOS pares separados por ';' para filtrar varias grillas a la
+        // vez por la misma fecha (ej. "entregas.fecha=X;remisiones.fecha=X" -> lineas Y firma). Null/vacio = todas.
         string? rowFilter = null)
     {
         var values = ParseResponseData(responseDataJson);
@@ -209,21 +209,32 @@ public static class FormTemplateMerge
         return ResolveDateTokens(sb.ToString(), fecha);
     }
 
-    private static string RenderGridBlocks(string html, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> gridOptions, string? rowFilter = null)
+    /// <summary>FEATURE D: parsea el rowFilter de impresion. Uno o varios pares "gridCode.col=valor" separados por ';'.
+    /// Devuelve mapa code -&gt; (columna, valor). Pares mal formados se ignoran; vacio = sin filtro.</summary>
+    private static Dictionary<string, (string Col, string Val)> ParseRowFilters(string? rowFilter)
     {
-        // FEATURE D: filtro "gridCode.columnId=valor" (una sola grilla). Se parsea una vez.
-        string? fGrid = null, fCol = null, fVal = null;
-        if (!string.IsNullOrWhiteSpace(rowFilter))
+        var map = new Dictionary<string, (string Col, string Val)>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(rowFilter)) { return map; }
+        foreach (var part in rowFilter.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var dot = rowFilter.IndexOf('.');
-            var eq = rowFilter.IndexOf('=');
+            var dot = part.IndexOf('.');
+            var eq = part.IndexOf('=');
             if (dot > 0 && eq > dot + 1)
             {
-                fGrid = rowFilter[..dot].Trim();
-                fCol = rowFilter[(dot + 1)..eq].Trim();
-                fVal = rowFilter[(eq + 1)..].Trim();
+                var g = part[..dot].Trim();
+                var c = part[(dot + 1)..eq].Trim();
+                var v = part[(eq + 1)..].Trim();
+                if (g.Length > 0 && c.Length > 0) { map[g] = (c, v); }
             }
         }
+        return map;
+    }
+
+    private static string RenderGridBlocks(string html, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> gridOptions, string? rowFilter = null)
+    {
+        // FEATURE D: filtro de impresion. Acepta UNO o VARIOS pares "gridCode.columnId=valor" separados por ';'
+        // (ej. "entregas.fecha=X;remisiones.fecha=X"): cada grilla se filtra por su propio par. Compatible con 1 par.
+        var rowFilters = ParseRowFilters(rowFilter);
         return Regex.Replace(html, @"\{\{\s*#tabla\.([a-zA-Z0-9_]+)\s*\}\}(.*?)\{\{\s*/tabla\.\1\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
@@ -231,11 +242,10 @@ public static class FormTemplateMerge
             if (!values.TryGetValue(code, out var raw) || string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
 
             var rows = ParseGridRows(raw);
-            // FEATURE D: si el filtro apunta a ESTA grilla, solo pasan las filas cuya columna coincide (ej. la fecha).
-            if (fGrid is not null && fCol is not null && fVal is not null
-                && string.Equals(code, fGrid, StringComparison.OrdinalIgnoreCase))
+            // FEATURE D: si hay un filtro para ESTA grilla, solo pasan las filas cuya columna coincide (ej. la fecha).
+            if (rowFilters.TryGetValue(code, out var f))
             {
-                rows = rows.Where(r => string.Equals((r.GetValueOrDefault(fCol) ?? string.Empty).Trim(), fVal, StringComparison.OrdinalIgnoreCase)).ToList();
+                rows = rows.Where(r => string.Equals((r.GetValueOrDefault(f.Col) ?? string.Empty).Trim(), f.Val, StringComparison.OrdinalIgnoreCase)).ToList();
             }
             if (rows.Count == 0) { return string.Empty; }
 

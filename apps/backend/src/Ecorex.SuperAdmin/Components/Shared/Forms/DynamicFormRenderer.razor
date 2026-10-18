@@ -264,6 +264,7 @@ else
                                                 <option value="@v">@v</option>
                                             }
                                         </select>
+                                        <div class="dfr-gridlk-note" style="margin-top:4px">El filtro se aplica a todas las grillas que tengan la columna "@_printFilterCol" (ej. lineas + firma por la misma fecha).</div>
                                     }
                                 }
                             }
@@ -4265,10 +4266,27 @@ else
 
             var qp = new List<string>();
             if (_printTemplateId != Guid.Empty) { qp.Add($"templateId={_printTemplateId}"); }
-            // FEATURE D: filtro de filas (ej. remision por fecha) -> "grid.col=valor".
-            if (!string.IsNullOrEmpty(_printFilterGrid) && !string.IsNullOrEmpty(_printFilterCol) && !string.IsNullOrEmpty(_printFilterValue))
+            // FEATURE D: filtro de filas (ej. remision por fecha). Se aplica a TODAS las grillas imprimibles que
+            // tengan una columna con ese id (ej. 'fecha' en 'entregas' Y en 'remisiones'), para filtrar las lineas
+            // Y la fila de la firma por la MISMA fecha. Formato multi-grilla: "g1.col=v;g2.col=v" (compatible con 1 par).
+            if (!string.IsNullOrEmpty(_printFilterCol) && !string.IsNullOrEmpty(_printFilterValue))
             {
-                qp.Add($"rowFilter={Uri.EscapeDataString($"{_printFilterGrid}.{_printFilterCol}={_printFilterValue}")}");
+                var pairs = new List<string>();
+                foreach (var gq in _definition?.Questions.Where(x => x.ControlType == FormControlType.GridDetail) ?? Enumerable.Empty<FormQuestionDto>())
+                {
+                    if (GridColumnsOf(gq).Any(c => string.Equals(c.Id, _printFilterCol, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        pairs.Add($"{gq.FieldCode}.{_printFilterCol}={_printFilterValue}");
+                    }
+                }
+                if (pairs.Count == 0 && !string.IsNullOrEmpty(_printFilterGrid))
+                {
+                    pairs.Add($"{_printFilterGrid}.{_printFilterCol}={_printFilterValue}");
+                }
+                if (pairs.Count > 0)
+                {
+                    qp.Add($"rowFilter={Uri.EscapeDataString(string.Join(";", pairs))}");
+                }
             }
             var qs = qp.Count > 0 ? "?" + string.Join("&", qp) : "";
             var baseUrl = $"/formularios/plantilla/{_response!.Id}";

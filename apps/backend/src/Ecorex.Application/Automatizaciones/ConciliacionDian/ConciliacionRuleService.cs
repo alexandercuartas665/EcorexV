@@ -31,6 +31,8 @@ public interface IConciliacionRuleService
     Task<ConciliacionRuleDto?> SaveAsync(ConciliacionRuleDto dto, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
     Task ReorderAsync(IReadOnlyList<Guid> orderedIds, CancellationToken ct = default);
+    /// <summary>Contenedores de datos del tenant (con sus columnas) para elegir en el editor de VLOOKUP.</summary>
+    Task<IReadOnlyList<RuleContenedorDto>> ListContenedoresAsync(CancellationToken ct = default);
     Task<ConciliacionReglasResult> AplicarReglasAsync(Guid documentoId, IReadOnlyList<Guid>? renglonIds, bool simular, CancellationToken ct = default);
 }
 
@@ -89,6 +91,35 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
             if (e is not null) { e.SortOrder = i; }
         }
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RuleContenedorDto>> ListContenedoresAsync(CancellationToken ct = default)
+    {
+        // Contenedores (tablas) del tenant con su modelo y columnas. Tenant-scoped por el filtro global.
+        var conts = await _db.DataContainers.AsNoTracking()
+            .Select(c => new { c.Id, c.Name, c.ModelId })
+            .ToListAsync(ct);
+        if (conts.Count == 0) { return Array.Empty<RuleContenedorDto>(); }
+
+        var modelIds = conts.Where(c => c.ModelId != null).Select(c => c.ModelId!.Value).Distinct().ToList();
+        var models = await _db.DataModels.AsNoTracking()
+            .Where(m => modelIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToListAsync(ct);
+        var modelName = models.ToDictionary(m => m.Id, m => m.Name);
+
+        var contIds = conts.Select(c => c.Id).ToList();
+        var cols = await _db.DataContainerColumns.AsNoTracking()
+            .Where(col => contIds.Contains(col.ContainerId))
+            .OrderBy(col => col.SortOrder)
+            .Select(col => new { col.ContainerId, col.Name }).ToListAsync(ct);
+        var colsByCont = cols.GroupBy(x => x.ContainerId).ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.Name).ToList());
+
+        return conts
+            .Select(c => new RuleContenedorDto(
+                c.Id,
+                (c.ModelId is Guid mid && modelName.TryGetValue(mid, out var mn) ? mn + " / " : "") + c.Name,
+                colsByCont.TryGetValue(c.Id, out var cc) ? cc : Array.Empty<string>()))
+            .OrderBy(x => x.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     // ---------- Motor ----------

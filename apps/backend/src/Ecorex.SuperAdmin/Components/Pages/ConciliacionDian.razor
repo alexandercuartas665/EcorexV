@@ -75,6 +75,7 @@ else
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigReglasAsync" disabled="@_busy" title="Configurar las reglas (VLOOKUP y condiciones) sin codigo">&#9881; Reglas</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
         <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
     </div>
@@ -584,6 +585,157 @@ else
                 {
                     <button class="btn btn-primary btn-sm" @onclick="AplicarReglasConfirmarAsync" disabled="@_busy">Aplicar de verdad (@rr.Cambiados)</button>
                 }
+            </div>
+        </div>
+    }
+
+    @if (_reglasConfigOpen)
+    {
+        <div class="cd-doc-backdrop" @onclick="CerrarConfigReglas"></div>
+        <div class="cd-rules-modal" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Reglas de conciliacion</div>
+                    <div class="cd-doc-title-sub">Se aplican EN ORDEN sobre cada factura; cada regla puede reusar el campo que calculo la anterior.</div>
+                </div>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfigReglas">&times;</button>
+            </div>
+            <div class="cd-rules-body">
+                <div class="cd-rules-tb">
+                    <button class="cd-fb-add" @onclick="AddLookupAsync">+ Busqueda (VLOOKUP)</button>
+                    <button class="cd-fb-add" @onclick="AddConditionAsync">+ Condicion (SI)</button>
+                </div>
+                @if (_ruleList.Count == 0)
+                {
+                    <div class="cd-muted" style="padding:12px 2px;">Sin reglas todavia. Agrega una busqueda o una condicion.</div>
+                }
+                @for (var i = 0; i < _ruleList.Count; i++)
+                {
+                    var idx = i; var ru = _ruleList[idx];
+                    <div class="cd-rule-card">
+                        <div class="cd-rule-head">
+                            <span class="cd-rule-ord">@(idx + 1)</span>
+                            <input type="checkbox" checked="@ru.Enabled" @onchange="e => ToggleEnabled(ru, e)" title="Activa" />
+                            <input class="cd-in cd-rule-name" value="@ru.Name" @onchange="e => SetName(ru, e)" placeholder="Nombre de la regla" />
+                            <span class="cd-rule-badge @(ru.Kind == "Lookup" ? "lk" : "cn")">@(ru.Kind == "Lookup" ? "VLOOKUP" : "SI")</span>
+                            <div class="cd-rule-actions">
+                                <button class="cd-ic" @onclick="() => MoveRuleAsync(idx, -1)" disabled="@(idx == 0)" title="Subir">&#8593;</button>
+                                <button class="cd-ic" @onclick="() => MoveRuleAsync(idx, 1)" disabled="@(idx == _ruleList.Count - 1)" title="Bajar">&#8595;</button>
+                                <button class="cd-ic-save @(ru.Dirty ? "on" : "")" @onclick="() => GuardarRuleAsync(ru)" disabled="@(!ru.Dirty)" title="Guardar cambios">Guardar</button>
+                                <button class="cd-ic cd-ic-del" @onclick="() => BorrarRuleAsync(ru)" title="Eliminar">&times;</button>
+                            </div>
+                        </div>
+
+                        @if (ru.Kind == "Lookup" && ru.Lookup is { } L)
+                        {
+                            var cols = ColsDe(L.ContainerId);
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Contenedor</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => SetContenedor(ru, e)">
+                                        <option value="">(elegir contenedor)...</option>
+                                        @foreach (var c in _contenedores)
+                                        {
+                                            <option value="@c.ContainerId" selected="@(c.ContainerId == L.ContainerId)">@c.Label</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-sub">Buscar donde (todas se cumplen):</div>
+                                @foreach (var m in L.Matches.ToList())
+                                {
+                                    var mm = m;
+                                    <div class="cd-rule-row">
+                                        <select class="cd-in" @onchange="e => SetMatchColumn(ru, mm, e)">
+                                            <option value="">columna del contenedor...</option>
+                                            @foreach (var col in cols) { <option value="@col" selected="@(col == mm.Column)">@col</option> }
+                                        </select>
+                                        <span class="cd-rule-eq">=</span>
+                                        <select class="cd-in" @onchange="e => SetMatchSource(ru, mm, e)">
+                                            <option value="">campo de la factura...</option>
+                                            @foreach (var f in ConciliacionRuleFields.All) { <option value="@f.Key" selected="@(f.Key == mm.SourceField)">@f.Label</option> }
+                                        </select>
+                                        <button class="cd-ic cd-ic-del" @onclick="() => RemoveMatch(ru, mm)" title="Quitar">&times;</button>
+                                    </div>
+                                }
+                                <button class="cd-fb-add" @onclick="() => AddMatch(ru)">+ Condicion de busqueda</button>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Devolver columna</label>
+                                    <select class="cd-in" @onchange="e => SetReturnColumn(ru, e)">
+                                        <option value="">...</option>
+                                        @foreach (var col in cols) { <option value="@col" selected="@(col == L.ReturnColumn)">@col</option> }
+                                    </select>
+                                    <label class="cd-rule-lbl">Escribir en</label>
+                                    <select class="cd-in" @onchange="e => SetTargetField(ru, e)">
+                                        <option value="">...</option>
+                                        @foreach (var f in ConciliacionRuleFields.All.Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == L.TargetField)">@f.Label</option> }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row cd-rule-norm">
+                                    <span>Normalizar:</span>
+                                    <label><input type="checkbox" checked="@L.Norm.Trim" @onchange="e => SetNorm(ru, 't', e)" /> espacios</label>
+                                    <label><input type="checkbox" checked="@L.Norm.Upper" @onchange="e => SetNorm(ru, 'u', e)" /> mayusculas</label>
+                                    <label><input type="checkbox" checked="@L.Norm.StripLeadingZeros" @onchange="e => SetNorm(ru, 'z', e)" /> quitar ceros</label>
+                                    <label><input type="checkbox" checked="@L.Norm.DigitsOnly" @onchange="e => SetNorm(ru, 'd', e)" /> solo digitos</label>
+                                </div>
+                            </div>
+                        }
+                        else if (ru.Condition is { } C)
+                        {
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-sub">
+                                    Cuando
+                                    <span class="cd-fb-opsw" style="margin-left:8px;">
+                                        <button class="cd-fb-op @(C.When.Op == "and" ? "on" : "")" @onclick='() => SetGroupOp(ru, "and")'>Y (todas)</button>
+                                        <button class="cd-fb-op @(C.When.Op == "or" ? "on" : "")" @onclick='() => SetGroupOp(ru, "or")'>O (alguna)</button>
+                                    </span>
+                                </div>
+                                @foreach (var cond in C.When.Children.ToList())
+                                {
+                                    var cc = cond; var fld = ConciliacionRuleFields.ByKey(cc.Field);
+                                    <div class="cd-rule-row">
+                                        <select class="cd-in" @onchange="e => SetCondField(ru, cc, e)">
+                                            <option value="">campo...</option>
+                                            @foreach (var f in ConciliacionRuleFields.All) { <option value="@f.Key" selected="@(f.Key == cc.Field)">@f.Label</option> }
+                                        </select>
+                                        @if (fld is { } ff)
+                                        {
+                                            <select class="cd-in" @onchange="e => SetCondOp(ru, cc, e)">
+                                                <option value="">operador...</option>
+                                                @foreach (var op in ConciliacionRuleFields.OperatorsFor(ff.Type)) { <option value="@op.Key" selected="@(op.Key == cc.Operator)">@op.Label</option> }
+                                            </select>
+                                            @if (ConciliacionRuleFields.OperatorNeedsValue(cc.Operator))
+                                            {
+                                                <input class="cd-in" placeholder="valor" value="@cc.Value" @onchange="e => SetCondValue(ru, cc, e)" />
+                                            }
+                                        }
+                                        <button class="cd-ic cd-ic-del" @onclick="() => RemoveCond(ru, cc)" title="Quitar">&times;</button>
+                                    </div>
+                                }
+                                <button class="cd-fb-add" @onclick="() => AddCond(ru)">+ Condicion</button>
+                                <div class="cd-rule-sub">Entonces asignar:</div>
+                                @foreach (var a in C.Then.ToList())
+                                {
+                                    var aa = a;
+                                    <div class="cd-rule-row">
+                                        <select class="cd-in" @onchange="e => SetAssignField(ru, aa, e)">
+                                            <option value="">campo...</option>
+                                            @foreach (var f in ConciliacionRuleFields.All.Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == aa.Field)">@f.Label</option> }
+                                        </select>
+                                        <span class="cd-rule-eq">=</span>
+                                        <input class="cd-in" placeholder="valor (ej. true, o {otroCampo})" value="@aa.Value" @onchange="e => SetAssignValue(ru, aa, e)" />
+                                        <button class="cd-ic cd-ic-del" @onclick="() => RemoveAssign(ru, aa)" title="Quitar">&times;</button>
+                                    </div>
+                                }
+                                <button class="cd-fb-add" @onclick="() => AddAssign(ru)">+ Asignacion</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="cd-rules-foot">
+                <span class="cd-muted">Guarda cada regla; "Aplicar reglas" las corre en este orden.</span>
+                <div style="flex:1"></div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfigReglas">Cerrar</button>
             </div>
         </div>
     }
@@ -1153,6 +1305,140 @@ else
     }
 
     private void CerrarReglas() { _reglasOpen = false; _reglasResult = null; }
+
+    // ---- Configuracion de reglas (Fase 2): editor sin codigo ----
+    private sealed class RuleEdit
+    {
+        public Guid Id;
+        public int SortOrder;
+        public string Name = "";
+        public string Kind = "Lookup";
+        public bool Enabled = true;
+        public RuleLookupSpec? Lookup;
+        public RuleConditionSpec? Condition;
+        public bool Dirty;
+    }
+
+    private bool _reglasConfigOpen;
+    private List<RuleEdit> _ruleList = new();
+    private List<RuleContenedorDto> _contenedores = new();
+    private static readonly System.Text.Json.JsonSerializerOptions _rjson = new() { PropertyNameCaseInsensitive = true };
+
+    private IReadOnlyList<string> ColsDe(Guid cid) => _contenedores.FirstOrDefault(c => c.ContainerId == cid)?.Columns ?? Array.Empty<string>();
+    private static void DirtyRu(RuleEdit ru) => ru.Dirty = true;
+
+    private async Task AbrirConfigReglasAsync()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            _contenedores = (await Reglas.ListContenedoresAsync()).ToList();
+            _ruleList = (await Reglas.ListAsync()).Select(d =>
+            {
+                var e = new RuleEdit { Id = d.Id, SortOrder = d.SortOrder, Name = d.Name, Kind = d.Kind, Enabled = d.Enabled };
+                if (string.Equals(d.Kind, "Lookup", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Lookup = TryDes<RuleLookupSpec>(d.DefinitionJson) ?? new RuleLookupSpec();
+                    if (e.Lookup.Matches.Count == 0) { e.Lookup.Matches.Add(new RuleLookupMatch()); }
+                    e.Lookup.Norm ??= new RuleNorm();
+                }
+                else
+                {
+                    e.Condition = TryDes<RuleConditionSpec>(d.DefinitionJson) ?? new RuleConditionSpec();
+                    e.Condition.When ??= new RuleCond { Kind = "group", Op = "and" };
+                    e.Condition.Then ??= new();
+                }
+                return e;
+            }).ToList();
+            _reglasConfigOpen = true;
+        }
+        catch (Exception ex) { _msg = "Error al abrir reglas: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void CerrarConfigReglas() { _reglasConfigOpen = false; }
+
+    private static T? TryDes<T>(string json) where T : class
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<T>(json, _rjson); } catch { return null; }
+    }
+
+    private static string SerializeSpec(RuleEdit ru) =>
+        ru.Kind == "Lookup"
+            ? System.Text.Json.JsonSerializer.Serialize(ru.Lookup)
+            : System.Text.Json.JsonSerializer.Serialize(ru.Condition);
+
+    private async Task AddLookupAsync() => await AddRuleAsync("Lookup");
+    private async Task AddConditionAsync() => await AddRuleAsync("Condition");
+
+    private async Task AddRuleAsync(string kind)
+    {
+        var ru = new RuleEdit { Kind = kind, SortOrder = _ruleList.Count, Enabled = true, Name = kind == "Lookup" ? "Nueva busqueda" : "Nueva condicion" };
+        if (kind == "Lookup") { ru.Lookup = new RuleLookupSpec { Matches = new() { new RuleLookupMatch() } }; }
+        else { ru.Condition = new RuleConditionSpec { When = new RuleCond { Kind = "group", Op = "and", Children = new() { new RuleCond { Kind = "cond" } } }, Then = new() { new RuleAssign() } }; }
+        var saved = await Reglas.SaveAsync(new ConciliacionRuleDto(Guid.Empty, ru.SortOrder, ru.Name, ru.Kind, ru.Enabled, SerializeSpec(ru)));
+        if (saved is not null) { ru.Id = saved.Id; _ruleList.Add(ru); }
+    }
+
+    private async Task GuardarRuleAsync(RuleEdit ru)
+    {
+        var saved = await Reglas.SaveAsync(new ConciliacionRuleDto(ru.Id, ru.SortOrder, ru.Name, ru.Kind, ru.Enabled, SerializeSpec(ru)));
+        if (saved is not null) { ru.Id = saved.Id; ru.Dirty = false; }
+    }
+
+    private async Task BorrarRuleAsync(RuleEdit ru)
+    {
+        await Reglas.DeleteAsync(ru.Id);
+        _ruleList.Remove(ru);
+        for (var k = 0; k < _ruleList.Count; k++) { _ruleList[k].SortOrder = k; }
+        await Reglas.ReorderAsync(_ruleList.Select(r => r.Id).ToList());
+    }
+
+    private async Task MoveRuleAsync(int idx, int dir)
+    {
+        var tgt = idx + dir;
+        if (tgt < 0 || tgt >= _ruleList.Count) { return; }
+        (_ruleList[idx], _ruleList[tgt]) = (_ruleList[tgt], _ruleList[idx]);
+        for (var k = 0; k < _ruleList.Count; k++) { _ruleList[k].SortOrder = k; }
+        await Reglas.ReorderAsync(_ruleList.Select(r => r.Id).ToList());
+    }
+
+    private void ToggleEnabled(RuleEdit ru, ChangeEventArgs e) { ru.Enabled = e.Value is bool b && b; ru.Dirty = true; }
+    private void SetName(RuleEdit ru, ChangeEventArgs e) { ru.Name = e.Value?.ToString() ?? ""; ru.Dirty = true; }
+
+    // Lookup handlers
+    private void SetContenedor(RuleEdit ru, ChangeEventArgs e)
+    {
+        if (ru.Lookup is not { } L) { return; }
+        if (Guid.TryParse(e.Value?.ToString(), out var cid)) { L.ContainerId = cid; L.ContainerLabel = _contenedores.FirstOrDefault(c => c.ContainerId == cid)?.Label ?? ""; }
+        else { L.ContainerId = Guid.Empty; L.ContainerLabel = ""; }
+        DirtyRu(ru);
+    }
+    private void SetMatchColumn(RuleEdit ru, RuleLookupMatch m, ChangeEventArgs e) { m.Column = e.Value?.ToString() ?? ""; DirtyRu(ru); }
+    private void SetMatchSource(RuleEdit ru, RuleLookupMatch m, ChangeEventArgs e) { m.SourceField = e.Value?.ToString() ?? ""; DirtyRu(ru); }
+    private void AddMatch(RuleEdit ru) { ru.Lookup?.Matches.Add(new RuleLookupMatch()); DirtyRu(ru); }
+    private void RemoveMatch(RuleEdit ru, RuleLookupMatch m) { ru.Lookup?.Matches.Remove(m); DirtyRu(ru); }
+    private void SetReturnColumn(RuleEdit ru, ChangeEventArgs e) { if (ru.Lookup is { } L) { L.ReturnColumn = e.Value?.ToString() ?? ""; } DirtyRu(ru); }
+    private void SetTargetField(RuleEdit ru, ChangeEventArgs e) { if (ru.Lookup is { } L) { L.TargetField = e.Value?.ToString() ?? ""; } DirtyRu(ru); }
+    private void SetNorm(RuleEdit ru, char which, ChangeEventArgs e)
+    {
+        if (ru.Lookup is not { } L) { return; }
+        var v = e.Value is bool b && b;
+        switch (which) { case 't': L.Norm.Trim = v; break; case 'u': L.Norm.Upper = v; break; case 'z': L.Norm.StripLeadingZeros = v; break; case 'd': L.Norm.DigitsOnly = v; break; }
+        DirtyRu(ru);
+    }
+
+    // Condition handlers
+    private void SetGroupOp(RuleEdit ru, string op) { if (ru.Condition is { } C) { C.When.Op = op; } DirtyRu(ru); }
+    private void SetCondField(RuleEdit ru, RuleCond c, ChangeEventArgs e) { c.Field = e.Value?.ToString() ?? ""; c.Operator = ""; c.Value = null; DirtyRu(ru); }
+    private void SetCondOp(RuleEdit ru, RuleCond c, ChangeEventArgs e) { c.Operator = e.Value?.ToString() ?? ""; if (!ConciliacionRuleFields.OperatorNeedsValue(c.Operator)) { c.Value = null; } DirtyRu(ru); }
+    private void SetCondValue(RuleEdit ru, RuleCond c, ChangeEventArgs e) { c.Value = e.Value?.ToString(); DirtyRu(ru); }
+    private void AddCond(RuleEdit ru) { ru.Condition?.When.Children.Add(new RuleCond { Kind = "cond" }); DirtyRu(ru); }
+    private void RemoveCond(RuleEdit ru, RuleCond c) { ru.Condition?.When.Children.Remove(c); DirtyRu(ru); }
+    private void SetAssignField(RuleEdit ru, RuleAssign a, ChangeEventArgs e) { a.Field = e.Value?.ToString() ?? ""; DirtyRu(ru); }
+    private void SetAssignValue(RuleEdit ru, RuleAssign a, ChangeEventArgs e) { a.Value = e.Value?.ToString() ?? ""; DirtyRu(ru); }
+    private void AddAssign(RuleEdit ru) { ru.Condition?.Then.Add(new RuleAssign()); DirtyRu(ru); }
+    private void RemoveAssign(RuleEdit ru, RuleAssign a) { ru.Condition?.Then.Remove(a); DirtyRu(ru); }
 
     // ---- Radicacion de eventos RADIAN en NEWTON ----
     private bool _showEnviarConfirm;

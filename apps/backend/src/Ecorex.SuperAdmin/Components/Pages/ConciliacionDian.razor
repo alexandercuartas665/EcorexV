@@ -147,7 +147,7 @@ else
                         var sc = s;
                         <div class="cd-dd-row">
                             <select class="cd-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
-                                @foreach (var col in _allCols)
+                                @foreach (var col in MenuCols)
                                 {
                                     <option value="@col.Key" selected="@(col.Key == sc.K)">@LabelOf(col)</option>
                                 }
@@ -178,7 +178,7 @@ else
                         var idx = gi;
                         <div class="cd-dd-row">
                             <select class="cd-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
-                                @foreach (var col in _allCols.Where(x => x.Groupable))
+                                @foreach (var col in MenuCols.Where(x => x.Groupable))
                                 {
                                     <option value="@col.Key" selected="@(col.Key == _groups[idx])">@LabelOf(col)</option>
                                 }
@@ -186,7 +186,7 @@ else
                             <button class="cd-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
                         </div>
                     }
-                    @if (_groups.Count < _allCols.Count(x => x.Groupable))
+                    @if (_groups.Count < MenuCols.Count(x => x.Groupable))
                     {
                         <button class="cd-dd-add" @onclick="AddGroup">+ Agregar agrupacion</button>
                     }
@@ -941,6 +941,9 @@ else
     private List<GridCol> _dynCols = new();
     private Dictionary<string, ConciliacionFieldDefDto> _dynByKey = new();
     private Dictionary<Guid, Dictionary<Guid, string?>> _dynValues = new();
+
+    /// <summary>Catalogo de columnas para los menus de Ordenar/Agrupar: estaticas + campos a medida (EAV).</summary>
+    private IEnumerable<GridCol> MenuCols => _allCols.Concat(_dynCols);
 
     private static string DynKey(string fieldKey) => "dyn:" + fieldKey;
     private string DynVal(Guid renglonId, Guid defId) => _dynValues.TryGetValue(renglonId, out var d) && d.TryGetValue(defId, out var v) ? (v ?? "") : "";
@@ -1856,7 +1859,7 @@ else
     private void AddSort()
     {
         var used = _sorts.Select(s => s.K).ToHashSet();
-        var nx = _allCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
+        var nx = MenuCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
         _sorts.Add(new SortSpec { K = nx.Key, Dir = 1 }); RebuildItems(); _ = SavePrefsAsync();
     }
     private void ChangeSortField(SortSpec s, ChangeEventArgs e) { s.K = e.Value?.ToString() ?? s.K; RebuildItems(); _ = SavePrefsAsync(); }
@@ -1867,7 +1870,7 @@ else
     private void AddGroup()
     {
         var used = _groups.ToHashSet();
-        var nx = _allCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
+        var nx = MenuCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
         if (nx is not null) { _groups.Add(nx.Key); RebuildItems(); _ = SavePrefsAsync(); }
     }
     private void ChangeGroupField(int idx, ChangeEventArgs e) { if (idx >= 0 && idx < _groups.Count) { _groups[idx] = e.Value?.ToString() ?? _groups[idx]; RebuildItems(); _ = SavePrefsAsync(); } }

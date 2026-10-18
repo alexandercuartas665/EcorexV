@@ -385,3 +385,9 @@
 /* ---- Celdas de campos dinamicos ---- */
 .cd-dyn { height: 28px; padding: 0 6px; min-width: 90px; max-width: 160px; }
 .cd-dyn.num { text-align: right; }
+/* Campo tipo "Lista del Contenedor": etiqueta clicable (read-only) + control typeahead al editar */
+.cd-dyn-lkbtn { height: 28px; min-width: 110px; max-width: 220px; padding: 0 8px; text-align: left; border: 1px solid var(--line-2, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--ink, #111827); cursor: pointer; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-dyn-lkbtn:hover { border-color: var(--brand, #4f46e5); }
+.cd-dyn-lkbtn.empty { color: var(--ink-3, #9ca3af); }
+.cd-dyn-lkbtn:disabled { cursor: default; opacity: .6; }
+.cd-dyn-lk { min-width: 220px; max-width: 320px; }

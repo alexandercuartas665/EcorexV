@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Automatizaciones.ConciliacionDian;
 
-public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options);
+public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options, string? OptionsJson = null);
 
 /// <summary>
 /// Campos DINAMICOS de la tabla de conciliacion: definiciones por tenant (sin codigo) + sus valores por
@@ -56,9 +56,16 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         e.Label = label;
         e.Type = NormalizeType(dto.Type);
         e.SortOrder = dto.SortOrder;
-        e.OptionsJson = e.Type == "Select" && dto.Options is { Count: > 0 }
-            ? JsonSerializer.Serialize(dto.Options.Select(o => o.Trim()).Where(o => o.Length > 0).ToList())
-            : null;
+        e.OptionsJson = e.Type switch
+        {
+            // Select/MultiSelect: lista de opciones (JSON array). Lookup: DataLookupConfig JSON.
+            // Calculated: la formula cruda. El resto: sin config.
+            "Select" or "MultiSelect" => dto.Options is { Count: > 0 }
+                ? JsonSerializer.Serialize(dto.Options.Select(o => o.Trim()).Where(o => o.Length > 0).ToList())
+                : null,
+            "Lookup" or "Calculated" => string.IsNullOrWhiteSpace(dto.OptionsJson) ? null : dto.OptionsJson,
+            _ => null,
+        };
         await _db.SaveChangesAsync(ct);
         return Map(e);
     }
@@ -119,16 +126,18 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
     private static ConciliacionFieldDefDto Map(ConciliacionFieldDefinition d)
     {
         IReadOnlyList<string> opts = Array.Empty<string>();
-        if (!string.IsNullOrWhiteSpace(d.OptionsJson))
+        // Solo Select/MultiSelect guardan una lista de opciones. Lookup (JSON {...}) y Calculated
+        // (formula) usan OptionsJson crudo, que el DTO expone aparte.
+        if ((d.Type == "Select" || d.Type == "MultiSelect") && !string.IsNullOrWhiteSpace(d.OptionsJson))
         {
             try { opts = JsonSerializer.Deserialize<List<string>>(d.OptionsJson) ?? new(); } catch { }
         }
-        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts);
+        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts, d.OptionsJson);
     }
 
     private static string NormalizeType(string? t) => t switch
     {
-        "Number" or "Date" or "Bool" or "Select" => t,
+        "Number" or "Date" or "Bool" or "Select" or "MultiSelect" or "Url" or "Lookup" or "Calculated" => t,
         _ => "Text",
     };
 

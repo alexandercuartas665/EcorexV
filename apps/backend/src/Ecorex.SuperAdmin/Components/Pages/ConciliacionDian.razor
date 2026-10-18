@@ -3,14 +3,17 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Application.DataLookups
 @using Ecorex.Application.Preferences
 @using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Pages.Conciliacion
+@using Ecorex.SuperAdmin.Components.Shared.Lookups
 @using ClosedXML.Excel
 @inject IConciliacionDianService Svc
 @inject IConciliacionRuleService Reglas
 @inject IConciliacionFieldService Fields
+@inject IDataLookupService Lookups
 @inject IUserTablePrefsService Prefs
 @inject ISavedFilterService SavedFilters
 @inject IFileStorageService Files
@@ -393,6 +396,26 @@ else
                                                     if (dd.Type == "Bool")
                                                     {
                                                         <label class="cd-switch"><input type="checkbox" checked="@(ConciliacionRuleEngine.IsTrue(val))" @onchange="e => SetDynBool(r, dd, e)" /><span></span></label>
+                                                    }
+                                                    else if (dd.Type == "Lookup")
+                                                    {
+                                                        @if (_editingLookup is { } el && el.Renglon == r.Id && el.Def == dd.Id && LookupCfgFor(dd) is { } lkcfg)
+                                                        {
+                                                            <div class="cd-dyn-lk" @onclick:stopPropagation="true">
+                                                                <DataLookupField Config="lkcfg" Value="@val"
+                                                                    ValueChanged="@(v => SetDynLookup(r, dd, v))"
+                                                                    ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            var lbl = DynDisplay(r.Id, dd);
+                                                            <button type="button" class="cd-dyn-lkbtn @(string.IsNullOrEmpty(lbl) ? "empty" : "")"
+                                                                    @onclick="() => OpenLookupEdit(r, dd)" disabled="@(LookupCfgFor(dd) is null)"
+                                                                    title="Elegir del contenedor">
+                                                                @(string.IsNullOrEmpty(lbl) ? "—" : lbl)
+                                                            </button>
+                                                        }
                                                     }
                                                     else if (dd.Type == "Select")
                                                     {
@@ -834,6 +857,42 @@ else
                                 </div>
                             </div>
                         }
+                        else if (fe.Type == "Lookup")
+                        {
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Modelo de datos</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => LkModelChanged(fe, e)">
+                                        <option value="">Todos los modelos</option>
+                                        @foreach (var m in _lkModels)
+                                        {
+                                            <option value="@m.Id" selected="@(fe.ModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Tabla</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => LkTableChanged(fe, e)">
+                                        <option value="">-- Elige una tabla --</option>
+                                        @foreach (var t in fe.Tables)
+                                        {
+                                            <option value="@t.Id" selected="@(fe.TableId == t.Id)">@t.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Columna que se muestra</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => LkColumnChanged(fe, e)" disabled="@(fe.TableId is null)">
+                                        <option value="">(automatica: primera de texto)</option>
+                                        @foreach (var c in fe.Columns)
+                                        {
+                                            <option value="@c.Id" selected="@(fe.DisplayColId == c.Id)">@c.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row"><span class="cd-muted">Busqueda con sugerencias sobre la tabla del Contenedor. Guarda la fila elegida (referencia viva).</span></div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -948,6 +1007,30 @@ else
     private static string DynKey(string fieldKey) => "dyn:" + fieldKey;
     private string DynVal(Guid renglonId, Guid defId) => _dynValues.TryGetValue(renglonId, out var d) && d.TryGetValue(defId, out var v) ? (v ?? "") : "";
 
+    // ---- Tipo "Lista del Contenedor" (Lookup): config + etiquetas resueltas + celda en edicion ----
+    private Guid _actorId;
+    // Config parseada por def (DataLookupConfig). Lookup guarda el Id de fila en el EAV.
+    private Dictionary<Guid, DataLookupConfig> _lookupCfg = new();
+    // Etiquetas resueltas por def -> (rowId -> etiqueta a mostrar). Para mostrar/ordenar/agrupar/filtrar/exportar.
+    private Dictionary<Guid, Dictionary<string, string>> _lookupLabels = new();
+    // Celda de lookup en edicion (renglon, def): mientras esta activa se pinta el control typeahead.
+    private (Guid Renglon, Guid Def)? _editingLookup;
+
+    private DataLookupConfig? LookupCfgFor(ConciliacionFieldDefDto d)
+        => _lookupCfg.TryGetValue(d.Id, out var c) ? c : null;
+
+    /// <summary>Valor a MOSTRAR de un campo dinamico: para Lookup resuelve la etiqueta; resto, el valor crudo.</summary>
+    private string DynDisplay(Guid renglonId, ConciliacionFieldDefDto d)
+    {
+        var raw = DynVal(renglonId, d.Id);
+        if (d.Type == "Lookup")
+        {
+            if (string.IsNullOrEmpty(raw)) { return ""; }
+            return _lookupLabels.TryGetValue(d.Id, out var m) && m.TryGetValue(raw, out var lbl) ? lbl : raw;
+        }
+        return raw;
+    }
+
     // ---- Fase 3.1: exponer los campos dinamicos al MOTOR DE REGLAS y al CONSTRUCTOR DE FILTROS ----
 
     private static RuleFieldType MapDynRuleType(string? t) => t switch
@@ -983,13 +1066,20 @@ else
 
     /// <summary>Resolver de valores dinamicos para el evaluador del filtro: (renglon, "dyn:key") -> valor.</summary>
     private string? DynFilterValue(ConciliacionDianRenglonDto r, string key)
-        => _dynByKey.TryGetValue(key, out var d) ? DynVal(r.Id, d.Id) : "";
+        => _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r.Id, d) : "";
 
     private async Task LoadDynDefsAsync()
     {
         _dynDefs = (await Fields.ListDefsAsync()).ToList();
         _dynCols = _dynDefs.Select(d => new GridCol(DynKey(d.FieldKey), d.Label, d.Type == "Number", true)).ToList();
         _dynByKey = _dynDefs.ToDictionary(d => DynKey(d.FieldKey), d => d);
+        // Config de los campos tipo Lookup (parsea el DataLookupConfig guardado en OptionsJson).
+        _lookupCfg = new();
+        foreach (var d in _dynDefs.Where(x => x.Type == "Lookup"))
+        {
+            var cfg = DataLookupConfig.TryParse(d.OptionsJson);
+            if (cfg is not null) { _lookupCfg[d.Id] = cfg; }
+        }
         // Asegura que las columnas dinamicas esten en el orden (al final) y limpia claves dyn obsoletas.
         var dynKeys = _dynCols.Select(c => c.Key).ToHashSet();
         _order.RemoveAll(k => k.StartsWith("dyn:") && !dynKeys.Contains(k));
@@ -1000,6 +1090,58 @@ else
     {
         try { _dynValues = (await Fields.GetValuesAsync(_renglones.Select(r => r.Id).ToList())).ToDictionary(kv => kv.Key, kv => kv.Value); }
         catch { _dynValues = new(); }
+        await ResolveLookupLabelsAsync();
+    }
+
+    /// <summary>Resuelve en bloque las etiquetas de los campos Lookup (Id de fila -> texto a mostrar).</summary>
+    private async Task ResolveLookupLabelsAsync()
+    {
+        _lookupLabels = new();
+        foreach (var d in _dynDefs.Where(x => x.Type == "Lookup"))
+        {
+            if (!_lookupCfg.TryGetValue(d.Id, out var cfg)) { continue; }
+            // Ids de fila guardados para este campo en todos los renglones cargados.
+            var rowIds = _dynValues.Values
+                .Select(m => m.TryGetValue(d.Id, out var v) ? v : null)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => Guid.TryParse(v, out var g) ? g : Guid.Empty)
+                .Where(g => g != Guid.Empty).Distinct().ToList();
+            if (rowIds.Count == 0) { continue; }
+            try
+            {
+                var rows = await Lookups.ResolveAsync(cfg.TableId, rowIds, cfg.DisplayColumnId);
+                _lookupLabels[d.Id] = rows.ToDictionary(x => x.RowId.ToString(), x => x.Label);
+            }
+            catch { /* tabla/columna inexistente: se muestra el Id crudo */ }
+        }
+    }
+
+    private void OpenLookupEdit(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d)
+    {
+        if (LookupCfgFor(d) is null) { return; }
+        _editingLookup = (r.Id, d.Id);
+    }
+
+    /// <summary>Guarda la seleccion de un campo Lookup (Id de fila) y refresca su etiqueta.</summary>
+    private async Task SetDynLookup(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d, string? rowId)
+    {
+        var val = rowId ?? "";
+        await Fields.SetValueAsync(r.Id, d.Id, val);
+        if (!_dynValues.TryGetValue(r.Id, out var dict)) { dict = new(); _dynValues[r.Id] = dict; }
+        dict[d.Id] = val;
+        // Resolver la etiqueta de la fila elegida para mostrarla sin recargar todo.
+        if (!string.IsNullOrWhiteSpace(val) && _lookupCfg.TryGetValue(d.Id, out var cfg) && Guid.TryParse(val, out var g))
+        {
+            try
+            {
+                var rows = await Lookups.ResolveAsync(cfg.TableId, new[] { g }, cfg.DisplayColumnId);
+                if (!_lookupLabels.TryGetValue(d.Id, out var m)) { m = new(); _lookupLabels[d.Id] = m; }
+                foreach (var row in rows) { m[row.RowId.ToString()] = row.Label; }
+            }
+            catch { }
+        }
+        _editingLookup = null;
+        RebuildItems();
     }
 
     private async Task SetDynValue(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d, ChangeEventArgs e)
@@ -1026,26 +1168,47 @@ else
         public string Label = "";
         public string Type = "Text";
         public int SortOrder;
-        public string OptionsText = "";
+        public string OptionsText = "";       // Select / MultiSelect: opciones separadas por coma
         public bool Dirty;
+        // Lookup (Lista del Contenedor): modelo -> tabla -> columna a mostrar.
+        public Guid? ModelId;
+        public Guid? TableId;
+        public Guid? DisplayColId;
+        public List<LookupTableDto> Tables = new();
+        public List<LookupColumnDto> Columns = new();
     }
 
     private bool _fieldsConfigOpen;
     private List<FieldEdit> _fieldEditList = new();
+    private List<LookupModelDto> _lkModels = new();   // modelos de datos (compartido por el modal)
     private static readonly (string Key, string Label)[] _tiposCampo =
-        { ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"), ("Select", "Lista") };
+    {
+        ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
+        ("Select", "Lista (a mano)"), ("Lookup", "Lista del Contenedor"),
+    };
 
     private async Task AbrirConfigCamposAsync()
     {
         _busy = true; _msg = null;
         try
         {
+            _lkModels = (await Lookups.ListModelsAsync()).ToList();
             var defs = await Fields.ListDefsAsync();
             _fieldEditList = defs.Select(d => new FieldEdit
             {
                 Id = d.Id, FieldKey = d.FieldKey, Label = d.Label, Type = d.Type, SortOrder = d.SortOrder,
                 OptionsText = string.Join(", ", d.Options),
             }).ToList();
+            // Rehidratar la config de los campos Lookup (modelo/tabla/columna) y cargar sus listas.
+            foreach (var fe in _fieldEditList.Where(x => x.Type == "Lookup"))
+            {
+                var d = defs.First(x => x.Id == fe.Id);
+                var cfg = DataLookupConfig.TryParse(d.OptionsJson);
+                if (cfg is null) { continue; }
+                fe.ModelId = cfg.ModelId; fe.TableId = cfg.TableId; fe.DisplayColId = cfg.DisplayColumnId;
+                try { fe.Tables = (await Lookups.ListTablesAsync(cfg.ModelId)).ToList(); } catch { }
+                try { fe.Columns = (await Lookups.ListColumnsAsync(cfg.TableId)).ToList(); } catch { }
+            }
             _fieldsConfigOpen = true;
         }
         catch (Exception ex) { _msg = "Error al abrir campos: " + ex.Message; }
@@ -1055,14 +1218,52 @@ else
     private void CerrarConfigCampos() { _fieldsConfigOpen = false; }
 
     private void SetCampoLabel(FieldEdit fe, ChangeEventArgs e) { fe.Label = e.Value?.ToString() ?? ""; fe.Dirty = true; }
-    private void SetCampoType(FieldEdit fe, ChangeEventArgs e) { fe.Type = e.Value?.ToString() ?? "Text"; fe.Dirty = true; }
+    private async Task SetCampoType(FieldEdit fe, ChangeEventArgs e)
+    {
+        fe.Type = e.Value?.ToString() ?? "Text"; fe.Dirty = true;
+        // Al pasar a Lookup, precargar las tablas del modelo ya elegido (si hay).
+        if (fe.Type == "Lookup" && fe.Tables.Count == 0)
+        {
+            try { fe.Tables = (await Lookups.ListTablesAsync(fe.ModelId)).ToList(); } catch { }
+        }
+    }
     private void SetCampoOptions(FieldEdit fe, ChangeEventArgs e) { fe.OptionsText = e.Value?.ToString() ?? ""; fe.Dirty = true; }
+
+    // ---- Lookup: cascada modelo -> tabla -> columna en el editor de campos ----
+    private async Task LkModelChanged(FieldEdit fe, ChangeEventArgs e)
+    {
+        fe.ModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        fe.TableId = null; fe.DisplayColId = null; fe.Columns = new();
+        try { fe.Tables = (await Lookups.ListTablesAsync(fe.ModelId)).ToList(); } catch { fe.Tables = new(); }
+        fe.Dirty = true;
+    }
+    private async Task LkTableChanged(FieldEdit fe, ChangeEventArgs e)
+    {
+        fe.TableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        fe.DisplayColId = null;
+        try { fe.Columns = fe.TableId is Guid t ? (await Lookups.ListColumnsAsync(t)).ToList() : new(); } catch { fe.Columns = new(); }
+        fe.Dirty = true;
+    }
+    private void LkColumnChanged(FieldEdit fe, ChangeEventArgs e)
+    {
+        fe.DisplayColId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        fe.Dirty = true;
+    }
 
     private static List<string> ParseOptions(string text) =>
         (text ?? "").Split(',').Select(o => o.Trim()).Where(o => o.Length > 0).ToList();
 
-    private ConciliacionFieldDefDto ToDto(FieldEdit fe) =>
-        new(fe.Id, fe.FieldKey, fe.Label, fe.Type, fe.SortOrder, ParseOptions(fe.OptionsText));
+    private ConciliacionFieldDefDto ToDto(FieldEdit fe)
+    {
+        string? optionsJson = null;
+        if (fe.Type == "Lookup" && fe.TableId is Guid tid)
+        {
+            var tName = fe.Tables.FirstOrDefault(t => t.Id == tid)?.Name;
+            var cName = fe.DisplayColId is Guid dc ? fe.Columns.FirstOrDefault(c => c.Id == dc)?.Name : null;
+            optionsJson = new DataLookupConfig(tid, fe.ModelId, fe.DisplayColId, TableName: tName, DisplayColumnName: cName).ToJson();
+        }
+        return new(fe.Id, fe.FieldKey, fe.Label, fe.Type, fe.SortOrder, ParseOptions(fe.OptionsText), optionsJson);
+    }
 
     private async Task AddCampoAsync()
     {
@@ -1154,7 +1355,7 @@ else
             "ev33" => r.Evento33 ? "Si" : "No",
             "ev31" => r.Evento31 ? "Si" : "No",
             "ev34" => r.Evento34 ? "Si" : "No",
-            _ => key.StartsWith("dyn:") && _dynByKey.TryGetValue(key, out var d) ? DynVal(r.Id, d.Id) : "",
+            _ => key.StartsWith("dyn:") && _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r.Id, d) : "",
         };
         return string.IsNullOrWhiteSpace(v) ? "(sin dato)" : v;
     }
@@ -1232,7 +1433,7 @@ else
                         else if (c.Key == "fecha") { cell.Value = r.FechaEmision.DateTime; cell.Style.DateFormat.Format = "dd/MM/yyyy"; }
                         else if (c.Key.StartsWith("dyn:") && _dynByKey.TryGetValue(c.Key, out var dde))
                         {
-                            var dv = DynVal(r.Id, dde.Id);
+                            var dv = DynDisplay(r.Id, dde);
                             if (dde.Type == "Number" && decimal.TryParse(dv, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var dn)) { cell.Value = dn; cell.Style.NumberFormat.Format = "#,##0.00"; }
                             else { cell.Value = dv; }
                         }
@@ -1494,6 +1695,7 @@ else
         {
             var auth = await AuthState.GetAuthenticationStateAsync();
             _userName = auth.User.Identity?.Name;
+            if (Guid.TryParse(auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid)) { _actorId = uid; }
         }
         catch { /* sin nombre: se guarda sin autoria */ }
         await LoadDynDefsAsync();   // antes de LoadPrefs: para que las columnas dinamicas sean "conocidas"

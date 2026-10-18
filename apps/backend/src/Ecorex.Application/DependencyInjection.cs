@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IContactLoaderService, Tenancy.ContactLoaderService>();
         services.AddScoped<Contactos.IContactSearchService, Contactos.ContactSearchService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionDianService, Automatizaciones.ConciliacionDian.ConciliacionDianService>();
+        services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionRuleService, Automatizaciones.ConciliacionDian.ConciliacionRuleService>();
         services.AddScoped<Preferences.IUserTablePrefsService, Preferences.UserTablePrefsService>();
         services.AddScoped<Preferences.ISavedFilterService, Preferences.SavedFilterService>();
         services.AddScoped<Requerimientos.IRequerimientoConfigService, Requerimientos.RequerimientoConfigService>();

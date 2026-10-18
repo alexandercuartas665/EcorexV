@@ -9,6 +9,7 @@
 @using Ecorex.SuperAdmin.Components.Pages.Conciliacion
 @using ClosedXML.Excel
 @inject IConciliacionDianService Svc
+@inject IConciliacionRuleService Reglas
 @inject IUserTablePrefsService Prefs
 @inject ISavedFilterService SavedFilters
 @inject IFileStorageService Files
@@ -73,6 +74,7 @@ else
         <div style="flex:1"></div>
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
         <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
     </div>
@@ -524,6 +526,64 @@ else
                 <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" @bind:event="oninput" />
                 <button class="btn btn-outline-secondary btn-sm" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
                 <button class="btn btn-primary btn-sm" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
+            </div>
+        </div>
+    }
+
+    @if (_reglasOpen && _reglasResult is { } rr)
+    {
+        <div class="cd-confirm-backdrop" @onclick="CerrarReglas"></div>
+        <div class="cd-confirm" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="cd-confirm-head">@(rr.Simulado ? "Aplicar reglas · simulacion" : "Reglas aplicadas")</div>
+            <div class="cd-confirm-body">
+                @if (rr.Error is { } err)
+                {
+                    <div class="cd-confirm-warn">@err</div>
+                }
+                else
+                {
+                    <div class="cd-reglas-kpis">
+                        <span><b>@rr.Renglones</b> renglones</span>
+                        <span><b>@rr.Encontrados</b> encontrados</span>
+                        <span><b>@rr.Aprobados</b> aprobados</span>
+                        <span><b>@rr.Cambiados</b> con cambios</span>
+                    </div>
+                    @if (rr.Muestra.Count > 0)
+                    {
+                        <div class="cd-reglas-prev">
+                            <table>
+                                <thead><tr><th>Fact. Prov.</th><th>Proveedor</th><th>N&deg; SOLDARCO</th><th>Aprob.</th></tr></thead>
+                                <tbody>
+                                    @foreach (var p in rr.Muestra)
+                                    {
+                                        <tr>
+                                            <td>@p.NumFacturaProveedor</td>
+                                            <td class="cd-reglas-prov" title="@p.Proveedor">@p.Proveedor</td>
+                                            <td>@(string.IsNullOrEmpty(p.NumSoldarcoDespues) ? "(vacio)" : p.NumSoldarcoDespues)@(p.NumSoldarcoAntes != p.NumSoldarcoDespues ? $"  (antes: {(string.IsNullOrEmpty(p.NumSoldarcoAntes) ? "vacio" : p.NumSoldarcoAntes)})" : "")</td>
+                                            <td>@(p.AprobadaDespues ? "Si" : "No")@(p.AprobadaAntes != p.AprobadaDespues ? (p.AprobadaDespues ? " (nueva)" : " (quitada)") : "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (rr.Cambiados > rr.Muestra.Count) { <div class="cd-muted" style="margin-top:6px;">&hellip; y @(rr.Cambiados - rr.Muestra.Count) renglon(es) mas con cambios.</div> }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cd-muted">Ningun renglon cambiaria con las reglas actuales.</div>
+                    }
+                    @if (rr.Simulado && rr.Cambiados > 0)
+                    {
+                        <div class="cd-muted" style="margin-top:10px;">Esto es una <b>simulacion</b>: nada se escribio todavia.</div>
+                    }
+                }
+            </div>
+            <div class="cd-confirm-acts">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarReglas">Cerrar</button>
+                @if (rr.Simulado && rr.Error is null && rr.Cambiados > 0)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="AplicarReglasConfirmarAsync" disabled="@_busy">Aplicar de verdad (@rr.Cambiados)</button>
+                }
             </div>
         </div>
     }
@@ -1063,6 +1123,36 @@ else
         try { var r = await Svc.CruzarAsync(_selectedDocId); _msg = $"Cruce: {r.Cruzadas} con documento ERP, {r.Inconsistencias} inconsistencia(s), {r.AutoAprobadas} auto-aprobadas."; await ReloadAsync(); }
         finally { _busy = false; }
     }
+
+    // ---- Motor de reglas (Aplicar reglas) con dry-run ----
+    private bool _reglasOpen;
+    private ConciliacionReglasResult? _reglasResult;
+
+    private async Task AplicarReglasDryRunAsync()
+    {
+        if (_selectedDocId == Guid.Empty) { return; }
+        _busy = true; _msg = null;
+        try { _reglasResult = await Reglas.AplicarReglasAsync(_selectedDocId, null, simular: true); _reglasOpen = true; }
+        catch (Exception ex) { _msg = "Error al simular reglas: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task AplicarReglasConfirmarAsync()
+    {
+        if (_selectedDocId == Guid.Empty) { return; }
+        _busy = true; _msg = null;
+        try
+        {
+            var r = await Reglas.AplicarReglasAsync(_selectedDocId, null, simular: false);
+            _reglasOpen = false; _reglasResult = null;
+            _msg = $"Reglas aplicadas: {r.Cambiados} renglon(es) con cambios, {r.Aprobados} aprobado(s).";
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _msg = "Error al aplicar reglas: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void CerrarReglas() { _reglasOpen = false; _reglasResult = null; }
 
     // ---- Radicacion de eventos RADIAN en NEWTON ----
     private bool _showEnviarConfirm;

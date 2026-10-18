@@ -283,6 +283,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
     public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
+    public DbSet<ConciliacionRule> ConciliacionRules => Set<ConciliacionRule>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
@@ -2760,6 +2761,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
             // Un filtro por (tenant, modulo, nombre): "Guardar" con nombre existente reemplaza.
             b.HasIndex(x => new { x.TenantId, x.Module, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionRule>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
+            // Un juego por tenant; se ejecutan en SortOrder.
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
         modelBuilder.Entity<StoredFile>(b =>

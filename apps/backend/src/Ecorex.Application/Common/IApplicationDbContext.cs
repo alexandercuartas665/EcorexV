@@ -267,6 +267,9 @@ public interface IApplicationDbContext
     DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies { get; }
     DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies { get; }
 
+    // Reglas CONFIGURABLES del conciliador (VLOOKUP sobre contenedores + condiciones), por tenant, en orden.
+    DbSet<ConciliacionRule> ConciliacionRules { get; }
+
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }
 

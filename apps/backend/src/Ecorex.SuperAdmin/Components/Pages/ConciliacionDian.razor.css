@@ -322,3 +322,12 @@
 /* Los estilos del editor de grupos (cd-fb-group/op/add/cond/field...) viven en
    ConciliacionFilterGroup.razor.css: son de un componente hijo y el aislamiento de CSS de Blazor
    impide que las reglas de este archivo (del padre) alcancen sus elementos. */
+
+/* ---- Dialogo "Aplicar reglas" (dry-run) ---- */
+.cd-reglas-kpis { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; font-size: 13px; color: var(--ink-2, #4b5563); }
+.cd-reglas-kpis b { color: var(--ink, #1f2937); font-size: 15px; }
+.cd-reglas-prev { max-height: 46vh; overflow: auto; border: 1px solid var(--line, #f1f5f9); border-radius: 9px; }
+.cd-reglas-prev table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cd-reglas-prev thead th { position: sticky; top: 0; background: var(--surface-2, #f8fafc); text-align: left; padding: 7px 10px; font-weight: 700; color: var(--ink-2, #4b5563); border-bottom: 1px solid var(--line, #f1f5f9); }
+.cd-reglas-prev tbody td { padding: 6px 10px; border-bottom: 1px solid var(--line, #f1f5f9); color: var(--ink, #1f2937); white-space: nowrap; }
+.cd-reglas-prov { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

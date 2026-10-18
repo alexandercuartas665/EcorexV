@@ -31,7 +31,7 @@ public sealed class QuoteDocumentRenderer : IQuoteDocumentRenderer
 
     public async Task<QuoteDocument?> RenderResponsePdfAsync(Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default)
     {
-        var html = await _templates.RenderHtmlAsync(responseId, templateId, cancellationToken);
+        var html = await _templates.RenderHtmlAsync(responseId, templateId, cancellationToken: cancellationToken);
         if (string.IsNullOrWhiteSpace(html)) { return null; }
 
         var bytes = await _pdf.RenderHtmlToPdfAsync(html, cancellationToken);

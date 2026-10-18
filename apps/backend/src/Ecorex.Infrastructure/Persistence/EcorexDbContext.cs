@@ -159,6 +159,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
+    public DbSet<FormSignatureToken> FormSignatureTokens => Set<FormSignatureToken>();
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
@@ -1999,6 +2000,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => new { x.TenantId, x.TokenHash }).IsUnique();
             // Busqueda del visor anonimo (IgnoreQueryFilters, ver FormTokenService).
             b.HasIndex(x => x.TokenHash);
+        });
+
+        modelBuilder.Entity<FormSignatureToken>(b =>
+        {
+            // FEATURE E (firma por link, por fila). Mismo esquema de token solo-hash que FormToken.
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.FieldCode).HasMaxLength(120).IsRequired();
+            b.Property(x => x.RowId).HasMaxLength(64).IsRequired();
+            b.Property(x => x.ColumnId).HasMaxLength(120).IsRequired();
+            b.Property(x => x.SignerName).HasMaxLength(160);
+            b.Property(x => x.TargetPhone).HasMaxLength(32);
+            // El token vive y muere con la respuesta firmada.
+            b.HasOne(x => x.Response).WithMany()
+                .HasForeignKey(x => x.ResponseId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.TokenHash }).IsUnique();
+            // Resolucion del visor anonimo (IgnoreQueryFilters).
+            b.HasIndex(x => x.TokenHash);
+            // Revocar/listar los tokens vivos de UNA celda de fila.
+            b.HasIndex(x => new { x.TenantId, x.ResponseId, x.FieldCode, x.RowId, x.ColumnId });
         });
 
         modelBuilder.Entity<WorkflowNodeForm>(b =>

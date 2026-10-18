@@ -116,6 +116,9 @@ public partial class TerceroModal
     private string _mCargo = "";
     private string _mEmail = "";
     private string _mTelefono = "";
+    // Validez del telefono (PhoneField). true por defecto: vacio cuenta como valido ("validar solo si lo escriben").
+    private bool _mTelValid = true;
+    private bool _coTelValid = true;
     /// <summary>Foto del tercero (URL en wwwroot/uploads/terceros/{tenant}). Se sube en la cabecera del
     /// modal (crear o editar) y viaja en el SaveTerceroRequest.</summary>
     private string _mImagenUrl = "";
@@ -776,6 +779,13 @@ public partial class TerceroModal
             _modalError = $"{IdLabel()} es obligatorio (o elige 'No se identifica').";
             return;
         }
+        // Telefono: se valida SOLO si lo escriben (vacio es valido). Un numero mal formado (sin codigo de pais, muy
+        // corto, etc.) no se entrega por WhatsApp, asi que no se deja guardar el contacto con el numero invalido.
+        if (!_mTelValid)
+        {
+            _modalError = "El telefono no es valido (revisa el codigo de pais y los digitos) o dejalo vacio.";
+            return;
+        }
 
         // Los calculados se MATERIALIZAN al guardar (ADR-0029): asi reportes, exportaciones y API
         // leen el numero sin reimplementar el motor. Se rehacen antes por si quedo algo sin recalcular.
@@ -949,6 +959,11 @@ public partial class TerceroModal
         if (nombre.Length == 0)
         {
             _coError = "El nombre del contacto es obligatorio.";
+            return;
+        }
+        if (!_coTelValid)
+        {
+            _coError = "El telefono no es valido (revisa el codigo de pais y los digitos) o dejalo vacio.";
             return;
         }
         var req = new SaveContactoRequest(nombre, Blank(_coCargo), Blank(_coEmail), Blank(_coTelefono));

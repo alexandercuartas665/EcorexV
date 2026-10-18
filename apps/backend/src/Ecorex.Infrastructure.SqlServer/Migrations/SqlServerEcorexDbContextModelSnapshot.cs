@@ -6965,6 +6965,110 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("form_responses", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ColumnId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("column_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FieldCode")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("field_code");
+
+                    b.Property<bool>("RequireName")
+                        .HasColumnType("bit")
+                        .HasColumnName("require_name");
+
+                    b.Property<Guid>("ResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("response_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RowId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("row_id");
+
+                    b.Property<DateTimeOffset?>("SignedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("signed_at");
+
+                    b.Property<string>("SignerName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("signer_name");
+
+                    b.Property<Guid?>("StoredFileId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("stored_file_id");
+
+                    b.Property<string>("TargetPhone")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasColumnName("target_phone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_signature_tokens");
+
+                    b.HasIndex("ResponseId")
+                        .HasDatabaseName("ix_form_signature_tokens_response_id");
+
+                    b.HasIndex("TokenHash")
+                        .HasDatabaseName("ix_form_signature_tokens_token_hash");
+
+                    b.HasIndex("TenantId", "TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_signature_tokens_tenant_id_token_hash");
+
+                    b.HasIndex("TenantId", "ResponseId", "FieldCode", "RowId", "ColumnId")
+                        .HasDatabaseName("ix_form_signature_tokens_tenant_id_response_id_field_code_row_id_column_id");
+
+                    b.ToTable("form_signature_tokens", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -8510,6 +8614,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("DeliveryError")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("delivery_error");
+
+                    b.Property<string>("DeliveryStatus")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("delivery_status");
 
                     b.Property<string>("Direction")
                         .IsRequired()
@@ -18568,6 +18680,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_form_responses_form_definitions_definition_id");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "Response")
+                        .WithMany()
+                        .HasForeignKey("ResponseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_signature_tokens_form_responses_response_id");
+
+                    b.Navigation("Response");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>

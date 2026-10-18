@@ -2,6 +2,104 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-18 - FEATURE E: firma por link (por fila de grilla), configurable (SIN deploy)
+
+- Pedido (decidido con el usuario): firma por LINK para la OT, POR FILA de grilla, almacenada en StoredFile,
+  entregable por WhatsApp + copiar link. Todo configurable desde el FormDesigner. Disenado antes de codear.
+- MODELO: nueva entidad FormSignatureToken (token solo-hash, apunta a ResponseId + FieldCode + RowId (el mismo
+  "__rowId" estable de las gestiones por fila) + ColumnId; RequireName/SignerName/TargetPhone/StoredFileId/
+  ExpiresAt/SignedAt/RevokedAt). Migracion DUAL AddFormSignatureTokens (PG 20261018153115 + SQL) + snapshots;
+  DbSet en IApplicationDbContext + EcorexDbContext (indices: unico (tenant,hash); hash para visor anonimo;
+  (tenant,response,field,row,col) para revocar/listar por celda). APLICADA al DB local 5442.
+- COLUMNA "Firma (por link)": nuevo extra FormGridSignatureConfig {phoneField,linkHours,message,requireName} en
+  FormGridColumnLookup (+ParseSignature). Editable en FormDesigner (tipo de columna "Firma (por link)" + bloque
+  de config: telefono desde columna / solicitante, vigencia, pedir nombre, mensaje con {link}). ChangeGridColumnType
+  limpia/re-pone "signature".
+- SERVICIO IFormSignatureService/FormSignatureService: RequestAsync (emite token + arma link absoluto via
+  INotifyLinkBuilder.BuildSignatureLink (+nuevo metodo) + opcional WhatsApp via conversacion de la linea), ValidateAsync
+  (4 checks neutros, cross-tenant por hash exacto con IgnoreQueryFilters), GetRowSummaryAsync (resumen solo-lectura de
+  la fila), SignAsync (decodifica data-URL PNG -> StoredFile -> escribe /archivo/{id} en la celda por __rowId con
+  concurrencia optimista -> sella SignedAt/SignerName), VoidAsync (borra imagen + limpia celda + revoca tokens vivos).
+  Registrado en DI.
+- PAGINA PUBLICA /firmar/{token} (FormSign.razor, EmptyLayout, anonima): valida token, muestra resumen de la fila +
+  nombre (si requireName) + pad de firma (reusa form-capture.js global), firma -> SignAsync con tenant ambient. Errores
+  neutros. UI en la OT (DynamicFormRenderer): celda Firma con estados Sin firmar -> [Enviar a firmar]/[Copiar link] y,
+  firmada, miniatura + [Anular]. Asegura __rowId + persiste antes de emitir (mismo patron que gestiones por fila).
+- INVARIANTES (las 4 brechas): (1) no-borrar-si-firmada-y-vencida: vencer/usar token nunca toca la celda; (2) destruir/
+  re-pedir: solo VoidAsync borra (imagen + celda) y revoca; (3) copiar-fila-no-copia-firma: DuplicateGridRow vacia las
+  columnas de firma, y el verbo CARGAR_FILAS_DESDE_GRILLA solo copia columnas mapeadas (nunca la firma); (4) seguridad:
+  resolucion cross-tenant por hash exacto + tenant ambient + errores neutros + URL sin ResponseId.
+- IMPRESION (cierra la pieza de FEATURE D): FormTemplateRenderService.RenderGridBlocks pinta una columna de firma con
+  ref /archivo/{id} como <img> en el bloque de tabla (no escapado; solo si empieza por /archivo/).
+- TEST: integracion dual nuevo SignatureByLink_EmitSignVoid_RespectsInvariants (emit->validar->firmar escribe /archivo/
+  {id}; un-solo-uso; token nuevo vencido NO borra la firma; anular limpia celda + borra imagen + revoca vivos):
+  2/2 verde (PG + SQL Server). Fakes FileStorage/LinkBuilder/WhatsApp inline. Build de solucion completa verde.
+- Bloqueos: ninguno. LIMITES v1: el envio WhatsApp usa texto por la conversacion de la linea (si la ventana de 24h esta
+  cerrada el texto puede no llegar -> "Copiar link" es el camino fiable); impresion de firma solo en bloque de tabla
+  plano (no en {{#grupo}}). Siguiente (a eleccion del usuario): prueba local E2E de E en la OT real, o commit/deploy del
+  acumulado. NADA a prod sin OK.
+
+## 2026-10-16 - Motor de formularios (grillas): Features A-D de la OT (SIN deploy)
+
+- Pedido (tenant AGRO, form ORDEN DE TRABAJO 5ed267bf): 4 capacidades de MOTOR configurables desde el FormDesigner
+  (nada hardcodeado al tenant). E (firma por link) se DISENA aparte (ya existe mucho reutilizable, ver abajo).
+- FEATURE A (opciones de un select de grilla desde OTRA grilla): NO existia (crossGrid es solo-lectura). Nuevo
+  FormGridOptionsFromGrid {grid,valueField,labelField} en los extras (FormGridColumnLookup.cs) + ParseOptionsFromGrid.
+  Render (DynamicFormRenderer): rama select nueva que puebla <option> desde las filas VIVAS de la grilla origen
+  (helper GridOptionsFromGrid, reactivo). Editor (FormDesigner): tipo de columna "Lista desde otra grilla" + 3 selects.
+- FEATURE B (tope por fila + alerta + BLOQUEO): hoy solo habia Min y era clamp SOLO-cliente. Nuevo maxFrom {grid,
+  field,match} en los extras (reusa el resolver de crossGrid). Render: borde rojo + max + aviso al exceder. SAVE
+  AUTORITATIVO: FormResponseService.SaveAsync valida cada celda contra su tope y BLOQUEA el envio (ValidationFailed).
+  Editor: bloque "Tope maximo desde otra grilla" (grilla/columna del tope/emparejar).
+- FEATURE C (boton "cargar todos los productos"): verbo NUEVO CargarFilasDesdeGrillaVerb (CARGAR_FILAS_DESDE_GRILLA)
+  en Rules/Verbs (+ registrado en DI). Params: sourceGrid, targetGrid, columnMap {colDestino:colOrigen},
+  onlyWherePositive (ej. pendiente>0), dedupeBy (ej. item). Devuelve SetFieldValue con las filas nuevas. Se usa como
+  un campo Button + una regla con ese verbo (mecanismo configurable ya existente; no hardcodeado).
+- FEATURE D (impresion remision filtrada por fecha): FormTemplateMerge.Render + RenderGridBlocks ahora aceptan
+  rowFilter "gridCode.columnId=valor" (ej. entregas.fecha=2026-10-16) y filtran las filas de esa grilla. Propagado por
+  IFormTemplateRenderService.RenderHtmlAsync (+param) y por los endpoints /formularios/plantilla/{id}[/pdf|/img]
+  (+[FromQuery] rowFilter, helper BuildPrintQuery). FALTA la UI del selector de fecha al imprimir (pieza pendiente).
+- FEATURE E (firma por link) NO arrancada (decision del usuario). Recon: YA EXISTE reutilizable -> pagina /d/{token}
+  (WorkflowDecisionToken, ExpiresAt/UsedAt/RevokedAt) con pad de firma (signature-pad.js), FormToken /f/{token} (hash,
+  mas seguro), y campo FormControlType.Signature (captura canvas, hoy inline data-URI). Almacenamiento robusto:
+  IFileStorageService/StoredFile + /archivo/{id}. Brecha a disenar: firma por FILA de grilla, destruir/re-pedir,
+  no-borrar-si-firmada-y-vencida, copiar-fila-no-copia-firma. Se revisa con el usuario antes de codear.
+- Build: A+B+C+D compilan (verde). NO desplegado.
+- PRUEBA LOCAL (server agro-forms-test-5234, workers OFF, BD copia de prod 5442): A verificada en runtime (el select
+  de una grilla de prueba listo los productos de otra grilla: valor=item, etiqueta=detalle); B verificada en render
+  (max dinamico resuelto + borde/fondo rojo + aviso al exceder). BUG ENCONTRADO Y CORREGIDO: la validacion de
+  servidor rechazaba los valores de una columna optionsFromGrid como "opcion invalida" (validaba contra opciones
+  estaticas vacias) -> FormFieldValidator exceptua ahora las columnas optionsFromGrid. BLOQUEO de B (server-
+  autoritativo) verificado con test de integracion DUAL nuevo GridMaxFromAndOptionsFromGrid_... (entregar=5 > items.
+  cantidad=3 -> ValidationFailed "supera el maximo"; entregar=2 -> OK; y el valor de A NO se rechaza): 2/2 verde.
+  (La UI de la OT no deja llegar al server el over-limit por su validacion cliente de requeridos; por eso el test.)
+- Bloqueos: ninguno. Siguiente (a eleccion del usuario): probar C (verbo) + D (selector fecha) o disenar E.
+
+## 2026-10-16 - Entrega WhatsApp: normalizacion de numero + observabilidad YCloud + telefono en el contacto (SIN deploy)
+
+- SINTOMA (prod AGRO): a algunos clientes NO les llega el WhatsApp (ej. 3232914350, estado YCloud 'failed'). RAIZ
+  (verificada): el numero estaba SIN codigo de pais (3232914350); el mismo CON 57 (573232914350) no fallaba. Meta no
+  entrega a un local de 10 digitos. Alcance: 8 fallos/3 convs por "sin 57" en 7 dias (vs 22 convs OK en E.164).
+- FIX A (NORMALIZACION, ya compilado): helper ToMsisdn en WhatsAppConnectorService -> movil CO de 10 digitos que
+  empieza por 3 se le antepone 57; E.164 u otros formatos se dejan igual. Aplicado en TODOS los puntos de envio
+  (texto/plantilla/media/ubicacion/reaccion/jid). (Supuesto: pais CO=57; multi-pais seria por tenant.)
+- FIX B (OBSERVABILIDAD YCloud, decidido con el usuario = estado por mensaje completo): Message.DeliveryStatus +
+  DeliveryError (migracion dual AddMessageDeliveryStatus). El webhook /webhooks/ycloud ahora actualiza el estado por
+  mensaje correlacionando por wamid (sent->delivered->read->failed, sin retroceder), con el CODIGO real de Meta en
+  fallos, LOGUEA el payload crudo del fallo, y la nota ⚠ no se duplica. Se siembra "sent"+wamid en salientes del
+  flujo (WorkflowAgentWhatsApp), manual y SARA (SARA va por ChatService). UI (bandeja Conversaciones): tilde por
+  saliente (✓ enviado, ✓✓ entregado, ✓✓ azul leido, ⚠ rojo no entregado con motivo en tooltip). LIMITE v1: envios
+  del nodo de notificacion y de documentos (van por NotificationChannelSender, sin wamid propagado) NO muestran
+  tilde, pero sus fallos siguen visibles con la nota ⚠ (ahora con codigo + log crudo).
+- FIX C (TELEFONO al crear actividad = en el contacto/Tercero, decidido con el usuario): componente reusable
+  PhoneField.razor (selector de codigo de pais con lista, default +57; mascara en vivo por grupos; validacion por
+  pais = longitud + primer digito movil). Integrado en TerceroModal (telefono de persona y de empresa). Valida SOLO
+  si lo escriben (vacio = valido) y BLOQUEA el guardado si el numero es invalido. Value en E.164.
+- Build Ecorex.sln VERDE (solo warnings). Migracion PG local: pendiente (se colgo la conexion; prod auto-migra).
+- PENDIENTE: a senal del usuario -> commit + deploy (FIX A normalizacion + FIX B observabilidad + FIX C telefono).
+  NO desplegado (sin bump). Opcional: propagar wamid en nodo-notificacion/documentos para el tilde ahi tambien.
+- Bloqueos: ninguno.
+
 ## 2026-10-15 - Reenvio de cotizacion: envio de media por YCloud + herramienta de reenvio de SARA (SIN deploy)
 
 - SINTOMA (prod AGRO, T00366, numero 573217626882): el agente del flujo hizo seguimiento; el cliente pidio "no mira

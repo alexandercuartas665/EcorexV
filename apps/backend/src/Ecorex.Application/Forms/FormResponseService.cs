@@ -167,7 +167,9 @@ public sealed class FormResponseService : IFormResponseService
         var metaByCode = gridMeta.ToDictionary(m => m.q.FieldCode, m => m, StringComparer.OrdinalIgnoreCase);
         var depItems = gridMeta
             .Select(m => (m.q.FieldCode, (IReadOnlyList<string>)m.extras.Values
-                .Where(e => e.CrossRef is not null).Select(e => e.CrossRef!.Grid).ToList()))
+                .SelectMany(e => new[] { e.CrossRef?.Grid, e.MaxFrom?.Grid })   // FEATURE B: el tope dinamico tambien depende de su grilla origen
+                .Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g!)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList()))
             .ToList();
         var computedRowsByField = new Dictionary<string, List<Dictionary<string, string?>>>(StringComparer.OrdinalIgnoreCase);
         foreach (var code in Calc.FormGridDependency.Order(depItems))
@@ -254,6 +256,31 @@ public sealed class FormResponseService : IFormResponseService
                 if (error is not null)
                 {
                     errors[question.FieldCode] = error;
+                }
+            }
+            // FEATURE B: tope DINAMICO por celda (ej. cantidad_entregada <= items.pendiente del mismo item). Es
+            // AUTORITATIVO en servidor (el clamp del cliente no es fuente de verdad): si una fila excede su tope,
+            // se BLOQUEA el envio. El tope se resuelve con el MISMO resolver de crossGrid contra la grilla origen
+            // ya computada (orden por dependencia garantizado arriba).
+            static bool TryNum(string? s, out decimal n) =>
+                decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out n);
+            foreach (var (gq, gcols, gextras) in gridMeta)
+            {
+                var maxCols = gextras.Values.Where(e => e.MaxFrom is not null).ToList();
+                if (maxCols.Count == 0 || !computedRowsByField.TryGetValue(gq.FieldCode, out var mrows)) { continue; }
+                for (var ri = 0; ri < mrows.Count; ri++)
+                {
+                    foreach (var ex in maxCols)
+                    {
+                        if (!computedRowsByField.TryGetValue(ex.MaxFrom!.Grid, out var srcRows)) { continue; }
+                        if (!TryNum(mrows[ri].GetValueOrDefault(ex.Id), out var cellNum)) { continue; }
+                        if (!TryNum(Calc.FormGridCrossRefResolver.Resolve(ex.MaxFrom, srcRows, mrows[ri], headerValues), out var maxNum)) { continue; }
+                        if (cellNum > maxNum)
+                        {
+                            var label = gcols.FirstOrDefault(c => string.Equals(c.Id, ex.Id, StringComparison.OrdinalIgnoreCase))?.Label ?? ex.Id;
+                            errors[gq.FieldCode] = $"Fila {ri + 1}: '{label}' ({cellNum.ToString(System.Globalization.CultureInfo.InvariantCulture)}) supera el maximo permitido ({maxNum.ToString(System.Globalization.CultureInfo.InvariantCulture)}).";
+                        }
+                    }
                 }
             }
             if (errors.Count > 0)

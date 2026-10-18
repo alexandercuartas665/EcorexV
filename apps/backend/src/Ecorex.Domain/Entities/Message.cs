@@ -41,4 +41,16 @@ public class Message : TenantEntity
 
     /// <summary>Emoji de reaccion sobre este mensaje (uno por mensaje, como en WhatsApp). Null = sin reaccion.</summary>
     public string? Reaction { get; set; }
+
+    /// <summary>
+    /// Estado de ENTREGA del mensaje SALIENTE segun el proveedor (YCloud/Meta): "sent" (aceptado por el proveedor),
+    /// "delivered" (llego al telefono), "read" (leido) o "failed" (no se entrego). Se siembra en "sent" al enviar y
+    /// lo AVANZA el webhook de estado del proveedor, correlacionando por <see cref="ExternalId"/> (el wamid). Null en
+    /// entrantes y en salientes viejos (antes de esta funcion). Hace VISIBLE en la bandeja si un mensaje llego o no.
+    /// </summary>
+    public string? DeliveryStatus { get; set; }
+
+    /// <summary>Motivo del proveedor cuando <see cref="DeliveryStatus"/> es "failed" (codigo + mensaje de Meta, ej.
+    /// "131026 Message undeliverable"). Null si no fallo o si Meta no dio detalle. Se muestra en la bandeja.</summary>
+    public string? DeliveryError { get; set; }
 }

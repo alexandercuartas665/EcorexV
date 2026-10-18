@@ -362,7 +362,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         {
             return new LineSendResult(false, "La linea no esta conectada.");
         }
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var digits = ToMsisdn(phone);
 
         bool ok; string? error; string? messageId;
         if (line.Provider == WhatsAppProvider.Emulator)
@@ -412,7 +412,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
         if (line is null) { return new LineSendResult(false, "La linea no existe."); }
         if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var digits = ToMsisdn(phone);
         var lang = string.IsNullOrWhiteSpace(language) ? "es" : language.Trim();
 
         bool ok; string? error; string? messageId;
@@ -621,7 +621,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var digits = ToMsisdn(phone);
         // key.remoteJid: el jid guardado (con @lid para contactos LID) o, si no hay, se reconstruye desde los digitos.
         var jid = string.IsNullOrWhiteSpace(remoteJid) ? $"{digits}@s.whatsapp.net" : remoteJid;
         var result = await _client.DeleteMessageForEveryoneAsync(baseUrl, apiKey, EvoInstance(line), jid, messageId, fromMe: true, cancellationToken);
@@ -638,7 +638,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
         if (line is null) { return new LineSendResult(false, "La linea no existe."); }
         if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var digits = ToMsisdn(phone);
 
         // YCloud (BSP oficial, ADR-0096): reacciona por el wamid del mensaje entrante (externalMessageId).
         if (line.Provider == WhatsAppProvider.YCloud)
@@ -673,8 +673,23 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, ct);
         if (line is null) { return ("La linea no existe.", null, ""); }
         if (line.Status != WhatsAppLineStatus.Connected) { return ("La linea no esta conectada.", null, ""); }
-        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var digits = ToMsisdn(phone);
         return (null, line, digits);
+    }
+
+    /// <summary>
+    /// Normaliza un numero a MSISDN para Meta/WhatsApp (YCloud/Cloud/Evolution): quita todo lo que no sea digito y,
+    /// si es un MOVIL colombiano de 10 digitos (empieza por 3) SIN codigo de pais, le antepone "57". Meta NO entrega
+    /// a un numero local sin codigo de pais (causa verificada de "el mensaje no llega": estado YCloud 'failed'). Solo
+    /// toca ese caso: un numero ya en E.164 (57 + movil) o de otra longitud/pais se deja igual (no se adivina un
+    /// digito faltante ni se asume pais). "57" es el default del despliegue actual (tenants CO); si en el futuro hay
+    /// multi-pais, esto deberia venir de un codigo de pais por tenant.
+    /// </summary>
+    private static string ToMsisdn(string? phone)
+    {
+        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length == 10 && digits[0] == '3') { return "57" + digits; }
+        return digits;
     }
 
     // Credenciales Cloud de la linea (phone_number_id + token descifrado), o null si faltan.

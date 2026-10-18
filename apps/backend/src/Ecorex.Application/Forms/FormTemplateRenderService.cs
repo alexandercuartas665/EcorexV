@@ -31,9 +31,10 @@ namespace Ecorex.Application.Forms;
 /// </summary>
 public interface IFormTemplateRenderService
 {
-    /// <summary>HTML de la plantilla indicada (o la predeterminada del tenant) rellenada con el
-    /// registro. Null si el registro no existe.</summary>
-    Task<string?> RenderHtmlAsync(Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default);
+    /// <summary>HTML de la plantilla indicada (o la predeterminada del tenant) rellenada con el registro. Null si
+    /// el registro no existe. <paramref name="rowFilter"/> (FEATURE D) filtra las filas de UNA grilla en la impresion,
+    /// formato "gridCode.columnId=valor" (ej. remision por fecha "entregas.fecha=2026-10-16"); null = todas.</summary>
+    Task<string?> RenderHtmlAsync(Guid responseId, Guid? templateId = null, string? rowFilter = null, CancellationToken cancellationToken = default);
 
     /// <summary>Nombre de archivo AMIGABLE para el documento impreso (sin extension): "NombreFormulario
     /// CodigoActividad" (ej. "CONTACTO CLIENTE T00041"), ya saneado para usarse como nombre de archivo.
@@ -51,7 +52,7 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         _db = db;
     }
 
-    public async Task<string?> RenderHtmlAsync(Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default)
+    public async Task<string?> RenderHtmlAsync(Guid responseId, Guid? templateId = null, string? rowFilter = null, CancellationToken cancellationToken = default)
     {
         var response = await _db.FormResponses.IgnoreQueryFilters()
             .FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
@@ -104,7 +105,7 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         return FormTemplateMerge.Render(
             template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions, canvasOptions,
             tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea,
-            fieldChoices);
+            fieldChoices, rowFilter);
     }
 
     public async Task<string?> GetDocumentNameAsync(Guid responseId, CancellationToken cancellationToken = default)
@@ -173,10 +174,14 @@ public static class FormTemplateMerge
         string tarea,
         // Campos de eleccion (Select/Radio/MultiCheck): fieldCode -> (options_json, esMulti). Con esto un
         // {{campo.x}} de un campo de lista imprime la ETIQUETA (o "A, B" en multi) en vez del id/JSON crudo.
-        IReadOnlyDictionary<string, (string? OptionsJson, bool IsMulti)>? fieldChoices = null)
+        IReadOnlyDictionary<string, (string? OptionsJson, bool IsMulti)>? fieldChoices = null,
+        // FEATURE D: filtro de filas de UNA grilla para la impresion (ej. remision por fecha de entrega). Formato
+        // "gridCode.columnId=valor" (ej. "entregas.fecha=2026-10-16"): al emitir esa grilla solo pasan las filas
+        // cuya columna coincide. Null/vacio = todas las filas (comportamiento previo).
+        string? rowFilter = null)
     {
         var values = ParseResponseData(responseDataJson);
-        var html = RenderGridBlocks(templateHtml, values, gridOptions);
+        var html = RenderGridBlocks(templateHtml, values, gridOptions, rowFilter);
 
         html = Regex.Replace(html, @"\{\{\s*campo\.([a-zA-Z0-9_]+)\s*\}\}", m =>
         {
@@ -204,8 +209,21 @@ public static class FormTemplateMerge
         return ResolveDateTokens(sb.ToString(), fecha);
     }
 
-    private static string RenderGridBlocks(string html, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> gridOptions)
+    private static string RenderGridBlocks(string html, IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string?> gridOptions, string? rowFilter = null)
     {
+        // FEATURE D: filtro "gridCode.columnId=valor" (una sola grilla). Se parsea una vez.
+        string? fGrid = null, fCol = null, fVal = null;
+        if (!string.IsNullOrWhiteSpace(rowFilter))
+        {
+            var dot = rowFilter.IndexOf('.');
+            var eq = rowFilter.IndexOf('=');
+            if (dot > 0 && eq > dot + 1)
+            {
+                fGrid = rowFilter[..dot].Trim();
+                fCol = rowFilter[(dot + 1)..eq].Trim();
+                fVal = rowFilter[(eq + 1)..].Trim();
+            }
+        }
         return Regex.Replace(html, @"\{\{\s*#tabla\.([a-zA-Z0-9_]+)\s*\}\}(.*?)\{\{\s*/tabla\.\1\s*\}\}", m =>
         {
             var code = m.Groups[1].Value;
@@ -213,6 +231,12 @@ public static class FormTemplateMerge
             if (!values.TryGetValue(code, out var raw) || string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
 
             var rows = ParseGridRows(raw);
+            // FEATURE D: si el filtro apunta a ESTA grilla, solo pasan las filas cuya columna coincide (ej. la fecha).
+            if (fGrid is not null && fCol is not null && fVal is not null
+                && string.Equals(code, fGrid, StringComparison.OrdinalIgnoreCase))
+            {
+                rows = rows.Where(r => string.Equals((r.GetValueOrDefault(fCol) ?? string.Empty).Trim(), fVal, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
             if (rows.Count == 0) { return string.Empty; }
 
             var cols = gridOptions.TryGetValue(code, out var opts)
@@ -222,6 +246,10 @@ public static class FormTemplateMerge
             foreach (var col in cols) { colFormat[col.Id] = col.Format; }
             var colById = new Dictionary<string, FormGridColumn>(StringComparer.OrdinalIgnoreCase);
             foreach (var col in cols) { colById[col.Id] = col; }
+            // FEATURE E: columnas de firma -> la celda guarda "/archivo/{id}" y se imprime como imagen.
+            var sigCols = gridOptions.TryGetValue(code, out var optsSig)
+                ? Lookups.FormGridColumnLookupParser.Parse(optsSig).Where(kv => kv.Value.Signature is not null).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // CAP 3 (ADR-0081): si la plantilla usa un sub-bloque {{#grupo}} ... {{/grupo}}, se renderiza
             // AGRUPADO por la columna GroupRender (o, si no hay, como un solo grupo). Sin {{#grupo}}, plano.
@@ -236,8 +264,14 @@ public static class FormTemplateMerge
                 var row = rows[i];
                 var chunk = Regex.Replace(inner, @"\{\{\s*col\.([a-zA-Z0-9_]+)\s*\}\}", cm =>
                 {
-                    var cell = row.TryGetValue(cm.Groups[1].Value, out var cv) ? cv : null;
-                    return Esc(FormatCellDisplay(colById.GetValueOrDefault(cm.Groups[1].Value), cell));
+                    var colId = cm.Groups[1].Value;
+                    var cell = row.TryGetValue(colId, out var cv) ? cv : null;
+                    // FEATURE E: una columna de firma con ref /archivo/{id} se imprime como <img> (no escapado).
+                    if (sigCols.Contains(colId) && cell is { Length: > 0 } && cell.StartsWith("/archivo/", System.StringComparison.Ordinal))
+                    {
+                        return $"<img src=\"{Esc(cell)}\" style=\"max-height:64px;max-width:180px\" alt=\"Firma\" />";
+                    }
+                    return Esc(FormatCellDisplay(colById.GetValueOrDefault(colId), cell));
                 });
                 chunk = chunk.Replace("{{fila}}", (i + 1).ToString(CultureInfo.InvariantCulture));
                 outSb.Append(chunk);

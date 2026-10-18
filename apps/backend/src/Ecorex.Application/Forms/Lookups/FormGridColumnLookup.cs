@@ -102,6 +102,33 @@ public sealed record FormGridCrossRef(
 }
 
 /// <summary>
+/// FEATURE A: una columna SELECT de grilla cuyas opciones se toman de OTRA grilla del MISMO formulario (en vez de
+/// opciones estaticas). Ej.: en 'entregas' el select 'item' lista los productos reales de la grilla 'items':
+/// value = columna <see cref="ValueField"/> (ej. "item" = A/B/C), etiqueta = columna <see cref="LabelField"/>
+/// (ej. "detalle"). Es REACTIVO: se lee de las filas VIVAS de la grilla origen (mismo patron que crossGrid), asi
+/// que si agregan/quitan un producto, el dropdown se actualiza. La grilla origen debe computarse ANTES (dependencia).
+/// </summary>
+public sealed record FormGridOptionsFromGrid(
+    string Grid,         // field code de la pregunta GridDetail origen (ej. "items")
+    string ValueField,   // columna de la grilla origen que se guarda como valor (ej. "item")
+    string LabelField);  // columna de la grilla origen que se muestra como etiqueta (ej. "detalle")
+
+/// <summary>
+/// FEATURE E: una columna de FIRMA POR LINK. La celda guarda la referencia "/archivo/{id}" de la imagen de
+/// firma una vez el tercero firma desde /firmar/{token}. Config declarativa (editable en el disenador):
+///  - <see cref="PhoneField"/>: id de la columna de ESTA grilla que trae el telefono destino; si es null/vacio
+///    se usa el telefono del solicitante de la tarea.
+///  - <see cref="LinkHours"/>: vigencia del link en horas (1..8760; default 72).
+///  - <see cref="Message"/>: texto del WhatsApp; admite el token {link} (si falta, se antepone un texto por defecto).
+///  - <see cref="RequireName"/>: exige que el firmante teclee su nombre antes de firmar.
+/// </summary>
+public sealed record FormGridSignatureConfig(
+    string? PhoneField,
+    int LinkHours,
+    string? Message,
+    bool RequireName);
+
+/// <summary>
 /// Extras de una columna de tabla que NO viven en FormGridColumn (calculo/agregado): lookup con
 /// autollenado, valor por defecto al crear la fila, comprobacion de existencias, auto-resolucion
 /// multi-clave y referencia CROSS-GRID (CAP 2). Se parsean del MISMO OptionsJson de la pregunta, en
@@ -113,7 +140,14 @@ public sealed record FormGridColumnExtras(
     string? Default,
     FormGridStockCheck? StockCheck,
     FormGridResolveConfig? Resolve = null,
-    FormGridCrossRef? CrossRef = null);
+    FormGridCrossRef? CrossRef = null,
+    FormGridOptionsFromGrid? OptionsFromGrid = null,
+    // FEATURE B: tope DINAMICO de la celda tomado de OTRA grilla (ej. cantidad_entregada <= items.pendiente del
+    // mismo item). Se reusa el mismo resolver que crossGrid (vlookup): grid origen, field = columna del tope,
+    // match = {columnaOrigen: "{celda}"}. Null = sin tope dinamico. El render avisa y el guardado BLOQUEA si se excede.
+    FormGridCrossRef? MaxFrom = null,
+    // FEATURE E: si no es null, esta columna es una FIRMA POR LINK (ver FormGridSignatureConfig).
+    FormGridSignatureConfig? Signature = null);
 
 /// <summary>
 /// Parseo de los extras de columna del OptionsJson. Defensivo: cualquier columna mal formada se
@@ -142,9 +176,12 @@ public static class FormGridColumnLookupParser
                 var stock = ParseStockCheck(el);
                 var resolve = ParseResolve(el);
                 var crossRef = ParseCrossRef(el);
-                if (lookup is null && def is null && stock is null && resolve is null && crossRef is null) { continue; }
+                var optionsFromGrid = ParseOptionsFromGrid(el);
+                var maxFrom = ParseMaxFrom(el);
+                var signature = ParseSignature(el);
+                if (lookup is null && def is null && stock is null && resolve is null && crossRef is null && optionsFromGrid is null && maxFrom is null && signature is null) { continue; }
 
-                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock, resolve, crossRef);
+                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock, resolve, crossRef, optionsFromGrid, maxFrom, signature);
             }
         }
         catch (JsonException) { /* extras invalidos: la tabla se comporta como texto plano */ }
@@ -278,6 +315,60 @@ public static class FormGridColumnLookupParser
         if (match.Count == 0) { return null; }
 
         return new FormGridCrossRef(grid!, mode, valueField!, agg, match);
+    }
+
+    /// <summary>FEATURE A: parsea "optionsFromGrid": { "grid": "...", "valueField": "...", "labelField": "..." }.
+    /// Si labelField falta, se usa valueField como etiqueta. Null si falta grid o valueField.</summary>
+    private static FormGridOptionsFromGrid? ParseOptionsFromGrid(JsonElement col)
+    {
+        if (!col.TryGetProperty("optionsFromGrid", out var og) || og.ValueKind != JsonValueKind.Object) { return null; }
+        var grid = Trimmed(og, "grid");
+        var valueField = Trimmed(og, "valueField");
+        if (string.IsNullOrWhiteSpace(grid) || string.IsNullOrWhiteSpace(valueField)) { return null; }
+        var labelField = Trimmed(og, "labelField") ?? valueField;
+        return new FormGridOptionsFromGrid(grid!, valueField!, labelField!);
+    }
+
+    /// <summary>FEATURE B: parsea "maxFrom": { "grid":"...", "field":"pendiente", "match":{"item":"{item}"} } y lo
+    /// expresa como un FormGridCrossRef vlookup (se reusa su resolver para traer el tope por fila). Null si falta
+    /// grid/field/match.</summary>
+    private static FormGridCrossRef? ParseMaxFrom(JsonElement col)
+    {
+        if (!col.TryGetProperty("maxFrom", out var mf) || mf.ValueKind != JsonValueKind.Object) { return null; }
+        var grid = Trimmed(mf, "grid");
+        var field = Trimmed(mf, "field");
+        if (string.IsNullOrWhiteSpace(grid) || string.IsNullOrWhiteSpace(field)) { return null; }
+        var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (mf.TryGetProperty("match", out var m) && m.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in m.EnumerateObject())
+            {
+                var v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(v)) { match[p.Name] = v!; }
+            }
+        }
+        if (match.Count == 0) { return null; }
+        return new FormGridCrossRef(grid!, "vlookup", field!, Ecorex.Domain.Enums.FormAggregate.Sum, match);
+    }
+
+    /// <summary>FEATURE E: parsea "signature": { "phoneField":"telefono", "linkHours":72, "message":"...", "requireName":true }.
+    /// Basta con que exista el objeto "signature" para marcar la columna como firma (todos sus campos son opcionales).</summary>
+    private static FormGridSignatureConfig? ParseSignature(JsonElement col)
+    {
+        if (!col.TryGetProperty("signature", out var sg) || sg.ValueKind != JsonValueKind.Object) { return null; }
+        var phoneField = Trimmed(sg, "phoneField");
+        var message = Trimmed(sg, "message");
+        var hours = 72;
+        if (sg.TryGetProperty("linkHours", out var ph))
+        {
+            if (ph.ValueKind == JsonValueKind.Number && ph.TryGetInt32(out var n)) { hours = n; }
+            else if (ph.ValueKind == JsonValueKind.String && int.TryParse(ph.GetString(), out var ns)) { hours = ns; }
+        }
+        if (hours is < 1 or > 8760) { hours = 72; }
+        var requireName = sg.TryGetProperty("requireName", out var rn)
+            && (rn.ValueKind == JsonValueKind.True
+                || (rn.ValueKind == JsonValueKind.String && bool.TryParse(rn.GetString(), out var rb) && rb));
+        return new FormGridSignatureConfig(phoneField, hours, message, requireName);
     }
 
     private static string? Trimmed(JsonElement obj, string name)

@@ -154,7 +154,8 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
             Body = command.Question.Trim(),
             MessageType = "text",
             SentByName = "Agente de IA",
-            SentAt = now
+            SentAt = now,
+            DeliveryStatus = "sent"   // el webhook de YCloud lo avanza a delivered/read o failed (por wamid)
         });
 
         // ADR-0120: el saliente del agente del nodo tambien queda en /bitacora-agente, atribuido al agente ligado

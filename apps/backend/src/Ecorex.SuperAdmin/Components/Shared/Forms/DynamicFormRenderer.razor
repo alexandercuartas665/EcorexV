@@ -19,6 +19,8 @@
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
+@inject Ecorex.Application.Forms.IFormSignatureService SignSvc
+@inject NavigationManager Nav
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -227,6 +229,44 @@ else
                                            @onchange="@(() => _printFormat = "img")" /> Imagen
                                 </label>
                             </div>
+
+                            @* FEATURE D: filtro OPCIONAL de filas de una tabla (ej. remision por fecha de entrega).
+                               Generico: tabla -> columna -> valor (valores = distintos presentes en esa columna). *@
+                            @if ((_definition?.Questions.Where(x => x.ControlType == FormControlType.GridDetail).ToList() ?? new()) is { Count: > 0 } printGrids)
+                            {
+                                <label class="dfr-print-lbl">Filtrar filas de una tabla (opcional)</label>
+                                <select class="form-control" value="@_printFilterGrid" @onchange="OnPrintFilterGridChanged">
+                                    <option value="">Sin filtro (todas las filas)</option>
+                                    @foreach (var g in printGrids)
+                                    {
+                                        <option value="@g.FieldCode" selected="@(_printFilterGrid == g.FieldCode)">@g.Label</option>
+                                    }
+                                </select>
+                                @if (!string.IsNullOrEmpty(_printFilterGrid))
+                                {
+                                    var pfGridQ = printGrids.FirstOrDefault(x => x.FieldCode == _printFilterGrid);
+                                    var pfCols = pfGridQ is null ? new List<FormGridColumn>() : GridColumnsOf(pfGridQ);
+                                    <select class="form-control" style="margin-top:6px" value="@_printFilterCol" @onchange="OnPrintFilterColChanged">
+                                        <option value="">Columna...</option>
+                                        @foreach (var c in pfCols)
+                                        {
+                                            <option value="@c.Id" selected="@(_printFilterCol == c.Id)">@c.Label</option>
+                                        }
+                                    </select>
+                                    @if (!string.IsNullOrEmpty(_printFilterCol) && pfGridQ is not null)
+                                    {
+                                        var pfVals = GridRowsOf(pfGridQ).Select(r => r.GetValueOrDefault(_printFilterCol))
+                                            .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.Ordinal).OrderBy(v => v, StringComparer.Ordinal).ToList();
+                                        <select class="form-control" style="margin-top:6px" @bind="_printFilterValue">
+                                            <option value="">Valor...</option>
+                                            @foreach (var v in pfVals)
+                                            {
+                                                <option value="@v">@v</option>
+                                            }
+                                        </select>
+                                    }
+                                }
+                            }
                         }
                         @if (!string.IsNullOrEmpty(_printError))
                         {
@@ -2139,6 +2179,11 @@ else
                                         @* Columna de GESTIONES (ADR-0085): pildoras que abren subformularios ligados a la fila. *@
                                         @RenderGestionCell(q, rowIndex, col, rows[rowIndex])
                                     }
+                                    else if (colExtras?.Signature is { } sigCfg)
+                                    {
+                                        @* FEATURE E: columna de FIRMA POR LINK. La celda guarda /archivo/{id} cuando el tercero firma. *@
+                                        @RenderSignatureCell(q, rowIndex, col, sigCfg, rows[rowIndex], cell)
+                                    }
                                     else if (colExtras?.Lookup is { } lkCfg && col.Calc is null)
                                     {
                                         @* Columna lookup con autollenado en la misma fila (generica:
@@ -2183,6 +2228,19 @@ else
                                         <input class="form-control form-control-sm dfr-calc@(NumCls(col.Format))" tabindex="-1" readonly disabled
                                                value="@FormatValue(col.Format, cell)" />
                                     }
+                                    else if (colExtras?.OptionsFromGrid is { } ofg && col.Calc is null)
+                                    {
+                                        @* FEATURE A: columna lista cuyas opciones vienen de OTRA grilla (filas vivas). El valor
+                                           guardado es el valueField de la grilla origen (ej. items.item = A/B/C); la etiqueta, su labelField. *@
+                                        <select class="form-control form-control-sm" disabled="@IsDisabled"
+                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))">
+                                            <option value="" selected="@string.IsNullOrEmpty(cell)">--</option>
+                                            @foreach (var o in GridOptionsFromGrid(ofg))
+                                            {
+                                                <option value="@o.Value" selected="@(o.Value == cell)">@o.Label</option>
+                                            }
+                                        </select>
+                                    }
                                     else if (col.IsSelect)
                                     {
                                         @* D3: columna de lista. El valor guardado sigue siendo el id de la opcion. *@
@@ -2211,17 +2269,27 @@ else
                                             }
                                         </div>
                                     }
-                                    else if (col.Min is decimal colMin)
+                                    else if (col.Min is decimal || colExtras?.MaxFrom is not null)
                                     {
-                                        @* Columna con MINIMO (ej. sin negativos): input numerico nativo con min/step; el valor se
-                                           muestra CRUDO (type=number no admite mascara). El guardado ademas clampa en el servidor. *@
+                                        @* Columna numerica con MINIMO (sin negativos) y/o TOPE DINAMICO (FEATURE B: cantidad_entregada
+                                           <= items.pendiente del mismo item). El tope se resuelve de la grilla origen por fila; si se excede,
+                                           borde rojo + aviso (y el servidor BLOQUEA el envio). El clamp del minimo se hace en captura/servidor. *@
+                                        var maxVal = colExtras?.MaxFrom is { } mfCfg ? ResolveMaxFrom(mfCfg, rows[rowIndex]) : (decimal?)null;
+                                        var overMax = maxVal is decimal mx && decimal.TryParse(cell, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cv) && cv > mx;
                                         <input class="form-control form-control-sm@(NumCls(col.Format))" type="number"
-                                               min="@colMin.ToString(System.Globalization.CultureInfo.InvariantCulture)" step="any" disabled="@IsDisabled"
+                                               min="@(col.Min?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                                               max="@(maxVal?.ToString(System.Globalization.CultureInfo.InvariantCulture))" step="any" disabled="@IsDisabled"
+                                               style="@(overMax ? "border-color:#dc2626;background:#fef2f2;" : null)"
+                                               title="@(overMax ? $"Supera el maximo permitido ({maxVal?.ToString(System.Globalization.CultureInfo.InvariantCulture)})" : null)"
                                                value="@cell"
                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, UnformatNumber(col.Format, e.Value?.ToString())))" />
-                                        @if (_gridMinClamped.Contains(GridCellKey(q, rowIndex, colId)))
+                                        @if (col.Min is decimal colMin && _gridMinClamped.Contains(GridCellKey(q, rowIndex, colId)))
                                         {
                                             <div class="dfr-gridlk-note" title="El valor se ajusto al minimo permitido">@(colMin == 0m ? "no se permiten negativos" : $"minimo {colMin.ToString(System.Globalization.CultureInfo.InvariantCulture)}")</div>
+                                        }
+                                        @if (overMax)
+                                        {
+                                            <div class="dfr-gridlk-note" style="color:#dc2626;font-weight:600" title="No se puede entregar mas de lo pendiente">maximo @maxVal?.ToString(System.Globalization.CultureInfo.InvariantCulture)</div>
                                         }
                                     }
                                     else
@@ -2927,6 +2995,37 @@ else
             .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal))
             .ToList();
 
+    /// <summary>FEATURE A: opciones de un select de grilla tomadas de las filas VIVAS de otra grilla del formulario
+    /// (value = valueField, etiqueta = labelField). Lee las filas ya computadas (RecomputeGrids las dejo en _values,
+    /// incluido el seq A/B/C), dedup por valor, ignora filas sin valor. Reactivo: refleja altas/bajas de la grilla origen.</summary>
+    private IEnumerable<(string Value, string Label)> GridOptionsFromGrid(FormGridOptionsFromGrid cfg)
+    {
+        var srcQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, cfg.Grid, StringComparison.OrdinalIgnoreCase));
+        if (srcQ is null) { yield break; }
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in GridRowsOf(srcQ))
+        {
+            var val = r.GetValueOrDefault(cfg.ValueField);
+            if (string.IsNullOrWhiteSpace(val) || !seen.Add(val!)) { continue; }
+            var label = r.GetValueOrDefault(cfg.LabelField);
+            yield return (val!, string.IsNullOrWhiteSpace(label) ? val! : label!);
+        }
+    }
+
+    /// <summary>FEATURE B: resuelve el TOPE dinamico de una celda tomado de otra grilla (ej. items.pendiente del
+    /// mismo item), reusando el resolver de crossGrid contra las filas vivas de la grilla origen. Null si no resuelve
+    /// un numero. El servidor repite esta validacion de forma autoritativa al guardar (bloquea el envio si se excede).</summary>
+    private decimal? ResolveMaxFrom(FormGridCrossRef maxFrom, Dictionary<string, string?> row)
+    {
+        var srcQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, maxFrom.Grid, StringComparison.OrdinalIgnoreCase));
+        if (srcQ is null) { return null; }
+        var resolved = FormGridCrossRefResolver.Resolve(maxFrom, GridRowsOf(srcQ), row, _values);
+        return decimal.TryParse(resolved, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? n : (decimal?)null;
+    }
+
     // Celdas cuyo ultimo valor tecleado se CLAMPO al minimo de la columna (aviso sutil "no se permiten
     // negativos"). Se marca al clampar y se limpia cuando la celda recibe un valor valido (>= min).
     private readonly HashSet<string> _gridMinClamped = new();
@@ -3078,6 +3177,130 @@ else
             return nx == ny;
         }
         return string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ---- FEATURE E: firma por link (por fila) ----
+
+    private readonly Dictionary<string, string?> _signCellNote = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderSignatureCell(FormQuestionDto q, int rowIndex, FormGridColumn col, FormGridSignatureConfig sig, IReadOnlyDictionary<string, string?> row, string? cell) => __builder =>
+    {
+        var signed = !string.IsNullOrWhiteSpace(cell);
+        <div class="dfr-sign-cell" style="display:flex;align-items:center;gap:6px;min-width:160px;flex-wrap:wrap">
+            @if (signed)
+            {
+                <img src="@cell" alt="Firma" style="height:38px;max-width:120px;border:1px solid #e5e7eb;border-radius:4px;background:#fff" />
+                @if (!IsDisabled)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="@(() => VoidSignatureCellAsync(q, rowIndex, col))">Anular</button>
+                }
+            }
+            else if (IsDisabled)
+            {
+                <span style="color:#9ca3af">Sin firma</span>
+            }
+            else if (_response is null)
+            {
+                <span style="color:#9ca3af">Guarda el registro para pedir la firma</span>
+            }
+            else
+            {
+                <span style="color:#6b7280">Sin firmar</span>
+                <button type="button" class="btn btn-sm btn-primary" @onclick="@(() => RequestSignatureAsync(q, rowIndex, col, sig, send: true))">Enviar a firmar</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => RequestSignatureAsync(q, rowIndex, col, sig, send: false))">Copiar link</button>
+            }
+        </div>
+        @if (_signCellNote.TryGetValue(GridCellKey(q, rowIndex, col.Id), out var note) && !string.IsNullOrEmpty(note))
+        {
+            <div class="dfr-gridlk-note" style="white-space:normal;max-width:280px" title="@note">@note</div>
+        }
+    };
+
+    private async Task RequestSignatureAsync(FormQuestionDto q, int rowIndex, FormGridColumn col, FormGridSignatureConfig sig, bool send)
+    {
+        if (_response is null) { _globalError = "Guarda el registro antes de pedir la firma."; return; }
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+
+        // Identidad estable de la fila + persistir el padre (mismo patron que las gestiones por fila).
+        var rowId = rows[rowIndex].GetValueOrDefault(GestionRowIdKey);
+        if (string.IsNullOrWhiteSpace(rowId))
+        {
+            rowId = Guid.NewGuid().ToString("N");
+            rows[rowIndex][GestionRowIdKey] = rowId;
+            _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+        }
+        await SaveAsync(submit: false);
+        if (_response is null) { return; }
+
+        var key = GridCellKey(q, rowIndex, col.Id);
+        var phone = ResolveSignaturePhone(sig, rows[rowIndex]);
+        var input = new Ecorex.Application.Forms.RequestSignatureInput(
+            _response.Id, q.FieldCode, rowId!, col.Id, sig.LinkHours, sig.RequireName,
+            SendWhatsApp: send, Phone: phone, Message: sig.Message, ActorUserId: SubmittedByTenantUserId ?? Guid.Empty);
+
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var res = await SignSvc.RequestAsync(input);
+            if (!res.IsOk) { _signCellNote[key] = res.Error; return; }
+            var copyLink = res.Value.Link ?? $"{Nav.BaseUri.TrimEnd('/')}/firmar/{res.Value.ClearToken}";
+            if (send)
+            {
+                _signCellNote[key] = res.Value.Sent
+                    ? $"Link enviado por WhatsApp a {res.Value.PhoneUsed}."
+                    : $"{res.Value.SendError ?? "No se pudo enviar; copia el link."} Link: {copyLink}";
+            }
+            else
+            {
+                try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", copyLink); _signCellNote[key] = "Link copiado al portapapeles."; }
+                catch { _signCellNote[key] = $"Link: {copyLink}"; }
+            }
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task VoidSignatureCellAsync(FormQuestionDto q, int rowIndex, FormGridColumn col)
+    {
+        if (_response is null) { return; }
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var rowId = rows[rowIndex].GetValueOrDefault(GestionRowIdKey);
+        if (string.IsNullOrWhiteSpace(rowId)) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Anular la firma de esta fila? Se podra volver a pedir.")) { return; }
+
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var res = await SignSvc.VoidAsync(_response.Id, q.FieldCode, rowId!, col.Id);
+            if (!res.IsOk) { _signCellNote[GridCellKey(q, rowIndex, col.Id)] = res.Error; return; }
+        }
+        finally { _dbGate.Release(); }
+
+        // Refleja el borrado en memoria (la celda queda vacia y la fila vuelve a "Sin firmar").
+        rows[rowIndex][col.Id] = null;
+        _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+        _signCellNote.Remove(GridCellKey(q, rowIndex, col.Id));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string? ResolveSignaturePhone(FormGridSignatureConfig sig, IReadOnlyDictionary<string, string?> row)
+    {
+        if (!string.IsNullOrWhiteSpace(sig.PhoneField))
+        {
+            var v = row.GetValueOrDefault(sig.PhoneField!);
+            if (!string.IsNullOrWhiteSpace(v)) { return v; }
+        }
+        if (TaskTokens is not null)
+        {
+            foreach (var k in new[] { "telefono", "tareas.telefono", "tarea.telefono", "celular" })
+            {
+                if (TaskTokens.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v)) { return v; }
+            }
+        }
+        return null;
     }
 
     private async Task AddGridRow(FormQuestionDto q)
@@ -3256,6 +3479,12 @@ else
         var copy = new Dictionary<string, string?>(rows[rowIndex], StringComparer.Ordinal);
         // La copia es una fila NUEVA: identidad propia (no arrastra gestiones de la original).
         copy[GestionRowIdKey] = Guid.NewGuid().ToString("N");
+        // FEATURE E (invariante copiar-fila-no-copia-firma): una firma es del recibido de ESA entrega;
+        // la copia nace SIN firma. Se vacian las columnas de firma.
+        foreach (var kv in GridExtrasOf(q))
+        {
+            if (kv.Value.Signature is not null) { copy.Remove(kv.Key); }
+        }
         rows.Insert(rowIndex + 1, copy);
         // Al insertar, los indices de fila se corren; el estado de lookup por fila quedaria desalineado.
         ClearGridLookupState(q);
@@ -3865,6 +4094,23 @@ else
     private string? _printError;
     private string _printFormat = "print";           // print | pdf | img
     private Guid _printTemplateId;
+    // FEATURE D: filtro opcional de filas de UNA tabla para la impresion (ej. remision por fecha de entrega).
+    private string _printFilterGrid = "";
+    private string _printFilterCol = "";
+    private string _printFilterValue = "";
+
+    private void OnPrintFilterGridChanged(ChangeEventArgs e)
+    {
+        _printFilterGrid = e.Value?.ToString() ?? "";
+        _printFilterCol = "";
+        _printFilterValue = "";
+    }
+
+    private void OnPrintFilterColChanged(ChangeEventArgs e)
+    {
+        _printFilterCol = e.Value?.ToString() ?? "";
+        _printFilterValue = "";
+    }
     private IReadOnlyList<Ecorex.Application.Tenancy.QuoteTemplateDto> _printTemplates
         = Array.Empty<Ecorex.Application.Tenancy.QuoteTemplateDto>();
 
@@ -4016,13 +4262,20 @@ else
             await SaveAsync(submit: false);
             if (_globalError is not null) { _printError = "No se pudo guardar el registro antes de imprimir."; return; }
 
-            var tid = _printTemplateId != Guid.Empty ? $"?templateId={_printTemplateId}" : "";
+            var qp = new List<string>();
+            if (_printTemplateId != Guid.Empty) { qp.Add($"templateId={_printTemplateId}"); }
+            // FEATURE D: filtro de filas (ej. remision por fecha) -> "grid.col=valor".
+            if (!string.IsNullOrEmpty(_printFilterGrid) && !string.IsNullOrEmpty(_printFilterCol) && !string.IsNullOrEmpty(_printFilterValue))
+            {
+                qp.Add($"rowFilter={Uri.EscapeDataString($"{_printFilterGrid}.{_printFilterCol}={_printFilterValue}")}");
+            }
+            var qs = qp.Count > 0 ? "?" + string.Join("&", qp) : "";
             var baseUrl = $"/formularios/plantilla/{_response!.Id}";
             var url = _printFormat switch
             {
-                "pdf" => $"{baseUrl}/pdf{tid}",
-                "img" => $"{baseUrl}/img{tid}",
-                _ => $"{baseUrl}{tid}{(tid.Length == 0 ? "?" : "&")}print=1",
+                "pdf" => $"{baseUrl}/pdf{qs}",
+                "img" => $"{baseUrl}/img{qs}",
+                _ => $"{baseUrl}{qs}{(qs.Length == 0 ? "?" : "&")}print=1",
             };
             await JS.InvokeVoidAsync("open", url, "_blank");
             _printOpen = false;

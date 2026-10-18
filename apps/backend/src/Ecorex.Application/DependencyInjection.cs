@@ -140,6 +140,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormTemplateRenderService, Forms.FormTemplateRenderService>();
         services.AddScoped<Forms.IQuoteDocumentRenderer, Forms.QuoteDocumentRenderer>();
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
+        services.AddScoped<Forms.IFormSignatureService, Forms.FormSignatureService>();
         services.AddScoped<Forms.IFormTextAssistService, Forms.FormTextAssistService>();
         // Formularios avanzados (ola F1, doc 01 D4): lookup/autocompletado desde tablas del
         // tenant. Un adaptador por origen (Tercero, Item, DataContainer) + fachada que despacha.
@@ -163,6 +164,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.NotificarVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ImprimirPlantillaVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ConvertirAFormularioVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CargarFilasDesdeGrillaVerb>();   // FEATURE C: cargar filas de una grilla a otra
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();

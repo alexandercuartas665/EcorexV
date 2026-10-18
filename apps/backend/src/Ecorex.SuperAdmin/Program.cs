@@ -1467,6 +1467,16 @@ static string LoopbackPort(Microsoft.AspNetCore.Hosting.Server.IServer srv)
     return (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
 }
 
+// FEATURE D: arma el query string de la URL loopback del HTML (templateId + rowFilter) para que el PDF/IMG
+// rendericen la misma vista filtrada. rowFilter se escapa (lleva '='); vacio = no se agrega.
+static string BuildPrintQuery(Guid? templateId, string? rowFilter)
+{
+    var parts = new List<string>();
+    if (templateId is Guid t) { parts.Add($"templateId={t}"); }
+    if (!string.IsNullOrWhiteSpace(rowFilter)) { parts.Add($"rowFilter={Uri.EscapeDataString(rowFilter)}"); }
+    return parts.Count == 0 ? string.Empty : "?" + string.Join("&", parts);
+}
+
 // PDF de la cotizacion (render headless de la pagina anterior). Para descargar/ver como PDF.
 app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     Guid leadId,
@@ -1491,10 +1501,11 @@ app.MapGet("/formularios/plantilla/{responseId:guid}", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
     [FromQuery] string? print,
+    [FromQuery] string? rowFilter,   // FEATURE D: filtra filas de una grilla, ej. "entregas.fecha=2026-10-16"
     Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
-    var html = await render.RenderHtmlAsync(responseId, templateId, ct);
+    var html = await render.RenderHtmlAsync(responseId, templateId, rowFilter, ct);
     if (html is null) { return Results.NotFound(); }
     // Nombre amigable como titulo del documento: al "Imprimir" (Guardar como PDF) el navegador propone el
     // document.title como nombre de archivo, no el GUID de la URL. "NombreFormulario CodigoActividad".
@@ -1515,12 +1526,13 @@ app.MapGet("/formularios/plantilla/{responseId:guid}", async (
 app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
+    [FromQuery] string? rowFilter,   // FEATURE D: viaja al HTML por la URL loopback (y de ahi al render)
     Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
     Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
-    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + BuildPrintQuery(templateId, rowFilter);
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     if (bytes.Length == 0) { return Results.NotFound(); }
     // Nombre amigable: "NombreFormulario CodigoActividad" (no el GUID del registro). Fallback al GUID.
@@ -1531,12 +1543,13 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
 app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
+    [FromQuery] string? rowFilter,   // FEATURE D
     Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
     Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
-    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + BuildPrintQuery(templateId, rowFilter);
     var bytes = await pdf.RenderUrlToImageAsync(url, ct);
     if (bytes.Length == 0) { return Results.NotFound(); }
     var name = await render.GetDocumentNameAsync(responseId, ct);
@@ -1790,59 +1803,99 @@ app.MapPost("/webhooks/ycloud", async (
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {
-        // No es un mensaje entrante: puede ser un evento de ESTADO de entrega. Si hay fallos de entrega
-        // (failed/undelivered), se deja una nota VISIBLE en la conversacion del cliente con el motivo de Meta,
-        // para que un "no llego" deje de ser invisible (antes el webhook de estado se ignoraba por completo).
-        var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
-        var failures = statuses.Where(s => s.IsFailure).ToList();
-        var recorded = 0;
-        foreach (var s in failures)
+        // No es un mensaje entrante: es un evento de ESTADO de entrega (sent/delivered/read/failed). Se ACTUALIZA
+        // el estado del mensaje saliente (correlacionando por el wamid = ExternalId) para que la bandeja muestre si
+        // llego, se leyo o fallo. Ademas, en fallos se deja una nota VISIBLE con el motivo de Meta y se LOGUEA el
+        // evento crudo (antes el motivo se perdia y un "no llego" quedaba invisible).
+        static int StatusRank(string? st) => (st ?? "").ToLowerInvariant() switch
         {
-            var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());
-            if (digits.Length == 0) { continue; }
-            // Resuelve la linea YCloud por su numero de negocio (from) o, si no vino, por el WABA id.
-            var stLine = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l =>
-                l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
-                && ((!string.IsNullOrEmpty(s.BusinessNumber) && l.YCloudPhoneNumberId == s.BusinessNumber)
-                    || (!string.IsNullOrEmpty(s.WabaId) && l.YCloudWabaId == s.WabaId)), ct);
-            if (stLine is null) { continue; }
-
-            var conv = await db.Conversations.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(c => c.WhatsAppLineId == stLine.Id && c.ContactPhone == digits, ct);
-            var nowU = DateTimeOffset.UtcNow;
-            if (conv is null)
-            {
-                conv = new Ecorex.Domain.Entities.Conversation
-                {
-                    TenantId = stLine.TenantId,
-                    ContactPhone = digits,
-                    WhatsAppLineId = stLine.Id,
-                    LastMessageAt = nowU
-                };
-                db.Conversations.Add(conv);
-            }
-            else { conv.LastMessageAt = nowU; }
-
+            "sent" => 1, "delivered" => 2, "read" => 3, _ => 0
+        };
+        var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
+        var updated = 0; var recorded = 0;
+        foreach (var s in statuses)
+        {
+            if (string.IsNullOrWhiteSpace(s.Status)) { continue; }
+            // "undelivered" se muestra como "failed" (no llego); los demas pasan tal cual.
+            var uiStatus = s.IsFailure ? "failed" : s.Status.Trim().ToLowerInvariant();
             var reason = string.IsNullOrWhiteSpace(s.ErrorMessage)
                 ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
                 : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
-            db.Messages.Add(new Ecorex.Domain.Entities.Message
+
+            // 1) Actualizar el mensaje saliente por wamid. No se RETROCEDE el estado (read>delivered>sent); failed
+            //    siempre marca. Si ya estaba failed, no se vuelve a notar (evita notas duplicadas por reenvios).
+            var alreadyFailed = false;
+            if (!string.IsNullOrWhiteSpace(s.Wamid))
             {
-                TenantId = stLine.TenantId,
-                ConversationId = conv.Id,
-                Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
-                Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
-                MessageType = "text",
-                SentByName = "Sistema (WhatsApp)",
-                SentAt = nowU
-            });
-            recorded++;
+                var msg = await db.Messages.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(x => x.ExternalId == s.Wamid
+                        && x.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound, ct);
+                if (msg is not null)
+                {
+                    alreadyFailed = msg.DeliveryStatus == "failed";
+                    if (uiStatus == "failed")
+                    {
+                        msg.DeliveryStatus = "failed";
+                        msg.DeliveryError = reason;
+                    }
+                    else if (StatusRank(uiStatus) > StatusRank(msg.DeliveryStatus))
+                    {
+                        msg.DeliveryStatus = uiStatus;
+                    }
+                    updated++;
+                }
+            }
+
+            // 2) Fallo: log del evento crudo + nota visible en la conversacion (una sola vez por mensaje).
+            if (s.IsFailure)
+            {
+                log.LogWarning(
+                    "Webhook YCloud FALLO de entrega. wamid={Wamid} to={To} estado={Status} codigo={Code} motivo={Msg}",
+                    s.Wamid, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)");
+                if (alreadyFailed) { continue; }
+
+                var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());
+                if (digits.Length == 0) { continue; }
+                var stLine = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l =>
+                    l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
+                    && ((!string.IsNullOrEmpty(s.BusinessNumber) && l.YCloudPhoneNumberId == s.BusinessNumber)
+                        || (!string.IsNullOrEmpty(s.WabaId) && l.YCloudWabaId == s.WabaId)), ct);
+                if (stLine is null) { continue; }
+
+                var conv = await db.Conversations.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(c => c.WhatsAppLineId == stLine.Id && c.ContactPhone == digits, ct);
+                var nowU = DateTimeOffset.UtcNow;
+                if (conv is null)
+                {
+                    conv = new Ecorex.Domain.Entities.Conversation
+                    {
+                        TenantId = stLine.TenantId,
+                        ContactPhone = digits,
+                        WhatsAppLineId = stLine.Id,
+                        LastMessageAt = nowU
+                    };
+                    db.Conversations.Add(conv);
+                }
+                else { conv.LastMessageAt = nowU; }
+
+                db.Messages.Add(new Ecorex.Domain.Entities.Message
+                {
+                    TenantId = stLine.TenantId,
+                    ConversationId = conv.Id,
+                    Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
+                    Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
+                    MessageType = "text",
+                    SentByName = "Sistema (WhatsApp)",
+                    SentAt = nowU
+                });
+                recorded++;
+            }
         }
-        if (recorded > 0)
+        if (updated > 0 || recorded > 0)
         {
             await db.SaveChangesAsync(ct);
-            log.LogWarning("Webhook YCloud: {N} fallo(s) de entrega registrados en la conversacion del cliente.", recorded);
-            return Results.Ok(new { status = "delivery_failure_recorded", count = recorded });
+            log.LogInformation("Webhook YCloud estado: {U} mensaje(s) actualizados, {R} fallo(s) notados.", updated, recorded);
+            return Results.Ok(new { status = "status_processed", updated, failures = recorded });
         }
         log.LogInformation("Webhook YCloud IGNORADO (evento no procesable o sin mensaje entrante).");
         return Results.Ok(new { status = "ignored" });

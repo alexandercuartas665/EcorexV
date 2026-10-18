@@ -21,7 +21,11 @@ public sealed record MessageDto(
     string? MediaUrl = null,
     string? MediaMimeType = null,
     string? SentByName = null,
-    string? Reaction = null);
+    string? Reaction = null,
+    // Estado de entrega del saliente (sent/delivered/read/failed) y el motivo si fallo. Para mostrar en la bandeja
+    // si el mensaje llego o no (lo avanza el webhook de estado de YCloud por wamid). Null en entrantes.
+    string? DeliveryStatus = null,
+    string? DeliveryError = null);
 
 /// <summary>Payload normalizado del webhook entrante (lo produce el Evolution Connector).</summary>
 /// <param name="WhatsAppLineId">Linea que recibio el mensaje (se deduce del nombre de instancia). Necesaria para

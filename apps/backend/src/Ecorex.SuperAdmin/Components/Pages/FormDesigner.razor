@@ -2806,12 +2806,14 @@ else
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
                                                     @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq)">Texto</option>
-                                                <option value="select" selected="@(ext?.Lookup is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="text" selected="@(ext?.Lookup is null && ext?.Signature is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq)">Texto</option>
+                                                <option value="select" selected="@(ext?.Lookup is null && ext?.OptionsFromGrid is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="optionsFromGrid" selected="@(ext?.OptionsFromGrid is not null)">Lista desde otra grilla</option>
                                                 <option value="multicheck" selected="@(ext?.Lookup is null && col.Calc is null && col.IsMultiCheck)">Multi-seleccion (casillas)</option>
                                                 <option value="formula" selected="@(ext?.Lookup is null && col.Calc is not null)">Formula (calculada)</option>
                                                 <option value="seq" selected="@(col.IsSeq)">Consecutivo (letras/numeros)</option>
                                                 <option value="lookup" selected="@(ext?.Lookup is not null)">Lookup (autollenar)</option>
+                                                <option value="signature" selected="@(ext?.Signature is not null)">Firma (por link)</option>
                                             </select>
                                         </div>
                                         @if (col.Calc is null)
@@ -2846,6 +2848,140 @@ else
                                             </select>
                                             <div class="fb-hint">Columna de solo lectura: numera cada fila automaticamente y se recalcula al agregar, borrar o reordenar. El valor se guarda en la fila (imprime con &#123;&#123;@col.Id&#125;&#125;).</div>
                                         </div>
+                                    }
+                                    @if (ext?.OptionsFromGrid is { } ofg)
+                                    {
+                                        @* FEATURE A: lista cuyas opciones vienen de otra grilla del mismo formulario. *@
+                                        var ofgGrids = _def!.Questions.Where(x => x.ControlType == FormControlType.GridDetail
+                                            && !string.Equals(x.FieldCode, node.Q!.FieldCode, StringComparison.OrdinalIgnoreCase))
+                                            .OrderBy(x => x.SortOrder).ToList();
+                                        var ofgSrcQ = ofgGrids.FirstOrDefault(x => string.Equals(x.FieldCode, ofg.Grid, StringComparison.OrdinalIgnoreCase));
+                                        var ofgCols = ofgSrcQ is null ? new List<FormGridColumn>() : GridColumns(ofgSrcQ);
+                                        <div class="fb-gcp-row">
+                                            <div class="fb-gcp-field">
+                                                <label>Grilla de origen</label>
+                                                <select class="fb-select" @onchange="@(e => PatchOptionsFromGridFieldAsync(node.Q!, idx, "grid", e.Value?.ToString()))">
+                                                    <option value="" selected="@string.IsNullOrEmpty(ofg.Grid)">-- elige una grilla --</option>
+                                                    @foreach (var sg in ofgGrids)
+                                                    {
+                                                        <option value="@sg.FieldCode" selected="@(string.Equals(sg.FieldCode, ofg.Grid, StringComparison.OrdinalIgnoreCase))">@sg.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="fb-gcp-field">
+                                                <label>Columna del valor</label>
+                                                <select class="fb-select" @onchange="@(e => PatchOptionsFromGridFieldAsync(node.Q!, idx, "valueField", e.Value?.ToString()))">
+                                                    <option value="" selected="@string.IsNullOrEmpty(ofg.ValueField)">--</option>
+                                                    @foreach (var sc in ofgCols)
+                                                    {
+                                                        <option value="@sc.Id" selected="@(string.Equals(sc.Id, ofg.ValueField, StringComparison.OrdinalIgnoreCase))">@sc.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="fb-gcp-field">
+                                                <label>Columna de la etiqueta</label>
+                                                <select class="fb-select" @onchange="@(e => PatchOptionsFromGridFieldAsync(node.Q!, idx, "labelField", e.Value?.ToString()))">
+                                                    <option value="" selected="@string.IsNullOrEmpty(ofg.LabelField)">--</option>
+                                                    @foreach (var sc in ofgCols)
+                                                    {
+                                                        <option value="@sc.Id" selected="@(string.Equals(sc.Id, ofg.LabelField, StringComparison.OrdinalIgnoreCase))">@sc.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="fb-hint">Las opciones salen de las filas VIVAS de la grilla elegida (valor = columna del valor, texto = columna de la etiqueta). Se actualiza al agregar o quitar filas en esa grilla.</div>
+                                    }
+                                    @if (ext?.Lookup is null && col.Calc is null && !col.IsSelect && !col.IsMultiCheck && !col.IsSeq && ext?.OptionsFromGrid is null)
+                                    {
+                                        @* FEATURE B: tope maximo dinamico de la celda tomado de otra grilla (ej. cantidad_entregada <= items.pendiente). *@
+                                        var mf = ext?.MaxFrom;
+                                        var mfGrids = _def!.Questions.Where(x => x.ControlType == FormControlType.GridDetail
+                                            && !string.Equals(x.FieldCode, node.Q!.FieldCode, StringComparison.OrdinalIgnoreCase))
+                                            .OrderBy(x => x.SortOrder).ToList();
+                                        var mfSrcQ = mf is null ? null : mfGrids.FirstOrDefault(x => string.Equals(x.FieldCode, mf.Grid, StringComparison.OrdinalIgnoreCase));
+                                        var mfSrcCols = mfSrcQ is null ? new List<FormGridColumn>() : GridColumns(mfSrcQ);
+                                        var mfMatchSrc = mf is not null && mf.Match.Count > 0 ? mf.Match.Keys.First() : null;
+                                        var mfMatchThis = mf is not null && mf.Match.Count > 0 ? mf.Match.Values.First().Trim('{', '}') : null;
+                                        <div class="fb-gcp-field" style="margin-top:6px">
+                                            <label>Tope maximo desde otra grilla (no superar)</label>
+                                            <select class="fb-select" @onchange="@(e => ToggleMaxFromAsync(node.Q!, idx, e.Value?.ToString()))">
+                                                <option value="" selected="@(mf is null)">Sin tope</option>
+                                                @foreach (var g in mfGrids)
+                                                {
+                                                    <option value="@g.FieldCode" selected="@(mf is not null && string.Equals(g.FieldCode, mf.Grid, StringComparison.OrdinalIgnoreCase))">Desde: @g.Label</option>
+                                                }
+                                            </select>
+                                        </div>
+                                        @if (mf is not null)
+                                        {
+                                            <div class="fb-gcp-row">
+                                                <div class="fb-gcp-field">
+                                                    <label>Columna del tope</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchMaxFromFieldAsync(node.Q!, idx, "field", e.Value?.ToString()))">
+                                                        <option value="" selected="@string.IsNullOrEmpty(mf.ValueField)">--</option>
+                                                        @foreach (var sc in mfSrcCols)
+                                                        {
+                                                            <option value="@sc.Id" selected="@(string.Equals(sc.Id, mf.ValueField, StringComparison.OrdinalIgnoreCase))">@sc.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="fb-gcp-field">
+                                                    <label>Esta columna</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchMaxFromMatchAsync(node.Q!, idx, mfMatchSrc, e.Value?.ToString()))">
+                                                        <option value="" selected="@string.IsNullOrEmpty(mfMatchThis)">--</option>
+                                                        @foreach (var c in gcols)
+                                                        {
+                                                            <option value="@c.Id" selected="@(string.Equals(c.Id, mfMatchThis, StringComparison.OrdinalIgnoreCase))">@c.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="fb-gcp-field">
+                                                    <label>= columna origen</label>
+                                                    <select class="fb-select" @onchange="@(e => PatchMaxFromMatchAsync(node.Q!, idx, e.Value?.ToString(), mfMatchThis))">
+                                                        <option value="" selected="@string.IsNullOrEmpty(mfMatchSrc)">--</option>
+                                                        @foreach (var sc in mfSrcCols)
+                                                        {
+                                                            <option value="@sc.Id" selected="@(string.Equals(sc.Id, mfMatchSrc, StringComparison.OrdinalIgnoreCase))">@sc.Label</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="fb-hint">La celda no podra superar el valor de "columna del tope" de la fila de la otra grilla cuya "columna origen" coincide con "esta columna". El servidor bloquea el envio si se excede.</div>
+                                        }
+                                    }
+                                    @if (ext?.Signature is { } sigc)
+                                    {
+                                        @* FEATURE E: firma por link (por fila). Config self-serve. *@
+                                        <div class="fb-gcp-row" style="margin-top:6px">
+                                            <div class="fb-gcp-field">
+                                                <label>Telefono (columna de esta grilla)</label>
+                                                <select class="fb-select" @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "phoneField", e.Value?.ToString()))">
+                                                    <option value="" selected="@string.IsNullOrEmpty(sigc.PhoneField)">Usar el del solicitante</option>
+                                                    @foreach (var c in gcols)
+                                                    {
+                                                        <option value="@c.Id" selected="@(string.Equals(c.Id, sigc.PhoneField, StringComparison.OrdinalIgnoreCase))">@c.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="fb-gcp-field fb-gcp-narrow">
+                                                <label>Vigencia (horas)</label>
+                                                <input class="fb-input" type="number" min="1" max="8760" value="@sigc.LinkHours"
+                                                       @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "linkHours", e.Value?.ToString()))" />
+                                            </div>
+                                            <div class="fb-gcp-field fb-gcp-narrow">
+                                                <label>Pedir nombre</label>
+                                                <label class="fb-gridcol-req">
+                                                    <input type="checkbox" checked="@sigc.RequireName"
+                                                           @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "requireName", ((bool)e.Value!) ? "true" : ""))" /> Si
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="fb-gcp-field">
+                                            <label>Mensaje de WhatsApp (usa {link})</label>
+                                            <input class="fb-input" value="@sigc.Message" placeholder="Hola, por favor firma el recibido: {link}"
+                                                   @onchange="@(e => PatchSignatureFieldAsync(node.Q!, idx, "message", e.Value?.ToString()))" />
+                                        </div>
+                                        <div class="fb-hint">El operario envia el link por WhatsApp (o lo copia) desde la fila; el cliente firma en /firmar/{token} y la firma vuelve a esta celda. Al duplicar una fila la firma NO se copia.</div>
                                     }
                                     @if (ext?.Lookup is { } lk)
                                     {
@@ -3832,6 +3968,8 @@ else
         {
             obj.Remove("lookup");
             obj.Remove("seq");   // al cambiar de tipo se limpia el formato del consecutivo (lo re-pone case "seq")
+            obj.Remove("optionsFromGrid");   // FEATURE A: se limpia al cambiar de tipo (lo re-pone case "optionsFromGrid")
+            obj.Remove("signature");         // FEATURE E: se limpia al cambiar de tipo (lo re-pone case "signature")
             switch (type)
             {
                 case "select":
@@ -3841,6 +3979,13 @@ else
                     {
                         obj["options"] = new JsonArray(new JsonObject { ["id"] = "op_1", ["label"] = "Opcion 1" });
                     }
+                    break;
+                case "optionsFromGrid":
+                    // FEATURE A: lista cuyas opciones vienen de otra grilla. Es un select sin opciones estaticas.
+                    obj["type"] = "select";
+                    obj.Remove("calc");
+                    obj.Remove("options");
+                    obj["optionsFromGrid"] = new JsonObject { ["grid"] = "", ["valueField"] = "", ["labelField"] = "" };
                     break;
                 case "multicheck":
                     obj["type"] = "multicheck";
@@ -3874,6 +4019,19 @@ else
                         ["autofill"] = new JsonObject(),
                     };
                     break;
+                case "signature":
+                    // FEATURE E: columna de firma por link. La celda guarda la ref /archivo/{id} (texto).
+                    obj["type"] = "text";
+                    obj.Remove("calc");
+                    obj.Remove("options");
+                    obj["signature"] = new JsonObject
+                    {
+                        ["phoneField"] = "",
+                        ["linkHours"] = 72,
+                        ["message"] = "",
+                        ["requireName"] = false,
+                    };
+                    break;
                 default:
                     obj["type"] = "text";
                     obj.Remove("calc");
@@ -3889,6 +4047,64 @@ else
             if (obj["lookup"] is not JsonObject lk) { return; }
             var v = value?.Trim();
             if (string.IsNullOrEmpty(v)) { lk.Remove(key); } else { lk[key] = v; }
+        });
+
+    /// <summary>FEATURE E: fija phoneField/linkHours/message/requireName de la columna de firma por link.</summary>
+    private Task PatchSignatureFieldAsync(FormQuestionDto q, int index, string key, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["signature"] is not JsonObject sg) { sg = new JsonObject(); obj["signature"] = sg; }
+            var v = value?.Trim();
+            switch (key)
+            {
+                case "linkHours":
+                    sg["linkHours"] = int.TryParse(v, out var h) && h is >= 1 and <= 8760 ? h : 72;
+                    break;
+                case "requireName":
+                    sg["requireName"] = !string.IsNullOrEmpty(v);
+                    break;
+                default: // phoneField, message
+                    sg[key] = v ?? "";
+                    break;
+            }
+        });
+
+    /// <summary>FEATURE A: fija grid/valueField/labelField de la fuente "opciones desde otra grilla".</summary>
+    private Task PatchOptionsFromGridFieldAsync(FormQuestionDto q, int index, string key, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["optionsFromGrid"] is not JsonObject og) { og = new JsonObject(); obj["optionsFromGrid"] = og; }
+            og[key] = value?.Trim() ?? "";
+        });
+
+    /// <summary>FEATURE B: activa/cambia la grilla del tope dinamico (vacio = sin tope).</summary>
+    private Task ToggleMaxFromAsync(FormQuestionDto q, int index, string? gridCode)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            var g = gridCode?.Trim();
+            if (string.IsNullOrEmpty(g)) { obj.Remove("maxFrom"); return; }
+            if (obj["maxFrom"] is not JsonObject mf) { mf = new JsonObject { ["field"] = "", ["match"] = new JsonObject() }; obj["maxFrom"] = mf; }
+            mf["grid"] = g;
+        });
+
+    /// <summary>FEATURE B: fija una propiedad simple del tope (field).</summary>
+    private Task PatchMaxFromFieldAsync(FormQuestionDto q, int index, string key, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["maxFrom"] is not JsonObject mf) { return; }
+            mf[key] = value?.Trim() ?? "";
+        });
+
+    /// <summary>FEATURE B: fija el emparejamiento del tope: match = { columnaOrigen: "{columnaEstaGrilla}" }.</summary>
+    private Task PatchMaxFromMatchAsync(FormQuestionDto q, int index, string? sourceCol, string? thisCol)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["maxFrom"] is not JsonObject mf) { return; }
+            var sc = sourceCol?.Trim();
+            var tc = thisCol?.Trim();
+            var match = new JsonObject();
+            if (!string.IsNullOrEmpty(sc) && !string.IsNullOrEmpty(tc)) { match[sc] = "{" + tc + "}"; }
+            mf["match"] = match;
         });
 
     /// <summary>Cambia la fuente del lookup de columna; sourceRef solo aplica al contenedor.</summary>

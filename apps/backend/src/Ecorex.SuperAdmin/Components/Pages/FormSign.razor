@@ -1,0 +1,164 @@
+@page "/firmar/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.SuperAdmin.Auth
+@inject IFormSignatureService SignSvc
+@inject IJSRuntime JS
+
+@* FEATURE E (firma por link, por FILA de grilla). Visor publico sin sesion: el acceso lo gobierna el token
+   opaco (hash SHA-256, vencimiento, un-solo-uso, revocacion). La validacion del token es el UNICO punto
+   cross-tenant permitido (por hash exacto); validado, el resto corre con el tenant del token fijado como
+   ambient. Errores neutros. Reusa el pad de firma global (form-capture.js). *@
+
+<PageTitle>Firma - ECOREX</PageTitle>
+
+<div class="fp-shell">
+    <div class="fp-card">
+        @if (_loading)
+        {
+            <p><em>Validando enlace...</em></p>
+        }
+        else if (_submitted)
+        {
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <h2>Gracias, tu firma fue registrada.</h2>
+                <p>Ya puedes cerrar esta ventana.</p>
+            </div>
+        }
+        else if (_validation is null || !_validation.IsValid)
+        {
+            @* Mensaje NEUTRO: invalido, expirado, firmado o revocado se ven identicos. *@
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon off">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>
+                </div>
+                <h2>Este enlace no esta disponible.</h2>
+                <p>El enlace no es valido o ya fue usado. Contacta a quien te lo compartio.</p>
+            </div>
+        }
+        else
+        {
+            <h2 class="fs-title">Firma de recibido</h2>
+            @if (_summary.Count > 0)
+            {
+                <ul class="fs-summary">
+                    @foreach (var c in _summary)
+                    {
+                        <li><span class="fs-lbl">@c.Label:</span> <span class="fs-val">@c.Value</span></li>
+                    }
+                </ul>
+            }
+            @if (_validation.RequireName)
+            {
+                <label class="fs-field">
+                    <span>Nombre de quien firma</span>
+                    <input class="form-control" @bind="_signerName" maxlength="160" placeholder="Nombre completo" />
+                </label>
+            }
+            <div class="fs-pad">
+                <canvas id="sig-firmar" class="dfr-sign-canvas" width="320" height="140"></canvas>
+                <div class="fs-pad-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearAsync">Limpiar</button>
+                    <button type="button" class="btn btn-primary" disabled="@_saving" @onclick="SignAsync">@(_saving ? "Guardando..." : "Firmar")</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <p class="fs-error">@_error</p>
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .fs-title { margin: 0 0 12px; font-size: 1.15rem; }
+    .fs-summary { list-style: none; padding: 0; margin: 0 0 14px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    .fs-summary li { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; font-size: .9rem; }
+    .fs-summary li:last-child { border-bottom: 0; }
+    .fs-lbl { color: #6b7280; }
+    .fs-val { font-weight: 600; }
+    .fs-field { display: block; margin-bottom: 12px; }
+    .fs-field span { display: block; font-size: .85rem; color: #374151; margin-bottom: 4px; }
+    .fs-pad { border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; }
+    .dfr-sign-canvas { width: 100%; max-width: 320px; height: 140px; touch-action: none; background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; }
+    .fs-pad-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .fs-error { color: #dc2626; margin-top: 10px; font-size: .9rem; }
+</style>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private SignatureTokenValidation? _validation;
+    private IReadOnlyList<SignatureRowCell> _summary = [];
+    private bool _loading = true;
+    private bool _submitted;
+    private bool _saving;
+    private string? _signerName;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _validation = await SignSvc.ValidateAsync(Token);
+        if (_validation is { IsValid: true, TenantId: Guid tenantId })
+        {
+            using (AmbientTenantContext.Begin(tenantId))
+            {
+                _summary = await SignSvc.GetRowSummaryAsync(_validation.ResponseId, _validation.FieldCode, _validation.RowId);
+            }
+        }
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Inicializa el pad cuando el canvas esta presente (no en loading/invalido/enviado).
+        if (_validation is { IsValid: true } && !_submitted && !_loading)
+        {
+            try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", "sig-firmar"); }
+            catch (JSException) { /* prerender/JS no disponible */ }
+        }
+    }
+
+    private async Task ClearAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexFormCapture.clearSignature", "sig-firmar"); }
+        catch (JSException) { }
+    }
+
+    private async Task SignAsync()
+    {
+        if (_validation is not { IsValid: true, TenantId: Guid tenantId }) { return; }
+        _error = null;
+        if (_validation.RequireName && string.IsNullOrWhiteSpace(_signerName))
+        {
+            _error = "Escribe tu nombre para firmar.";
+            return;
+        }
+
+        string data;
+        try { data = await JS.InvokeAsync<string>("ecorexFormCapture.signatureData", "sig-firmar"); }
+        catch (JSException) { _error = "No se pudo leer la firma, intenta de nuevo."; return; }
+        if (string.IsNullOrWhiteSpace(data))
+        {
+            _error = "Dibuja tu firma antes de continuar.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            using (AmbientTenantContext.Begin(tenantId))
+            {
+                var res = await SignSvc.SignAsync(Token, data, _signerName);
+                if (res.IsOk) { _submitted = true; }
+                else { _error = res.Error ?? "No se pudo registrar la firma."; }
+            }
+        }
+        finally { _saving = false; }
+    }
+}

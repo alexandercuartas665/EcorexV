@@ -13,4 +13,7 @@ public interface INotifyLinkBuilder
 
     /// <summary>Enlace absoluto de decision del cliente (p.ej. https://app.../d/{token}); null si no hay URL base.</summary>
     string? BuildDecisionLink(string token);
+
+    /// <summary>Enlace absoluto de firma por link (p.ej. https://app.../firmar/{token}); null si no hay URL base.</summary>
+    string? BuildSignatureLink(string token);
 }

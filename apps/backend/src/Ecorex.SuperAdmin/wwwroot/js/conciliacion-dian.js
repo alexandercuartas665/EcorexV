@@ -67,11 +67,18 @@ window.ecorexCdCols = (function () {
                     e.preventDefault(); e.stopPropagation();
                     var th = h.closest('th'); if (!th) return;
                     var key = th.getAttribute('data-col');
+                    // El <th> es draggable (reordenar columnas): se desactiva durante el arrastre para que
+                    // el drag nativo no robe el resize. Se restaura al soltar.
+                    var prevDraggable = th.getAttribute('draggable');
+                    th.setAttribute('draggable', 'false');
                     var startX = e.clientX, startW = th.getBoundingClientRect().width;
-                    function mv(ev) { var w = Math.max(60, Math.round(startW + (ev.clientX - startX))); th.style.width = w + 'px'; }
+                    // La grilla usa table-layout:auto (desbordada); 'width' se ignora, 'min-width' SI manda.
+                    function setW(w) { th.style.width = w + 'px'; th.style.minWidth = w + 'px'; }
+                    function mv(ev) { setW(Math.max(60, Math.round(startW + (ev.clientX - startX)))); }
                     function up(ev) {
                         document.removeEventListener('mousemove', mv);
                         document.removeEventListener('mouseup', up);
+                        if (prevDraggable === null) { th.removeAttribute('draggable'); } else { th.setAttribute('draggable', prevDraggable); }
                         var w = Math.max(60, Math.round(startW + (ev.clientX - startX)));
                         if (dotnetRef && key) { try { dotnetRef.invokeMethodAsync('OnColumnResized', key, w); } catch (_) { } }
                     }

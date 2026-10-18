@@ -289,7 +289,7 @@ else
                         var sort = _sorts.FirstOrDefault(s => s.K == c.Key);
                         var arrow = sort is null ? "" : (sort.Dir >= 0 ? " ▲" : " ▼");
                         <th class="cd-th @(c.Num ? "num" : "")" draggable="true" data-col="@c.Key"
-                            style="@(_widths.TryGetValue(c.Key, out var w) ? $"width:{w}px" : "")"
+                            style="@(_widths.TryGetValue(c.Key, out var w) ? $"width:{w}px;min-width:{w}px" : "")"
                             @ondragstart="() => _dragCol = c.Key"
                             @ondragover:preventDefault="true"
                             @ondrop="() => OnDropCol(c.Key)">

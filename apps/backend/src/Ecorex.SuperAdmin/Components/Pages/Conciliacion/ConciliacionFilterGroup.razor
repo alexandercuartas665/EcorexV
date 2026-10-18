@@ -33,18 +33,27 @@
         }
         if (child.Kind == "group")
         {
-            <ConciliacionFilterGroup Group="child" Depth="Depth + 1" OnChanged="OnChanged" OnRemove="@(() => RemoveChild(child))" />
+            <ConciliacionFilterGroup Group="child" Depth="Depth + 1" ExtraFields="ExtraFields" OnChanged="OnChanged" OnRemove="@(() => RemoveChild(child))" />
         }
         else
         {
             var c = child;
-            var fld = ConciliacionFilter.FieldByKey(c.Field);
+            var fld = ConciliacionFilter.FieldByKey(c.Field, ExtraFields);
             <div class="cd-fb-cond">
                 <select class="cd-in cd-fb-field" @onchange="e => ChangeField(c, e)">
                     <option value="" selected="@string.IsNullOrEmpty(c.Field)">Campo&hellip;</option>
                     @foreach (var f in ConciliacionFilter.Fields)
                     {
                         <option value="@f.Key" selected="@(f.Key == c.Field)">@f.Label</option>
+                    }
+                    @if (ExtraFields is { Count: > 0 })
+                    {
+                        <optgroup label="Campos a medida">
+                            @foreach (var f in ExtraFields)
+                            {
+                                <option value="@f.Key" selected="@(f.Key == c.Field)">@f.Label</option>
+                            }
+                        </optgroup>
                     }
                 </select>
                 @if (fld is { } ff)
@@ -76,6 +85,8 @@
 @code {
     [Parameter, EditorRequired] public FilterNode Group { get; set; } = default!;
     [Parameter] public int Depth { get; set; }
+    /// <summary>Campos DINAMICOS (EAV) de la pagina, para ofrecerlos ademas del catalogo estatico.</summary>
+    [Parameter] public IReadOnlyList<FilterField>? ExtraFields { get; set; }
     [Parameter] public EventCallback OnChanged { get; set; }
     /// <summary>Lo invoca el padre para quitar ESTE grupo de su lista (solo subgrupos, Depth &gt; 0).</summary>
     [Parameter] public EventCallback OnRemove { get; set; }

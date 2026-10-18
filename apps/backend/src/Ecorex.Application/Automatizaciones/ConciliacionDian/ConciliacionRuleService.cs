@@ -141,6 +141,18 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
             return new ConciliacionReglasResult(0, 0, 0, 0, simular, Array.Empty<ConciliacionReglaPreview>(), "No hay renglones para procesar.");
         }
 
+        // Campos DINAMICOS (EAV): definiciones del tenant + valores por renglon. Se cargan TRACKED para
+        // poder persistir los cambios en el mismo SaveChanges del final. Se exponen al contexto como "dyn:{key}".
+        var renglonIdList = renglones.Select(r => r.Id).ToList();
+        var dynDefs = await _db.ConciliacionFieldDefinitions.AsNoTracking().OrderBy(d => d.SortOrder).ToListAsync(ct);
+        var dynValByKey = new Dictionary<(Guid Renglon, Guid Def), ConciliacionFieldValue>();
+        if (dynDefs.Count > 0)
+        {
+            var dynEntities = await _db.ConciliacionFieldValues.Where(v => renglonIdList.Contains(v.RenglonId)).ToListAsync(ct);
+            foreach (var v in dynEntities) { dynValByKey[(v.RenglonId, v.FieldDefinitionId)] = v; }
+        }
+        var tid = _tenant.TenantId;
+
         // Parsear specs y pre-indexar los VLOOKUP una sola vez por corrida.
         var parsed = new List<(ConciliacionRule R, string Kind, RuleLookupSpec? L, RuleConditionSpec? C)>();
         var indexCache = new Dictionary<string, LookupIndex>();
@@ -174,6 +186,10 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
         foreach (var ren in renglones)
         {
             var ctx = BuildContext(ren);
+            foreach (var d in dynDefs)
+            {
+                ctx["dyn:" + d.FieldKey] = (dynValByKey.TryGetValue((ren.Id, d.Id), out var dv) ? dv.Value : null) ?? "";
+            }
             var numsolAntes = ren.NumFacturaSoldarco;
             var aprobAntes = ren.FacturaAprobada;
             var huboHit = false;
@@ -214,7 +230,34 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
             var ocDespues = ctx.TryGetValue("oc", out var oc) ? oc : ren.OrdenCompraSoldarco;
             var aprobDespues = ctx.TryGetValue("aprobada", out var ap) ? ConciliacionRuleEngine.IsTrue(ap) : aprobAntes;
 
-            var cambio = numsolDespues != numsolAntes || aprobDespues != aprobAntes || ocDespues != ren.OrdenCompraSoldarco;
+            // Volcar campos dinamicos escritos por las reglas (EAV). Se persisten en el SaveChanges final.
+            var dynCambio = false;
+            foreach (var d in dynDefs)
+            {
+                var k = "dyn:" + d.FieldKey;
+                if (!ctx.TryGetValue(k, out var nv)) { continue; }
+                nv ??= "";
+                dynValByKey.TryGetValue((ren.Id, d.Id), out var ex);
+                var old = ex?.Value ?? "";
+                if (nv == old) { continue; }
+                dynCambio = true;
+                if (!simular && tid is Guid tg)
+                {
+                    if (nv.Length == 0)
+                    {
+                        if (ex is not null) { _db.ConciliacionFieldValues.Remove(ex); dynValByKey.Remove((ren.Id, d.Id)); }
+                    }
+                    else if (ex is not null) { ex.Value = nv; }
+                    else
+                    {
+                        var ne = new ConciliacionFieldValue { TenantId = tg, RenglonId = ren.Id, FieldDefinitionId = d.Id, Value = nv };
+                        _db.ConciliacionFieldValues.Add(ne);
+                        dynValByKey[(ren.Id, d.Id)] = ne;
+                    }
+                }
+            }
+
+            var cambio = numsolDespues != numsolAntes || aprobDespues != aprobAntes || ocDespues != ren.OrdenCompraSoldarco || dynCambio;
             if (huboHit) { encontrados++; }
             if (aprobDespues) { aprobados++; }
             if (cambio) { cambiados++; }

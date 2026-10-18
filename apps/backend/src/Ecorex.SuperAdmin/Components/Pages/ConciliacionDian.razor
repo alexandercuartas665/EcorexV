@@ -567,7 +567,7 @@ else
                 <button class="cd-doc-close" title="Cerrar" @onclick="CloseFilterBuilder">&times;</button>
             </div>
             <div class="cd-fb-body">
-                <ConciliacionFilterGroup Group="_filterRoot" Depth="0" OnChanged="OnFilterChanged" />
+                <ConciliacionFilterGroup Group="_filterRoot" Depth="0" ExtraFields="FilterExtraFields()" OnChanged="OnFilterChanged" />
             </div>
             <div class="cd-fb-foot">
                 <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
@@ -700,7 +700,7 @@ else
                                         <span class="cd-rule-eq">=</span>
                                         <select class="cd-in" @onchange="e => SetMatchSource(ru, mm, e)">
                                             <option value="">campo de la factura...</option>
-                                            @foreach (var f in ConciliacionRuleFields.All) { <option value="@f.Key" selected="@(f.Key == mm.SourceField)">@f.Label</option> }
+                                            @foreach (var f in RuleFieldsForEditor()) { <option value="@f.Key" selected="@(f.Key == mm.SourceField)">@f.Label</option> }
                                         </select>
                                         <button class="cd-ic cd-ic-del" @onclick="() => RemoveMatch(ru, mm)" title="Quitar">&times;</button>
                                     </div>
@@ -715,7 +715,7 @@ else
                                     <label class="cd-rule-lbl">Escribir en</label>
                                     <select class="cd-in" @onchange="e => SetTargetField(ru, e)">
                                         <option value="">...</option>
-                                        @foreach (var f in ConciliacionRuleFields.All.Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == L.TargetField)">@f.Label</option> }
+                                        @foreach (var f in RuleFieldsForEditor().Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == L.TargetField)">@f.Label</option> }
                                     </select>
                                 </div>
                                 <div class="cd-rule-row cd-rule-norm">
@@ -739,11 +739,11 @@ else
                                 </div>
                                 @foreach (var cond in C.When.Children.ToList())
                                 {
-                                    var cc = cond; var fld = ConciliacionRuleFields.ByKey(cc.Field);
+                                    var cc = cond; var fld = RuleFieldByKey(cc.Field);
                                     <div class="cd-rule-row">
                                         <select class="cd-in" @onchange="e => SetCondField(ru, cc, e)">
                                             <option value="">campo...</option>
-                                            @foreach (var f in ConciliacionRuleFields.All) { <option value="@f.Key" selected="@(f.Key == cc.Field)">@f.Label</option> }
+                                            @foreach (var f in RuleFieldsForEditor()) { <option value="@f.Key" selected="@(f.Key == cc.Field)">@f.Label</option> }
                                         </select>
                                         @if (fld is { } ff)
                                         {
@@ -767,7 +767,7 @@ else
                                     <div class="cd-rule-row">
                                         <select class="cd-in" @onchange="e => SetAssignField(ru, aa, e)">
                                             <option value="">campo...</option>
-                                            @foreach (var f in ConciliacionRuleFields.All.Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == aa.Field)">@f.Label</option> }
+                                            @foreach (var f in RuleFieldsForEditor().Where(x => x.Writable)) { <option value="@f.Key" selected="@(f.Key == aa.Field)">@f.Label</option> }
                                         </select>
                                         <span class="cd-rule-eq">=</span>
                                         <input class="cd-in" placeholder="valor (ej. true, o {otroCampo})" value="@aa.Value" @onchange="e => SetAssignValue(ru, aa, e)" />
@@ -872,7 +872,7 @@ else
     private string? _activeFilterName;
     private List<SavedFilterDto> _savedFilters = new();
     private string? _userName;
-    private int FilterCount => ConciliacionFilter.CountConditions(_filterRoot);
+    private int FilterCount => ConciliacionFilter.CountConditions(_filterRoot, FilterExtraFields());
 
     private readonly (EstadoConciliacionDian Estado, string Label)[] _tabs =
     {
@@ -944,6 +944,43 @@ else
 
     private static string DynKey(string fieldKey) => "dyn:" + fieldKey;
     private string DynVal(Guid renglonId, Guid defId) => _dynValues.TryGetValue(renglonId, out var d) && d.TryGetValue(defId, out var v) ? (v ?? "") : "";
+
+    // ---- Fase 3.1: exponer los campos dinamicos al MOTOR DE REGLAS y al CONSTRUCTOR DE FILTROS ----
+
+    private static RuleFieldType MapDynRuleType(string? t) => t switch
+    {
+        "Number" => RuleFieldType.Number,
+        "Date" => RuleFieldType.Date,
+        "Bool" => RuleFieldType.Bool,
+        _ => RuleFieldType.Text, // Text | Select
+    };
+
+    /// <summary>Catalogo del editor de reglas = campos estaticos + campos a medida (todos escribibles).</summary>
+    private IReadOnlyList<RuleField> RuleFieldsForEditor()
+    {
+        if (_dynDefs.Count == 0) { return ConciliacionRuleFields.All; }
+        var list = new List<RuleField>(ConciliacionRuleFields.All);
+        foreach (var d in _dynDefs) { list.Add(new RuleField(DynKey(d.FieldKey), d.Label, MapDynRuleType(d.Type), true)); }
+        return list;
+    }
+
+    private RuleField? RuleFieldByKey(string? key) => RuleFieldsForEditor().FirstOrDefault(f => f.Key == key);
+
+    private static FilterFieldType MapDynFilterType(string? t) => t switch
+    {
+        "Number" => FilterFieldType.Number,
+        "Date" => FilterFieldType.Date,
+        "Bool" => FilterFieldType.Bool,
+        _ => FilterFieldType.Text, // Text | Select
+    };
+
+    /// <summary>Campos a medida como campos filtrables (clave "dyn:{key}", igual que grilla y reglas).</summary>
+    private IReadOnlyList<FilterField> FilterExtraFields()
+        => _dynDefs.Select(d => new FilterField(DynKey(d.FieldKey), d.Label, MapDynFilterType(d.Type))).ToList();
+
+    /// <summary>Resolver de valores dinamicos para el evaluador del filtro: (renglon, "dyn:key") -> valor.</summary>
+    private string? DynFilterValue(ConciliacionDianRenglonDto r, string key)
+        => _dynByKey.TryGetValue(key, out var d) ? DynVal(r.Id, d.Id) : "";
 
     private async Task LoadDynDefsAsync()
     {
@@ -1296,7 +1333,7 @@ else
     {
         // Filtro del constructor (cliente): se aplica sobre los renglones del tab antes de agrupar/sumar.
         var src = FilterCount > 0
-            ? _renglones.Where(r => ConciliacionFilter.Evaluate(_filterRoot, r, CufeTieneArchivos)).ToList()
+            ? _renglones.Where(r => ConciliacionFilter.Evaluate(_filterRoot, r, CufeTieneArchivos, FilterExtraFields(), DynFilterValue)).ToList()
             : _renglones.ToList();
         var items = new List<GridItem>();
         BuildItems(src, 0, items);

@@ -381,3 +381,7 @@
 .cd-ctx-labeledit { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
 .cd-ctx-labeledit .cd-in { width: 100%; }
 .cd-ctx-labeledit-acts { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+/* ---- Celdas de campos dinamicos ---- */
+.cd-dyn { height: 28px; padding: 0 6px; min-width: 90px; max-width: 160px; }
+.cd-dyn.num { text-align: right; }

@@ -284,6 +284,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
     public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
     public DbSet<ConciliacionRule> ConciliacionRules => Set<ConciliacionRule>();
+    public DbSet<ConciliacionFieldDefinition> ConciliacionFieldDefinitions => Set<ConciliacionFieldDefinition>();
+    public DbSet<ConciliacionFieldValue> ConciliacionFieldValues => Set<ConciliacionFieldValue>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
@@ -2770,6 +2772,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
             // Un juego por tenant; se ejecutan en SortOrder.
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ConciliacionFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Type).HasMaxLength(20).IsRequired();
+            b.Property(x => x.OptionsJson).HasColumnType(jsonColumnType);
+            // Una definicion por (tenant, clave).
+            b.HasIndex(x => new { x.TenantId, x.FieldKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionFieldValue>(b =>
+        {
+            b.Property(x => x.Value).HasMaxLength(2000);
+            b.HasOne(x => x.Renglon).WithMany().HasForeignKey(x => x.RenglonId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.FieldDefinition).WithMany().HasForeignKey(x => x.FieldDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Un valor por (renglon, campo). Busqueda tipica: todos los valores de un renglon.
+            b.HasIndex(x => new { x.TenantId, x.RenglonId, x.FieldDefinitionId }).IsUnique();
         });
 
         modelBuilder.Entity<StoredFile>(b =>

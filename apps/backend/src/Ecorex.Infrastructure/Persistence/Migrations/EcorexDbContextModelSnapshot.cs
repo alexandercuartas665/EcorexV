@@ -2590,6 +2590,125 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("conciliacion_dian_renglones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("field_key");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("options_json");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("type");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_field_definitions");
+
+                    b.HasIndex("TenantId", "FieldKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_field_definitions_tenant_id_field_key");
+
+                    b.ToTable("conciliacion_field_definitions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FieldDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("field_definition_id");
+
+                    b.Property<Guid>("RenglonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renglon_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_field_values");
+
+                    b.HasIndex("FieldDefinitionId")
+                        .HasDatabaseName("ix_conciliacion_field_values_field_definition_id");
+
+                    b.HasIndex("RenglonId")
+                        .HasDatabaseName("ix_conciliacion_field_values_renglon_id");
+
+                    b.HasIndex("TenantId", "RenglonId", "FieldDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_field_values_tenant_id_renglon_id_field_defini");
+
+                    b.ToTable("conciliacion_field_values", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -18133,6 +18252,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_conciliacion_dian_renglones_conciliacion_dian_documentos_do");
 
                     b.Navigation("Documento");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldValue", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionFieldDefinition", "FieldDefinition")
+                        .WithMany()
+                        .HasForeignKey("FieldDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_field_values_conciliacion_field_definitions_fi");
+
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionDianRenglon", "Renglon")
+                        .WithMany()
+                        .HasForeignKey("RenglonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_field_values_conciliacion_dian_renglones_rengl");
+
+                    b.Navigation("FieldDefinition");
+
+                    b.Navigation("Renglon");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>

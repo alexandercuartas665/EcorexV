@@ -1,0 +1,162 @@
+@* Campo de telefono reutilizable: selector de codigo de pais (lista) + input con mascara en vivo + validacion.
+   Value se expone/recibe en formato E.164 sin '+' (ej. "573001234567"). ValidChanged informa si el numero actual es
+   valido (vacio = valido, "validar solo si lo escriben"). La validacion es por pais (longitud + primer digito movil
+   cuando aplica). Pensado para TerceroModal y cualquier otro form que capture un telefono de WhatsApp. ASCII-only. *@
+
+<div style="display:flex; gap:6px; align-items:center; min-width:0;">
+    <select class="dg-input" style="max-width:118px; flex:0 0 auto;" value="@_cc" @onchange="OnCcChanged" disabled="@Disabled">
+        @foreach (var c in Countries)
+        {
+            <option value="@c.Code">@c.Flag +@c.Code</option>
+        }
+    </select>
+    <input class="dg-input" style="flex:1 1 auto; min-width:0;" inputmode="numeric" autocomplete="tel"
+           placeholder="@PlaceholderFor(_cc)" value="@_display" @oninput="OnLocalInput" disabled="@Disabled" />
+</div>
+@if (_touched && HasDigits && !IsValid)
+{
+    <div class="dg-note-err" style="margin-top:4px;">@ErrorFor(_cc)</div>
+}
+
+@code {
+    /// <summary>Telefono en E.164 sin '+' (ej. "573001234567"). Vacio/null = sin numero.</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    /// <summary>Se dispara con la validez actual (vacio cuenta como valido).</summary>
+    [Parameter] public EventCallback<bool> ValidChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    /// <summary>Codigo de pais por defecto cuando el Value no trae uno reconocible (default Colombia "57").</summary>
+    [Parameter] public string DefaultCountry { get; set; } = "57";
+
+    private string _cc = "57";
+    private string _localDigits = "";   // solo digitos del numero local (sin codigo de pais)
+    private string _display = "";        // numero local con la mascara (espacios por grupos)
+    private bool _touched;
+
+    private bool HasDigits => _localDigits.Length > 0;
+
+    public sealed record Country(string Code, string Name, string Flag, int Len, char? FirstDigit, int[] Groups);
+
+    // Lista de paises (ajustable). Colombia primero (default). Len = digitos del numero local; FirstDigit = primer
+    // digito obligatorio del movil (null = no se exige); Groups = tamanos de grupo para la mascara visual.
+    public static readonly Country[] Countries = new[]
+    {
+        new Country("57","Colombia","\U0001F1E8\U0001F1F4",10,'3',new[]{3,3,4}),
+        new Country("1","USA/Canada","\U0001F1FA\U0001F1F8",10,null,new[]{3,3,4}),
+        new Country("52","Mexico","\U0001F1F2\U0001F1FD",10,null,new[]{2,4,4}),
+        new Country("51","Peru","\U0001F1F5\U0001F1EA",9,'9',new[]{3,3,3}),
+        new Country("593","Ecuador","\U0001F1EA\U0001F1E8",9,'9',new[]{2,3,4}),
+        new Country("58","Venezuela","\U0001F1FB\U0001F1EA",10,'4',new[]{3,3,4}),
+        new Country("507","Panama","\U0001F1F5\U0001F1E6",8,'6',new[]{4,4}),
+        new Country("54","Argentina","\U0001F1E6\U0001F1F7",10,null,new[]{2,4,4}),
+        new Country("56","Chile","\U0001F1E8\U0001F1F1",9,'9',new[]{1,4,4}),
+        new Country("34","Espana","\U0001F1EA\U0001F1F8",9,null,new[]{3,3,3}),
+    };
+
+    private static Country Meta(string cc) => Countries.FirstOrDefault(c => c.Code == cc) ?? Countries[0];
+
+    public bool IsValid
+    {
+        get
+        {
+            if (_localDigits.Length == 0) { return true; }   // vacio = valido (validar solo si lo escriben)
+            var m = Meta(_cc);
+            if (_localDigits.Length != m.Len) { return false; }
+            if (m.FirstDigit is char f && _localDigits[0] != f) { return false; }
+            return true;
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Parsear el Value (E.164) entrante a (codigo de pais, digitos locales) la primera vez / cuando cambia.
+        var incoming = new string((Value ?? "").Where(char.IsDigit).ToArray());
+        var current = _cc + _localDigits;
+        if (incoming == current) { return; }   // ya sincronizado (evita pisar lo que el usuario escribe)
+        if (incoming.Length == 0) { _cc = NormalizeCc(DefaultCountry); _localDigits = ""; _display = ""; return; }
+
+        // Match del codigo de pais por prefijo mas largo de la lista; si no calza, default + todo como local.
+        var match = Countries
+            .Where(c => incoming.StartsWith(c.Code) && incoming.Length - c.Code.Length == c.Len)
+            .OrderByDescending(c => c.Code.Length).FirstOrDefault()
+          ?? Countries.Where(c => incoming.StartsWith(c.Code)).OrderByDescending(c => c.Code.Length).FirstOrDefault();
+        if (match is not null)
+        {
+            _cc = match.Code;
+            _localDigits = incoming[match.Code.Length..];
+        }
+        else
+        {
+            _cc = NormalizeCc(DefaultCountry);
+            _localDigits = incoming;
+        }
+        _display = Mask(_localDigits, _cc);
+    }
+
+    private static string NormalizeCc(string? cc)
+    {
+        var d = new string((cc ?? "").Where(char.IsDigit).ToArray());
+        return Countries.Any(c => c.Code == d) ? d : "57";
+    }
+
+    private async Task OnCcChanged(ChangeEventArgs e)
+    {
+        _cc = NormalizeCc(e.Value?.ToString());
+        _localDigits = Trunc(_localDigits, Meta(_cc).Len);
+        _display = Mask(_localDigits, _cc);
+        _touched = true;
+        await EmitAsync();
+    }
+
+    private async Task OnLocalInput(ChangeEventArgs e)
+    {
+        var digits = new string((e.Value?.ToString() ?? "").Where(char.IsDigit).ToArray());
+        _localDigits = Trunc(digits, Meta(_cc).Len);
+        _display = Mask(_localDigits, _cc);
+        _touched = true;
+        await EmitAsync();
+    }
+
+    private async Task EmitAsync()
+    {
+        var e164 = _localDigits.Length == 0 ? null : _cc + _localDigits;
+        await ValueChanged.InvokeAsync(e164);
+        await ValidChanged.InvokeAsync(IsValid);
+    }
+
+    private static string Trunc(string digits, int max) => digits.Length > max ? digits[..max] : digits;
+
+    // Mascara visual: agrupa los digitos segun Groups del pais (lo que sobra va suelto al final).
+    private static string Mask(string digits, string cc)
+    {
+        if (digits.Length == 0) { return ""; }
+        var groups = Meta(cc).Groups;
+        var sb = new System.Text.StringBuilder();
+        var i = 0;
+        foreach (var g in groups)
+        {
+            if (i >= digits.Length) { break; }
+            if (sb.Length > 0) { sb.Append(' '); }
+            var take = Math.Min(g, digits.Length - i);
+            sb.Append(digits.AsSpan(i, take));
+            i += take;
+        }
+        if (i < digits.Length) { sb.Append(' ').Append(digits.AsSpan(i)); }
+        return sb.ToString();
+    }
+
+    private static string PlaceholderFor(string cc)
+    {
+        var m = Meta(cc);
+        // Ejemplo con el primer digito del movil si aplica, relleno con X.
+        var example = (m.FirstDigit?.ToString() ?? "X") + new string('X', Math.Max(0, m.Len - 1));
+        return Mask(example, cc);
+    }
+
+    private static string ErrorFor(string cc)
+    {
+        var m = Meta(cc);
+        var first = m.FirstDigit is char f ? $" que empiece por {f}" : "";
+        return $"Numero invalido para {m.Name}: deben ser {m.Len} digitos{first}.";
+    }
+}

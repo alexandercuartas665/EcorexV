@@ -159,6 +159,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
+    public DbSet<FormSignatureToken> FormSignatureTokens => Set<FormSignatureToken>();
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
@@ -282,6 +283,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies => Set<ConciliacionDianErpRefDummy>();
     public DbSet<UserTablePreference> UserTablePreferences => Set<UserTablePreference>();
     public DbSet<SavedFilter> SavedFilters => Set<SavedFilter>();
+    public DbSet<ConciliacionRule> ConciliacionRules => Set<ConciliacionRule>();
+    public DbSet<ConciliacionFieldDefinition> ConciliacionFieldDefinitions => Set<ConciliacionFieldDefinition>();
+    public DbSet<ConciliacionFieldValue> ConciliacionFieldValues => Set<ConciliacionFieldValue>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
@@ -2001,6 +2005,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasIndex(x => x.TokenHash);
         });
 
+        modelBuilder.Entity<FormSignatureToken>(b =>
+        {
+            // FEATURE E (firma por link, por fila). Mismo esquema de token solo-hash que FormToken.
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.FieldCode).HasMaxLength(120).IsRequired();
+            b.Property(x => x.RowId).HasMaxLength(64).IsRequired();
+            b.Property(x => x.ColumnId).HasMaxLength(120).IsRequired();
+            b.Property(x => x.SignerName).HasMaxLength(160);
+            b.Property(x => x.TargetPhone).HasMaxLength(32);
+            // El token vive y muere con la respuesta firmada.
+            b.HasOne(x => x.Response).WithMany()
+                .HasForeignKey(x => x.ResponseId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.TokenHash }).IsUnique();
+            // Resolucion del visor anonimo (IgnoreQueryFilters).
+            b.HasIndex(x => x.TokenHash);
+            // Revocar/listar los tokens vivos de UNA celda de fila.
+            b.HasIndex(x => new { x.TenantId, x.ResponseId, x.FieldCode, x.RowId, x.ColumnId });
+        });
+
         modelBuilder.Entity<WorkflowNodeForm>(b =>
         {
             // Un nodo puede tener VARIOS formularios; el unico impide repetir el MISMO en el nodo.
@@ -2740,6 +2763,37 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
             // Un filtro por (tenant, modulo, nombre): "Guardar" con nombre existente reemplaza.
             b.HasIndex(x => new { x.TenantId, x.Module, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionRule>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            b.Property(x => x.DefinitionJson).HasColumnType(jsonColumnType).IsRequired();
+            // Un juego por tenant; se ejecutan en SortOrder.
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ConciliacionFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Type).HasMaxLength(20).IsRequired();
+            b.Property(x => x.OptionsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Description).HasMaxLength(300);
+            b.Property(x => x.ShowInFilter).HasDefaultValue(true);
+            b.Property(x => x.UniqueValue).HasDefaultValue(false);
+            // Una definicion por (tenant, clave).
+            b.HasIndex(x => new { x.TenantId, x.FieldKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConciliacionFieldValue>(b =>
+        {
+            b.Property(x => x.Value).HasMaxLength(2000);
+            b.HasOne(x => x.Renglon).WithMany().HasForeignKey(x => x.RenglonId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.FieldDefinition).WithMany().HasForeignKey(x => x.FieldDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Un valor por (renglon, campo). Busqueda tipica: todos los valores de un renglon.
+            b.HasIndex(x => new { x.TenantId, x.RenglonId, x.FieldDefinitionId }).IsUnique();
         });
 
         modelBuilder.Entity<StoredFile>(b =>

@@ -84,6 +84,29 @@ public class YCloudWebhookParserStatusTests
     }
 
     [Fact]
+    public void Captura_wamid_de_meta_y_id_de_ycloud_por_separado()
+    {
+        // La correlacion del estado debe poder cruzar por el id de YCloud (lo que se guarda al enviar) o el wamid de Meta.
+        const string json = """
+        { "whatsappMessage": { "id": "6ad615b27a774e2ecb5eae6b", "wamid": "wamid.OUT9", "from": "573171990738", "to": "573216726882", "status": "sent" } }
+        """;
+        var s = ParseOne(json);
+        Assert.Equal("wamid.OUT9", s.Wamid);
+        Assert.Equal("6ad615b27a774e2ecb5eae6b", s.ProviderId);
+    }
+
+    [Fact]
+    public void Sin_wamid_de_meta_queda_el_id_de_ycloud()
+    {
+        const string json = """
+        { "whatsappMessage": { "id": "6ad615b27a774e2ecb5eae6b", "from": "573171990738", "to": "573216726882", "status": "delivered" } }
+        """;
+        var s = ParseOne(json);
+        Assert.Null(s.Wamid);
+        Assert.Equal("6ad615b27a774e2ecb5eae6b", s.ProviderId);
+    }
+
+    [Fact]
     public void Un_mensaje_entrante_no_produce_estados()
     {
         const string json = """

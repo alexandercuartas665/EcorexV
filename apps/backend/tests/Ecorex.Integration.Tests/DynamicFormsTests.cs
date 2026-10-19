@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Forms;
+using Ecorex.Application.Storage;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -745,6 +746,153 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal("513000", read.Data["total_iva"].Value);
     }
 
+    [Fact]
+    public async Task GridMaxFromAndOptionsFromGrid_BlocksOverLimit_AndAcceptsCrossGridOption()
+    {
+        // FEATURE A: una columna select con 'optionsFromGrid' toma su valor de otra grilla -> la validacion de
+        // servidor NO debe rechazarlo como "opcion invalida" (no tiene opciones estaticas). FEATURE B: una columna
+        // con 'maxFrom' no puede superar el valor resuelto de la otra grilla (ej. cantidad_entregada <= items.cantidad
+        // del mismo item) -> al enviar un valor que lo excede, el servidor BLOQUEA (ValidationFailed); uno valido pasa.
+        var seed = await SeedTenantAsync("Forms MaxFrom");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-M" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), "Entregas"));
+        var definition = created.Value!;
+
+        var items = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "items", "Items", FormControlType.GridDetail,
+            OptionsJson: """[{"id":"item","label":"Item"},{"id":"cantidad","label":"Cantidad"}]"""));
+        Assert.True(items.IsOk, items.Error);
+
+        const string entregasCols =
+            """
+            [{"id":"item","type":"select","label":"Item","optionsFromGrid":{"grid":"items","valueField":"item","labelField":"item"}},
+             {"id":"entregar","label":"Entregar","maxFrom":{"grid":"items","field":"cantidad","match":{"item":"{item}"}}}]
+            """;
+        var entregas = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "entregas", "Entregas", FormControlType.GridDetail, OptionsJson: entregasCols));
+        Assert.True(entregas.IsOk, entregas.Error);
+
+        var activated = await definitions.ActivateAsync(definition.Id);
+        Assert.True(activated.IsOk, activated.Error);
+
+        const string itemsRows = """[{"item":"A","cantidad":"3"}]""";
+
+        // Sobre-entrega: entregar=5 > items.cantidad(A)=3 -> BLOQUEA (y el item 'A' NO se rechaza por opcion invalida).
+        var draft = await responses.GetOrCreateDraftAsync(definition.Id, "REF-MAX");
+        var over = await responses.SaveAsync(draft.Value!.Id, new Dictionary<string, FormFieldValue>
+        {
+            ["items"] = new(itemsRows, "GridDetail"),
+            ["entregas"] = new("""[{"item":"A","entregar":"5"}]""", "GridDetail"),
+        }, submit: true, seed.TenantUserId);
+        Assert.Equal(FormServiceStatus.ValidationFailed, over.Status);
+        Assert.NotNull(over.FieldErrors);
+        Assert.True(over.FieldErrors!.ContainsKey("entregas"), "el error de tope debe ir en la grilla 'entregas'");
+        Assert.Contains("supera el maximo", over.FieldErrors!["entregas"]);
+        // FEATURE A: el valor 'A' (de la otra grilla) NO fue rechazado como opcion invalida.
+        Assert.DoesNotContain("opcion valida", string.Join(" | ", over.FieldErrors!.Values));
+
+        // Entrega valida: entregar=2 <= 3 -> guarda OK (y confirma que 'A' se acepta).
+        var okSave = await responses.SaveAsync(draft.Value.Id, new Dictionary<string, FormFieldValue>
+        {
+            ["items"] = new(itemsRows, "GridDetail"),
+            ["entregas"] = new("""[{"item":"A","entregar":"2"}]""", "GridDetail"),
+        }, submit: true, seed.TenantUserId);
+        Assert.True(okSave.IsOk, okSave.Error);
+    }
+
+    [Fact]
+    public async Task SignatureByLink_EmitSignVoid_RespectsInvariants()
+    {
+        // FEATURE E (firma por link, por fila): emitir -> validar -> firmar escribe /archivo/{id} en la celda;
+        // el token queda un-solo-uso; que un token venza NO borra una firma ya hecha; anular limpia la celda,
+        // borra la imagen y revoca los tokens vivos.
+        var seed = await SeedTenantAsync("Forms Firma");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+        var files = new FakeFileStorage();
+        var sign = BuildSignatureService(ctx, seed, files);
+
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-S" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), "Entregas firma"));
+        var def = created.Value!;
+        const string entregasCols =
+            """[{"id":"item","label":"Item"},{"id":"firma","label":"Firma","signature":{"linkHours":72,"requireName":false}}]""";
+        var entregas = await definitions.AddQuestionAsync(def.Id, new SaveFormQuestionRequest(
+            null, "entregas", "Entregas", FormControlType.GridDetail, OptionsJson: entregasCols));
+        Assert.True(entregas.IsOk, entregas.Error);
+        Assert.True((await definitions.ActivateAsync(def.Id)).IsOk);
+
+        const string rowId = "row0001";
+        var draft = await responses.GetOrCreateDraftAsync(def.Id, "REF-FIRMA");
+        var responseId = draft.Value!.Id;
+        var save = await responses.SaveAsync(responseId, new Dictionary<string, FormFieldValue>
+        {
+            ["entregas"] = new($"[{{\"__rowId\":\"{rowId}\",\"item\":\"A\"}}]", "GridDetail"),
+        }, submit: false, seed.TenantUserId);
+        Assert.True(save.IsOk, save.Error);
+
+        // EMIT + VALIDATE
+        var emit = await sign.RequestAsync(new RequestSignatureInput(
+            responseId, "entregas", rowId, "firma", 72, RequireName: false,
+            SendWhatsApp: false, Phone: null, Message: null, ActorUserId: seed.TenantUserId));
+        Assert.True(emit.IsOk, emit.Error);
+        var token = emit.Value!.ClearToken;
+        var val = await sign.ValidateAsync(token);
+        Assert.True(val.IsValid);
+        Assert.Equal(responseId, val.ResponseId);
+        Assert.Equal("firma", val.ColumnId);
+
+        // SIGN -> la celda recibe /archivo/{id}
+        var png = "data:image/png;base64," + Convert.ToBase64String(new byte[] { 1, 2, 3, 4, 5 });
+        Assert.True((await sign.SignAsync(token, png, null)).IsOk);
+        Assert.StartsWith("/archivo/", FirmaCell(ctx, responseId, rowId));
+
+        // Un-solo-uso: el mismo token ya no vale.
+        Assert.False((await sign.ValidateAsync(token)).IsValid);
+
+        // No-borrar-si-firmada-y-vencida: un token NUEVO que vence no toca la firma ya hecha.
+        var emit2 = await sign.RequestAsync(new RequestSignatureInput(
+            responseId, "entregas", rowId, "firma", 72, RequireName: false,
+            SendWhatsApp: false, Phone: null, Message: null, ActorUserId: seed.TenantUserId));
+        var tok2 = await ctx.FormSignatureTokens.SingleAsync(t => t.Id == emit2.Value!.TokenId);
+        tok2.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await ctx.SaveChangesAsync();
+        Assert.False((await sign.ValidateAsync(emit2.Value!.ClearToken)).IsValid);
+        Assert.StartsWith("/archivo/", FirmaCell(ctx, responseId, rowId)); // firma intacta
+
+        // Anular: limpia la celda, borra la imagen y revoca los tokens vivos.
+        Assert.True((await sign.VoidAsync(responseId, "entregas", rowId, "firma")).IsOk);
+        Assert.True(string.IsNullOrEmpty(FirmaCell(ctx, responseId, rowId)));
+        Assert.NotEmpty(files.Deleted);
+        var anyLive = await ctx.FormSignatureTokens
+            .AnyAsync(t => t.ResponseId == responseId && t.RevokedAt == null && t.SignedAt == null);
+        Assert.False(anyLive);
+
+        // Vigencia en MINUTOS manda sobre horas (vencimientos cortos).
+        var emitMin = await sign.RequestAsync(new RequestSignatureInput(
+            responseId, "entregas", rowId, "firma", LinkHours: 72, RequireName: false,
+            SendWhatsApp: false, Phone: null, Message: null, ActorUserId: seed.TenantUserId, LinkMinutes: 30));
+        var tokMin = await ctx.FormSignatureTokens.SingleAsync(t => t.Id == emitMin.Value!.TokenId);
+        Assert.True(tokMin.ExpiresAt <= DateTimeOffset.UtcNow.AddMinutes(31),
+            "con linkMinutes=30 el vencimiento debe ser por minutos, no por las 72 h");
+    }
+
+    private static string? FirmaCell(EcorexDbContext ctx, Guid responseId, string rowId)
+    {
+        var resp = ctx.FormResponses.AsNoTracking().Single(r => r.Id == responseId);
+        var rows = FormFieldValidator.ParseGridRows(FormResponseService.ParseDocument(resp.Data)["entregas"].Value);
+        var row = rows.FirstOrDefault(r => string.Equals(r.GetValueOrDefault("__rowId"), rowId, StringComparison.Ordinal));
+        return row?.GetValueOrDefault("firma");
+    }
+
+    private static FormSignatureService BuildSignatureService(EcorexDbContext ctx, SeedData seed, FakeFileStorage files)
+        => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId), files, new FakeLinkBuilder(), new ThrowingWhatsApp());
+
     private static FormDefinitionService BuildDefinitionService(EcorexDbContext ctx, SeedData seed)
     {
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
@@ -771,6 +919,65 @@ public abstract class DynamicFormsTestsBase
     {
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
+    }
+
+    // ---- Fakes para FEATURE E (firma por link) ----
+
+    private sealed class FakeFileStorage : IFileStorageService
+    {
+        public readonly List<Guid> Deleted = new();
+        private readonly Dictionary<Guid, byte[]> _blobs = new();
+
+        public Task<StoredFileDto> SaveAsync(FileStorageSaveRequest request, CancellationToken ct = default)
+        {
+            var id = Guid.NewGuid();
+            _blobs[id] = request.Content;
+            return Task.FromResult(new StoredFileDto(
+                id, request.Module, request.Ref1, request.Ref2, request.FileName,
+                request.ContentType, request.Content.LongLength, DateTimeOffset.UtcNow, "Local"));
+        }
+
+        public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default)
+        {
+            Deleted.Add(fileId);
+            return Task.FromResult(_blobs.Remove(fileId));
+        }
+
+        public Task<IReadOnlyList<StoredFileDto>> ListAsync(string module, string? ref1 = null, string? ref2 = null, CancellationToken ct = default)
+            => Task.FromResult((IReadOnlyList<StoredFileDto>)Array.Empty<StoredFileDto>());
+        public Task<StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
+        public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
+        public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)
+            => Task.FromResult((IReadOnlyCollection<string>)Array.Empty<string>());
+    }
+
+    private sealed class FakeLinkBuilder : INotifyLinkBuilder
+    {
+        public string? BuildTaskLink(Guid taskId) => null;
+        public string? BuildDecisionLink(string token) => null;
+        public string? BuildSignatureLink(string token) => $"https://test.local/firmar/{token}";
+    }
+
+    /// <summary>Nunca se invoca en estos tests (SendWhatsApp=false); solo cumple el contrato del constructor.</summary>
+    private sealed class ThrowingWhatsApp : IWhatsAppConnectorService
+    {
+        private static T No<T>() => throw new NotSupportedException();
+        public Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default) => No<Task<EvolutionServerSettingDto>>();
+        public Task<EvolutionServerSettingDto?> SetServerAsync(SetEvolutionServerRequest request, Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<EvolutionServerSettingDto?>>();
+        public Task<LineConnectResult> ConnectLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<LineConnectResult>>();
+        public Task<WhatsAppLineDto?> RefreshAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<WhatsAppLineDto?>>();
+        public Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<bool>>();
+        public Task<bool> DeleteLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<bool>>();
+        public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default) => No<Task<int>>();
+        public Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, Ecorex.Domain.Enums.MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
+        public Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default) => No<Task<Ecorex.Application.Admin.EvolutionMediaResult>>();
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

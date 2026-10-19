@@ -206,9 +206,14 @@ public static class FormFieldValidator
         // D3: requerido y opcion valida POR COLUMNA. Sin columnas (tabla vieja [{id,label}]) no hay
         // nada que exigir mas alla del formato.
         var columns = Calc.FormGridCalculator.ParseColumns(optionsJson);
+        // FEATURE A: las columnas cuyas opciones vienen de OTRA grilla (optionsFromGrid) NO tienen opciones
+        // estaticas; su valor valido es el de la grilla origen (dinamico), asi que se EXCEPTUAN del chequeo de
+        // "opcion valida" (si no, siempre fallaria porque col.Options esta vacio).
+        var gridExtras = Lookups.FormGridColumnLookupParser.Parse(optionsJson);
         foreach (var col in columns)
         {
             if (col.Calc is not null) { continue; }   // las calculadas no se capturan
+            var fromGrid = gridExtras.GetValueOrDefault(col.Id)?.OptionsFromGrid is not null;
             for (var i = 0; i < rows.Count; i++)
             {
                 var cell = rows[i].GetValueOrDefault(col.Id);
@@ -216,7 +221,7 @@ public static class FormFieldValidator
                 {
                     return $"La columna '{col.Label}' es obligatoria (fila {i + 1}).";
                 }
-                if (col.IsSelect && !string.IsNullOrWhiteSpace(cell)
+                if (col.IsSelect && !fromGrid && !string.IsNullOrWhiteSpace(cell)
                     && !(col.Options ?? []).Any(o => OptionMatches(o, cell!)))
                 {
                     return $"El valor de '{col.Label}' en la fila {i + 1} no es una opcion valida.";

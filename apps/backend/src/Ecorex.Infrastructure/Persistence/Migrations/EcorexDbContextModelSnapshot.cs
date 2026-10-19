@@ -2590,6 +2590,203 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("conciliacion_dian_renglones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("field_key");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("options_json");
+
+                    b.Property<bool>("ShowInFilter")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("show_in_filter");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("type");
+
+                    b.Property<bool>("UniqueValue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("unique_value");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_field_definitions");
+
+                    b.HasIndex("TenantId", "FieldKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_field_definitions_tenant_id_field_key");
+
+                    b.ToTable("conciliacion_field_definitions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FieldDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("field_definition_id");
+
+                    b.Property<Guid>("RenglonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renglon_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_field_values");
+
+                    b.HasIndex("FieldDefinitionId")
+                        .HasDatabaseName("ix_conciliacion_field_values_field_definition_id");
+
+                    b.HasIndex("RenglonId")
+                        .HasDatabaseName("ix_conciliacion_field_values_renglon_id");
+
+                    b.HasIndex("TenantId", "RenglonId", "FieldDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conciliacion_field_values_tenant_id_renglon_id_field_defini");
+
+                    b.ToTable("conciliacion_field_values", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("definition_json");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_rules");
+
+                    b.HasIndex("TenantId", "SortOrder")
+                        .HasDatabaseName("ix_conciliacion_rules_tenant_id_sort_order");
+
+                    b.ToTable("conciliacion_rules", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactImportBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6963,6 +7160,110 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("form_responses", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ColumnId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("column_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FieldCode")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("field_code");
+
+                    b.Property<bool>("RequireName")
+                        .HasColumnType("boolean")
+                        .HasColumnName("require_name");
+
+                    b.Property<Guid>("ResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("response_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RowId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("row_id");
+
+                    b.Property<DateTimeOffset?>("SignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("signed_at");
+
+                    b.Property<string>("SignerName")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("signer_name");
+
+                    b.Property<Guid?>("StoredFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("stored_file_id");
+
+                    b.Property<string>("TargetPhone")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("target_phone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_signature_tokens");
+
+                    b.HasIndex("ResponseId")
+                        .HasDatabaseName("ix_form_signature_tokens_response_id");
+
+                    b.HasIndex("TokenHash")
+                        .HasDatabaseName("ix_form_signature_tokens_token_hash");
+
+                    b.HasIndex("TenantId", "TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_signature_tokens_tenant_id_token_hash");
+
+                    b.HasIndex("TenantId", "ResponseId", "FieldCode", "RowId", "ColumnId")
+                        .HasDatabaseName("ix_form_signature_tokens_tenant_id_response_id_field_code_row_");
+
+                    b.ToTable("form_signature_tokens", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -8507,6 +8808,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("DeliveryError")
+                        .HasColumnType("text")
+                        .HasColumnName("delivery_error");
+
+                    b.Property<string>("DeliveryStatus")
+                        .HasColumnType("text")
+                        .HasColumnName("delivery_status");
 
                     b.Property<string>("Direction")
                         .IsRequired()
@@ -17970,6 +18279,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Documento");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionFieldValue", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionFieldDefinition", "FieldDefinition")
+                        .WithMany()
+                        .HasForeignKey("FieldDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_field_values_conciliacion_field_definitions_fi");
+
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionDianRenglon", "Renglon")
+                        .WithMany()
+                        .HasForeignKey("RenglonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_field_values_conciliacion_dian_renglones_rengl");
+
+                    b.Navigation("FieldDefinition");
+
+                    b.Navigation("Renglon");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.TerceroFiltro", "TerceroFiltro")
@@ -18571,6 +18901,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_form_responses_form_definitions_definition_id");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "Response")
+                        .WithMany()
+                        .HasForeignKey("ResponseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_signature_tokens_form_responses_response_id");
+
+                    b.Navigation("Response");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSubmitRule", b =>

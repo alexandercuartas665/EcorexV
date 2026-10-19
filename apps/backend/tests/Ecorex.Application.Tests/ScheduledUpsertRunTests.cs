@@ -41,6 +41,9 @@ public class ScheduledUpsertRunTests
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionRule> ConciliacionRules => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionFieldDefinition> ConciliacionFieldDefinitions => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionFieldValue> ConciliacionFieldValues => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
@@ -171,6 +174,7 @@ public class ScheduledUpsertRunTests
         public DbSet<FormSubmitRule> FormSubmitRules => NotUsed<FormSubmitRule>();
         public DbSet<FormFlowLink> FormFlowLinks => NotUsed<FormFlowLink>();
         public DbSet<FormToken> FormTokens => NotUsed<FormToken>();
+        public DbSet<FormSignatureToken> FormSignatureTokens => NotUsed<FormSignatureToken>();
         public DbSet<FormRecordLink> FormRecordLinks => NotUsed<FormRecordLink>();
         public DbSet<WorkflowNodeForm> WorkflowNodeForms => NotUsed<WorkflowNodeForm>();
         public DbSet<WorkflowNodeAgent> WorkflowNodeAgents => NotUsed<WorkflowNodeAgent>();

@@ -28,4 +28,7 @@ public sealed class NotifyLinkBuilder : INotifyLinkBuilder
 
     public string? BuildDecisionLink(string token)
         => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/d/{token}";
+
+    public string? BuildSignatureLink(string token)
+        => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/firmar/{token}";
 }

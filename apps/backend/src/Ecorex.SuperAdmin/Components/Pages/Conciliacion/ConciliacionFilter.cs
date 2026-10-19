@@ -43,7 +43,7 @@ public static class ConciliacionFilter
         new("proveedor", "Nombre proveedor", FilterFieldType.Text),
         new("nit", "NIT proveedor", FilterFieldType.Text),
         new("numprov", "N° factura proveedor", FilterFieldType.Text),
-        new("numsol", "N° factura SOLDARCO", FilterFieldType.Text),
+        new("numsol", "N° factura SISTEMA", FilterFieldType.Text),
         new("oc", "Orden de compra", FilterFieldType.Text),
         new("tipodoc", "Tipo doc DIAN", FilterFieldType.Text),
         new("tipopago", "Tipo de pago", FilterFieldType.Text),
@@ -62,6 +62,14 @@ public static class ConciliacionFilter
     };
 
     public static FilterField? FieldByKey(string? key) => Fields.FirstOrDefault(f => f.Key == key);
+
+    /// <summary>Busca en el catalogo estatico + los campos dinamicos (EAV) que pasa la pagina.</summary>
+    public static FilterField? FieldByKey(string? key, IReadOnlyList<FilterField>? extra)
+    {
+        var f = Fields.FirstOrDefault(x => x.Key == key);
+        if (f is not null || extra is null) { return f; }
+        return extra.FirstOrDefault(x => x.Key == key);
+    }
 
     /// <summary>Operadores (clave -> etiqueta) validos para un tipo de campo.</summary>
     public static IReadOnlyList<(string Key, string Label)> OperatorsFor(FilterFieldType type) => type switch
@@ -102,30 +110,38 @@ public static class ConciliacionFilter
 
     /// <summary>Evalua el arbol contra un renglon. hasFiles indica si ese CUFE tiene archivos (se calcula fuera).</summary>
     public static bool Evaluate(FilterNode? node, ConciliacionDianRenglonDto r, Func<string, bool> hasFiles)
+        => Evaluate(node, r, hasFiles, null, null);
+
+    /// <summary>
+    /// Variante que admite campos DINAMICOS (EAV): <paramref name="extra"/> amplia el catalogo y
+    /// <paramref name="dynResolver"/>(renglon, key) devuelve el valor string del campo dinamico para ese renglon.
+    /// </summary>
+    public static bool Evaluate(FilterNode? node, ConciliacionDianRenglonDto r, Func<string, bool> hasFiles,
+        IReadOnlyList<FilterField>? extra, Func<ConciliacionDianRenglonDto, string, string?>? dynResolver)
     {
         if (node is null) { return true; }
         if (node.Kind == "group")
         {
             // Solo cuentan los hijos "evaluables" (condiciones completas o subgrupos no vacios).
-            var active = node.Children.Where(IsActive).ToList();
+            var active = node.Children.Where(c => IsActive(c, extra)).ToList();
             if (active.Count == 0) { return true; }
             return node.Op == "or"
-                ? active.Any(c => Evaluate(c, r, hasFiles))
-                : active.All(c => Evaluate(c, r, hasFiles));
+                ? active.Any(c => Evaluate(c, r, hasFiles, extra, dynResolver))
+                : active.All(c => Evaluate(c, r, hasFiles, extra, dynResolver));
         }
-        return EvalCond(node, r, hasFiles);
+        return EvalCond(node, r, hasFiles, extra, dynResolver);
     }
 
     /// <summary>Un nodo "cuenta" si es una condicion completa o un grupo con al menos un hijo activo.</summary>
-    public static bool IsActive(FilterNode n)
+    public static bool IsActive(FilterNode n, IReadOnlyList<FilterField>? extra = null)
     {
-        if (n.Kind == "group") { return n.Children.Any(IsActive); }
-        return IsConditionComplete(n);
+        if (n.Kind == "group") { return n.Children.Any(c => IsActive(c, extra)); }
+        return IsConditionComplete(n, extra);
     }
 
-    public static bool IsConditionComplete(FilterNode n)
+    public static bool IsConditionComplete(FilterNode n, IReadOnlyList<FilterField>? extra = null)
     {
-        var f = FieldByKey(n.Field);
+        var f = FieldByKey(n.Field, extra);
         if (f is null || string.IsNullOrEmpty(n.Operator)) { return false; }
         if (OperatorNeedsValue(n.Operator) && string.IsNullOrWhiteSpace(n.Value)) { return false; }
         if (OperatorNeedsValue2(n.Operator) && string.IsNullOrWhiteSpace(n.Value2)) { return false; }
@@ -133,17 +149,32 @@ public static class ConciliacionFilter
     }
 
     /// <summary>Cuenta condiciones completas en todo el arbol (para el badge "Filtros (N)").</summary>
-    public static int CountConditions(FilterNode? node)
+    public static int CountConditions(FilterNode? node, IReadOnlyList<FilterField>? extra = null)
     {
         if (node is null) { return 0; }
-        if (node.Kind == "cond") { return IsConditionComplete(node) ? 1 : 0; }
-        return node.Children.Sum(CountConditions);
+        if (node.Kind == "cond") { return IsConditionComplete(node, extra) ? 1 : 0; }
+        return node.Children.Sum(c => CountConditions(c, extra));
     }
 
-    private static bool EvalCond(FilterNode n, ConciliacionDianRenglonDto r, Func<string, bool> hasFiles)
+    private static bool EvalCond(FilterNode n, ConciliacionDianRenglonDto r, Func<string, bool> hasFiles,
+        IReadOnlyList<FilterField>? extra, Func<ConciliacionDianRenglonDto, string, string?>? dynResolver)
     {
-        var f = FieldByKey(n.Field);
+        var f = FieldByKey(n.Field, extra);
         if (f is null || string.IsNullOrEmpty(n.Operator)) { return true; } // incompleta -> se ignora
+
+        // Campo dinamico (EAV): el valor viene del resolver; se evalua por tipo contra el string.
+        if (n.Field.StartsWith("dyn:", StringComparison.Ordinal) && dynResolver is not null)
+        {
+            var dv = dynResolver(r, n.Field) ?? "";
+            return f.Type switch
+            {
+                FilterFieldType.Number => EvalNumber(TryNum(dv, out var dn) ? dn : 0m, n.Operator, n.Value, n.Value2),
+                FilterFieldType.Date => TryDate(dv, out var dd) ? EvalDate(new DateTimeOffset(dd, TimeSpan.Zero), n.Operator, n.Value, n.Value2) : true,
+                FilterFieldType.Bool => EvalBool(IsTruthy(dv), n.Operator),
+                _ => EvalText(dv, n.Operator, n.Value),
+            };
+        }
+
         switch (f.Type)
         {
             case FilterFieldType.Text: return EvalText(TextOf(r, n.Field), n.Operator, n.Value);
@@ -153,6 +184,12 @@ public static class ConciliacionFilter
             case FilterFieldType.Estado: return EvalEstado(r, n.Operator);
             default: return true;
         }
+    }
+
+    private static bool IsTruthy(string? v)
+    {
+        var s = (v ?? "").Trim();
+        return s is "1" or "true" or "True" or "TRUE" or "si" or "Si" or "SI" or "Sí" or "SÍ" or "on";
     }
 
     private static string TextOf(ConciliacionDianRenglonDto r, string key) => key switch

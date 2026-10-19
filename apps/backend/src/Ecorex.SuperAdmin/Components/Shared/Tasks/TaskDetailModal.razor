@@ -69,9 +69,24 @@
                             title="@(readOnly ? "Tarea cerrada (solo lectura)" : "Clic para editar el titulo")">@item.Title</h2>
                     }
                 </div>
-                <button class="tb-modal-close" @onclick="CloseAsync" aria-label="Cerrar">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                </button>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    @if (_navSiblings is { Count: > 1 } && NavIndex() is var _ni && _ni >= 0)
+                    {
+                        @* Navegar entre tareas de la columna sin cerrar el modal. *@
+                        <button class="tb-modal-close" title="Tarea anterior en la columna" aria-label="Anterior"
+                                disabled="@(_ni <= 0 || _busy)" @onclick="@(() => NavStepAsync(-1))">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <span style="font-size:.78rem;color:var(--ink-3);min-width:34px;text-align:center;">@(_ni + 1)/@_navSiblings.Count</span>
+                        <button class="tb-modal-close" title="Tarea siguiente en la columna" aria-label="Siguiente"
+                                disabled="@(_ni >= _navSiblings.Count - 1 || _busy)" @onclick="@(() => NavStepAsync(1))">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                    }
+                    <button class="tb-modal-close" @onclick="CloseAsync" aria-label="Cerrar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                </div>
             </div>
 
             @if (_conflict is not null)
@@ -980,8 +995,10 @@
                                                         {
                                                             <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
                                                         }
-                                                        @if (!isStep && finalized && !taskClosed)
+                                                        @if (finalized && !taskClosed)
                                                         {
+                                                            @* Reabrir disponible tanto en formularios de CONCEPTO como de PASO: vuelve la respuesta a
+                                                               Borrador y abre el editor en modo Fill (no toca el estado del flujo). *@
                                                             <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
                                                         }
                                                         @if (!finalized && !taskClosed)
@@ -1916,8 +1933,34 @@
     private string _docMode = "galeria";
     private int _docIndex;
 
-    public async Task OpenAsync(Guid taskId)
+    // Navegacion entre tareas de la MISMA columna (‹ ›) sin cerrar el modal: el tablero pasa el orden visible
+    // de la columna al abrir; el modal navega por ese orden recargando el detalle en sitio.
+    private IReadOnlyList<Guid>? _navSiblings;
+
+    private int NavIndex()
     {
+        if (_navSiblings is null || _detail is null) { return -1; }
+        for (var i = 0; i < _navSiblings.Count; i++)
+        {
+            if (_navSiblings[i] == _detail.Item.Id) { return i; }
+        }
+        return -1;
+    }
+
+    private async Task NavStepAsync(int delta)
+    {
+        if (_busy || _navSiblings is null) { return; }
+        var i = NavIndex();
+        if (i < 0) { return; }
+        var j = i + delta;
+        if (j < 0 || j >= _navSiblings.Count) { return; }
+        await ReloadAsync(_navSiblings[j]);
+        StateHasChanged();
+    }
+
+    public async Task OpenAsync(Guid taskId, IReadOnlyList<Guid>? siblings = null)
+    {
+        _navSiblings = siblings is { Count: > 0 } ? siblings : null;
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
         _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();

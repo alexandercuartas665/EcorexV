@@ -202,6 +202,13 @@ else
                                         <span>@m.SentByName &middot; </span>
                                     }
                                     @m.SentAt.LocalDateTime.ToString("hh:mm tt")
+                                    @if (m.Direction == MessageDirection.Outbound && !string.IsNullOrWhiteSpace(m.DeliveryStatus))
+                                    {
+                                        <span class="cv-msg-status" style="@DeliveryStyle(m.DeliveryStatus)"
+                                              title="@(m.DeliveryStatus == "failed" ? ("No entregado: " + (string.IsNullOrWhiteSpace(m.DeliveryError) ? "sin detalle de Meta" : m.DeliveryError)) : DeliveryLabel(m.DeliveryStatus))">
+                                            @DeliveryGlyph(m.DeliveryStatus)
+                                        </span>
+                                    }
                                     @if (m.Direction == MessageDirection.Outbound)
                                     {
                                         <button class="cv-msg-del" title="Eliminar para todos" @onclick="() => OpenDeleteMsg(m)">
@@ -614,6 +621,26 @@ else
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // Estado de entrega del saliente (lo avanza el webhook de YCloud por wamid): glifo, etiqueta y color.
+    private static string DeliveryGlyph(string? s) => s switch
+    {
+        "sent" => "✓",        // ✓ enviado (aceptado por el proveedor)
+        "delivered" => "✓✓", // ✓✓ entregado al telefono
+        "read" => "✓✓",      // ✓✓ leido (en azul)
+        "failed" => "⚠",      // ⚠ no se entrego
+        _ => ""
+    };
+    private static string DeliveryLabel(string? s) => s switch
+    {
+        "sent" => "Enviado", "delivered" => "Entregado", "read" => "Leido", "failed" => "No entregado", _ => ""
+    };
+    private static string DeliveryStyle(string? s) => s switch
+    {
+        "read" => "color:#2563eb;",                 // azul
+        "failed" => "color:#dc2626;font-weight:600;", // rojo
+        _ => "color:#9ca3af;"                        // gris (sent/delivered)
+    };
 
     // Vaciar todo el historial (doble confirmacion: paso 1 advertencia + paso 2 escribir "VACIAR").
     private bool _clearOpen;

@@ -139,7 +139,7 @@ public sealed class ChatService : IChatService
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageDto(m.Id, m.ConversationId, m.Direction, m.Body, m.MessageType, m.SentAt, m.MediaType, m.MediaUrl, m.MediaMimeType, m.SentByName, m.Reaction))
+            .Select(m => new MessageDto(m.Id, m.ConversationId, m.Direction, m.Body, m.MessageType, m.SentAt, m.MediaType, m.MediaUrl, m.MediaMimeType, m.SentByName, m.Reaction, m.DeliveryStatus, m.DeliveryError))
             .ToListAsync(cancellationToken);
     }
 
@@ -272,6 +272,7 @@ public sealed class ChatService : IChatService
             Body = body.Trim(),
             MessageType = "text",
             ExternalId = send.MessageId,
+            DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now
@@ -317,6 +318,7 @@ public sealed class ChatService : IChatService
             MediaUrl = localUrl,
             MediaMimeType = mimeType,
             ExternalId = send.MessageId,
+            DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now
@@ -357,6 +359,7 @@ public sealed class ChatService : IChatService
             MediaType = MessageMediaType.Location,
             MediaUrl = $"{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
             ExternalId = send.MessageId,
+            DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now

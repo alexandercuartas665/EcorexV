@@ -19,7 +19,11 @@ public sealed record YCloudParsedMessage(string To, string Phone, string? Name, 
 /// antes se perdia porque el webhook de estado se ignoraba.</summary>
 public sealed record YCloudStatusUpdate(
     string BusinessNumber, string RecipientPhone, string Status, string? WabaId,
-    string? ErrorCode, string? ErrorMessage, string? Wamid, DateTimeOffset? At)
+    string? ErrorCode, string? ErrorMessage, string? Wamid, DateTimeOffset? At,
+    // Id INTERNO de YCloud del mensaje (campo "id" del evento). Al ENVIAR, YCloud suele devolver solo su id (el
+    // wamid de Meta aun no existe) y es lo que se guarda en Message.ExternalId; por eso la correlacion del estado
+    // debe poder cruzar por ESTE id ademas del wamid de Meta.
+    string? ProviderId = null)
 {
     /// <summary>true si la entrega fallo (no llego al cliente): failed / undelivered.</summary>
     public bool IsFailure => !string.IsNullOrWhiteSpace(Status)
@@ -89,7 +93,9 @@ public static class YCloudWebhookParser
         var business = Digits(Str(msg, "from"));
         var recipient = Digits(Str(msg, "to"));
         var wabaId = Str(msg, "wabaId") ?? Str(msg, "wabaID") ?? Str(msg, "waba_id");
-        var wamid = Str(msg, "wamid") ?? Str(msg, "id");
+        // wamid de Meta y el id interno de YCloud por SEPARADO: la correlacion cruza por cualquiera de los dos.
+        var wamid = Str(msg, "wamid");
+        var providerId = Str(msg, "id");
 
         // error: objeto { code, message/title } o arreglo 'errors'. code puede venir numerico o string.
         string? errCode = null, errMsg = null;
@@ -104,7 +110,7 @@ public static class YCloudWebhookParser
         }
 
         var at = ParseTime(Str(msg, "updateTime") ?? Str(msg, "sendTime") ?? Str(msg, "timestamp"));
-        result.Add(new YCloudStatusUpdate(business, recipient, status!, wabaId, errCode, errMsg, wamid, at));
+        result.Add(new YCloudStatusUpdate(business, recipient, status!, wabaId, errCode, errMsg, wamid, at, providerId));
     }
 
     // Lee un campo que puede venir como numero o string (ej. codigo de error de Meta).

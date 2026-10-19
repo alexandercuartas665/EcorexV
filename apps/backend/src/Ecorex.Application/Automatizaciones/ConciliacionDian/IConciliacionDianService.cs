@@ -23,6 +23,13 @@ public interface IConciliacionDianService
     Task<IReadOnlyDictionary<EstadoConciliacionDian, int>> ContarPorEstadoAsync(
         Guid documentoId, ConciliacionDianFiltro filtro, CancellationToken ct = default);
 
+    /// <summary>
+    /// Facturas de compra DIAN PENDIENTES DE AUTORIZAR del tenant (sin importar el documento CCD): estado
+    /// CONCILIAR y SIN orden de compra valida (vacia, o que no empieza por OC ni OMP). Ordenadas por fecha de
+    /// emision desc. Es la lista del modulo "Autorizacion facturas compras DIAN" (solo lectura / visor).
+    /// </summary>
+    Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListPorAutorizarAsync(ConciliacionDianFiltro filtro, CancellationToken ct = default);
+
     // ---- Acciones ----
     /// <summary>Importa del bot DIAN (dummy en Fase 1) las facturas del periodo que falten (idempotente por CUFE).
     /// Devuelve cuantas se insertaron.</summary>
@@ -31,6 +38,11 @@ public interface IConciliacionDianService
     /// y recalcula PlataformaProveedor desde NEWTON (dummy).</summary>
     Task<ConciliacionCruceResult> CruzarAsync(Guid documentoId, CancellationToken ct = default);
     Task UpdateOrdenCompraAsync(Guid renglonId, string ordenCompra, CancellationToken ct = default);
+    /// <summary>Fija el N° de factura SISTEMA (numsol) a mano / desde una fuente de datos configurada en la columna.</summary>
+    Task UpdateNumFacturaSoldarcoAsync(Guid renglonId, string numFactura, CancellationToken ct = default);
+    /// <summary>true si <paramref name="value"/> ya esta usado en OTRO renglon del documento en la columna dada
+    /// (oc/numsol). Para la regla "no reusar" configurable por columna.</summary>
+    Task<bool> IsColumnValueUsedAsync(Guid documentoId, string column, Guid excludeRenglonId, string value, CancellationToken ct = default);
     /// <summary>Fija (o limpia con null/"") el color del marcador PERSISTENTE de la fila. Solo visual; valida
     /// contra una whitelist de colores (cualquier otro valor limpia el marcador).</summary>
     Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default);

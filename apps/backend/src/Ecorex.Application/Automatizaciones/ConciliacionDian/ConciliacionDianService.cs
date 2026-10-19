@@ -89,6 +89,30 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             .ToDictionary(g => g.Key, g => g.Count());
     }
 
+    public async Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListPorAutorizarAsync(ConciliacionDianFiltro filtro, CancellationToken ct = default)
+    {
+        // Estado en SQL (acota el set); la regla de "orden de compra valida" y los filtros, en memoria.
+        var rows = await _db.ConciliacionDianRenglones.AsNoTracking()
+            .Where(r => r.Estado == EstadoConciliacionDian.Conciliar)
+            .ToListAsync(ct);
+        return rows
+            .Where(SinOrdenCompraValida)
+            .Where(r => PasaFiltro(r, filtro))
+            .OrderByDescending(r => r.FechaEmision)
+            .Select(MapRenglon)
+            .ToList();
+    }
+
+    // "A autorizar" = la factura NO trae una orden de compra valida: vacia, o que no empieza por OC ni por OMP
+    // (p. ej. 'PV-002650' o un consecutivo suelto). Las que ya traen OC.../OMP... no entran. (Molde legacy.)
+    private static bool SinOrdenCompraValida(ConciliacionDianRenglon r)
+    {
+        var oc = (r.OrdenCompraSoldarco ?? "").Trim();
+        if (oc.Length == 0) { return true; }
+        return !oc.StartsWith("OC", StringComparison.OrdinalIgnoreCase)
+            && !oc.StartsWith("OMP", StringComparison.OrdinalIgnoreCase);
+    }
+
     // Filtro en memoria (volumenes dummy pequenos; el rango de documento por string no es traducible a SQL
     // de forma portable entre PG y SQL Server). En Fase 2, con datos reales, se movera a SQL parametrizado.
     private static bool PasaFiltro(ConciliacionDianRenglon r, ConciliacionDianFiltro f)
@@ -231,6 +255,27 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         if (r is null) { return; }
         r.OrdenCompraSoldarco = (ordenCompra ?? string.Empty).Trim();
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateNumFacturaSoldarcoAsync(Guid renglonId, string numFactura, CancellationToken ct = default)
+    {
+        var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        if (r is null) { return; }
+        r.NumFacturaSoldarco = (numFactura ?? string.Empty).Trim();
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<bool> IsColumnValueUsedAsync(Guid documentoId, string column, Guid excludeRenglonId, string value, CancellationToken ct = default)
+    {
+        value = (value ?? string.Empty).Trim();
+        if (value.Length == 0) { return false; }
+        var q = _db.ConciliacionDianRenglones.Where(r => r.DocumentoId == documentoId && r.Id != excludeRenglonId);
+        return column switch
+        {
+            "oc" => await q.AnyAsync(r => r.OrdenCompraSoldarco == value, ct),
+            "numsol" => await q.AnyAsync(r => r.NumFacturaSoldarco == value, ct),
+            _ => false,
+        };
     }
 
     // Colores permitidos para el marcador de fila (whitelist; cualquier otro valor se trata como "sin color").

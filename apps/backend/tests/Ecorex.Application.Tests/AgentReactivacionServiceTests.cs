@@ -101,6 +101,9 @@ public class AgentReactivacionServiceTests
         public DbSet<Ecorex.Domain.Entities.UserTablePreference> UserTablePreferences => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.StoredFile> StoredFiles => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.SavedFilter> SavedFilters => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionRule> ConciliacionRules => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionFieldDefinition> ConciliacionFieldDefinitions => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionFieldValue> ConciliacionFieldValues => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
@@ -223,6 +226,7 @@ public class AgentReactivacionServiceTests
         public DbSet<FormSubmitRule> FormSubmitRules => throw new NotSupportedException();
         public DbSet<FormFlowLink> FormFlowLinks => throw new NotSupportedException();
         public DbSet<FormToken> FormTokens => throw new NotSupportedException();
+        public DbSet<FormSignatureToken> FormSignatureTokens => throw new NotSupportedException();
         public DbSet<FormRecordLink> FormRecordLinks => throw new NotSupportedException();
         public DbSet<WorkflowNodeForm> WorkflowNodeForms => throw new NotSupportedException();
         public DbSet<WorkflowNodeAgent> WorkflowNodeAgents => throw new NotSupportedException();

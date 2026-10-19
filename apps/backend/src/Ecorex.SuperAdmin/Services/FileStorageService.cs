@@ -98,6 +98,19 @@ public sealed class FileStorageService(
     public async Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default)
     {
         var f = await db.StoredFiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == fileId, ct);
+        return await ReadContentAsync(f, ct);
+    }
+
+    public async Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default)
+    {
+        // Sin tenant en contexto (ej. render del PDF en loopback anonimo): se acota al tenant conocido del dueño.
+        var f = await db.StoredFiles.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == fileId && x.TenantId == tenantId, ct);
+        return await ReadContentAsync(f, ct);
+    }
+
+    private async Task<FileStorageContent?> ReadContentAsync(StoredFile? f, CancellationToken ct)
+    {
         if (f is null) { return null; }
         var ctype = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType!;
 

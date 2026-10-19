@@ -1,0 +1,231 @@
+@page "/autorizacion-compras-dian"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Application.Storage
+@inject IConciliacionDianService Svc
+@inject IFileStorageService Files
+@inject IJSRuntime JS
+
+<PageTitle>Autorizacion facturas compras DIAN - ECOREX.tareas</PageTitle>
+
+<div class="ac-wrap">
+    <div class="ac-head">
+        <div class="ac-kicker">COMPRAS</div>
+        <h1 class="ac-title">Autorizacion facturas compras DIAN</h1>
+        <p class="ac-sub">Facturas de compra reportadas a la DIAN que aun no tienen una orden de compra y estan pendientes de autorizar. Selecciona una para ver su documento.</p>
+    </div>
+
+    @* ---- Filtros ---- *@
+    <div class="ac-filters">
+        <div class="ac-f">
+            <label>Proveedor / NIT</label>
+            <input class="ac-in" value="@_texto" @onchange="e => _texto = e.Value?.ToString() ?? string.Empty" @onkeydown="OnFilterKey" placeholder="Nombre o NIT..." />
+        </div>
+        <div class="ac-f">
+            <label>Desde</label>
+            <input class="ac-in" type="date" value="@_desde" @onchange="e => _desde = e.Value?.ToString() ?? string.Empty" />
+        </div>
+        <div class="ac-f">
+            <label>Hasta</label>
+            <input class="ac-in" type="date" value="@_hasta" @onchange="e => _hasta = e.Value?.ToString() ?? string.Empty" />
+        </div>
+        <div class="ac-f ac-f-btn">
+            <button class="ac-btn" @onclick="AplicarAsync" disabled="@_busy">Aplicar filtro</button>
+            @if (_texto.Length > 0 || _desde.Length > 0 || _hasta.Length > 0)
+            {
+                <button class="ac-btn ac-btn-ghost" @onclick="LimpiarAsync" disabled="@_busy">Limpiar</button>
+            }
+        </div>
+    </div>
+
+    @* ---- Galeria de 3 columnas ---- *@
+    <div class="ac-gallery">
+        @* Lista de facturas por autorizar *@
+        <div class="ac-col-list">
+            <div class="ac-list-head">
+                <strong>Facturas por autorizar</strong>
+                <span class="ac-badge">@_items.Count</span>
+            </div>
+            <div class="ac-list">
+                @if (_busy)
+                {
+                    <div class="ac-muted" style="padding:16px 4px;">Cargando...</div>
+                }
+                else if (_items.Count == 0)
+                {
+                    <div class="ac-muted" style="padding:16px 4px;">No hay facturas pendientes de autorizar con el filtro actual.</div>
+                }
+                else
+                {
+                    @foreach (var r in _items)
+                    {
+                        <div class="ac-card @(_sel?.Id == r.Id ? "activa" : "")" @key="r.Id" @onclick="() => SelectAsync(r)">
+                            <h5>@Txt(r.NombreProveedor)</h5>
+                            <div class="ac-dato">Factura: <span>@Txt(r.NumFacturaProveedor)</span></div>
+                            <div class="ac-dato">Fecha: <span>@Fecha(r.FechaEmision)</span></div>
+                            <div class="ac-dato">NIT: <span>@Txt(r.NitProveedor)</span></div>
+                            <div class="ac-dato">Total: <span class="ac-total">@Moneda(r.TotalFactura)</span></div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @* Visor del documento *@
+        <div class="ac-col-visor">
+            <div class="ac-visor">
+                @if (_sel is null)
+                {
+                    <div class="ac-visor-msg"><div class="ac-visor-ico">PDF</div><span>Selecciona una factura de la lista para ver el documento.</span></div>
+                }
+                else if (_viewLoading)
+                {
+                    <div class="ac-visor-msg"><span>Cargando documento...</span></div>
+                }
+                else if (_viewUrl is null)
+                {
+                    <div class="ac-visor-msg"><div class="ac-visor-ico">PDF</div><span>La factura @Txt(_sel.NumFacturaProveedor) aun no tiene documento descargado.</span></div>
+                }
+                else
+                {
+                    <div class="ac-visor-bar">
+                        @if (_viewFiles.Count > 1)
+                        {
+                            @foreach (var f in _viewFiles)
+                            {
+                                <button class="ac-doc-tab @(_viewFile?.Id == f.Id ? "on" : "")" @onclick="() => SelectFile(f)">@Tag(f)</button>
+                            }
+                        }
+                        else if (_viewFile is { } vf)
+                        {
+                            <span class="ac-doc-tab on">@Tag(vf)</span>
+                        }
+                        <div class="ac-zoom">
+                            <button type="button" @onclick="ZoomMas" title="Acercar">+</button>
+                            <button type="button" @onclick="ZoomMenos" title="Alejar">&minus;</button>
+                            <button type="button" @onclick="ZoomAncho" title="Ajustar al ancho">Ancho</button>
+                        </div>
+                        <div style="flex:1"></div>
+                        <a class="ac-doc-open" href="@_viewUrl" target="_blank" rel="noopener">Abrir en pestana &#8599;</a>
+                    </div>
+                    <div class="ac-pdf-scroll" id="acPdfScroll"><div id="acPdfPages"></div></div>
+                }
+            </div>
+        </div>
+
+        @* Resumen (solo lectura; la autorizacion se gestiona en otro modulo) *@
+        <div class="ac-col-panel">
+            <div class="ac-panel">
+                <h4>Detalle de la factura</h4>
+                @if (_sel is { } s)
+                {
+                    <div class="ac-res">Proveedor<span>@Txt(s.NombreProveedor)</span></div>
+                    <div class="ac-res">NIT<span>@Txt(s.NitProveedor)</span></div>
+                    <div class="ac-res">Factura<span>@Txt(s.NumFacturaProveedor)</span></div>
+                    <div class="ac-res">Tipo doc<span>@Txt(s.TipoDocDian)</span></div>
+                    <div class="ac-res">Fecha emision<span>@Fecha(s.FechaEmision)</span></div>
+                    <div class="ac-res ac-res-total">Total<span>@Moneda(s.TotalFactura)</span></div>
+                    <div class="ac-res">CUFE<span class="ac-cufe" title="@s.Cufe">@(s.Cufe.Length > 22 ? s.Cufe[..22] + "…" : s.Cufe)</span></div>
+                }
+                else
+                {
+                    <div class="ac-muted" style="padding:14px 2px;">Selecciona una factura para ver su detalle.</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _texto = string.Empty;
+    private string _desde = string.Empty;
+    private string _hasta = string.Empty;
+    private bool _busy;
+
+    private List<ConciliacionDianRenglonDto> _items = new();
+    private ConciliacionDianRenglonDto? _sel;
+
+    private bool _viewLoading;
+    private List<StoredFileDto> _viewFiles = new();
+    private StoredFileDto? _viewFile;
+    private string? _viewUrl;
+
+    private static readonly CultureInfo Co = CultureInfo.GetCultureInfo("es-CO");
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    private ConciliacionDianFiltro Filtro()
+    {
+        DateTimeOffset? desde = DateTimeOffset.TryParse(_desde, out var d) ? d : null;
+        DateTimeOffset? hasta = DateTimeOffset.TryParse(_hasta, out var h) ? h.AddDays(1).AddTicks(-1) : null; // incluye todo el dia
+        return new ConciliacionDianFiltro(string.IsNullOrWhiteSpace(_texto) ? null : _texto.Trim(), desde, hasta);
+    }
+
+    private async Task CargarAsync()
+    {
+        _busy = true;
+        try
+        {
+            _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
+            // Si la seleccion ya no esta en la lista, se limpia; si no hay seleccion, se abre la primera.
+            if (_sel is not null && _items.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
+            if (_sel is null && _items.Count > 0) { await SelectAsync(_items[0]); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AplicarAsync() { _sel = null; await CargarAsync(); }
+    private async Task LimpiarAsync() { _texto = _desde = _hasta = string.Empty; _sel = null; await CargarAsync(); }
+    private async Task OnFilterKey(KeyboardEventArgs e) { if (e.Key == "Enter") { await AplicarAsync(); } }
+
+    private async Task SelectAsync(ConciliacionDianRenglonDto r)
+    {
+        _sel = r;
+        _viewLoading = true; _viewUrl = null; _viewFiles = new(); _viewFile = null;
+        StateHasChanged();
+        try
+        {
+            var files = string.IsNullOrWhiteSpace(r.Cufe)
+                ? new List<StoredFileDto>()
+                : (await Files.ListAsync("ConciliacionDian", r.Cufe)).ToList();
+            // Solo PDFs; preferir la representacion grafica de NEWTON, caer al PDF de la DIAN.
+            _viewFiles = files.Where(f => EsPdf(f)).OrderByDescending(EsNewton).ToList();
+            _viewFile = _viewFiles.FirstOrDefault();
+            _viewUrl = _viewFile?.Url;
+        }
+        catch { _viewFiles = new(); _viewFile = null; _viewUrl = null; }
+        finally { _viewLoading = false; }
+    }
+
+    private void SelectFile(StoredFileDto f) { _viewFile = f; _viewUrl = f.Url; }
+
+    // ---- Visor PDF (zoom + arrastre) via interop ----
+    private string? _loadedUrl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_viewUrl is { } u && u != _loadedUrl)
+        {
+            _loadedUrl = u;
+            try { await JS.InvokeVoidAsync("ecorexAutVisor.cargar", u); } catch { /* el visor muestra su propio error */ }
+        }
+        else if (_viewUrl is null) { _loadedUrl = null; }
+    }
+
+    private async Task ZoomMas() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomMas"); } catch { } }
+    private async Task ZoomMenos() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomMenos"); } catch { } }
+    private async Task ZoomAncho() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomAncho"); } catch { } }
+
+    private static bool EsPdf(StoredFileDto f)
+        => (f.ContentType ?? "").Contains("pdf", StringComparison.OrdinalIgnoreCase)
+        || (f.FileName ?? "").EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+    private static bool EsNewton(StoredFileDto f)
+        => ((f.Ref2 ?? "") + (f.FileName ?? "")).Contains("newton", StringComparison.OrdinalIgnoreCase);
+    private static string Tag(StoredFileDto f) => EsNewton(f) ? "NEWTON" : "DIAN";
+
+    private static string Txt(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+    private static string Fecha(DateTimeOffset v) => v.ToString("dd/MM/yyyy");
+    private static string Moneda(decimal v) => "$" + v.ToString("N2", Co);
+}

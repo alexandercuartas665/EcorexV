@@ -85,6 +85,7 @@ public interface IApplicationDbContext
     DbSet<FormResponse> FormResponses { get; }
     DbSet<FormFlowLink> FormFlowLinks { get; }
     DbSet<FormToken> FormTokens { get; }
+    DbSet<FormSignatureToken> FormSignatureTokens { get; }
     DbSet<FormRecordLink> FormRecordLinks { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
     DbSet<WorkflowNodeAgent> WorkflowNodeAgents { get; }
@@ -265,6 +266,13 @@ public interface IApplicationDbContext
     DbSet<ConciliacionDianBotDummy> ConciliacionDianBotDummies { get; }
     DbSet<ConciliacionDianNewtonDummy> ConciliacionDianNewtonDummies { get; }
     DbSet<ConciliacionDianErpRefDummy> ConciliacionDianErpRefDummies { get; }
+
+    // Reglas CONFIGURABLES del conciliador (VLOOKUP sobre contenedores + condiciones), por tenant, en orden.
+    DbSet<ConciliacionRule> ConciliacionRules { get; }
+
+    // Campos DINAMICOS de la tabla de conciliacion (definicion por tenant + valores por renglon, EAV).
+    DbSet<ConciliacionFieldDefinition> ConciliacionFieldDefinitions { get; }
+    DbSet<ConciliacionFieldValue> ConciliacionFieldValues { get; }
 
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }

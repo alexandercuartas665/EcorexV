@@ -54,6 +54,51 @@ public class FormTemplateMergeTests
     }
 
     [Fact]
+    public void RowFilter_multigrilla_filtra_lineas_y_firma_por_la_misma_fecha()
+    {
+        // FEATURE D (remision): un rowFilter con VARIOS pares separados por ';' filtra cada grilla por su fecha.
+        // 'entregas' (lineas) y 'remisiones' (recibido/firma) por la MISMA fecha.
+        const string data = """
+        {
+          "entregas": { "value": "[{\"fecha\":\"2026-10-18\",\"item\":\"A\"},{\"fecha\":\"2026-10-19\",\"item\":\"B\"}]", "type": "grid" },
+          "remisiones": { "value": "[{\"fecha\":\"2026-10-18\",\"recibido\":\"JUAN\"},{\"fecha\":\"2026-10-19\",\"recibido\":\"PEDRO\"}]", "type": "grid" }
+        }
+        """;
+        var gridOptions = new Dictionary<string, string?>
+        {
+            ["entregas"] = """[{"id":"fecha","label":"Fecha"},{"id":"item","label":"Item"}]""",
+            ["remisiones"] = """[{"id":"fecha","label":"Fecha"},{"id":"recibido","label":"Recibido"}]""",
+        };
+        var tpl = "E[{{#tabla.entregas}}{{col.item}};{{/tabla.entregas}}]R[{{#tabla.remisiones}}{{col.recibido}};{{/tabla.remisiones}}]";
+
+        var html = FormTemplateMerge.Render(tpl, data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1", "T1",
+            fieldChoices: null, rowFilter: "entregas.fecha=2026-10-18;remisiones.fecha=2026-10-18");
+
+        // Solo pasa la fila del 18 en AMBAS grillas.
+        Assert.Contains("E[A;]", html);
+        Assert.DoesNotContain("B;", html);
+        Assert.Contains("R[JUAN;]", html);
+        Assert.DoesNotContain("PEDRO;", html);
+    }
+
+    [Fact]
+    public void Firma_se_embebe_como_data_uri_en_impresion()
+    {
+        // FEATURE E (fix PDF/IMG): la celda de firma guarda "/archivo/{id}" (exige sesion); en PDF/IMG se embebe
+        // como data URI base64 para que cargue en el navegador headless anonimo.
+        const string data = """{ "entregas": { "value": "[{\"firma\":\"/archivo/abc\"}]", "type": "grid" } }""";
+        var gridOptions = new Dictionary<string, string?> { ["entregas"] = """[{"id":"firma","label":"Firma","signature":{}}]""" };
+        var map = new Dictionary<string, string> { ["/archivo/abc"] = "data:image/png;base64,QUJD" };
+        var tpl = "{{#tabla.entregas}}{{col.firma}}{{/tabla.entregas}}";
+
+        var html = FormTemplateMerge.Render(tpl, data, NoFieldFormat, gridOptions, NoCanvasOptions, "SKY", Fecha, "1", "T1",
+            fieldChoices: null, rowFilter: null, signatureDataUris: map);
+
+        Assert.Contains("<img src=\"data:image/png;base64,QUJD\"", html);
+        Assert.DoesNotContain("/archivo/abc", html); // ya no queda la URL que exige sesion
+    }
+
+    [Fact]
     public void Marcador_de_campo_inexistente_queda_vacio_y_no_rompe()
     {
         var html = FormTemplateMerge.Render(

@@ -61,7 +61,7 @@
                 </div>
                 <div style="min-width:0">
                     <label class="dg-flabel">Telefono</label>
-                    <input class="dg-input" @bind="_coTelefono" />
+                    <PhoneField @bind-Value="_coTelefono" ValidChanged="@(v => { _coTelValid = v; })" />
                 </div>
                 @if (_coError is not null)
                 {
@@ -277,7 +277,7 @@
                                         </div>
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Telefono</label>
-                                            <input class="dg-input" @bind="_mTelefono" />
+                                            <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
                                         </div>
                                     }
                                     else
@@ -292,7 +292,7 @@
                                         </div>
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Telefono</label>
-                                            <input class="dg-input" @bind="_mTelefono" />
+                                            <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
                                         </div>
                                     }
                                     <div style="min-width:0">

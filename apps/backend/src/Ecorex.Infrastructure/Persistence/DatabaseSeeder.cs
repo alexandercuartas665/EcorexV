@@ -3301,6 +3301,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         {
             ("Requerimientos de Compra", "requerimientos-compra", "001680"),
             ("Configuracion de Requerimientos", "requerimientos-config", "001681"),
+            ("Autorizacion facturas compras DIAN", "autorizacion-compras-dian", "001682"),
         };
         foreach (var (name, route, legacy) in comprasItems)
         {

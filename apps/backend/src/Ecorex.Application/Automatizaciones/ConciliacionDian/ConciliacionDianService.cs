@@ -89,6 +89,30 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             .ToDictionary(g => g.Key, g => g.Count());
     }
 
+    public async Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListPorAutorizarAsync(ConciliacionDianFiltro filtro, CancellationToken ct = default)
+    {
+        // Estado en SQL (acota el set); la regla de "orden de compra valida" y los filtros, en memoria.
+        var rows = await _db.ConciliacionDianRenglones.AsNoTracking()
+            .Where(r => r.Estado == EstadoConciliacionDian.Conciliar)
+            .ToListAsync(ct);
+        return rows
+            .Where(SinOrdenCompraValida)
+            .Where(r => PasaFiltro(r, filtro))
+            .OrderByDescending(r => r.FechaEmision)
+            .Select(MapRenglon)
+            .ToList();
+    }
+
+    // "A autorizar" = la factura NO trae una orden de compra valida: vacia, o que no empieza por OC ni por OMP
+    // (p. ej. 'PV-002650' o un consecutivo suelto). Las que ya traen OC.../OMP... no entran. (Molde legacy.)
+    private static bool SinOrdenCompraValida(ConciliacionDianRenglon r)
+    {
+        var oc = (r.OrdenCompraSoldarco ?? "").Trim();
+        if (oc.Length == 0) { return true; }
+        return !oc.StartsWith("OC", StringComparison.OrdinalIgnoreCase)
+            && !oc.StartsWith("OMP", StringComparison.OrdinalIgnoreCase);
+    }
+
     // Filtro en memoria (volumenes dummy pequenos; el rango de documento por string no es traducible a SQL
     // de forma portable entre PG y SQL Server). En Fase 2, con datos reales, se movera a SQL parametrizado.
     private static bool PasaFiltro(ConciliacionDianRenglon r, ConciliacionDianFiltro f)

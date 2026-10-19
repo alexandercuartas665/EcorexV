@@ -23,6 +23,13 @@ public interface IConciliacionDianService
     Task<IReadOnlyDictionary<EstadoConciliacionDian, int>> ContarPorEstadoAsync(
         Guid documentoId, ConciliacionDianFiltro filtro, CancellationToken ct = default);
 
+    /// <summary>
+    /// Facturas de compra DIAN PENDIENTES DE AUTORIZAR del tenant (sin importar el documento CCD): estado
+    /// CONCILIAR y SIN orden de compra valida (vacia, o que no empieza por OC ni OMP). Ordenadas por fecha de
+    /// emision desc. Es la lista del modulo "Autorizacion facturas compras DIAN" (solo lectura / visor).
+    /// </summary>
+    Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListPorAutorizarAsync(ConciliacionDianFiltro filtro, CancellationToken ct = default);
+
     // ---- Acciones ----
     /// <summary>Importa del bot DIAN (dummy en Fase 1) las facturas del periodo que falten (idempotente por CUFE).
     /// Devuelve cuantas se insertaron.</summary>

@@ -97,6 +97,14 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = ConfigKey, ConfigValue = json });
         }
         else { row.ConfigValue = json; }
+
+        // ASOCIAR el formulario a la subcategoria: la tarea muestra ActividadSubcategoria.FormDefinitionId,
+        // asi que al elegir el form aqui queda enlazado en la actividad que nace del concepto.
+        if (subcategoriaId is Guid sid)
+        {
+            var sub = await _db.ActividadSubcategorias.FirstOrDefaultAsync(s => s.Id == sid, ct);
+            if (sub is not null) { sub.FormDefinitionId = formDefinitionId; }
+        }
         await _db.SaveChangesAsync(ct);
     }
 

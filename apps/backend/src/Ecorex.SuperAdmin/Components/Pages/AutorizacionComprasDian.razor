@@ -323,15 +323,15 @@
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
 
-            // Valores del formulario (borrador por factura) para el resumen + enlace a la tarea.
+            // Valores del formulario (borrador por factura) para el resumen + para copiarlos a la tarea.
             string? cConcepto = null, cCentro = null, cOrden = null;
-            Guid? responseId = null;
+            IReadOnlyDictionary<string, Ecorex.Application.Forms.FormFieldValue>? moduleData = null;
             if (_cfg.FormDefinitionId is Guid fid)
             {
                 var dr = await FormResponses.GetOrCreateDraftAsync(fid, _sel.Id.ToString());
                 if (dr.IsOk && dr.Value is { } resp)
                 {
-                    responseId = resp.Id;
+                    moduleData = resp.Data;
                     cConcepto = Campo(resp.Data, "concepto_compra");
                     cCentro = Campo(resp.Data, "centro_costos");
                     cOrden = Campo(resp.Data, "orden_compra");
@@ -356,7 +356,17 @@
                 return;
             }
             var num = result.Value.Item.Number;
-            if (responseId is Guid rid) { try { await FormResponses.SetReferenceAsync(rid, num); } catch { } }
+            // Copiar los valores del formulario a un borrador keyed por el NUMERO de tarea, para que la
+            // actividad muestre el formulario (de la subcategoria) ya diligenciado.
+            if (_cfg.FormDefinitionId is Guid fid2 && moduleData is { Count: > 0 })
+            {
+                try
+                {
+                    var td = await FormResponses.GetOrCreateDraftAsync(fid2, num);
+                    if (td.IsOk && td.Value is { } tdr) { await FormResponses.SaveAsync(tdr.Id, moduleData, false); }
+                }
+                catch { /* el resumen ya viaja en la descripcion */ }
+            }
             await Cfg.SetSolicitadaAsync(_sel.Id, num);
             _solicitada = num;
             _okMsg = $"Actividad {num} de autorizacion creada" + (userLabel is { } ul ? $" (asignada a {ul})." : ".");

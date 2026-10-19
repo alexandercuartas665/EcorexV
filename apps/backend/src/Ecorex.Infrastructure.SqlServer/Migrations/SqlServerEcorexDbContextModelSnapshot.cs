@@ -2605,6 +2605,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("description");
+
                     b.Property<string>("FieldKey")
                         .IsRequired()
                         .HasMaxLength(60)
@@ -2620,6 +2625,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("OptionsJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("options_json");
+
+                    b.Property<bool>("ShowInFilter")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("show_in_filter");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")

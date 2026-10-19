@@ -24,4 +24,10 @@ public sealed class ConciliacionFieldDefinition : TenantEntity
 
     /// <summary>Opciones (JSON array de strings) cuando Type = "Select". Null para los demas.</summary>
     public string? OptionsJson { get; set; }
+
+    /// <summary>Descripcion opcional del campo (se muestra como tooltip en el encabezado de la columna).</summary>
+    public string? Description { get; set; }
+
+    /// <summary>Si el campo se ofrece como opcion en el constructor de filtros del listado. Default true.</summary>
+    public bool ShowInFilter { get; set; } = true;
 }

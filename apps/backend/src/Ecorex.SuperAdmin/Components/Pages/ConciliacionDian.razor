@@ -297,7 +297,7 @@ else
                             @ondragstart="() => _dragCol = c.Key"
                             @ondragover:preventDefault="true"
                             @ondrop="() => OnDropCol(c.Key)">
-                            <span class="cd-th-lbl" @onclick="() => QuickSort(c.Key)">@LabelOf(c)@arrow</span>
+                            <span class="cd-th-lbl" title="@ColTooltip(c)" @onclick="() => QuickSort(c.Key)">@LabelOf(c)@arrow</span>
                             <button class="cd-th-caret" @onclick="e => OpenColMenu(c, e)" @onclick:stopPropagation="true" title="Opciones de la columna">▾</button>
                             <span class="cd-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
                         </th>
@@ -1064,6 +1064,15 @@ else
                             <div class="cd-cfg-hint">Busqueda con sugerencias sobre la tabla del Contenedor. Guarda la fila elegida (referencia viva).</div>
                         }
 
+                        <div class="cd-cfg-row">
+                            <label class="cd-cfg-lbl">Descripción (opcional)</label>
+                            <input class="cd-in" value="@sf.Description" @onchange="e => SetCampoDescription(sf, e)" placeholder="Se muestra como tooltip en el encabezado" />
+                        </div>
+                        <label class="cd-cfg-check">
+                            <input type="checkbox" checked="@sf.ShowInFilter" @onchange="e => SetCampoShowInFilter(sf, e)" />
+                            Ofrecer como filtro en el listado
+                        </label>
+
                         <div class="cd-cfg-actions">
                             <button class="cd-ic-save @(sf.Dirty ? "on" : "")" @onclick="() => GuardarCampoAsync(sf)" disabled="@(!sf.Dirty)">Guardar</button>
                         </div>
@@ -1184,6 +1193,10 @@ else
 
     private static string DynKey(string fieldKey) => "dyn:" + fieldKey;
     private string DynVal(Guid renglonId, Guid defId) => _dynValues.TryGetValue(renglonId, out var d) && d.TryGetValue(defId, out var v) ? (v ?? "") : "";
+
+    /// <summary>Tooltip del encabezado: la descripcion del campo a medida (si tiene). Null para el resto.</summary>
+    private string? ColTooltip(GridCol c)
+        => c.Key.StartsWith("dyn:") && _dynByKey.TryGetValue(c.Key, out var d) && !string.IsNullOrWhiteSpace(d.Description) ? d.Description : null;
 
     // ---- Tipo "Lista del Contenedor" (Lookup): config + etiquetas resueltas + celda en edicion ----
     private Guid _actorId;
@@ -1317,7 +1330,7 @@ else
 
     /// <summary>Campos a medida como campos filtrables (clave "dyn:{key}", igual que grilla y reglas).</summary>
     private IReadOnlyList<FilterField> FilterExtraFields()
-        => _dynDefs.Select(d => new FilterField(DynKey(d.FieldKey), d.Label, MapDynFilterType(d.Type))).ToList();
+        => _dynDefs.Where(d => d.ShowInFilter).Select(d => new FilterField(DynKey(d.FieldKey), d.Label, MapDynFilterType(d.Type))).ToList();
 
     /// <summary>Resolver de valores dinamicos para el evaluador del filtro: (renglon, "dyn:key") -> valor.</summary>
     private string? DynFilterValue(ConciliacionDianRenglonDto r, string key)
@@ -1440,6 +1453,8 @@ else
         public int SortOrder;
         public string OptionsText = "";       // Select / MultiSelect: opciones separadas por coma
         public string Formula = "";            // Calculated: expresion
+        public string Description = "";        // tooltip del encabezado (opcional)
+        public bool ShowInFilter = true;       // ofrecer en el constructor de filtros
         public bool Dirty;
         // Lookup (Lista del Contenedor): modelo -> tabla -> columna a mostrar.
         public Guid? ModelId;
@@ -1495,6 +1510,7 @@ else
                 Id = d.Id, FieldKey = d.FieldKey, Label = d.Label, Type = d.Type, SortOrder = d.SortOrder,
                 OptionsText = string.Join(", ", d.Options),
                 Formula = d.Type == "Calculated" ? FormulaFromJson(d.OptionsJson) : "",
+                Description = d.Description ?? "", ShowInFilter = d.ShowInFilter,
             }).ToList();
             // Rehidratar la config de los campos Lookup (modelo/tabla/columna) y cargar sus listas.
             foreach (var fe in _fieldEditList.Where(x => x.Type == "Lookup"))
@@ -1621,8 +1637,12 @@ else
             // options_json es jsonb: la formula se guarda como string JSON (entre comillas).
             optionsJson = string.IsNullOrWhiteSpace(fe.Formula) ? null : JsonSerializer.Serialize(fe.Formula.Trim());
         }
-        return new(fe.Id, fe.FieldKey, fe.Label, fe.Type, fe.SortOrder, ParseOptions(fe.OptionsText), optionsJson);
+        return new(fe.Id, fe.FieldKey, fe.Label, fe.Type, fe.SortOrder, ParseOptions(fe.OptionsText), optionsJson,
+            string.IsNullOrWhiteSpace(fe.Description) ? null : fe.Description.Trim(), fe.ShowInFilter);
     }
+
+    private void SetCampoDescription(FieldEdit fe, ChangeEventArgs e) { fe.Description = e.Value?.ToString() ?? ""; fe.Dirty = true; }
+    private void SetCampoShowInFilter(FieldEdit fe, ChangeEventArgs e) { fe.ShowInFilter = e.Value is bool b && b; fe.Dirty = true; }
 
     /// <summary>Extrae la formula cruda del options_json (guardado como string JSON para caber en jsonb).</summary>
     private static string FormulaFromJson(string? json)

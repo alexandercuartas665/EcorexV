@@ -2605,6 +2605,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
                     b.Property<string>("FieldKey")
                         .IsRequired()
                         .HasMaxLength(60)
@@ -2620,6 +2625,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("OptionsJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("options_json");
+
+                    b.Property<bool>("ShowInFilter")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("show_in_filter");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")

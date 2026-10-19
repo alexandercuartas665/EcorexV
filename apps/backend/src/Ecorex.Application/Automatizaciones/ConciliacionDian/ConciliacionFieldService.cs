@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Automatizaciones.ConciliacionDian;
 
-public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options, string? OptionsJson = null);
+public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options, string? OptionsJson = null, string? Description = null, bool ShowInFilter = true);
 
 /// <summary>
 /// Campos DINAMICOS de la tabla de conciliacion: definiciones por tenant (sin codigo) + sus valores por
@@ -63,6 +63,8 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         e.Label = label;
         e.Type = NormalizeType(dto.Type);
         e.SortOrder = dto.SortOrder;
+        e.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
+        e.ShowInFilter = dto.ShowInFilter;
         e.OptionsJson = e.Type switch
         {
             // Select/MultiSelect: lista de opciones (JSON array). Lookup: DataLookupConfig JSON.
@@ -162,7 +164,7 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         {
             try { opts = JsonSerializer.Deserialize<List<string>>(d.OptionsJson) ?? new(); } catch { }
         }
-        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts, d.OptionsJson);
+        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts, d.OptionsJson, d.Description, d.ShowInFilter);
     }
 
     private static string NormalizeType(string? t) => t switch

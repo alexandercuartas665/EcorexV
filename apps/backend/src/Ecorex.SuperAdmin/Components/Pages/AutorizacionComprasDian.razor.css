@@ -70,6 +70,13 @@
 .ac-form-head h4 { margin: 0; }
 .ac-form-tag { display: inline-block; font-size: 11px; color: var(--ink-3, #9ca3af); margin-top: 2px; }
 
+/* ---- Acciones (asignar + guardar + solicitar) ---- */
+.ac-acciones { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line, #f1f5f9); display: flex; flex-direction: column; gap: 9px; }
+.ac-acciones .ac-f { width: 100%; }
+.ac-ok { font-size: 12px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 7px; padding: 6px 9px; }
+.ac-btn-ok { background: #16a34a; border-color: #16a34a; }
+.ac-btn-ok:disabled { background: var(--surface-2, #f1f5f9); color: var(--ink-3, #9ca3af); border-color: var(--line-2, #e5e7eb); cursor: not-allowed; }
+
 /* ---- Modal de configuracion ---- */
 .ac-modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 4100; }
 .ac-modal { position: fixed; z-index: 4101; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, 96vw); background: var(--surface, #fff); border: 1px solid var(--line, #eef2f7); border-radius: 14px; box-shadow: 0 24px 64px rgba(15,23,42,.28); display: flex; flex-direction: column; overflow: hidden; }

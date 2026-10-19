@@ -6,10 +6,12 @@
 @using Ecorex.Application.Crm
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Storage
+@using Ecorex.Application.Tenancy
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IConciliacionDianService Svc
 @inject IFileStorageService Files
 @inject IAutorizacionComprasConfigService Cfg
+@inject ITenantUserService Users
 @inject IJSRuntime JS
 
 <PageTitle>Autorizacion facturas compras DIAN - ECOREX.tareas</PageTitle>
@@ -164,6 +166,26 @@
                             Sin formulario configurado. Abre <b>Configuracion</b> y elige un concepto de actividad con su formulario (p. ej. "Autorizar factura" con el formulario de centro de costos).
                         </div>
                     }
+
+                    @* ---- Acciones de autorizacion (la de solicitar aun no se codea) ---- *@
+                    <div class="ac-acciones">
+                        <div class="ac-f">
+                            <label class="ac-f-lbl">Asignar a</label>
+                            <select class="ac-in" style="width:100%" @onchange="OnAsignadoChange">
+                                <option value="">&mdash; Sin asignar &mdash;</option>
+                                @foreach (var u in _usuarios)
+                                {
+                                    <option value="@u.Id" selected="@(_asignadoSel == u.Id)">@UserLabel(u)</option>
+                                }
+                            </select>
+                        </div>
+                        @if (_okMsg is { Length: > 0 })
+                        {
+                            <div class="ac-ok">@_okMsg</div>
+                        }
+                        <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar cambios</button>
+                        <button class="ac-btn ac-btn-ok" style="width:100%" disabled title="Proximamente: creara la actividad de autorizacion">Solicitar autorizacion</button>
+                    </div>
                 </div>
             }
         </div>
@@ -242,9 +264,34 @@
     private Guid? _cfgSubSel;
     private Guid? _cfgFormSel;
 
+    // ---- Acciones: usuarios del sistema + asignacion por factura ----
+    private List<TenantUserDto> _usuarios = new();
+    private Guid? _asignadoSel;
+    private string? _okMsg;
+    private bool _guardando;
+
+    private static string UserLabel(TenantUserDto u)
+        => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
+        : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
+
+    private void OnAsignadoChange(ChangeEventArgs e) { _asignadoSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; _okMsg = null; }
+
+    private async Task GuardarCambiosAsync()
+    {
+        if (_sel is null) { return; }
+        _guardando = true; _okMsg = null;
+        try
+        {
+            await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
+            _okMsg = "Cambios guardados.";
+        }
+        finally { _guardando = false; }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _cfg = await Cfg.GetAsync();
+        _usuarios = (await Users.ListAsync()).ToList();
         await CargarAsync();
     }
 
@@ -293,6 +340,8 @@
     private async Task SelectAsync(ConciliacionDianRenglonDto r)
     {
         _sel = r;
+        _okMsg = null;
+        _asignadoSel = await Cfg.GetAsignadoAsync(r.Id);
         _viewLoading = true; _viewUrl = null; _viewFiles = new(); _viewFile = null;
         StateHasChanged();
         try

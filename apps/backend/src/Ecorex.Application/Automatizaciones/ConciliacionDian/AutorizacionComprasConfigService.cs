@@ -26,6 +26,12 @@ public interface IAutorizacionComprasConfigService
     Task<IReadOnlyList<TareaProcesoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default);
     /// <summary>Formularios disponibles para asociar.</summary>
     Task<IReadOnlyList<FormDefinitionListItemDto>> ListFormulariosAsync(CancellationToken ct = default);
+
+    /// <summary>Usuario asignado (borrador) a una factura para la autorizacion. null si no hay.</summary>
+    Task<Guid?> GetAsignadoAsync(Guid renglonId, CancellationToken ct = default);
+    /// <summary>Guarda (o limpia con null) el usuario asignado a una factura. Persiste en un unico
+    /// TenantConfiguration (mapa JSON renglon->usuario); es el "Guardar cambios" del panel.</summary>
+    Task SetAsignadoAsync(Guid renglonId, Guid? userId, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -95,5 +101,41 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         if (string.IsNullOrWhiteSpace(raw)) { return new(null, null); }
         try { return JsonSerializer.Deserialize<Stored>(raw) ?? new(null, null); }
         catch { return new(null, null); }
+    }
+
+    // ---- Asignaciones por factura (mapa renglon->usuario en un unico TenantConfiguration) ----
+    private const string AsignKey = "autorizacion-compras-dian.asignaciones";
+
+    public async Task<Guid?> GetAsignadoAsync(Guid renglonId, CancellationToken ct = default)
+    {
+        var map = await LeerAsignacionesAsync(ct);
+        return map.TryGetValue(renglonId.ToString(), out var v) && Guid.TryParse(v, out var g) ? g : null;
+    }
+
+    public async Task SetAsignadoAsync(Guid renglonId, Guid? userId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsignKey, ct);
+        var map = ParseMap(row?.ConfigValue);
+        var key = renglonId.ToString();
+        if (userId is Guid uid) { map[key] = uid.ToString(); } else { map.Remove(key); }
+        var json = JsonSerializer.Serialize(map);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsignKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task<Dictionary<string, string>> LeerAsignacionesAsync(CancellationToken ct)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AsignKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return ParseMap(raw);
+    }
+
+    private static Dictionary<string, string> ParseMap(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return new(); }
+        try { return JsonSerializer.Deserialize<Dictionary<string, string>>(raw) ?? new(); }
+        catch { return new(); }
     }
 }

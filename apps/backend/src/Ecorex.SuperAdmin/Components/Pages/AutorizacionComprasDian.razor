@@ -3,17 +3,25 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Application.Crm
 @using Ecorex.Application.Storage
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IConciliacionDianService Svc
 @inject IFileStorageService Files
+@inject IAutorizacionComprasConfigService Cfg
 @inject IJSRuntime JS
 
 <PageTitle>Autorizacion facturas compras DIAN - ECOREX.tareas</PageTitle>
 
 <div class="ac-wrap">
     <div class="ac-head">
-        <div class="ac-kicker">COMPRAS</div>
-        <h1 class="ac-title">Autorizacion facturas compras DIAN</h1>
+        <div class="ac-head-row">
+            <div>
+                <div class="ac-kicker">COMPRAS</div>
+                <h1 class="ac-title">Autorizacion facturas compras DIAN</h1>
+            </div>
+            <button class="ac-btn ac-btn-ghost ac-cfg-btn" @onclick="AbrirConfig" title="Configurar el concepto / formulario del modulo">&#9881; Configuracion</button>
+        </div>
         <p class="ac-sub">Facturas de compra reportadas a la DIAN que aun no tienen una orden de compra y estan pendientes de autorizar. Selecciona una para ver su documento.</p>
     </div>
 
@@ -115,7 +123,7 @@
             </div>
         </div>
 
-        @* Resumen (solo lectura; la autorizacion se gestiona en otro modulo) *@
+        @* Resumen (solo lectura) + formulario del concepto configurado (sin disparar la autorizacion) *@
         <div class="ac-col-panel">
             <div class="ac-panel">
                 <h4>Detalle de la factura</h4>
@@ -134,8 +142,66 @@
                     <div class="ac-muted" style="padding:14px 2px;">Selecciona una factura para ver su detalle.</div>
                 }
             </div>
+
+            @if (_sel is not null)
+            {
+                <div class="ac-panel ac-form-panel">
+                    @if (_cfg.FormDefinitionId is Guid fid)
+                    {
+                        <div class="ac-form-head">
+                            <h4>@(string.IsNullOrWhiteSpace(_cfg.FormTitle) ? "Datos de la autorizacion" : _cfg.FormTitle)</h4>
+                            @if (!string.IsNullOrWhiteSpace(_cfg.Subcategoria))
+                            {
+                                <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
+                            }
+                        </div>
+                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" @key="_sel.Id" />
+                    }
+                    else
+                    {
+                        <div class="ac-muted" style="padding:12px 2px;">
+                            Sin formulario configurado. Abre <b>Configuracion</b> y elige un concepto de actividad con su formulario (p. ej. "Autorizar factura" con el formulario de centro de costos).
+                        </div>
+                    }
+                </div>
+            }
         </div>
     </div>
+
+    @* ---- Configuracion del modulo ---- *@
+    @if (_cfgOpen)
+    {
+        <div class="ac-modal-backdrop" @onclick="CerrarConfig"></div>
+        <div class="ac-modal" @onclick:stopPropagation="true">
+            <div class="ac-modal-head">
+                <h3>Configuracion del modulo</h3>
+                <button class="ac-modal-close" @onclick="CerrarConfig">&times;</button>
+            </div>
+            <div class="ac-modal-body">
+                <p class="ac-muted">Elige el <b>concepto de actividad</b> que gobierna la autorizacion: trae su categoria/subcategoria y el <b>formulario</b> que se muestra en el panel. (La accion de crear la actividad aun no se dispara.)</p>
+                <label class="ac-f-lbl">Concepto de actividad</label>
+                <select class="ac-in" style="width:100%" @onchange="OnConceptoChange">
+                    <option value="">&mdash; Sin concepto &mdash;</option>
+                    @foreach (var c in _conceptos)
+                    {
+                        <option value="@c.Id" selected="@(_cfgConceptoSel == c.Id)">@c.Name</option>
+                    }
+                </select>
+                @if (_cfgConceptoSel is Guid cid && _conceptos.FirstOrDefault(x => x.Id == cid) is { } selc)
+                {
+                    <div class="ac-cfg-preview">
+                        <div><b>Categoria:</b> @(selc.SubcategoriaCategoria ?? "—")</div>
+                        <div><b>Subcategoria:</b> @(selc.SubcategoriaNombre ?? "—")</div>
+                        <div><b>Formulario:</b> @(selc.FormTitle ?? "— (el concepto no tiene formulario asociado)")</div>
+                    </div>
+                }
+            </div>
+            <div class="ac-modal-foot">
+                <button class="ac-btn ac-btn-ghost" @onclick="CerrarConfig">Cancelar</button>
+                <button class="ac-btn" @onclick="GuardarConfigAsync">Guardar</button>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
@@ -154,7 +220,32 @@
 
     private static readonly CultureInfo Co = CultureInfo.GetCultureInfo("es-CO");
 
-    protected override async Task OnInitializedAsync() => await CargarAsync();
+    // ---- Configuracion del modulo (concepto -> categoria/subcategoria + formulario) ----
+    private AutorizacionModConfigDto _cfg = new(null, null, null, null, null, null);
+    private bool _cfgOpen;
+    private List<ConceptoActividadDto> _conceptos = new();
+    private Guid? _cfgConceptoSel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cfg = await Cfg.GetAsync();
+        await CargarAsync();
+    }
+
+    private async Task AbrirConfig()
+    {
+        _conceptos = (await Cfg.ListConceptosAsync()).ToList();
+        _cfgConceptoSel = _cfg.ConceptoId;
+        _cfgOpen = true;
+    }
+    private void CerrarConfig() => _cfgOpen = false;
+    private void OnConceptoChange(ChangeEventArgs e) => _cfgConceptoSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private async Task GuardarConfigAsync()
+    {
+        await Cfg.SetConceptoAsync(_cfgConceptoSel);
+        _cfg = await Cfg.GetAsync();
+        _cfgOpen = false;
+    }
 
     private ConciliacionDianFiltro Filtro()
     {

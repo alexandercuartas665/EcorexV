@@ -6,6 +6,7 @@
 @using Ecorex.Application.Storage
 @inject IConciliacionDianService Svc
 @inject IFileStorageService Files
+@inject IJSRuntime JS
 
 <PageTitle>Autorizacion facturas compras DIAN - ECOREX.tareas</PageTitle>
 
@@ -101,10 +102,15 @@
                         {
                             <span class="ac-doc-tab on">@Tag(vf)</span>
                         }
+                        <div class="ac-zoom">
+                            <button type="button" @onclick="ZoomMas" title="Acercar">+</button>
+                            <button type="button" @onclick="ZoomMenos" title="Alejar">&minus;</button>
+                            <button type="button" @onclick="ZoomAncho" title="Ajustar al ancho">Ancho</button>
+                        </div>
                         <div style="flex:1"></div>
                         <a class="ac-doc-open" href="@_viewUrl" target="_blank" rel="noopener">Abrir en pestana &#8599;</a>
                     </div>
-                    <iframe class="ac-frame" src="@_viewUrl" @key="_viewUrl"></iframe>
+                    <div class="ac-pdf-scroll" id="acPdfScroll"><div id="acPdfPages"></div></div>
                 }
             </div>
         </div>
@@ -194,6 +200,23 @@
     }
 
     private void SelectFile(StoredFileDto f) { _viewFile = f; _viewUrl = f.Url; }
+
+    // ---- Visor PDF (zoom + arrastre) via interop ----
+    private string? _loadedUrl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_viewUrl is { } u && u != _loadedUrl)
+        {
+            _loadedUrl = u;
+            try { await JS.InvokeVoidAsync("ecorexAutVisor.cargar", u); } catch { /* el visor muestra su propio error */ }
+        }
+        else if (_viewUrl is null) { _loadedUrl = null; }
+    }
+
+    private async Task ZoomMas() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomMas"); } catch { } }
+    private async Task ZoomMenos() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomMenos"); } catch { } }
+    private async Task ZoomAncho() { try { await JS.InvokeVoidAsync("ecorexAutVisor.zoomAncho"); } catch { } }
 
     private static bool EsPdf(StoredFileDto f)
         => (f.ContentType ?? "").Contains("pdf", StringComparison.OrdinalIgnoreCase)

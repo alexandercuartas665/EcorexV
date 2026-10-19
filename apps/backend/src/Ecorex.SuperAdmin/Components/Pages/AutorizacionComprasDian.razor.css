@@ -40,7 +40,15 @@
 .ac-doc-tab.on { background: #fff; color: #2f4050; }
 .ac-doc-open { color: #e9edf1; font-size: 12px; text-decoration: none; }
 .ac-doc-open:hover { color: #fff; text-decoration: underline; }
-.ac-frame { flex: 1; width: 100%; border: 0; background: #525659; min-height: calc(100vh - 330px); }
+/* Zoom */
+.ac-zoom { display: inline-flex; gap: 3px; margin-left: 6px; }
+.ac-zoom button { border: 0; background: rgba(255,255,255,.14); color: #e9edf1; font-weight: 700; min-width: 30px; height: 26px; border-radius: 6px; cursor: pointer; font-size: 12px; padding: 0 8px; }
+.ac-zoom button:hover { background: #fff; color: #2f4050; }
+/* Lienzo PDF.js: paginas en canvas, arrastre con click sostenido */
+.ac-pdf-scroll { flex: 1; width: 100%; overflow: auto; min-height: calc(100vh - 330px); cursor: grab; }
+.ac-pdf-scroll.arrastrando { cursor: grabbing; }
+.ac-pdf-page { display: block; margin: 14px auto; box-shadow: 0 2px 10px rgba(0,0,0,.45); background: #fff; }
+.ac-pdf-loading { text-align: center; color: #d7dadd; padding: 48px 10px; font-size: 13px; }
 
 /* ---- Panel resumen ---- */
 .ac-panel { background: var(--surface, #fff); border: 1px solid var(--line, #eef2f7); border-radius: 12px; padding: 16px 18px; }

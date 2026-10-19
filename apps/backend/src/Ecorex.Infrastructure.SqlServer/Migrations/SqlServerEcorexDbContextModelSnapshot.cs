@@ -2413,6 +2413,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("aprobada_manual");
 
+                    b.Property<Guid?>("AssignedTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("assigned_tenant_user_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");

@@ -46,6 +46,9 @@ public interface IConciliacionDianService
     /// <summary>Fija (o limpia con null/"") el color del marcador PERSISTENTE de la fila. Solo visual; valida
     /// contra una whitelist de colores (cualquier otro valor limpia el marcador).</summary>
     Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default);
+    /// <summary>Asigna (o limpia con null) el usuario (TenantUser) responsable del renglon. Primer paso para
+    /// gestionar tareas desde cada linea; no afecta el cruce ni los eventos.</summary>
+    Task SetAssigneeAsync(Guid renglonId, Guid? tenantUserId, CancellationToken ct = default);
     Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default);
     Task SetSeleccionAsync(IReadOnlyList<Guid> renglonIds, bool seleccionado, CancellationToken ct = default);
     /// <summary>Radica los eventos RADIAN 030/032/033 (ACUSE / RECIBO_DE_PRESTACION / ACEPTACION_EXPRESA) en NEWTON

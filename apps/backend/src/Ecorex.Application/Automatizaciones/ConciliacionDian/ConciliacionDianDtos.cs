@@ -36,7 +36,8 @@ public sealed record ConciliacionDianRenglonDto(
     bool Evento34,
     bool Seleccionado,
     string Cufe,
-    string? MarkerColor);
+    string? MarkerColor,
+    Guid? AssignedTenantUserId);
 
 /// <summary>Filtros del panel (proveedor, rango de fechas de emision, rango de numero de factura).</summary>
 public sealed record ConciliacionDianFiltro(

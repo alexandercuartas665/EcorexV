@@ -2413,6 +2413,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("aprobada_manual");
 
+                    b.Property<Guid?>("AssignedTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_tenant_user_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

@@ -291,6 +291,14 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task SetAssigneeAsync(Guid renglonId, Guid? tenantUserId, CancellationToken ct = default)
+    {
+        var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        if (r is null) { return; }
+        r.AssignedTenantUserId = tenantUserId;
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
@@ -511,5 +519,6 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             r.NumFacturaProveedor, r.NumFacturaSoldarco, r.OrdenCompraSoldarco, r.SubtotalBruto,
             r.DescuentoComercial, r.SubtotalNeto, r.IvaDescontable, r.TotalAntesRetenciones, r.RetRetefuente,
             r.RetIca, r.TotalFactura, r.TipoPago, r.FacturaAprobada, r.PlataformaProveedor, r.RutEscaneado,
-            r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor);
+            r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor,
+            r.AssignedTenantUserId);
 }

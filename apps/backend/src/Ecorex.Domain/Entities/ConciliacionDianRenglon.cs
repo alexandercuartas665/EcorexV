@@ -73,4 +73,8 @@ public sealed class ConciliacionDianRenglon : TenantEntity
     /// (token corto: "green"/"yellow"/"red"/"blue"/"gray"; null = sin color). Es solo organizativo/visual:
     /// no participa del cruce ni de los eventos. Los renglones nuevos nacen sin color.</summary>
     public string? MarkerColor { get; set; }
+
+    /// <summary>Usuario (TenantUser) asignado al renglon para gestionar la factura por linea (asignar, y mas
+    /// adelante crear tareas desde cada fila). null = sin asignar. No participa del cruce ni de los eventos.</summary>
+    public Guid? AssignedTenantUserId { get; set; }
 }

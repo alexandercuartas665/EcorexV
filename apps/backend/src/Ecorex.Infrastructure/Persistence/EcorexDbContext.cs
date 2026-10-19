@@ -2782,6 +2782,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.OptionsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Description).HasMaxLength(300);
             b.Property(x => x.ShowInFilter).HasDefaultValue(true);
+            b.Property(x => x.UniqueValue).HasDefaultValue(false);
             // Una definicion por (tenant, clave).
             b.HasIndex(x => new { x.TenantId, x.FieldKey }).IsUnique();
         });

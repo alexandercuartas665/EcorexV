@@ -912,7 +912,7 @@ else
                             <span class="cd-field-ord sys">S</span>
                             <div class="cd-field-meta">
                                 <div class="cd-field-name">@label <span class="cd-sys-badge">SISTEMA</span></div>
-                                <div class="cd-field-type">@(SysConfigured(skey) ? "Fuente: Lista del Contenedor" : "Sin fuente de datos")</div>
+                                <div class="cd-field-type">@SysSubtitle(skey)</div>
                             </div>
                         </div>
                     }
@@ -989,6 +989,10 @@ else
                                 </select>
                             </div>
                         }
+                        <label class="cd-cfg-check">
+                            <input type="checkbox" checked="@se.NoReuse" @onchange="e => SysNoReuseChanged(se, e)" />
+                            No permitir reusar el mismo valor en otra factura del documento
+                        </label>
                         <div class="cd-cfg-actions">
                             <button class="cd-ic-save @(se.Dirty ? "on" : "")" @onclick="() => GuardarSysAsync(se)" disabled="@(!se.Dirty)">Guardar</button>
                         </div>
@@ -1211,9 +1215,21 @@ else
     private void CloseEdit() { _editCell = null; }
 
     // ---- Fuente de datos (Lookup a un contenedor) en COLUMNAS FIJAS (oc / numsol) ----
-    private Dictionary<string, DataLookupConfig> _sysSource = new();   // columnKey -> config
+    private Dictionary<string, DataLookupConfig> _sysSource = new();   // columnKey -> config de lookup
+    private HashSet<string> _sysUnique = new();                        // columnKey con "no reusar"
     private static readonly (string Key, string Label)[] _sysConfigurables =
         { ("oc", "Orden de compra"), ("numsol", "N° factura SISTEMA") };
+    private string SysLabel(string col) => _sysConfigurables.FirstOrDefault(c => c.Key == col).Label ?? col;
+
+    /// <summary>true (y setea _msg) si "no reusar" esta activo para la columna y el valor ya existe en otro renglon.</summary>
+    private async Task<bool> IsDupBlockedAsync(ConciliacionDianRenglonDto r, string col, string? value)
+    {
+        value = (value ?? "").Trim();
+        if (value.Length == 0 || !_sysUnique.Contains(col)) { return false; }
+        var used = await Svc.IsColumnValueUsedAsync(_selectedDocId, col, r.Id, value);
+        if (used) { _msg = $"«{SysLabel(col)}» {value} ya está usada en otra factura de este documento; no se puede reusar."; }
+        return used;
+    }
     private (Guid Renglon, string Col)? _editSysCell;
     private bool IsEditingSys(Guid renglonId, string col) => _editSysCell is { } e && e.Renglon == renglonId && e.Col == col;
     private void OpenSysEdit(ConciliacionDianRenglonDto r, string col) { if (_sysSource.ContainsKey(col)) { _editSysCell = (r.Id, col); } }
@@ -1227,6 +1243,8 @@ else
             try { var rows = await Lookups.ResolveAsync(cfg.TableId, new[] { g }, cfg.DisplayColumnId); text = rows.FirstOrDefault()?.Label ?? ""; }
             catch { }
         }
+        _msg = null;
+        if (await IsDupBlockedAsync(r, col, text)) { _editSysCell = null; return; } // no guarda: valor repetido
         if (col == "oc") { await Svc.UpdateOrdenCompraAsync(r.Id, text); }
         else if (col == "numsol") { await Svc.UpdateNumFacturaSoldarcoAsync(r.Id, text); }
         _editSysCell = null;
@@ -1339,12 +1357,15 @@ else
     private async Task LoadDynDefsAsync()
     {
         var allDefs = (await Fields.ListDefsAsync()).ToList();
-        // Las defs "sys:{col}" NO son columnas nuevas: son fuente de datos (Lookup) de una columna FIJA.
+        // Las defs "sys:{col}" NO son columnas nuevas: son config (fuente de datos + reglas) de una columna FIJA.
         _sysSource = new();
-        foreach (var d in allDefs.Where(x => x.FieldKey.StartsWith("sys:", StringComparison.Ordinal) && x.Type == "Lookup"))
+        _sysUnique = new();
+        foreach (var d in allDefs.Where(x => x.FieldKey.StartsWith("sys:", StringComparison.Ordinal)))
         {
+            var col = d.FieldKey["sys:".Length..];
             var cfg = DataLookupConfig.TryParse(d.OptionsJson);
-            if (cfg is not null) { _sysSource[d.FieldKey["sys:".Length..]] = cfg; }
+            if (cfg is not null) { _sysSource[col] = cfg; }
+            if (d.UniqueValue) { _sysUnique.Add(col); }
         }
         _dynDefs = allDefs.Where(d => !d.FieldKey.StartsWith("sys:", StringComparison.Ordinal)).ToList();
         _dynCols = _dynDefs.Select(d => new GridCol(DynKey(d.FieldKey), d.Label, d.Type == "Number", true)).ToList();
@@ -1486,10 +1507,18 @@ else
         public Guid? DisplayColId;
         public List<LookupTableDto> Tables = new();
         public List<LookupColumnDto> Columns = new();
+        public bool NoReuse;                 // "no reusar el mismo valor en otra factura"
         public bool Dirty;
     }
     private Dictionary<string, SysEdit> _sysEdits = new();
     private bool SysConfigured(string col) => _sysSource.ContainsKey(col);
+    private string SysSubtitle(string col)
+    {
+        var parts = new List<string>();
+        if (_sysSource.ContainsKey(col)) { parts.Add("Fuente: Contenedor"); }
+        if (_sysUnique.Contains(col)) { parts.Add("No reusar"); }
+        return parts.Count == 0 ? "Sin configuración" : string.Join(" · ", parts);
+    }
     private static readonly (string Key, string Label)[] _tiposCampo =
     {
         ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
@@ -1526,7 +1555,7 @@ else
             _sysEdits = new();
             foreach (var (key, label) in _sysConfigurables)
             {
-                var se = new SysEdit { ColumnKey = key, Label = label };
+                var se = new SysEdit { ColumnKey = key, Label = label, NoReuse = _sysUnique.Contains(key) };
                 if (_sysSource.TryGetValue(key, out var cfg))
                 {
                     se.SourceType = "Lookup"; se.ModelId = cfg.ModelId; se.TableId = cfg.TableId; se.DisplayColId = cfg.DisplayColumnId;
@@ -1606,6 +1635,7 @@ else
         se.DisplayColId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         se.Dirty = true;
     }
+    private void SysNoReuseChanged(SysEdit se, ChangeEventArgs e) { se.NoReuse = e.Value is bool b && b; se.Dirty = true; }
     private async Task GuardarSysAsync(SysEdit se)
     {
         string? json = null;
@@ -1615,7 +1645,7 @@ else
             var cName = se.DisplayColId is Guid dc ? se.Columns.FirstOrDefault(c => c.Id == dc)?.Name : null;
             json = new DataLookupConfig(tid, se.ModelId, se.DisplayColId, TableName: tName, DisplayColumnName: cName).ToJson();
         }
-        await Fields.SaveSystemSourceAsync(se.ColumnKey, json);
+        await Fields.SaveSystemSourceAsync(se.ColumnKey, json, se.NoReuse);
         se.Dirty = false;
         await RefreshDynAsync();
     }
@@ -2417,7 +2447,10 @@ else
 
     private async Task OnOcChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
     {
-        await Svc.UpdateOrdenCompraAsync(r.Id, e.Value?.ToString() ?? "");
+        var val = e.Value?.ToString() ?? "";
+        _msg = null;
+        if (await IsDupBlockedAsync(r, "oc", val)) { await ReloadAsync(); return; } // revierte: valor repetido
+        await Svc.UpdateOrdenCompraAsync(r.Id, val);
     }
 
     private async Task OnAprobadaChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)

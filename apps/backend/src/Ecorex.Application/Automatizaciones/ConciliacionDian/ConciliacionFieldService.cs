@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Automatizaciones.ConciliacionDian;
 
-public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options, string? OptionsJson = null, string? Description = null, bool ShowInFilter = true);
+public sealed record ConciliacionFieldDefDto(Guid Id, string FieldKey, string Label, string Type, int SortOrder, IReadOnlyList<string> Options, string? OptionsJson = null, string? Description = null, bool ShowInFilter = true, bool UniqueValue = false);
 
 /// <summary>
 /// Campos DINAMICOS de la tabla de conciliacion: definiciones por tenant (sin codigo) + sus valores por
@@ -28,7 +28,7 @@ public interface IConciliacionFieldService
     /// "numsol"). Se guarda como una definicion reservada con FieldKey "sys:{columnKey}" (no es una columna nueva:
     /// la grilla la consulta para convertir esa celda fija en un typeahead). json=null/"" borra la config.
     /// </summary>
-    Task SaveSystemSourceAsync(string columnKey, string? optionsJson, CancellationToken ct = default);
+    Task SaveSystemSourceAsync(string columnKey, string? optionsJson, bool uniqueValue, CancellationToken ct = default);
 }
 
 public sealed class ConciliacionFieldService : IConciliacionFieldService
@@ -65,6 +65,7 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         e.SortOrder = dto.SortOrder;
         e.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
         e.ShowInFilter = dto.ShowInFilter;
+        e.UniqueValue = dto.UniqueValue;
         e.OptionsJson = e.Type switch
         {
             // Select/MultiSelect: lista de opciones (JSON array). Lookup: DataLookupConfig JSON.
@@ -132,15 +133,17 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task SaveSystemSourceAsync(string columnKey, string? optionsJson, CancellationToken ct = default)
+    public async Task SaveSystemSourceAsync(string columnKey, string? optionsJson, bool uniqueValue, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tid) { return; }
         columnKey = (columnKey ?? "").Trim();
         if (columnKey.Length == 0) { return; }
         var key = "sys:" + columnKey;
         var e = await _db.ConciliacionFieldDefinitions.FirstOrDefaultAsync(x => x.FieldKey == key, ct);
-        if (string.IsNullOrWhiteSpace(optionsJson))
+        var hasSource = !string.IsNullOrWhiteSpace(optionsJson);
+        if (!hasSource && !uniqueValue)
         {
+            // Sin fuente de datos ni regla: no hace falta la def de override.
             if (e is not null) { _db.ConciliacionFieldDefinitions.Remove(e); await _db.SaveChangesAsync(ct); }
             return;
         }
@@ -151,7 +154,8 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         }
         e.Label = columnKey;         // solo informativo
         e.Type = "Lookup";
-        e.OptionsJson = optionsJson;
+        e.OptionsJson = hasSource ? optionsJson : null;
+        e.UniqueValue = uniqueValue;
         await _db.SaveChangesAsync(ct);
     }
 
@@ -164,7 +168,7 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
         {
             try { opts = JsonSerializer.Deserialize<List<string>>(d.OptionsJson) ?? new(); } catch { }
         }
-        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts, d.OptionsJson, d.Description, d.ShowInFilter);
+        return new ConciliacionFieldDefDto(d.Id, d.FieldKey, d.Label, d.Type, d.SortOrder, opts, d.OptionsJson, d.Description, d.ShowInFilter, d.UniqueValue);
     }
 
     private static string NormalizeType(string? t) => t switch

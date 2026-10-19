@@ -241,6 +241,19 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task<bool> IsColumnValueUsedAsync(Guid documentoId, string column, Guid excludeRenglonId, string value, CancellationToken ct = default)
+    {
+        value = (value ?? string.Empty).Trim();
+        if (value.Length == 0) { return false; }
+        var q = _db.ConciliacionDianRenglones.Where(r => r.DocumentoId == documentoId && r.Id != excludeRenglonId);
+        return column switch
+        {
+            "oc" => await q.AnyAsync(r => r.OrdenCompraSoldarco == value, ct),
+            "numsol" => await q.AnyAsync(r => r.NumFacturaSoldarco == value, ct),
+            _ => false,
+        };
+    }
+
     // Colores permitidos para el marcador de fila (whitelist; cualquier otro valor se trata como "sin color").
     private static readonly HashSet<string> _marcadores = new(StringComparer.OrdinalIgnoreCase)
     { "green", "yellow", "red", "blue", "gray", "purple", "orange" };

@@ -30,4 +30,8 @@ public sealed class ConciliacionFieldDefinition : TenantEntity
 
     /// <summary>Si el campo se ofrece como opcion en el constructor de filtros del listado. Default true.</summary>
     public bool ShowInFilter { get; set; } = true;
+
+    /// <summary>Si true, un valor usado en un renglon NO puede repetirse en otro del mismo documento
+    /// (p. ej. una orden de compra no se reusa en otra factura). Hoy se usa en las columnas fijas oc/numsol.</summary>
+    public bool UniqueValue { get; set; }
 }

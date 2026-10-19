@@ -2646,6 +2646,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasColumnName("type");
 
+                    b.Property<bool>("UniqueValue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("unique_value");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");

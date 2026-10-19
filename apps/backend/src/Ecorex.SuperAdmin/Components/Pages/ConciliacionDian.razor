@@ -368,11 +368,46 @@ else
                                             case "nit": <text>@r.NitProveedor</text> break;
                                             case "numprov": <span class="cd-pill info">@r.NumFacturaProveedor</span> break;
                                             case "numsol":
-                                                if (r.NumFacturaSoldarco == "Inconsistencia!") { <span class="cd-pill danger">Inconsistencia!</span> }
+                                                @if (_sysSource.TryGetValue("numsol", out var nsCfg))
+                                                {
+                                                    @if (IsEditingSys(r.Id, "numsol"))
+                                                    {
+                                                        <div class="cd-dyn-lk" @onclick:stopPropagation="true">
+                                                            <DataLookupField Config="nsCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "numsol", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button type="button" class="cd-dyn-lkbtn @(string.IsNullOrEmpty(r.NumFacturaSoldarco) ? "empty" : "")" @onclick="@(() => OpenSysEdit(r, "numsol"))" title="Elegir del contenedor">
+                                                            @(string.IsNullOrEmpty(r.NumFacturaSoldarco) ? "—" : r.NumFacturaSoldarco)
+                                                        </button>
+                                                    }
+                                                }
+                                                else if (r.NumFacturaSoldarco == "Inconsistencia!") { <span class="cd-pill danger">Inconsistencia!</span> }
                                                 else if (!string.IsNullOrEmpty(r.NumFacturaSoldarco)) { <span class="cd-pill primary">@r.NumFacturaSoldarco</span> }
                                                 else { <span class="cd-muted">-</span> }
                                                 break;
-                                            case "oc": <input class="cd-in cd-oc" value="@r.OrdenCompraSoldarco" @onchange="e => OnOcChanged(r, e)" /> break;
+                                            case "oc":
+                                                @if (_sysSource.TryGetValue("oc", out var ocCfg))
+                                                {
+                                                    @if (IsEditingSys(r.Id, "oc"))
+                                                    {
+                                                        <div class="cd-dyn-lk" @onclick:stopPropagation="true">
+                                                            <DataLookupField Config="ocCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "oc", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button type="button" class="cd-dyn-lkbtn @(string.IsNullOrEmpty(r.OrdenCompraSoldarco) ? "empty" : "")" @onclick="@(() => OpenSysEdit(r, "oc"))" title="Elegir del contenedor">
+                                                            @(string.IsNullOrEmpty(r.OrdenCompraSoldarco) ? "—" : r.OrdenCompraSoldarco)
+                                                        </button>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <input class="cd-in cd-oc" value="@r.OrdenCompraSoldarco" @onchange="e => OnOcChanged(r, e)" />
+                                                }
+                                                break;
                                             case "sub_bruto": <text>@Fmt(r.SubtotalBruto)</text> break;
                                             case "descuento": <text>@Fmt(r.DescuentoComercial)</text> break;
                                             case "sub_neto": <text>@Fmt(r.SubtotalNeto)</text> break;
@@ -869,6 +904,20 @@ else
             <div class="cd-fields-body">
                 @* ---- Izquierda: lista de campos ---- *@
                 <div class="cd-fields-list">
+                    <div class="cd-fields-sec">Campos del sistema</div>
+                    @foreach (var (key, label) in _sysConfigurables)
+                    {
+                        var skey = key;
+                        <div class="cd-field-item @(_selSysCol == skey ? "sel" : "")" @onclick="() => SelectSys(skey)">
+                            <span class="cd-field-ord sys">S</span>
+                            <div class="cd-field-meta">
+                                <div class="cd-field-name">@label <span class="cd-sys-badge">SISTEMA</span></div>
+                                <div class="cd-field-type">@(SysConfigured(skey) ? "Fuente: Lista del Contenedor" : "Sin fuente de datos")</div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="cd-fields-sec">A medida</div>
                     <button class="cd-fb-add" style="width:100%;margin-bottom:8px;" @onclick="AddCampoAsync">+ Campo</button>
                     @if (_fieldEditList.Count == 0)
                     {
@@ -896,7 +945,55 @@ else
                 </div>
                 @* ---- Derecha: panel de configuracion del campo seleccionado ---- *@
                 <div class="cd-field-cfg">
-                    @if (SelField is { } sf)
+                    @if (SelSys is { } se)
+                    {
+                        <div class="cd-cfg-title">@se.Label <span class="cd-sys-badge">SISTEMA</span></div>
+                        <div class="cd-cfg-hint">Columna fija del sistema. Podés darle una <b>fuente de datos</b> para elegir el valor desde un contenedor; al elegir se guarda el <b>texto</b> en la columna (reglas y export siguen igual).</div>
+                        <div class="cd-cfg-row">
+                            <label class="cd-cfg-lbl">Fuente de datos</label>
+                            <select class="cd-in" @onchange="e => SetSysSourceType(se, e)">
+                                <option value="None" selected="@(se.SourceType == "None")">Sin fuente (texto libre)</option>
+                                <option value="Lookup" selected="@(se.SourceType == "Lookup")">Lista del Contenedor</option>
+                            </select>
+                        </div>
+                        @if (se.SourceType == "Lookup")
+                        {
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Modelo de datos</label>
+                                <select class="cd-in" @onchange="e => SysLkModelChanged(se, e)">
+                                    <option value="">Todos los modelos</option>
+                                    @foreach (var m in _lkModels)
+                                    {
+                                        <option value="@m.Id" selected="@(se.ModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Tabla</label>
+                                <select class="cd-in" @onchange="e => SysLkTableChanged(se, e)">
+                                    <option value="">-- Elige una tabla --</option>
+                                    @foreach (var t in se.Tables)
+                                    {
+                                        <option value="@t.Id" selected="@(se.TableId == t.Id)">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="cd-cfg-row">
+                                <label class="cd-cfg-lbl">Columna que se muestra</label>
+                                <select class="cd-in" @onchange="e => SysLkColumnChanged(se, e)" disabled="@(se.TableId is null)">
+                                    <option value="">(automatica: primera de texto)</option>
+                                    @foreach (var c in se.Columns)
+                                    {
+                                        <option value="@c.Id" selected="@(se.DisplayColId == c.Id)">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        <div class="cd-cfg-actions">
+                            <button class="cd-ic-save @(se.Dirty ? "on" : "")" @onclick="() => GuardarSysAsync(se)" disabled="@(!se.Dirty)">Guardar</button>
+                        </div>
+                    }
+                    else if (SelField is { } sf)
                     {
                         <div class="cd-cfg-title">@(string.IsNullOrWhiteSpace(sf.Label) ? "Nuevo campo" : "Editar campo")</div>
                         <div class="cd-cfg-row">
@@ -1100,6 +1197,29 @@ else
     private void OpenEdit(ConciliacionDianRenglonDto r, ConciliacionFieldDefDto d) { _editCell = (r.Id, d.Id); }
     private void CloseEdit() { _editCell = null; }
 
+    // ---- Fuente de datos (Lookup a un contenedor) en COLUMNAS FIJAS (oc / numsol) ----
+    private Dictionary<string, DataLookupConfig> _sysSource = new();   // columnKey -> config
+    private static readonly (string Key, string Label)[] _sysConfigurables =
+        { ("oc", "Orden de compra"), ("numsol", "N° factura SISTEMA") };
+    private (Guid Renglon, string Col)? _editSysCell;
+    private bool IsEditingSys(Guid renglonId, string col) => _editSysCell is { } e && e.Renglon == renglonId && e.Col == col;
+    private void OpenSysEdit(ConciliacionDianRenglonDto r, string col) { if (_sysSource.ContainsKey(col)) { _editSysCell = (r.Id, col); } }
+
+    /// <summary>Al elegir en el typeahead de una columna fija, guarda el TEXTO elegido en la columna nativa.</summary>
+    private async Task SetSysLookup(ConciliacionDianRenglonDto r, string col, string? rowId)
+    {
+        var text = "";
+        if (!string.IsNullOrWhiteSpace(rowId) && _sysSource.TryGetValue(col, out var cfg) && Guid.TryParse(rowId, out var g))
+        {
+            try { var rows = await Lookups.ResolveAsync(cfg.TableId, new[] { g }, cfg.DisplayColumnId); text = rows.FirstOrDefault()?.Label ?? ""; }
+            catch { }
+        }
+        if (col == "oc") { await Svc.UpdateOrdenCompraAsync(r.Id, text); }
+        else if (col == "numsol") { await Svc.UpdateNumFacturaSoldarcoAsync(r.Id, text); }
+        _editSysCell = null;
+        await ReloadAsync();
+    }
+
     private DataLookupConfig? LookupCfgFor(ConciliacionFieldDefDto d)
         => _lookupCfg.TryGetValue(d.Id, out var c) ? c : null;
 
@@ -1205,7 +1325,15 @@ else
 
     private async Task LoadDynDefsAsync()
     {
-        _dynDefs = (await Fields.ListDefsAsync()).ToList();
+        var allDefs = (await Fields.ListDefsAsync()).ToList();
+        // Las defs "sys:{col}" NO son columnas nuevas: son fuente de datos (Lookup) de una columna FIJA.
+        _sysSource = new();
+        foreach (var d in allDefs.Where(x => x.FieldKey.StartsWith("sys:", StringComparison.Ordinal) && x.Type == "Lookup"))
+        {
+            var cfg = DataLookupConfig.TryParse(d.OptionsJson);
+            if (cfg is not null) { _sysSource[d.FieldKey["sys:".Length..]] = cfg; }
+        }
+        _dynDefs = allDefs.Where(d => !d.FieldKey.StartsWith("sys:", StringComparison.Ordinal)).ToList();
         _dynCols = _dynDefs.Select(d => new GridCol(DynKey(d.FieldKey), d.Label, d.Type == "Number", true)).ToList();
         _dynByKey = _dynDefs.ToDictionary(d => DynKey(d.FieldKey), d => d);
         // Config de los campos tipo Lookup (parsea el DataLookupConfig guardado en OptionsJson).
@@ -1324,10 +1452,29 @@ else
     private bool _fieldsConfigOpen;
     private List<FieldEdit> _fieldEditList = new();
     private List<LookupModelDto> _lkModels = new();   // modelos de datos (compartido por el modal)
-    private Guid _selFieldId;                          // campo seleccionado en el panel de config (estilo Directorio)
-    private FieldEdit? SelField => _fieldEditList.FirstOrDefault(f => f.Id == _selFieldId);
-    private void SelectCampo(FieldEdit fe) { _selFieldId = fe.Id; }
+    private Guid _selFieldId;                          // campo A MEDIDA seleccionado en el panel
+    private string? _selSysCol;                        // columna FIJA seleccionada en el panel (oc/numsol)
+    private FieldEdit? SelField => _selSysCol is null ? _fieldEditList.FirstOrDefault(f => f.Id == _selFieldId) : null;
+    private SysEdit? SelSys => _selSysCol is { } k && _sysEdits.TryGetValue(k, out var se) ? se : null;
+    private void SelectCampo(FieldEdit fe) { _selSysCol = null; _selFieldId = fe.Id; }
+    private void SelectSys(string col) { _selFieldId = Guid.Empty; _selSysCol = col; }
     private string TipoLabel(string type) => _tiposCampo.FirstOrDefault(t => t.Key == type).Label ?? type;
+
+    // Edicion de la fuente de datos de una columna FIJA (panel lateral del editor).
+    private sealed class SysEdit
+    {
+        public string ColumnKey = "";
+        public string Label = "";
+        public string SourceType = "None";   // None | Lookup
+        public Guid? ModelId;
+        public Guid? TableId;
+        public Guid? DisplayColId;
+        public List<LookupTableDto> Tables = new();
+        public List<LookupColumnDto> Columns = new();
+        public bool Dirty;
+    }
+    private Dictionary<string, SysEdit> _sysEdits = new();
+    private bool SysConfigured(string col) => _sysSource.ContainsKey(col);
     private static readonly (string Key, string Label)[] _tiposCampo =
     {
         ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
@@ -1341,7 +1488,8 @@ else
         try
         {
             _lkModels = (await Lookups.ListModelsAsync()).ToList();
-            var defs = await Fields.ListDefsAsync();
+            // Excluir las defs "sys:*" (fuente de datos de columnas fijas): se configuran en la seccion Sistema.
+            var defs = (await Fields.ListDefsAsync()).Where(d => !d.FieldKey.StartsWith("sys:", StringComparison.Ordinal)).ToList();
             _fieldEditList = defs.Select(d => new FieldEdit
             {
                 Id = d.Id, FieldKey = d.FieldKey, Label = d.Label, Type = d.Type, SortOrder = d.SortOrder,
@@ -1358,6 +1506,20 @@ else
                 try { fe.Tables = (await Lookups.ListTablesAsync(cfg.ModelId)).ToList(); } catch { }
                 try { fe.Columns = (await Lookups.ListColumnsAsync(cfg.TableId)).ToList(); } catch { }
             }
+            // Edicion de fuente de datos de columnas fijas (oc/numsol).
+            _sysEdits = new();
+            foreach (var (key, label) in _sysConfigurables)
+            {
+                var se = new SysEdit { ColumnKey = key, Label = label };
+                if (_sysSource.TryGetValue(key, out var cfg))
+                {
+                    se.SourceType = "Lookup"; se.ModelId = cfg.ModelId; se.TableId = cfg.TableId; se.DisplayColId = cfg.DisplayColumnId;
+                    try { se.Tables = (await Lookups.ListTablesAsync(cfg.ModelId)).ToList(); } catch { }
+                    try { se.Columns = (await Lookups.ListColumnsAsync(cfg.TableId)).ToList(); } catch { }
+                }
+                _sysEdits[key] = se;
+            }
+            _selSysCol = null;
             _selFieldId = _fieldEditList.FirstOrDefault()?.Id ?? Guid.Empty;
             _fieldsConfigOpen = true;
         }
@@ -1398,6 +1560,48 @@ else
     {
         fe.DisplayColId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         fe.Dirty = true;
+    }
+
+    // ---- Columna FIJA: fuente de datos (panel de sistema) ----
+    private async Task SetSysSourceType(SysEdit se, ChangeEventArgs e)
+    {
+        se.SourceType = e.Value?.ToString() ?? "None"; se.Dirty = true;
+        if (se.SourceType == "Lookup" && se.Tables.Count == 0)
+        {
+            try { se.Tables = (await Lookups.ListTablesAsync(se.ModelId)).ToList(); } catch { }
+        }
+    }
+    private async Task SysLkModelChanged(SysEdit se, ChangeEventArgs e)
+    {
+        se.ModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        se.TableId = null; se.DisplayColId = null; se.Columns = new();
+        try { se.Tables = (await Lookups.ListTablesAsync(se.ModelId)).ToList(); } catch { se.Tables = new(); }
+        se.Dirty = true;
+    }
+    private async Task SysLkTableChanged(SysEdit se, ChangeEventArgs e)
+    {
+        se.TableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        se.DisplayColId = null;
+        try { se.Columns = se.TableId is Guid t ? (await Lookups.ListColumnsAsync(t)).ToList() : new(); } catch { se.Columns = new(); }
+        se.Dirty = true;
+    }
+    private void SysLkColumnChanged(SysEdit se, ChangeEventArgs e)
+    {
+        se.DisplayColId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        se.Dirty = true;
+    }
+    private async Task GuardarSysAsync(SysEdit se)
+    {
+        string? json = null;
+        if (se.SourceType == "Lookup" && se.TableId is Guid tid)
+        {
+            var tName = se.Tables.FirstOrDefault(t => t.Id == tid)?.Name;
+            var cName = se.DisplayColId is Guid dc ? se.Columns.FirstOrDefault(c => c.Id == dc)?.Name : null;
+            json = new DataLookupConfig(tid, se.ModelId, se.DisplayColId, TableName: tName, DisplayColumnName: cName).ToJson();
+        }
+        await Fields.SaveSystemSourceAsync(se.ColumnKey, json);
+        se.Dirty = false;
+        await RefreshDynAsync();
     }
 
     private static List<string> ParseOptions(string text) =>

@@ -233,6 +233,14 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateNumFacturaSoldarcoAsync(Guid renglonId, string numFactura, CancellationToken ct = default)
+    {
+        var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        if (r is null) { return; }
+        r.NumFacturaSoldarco = (numFactura ?? string.Empty).Trim();
+        await _db.SaveChangesAsync(ct);
+    }
+
     // Colores permitidos para el marcador de fila (whitelist; cualquier otro valor se trata como "sin color").
     private static readonly HashSet<string> _marcadores = new(StringComparer.OrdinalIgnoreCase)
     { "green", "yellow", "red", "blue", "gray", "purple", "orange" };

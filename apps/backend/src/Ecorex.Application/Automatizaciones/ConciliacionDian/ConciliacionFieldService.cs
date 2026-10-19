@@ -22,6 +22,13 @@ public interface IConciliacionFieldService
     /// <summary>Valores de los campos dinamicos para un conjunto de renglones: renglonId -> (fieldDefId -> valor).</summary>
     Task<IReadOnlyDictionary<Guid, Dictionary<Guid, string?>>> GetValuesAsync(IReadOnlyList<Guid> renglonIds, CancellationToken ct = default);
     Task SetValueAsync(Guid renglonId, Guid fieldDefId, string? value, CancellationToken ct = default);
+
+    /// <summary>
+    /// Config de "fuente de datos" (Lookup a un contenedor) para una COLUMNA FIJA del sistema (p. ej. "oc",
+    /// "numsol"). Se guarda como una definicion reservada con FieldKey "sys:{columnKey}" (no es una columna nueva:
+    /// la grilla la consulta para convertir esa celda fija en un typeahead). json=null/"" borra la config.
+    /// </summary>
+    Task SaveSystemSourceAsync(string columnKey, string? optionsJson, CancellationToken ct = default);
 }
 
 public sealed class ConciliacionFieldService : IConciliacionFieldService
@@ -120,6 +127,29 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
             _db.ConciliacionFieldValues.Add(new ConciliacionFieldValue { TenantId = tid, RenglonId = renglonId, FieldDefinitionId = fieldDefId, Value = value });
         }
         else { e.Value = value; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task SaveSystemSourceAsync(string columnKey, string? optionsJson, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        columnKey = (columnKey ?? "").Trim();
+        if (columnKey.Length == 0) { return; }
+        var key = "sys:" + columnKey;
+        var e = await _db.ConciliacionFieldDefinitions.FirstOrDefaultAsync(x => x.FieldKey == key, ct);
+        if (string.IsNullOrWhiteSpace(optionsJson))
+        {
+            if (e is not null) { _db.ConciliacionFieldDefinitions.Remove(e); await _db.SaveChangesAsync(ct); }
+            return;
+        }
+        if (e is null)
+        {
+            e = new ConciliacionFieldDefinition { TenantId = tid, FieldKey = key, SortOrder = 0 };
+            _db.ConciliacionFieldDefinitions.Add(e);
+        }
+        e.Label = columnKey;         // solo informativo
+        e.Type = "Lookup";
+        e.OptionsJson = optionsJson;
         await _db.SaveChangesAsync(ct);
     }
 

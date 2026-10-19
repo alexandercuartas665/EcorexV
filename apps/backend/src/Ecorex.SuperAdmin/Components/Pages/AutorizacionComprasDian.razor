@@ -174,11 +174,11 @@
                     <div class="ac-acciones">
                         <div class="ac-f">
                             <label class="ac-f-lbl">Asignar a</label>
-                            <select class="ac-in" style="width:100%" @onchange="OnAsignadoChange">
+                            <select class="ac-in" style="width:100%" @bind="AsignadoStr">
                                 <option value="">&mdash; Sin asignar &mdash;</option>
                                 @foreach (var u in _usuarios)
                                 {
-                                    <option value="@u.Id" selected="@(_asignadoSel == u.Id)">@UserLabel(u)</option>
+                                    <option value="@u.Id">@UserLabel(u)</option>
                                 }
                             </select>
                         </div>
@@ -289,7 +289,14 @@
         => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
         : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
 
-    private void OnAsignadoChange(ChangeEventArgs e) { _asignadoSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; _okMsg = null; }
+    // Enlace del desplegable de responsable. Con @bind (no value= ni selected por opcion) Blazor fija el
+    // valor del <select> nativo en cada render, asi al cambiar de factura se refresca (incluido a vacio);
+    // con selected/value plano el navegador dejaba "pegado" el responsable de la factura anterior.
+    private string AsignadoStr
+    {
+        get => _asignadoSel?.ToString() ?? string.Empty;
+        set { _asignadoSel = Guid.TryParse(value, out var g) ? g : null; _okMsg = null; }
+    }
 
     private async Task GuardarCambiosAsync()
     {
@@ -461,24 +468,35 @@
 
     private async Task SelectAsync(ConciliacionDianRenglonDto r)
     {
-        _sel = r;
-        _okMsg = null; _errMsg = null;
-        _asignadoSel = await Cfg.GetAsignadoAsync(r.Id);
-        _solicitada = await Cfg.GetSolicitadaAsync(r.Id);
-        _viewLoading = true; _viewUrl = null; _viewFiles = new(); _viewFile = null;
-        StateHasChanged();
+        // IMPORTANTE (concurrencia del DbContext): hacer TODAS las lecturas de este panel (config +
+        // archivos) ANTES de exponer la factura. El DbContext es scoped al circuito y lo comparten estos
+        // servicios (Cfg, Files via EcorexDbContext) Y el DynamicFormRenderer. Si asignamos _sel primero,
+        // el primer await provoca un render que monta el form (nuevo @key) y este consulta FormDefinitions
+        // en el MISMO contexto mientras estas lecturas siguen en vuelo -> "A second operation was started
+        // on this context instance" y el circuito muere (la UI, y el responsable, se quedan pegados).
+        // Serializando (leer primero, publicar _sel + render al final) no hay dos operaciones a la vez.
+        var asignado = await Cfg.GetAsignadoAsync(r.Id);
+        var solicitada = await Cfg.GetSolicitadaAsync(r.Id);
+        List<StoredFileDto> viewFiles = new();
         try
         {
             var files = string.IsNullOrWhiteSpace(r.Cufe)
                 ? new List<StoredFileDto>()
                 : (await Files.ListAsync("ConciliacionDian", r.Cufe)).ToList();
             // Solo PDFs; preferir la representacion grafica de NEWTON, caer al PDF de la DIAN.
-            _viewFiles = files.Where(f => EsPdf(f)).OrderByDescending(EsNewton).ToList();
-            _viewFile = _viewFiles.FirstOrDefault();
-            _viewUrl = _viewFile?.Url;
+            viewFiles = files.Where(f => EsPdf(f)).OrderByDescending(EsNewton).ToList();
         }
-        catch { _viewFiles = new(); _viewFile = null; _viewUrl = null; }
-        finally { _viewLoading = false; }
+        catch { viewFiles = new(); }
+
+        _sel = r;
+        _okMsg = null; _errMsg = null;
+        _asignadoSel = asignado;
+        _solicitada = solicitada;
+        _viewFiles = viewFiles;
+        _viewFile = viewFiles.FirstOrDefault();
+        _viewUrl = _viewFile?.Url;
+        _viewLoading = false;
+        StateHasChanged();
     }
 
     private void SelectFile(StoredFileDto f) { _viewFile = f; _viewUrl = f.Url; }

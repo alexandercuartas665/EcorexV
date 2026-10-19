@@ -10820,6 +10820,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(400)")
                         .HasColumnName("caracteristicas_despacho");
 
+                    b.Property<Guid?>("CotizacionTaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cotizacion_task_item_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -10921,6 +10925,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("SubcategoriaCompraId")
                         .HasColumnType("uuid")
                         .HasColumnName("subcategoria_compra_id");
+
+                    b.Property<Guid?>("SubcategoriaCotizacionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subcategoria_cotizacion_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")

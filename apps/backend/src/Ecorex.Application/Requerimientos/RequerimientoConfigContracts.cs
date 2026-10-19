@@ -15,6 +15,8 @@ public sealed record RequerimientoOrigenDto(
     string? FuenteNombre,
     Guid? SubcategoriaCompraId,
     string? SubcategoriaNombre,
+    Guid? SubcategoriaCotizacionId,
+    string? SubcategoriaCotizacionNombre,
     bool Activo);
 
 /// <summary>Alta/edicion de un origen. Id null = alta.</summary>
@@ -25,6 +27,7 @@ public sealed record SaveRequerimientoOrigenRequest(
     RequerimientoFuenteTipo TipoFuente,
     Guid? FuenteRefId,
     Guid? SubcategoriaCompraId,
+    Guid? SubcategoriaCotizacionId,
     bool Activo);
 
 /// <summary>Una fila de la matriz de proveedores (con nombres resueltos para mostrar).</summary>

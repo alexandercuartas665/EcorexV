@@ -39,22 +39,40 @@ public sealed class RequerimientoService : IRequerimientoService
         var items = await _db.Items.AsNoTracking()
             .Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => new { i.Name, i.Sku }, ct);
         var reqIds = rows.Select(r => r.Id).ToList();
-        var hijosPorReq = (await _db.RequerimientoCompraHijos.AsNoTracking()
-                .Where(h => reqIds.Contains(h.RequerimientoId))
-                .GroupBy(h => h.RequerimientoId)
-                .Select(g => new { g.Key, Count = g.Count(), Suma = g.Sum(x => x.Cantidad), Monto = g.Sum(x => x.Cantidad * x.PrecioUnitario) }).ToListAsync(ct))
-            .ToDictionary(x => x.Key, x => (x.Count, x.Suma, x.Monto));
+        // Carga TODOS los hijos (no solo el agregado): los necesita la grilla para las filas hijas expandibles
+        // y el export. Resuelve el nombre del proveedor en memoria.
+        var hijosRows = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => reqIds.Contains(h.RequerimientoId))
+            .OrderBy(h => h.FechaProgramadaCompra).ToListAsync(ct);
+        var provIds = hijosRows.Where(h => h.ProveedorId != null).Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provs = provIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        var hijosPorReq = hijosRows
+            .GroupBy(h => h.RequerimientoId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<RequerimientoHijoDto>)g.Select(h => new RequerimientoHijoDto(
+                h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
+                h.ProveedorId,
+                h.ProveedorId is Guid p && provs.TryGetValue(p, out var pn) ? pn : null,
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId)).ToList());
+        var emptyHijos = (IReadOnlyList<RequerimientoHijoDto>)Array.Empty<RequerimientoHijoDto>();
 
-        return rows.Select(r => new RequerimientoDto(
-            r.Id, r.OrigenId,
-            r.OrigenId is Guid oi && origenes.TryGetValue(oi, out var on) ? on : null,
-            r.Area, r.ItemId,
-            r.ItemId is Guid ii && items.TryGetValue(ii, out var it) ? it.Name : null,
-            r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
-            r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
-            hijosPorReq.TryGetValue(r.Id, out var h) ? h.Count : 0,
-            hijosPorReq.TryGetValue(r.Id, out var h2) ? h2.Suma : 0m,
-            hijosPorReq.TryGetValue(r.Id, out var h3) ? h3.Monto : 0m)).ToList();
+        return rows.Select(r =>
+        {
+            var hl = hijosPorReq.TryGetValue(r.Id, out var hs) ? hs : emptyHijos;
+            return new RequerimientoDto(
+                r.Id, r.OrigenId,
+                r.OrigenId is Guid oi && origenes.TryGetValue(oi, out var on) ? on : null,
+                r.Area, r.ItemId,
+                r.ItemId is Guid ii && items.TryGetValue(ii, out var it) ? it.Name : null,
+                r.ItemId is Guid ii2 && items.TryGetValue(ii2, out var it2) ? it2.Sku : null,
+                r.Descripcion, r.Cantidad, r.UnidadMedida, r.FechaNecesidad, r.Estado, r.ClaveAgrupacion,
+                hl.Count,
+                hl.Sum(x => x.Cantidad),
+                hl.Sum(x => x.Total),
+                hl);
+        }).ToList();
     }
 
     public async Task<RequerimientoDto?> CrearAsync(CrearRequerimientoRequest req, CancellationToken ct = default)
@@ -214,7 +232,7 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && proveedores.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId, h.PrecioUnitario)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId)).ToList());
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
@@ -347,6 +365,101 @@ public sealed class RequerimientoService : IRequerimientoService
 
         await _db.SaveChangesAsync(ct);
         return new EjecutarCompraResultado(true, null, taskId, taskNumber, await GetPlanificacionAsync(padre.Id, ct));
+    }
+
+    public async Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid) { return new EjecutarCompraResultado(false, "Sin tenant en contexto.", null, null, null); }
+
+        var hijo = await _db.RequerimientoCompraHijos.FirstOrDefaultAsync(h => h.Id == hijoId, ct);
+        if (hijo is null) { return new EjecutarCompraResultado(false, "No se encontro el registro a cotizar.", null, null, null); }
+        // Idempotencia: si ya tiene actividad de cotizacion, no se crea otra.
+        if (hijo.CotizacionTaskItemId is not null)
+        {
+            return new EjecutarCompraResultado(false, "Esta distribucion ya tiene una cotizacion (actividad creada).", hijo.CotizacionTaskItemId, null, await GetPlanificacionAsync(hijo.RequerimientoId, ct));
+        }
+
+        var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
+        if (padre is null) { return new EjecutarCompraResultado(false, "No se encontro la necesidad padre.", null, null, null); }
+
+        // El proceso de COTIZACION (subcategoria) lo define el ORIGEN de la necesidad.
+        Guid? subcategoriaId = null;
+        if (padre.OrigenId is Guid oid)
+        {
+            subcategoriaId = await _db.RequerimientoOrigenes.AsNoTracking()
+                .Where(o => o.Id == oid).Select(o => o.SubcategoriaCotizacionId).FirstOrDefaultAsync(ct);
+        }
+        if (subcategoriaId is null)
+        {
+            return new EjecutarCompraResultado(false,
+                "El origen de esta necesidad no tiene un proceso de COTIZACION (subcategoria) configurado. Asignalo en Configuracion de Requerimientos.",
+                null, null, await GetPlanificacionAsync(padre.Id, ct));
+        }
+
+        // Datos del proveedor (para enlazar el Tercero y llevar su contacto/correo/telefono a la actividad).
+        string? provNombre = null, provEmail = null, provTel = null;
+        if (hijo.ProveedorId is Guid pid)
+        {
+            var c = await GetProveedorContactoAsync(pid, ct);
+            provNombre = c?.Contacto ?? c?.Nombre; provEmail = c?.Email; provTel = c?.Telefono;
+        }
+
+        var titulo = $"Cotizacion: {padre.Descripcion} x {hijo.Cantidad:#,##0.##}";
+        if (titulo.Length > 200) { titulo = titulo[..200]; }
+        var desc = new System.Text.StringBuilder();
+        desc.Append("Solicitud de cotizacion generada desde Requerimientos de Compra.\n");
+        desc.Append($"Producto: {padre.Descripcion}\n");
+        desc.Append($"Cantidad: {hijo.Cantidad:#,##0.##} {padre.UnidadMedida}\n");
+        if (hijo.FechaProgramadaCompra is { } fp) { desc.Append($"Fecha programada de compra: {fp:yyyy-MM-dd}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega esperado: {hijo.TiempoEntrega}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.CaracteristicasDespacho)) { desc.Append($"Despacho: {hijo.CaracteristicasDespacho}\n"); }
+        if (provNombre is not null) { desc.Append($"Proveedor/contacto: {provNombre}\n"); }
+
+        var req = new CreateTaskItemRequest(
+            Title: titulo,
+            ActivityTypeId: null,
+            SubcategoriaId: subcategoriaId,
+            BoardId: null,
+            Description: desc.ToString().TrimEnd(),
+            RequesterName: provNombre,
+            RequesterEmail: provEmail,
+            RequesterPhone: provTel,
+            TerceroId: hijo.ProveedorId,
+            DueDate: hijo.FechaProgramadaCompra);
+
+        var created = await _tasks.CreateAsync(req, actorUserId, actorName, ct);
+        if (!created.IsOk || created.Value is null)
+        {
+            return new EjecutarCompraResultado(false, created.Error ?? "No se pudo crear la actividad de cotizacion.", null, null, await GetPlanificacionAsync(padre.Id, ct));
+        }
+
+        // Enlaza la actividad de cotizacion al hijo. NO cambia el estado de la compra.
+        hijo.CotizacionTaskItemId = created.Value.Item.Id;
+        await _db.SaveChangesAsync(ct);
+        return new EjecutarCompraResultado(true, null, created.Value.Item.Id, created.Value.Item.Number, await GetPlanificacionAsync(padre.Id, ct));
+    }
+
+    public async Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default)
+    {
+        var t = await _db.Terceros.AsNoTracking()
+            .Where(x => x.Id == proveedorId)
+            .Select(x => new
+            {
+                x.Nombre,
+                x.Email,
+                x.Telefono,
+                Contacto = x.Contactos
+                    .OrderBy(c => c.Nombre)
+                    .Select(c => new { c.Nombre, c.Email, c.Telefono })
+                    .FirstOrDefault(),
+            })
+            .FirstOrDefaultAsync(ct);
+        if (t is null) { return null; }
+        // Prefiere los datos del contacto embebido; cae a los del propio proveedor.
+        var contactoNombre = t.Contacto?.Nombre;
+        var email = !string.IsNullOrWhiteSpace(t.Contacto?.Email) ? t.Contacto!.Email : t.Email;
+        var tel = !string.IsNullOrWhiteSpace(t.Contacto?.Telefono) ? t.Contacto!.Telefono : t.Telefono;
+        return new ProveedorContactoDto(proveedorId, t.Nombre, contactoNombre, email, tel);
     }
 
     /// <summary>Memoria del ultimo ejercicio de compra: upsert de una regla Aprendida en la dimension MAS

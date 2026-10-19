@@ -1800,6 +1800,14 @@ app.MapPost("/webhooks/ycloud", async (
         _ => ".bin"
     };
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+    // [YCLOUD-RAW-TMP] Diagnostico TEMPORAL: vuelca el payload crudo de CADA POST para confirmar si llegan los
+    // eventos de estado (whatsapp.message.updated) y con que forma exacta. QUITAR cuando quede confirmado.
+    try
+    {
+        var rawTmp = doc.RootElement.GetRawText();
+        log.LogWarning("[YCLOUD-RAW-TMP] body={Body}", rawTmp.Length > 2000 ? rawTmp[..2000] : rawTmp);
+    }
+    catch { /* no romper el webhook por el log */ }
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {
@@ -1822,13 +1830,17 @@ app.MapPost("/webhooks/ycloud", async (
                 ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
                 : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
 
-            // 1) Actualizar el mensaje saliente por wamid. No se RETROCEDE el estado (read>delivered>sent); failed
-            //    siempre marca. Si ya estaba failed, no se vuelve a notar (evita notas duplicadas por reenvios).
+            // 1) Actualizar el mensaje saliente. Se correlaciona por CUALQUIERA de los dos ids: el wamid de Meta o el
+            //    id interno de YCloud (al enviar solemos guardar el id de YCloud porque el wamid aun no existe). No se
+            //    RETROCEDE el estado (read>delivered>sent); failed siempre marca. Si ya estaba failed, no se re-nota.
             var alreadyFailed = false;
-            if (!string.IsNullOrWhiteSpace(s.Wamid))
+            var matchIds = new List<string>();
+            if (!string.IsNullOrWhiteSpace(s.Wamid)) { matchIds.Add(s.Wamid!); }
+            if (!string.IsNullOrWhiteSpace(s.ProviderId)) { matchIds.Add(s.ProviderId!); }
+            if (matchIds.Count > 0)
             {
                 var msg = await db.Messages.IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(x => x.ExternalId == s.Wamid
+                    .FirstOrDefaultAsync(x => matchIds.Contains(x.ExternalId!)
                         && x.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound, ct);
                 if (msg is not null)
                 {
@@ -1850,8 +1862,8 @@ app.MapPost("/webhooks/ycloud", async (
             if (s.IsFailure)
             {
                 log.LogWarning(
-                    "Webhook YCloud FALLO de entrega. wamid={Wamid} to={To} estado={Status} codigo={Code} motivo={Msg}",
-                    s.Wamid, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)");
+                    "Webhook YCloud FALLO de entrega. id={Id} to={To} estado={Status} codigo={Code} motivo={Msg}",
+                    s.Wamid ?? s.ProviderId, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)");
                 if (alreadyFailed) { continue; }
 
                 var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());

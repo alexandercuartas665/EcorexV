@@ -252,7 +252,7 @@
                             var c = card;
                             <div class="ab-card @(_dragTaskId == c.Id ? "dragging" : "")" draggable="true"
                                  ondragover="event.preventDefault()"
-                                 @onclick="@(() => OpenTaskAsync(c.Id))"
+                                 @onclick="@(() => OpenTaskAsync(c.Id, column.Cards.Select(x => x.Id).ToList()))"
                                  @ondragstart="@(() => _dragTaskId = c.Id)"
                                  @ondrop="@(() => OnDropOnCardAsync(column, c))"
                                  @ondrop:stopPropagation="true"
@@ -1847,9 +1847,9 @@
     private static string Truncate(string text, int max)
         => text.Length <= max ? text : text[..max].TrimEnd() + "...";
 
-    private async Task OpenTaskAsync(Guid taskId)
+    private async Task OpenTaskAsync(Guid taskId, IReadOnlyList<Guid>? siblings = null)
     {
-        if (_taskDetail is not null) { await _taskDetail.OpenAsync(taskId); }
+        if (_taskDetail is not null) { await _taskDetail.OpenAsync(taskId, siblings); }
     }
 
     // ---- Drag and drop -> MoveTaskAsync (el sortOrder es el INDICE de drop) ----

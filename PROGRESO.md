@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-19 - v0.16.208: UX detalle de tarea (Reabrir en forms de paso + navegar entre tareas de la columna) (DESPLEGADO)
+
+- Feature 1: el boton "Reabrir" (TaskDetailModal) ahora aparece tambien en formularios de PASO (antes solo
+  concepto): condicion finalized && !taskClosed. ReopenConceptFormAsync vuelve la respuesta a Borrador y abre en
+  modo Fill (reusa OpenGeneroForm); NO toca el estado del flujo; el guard de ReopenResponseAsync sigue bloqueando
+  si la tarea esta Cerrada. (Contexto: una COT de paso queda Submitted al avanzar el flujo y antes no habia boton.)
+- Feature 2: navegacion ‹ › entre tareas de la MISMA columna del Kanban SIN cerrar el modal. OpenAsync(taskId,
+  siblings?) recibe el orden visible de la columna (ActivityBoardDetail pasa column.Cards al click de tarjeta);
+  la cabecera muestra ‹ n/N › y NavStepAsync recarga el detalle en sitio. Se oculta si la tarea no esta en la lista
+  (ej. subtarea). Vista Lista sin cambios (no es "una columna").
+
+## 2026-10-19 - v0.16.207: YCloud estado de entrega: correlacion por id + log crudo temporal (DESPLEGADO)
+
+- El estado de entrega (sent/delivered/read/failed) NO se reflejaba. Raiz: al enviar se guarda el id INTERNO de
+  YCloud en Message.ExternalId (el wamid de Meta aun no existe), pero el webhook cruzaba SOLO por wamid -> nunca
+  empataba. Fix: YCloudWebhookParser expone wamid y el id de YCloud por separado (ProviderId); el webhook
+  correlaciona por CUALQUIERA de los dos (IN). Confirmado en prod con el log crudo: sent->delivered ya marca.
+- Ademas la SUSCRIPCION del evento whatsapp.message.updated estaba apagada en la consola de YCloud (se activo).
+- [YCLOUD-RAW-TMP]: log crudo TEMPORAL de cada POST a /webhooks/ycloud (volca el body) para diagnosticar. PENDIENTE
+  QUITARLO (loguea texto de mensajes = datos personales); va en una limpieza posterior.
+
 ## 2026-10-18 - v0.16.206: firma en PDF/IMG (data URI) + refrescar celda sin reabrir (DESPLEGADO)
 
 - (1) CRITICO: la firma no se imprimia en PDF/IMG. Raiz: RenderGridBlocks emitia <img src="/archivo/{id}">, que

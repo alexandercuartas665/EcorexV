@@ -12,6 +12,9 @@
 @inject IFileStorageService Files
 @inject IAutorizacionComprasConfigService Cfg
 @inject ITenantUserService Users
+@inject ITaskItemService Tasks
+@inject IFormResponseService FormResponses
+@inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 
 <PageTitle>Autorizacion facturas compras DIAN - ECOREX.tareas</PageTitle>
@@ -179,12 +182,24 @@
                                 }
                             </select>
                         </div>
+                        @if (_errMsg is { Length: > 0 })
+                        {
+                            <div class="ac-err">@_errMsg</div>
+                        }
                         @if (_okMsg is { Length: > 0 })
                         {
                             <div class="ac-ok">@_okMsg</div>
                         }
+                        @if (_solicitada is { } snum)
+                        {
+                            <div class="ac-solic">Autorizacion ya solicitada: <b>@snum</b></div>
+                        }
                         <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar cambios</button>
-                        <button class="ac-btn ac-btn-ok" style="width:100%" disabled title="Proximamente: creara la actividad de autorizacion">Solicitar autorizacion</button>
+                        <button class="ac-btn ac-btn-ok" style="width:100%" @onclick="SolicitarAutorizacionAsync"
+                                disabled="@(_solicitando || _solicitada is not null || _cfg.SubcategoriaId is null)"
+                                title="@(_cfg.SubcategoriaId is null ? "Configura primero el concepto de actividad" : "Crea la actividad de autorizacion con el resumen")">
+                            @(_solicitando ? "Creando..." : "Solicitar autorizacion")
+                        </button>
                     </div>
                 </div>
             }
@@ -279,13 +294,110 @@
     private async Task GuardarCambiosAsync()
     {
         if (_sel is null) { return; }
-        _guardando = true; _okMsg = null;
+        _guardando = true; _okMsg = null; _errMsg = null;
         try
         {
             await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
             _okMsg = "Cambios guardados.";
         }
         finally { _guardando = false; }
+    }
+
+    // ---- Solicitar autorizacion: crea la actividad con el concepto configurado + resumen ----
+    private string? _errMsg;
+    private string? _solicitada;   // numero de actividad ya solicitada para la factura
+    private bool _solicitando;
+
+    private async Task SolicitarAutorizacionAsync()
+    {
+        if (_sel is null || _solicitando) { return; }
+        _errMsg = null; _okMsg = null;
+        if (_cfg.SubcategoriaId is not Guid subId)
+        {
+            _errMsg = "Configura primero el concepto de actividad en Configuracion.";
+            return;
+        }
+        _solicitando = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+
+            // Valores del formulario (borrador por factura) para el resumen + enlace a la tarea.
+            string? cConcepto = null, cCentro = null, cOrden = null;
+            Guid? responseId = null;
+            if (_cfg.FormDefinitionId is Guid fid)
+            {
+                var dr = await FormResponses.GetOrCreateDraftAsync(fid, _sel.Id.ToString());
+                if (dr.IsOk && dr.Value is { } resp)
+                {
+                    responseId = resp.Id;
+                    cConcepto = Campo(resp.Data, "concepto_compra");
+                    cCentro = Campo(resp.Data, "centro_costos");
+                    cOrden = Campo(resp.Data, "orden_compra");
+                }
+            }
+            var userLabel = _asignadoSel is Guid uid ? _usuarios.FirstOrDefault(u => u.Id == uid) is { } u ? UserLabel(u) : null : null;
+            var resumen = BuildResumen(_sel, cConcepto, cCentro, cOrden, userLabel);
+
+            var req = new CreateTaskItemRequest(
+                Title: "Autorizacion de compra",
+                ActivityTypeId: null,
+                Description: resumen,
+                AssigneeTenantUserId: _asignadoSel,
+                SubcategoriaId: subId,
+                RequesterName: _sel.NombreProveedor,
+                RequesterDocument: _sel.NitProveedor);
+
+            var result = await Tasks.CreateAsync(req, actor, actorName);
+            if (!result.IsOk || result.Value is null)
+            {
+                _errMsg = result.Error ?? "No se pudo crear la actividad.";
+                return;
+            }
+            var num = result.Value.Item.Number;
+            if (responseId is Guid rid) { try { await FormResponses.SetReferenceAsync(rid, num); } catch { } }
+            await Cfg.SetSolicitadaAsync(_sel.Id, num);
+            _solicitada = num;
+            _okMsg = $"Actividad {num} de autorizacion creada" + (userLabel is { } ul ? $" (asignada a {ul})." : ".");
+        }
+        catch (Exception ex) { _errMsg = "Error al crear la actividad: " + ex.Message; }
+        finally { _solicitando = false; }
+    }
+
+    private static string? Campo(IReadOnlyDictionary<string, Ecorex.Application.Forms.FormFieldValue> data, string code)
+        => data.TryGetValue(code, out var v) && !string.IsNullOrWhiteSpace(v.Value) ? v.Value : null;
+
+    private string BuildResumen(ConciliacionDianRenglonDto r, string? concepto, string? centro, string? orden, string? userLabel)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Solicitud de autorizacion de factura de compra DIAN.");
+        sb.AppendLine($"Proveedor: {r.NombreProveedor} (NIT {r.NitProveedor})");
+        sb.AppendLine($"Factura: {r.NumFacturaProveedor}");
+        sb.AppendLine($"Fecha de emision: {Fecha(r.FechaEmision)}");
+        sb.AppendLine($"Total: {Moneda(r.TotalFactura)}");
+        sb.AppendLine($"CUFE: {r.Cufe}");
+        if (concepto is not null || centro is not null || orden is not null)
+        {
+            sb.AppendLine("---");
+            if (concepto is not null) { sb.AppendLine($"Concepto de compra: {concepto}"); }
+            if (centro is not null) { sb.AppendLine($"Centro de costos: {centro}"); }
+            if (orden is not null) { sb.AppendLine($"Orden de compra: {orden}"); }
+        }
+        if (userLabel is not null) { sb.AppendLine("---"); sb.AppendLine($"Asignado a: {userLabel}"); }
+        sb.AppendLine($"Referencia conciliacion (REG): {r.Id}");
+        return sb.ToString().TrimEnd();
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        var st = await AuthState.GetAuthenticationStateAsync();
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+    private async Task<string> ActorNameAsync()
+    {
+        var st = await AuthState.GetAuthenticationStateAsync();
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
     }
 
     protected override async Task OnInitializedAsync()
@@ -340,8 +452,9 @@
     private async Task SelectAsync(ConciliacionDianRenglonDto r)
     {
         _sel = r;
-        _okMsg = null;
+        _okMsg = null; _errMsg = null;
         _asignadoSel = await Cfg.GetAsignadoAsync(r.Id);
+        _solicitada = await Cfg.GetSolicitadaAsync(r.Id);
         _viewLoading = true; _viewUrl = null; _viewFiles = new(); _viewFile = null;
         StateHasChanged();
         try

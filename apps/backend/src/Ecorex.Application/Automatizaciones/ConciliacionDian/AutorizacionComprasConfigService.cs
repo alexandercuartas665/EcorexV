@@ -32,6 +32,10 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Guarda (o limpia con null) el usuario asignado a una factura. Persiste en un unico
     /// TenantConfiguration (mapa JSON renglon->usuario); es el "Guardar cambios" del panel.</summary>
     Task SetAsignadoAsync(Guid renglonId, Guid? userId, CancellationToken ct = default);
+
+    /// <summary>Numero de actividad ya solicitada para una factura (anti-duplicado). null si no se ha solicitado.</summary>
+    Task<string?> GetSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
+    Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -130,6 +134,28 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var raw = await _db.TenantConfigurations.AsNoTracking()
             .Where(c => c.ConfigKey == AsignKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
         return ParseMap(raw);
+    }
+
+    // ---- Facturas ya solicitadas (mapa renglon->numero de actividad) ----
+    private const string SolicKey = "autorizacion-compras-dian.solicitadas";
+
+    public async Task<string?> GetSolicitadaAsync(Guid renglonId, CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == SolicKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return ParseMap(raw).TryGetValue(renglonId.ToString(), out var v) ? v : null;
+    }
+
+    public async Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SolicKey, ct);
+        var map = ParseMap(row?.ConfigValue);
+        map[renglonId.ToString()] = taskNumber;
+        var json = JsonSerializer.Serialize(map);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SolicKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
     }
 
     private static Dictionary<string, string> ParseMap(string? raw)

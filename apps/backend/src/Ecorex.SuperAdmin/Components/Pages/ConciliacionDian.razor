@@ -1164,6 +1164,52 @@ else
                         }
                     </select>
                 </div>
+
+                @* ---- Direccionar compra: boton del formulario que devuelve datos al conciliador ---- *@
+                <div style="border-top:1px solid var(--line-2,#e5e7eb); padding-top:12px; display:flex; flex-direction:column; gap:10px;">
+                    <label class="cd-dd-title" style="margin:0; display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" checked="@_direEnabled" @onchange="e => _direEnabled = (e.Value is bool b && b)" />
+                        Boton &laquo;Direccionar compra&raquo; en el formulario
+                    </label>
+                    @if (_direEnabled)
+                    {
+                        @if (_taskFormSel is null)
+                        {
+                            <div class="cd-muted" style="font-size:12px;">Elegi primero un formulario para mapear sus campos.</div>
+                        }
+                        else
+                        {
+                            <div class="cd-muted" style="font-size:12px;">Al pulsar el boton en el formulario de la tarea, cada campo cae en la columna del conciliador que elijas.</div>
+                            @for (int i = 0; i < _direMaps.Count; i++)
+                            {
+                                var row = _direMaps[i]; var idx = i;
+                                <div style="display:flex; gap:6px; align-items:center;">
+                                    <select class="cd-in" style="flex:1" @onchange="e => row.FormField = e.Value?.ToString() ?? string.Empty">
+                                        <option value="">&mdash; Campo del formulario &mdash;</option>
+                                        @foreach (var f in _direFormFields)
+                                        {
+                                            <option value="@f.Code" selected="@(row.FormField == f.Code)">@f.Label (@f.Code)</option>
+                                        }
+                                    </select>
+                                    <span style="color:var(--ink-3,#9ca3af);">&rarr;</span>
+                                    <select class="cd-in" style="flex:1" @onchange="e => row.Target = e.Value?.ToString() ?? string.Empty">
+                                        <option value="">&mdash; Columna del conciliador &mdash;</option>
+                                        <option value="oc" selected="@(row.Target == "oc")">Orden de compra</option>
+                                        <option value="numsol" selected="@(row.Target == "numsol")">Num Factura SISTEMA</option>
+                                        @foreach (var d in _dynDefs)
+                                        {
+                                            var dk = "dyn:" + d.FieldKey;
+                                            <option value="@dk" selected="@(row.Target == dk)">@d.Label</option>
+                                        }
+                                    </select>
+                                    <button type="button" class="cd-task-btn" title="Quitar mapeo" @onclick="() => _direMaps.RemoveAt(idx)">&times;</button>
+                                </div>
+                            }
+                            <button type="button" class="cd-fb-add" style="align-self:flex-start;" @onclick="() => _direMaps.Add(new DireEdit())">+ Mapeo</button>
+                        }
+                    }
+                </div>
+
                 @if (_taskCfgMsg is { Length: > 0 })
                 {
                     <div class="cd-muted">@_taskCfgMsg</div>
@@ -1310,6 +1356,12 @@ else
     private Guid? _taskFormSel;
     private string? _taskCfgMsg;
 
+    // ---- "Direccionar compra": mapeos campo del formulario -> columna del conciliador (editor en el modal) ----
+    private sealed class DireEdit { public string FormField { get; set; } = string.Empty; public string Target { get; set; } = string.Empty; }
+    private bool _direEnabled;
+    private List<DireEdit> _direMaps = new();
+    private List<FormFieldOptionDto> _direFormFields = new();
+
     // ---- Crear tarea desde la fila (cae en el flujo del concepto). Mapa renglon->numero compartido con
     // la autorizacion (anti-duplicado); se carga en bloque en ReloadAsync. ----
     private Dictionary<Guid, string> _tareaDeRenglon = new();
@@ -1322,17 +1374,30 @@ else
         _taskForms = (await TaskCfg.ListFormulariosAsync()).ToList();
         _taskSubSel = cfg.SubcategoriaId;
         _taskFormSel = cfg.FormDefinitionId;
+        var dire = await TaskCfg.GetDireccionarAsync();
+        _direEnabled = dire.Enabled;
+        _direMaps = dire.Mappings.Select(m => new DireEdit { FormField = m.FormField, Target = m.Target }).ToList();
+        _direFormFields = _taskFormSel is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
         _taskCfgMsg = null;
         _taskCfgOpen = true;
     }
     private void CerrarConfigTarea() => _taskCfgOpen = false;
     private void OnTaskSubChange(ChangeEventArgs e) => _taskSubSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-    private void OnTaskFormChange(ChangeEventArgs e) => _taskFormSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private async Task OnTaskFormChange(ChangeEventArgs e)
+    {
+        _taskFormSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _direFormFields = _taskFormSel is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
+    }
     private async Task GuardarConfigTareaAsync()
     {
         await TaskCfg.SetAsync(_taskSubSel, _taskFormSel);
+        var maps = _direMaps
+            .Where(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target))
+            .Select(m => new DireccionarMapDto(m.FormField, m.Target))
+            .ToList();
+        await TaskCfg.SetDireccionarAsync(_direEnabled, maps, _taskFormSel);   // auto-cablea el boton+regla si enabled
         _taskCfg = await TaskCfg.GetAsync();   // refresca para habilitar el boton "+ Tarea" por fila
-        _taskCfgMsg = "Configuracion guardada.";
+        _taskCfgMsg = _direEnabled && maps.Count > 0 ? "Configuracion guardada (boton Direccionar compra listo en el formulario)." : "Configuracion guardada.";
     }
 
     // Crea la actividad desde la fila con el concepto configurado: si el concepto tiene un flujo asociado,

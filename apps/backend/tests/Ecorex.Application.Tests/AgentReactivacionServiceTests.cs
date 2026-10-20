@@ -108,6 +108,8 @@ public class AgentReactivacionServiceTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompraHijo> RequerimientoCompraHijos => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
         public DbSet<Tercero> Terceros => throw new NotSupportedException();
         public DbSet<Conversation> Conversations => inner.Conversations;
 

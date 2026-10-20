@@ -288,6 +288,9 @@ public interface IApplicationDbContext
     DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas { get; }
     DbSet<RequerimientoCompra> RequerimientosCompra { get; }
     DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos { get; }
+    // Campos DINAMICOS del modulo (definicion por tenant + valores por dueno padre/hijo, EAV) (Ola 12).
+    DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions { get; }
+    DbSet<RequerimientoFieldValue> RequerimientoFieldValues { get; }
 
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.

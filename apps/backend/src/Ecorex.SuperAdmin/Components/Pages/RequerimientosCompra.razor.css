@@ -340,3 +340,5 @@ tr.req-child > td { background: var(--surface-2, #f8fafc); color: var(--ink-2, #
 .req-child-mark { color: var(--brand, #4f46e5); font-weight: 700; margin-right: 4px; }
 .req-badge-done { display: inline-flex; align-items: center; margin-left: 6px; font-size: 10.5px; font-weight: 700; color: #0f7a58; background: rgba(15, 122, 88, .12); padding: 1px 7px; border-radius: 999px; }
 .req-resta { margin-left: 6px; font-size: 11px; color: #b45309; }
+.req-provrow > td { font-size: 12.5px; }
+.req-dyn-in { width: 100%; max-width: 160px; height: 26px; padding: 0 6px; font-size: 12px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: inherit; }

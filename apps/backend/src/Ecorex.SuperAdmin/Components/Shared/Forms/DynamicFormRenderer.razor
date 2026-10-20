@@ -113,6 +113,10 @@ else
         {
             <div class="dfr-alert">@_globalError</div>
         }
+        @if (_infoMessage is not null)
+        {
+            <div class="dfr-alert" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46;">@_infoMessage</div>
+        }
 
         @{ var rootQuestions = QuestionsOf(null); }
         @if (rootQuestions.Count > 0)
@@ -449,6 +453,7 @@ else
     private bool _busy;
     private bool _dirty;
     private string? _globalError;
+    private string? _infoMessage;   // mensaje de exito/resultado de una regla disparada por boton
     private DateTimeOffset? _lastSavedAt;
     private System.Threading.Timer? _autosaveTimer;
     private Guid _loadedKey;
@@ -4196,6 +4201,21 @@ else
         finally
         {
             _dbGate.Release();
+        }
+
+        // Resultado al usuario: si alguna regla fallo lo muestro como error; si no, junto los mensajes de exito.
+        _infoMessage = null;
+        var failed = outcome.Executions.FirstOrDefault(e => e.Status == RuleExecutionStatus.Failed);
+        if (failed is not null)
+        {
+            _globalError = failed.ErrorMessage ?? failed.Message ?? "La regla no se pudo ejecutar.";
+        }
+        else
+        {
+            var joined = string.Join(" ", outcome.Executions
+                .Where(e => e.Status == RuleExecutionStatus.Success && !string.IsNullOrWhiteSpace(e.Message))
+                .Select(e => e.Message!));
+            if (!string.IsNullOrWhiteSpace(joined)) { _globalError = null; _infoMessage = joined; }
         }
 
         // Una regla del boton podria tambien tocar campos (SetFieldValue/Hide/Show/SetRequired).

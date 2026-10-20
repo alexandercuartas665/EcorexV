@@ -39,6 +39,9 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Mapa COMPLETO renglon->numero de actividad ya creada (una sola lectura; para pintar la grilla
     /// del conciliador en bloque). Lo comparten la autorizacion y la creacion de tareas por linea.</summary>
     Task<IReadOnlyDictionary<Guid, string>> GetSolicitadasMapAsync(CancellationToken ct = default);
+    /// <summary>Resuelve el Id de la tarea por su numero (para abrir el detalle desde el badge del conciliador).
+    /// null si no existe. El filtro global por tenant aplica.</summary>
+    Task<Guid?> ResolveTaskIdByNumberAsync(string number, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -164,6 +167,16 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var result = new Dictionary<Guid, string>();
         foreach (var kv in ParseMap(raw)) { if (Guid.TryParse(kv.Key, out var g)) { result[g] = kv.Value; } }
         return result;
+    }
+
+    public async Task<Guid?> ResolveTaskIdByNumberAsync(string number, CancellationToken ct = default)
+    {
+        number = (number ?? string.Empty).Trim();
+        if (number.Length == 0) { return null; }
+        return await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Number == number)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default)

@@ -13,6 +13,7 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Pages.Conciliacion
 @using Ecorex.SuperAdmin.Components.Shared.Lookups
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
 @using ClosedXML.Excel
 @inject IConciliacionDianService Svc
 @inject IConciliacionRuleService Reglas
@@ -430,7 +431,8 @@ else
                                                     </select>
                                                     @if (tieneTarea)
                                                     {
-                                                        <span class="cd-task-badge" title="Ya tiene tarea @tnum (creada desde esta factura)">@tnum</span>
+                                                        <button type="button" class="cd-task-badge" title="Abrir la tarea @tnum"
+                                                                @onclick="() => AbrirTareaAsync(tnum)" @onclick:stopPropagation="true">@tnum</button>
                                                     }
                                                     else
                                                     {
@@ -1174,10 +1176,14 @@ else
             </div>
         </div>
     }
+
+    @* Detalle de la tarea creada desde una fila (se abre al hacer clic en el badge con el numero). *@
+    <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 }
 
 @code {
     private bool _busy;
+    private TaskDetailModal? _taskDetail;
     private string? _msg;
 
     private List<ConciliacionDianDocumentoDto> _docs = new();
@@ -1384,6 +1390,15 @@ else
         if (!string.IsNullOrWhiteSpace(r.Cufe)) { sb.AppendLine($"CUFE: {r.Cufe}"); }
         sb.Append($"Referencia conciliacion (REG): {r.Id}");
         return sb.ToString();
+    }
+
+    // Abre el detalle de la tarea (modal reutilizado de los tableros) desde el badge con el numero.
+    private async Task AbrirTareaAsync(string? number)
+    {
+        if (string.IsNullOrWhiteSpace(number) || _taskDetail is null) { return; }
+        var id = await TaskCfg.ResolveTaskIdByNumberAsync(number);
+        if (id is Guid tid) { await _taskDetail.OpenAsync(tid); }
+        else { _msg = $"No se encontro la tarea {number}."; }
     }
     // Config parseada por def (DataLookupConfig). Lookup guarda el Id de fila en el EAV.
     private Dictionary<Guid, DataLookupConfig> _lookupCfg = new();

@@ -292,6 +292,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas => Set<RequerimientoProveedorRegla>();
     public DbSet<RequerimientoCompra> RequerimientosCompra => Set<RequerimientoCompra>();
     public DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos => Set<RequerimientoCompraHijo>();
+    public DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions => Set<RequerimientoFieldDefinition>();
+    public DbSet<RequerimientoFieldValue> RequerimientoFieldValues => Set<RequerimientoFieldValue>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2795,6 +2797,28 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasOne(x => x.FieldDefinition).WithMany().HasForeignKey(x => x.FieldDefinitionId).OnDelete(DeleteBehavior.Cascade);
             // Un valor por (renglon, campo). Busqueda tipica: todos los valores de un renglon.
             b.HasIndex(x => new { x.TenantId, x.RenglonId, x.FieldDefinitionId }).IsUnique();
+        });
+
+        // Campos dinamicos de Requerimientos (Ola 12): definicion por tenant + ambito, valores por dueno (EAV).
+        modelBuilder.Entity<RequerimientoFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Scope).HasMaxLength(10).IsRequired();
+            b.Property(x => x.Type).HasMaxLength(20).IsRequired();
+            b.Property(x => x.OptionsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Description).HasMaxLength(300);
+            b.Property(x => x.ShowInFilter).HasDefaultValue(true);
+            // Una definicion por (tenant, ambito, clave).
+            b.HasIndex(x => new { x.TenantId, x.Scope, x.FieldKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<RequerimientoFieldValue>(b =>
+        {
+            b.Property(x => x.Value).HasMaxLength(2000);
+            b.HasOne(x => x.FieldDefinition).WithMany().HasForeignKey(x => x.FieldDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Un valor por (dueno, campo). Busqueda tipica: todos los valores de un conjunto de duenos.
+            b.HasIndex(x => new { x.TenantId, x.OwnerId, x.FieldDefinitionId }).IsUnique();
         });
 
         modelBuilder.Entity<StoredFile>(b =>

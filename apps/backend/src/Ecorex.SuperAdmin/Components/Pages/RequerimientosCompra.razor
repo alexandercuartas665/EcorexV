@@ -8,6 +8,7 @@
 @using Ecorex.SuperAdmin.Components.Pages.Requerimientos
 @using ClosedXML.Excel
 @inject IRequerimientoService Svc
+@inject IRequerimientoFieldService FieldSvc
 @inject IUserTablePrefsService Prefs
 @inject ISavedFilterService SavedFilters
 @inject IJSRuntime JS
@@ -121,7 +122,7 @@
                     var sc = s;
                     <div class="cd-dd-row">
                         <select class="cd-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
-                            @foreach (var col in _allCols)
+                            @foreach (var col in AllCols)
                             {
                                 <option value="@col.Key" selected="@(col.Key == sc.K)">@col.Label</option>
                             }
@@ -152,7 +153,7 @@
                     var idx = gi;
                     <div class="cd-dd-row">
                         <select class="cd-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
-                            @foreach (var col in _allCols.Where(x => x.Groupable))
+                            @foreach (var col in AllCols.Where(x => x.Groupable))
                             {
                                 <option value="@col.Key" selected="@(col.Key == _groups[idx])">@col.Label</option>
                             }
@@ -160,7 +161,7 @@
                         <button class="cd-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
                     </div>
                 }
-                @if (_groups.Count < _allCols.Count(x => x.Groupable))
+                @if (_groups.Count < AllCols.Count(x => x.Groupable))
                 {
                     <button class="cd-dd-add" @onclick="AddGroup">+ Agregar agrupacion</button>
                 }
@@ -225,6 +226,15 @@
             </div>
         }
     </div>
+
+    @* Campos propios (dinamicos) *@
+    @if (_canConfig)
+    {
+        <button class="cd-tbtn @(_dynDefsPadre.Count + _dynDefsHija.Count > 0 ? "on" : "")" @onclick="OpenCamposAsync" title="Crear campos propios (a medida) para las necesidades y las lineas de planificacion">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Campos</span>
+        </button>
+    }
 
     @* Vista por proveedor (aplana las lineas de planificacion y agrupa por proveedor) *@
     <button class="cd-tbtn @(_byProvider ? "on" : "")" @onclick="ToggleByProvider" title="Alternar entre la vista de necesidades y una vista que agrupa las lineas de planificacion por proveedor">
@@ -436,7 +446,34 @@ else
                                             }
                                             else { <span class="cd-muted">-</span> }
                                             break;
-                                        default: <text></text> break;
+                                        default:
+                                            @if (DynDefByKey(c.Key) is { } ddef)
+                                            {
+                                                var dv = DynVal(r.Id, ddef.Id);
+                                                if (ddef.Type == "Bool")
+                                                {
+                                                    <input type="checkbox" checked="@(dv == "true")" disabled="@(!_canConfig)" @onchange="e => SetDynBoolAsync(r.Id, ddef.Id, e)" />
+                                                }
+                                                else if (ddef.Type == "Select")
+                                                {
+                                                    <select class="req-dyn-in" disabled="@(!_canConfig)" @onchange="e => SetDynValueAsync(r.Id, ddef.Id, e.Value?.ToString())">
+                                                        <option value="" selected="@string.IsNullOrEmpty(dv)">-</option>
+                                                        @foreach (var op in ddef.Options)
+                                                        {
+                                                            <option value="@op" selected="@(dv == op)">@op</option>
+                                                        }
+                                                    </select>
+                                                }
+                                                else if (ddef.Type == "Url")
+                                                {
+                                                    <input type="text" class="req-dyn-in" value="@dv" placeholder="https://..." disabled="@(!_canConfig)" @onchange="e => SetDynValueAsync(r.Id, ddef.Id, e.Value?.ToString())" />
+                                                }
+                                                else
+                                                {
+                                                    <input type="@(ddef.Type == "Number" ? "number" : ddef.Type == "Date" ? "date" : "text")" step="any" class="req-dyn-in" value="@dv" disabled="@(!_canConfig)" @onchange="e => SetDynValueAsync(r.Id, ddef.Id, e.Value?.ToString())" />
+                                                }
+                                            }
+                                            break;
                                     }
                                 </td>
                             }
@@ -677,6 +714,47 @@ else
                                         </div>
                                     </td>
                                 </tr>
+                                @if (_dynDefsHija.Count > 0)
+                                {
+                                    <tr style="border-top:0;">
+                                        <td colspan="8" style="padding:2px 10px 8px 10px;">
+                                            @if (hi.Id is null)
+                                            {
+                                                <span style="font-size:11px;color:var(--ink-3,#6b7280);">Guarda la planificacion para capturar los campos propios de esta linea.</span>
+                                            }
+                                            else
+                                            {
+                                                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+                                                    @foreach (var hd in _dynDefsHija)
+                                                    {
+                                                        var hdef = hd; var hid = hi.Id!.Value; var hv = DynHijoVal(hid, hdef.Id);
+                                                        <div style="display:flex;align-items:center;gap:5px;">
+                                                            <span style="font-size:11.5px;color:var(--ink-2,#374151);">@hdef.Label:</span>
+                                                            @if (hdef.Type == "Bool")
+                                                            {
+                                                                <input type="checkbox" checked="@(hv == "true")" @onchange="e => SetHijoDynBoolAsync(hid, hdef.Id, e)" />
+                                                            }
+                                                            else if (hdef.Type == "Select")
+                                                            {
+                                                                <select class="req-dyn-in" @onchange="e => SetHijoDynValueAsync(hid, hdef.Id, e.Value?.ToString())">
+                                                                    <option value="" selected="@string.IsNullOrEmpty(hv)">-</option>
+                                                                    @foreach (var op in hdef.Options)
+                                                                    {
+                                                                        <option value="@op" selected="@(hv == op)">@op</option>
+                                                                    }
+                                                                </select>
+                                                            }
+                                                            else
+                                                            {
+                                                                <input type="@(hdef.Type == "Number" ? "number" : hdef.Type == "Date" ? "date" : "text")" step="any" class="req-dyn-in" value="@hv" @onchange="e => SetHijoDynValueAsync(hid, hdef.Id, e.Value?.ToString())" />
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
                             }
                         </tbody>
                     </table>
@@ -757,6 +835,76 @@ else
                 }
                 <button class="btn btn-primary btn-sm" @onclick="GuardarContactoUiAsync" disabled="@_busy">@(_cEditId is null ? "Agregar contacto" : "Guardar cambios")</button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarContactosAsync" disabled="@_busy">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Configuracion de campos propios (dinamicos) (Ola 12) ---- *@
+@if (_showCampos)
+{
+    <div style="position:fixed;inset:0;z-index:4200;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:50px 16px;overflow:auto;" @onclick="() => _showCampos = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;width:760px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">Campos propios</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _showCampos = false">&times;</button>
+            </div>
+            <div style="padding:14px 18px;display:flex;gap:18px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:300px;">
+                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Necesidad (columnas de la grilla)</div>
+                    @foreach (var d in _camposDefs.Where(x => x.Scope == "Padre"))
+                    {
+                        var dd = d;
+                        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line,#f1f5f9);">
+                            <span style="flex:1;font-size:12.5px;">@dd.Label <span style="color:var(--ink-3,#6b7280);">(@TipoLabel(dd.Type))</span></span>
+                            <button class="btn btn-link btn-sm" @onclick="() => EditCampo(dd)">Editar</button>
+                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCampoAsync(dd.Id)">Eliminar</button>
+                        </div>
+                    }
+                    <div style="font-size:12px;font-weight:600;margin:12px 0 6px;">Linea de planificacion (en Planificar)</div>
+                    @foreach (var d in _camposDefs.Where(x => x.Scope == "Hija"))
+                    {
+                        var dd = d;
+                        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line,#f1f5f9);">
+                            <span style="flex:1;font-size:12.5px;">@dd.Label <span style="color:var(--ink-3,#6b7280);">(@TipoLabel(dd.Type))</span></span>
+                            <button class="btn btn-link btn-sm" @onclick="() => EditCampo(dd)">Editar</button>
+                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCampoAsync(dd.Id)">Eliminar</button>
+                        </div>
+                    }
+                    @if (_camposDefs.Count == 0) { <div style="font-size:12px;color:var(--ink-3,#6b7280);">Aun no hay campos propios.</div> }
+                </div>
+                <div style="width:300px;">
+                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">@(_fId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <input style="width:100%;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" placeholder="Etiqueta *" @bind="_fLabel" />
+                    <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Ambito</label>
+                    <select class="cd-in" style="width:100%;height:30px;margin-bottom:8px;" @bind="_fScope" disabled="@(_fId is not null)">
+                        <option value="Padre">Necesidad (columna de la grilla)</option>
+                        <option value="Hija">Linea de planificacion</option>
+                    </select>
+                    <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Tipo</label>
+                    <select class="cd-in" style="width:100%;height:30px;margin-bottom:8px;" @bind="_fType">
+                        <option value="Text">Texto</option>
+                        <option value="Number">Numero</option>
+                        <option value="Date">Fecha</option>
+                        <option value="Bool">Si/No</option>
+                        <option value="Select">Lista</option>
+                        <option value="Url">Enlace (URL)</option>
+                    </select>
+                    @if (_fType == "Select")
+                    {
+                        <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Opciones (una por linea)</label>
+                        <textarea style="width:100%;height:70px;padding:6px 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" @bind="_fOptions"></textarea>
+                    }
+                    <input style="width:100%;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" placeholder="Descripcion (tooltip)" @bind="_fDesc" />
+                    @if (_camposError is not null) { <div style="color:#b91c1c;font-size:12px;margin-bottom:8px;">@_camposError</div> }
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" @onclick="SaveCampoAsync" disabled="@_busy">@(_fId is null ? "Agregar" : "Guardar")</button>
+                        @if (_fId is not null) { <button class="btn btn-link btn-sm" @onclick="ClearCampoForm">Cancelar</button> }
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarCamposAsync" disabled="@_busy">Cerrar</button>
             </div>
         </div>
     </div>
@@ -890,7 +1038,34 @@ else
     private string? _dragCol;
     private string? _openMenu;
 
-    private GridCol? ColByKey(string k) => _allCols.FirstOrDefault(c => c.Key == k);
+    // ---- Campos dinamicos (Ola 12): definiciones por ambito + columnas de la grilla (Padre) + valores (EAV) ----
+    private List<RequerimientoFieldDefDto> _dynDefsPadre = new();
+    private List<RequerimientoFieldDefDto> _dynDefsHija = new();
+    private List<GridCol> _dynCols = new();
+    private Dictionary<Guid, Dictionary<Guid, string?>> _dynValues = new();   // reqId -> defId -> valor
+
+    // Valores de campos dinamicos de las lineas (hijas) abiertas en el modal: hijoId -> defId -> valor.
+    private Dictionary<Guid, Dictionary<Guid, string?>> _dynHijoValues = new();
+    private string? DynHijoVal(Guid hijoId, Guid defId)
+        => _dynHijoValues.TryGetValue(hijoId, out var d) && d.TryGetValue(defId, out var v) ? v : null;
+
+    // Config de campos propios (modal)
+    private bool _showCampos;
+    private List<RequerimientoFieldDefDto> _camposDefs = new();
+    private string? _camposError;
+    private Guid? _fId;
+    private string _fLabel = "", _fScope = "Padre", _fType = "Text", _fOptions = "", _fDesc = "";
+
+    private IEnumerable<GridCol> AllCols => _allCols.Concat(_dynCols);
+    private void BuildDynCols() => _dynCols = _dynDefsPadre
+        .Select(d => new GridCol("dyn:" + d.Id, d.Label, d.Type == "Number", true)).ToList();
+    private static bool IsDynKey(string k) => k.StartsWith("dyn:", StringComparison.Ordinal);
+    private RequerimientoFieldDefDto? DynDefByKey(string k)
+        => IsDynKey(k) && Guid.TryParse(k.AsSpan(4), out var id) ? _dynDefsPadre.FirstOrDefault(d => d.Id == id) : null;
+    private string? DynVal(Guid reqId, Guid defId)
+        => _dynValues.TryGetValue(reqId, out var d) && d.TryGetValue(defId, out var v) ? v : null;
+
+    private GridCol? ColByKey(string k) => AllCols.FirstOrDefault(c => c.Key == k);
     private IEnumerable<GridCol> VisibleCols() => _order.Select(ColByKey).Where(c => c is not null && !_hidden.Contains(c!.Key)).Select(c => c!);
     private int ColSpanAll => 2 + VisibleCols().Count();
 
@@ -917,8 +1092,9 @@ else
         _ => 0m,
     };
 
-    private static string GroupText(string key, RequerimientoDto r)
+    private string GroupText(string key, RequerimientoDto r)
     {
+        if (IsDynKey(key)) { var dv = DynDefByKey(key) is { } dd ? DynVal(r.Id, dd.Id) : null; return string.IsNullOrWhiteSpace(dv) ? "(sin dato)" : dv!; }
         var v = key switch
         {
             "producto" => r.ItemNombre ?? r.Descripcion,
@@ -933,21 +1109,25 @@ else
     }
 
     // Texto crudo por columna para una FILA PADRE (export): como GroupText pero sin "(sin dato)".
-    private static string CellStr(string key, RequerimientoDto r) => key switch
+    private string CellStr(string key, RequerimientoDto r)
     {
-        "producto" => (r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})"),
-        "area" => r.Area,
-        "origen" => r.OrigenNombre ?? "",
-        "unidad" => r.UnidadMedida,
-        "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
-        "proveedor" => "",
-        "fecha" => r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "",
-        "cantidad" => Fmt(r.Cantidad),
-        "precio" => "",
-        "monto" => r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "",
-        "hijos" => r.CantidadHijos > 0 ? r.CantidadHijos.ToString() : "",
-        _ => "",
-    };
+        if (IsDynKey(key)) { return (DynDefByKey(key) is { } dd ? DynVal(r.Id, dd.Id) : null) ?? ""; }
+        return key switch
+        {
+            "producto" => (r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})"),
+            "area" => r.Area,
+            "origen" => r.OrigenNombre ?? "",
+            "unidad" => r.UnidadMedida,
+            "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
+            "proveedor" => "",
+            "fecha" => r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "",
+            "cantidad" => Fmt(r.Cantidad),
+            "precio" => "",
+            "monto" => r.MontoTotal > 0 ? Fmt(r.MontoTotal) : "",
+            "hijos" => r.CantidadHijos > 0 ? r.CantidadHijos.ToString() : "",
+            _ => "",
+        };
+    }
 
     // Texto crudo por columna para una FILA HIJA (export).
     private static string ChildStr(string key, RequerimientoDto parent, RequerimientoHijoDto h) => key switch
@@ -974,7 +1154,7 @@ else
         }
     }
 
-    private static object SortKey(string key, RequerimientoDto r) => key switch
+    private object SortKey(string key, RequerimientoDto r) => key switch
     {
         "cantidad" => r.Cantidad,
         "monto" => r.MontoTotal,
@@ -1127,7 +1307,10 @@ else
         {
             try { var st = await AuthState; _userName = st.User.Identity?.Name; } catch { }
         }
+        await LoadDynDefsAsync();   // antes de las prefs: las columnas dinamicas deben existir para el orden
         await LoadPrefsAsync();
+        // Asegura que las columnas dinamicas esten en el orden aunque no hubiera prefs guardadas.
+        foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
         await LoadSavedFiltersAsync();
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
@@ -1135,10 +1318,114 @@ else
         await ReloadAsync();
     }
 
+    private async Task LoadDynDefsAsync()
+    {
+        try
+        {
+            var all = (await FieldSvc.ListDefsAsync()).ToList();
+            _dynDefsPadre = all.Where(d => d.Scope == "Padre").ToList();
+            _dynDefsHija = all.Where(d => d.Scope == "Hija").ToList();
+            BuildDynCols();
+        }
+        catch { _dynDefsPadre = new(); _dynDefsHija = new(); _dynCols = new(); }
+    }
+
+    // Guarda el valor de un campo dinamico de una necesidad (padre) y actualiza el cache en memoria.
+    private async Task SetDynValueAsync(Guid ownerId, Guid defId, string? value)
+    {
+        var v = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        try { await FieldSvc.SetValueAsync(ownerId, defId, v); }
+        catch (Exception ex) { _msg = ex.Message; return; }
+        if (!_dynValues.TryGetValue(ownerId, out var d)) { d = new(); _dynValues[ownerId] = d; }
+        d[defId] = v;
+    }
+
+    private Task SetDynBoolAsync(Guid ownerId, Guid defId, ChangeEventArgs e)
+    {
+        var on = e.Value is bool b && b;
+        return SetDynValueAsync(ownerId, defId, on ? "true" : null);
+    }
+
+    // ---- Config de campos propios (Ola 12) ----
+    private static string TipoLabel(string t) => t switch
+    {
+        "Number" => "Numero", "Date" => "Fecha", "Bool" => "Si/No", "Select" => "Lista", "Url" => "Enlace", _ => "Texto",
+    };
+
+    private async Task OpenCamposAsync()
+    {
+        _camposError = null;
+        _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
+        ClearCampoForm();
+        _showCampos = true;
+    }
+
+    private void ClearCampoForm()
+    {
+        _fId = null; _fLabel = ""; _fScope = "Padre"; _fType = "Text"; _fOptions = ""; _fDesc = "";
+    }
+
+    private void EditCampo(RequerimientoFieldDefDto d)
+    {
+        _fId = d.Id; _fLabel = d.Label; _fScope = d.Scope; _fType = d.Type;
+        _fOptions = string.Join("\n", d.Options); _fDesc = d.Description ?? "";
+    }
+
+    private async Task SaveCampoAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_fLabel)) { _camposError = "La etiqueta es obligatoria."; return; }
+        _camposError = null; _busy = true;
+        try
+        {
+            var opts = _fType == "Select"
+                ? _fOptions.Split('\n').Select(o => o.Trim()).Where(o => o.Length > 0).ToList()
+                : new List<string>();
+            var dto = new RequerimientoFieldDefDto(_fId ?? Guid.Empty, "", _fLabel, _fScope, _fType,
+                _camposDefs.Count(x => x.Scope == _fScope), opts, string.IsNullOrWhiteSpace(_fDesc) ? null : _fDesc, true);
+            await FieldSvc.SaveDefAsync(dto);
+            _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
+            ClearCampoForm();
+        }
+        catch (Exception ex) { _camposError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCampoAsync(Guid id)
+    {
+        _camposError = null; _busy = true;
+        try
+        {
+            await FieldSvc.DeleteDefAsync(id);
+            _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
+            if (_fId == id) { ClearCampoForm(); }
+        }
+        catch (Exception ex) { _camposError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CerrarCamposAsync()
+    {
+        _showCampos = false;
+        // Reconstruye columnas dinamicas + orden + valores para reflejar los cambios en la grilla.
+        await LoadDynDefsAsync();
+        foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
+        // Limpia del orden las columnas dinamicas que ya no existen.
+        _order = _order.Where(k => !IsDynKey(k) || _dynCols.Any(c => c.Key == k)).ToList();
+        await SavePrefsAsync();
+        await ReloadAsync();
+    }
+
     private async Task ReloadAsync()
     {
         // Carga TODO (el filtrado fino lo hace el constructor en cliente).
         _rows = (await Svc.ListAsync(new RequerimientoFiltro())).ToList();
+        // Valores de los campos dinamicos de las necesidades (padre) para la grilla.
+        if (_dynDefsPadre.Count > 0)
+        {
+            try { _dynValues = (await FieldSvc.GetValuesAsync(_rows.Select(r => r.Id).ToList())).ToDictionary(kv => kv.Key, kv => kv.Value); }
+            catch { _dynValues = new(); }
+        }
+        else { _dynValues = new(); }
         // Mantiene expandidas solo las que siguen existiendo.
         _expanded.IntersectWith(_rows.Select(r => r.Id).ToHashSet());
         RebuildItems();
@@ -1383,9 +1670,9 @@ else
             if (string.IsNullOrWhiteSpace(json)) { return; }
             var p = JsonSerializer.Deserialize<PrefsDto>(json);
             if (p is null) { return; }
-            var known = _allCols.Select(c => c.Key).ToHashSet();
+            var known = AllCols.Select(c => c.Key).ToHashSet();
             var ord = (p.order ?? new()).Where(known.Contains).Distinct().ToList();
-            foreach (var k in _allCols.Select(c => c.Key)) { if (!ord.Contains(k)) { ord.Add(k); } }
+            foreach (var k in AllCols.Select(c => c.Key)) { if (!ord.Contains(k)) { ord.Add(k); } }
             _order = ord;
             _hidden = (p.hidden ?? new()).Where(known.Contains).ToHashSet();
             _widths = (p.widths ?? new()).Where(kv => known.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -1427,7 +1714,7 @@ else
     private void AddSort()
     {
         var used = _sorts.Select(s => s.K).ToHashSet();
-        var nx = _allCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
+        var nx = AllCols.FirstOrDefault(c => !used.Contains(c.Key)) ?? _allCols[0];
         _sorts.Add(new SortSpec { K = nx.Key, Dir = 1 }); RebuildItems(); _ = SavePrefsAsync();
     }
     private void ChangeSortField(SortSpec s, ChangeEventArgs e) { s.K = e.Value?.ToString() ?? s.K; RebuildItems(); _ = SavePrefsAsync(); }
@@ -1438,7 +1725,7 @@ else
     private void AddGroup()
     {
         var used = _groups.ToHashSet();
-        var nx = _allCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
+        var nx = AllCols.FirstOrDefault(c => c.Groupable && !used.Contains(c.Key));
         if (nx is not null) { _groups.Add(nx.Key); RebuildItems(); _ = SavePrefsAsync(); }
     }
     private void ChangeGroupField(int idx, ChangeEventArgs e) { if (idx >= 0 && idx < _groups.Count) { _groups[idx] = e.Value?.ToString() ?? _groups[idx]; RebuildItems(); _ = SavePrefsAsync(); } }
@@ -1470,7 +1757,7 @@ else
     private void ToggleHidden(string key) { if (!_hidden.Remove(key)) { _hidden.Add(key); } _ = SavePrefsAsync(); }
     private void HideColFromMenu(string key) { _hidden.Add(key); CloseColMenu(); _ = SavePrefsAsync(); }
     private void ShowAllCols() { _hidden.Clear(); _ = SavePrefsAsync(); }
-    private void ResetCols() { _order = _allCols.Select(c => c.Key).ToList(); _hidden.Clear(); _widths.Clear(); _ = SavePrefsAsync(); }
+    private void ResetCols() { _order = AllCols.Select(c => c.Key).ToList(); _hidden.Clear(); _widths.Clear(); _ = SavePrefsAsync(); }
 
     // ---- Menu contextual de columna ----
     private bool _colMenuOpen;
@@ -1587,7 +1874,29 @@ else
         _showPlan = true;
         // Trae el contacto (nombre/correo/telefono) de los proveedores ya asignados.
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
+        // Valores de los campos dinamicos de las lineas (hijas) ya guardadas.
+        await LoadHijoDynValuesAsync();
     }
+
+    private async Task LoadHijoDynValuesAsync()
+    {
+        if (_dynDefsHija.Count == 0) { _dynHijoValues = new(); return; }
+        var ids = _pHijos.Where(h => h.Id is not null).Select(h => h.Id!.Value).ToList();
+        try { _dynHijoValues = (await FieldSvc.GetValuesAsync(ids)).ToDictionary(kv => kv.Key, kv => kv.Value); }
+        catch { _dynHijoValues = new(); }
+    }
+
+    private async Task SetHijoDynValueAsync(Guid hijoId, Guid defId, string? value)
+    {
+        var v = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        try { await FieldSvc.SetValueAsync(hijoId, defId, v); }
+        catch (Exception ex) { _planError = ex.Message; return; }
+        if (!_dynHijoValues.TryGetValue(hijoId, out var d)) { d = new(); _dynHijoValues[hijoId] = d; }
+        d[defId] = v;
+    }
+
+    private Task SetHijoDynBoolAsync(Guid hijoId, Guid defId, ChangeEventArgs e)
+        => SetHijoDynValueAsync(hijoId, defId, (e.Value is bool b && b) ? "true" : null);
 
     private async Task FillContactoAsync(HijoEdit h)
     {
@@ -1709,6 +2018,7 @@ else
                 _planCantidadPadre = plan.CantidadPadre;
                 _pHijos = plan.Hijos.Select(MapHijo).ToList();
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
             }
             await ReloadAsync();
         }
@@ -1747,6 +2057,7 @@ else
                 _planCantidadPadre = plan.CantidadPadre;
                 _pHijos = plan.Hijos.Select(MapHijo).ToList();
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
             }
             if (_planError is null)
             {

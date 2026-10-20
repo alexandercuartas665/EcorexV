@@ -10895,6 +10895,139 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("requerimiento_compra_hijos", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("field_key");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("options_json");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("scope");
+
+                    b.Property<bool>("ShowInFilter")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("show_in_filter");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("type");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_field_definitions");
+
+                    b.HasIndex("TenantId", "Scope", "FieldKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_field_definitions_tenant_id_scope_field_key");
+
+                    b.ToTable("requerimiento_field_definitions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FieldDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("field_definition_id");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_field_values");
+
+                    b.HasIndex("FieldDefinitionId")
+                        .HasDatabaseName("ix_requerimiento_field_values_field_definition_id");
+
+                    b.HasIndex("TenantId", "OwnerId", "FieldDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_field_values_tenant_id_owner_id_field_definit");
+
+                    b.ToTable("requerimiento_field_values", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoOrigen", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19396,6 +19529,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_requerimiento_compra_hijos_requerimientos_compra_requerimie");
 
                     b.Navigation("Requerimiento");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoFieldValue", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.RequerimientoFieldDefinition", "FieldDefinition")
+                        .WithMany()
+                        .HasForeignKey("FieldDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_requerimiento_field_values_requerimiento_field_definitions_");
+
+                    b.Navigation("FieldDefinition");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>

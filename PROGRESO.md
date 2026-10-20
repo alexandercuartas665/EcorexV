@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-20 - Integracion Requerimientos Olas 9-12 al tronco + fix harness Api (SIN deploy)
+
+- INTEGRADO (merge --no-ff b9d99143, 0 conflictos por merge-tree): 4 commits aditivos de requerimiento_compras:
+  94789512 (regla con mensaje al usuario en DynamicFormRenderer), 3afc6d1e (vista por proveedor + cotizar en lote +
+  ultimo precio del historico), f75cfbf8 (contactos del proveedor + contacto por linea, Ola 11), 00e6a29c (campos
+  propios EAV padre e hija, Ola 12). 2 migraciones duales aditivas: AddRequerimientoHijoContacto (proveedor_contacto_id
+  nullable), AddRequerimientoCustomFields (requerimiento_field_definitions + requerimiento_field_values).
+- VERIFICACION: build Release 0 errores; has-pending-model-changes "No changes" en EcorexDbContext (PG) y
+  SqlServerEcorexDbContext; Application.Tests 1114/1114; Domain.Tests 35/35; Integration.Tests dual 483/483.
+- FIX harness (EcorexApiFactory): el host del Api (ValidateOnBuild) no registra IFileStorageService (vive en
+  SuperAdmin, no referenciado por el Api). FormTemplateRenderService lo exige DESDE v0.16.206 (firma en PDF),
+  dejando 27 tests de Auth/API en rojo (pre-existente, NO de este merge; prod corre SuperAdmin y si lo registra).
+  Se agrega un No-Op de IFileStorageService en ConfigureTestServices, mismo patron que los otros dos stores de
+  SuperAdmin ya No-Op'eados. Solo pruebas, cero impacto de producto.
+
 ## 2026-10-20 - v0.16.211: media del cliente en hold de flujo cae en la tarea (ADR-0125) (SIN deploy)
 
 - PROBLEMA: con la conversacion tomada por un nodo-agente, el cliente manda el comprobante (documento/imagen)

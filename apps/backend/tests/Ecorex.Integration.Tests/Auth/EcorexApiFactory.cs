@@ -35,13 +35,15 @@ public sealed class EcorexApiFactory : WebApplicationFactory<Program>, IAsyncLif
         builder.UseSetting("Jwt:SigningKey", SigningKey);
         builder.UseSetting("Database:AutoMigrate", "false");
 
-        // El host del Api (ValidateOnBuild) necesita ITemplateMediaStore e IDocumentoFileStore, cuyas
-        // implementaciones viven en SuperAdmin (no referenciado por el Api). Estos endpoints de Auth no ejercitan
-        // media de plantillas ni archivos de documentos, asi que basta un doble No-Op para que el host arranque.
+        // El host del Api (ValidateOnBuild) necesita ITemplateMediaStore, IDocumentoFileStore e IFileStorageService,
+        // cuyas implementaciones viven en SuperAdmin (no referenciado por el Api). Estos endpoints de Auth no ejercitan
+        // media de plantillas, archivos de documentos ni almacenamiento de archivos, asi que basta un doble No-Op
+        // para que el host arranque.
         builder.ConfigureTestServices(services =>
         {
             services.AddScoped<Ecorex.Application.Notifications.ITemplateMediaStore, NoOpTemplateMediaStore>();
             services.AddScoped<Ecorex.Application.Documentos.IDocumentoFileStore, NoOpDocumentoFileStore>();
+            services.AddScoped<Ecorex.Application.Storage.IFileStorageService, NoOpFileStorageService>();
         });
     }
 
@@ -57,6 +59,26 @@ public sealed class EcorexApiFactory : WebApplicationFactory<Program>, IAsyncLif
             => Task.FromResult(string.Empty);
         public Task<byte[]?> ReadAsync(string urlPublica, CancellationToken ct = default)
             => Task.FromResult<byte[]?>(null);
+    }
+
+    private sealed class NoOpFileStorageService : Ecorex.Application.Storage.IFileStorageService
+    {
+        public Task<Ecorex.Application.Storage.StoredFileDto> SaveAsync(Ecorex.Application.Storage.FileStorageSaveRequest request, CancellationToken ct = default)
+            => throw new NotSupportedException("NoOpFileStorageService no guarda archivos.");
+        public Task<IReadOnlyList<Ecorex.Application.Storage.StoredFileDto>> ListAsync(string module, string? ref1 = null, string? ref2 = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<Ecorex.Application.Storage.StoredFileDto>>(Array.Empty<Ecorex.Application.Storage.StoredFileDto>());
+        public Task<Ecorex.Application.Storage.StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default)
+            => Task.FromResult<Ecorex.Application.Storage.StoredFileDto?>(null);
+        public Task<Ecorex.Application.Storage.FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default)
+            => Task.FromResult<Ecorex.Application.Storage.FileStorageContent?>(null);
+        public Task<Ecorex.Application.Storage.FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default)
+            => Task.FromResult<Ecorex.Application.Storage.FileStorageContent?>(null);
+        public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default)
+            => Task.FromResult(false);
+        public Task<Ecorex.Application.Storage.StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default)
+            => Task.FromResult<Ecorex.Application.Storage.StoredFileDto?>(null);
+        public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyCollection<string>>(Array.Empty<string>());
     }
 
     public async Task InitializeAsync()

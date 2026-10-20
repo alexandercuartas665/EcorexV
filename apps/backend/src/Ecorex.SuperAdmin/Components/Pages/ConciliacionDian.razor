@@ -3,7 +3,9 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Application.Crm
 @using Ecorex.Application.DataLookups
+@using Ecorex.Application.Forms
 @using Ecorex.Application.Formulas
 @using Ecorex.Application.Preferences
 @using Ecorex.Application.Storage
@@ -20,6 +22,7 @@
 @inject ISavedFilterService SavedFilters
 @inject IFileStorageService Files
 @inject ITenantUserService Users
+@inject IAutorizacionComprasConfigService TaskCfg
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -83,6 +86,7 @@ else
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigReglasAsync" disabled="@_busy" title="Configurar las reglas (VLOOKUP y condiciones) sin codigo">&#9881; Reglas</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigTareaAsync" disabled="@_busy" title="Configurar el concepto de actividad y el formulario para las tareas que se generan desde las facturas">&#9881; Configuracion de tarea</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
         <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
     </div>
@@ -1106,6 +1110,53 @@ else
             </div>
         </div>
     }
+
+    @* ---- Configuracion de tarea (concepto 000270 + formulario) movida desde Autorizacion de compras ---- *@
+    @if (_taskCfgOpen)
+    {
+        <div class="cd-doc-backdrop" @onclick="CerrarConfigTarea"></div>
+        <div class="cd-rules-modal" style="width:min(560px,96vw);height:auto;max-height:88vh;" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Configuracion de tarea</div>
+                    <div class="cd-doc-title-sub">Concepto de actividad y formulario para las tareas que se generan desde las facturas (autorizacion y gestion por linea).</div>
+                </div>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfigTarea">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:auto;">
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label class="cd-dd-title" style="margin:0;">Concepto de actividad</label>
+                    <select class="cd-in" style="width:100%" @onchange="OnTaskSubChange">
+                        <option value="">&mdash; Sin concepto &mdash;</option>
+                        @foreach (var sc in _taskSubs)
+                        {
+                            <option value="@sc.SubcategoriaId" selected="@(_taskSubSel == sc.SubcategoriaId)">@sc.Categoria &rsaquo; @sc.Nombre</option>
+                        }
+                    </select>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label class="cd-dd-title" style="margin:0;">Formulario a asociar</label>
+                    <select class="cd-in" style="width:100%" @onchange="OnTaskFormChange">
+                        <option value="">&mdash; Sin formulario &mdash;</option>
+                        @foreach (var fm in _taskForms)
+                        {
+                            <option value="@fm.Id" selected="@(_taskFormSel == fm.Id)">@fm.Title@(string.IsNullOrWhiteSpace(fm.Code) ? "" : $" ({fm.Code})")</option>
+                        }
+                    </select>
+                </div>
+                @if (_taskCfgMsg is { Length: > 0 })
+                {
+                    <div class="cd-muted">@_taskCfgMsg</div>
+                }
+            </div>
+            <div class="cd-rules-foot">
+                <span class="cd-muted">Lo usan la autorizacion de facturas y la gestion de tareas por linea.</span>
+                <div style="flex:1"></div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfigTarea">Cerrar</button>
+                <button class="btn btn-primary btn-sm" @onclick="GuardarConfigTareaAsync">Guardar</button>
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -1224,6 +1275,34 @@ else
         => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
         : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
     private string UserNameById(Guid? id) => id is Guid g && _usuarios.FirstOrDefault(u => u.Id == g) is { } u ? UserLabel(u) : "";
+
+    // ---- Configuracion de tarea (movida desde Autorizacion de compras): concepto de actividad 000270 +
+    // formulario a asociar. Comparte el servicio/almacen con el modulo de autorizacion (misma tarea). ----
+    private bool _taskCfgOpen;
+    private List<TareaProcesoOpcionDto> _taskSubs = new();
+    private List<FormDefinitionListItemDto> _taskForms = new();
+    private Guid? _taskSubSel;
+    private Guid? _taskFormSel;
+    private string? _taskCfgMsg;
+
+    private async Task AbrirConfigTareaAsync()
+    {
+        var cfg = await TaskCfg.GetAsync();
+        _taskSubs = (await TaskCfg.ListSubcategoriasAsync()).ToList();
+        _taskForms = (await TaskCfg.ListFormulariosAsync()).ToList();
+        _taskSubSel = cfg.SubcategoriaId;
+        _taskFormSel = cfg.FormDefinitionId;
+        _taskCfgMsg = null;
+        _taskCfgOpen = true;
+    }
+    private void CerrarConfigTarea() => _taskCfgOpen = false;
+    private void OnTaskSubChange(ChangeEventArgs e) => _taskSubSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private void OnTaskFormChange(ChangeEventArgs e) => _taskFormSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private async Task GuardarConfigTareaAsync()
+    {
+        await TaskCfg.SetAsync(_taskSubSel, _taskFormSel);
+        _taskCfgMsg = "Configuracion guardada.";
+    }
     // Config parseada por def (DataLookupConfig). Lookup guarda el Id de fila en el EAV.
     private Dictionary<Guid, DataLookupConfig> _lookupCfg = new();
     // Etiquetas resueltas por def -> (rowId -> etiqueta a mostrar). Para mostrar/ordenar/agrupar/filtrar/exportar.

@@ -26,7 +26,6 @@
                 <div class="ac-kicker">COMPRAS</div>
                 <h1 class="ac-title">Autorizacion facturas compras DIAN</h1>
             </div>
-            <button class="ac-btn ac-btn-ghost ac-cfg-btn" @onclick="AbrirConfig" title="Configurar el concepto / formulario del modulo">&#9881; Configuracion</button>
         </div>
         <p class="ac-sub">Facturas de compra reportadas a la DIAN que aun no tienen una orden de compra y estan pendientes de autorizar. Selecciona una para ver su documento.</p>
     </div>
@@ -166,7 +165,7 @@
                     else
                     {
                         <div class="ac-muted" style="padding:12px 2px;">
-                            Sin formulario configurado. Abre <b>Configuracion</b> y elige un concepto de actividad con su formulario (p. ej. "Autorizar factura" con el formulario de centro de costos).
+                            Sin formulario configurado. Define el concepto de actividad y el formulario en <b>Conciliacion DIAN Compras &rsaquo; Configuracion de tarea</b> (es el modulo administrativo); aqui se usa esa misma configuracion.
                         </div>
                     }
 
@@ -206,53 +205,6 @@
         </div>
     </div>
 
-    @* ---- Configuracion del modulo ---- *@
-    @if (_cfgOpen)
-    {
-        <div class="ac-modal-backdrop" @onclick="CerrarConfig"></div>
-        <div class="ac-modal" @onclick:stopPropagation="true">
-            <div class="ac-modal-head">
-                <h3>Configuracion del modulo</h3>
-                <button class="ac-modal-close" @onclick="CerrarConfig">&times;</button>
-            </div>
-            <div class="ac-modal-body">
-                <p class="ac-muted">Elige el <b>concepto de actividad</b> (categoria / subcategoria) y el <b>formulario</b> que deseas asociar; el formulario se muestra en el panel al seleccionar una factura. (La accion de crear la actividad aun no se dispara.)</p>
-
-                <label class="ac-f-lbl">Concepto de actividad (categoria / subcategoria)</label>
-                <select class="ac-in" style="width:100%" @onchange="OnSubChange">
-                    <option value="">&mdash; Sin concepto &mdash;</option>
-                    @foreach (var sc in _subcategorias)
-                    {
-                        <option value="@sc.SubcategoriaId" selected="@(_cfgSubSel == sc.SubcategoriaId)">@sc.Categoria &rsaquo; @sc.Nombre</option>
-                    }
-                </select>
-
-                <label class="ac-f-lbl">Formulario a asociar</label>
-                <select class="ac-in" style="width:100%" @onchange="OnFormChange">
-                    <option value="">&mdash; Sin formulario &mdash;</option>
-                    @foreach (var fm in _formularios)
-                    {
-                        <option value="@fm.Id" selected="@(_cfgFormSel == fm.Id)">@fm.Title@(string.IsNullOrWhiteSpace(fm.Code) ? "" : $" ({fm.Code})")</option>
-                    }
-                </select>
-
-                @if (_cfgSubSel is not null || _cfgFormSel is not null)
-                {
-                    var sel = _cfgSubSel is Guid sg ? _subcategorias.FirstOrDefault(x => x.SubcategoriaId == sg) : null;
-                    var selForm = _cfgFormSel is Guid fg ? _formularios.FirstOrDefault(x => x.Id == fg) : null;
-                    <div class="ac-cfg-preview">
-                        <div><b>Categoria:</b> @(sel?.Categoria ?? "—")</div>
-                        <div><b>Subcategoria:</b> @(sel?.Nombre ?? "—")</div>
-                        <div><b>Formulario:</b> @(selForm?.Title ?? "—")</div>
-                    </div>
-                }
-            </div>
-            <div class="ac-modal-foot">
-                <button class="ac-btn ac-btn-ghost" @onclick="CerrarConfig">Cancelar</button>
-                <button class="ac-btn" @onclick="GuardarConfigAsync">Guardar</button>
-            </div>
-        </div>
-    }
 </div>
 
 @code {
@@ -271,13 +223,10 @@
 
     private static readonly CultureInfo Co = CultureInfo.GetCultureInfo("es-CO");
 
-    // ---- Configuracion del modulo (subcategoria 000270 + formulario, elegidos aparte) ----
+    // ---- Configuracion del modulo (concepto 000270 + formulario). La EDICION se movio al conciliador
+    // (/conciliacion-dian -> "Configuracion de tarea", modulo administrativo); aqui solo se LEE (_cfg)
+    // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
-    private bool _cfgOpen;
-    private List<TareaProcesoOpcionDto> _subcategorias = new();
-    private List<FormDefinitionListItemDto> _formularios = new();
-    private Guid? _cfgSubSel;
-    private Guid? _cfgFormSel;
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
     private List<TenantUserDto> _usuarios = new();
@@ -422,24 +371,6 @@
         _cfg = await Cfg.GetAsync();
         _usuarios = (await Users.ListAsync()).ToList();
         await CargarAsync();
-    }
-
-    private async Task AbrirConfig()
-    {
-        _subcategorias = (await Cfg.ListSubcategoriasAsync()).ToList();
-        _formularios = (await Cfg.ListFormulariosAsync()).ToList();
-        _cfgSubSel = _cfg.SubcategoriaId;
-        _cfgFormSel = _cfg.FormDefinitionId;
-        _cfgOpen = true;
-    }
-    private void CerrarConfig() => _cfgOpen = false;
-    private void OnSubChange(ChangeEventArgs e) => _cfgSubSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-    private void OnFormChange(ChangeEventArgs e) => _cfgFormSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-    private async Task GuardarConfigAsync()
-    {
-        await Cfg.SetAsync(_cfgSubSel, _cfgFormSel);
-        _cfg = await Cfg.GetAsync();
-        _cfgOpen = false;
     }
 
     private ConciliacionDianFiltro Filtro()

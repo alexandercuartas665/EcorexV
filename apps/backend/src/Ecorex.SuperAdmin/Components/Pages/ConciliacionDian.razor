@@ -1458,6 +1458,32 @@ else
                 }
                 catch { /* el resumen ya viaja en la descripcion */ }
             }
+
+            // Adjuntar los PDF del conciliador (por CUFE) como enlaces en la pestana Documentos de la tarea,
+            // asi el usuario consulta los documentos de la factura desde la tarea (StoredFileDto.Url = /archivo/{id}).
+            if (!string.IsNullOrWhiteSpace(r.Cufe))
+            {
+                try
+                {
+                    var docs = (await Files.ListAsync("ConciliacionDian", r.Cufe))
+                        .Where(f => (f.ContentType ?? string.Empty).Contains("pdf", StringComparison.OrdinalIgnoreCase)
+                                 || (f.FileName ?? string.Empty).EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    foreach (var f in docs)
+                    {
+                        // Nombre amigable: los archivos del conciliador vienen como {cufe}_dian.pdf / {cufe}_newton.pdf.
+                        var fn = f.FileName ?? string.Empty;
+                        var nombre = fn.Contains("_newton", StringComparison.OrdinalIgnoreCase) ? "Representacion grafica (NEWTON).pdf"
+                            : fn.Contains("_dian", StringComparison.OrdinalIgnoreCase) ? "Factura electronica (DIAN).pdf"
+                            : fn;
+                        await Tasks.AddAttachmentAsync(
+                            new AddTaskAttachmentRequest(result.Value.Item.Id, nombre, f.Url, f.ContentType, f.SizeBytes),
+                            _actorId, _userName ?? "Usuario");
+                    }
+                }
+                catch { /* best-effort: los documentos siguen disponibles en el conciliador */ }
+            }
+
             await TaskCfg.SetSolicitadaAsync(r.Id, num);
             _tareaDeRenglon[r.Id] = num;
             _msg = $"Tarea {num} creada" + (r.AssignedTenantUserId is not null ? $" y asignada a {UserNameById(r.AssignedTenantUserId)}." : ".");

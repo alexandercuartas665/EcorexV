@@ -25,6 +25,7 @@
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
 @inject ITaskItemService Tasks
+@inject IFormResponseService FormResponses
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -1369,6 +1370,29 @@ else
                 return;
             }
             var num = result.Value.Item.Number;
+            // El formulario configurado "cae" en la tarea (via ActividadSubcategoria.FormDefinitionId). Aqui
+            // lo prellenamos con los datos de la factura del conciliador, en un borrador keyed por el NUMERO de
+            // tarea (los codigos deben existir en el form: proveedor/nit/rut/fecha_compra/num_factura).
+            if (_taskCfg.FormDefinitionId is Guid fid)
+            {
+                try
+                {
+                    var td = await FormResponses.GetOrCreateDraftAsync(fid, num);
+                    if (td.IsOk && td.Value is { } tdr)
+                    {
+                        var data = new Dictionary<string, FormFieldValue>
+                        {
+                            ["proveedor"] = new FormFieldValue(r.NombreProveedor ?? string.Empty, "Text"),
+                            ["nit"] = new FormFieldValue(r.NitProveedor ?? string.Empty, "Text"),
+                            ["rut"] = new FormFieldValue(r.RutEscaneado ?? string.Empty, "Text"),
+                            ["fecha_compra"] = new FormFieldValue(r.FechaEmision.ToString("yyyy-MM-dd"), "Date"),
+                            ["num_factura"] = new FormFieldValue(r.NumFacturaProveedor ?? string.Empty, "Text"),
+                        };
+                        await FormResponses.SaveAsync(tdr.Id, data, false);
+                    }
+                }
+                catch { /* el resumen ya viaja en la descripcion */ }
+            }
             await TaskCfg.SetSolicitadaAsync(r.Id, num);
             _tareaDeRenglon[r.Id] = num;
             _msg = $"Tarea {num} creada" + (r.AssignedTenantUserId is not null ? $" y asignada a {UserNameById(r.AssignedTenantUserId)}." : ".");

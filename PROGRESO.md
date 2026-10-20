@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-20 - v0.16.211: media del cliente en hold de flujo cae en la tarea (ADR-0125) (SIN deploy)
+
+- PROBLEMA: con la conversacion tomada por un nodo-agente, el cliente manda el comprobante (documento/imagen)
+  por WhatsApp -> se persiste como Message con MediaUrl pero NO quedaba adjunto a la tarea (el camino del flujo
+  solo lee el texto; solo el conversacional adjuntaba, dentro de AiToolRunContext).
+- FIX (ChatIngestService.IngestTrustedAsync): si message.MediaUrl != null y hay waitingSteps, resuelve la tarea
+  del flujo (WorkflowInstances InstanceId->TaskItemId), de-dup por (tarea,url), e inserta TaskItemAttachment +
+  TaskItemActivity "Cliente (flujo)". INLINE con IgnoreQueryFilters porque el webhook corre sin tenant ambient
+  (AddAttachmentAsync publico filtra por tenant y aqui no serviria). Helper FileNameFromUrl. Sin migracion.
+- Build de solucion verde. ADR-0125. Pendiente: validacion E2E (cliente envia comprobante en seguimiento ->
+  adjunto en la tarea del WorkflowInstance, sin duplicar). NO desplegar sin OK.
+
+
 ## 2026-10-19 - v0.16.210: calendario (dia/semana/mes) + voz "Agent ID" + prueba de llamada + limpieza YCloud
 
 - CALENDARIO (ActivityBoardDetail): vistas Dia/Semana/Mes + boton Hoy + flechas que navegan segun la vista;

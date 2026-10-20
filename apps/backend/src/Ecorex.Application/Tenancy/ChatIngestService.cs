@@ -151,6 +151,51 @@ public sealed class ChatIngestService : IChatIngestService
             }
         }
 
+        // ADR-0125: la MEDIA que el cliente envia DURANTE un hold de flujo (comprobante de pago, documento,
+        // imagen) debe caer como ADJUNTO en la tarea que origino el flujo. El camino del flujo solo lee el texto
+        // (WorkflowAgentContextBuilder) y no toca la media; este es el unico punto que tiene a la vez el inbound con
+        // su MediaUrl recien creado y la senal de que un paso de flujo retiene la conversacion. Se inserta INLINE con
+        // IgnoreQueryFilters: el webhook corre SIN tenant ambient (por eso todo el metodo ignora el filtro global), y
+        // el AddAttachmentAsync publico filtra _db.TaskItems por tenant -> aqui no encontraria la tarea. De-dup por
+        // (tarea, url) porque el barrido de agentes puede re-correr el paso.
+        if (waitingSteps.Count > 0 && !string.IsNullOrWhiteSpace(message.MediaUrl))
+        {
+            var instanceIds = waitingSteps.Select(s => s.InstanceId).Distinct().ToList();
+            var taskIds = await _db.WorkflowInstances.IgnoreQueryFilters()
+                .Where(i => instanceIds.Contains(i.Id) && i.TaskItemId != null)
+                .Select(i => i.TaskItemId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            foreach (var taskId in taskIds)
+            {
+                var alreadyAttached = await _db.TaskItemAttachments.IgnoreQueryFilters()
+                    .AnyAsync(a => a.TaskItemId == taskId && a.Url == message.MediaUrl, cancellationToken);
+                if (alreadyAttached) { continue; }
+
+                var fileName = !string.IsNullOrWhiteSpace(message.MediaFileName)
+                    ? message.MediaFileName!
+                    : FileNameFromUrl(message.MediaUrl!);
+                _db.TaskItemAttachments.Add(new TaskItemAttachment
+                {
+                    TenantId = tenantId,
+                    TaskItemId = taskId,
+                    FileName = fileName,
+                    Url = message.MediaUrl!,
+                    MimeType = message.MediaMimeType,
+                    SizeBytes = 0,
+                    UploadedByName = "Cliente (flujo)"
+                });
+                _db.TaskItemActivities.Add(new TaskItemActivity
+                {
+                    TenantId = tenantId,
+                    TaskItemId = taskId,
+                    Type = TaskActivityType.Action,
+                    ActorName = "Cliente (flujo)",
+                    Text = $"adjunto el archivo {fileName} (enviado por WhatsApp durante el seguimiento)"
+                });
+            }
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var dto = new MessageDto(message.Id, message.ConversationId, message.Direction, message.Body,
@@ -182,5 +227,24 @@ public sealed class ChatIngestService : IChatIngestService
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(actual),
             Encoding.UTF8.GetBytes(provided));
+    }
+
+    /// <summary>Nombre de archivo a partir de la URL de la media (ultimo segmento del path, sin query). "archivo" si no hay.</summary>
+    private static string FileNameFromUrl(string url)
+    {
+        try
+        {
+            var path = Uri.TryCreate(url, UriKind.Absolute, out var abs) ? abs.AbsolutePath : url;
+            var name = path.TrimEnd('/');
+            var slash = name.LastIndexOf('/');
+            if (slash >= 0) { name = name[(slash + 1)..]; }
+            var q = name.IndexOf('?');
+            if (q >= 0) { name = name[..q]; }
+            return string.IsNullOrWhiteSpace(name) ? "archivo" : name;
+        }
+        catch
+        {
+            return "archivo";
+        }
     }
 }

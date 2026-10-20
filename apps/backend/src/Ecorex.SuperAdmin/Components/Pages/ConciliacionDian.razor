@@ -23,6 +23,7 @@
 @inject IFileStorageService Files
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
+@inject ITaskItemService Tasks
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -415,14 +416,27 @@ else
                                                 }
                                                 break;
                                             case "usuario":
-                                                <select class="cd-in cd-user" @key="@($"u{r.Id}:{r.AssignedTenantUserId}")"
-                                                        @onchange="e => OnAssigneeChanged(r, e)" @onclick:stopPropagation="true">
-                                                    <option value="" selected="@(r.AssignedTenantUserId is null)">&mdash; Sin asignar &mdash;</option>
-                                                    @foreach (var u in _usuarios)
+                                                <div class="cd-user-cell">
+                                                    <select class="cd-in cd-user" @key="@($"u{r.Id}:{r.AssignedTenantUserId}")"
+                                                            @onchange="e => OnAssigneeChanged(r, e)" @onclick:stopPropagation="true">
+                                                        <option value="" selected="@(r.AssignedTenantUserId is null)">&mdash; Sin asignar &mdash;</option>
+                                                        @foreach (var u in _usuarios)
+                                                        {
+                                                            <option value="@u.Id" selected="@(r.AssignedTenantUserId == u.Id)">@UserLabel(u)</option>
+                                                        }
+                                                    </select>
+                                                    @if (_tareaDeRenglon.TryGetValue(r.Id, out var tnum))
                                                     {
-                                                        <option value="@u.Id" selected="@(r.AssignedTenantUserId == u.Id)">@UserLabel(u)</option>
+                                                        <span class="cd-task-badge" title="Ya tiene tarea @tnum (creada desde esta factura)">@tnum</span>
                                                     }
-                                                </select>
+                                                    else
+                                                    {
+                                                        <button type="button" class="cd-task-btn"
+                                                                title="@(_taskCfg.SubcategoriaId is null ? "Configura primero el concepto en 'Configuracion de tarea'" : "Crear tarea con el concepto configurado (cae en su flujo) y asignada al usuario elegido")"
+                                                                disabled="@(_creandoTarea || _taskCfg.SubcategoriaId is null)"
+                                                                @onclick="() => CrearTareaDesdeRenglonAsync(r)" @onclick:stopPropagation="true">+ Tarea</button>
+                                                    }
+                                                </div>
                                                 break;
                                             case "sub_bruto": <text>@Fmt(r.SubtotalBruto)</text> break;
                                             case "descuento": <text>@Fmt(r.DescuentoComercial)</text> break;
@@ -1279,11 +1293,17 @@ else
     // ---- Configuracion de tarea (movida desde Autorizacion de compras): concepto de actividad 000270 +
     // formulario a asociar. Comparte el servicio/almacen con el modulo de autorizacion (misma tarea). ----
     private bool _taskCfgOpen;
+    private AutorizacionModConfigDto _taskCfg = new(null, null, null, null, null);  // concepto+form configurado (para el boton por fila)
     private List<TareaProcesoOpcionDto> _taskSubs = new();
     private List<FormDefinitionListItemDto> _taskForms = new();
     private Guid? _taskSubSel;
     private Guid? _taskFormSel;
     private string? _taskCfgMsg;
+
+    // ---- Crear tarea desde la fila (cae en el flujo del concepto). Mapa renglon->numero compartido con
+    // la autorizacion (anti-duplicado); se carga en bloque en ReloadAsync. ----
+    private Dictionary<Guid, string> _tareaDeRenglon = new();
+    private bool _creandoTarea;
 
     private async Task AbrirConfigTareaAsync()
     {
@@ -1301,7 +1321,66 @@ else
     private async Task GuardarConfigTareaAsync()
     {
         await TaskCfg.SetAsync(_taskSubSel, _taskFormSel);
+        _taskCfg = await TaskCfg.GetAsync();   // refresca para habilitar el boton "+ Tarea" por fila
         _taskCfgMsg = "Configuracion guardada.";
+    }
+
+    // Crea la actividad desde la fila con el concepto configurado: si el concepto tiene un flujo asociado,
+    // CreateAsync lo lanza (la tarea "cae" en ese flujo). Queda asignada al usuario elegido en la fila.
+    private async Task CrearTareaDesdeRenglonAsync(ConciliacionDianRenglonDto rowArg)
+    {
+        if (_creandoTarea) { return; }
+        if (_taskCfg.SubcategoriaId is not Guid subId)
+        {
+            _msg = "Configura primero el concepto en «Configuracion de tarea».";
+            return;
+        }
+        // El lambda del boton captura el DTO del render de la grilla, que puede quedar OBSOLETO (OnAssigneeChanged
+        // actualiza _renglones pero no reconstruye la grilla). Resolvemos el renglon ACTUAL por Id para tomar el
+        // usuario asignado vigente (y el resto de datos frescos).
+        var r = _renglones.FirstOrDefault(x => x.Id == rowArg.Id) ?? rowArg;
+        if (_tareaDeRenglon.ContainsKey(r.Id)) { return; }   // ya tiene tarea
+        _creandoTarea = true; _msg = null;
+        try
+        {
+            var titulo = $"Compra {r.NumFacturaProveedor} - {r.NombreProveedor}".Trim();
+            if (titulo.Length > 120) { titulo = titulo[..120]; }
+            var req = new CreateTaskItemRequest(
+                Title: titulo,
+                ActivityTypeId: null,
+                Description: BuildTareaResumen(r),
+                AssigneeTenantUserId: r.AssignedTenantUserId,
+                RequesterName: r.NombreProveedor,
+                RequesterDocument: r.NitProveedor,
+                SubcategoriaId: subId);
+            var result = await Tasks.CreateAsync(req, _actorId, _userName ?? "Usuario");
+            if (!result.IsOk || result.Value is null)
+            {
+                _msg = result.Error ?? "No se pudo crear la tarea.";
+                return;
+            }
+            var num = result.Value.Item.Number;
+            await TaskCfg.SetSolicitadaAsync(r.Id, num);
+            _tareaDeRenglon[r.Id] = num;
+            _msg = $"Tarea {num} creada" + (r.AssignedTenantUserId is not null ? $" y asignada a {UserNameById(r.AssignedTenantUserId)}." : ".");
+        }
+        catch (Exception ex) { _msg = "Error al crear la tarea: " + ex.Message; }
+        finally { _creandoTarea = false; }
+    }
+
+    private string BuildTareaResumen(ConciliacionDianRenglonDto r)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Factura de compra DIAN (desde el conciliador).");
+        sb.AppendLine($"Proveedor: {r.NombreProveedor} (NIT {r.NitProveedor})");
+        sb.AppendLine($"Factura: {r.NumFacturaProveedor}");
+        sb.AppendLine($"Fecha de emision: {r.FechaEmision:dd/MM/yyyy}");
+        sb.AppendLine($"Total: {Fmt(r.TotalFactura)}");
+        if (!string.IsNullOrWhiteSpace(r.NumFacturaSoldarco)) { sb.AppendLine($"Documento SISTEMA: {r.NumFacturaSoldarco}"); }
+        if (!string.IsNullOrWhiteSpace(r.OrdenCompraSoldarco)) { sb.AppendLine($"Orden de compra: {r.OrdenCompraSoldarco}"); }
+        if (!string.IsNullOrWhiteSpace(r.Cufe)) { sb.AppendLine($"CUFE: {r.Cufe}"); }
+        sb.Append($"Referencia conciliacion (REG): {r.Id}");
+        return sb.ToString();
     }
     // Config parseada por def (DataLookupConfig). Lookup guarda el Id de fila en el EAV.
     private Dictionary<Guid, DataLookupConfig> _lookupCfg = new();
@@ -2225,6 +2304,7 @@ else
         }
         catch { /* sin nombre: se guarda sin autoria */ }
         try { _usuarios = (await Users.ListAsync()).ToList(); } catch { _usuarios = new(); }
+        try { _taskCfg = await TaskCfg.GetAsync(); } catch { /* sin concepto configurado */ }
         await LoadDynDefsAsync();   // antes de LoadPrefs: para que las columnas dinamicas sean "conocidas"
         await LoadPrefsAsync();
         await LoadSavedFiltersAsync();
@@ -2250,6 +2330,8 @@ else
         _allSelected = _renglones.Count > 0 && _renglones.All(r => r.Seleccionado);
         try { _cufesConArchivos = (await Files.ListRefsWithFilesAsync("ConciliacionDian")).ToHashSet(StringComparer.Ordinal); }
         catch { /* best-effort: si falla, simplemente no se muestra el clip */ }
+        try { _tareaDeRenglon = new Dictionary<Guid, string>(await TaskCfg.GetSolicitadasMapAsync()); }
+        catch { _tareaDeRenglon = new(); }
         await LoadDynValuesAsync();
         RebuildItems();
         StateHasChanged();

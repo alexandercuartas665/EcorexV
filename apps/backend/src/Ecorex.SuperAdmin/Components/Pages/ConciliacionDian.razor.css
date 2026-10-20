@@ -426,3 +426,11 @@
 .cd-dyn-multi { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); min-width: 160px; box-shadow: 0 6px 18px rgba(0,0,0,.12); }
 .cd-dyn-chk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .cd-dyn-calc { font-variant-numeric: tabular-nums; color: var(--ink-2, #4b5563); }
+
+/* Celda Usuario: select de responsable + accion de crear tarea por fila */
+.cd-user-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.cd-user-cell .cd-user { min-width: 150px; }
+.cd-task-btn { border: 1px solid var(--line-2, #e5e7eb); background: var(--surface, #fff); color: var(--brand, #4f46e5); border-radius: 6px; font-size: 11.5px; font-weight: 700; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.cd-task-btn:hover:not(:disabled) { background: var(--brand, #4f46e5); color: #fff; border-color: var(--brand, #4f46e5); }
+.cd-task-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cd-task-badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 11.5px; font-weight: 700; background: #dcfce7; color: #15803d; }

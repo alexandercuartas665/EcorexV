@@ -36,6 +36,9 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Numero de actividad ya solicitada para una factura (anti-duplicado). null si no se ha solicitado.</summary>
     Task<string?> GetSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
     Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default);
+    /// <summary>Mapa COMPLETO renglon->numero de actividad ya creada (una sola lectura; para pintar la grilla
+    /// del conciliador en bloque). Lo comparten la autorizacion y la creacion de tareas por linea.</summary>
+    Task<IReadOnlyDictionary<Guid, string>> GetSolicitadasMapAsync(CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -152,6 +155,15 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var raw = await _db.TenantConfigurations.AsNoTracking()
             .Where(c => c.ConfigKey == SolicKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
         return ParseMap(raw).TryGetValue(renglonId.ToString(), out var v) ? v : null;
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, string>> GetSolicitadasMapAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == SolicKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        var result = new Dictionary<Guid, string>();
+        foreach (var kv in ParseMap(raw)) { if (Guid.TryParse(kv.Key, out var g)) { result[g] = kv.Value; } }
+        return result;
     }
 
     public async Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default)

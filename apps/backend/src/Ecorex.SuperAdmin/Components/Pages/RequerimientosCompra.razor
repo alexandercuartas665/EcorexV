@@ -577,6 +577,36 @@ else
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Fecha de necesidad
                     <input type="date" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aFecha" />
                 </label>
+                @foreach (var d in _dynDefsPadre)
+                {
+                    var dd = d; var av = _altaDynValues.TryGetValue(dd.Id, out var v) ? v : null;
+                    @if (dd.Type == "Bool")
+                    {
+                        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2,#4b5563);" title="@dd.Description">
+                            <input type="checkbox" checked="@(av == "true")" @onchange="e => SetAltaDynBool(dd.Id, e)" />
+                            @dd.Label
+                        </label>
+                    }
+                    else
+                    {
+                        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);" title="@dd.Description">@dd.Label
+                            @if (dd.Type == "Select")
+                            {
+                                <select class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @onchange="e => SetAltaDyn(dd.Id, e.Value?.ToString())">
+                                    <option value="" selected="@string.IsNullOrEmpty(av)">-</option>
+                                    @foreach (var op in dd.Options)
+                                    {
+                                        <option value="@op" selected="@(av == op)">@op</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@(dd.Type == "Number" ? "number" : dd.Type == "Date" ? "date" : "text")" step="any" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="@(dd.Type == "Url" ? "https://..." : "")" value="@av" @onchange="e => SetAltaDyn(dd.Id, e.Value?.ToString())" />
+                            }
+                        </label>
+                    }
+                }
                 @if (_altaError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_altaError</div> }
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
@@ -1917,10 +1947,16 @@ else
     private static string Px(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
 
     // ======================= Alta / planificacion / acciones =======================
+    // Valores de los campos dinamicos (Padre) capturados en el alta: defId -> valor.
+    private Dictionary<Guid, string?> _altaDynValues = new();
+    private void SetAltaDyn(Guid defId, string? value) => _altaDynValues[defId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private void SetAltaDynBool(Guid defId, ChangeEventArgs e) => _altaDynValues[defId] = (e.Value is bool b && b) ? "true" : null;
+
     private void OpenAlta()
     {
         _altaError = null;
         _aOrigen = ""; _aItem = ""; _aDescripcion = ""; _aCantidad = 1; _aUnidad = ""; _aArea = ""; _aFecha = null;
+        _altaDynValues = new();
         _showAlta = true;
     }
 
@@ -1940,6 +1976,11 @@ else
                 _aFecha is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null);
             var saved = await Svc.CrearAsync(req);
             if (saved is null) { _altaError = "No se pudo crear."; return; }
+            // Persiste los campos dinamicos (Padre) capturados, ligados a la nueva necesidad.
+            foreach (var kv in _altaDynValues.Where(x => !string.IsNullOrWhiteSpace(x.Value)))
+            {
+                try { await FieldSvc.SetValueAsync(saved.Id, kv.Key, kv.Value); } catch { }
+            }
             _showAlta = false;
             _msg = $"Necesidad '{saved.Descripcion}' creada.";
             await ReloadAsync();

@@ -438,8 +438,8 @@ else
                                                     else
                                                     {
                                                         <button type="button" class="cd-task-btn"
-                                                                title="@(_taskCfg.SubcategoriaId is null ? "Configura primero el concepto en 'Configuracion de tarea'" : "Crear tarea con el concepto configurado (cae en su flujo) y asignada al usuario elegido")"
-                                                                disabled="@(_creandoTarea || _taskCfg.SubcategoriaId is null)"
+                                                                title="@(_taskCfg.SubcategoriaId is null ? "Configura primero el concepto en 'Configuracion de tarea'" : r.AssignedTenantUserId is null ? "Asigna primero un usuario a esta fila" : "Crear tarea con el concepto configurado (cae en su flujo) y asignada al usuario elegido")"
+                                                                disabled="@(_creandoTarea || _taskCfg.SubcategoriaId is null || r.AssignedTenantUserId is null)"
                                                                 @onclick="() => CrearTareaDesdeRenglonAsync(r)" @onclick:stopPropagation="true">+ Tarea</button>
                                                     }
                                                 </div>
@@ -1415,6 +1415,11 @@ else
         // usuario asignado vigente (y el resto de datos frescos).
         var r = _renglones.FirstOrDefault(x => x.Id == rowArg.Id) ?? rowArg;
         if (_tareaDeRenglon.ContainsKey(r.Id)) { return; }   // ya tiene tarea
+        if (r.AssignedTenantUserId is null)
+        {
+            _msg = "Asigna primero un usuario a la factura antes de crear la tarea.";
+            return;
+        }
         _creandoTarea = true; _msg = null;
         try
         {
@@ -2792,6 +2797,7 @@ else
         await Svc.SetAssigneeAsync(r.Id, uid);
         var i = _renglones.FindIndex(x => x.Id == r.Id);
         if (i >= 0) { _renglones[i] = _renglones[i] with { AssignedTenantUserId = uid }; }
+        RebuildItems();   // refresca la grilla para que el boton "+ Tarea" refleje el usuario asignado
     }
 
     private async Task OnSelectAll(ChangeEventArgs e)

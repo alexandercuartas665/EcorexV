@@ -416,16 +416,19 @@ else
                                                 }
                                                 break;
                                             case "usuario":
+                                                var tieneTarea = _tareaDeRenglon.TryGetValue(r.Id, out var tnum);
                                                 <div class="cd-user-cell">
                                                     <select class="cd-in cd-user" @key="@($"u{r.Id}:{r.AssignedTenantUserId}")"
-                                                            @onchange="e => OnAssigneeChanged(r, e)" @onclick:stopPropagation="true">
+                                                            @onchange="e => OnAssigneeChanged(r, e)" @onclick:stopPropagation="true"
+                                                            disabled="@tieneTarea"
+                                                            title="@(tieneTarea ? $"Tarea {tnum} ya creada: el responsable no se puede cambiar desde aqui" : null)">
                                                         <option value="" selected="@(r.AssignedTenantUserId is null)">&mdash; Sin asignar &mdash;</option>
                                                         @foreach (var u in _usuarios)
                                                         {
                                                             <option value="@u.Id" selected="@(r.AssignedTenantUserId == u.Id)">@UserLabel(u)</option>
                                                         }
                                                     </select>
-                                                    @if (_tareaDeRenglon.TryGetValue(r.Id, out var tnum))
+                                                    @if (tieneTarea)
                                                     {
                                                         <span class="cd-task-badge" title="Ya tiene tarea @tnum (creada desde esta factura)">@tnum</span>
                                                     }

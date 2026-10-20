@@ -792,54 +792,104 @@
         </div>
     }
 
-    @* ---- VISTA CALENDARIO (fuente: bloque isCalendario del prototipo) ---- *@
+    @* ---- VISTA CALENDARIO: Dia / Semana / Mes. Clic en un dia -> crear con esa fecha; clic en un chip -> abrir la tarea. ---- *@
     @if (_view == "calendario")
     {
         <div class="ab-calwrap">
             <div class="ab-cal">
                 <div class="ab-cal-head">
-                    <div class="ab-cal-title">@AbUi.MonthTitle(_calMonth)</div>
-                    <div class="ab-cal-nav">
-                        <button class="ab-cal-btn" title="Mes anterior" @onclick="@(() => _calMonth = _calMonth.AddMonths(-1))">
+                    <div class="ab-cal-title">@CalTitle()</div>
+                    <div class="ab-cal-nav" style="display:flex;align-items:center;gap:6px;">
+                        <div style="display:inline-flex;gap:2px;margin-right:8px;">
+                            <button class="ab-tab @(_calView == "dia" ? "on" : "")" @onclick="@(() => SetCalView("dia"))">Día</button>
+                            <button class="ab-tab @(_calView == "semana" ? "on" : "")" @onclick="@(() => SetCalView("semana"))">Semana</button>
+                            <button class="ab-tab @(_calView == "mes" ? "on" : "")" @onclick="@(() => SetCalView("mes"))">Mes</button>
+                        </div>
+                        <button class="ab-cal-btn" title="Hoy" style="width:auto;padding:0 10px;" @onclick="CalToday">Hoy</button>
+                        <button class="ab-cal-btn" title="Anterior" @onclick="@(() => CalStep(-1))">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
                         </button>
-                        <button class="ab-cal-btn" title="Mes siguiente" @onclick="@(() => _calMonth = _calMonth.AddMonths(1))">
+                        <button class="ab-cal-btn" title="Siguiente" @onclick="@(() => CalStep(1))">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
                         </button>
                     </div>
                 </div>
-                <div class="ab-cal-week">
-                    @foreach (var wd in CalWeekdays)
-                    {
-                        <div>@wd</div>
-                    }
-                </div>
-                <div class="ab-cal-grid">
-                    @foreach (var cell in CalCells())
-                    {
-                        if (!cell.Valid)
+
+                @if (_calView == "mes")
+                {
+                    <div class="ab-cal-week">
+                        @foreach (var wd in CalWeekdays)
                         {
-                            <div class="ab-cal-cell off"></div>
+                            <div>@wd</div>
                         }
-                        else
+                    </div>
+                    <div class="ab-cal-grid">
+                        @foreach (var cell in CalCells())
                         {
-                            var cellDate = cell.Date;
-                            <div class="ab-cal-cell @(cell.IsToday ? "today" : "")" @onclick="@(() => OpenWizardOnBoardAsync())">
-                                <span class="ab-cal-num @(cell.IsToday ? "today" : "")">@cell.Date.Day</span>
-                                @foreach (var (colIdx, card) in cell.Chips.Take(3))
+                            if (!cell.Valid)
+                            {
+                                <div class="ab-cal-cell off"></div>
+                            }
+                            else
+                            {
+                                var cellDate = cell.Date;
+                                <div class="ab-cal-cell @(cell.IsToday ? "today" : "")" title="Clic para crear una tarea con esta fecha" @onclick="@(() => OpenWizardWithDateAsync(cellDate))">
+                                    <span class="ab-cal-num @(cell.IsToday ? "today" : "")">@cell.Date.Day</span>
+                                    @foreach (var (colIdx, card) in cell.Chips.Take(3))
+                                    {
+                                        var chipCard = card;
+                                        <div class="ab-cal-chip" style="border-left:3px solid @AbUi.ColumnDot(colIdx)" title="@chipCard.Title"
+                                             @onclick="@(() => OpenTaskAsync(chipCard.Id))" @onclick:stopPropagation="true">@chipCard.Title</div>
+                                    }
+                                    @if (cell.Chips.Count > 3)
+                                    {
+                                        <div class="ab-cal-more">+@(cell.Chips.Count - 3)</div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                else if (_calView == "semana")
+                {
+                    <div class="ab-cal-grid" style="grid-template-rows:none;">
+                        @foreach (var day in Enumerable.Range(0, 7).Select(i => CalWeekStart().AddDays(i)))
+                        {
+                            var d = day;
+                            var chips = DayChips(d);
+                            <div class="ab-cal-cell @(d.Date == DateTime.Today ? "today" : "")" style="min-height:190px;" title="Clic para crear una tarea con esta fecha" @onclick="@(() => OpenWizardWithDateAsync(d))">
+                                <span class="ab-cal-num @(d.Date == DateTime.Today ? "today" : "")">@CalWeekdays[((int)d.DayOfWeek + 6) % 7] @d.Day</span>
+                                @foreach (var (colIdx, card) in chips)
                                 {
                                     var chipCard = card;
                                     <div class="ab-cal-chip" style="border-left:3px solid @AbUi.ColumnDot(colIdx)" title="@chipCard.Title"
                                          @onclick="@(() => OpenTaskAsync(chipCard.Id))" @onclick:stopPropagation="true">@chipCard.Title</div>
                                 }
-                                @if (cell.Chips.Count > 3)
-                                {
-                                    <div class="ab-cal-more">+@(cell.Chips.Count - 3)</div>
-                                }
                             </div>
                         }
-                    }
-                </div>
+                    </div>
+                }
+                else
+                {
+                    @* Vista DIA: lista de tareas del dia; clic en un espacio vacio crea con esa fecha. *@
+                    var dayChips = DayChips(_calMonth);
+                    <div class="ab-cal-cell @(_calMonth.Date == DateTime.Today ? "today" : "")" style="min-height:320px;padding:16px;" title="Clic para crear una tarea con esta fecha" @onclick="@(() => OpenWizardWithDateAsync(_calMonth))">
+                        @if (dayChips.Count == 0)
+                        {
+                            <div style="color:var(--ink-3);text-align:center;padding:40px 10px;">No hay tareas este día.<br />Haz clic para crear una con esta fecha.</div>
+                        }
+                        else
+                        {
+                            @foreach (var (colIdx, card) in dayChips)
+                            {
+                                var chipCard = card;
+                                <div class="ab-cal-chip" style="border-left:3px solid @AbUi.ColumnDot(colIdx);font-size:13px;padding:8px 10px;margin-bottom:6px;" title="@chipCard.Title"
+                                     @onclick="@(() => OpenTaskAsync(chipCard.Id))" @onclick:stopPropagation="true">@chipCard.Title</div>
+                            }
+                            <div style="color:var(--ink-3);margin-top:10px;font-size:12px;">Clic en un espacio vacío para crear una tarea con esta fecha.</div>
+                        }
+                    </div>
+                }
             </div>
         </div>
     }
@@ -1593,6 +1643,57 @@
         if (_wizard is null) { return; }
         await _wizard.OpenAsync(presetBoardId: BoardId, presetColumnId: columnId);
     }
+
+    /// <summary>Calendario: clic en un dia -> abre el wizard con la fecha de entrega ya preseleccionada (9:00 por defecto).</summary>
+    private async Task OpenWizardWithDateAsync(DateTime date)
+    {
+        if (_wizard is null) { return; }
+        await _wizard.OpenAsync(presetBoardId: BoardId, presetDueDate: date.Date.AddHours(9));
+    }
+
+    // ---- Calendario: vista (dia/semana/mes) + navegacion ----
+    private string _calView = "mes";
+
+    /// <summary>Avanza/retrocede el calendario segun la vista activa (dia: 1 dia, semana: 7, mes: 1 mes).</summary>
+    private void CalStep(int dir)
+    {
+        _calMonth = _calView switch
+        {
+            "dia" => _calMonth.AddDays(dir),
+            "semana" => _calMonth.AddDays(7 * dir),
+            _ => _calMonth.AddMonths(dir),
+        };
+    }
+
+    private void CalToday() => _calMonth = DateTime.Today;
+
+    /// <summary>Cambia la vista; al pasar a dia/semana desde el default del mes (dia 1), se ubica en HOY si es el mes actual.</summary>
+    private void SetCalView(string v)
+    {
+        if ((v == "dia" || v == "semana") && _calMonth.Day == 1
+            && DateTime.Today.Month == _calMonth.Month && DateTime.Today.Year == _calMonth.Year)
+        {
+            _calMonth = DateTime.Today;
+        }
+        _calView = v;
+    }
+
+    /// <summary>Titulo segun la vista: dia completo, rango de la semana, o mes.</summary>
+    private string CalTitle() => _calView switch
+    {
+        "dia" => _calMonth.ToString("dddd d 'de' MMMM yyyy"),
+        "semana" => $"{CalWeekStart():d MMM} - {CalWeekStart().AddDays(6):d MMM yyyy}",
+        _ => AbUi.MonthTitle(new DateTime(_calMonth.Year, _calMonth.Month, 1)),
+    };
+
+    /// <summary>Lunes de la semana que contiene el ancla.</summary>
+    private DateTime CalWeekStart() => _calMonth.Date.AddDays(-(((int)_calMonth.DayOfWeek + 6) % 7));
+
+    /// <summary>Tarjetas (chips) ubicadas en un dia concreto por su DueDate local.</summary>
+    private List<(int ColIdx, ActivityCardDto Card)> DayChips(DateTime date)
+        => ListRows().Where(r => r.Card.DueDate is not null
+                && r.Card.DueDate!.Value.ToLocalTime().Date == date.Date)
+            .Select(r => (r.ColIdx, r.Card)).ToList();
 
     protected override async Task OnParametersSetAsync()
     {

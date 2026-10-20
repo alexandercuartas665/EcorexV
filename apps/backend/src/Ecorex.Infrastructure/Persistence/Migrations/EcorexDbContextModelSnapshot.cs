@@ -11130,6 +11130,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
 
+                    b.Property<string>("RetellAgentId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("retell_agent_id");
+
                     b.Property<string>("RetellApiKeyEncrypted")
                         .HasColumnType("text")
                         .HasColumnName("retell_api_key_encrypted");

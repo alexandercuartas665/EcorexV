@@ -98,6 +98,7 @@ public sealed class RetellVoiceLineService : IRetellVoiceLineService
         line.TerminationUri = Normalize(r.TerminationUri);
         line.SipUsername = Normalize(r.SipUsername);
         line.VoiceId = Normalize(r.VoiceId);
+        line.RetellAgentId = Normalize(r.AgentId);
         line.Language = string.IsNullOrWhiteSpace(r.Language) ? "es-419" : r.Language.Trim();
         line.IsEnabled = r.IsEnabled;
         line.IsDefault = r.IsDefault;
@@ -132,5 +133,6 @@ public sealed class RetellVoiceLineService : IRetellVoiceLineService
         Language: l.Language,
         IsEnabled: l.IsEnabled,
         IsDefault: l.IsDefault,
-        LastValidatedAt: l.LastValidatedAt);
+        LastValidatedAt: l.LastValidatedAt,
+        RetellAgentId: l.RetellAgentId);
 }

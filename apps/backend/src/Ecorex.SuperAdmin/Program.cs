@@ -1800,14 +1800,6 @@ app.MapPost("/webhooks/ycloud", async (
         _ => ".bin"
     };
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
-    // [YCLOUD-RAW-TMP] Diagnostico TEMPORAL: vuelca el payload crudo de CADA POST para confirmar si llegan los
-    // eventos de estado (whatsapp.message.updated) y con que forma exacta. QUITAR cuando quede confirmado.
-    try
-    {
-        var rawTmp = doc.RootElement.GetRawText();
-        log.LogWarning("[YCLOUD-RAW-TMP] body={Body}", rawTmp.Length > 2000 ? rawTmp[..2000] : rawTmp);
-    }
-    catch { /* no romper el webhook por el log */ }
     var messages = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.Parse(doc.RootElement);
     if (messages.Count == 0)
     {

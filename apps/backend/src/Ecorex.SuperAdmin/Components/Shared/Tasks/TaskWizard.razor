@@ -893,7 +893,8 @@
     /// </summary>
     public async Task OpenAsync(Guid? presetProjectId = null, Guid? presetSubcategoriaId = null,
         Guid? presetCategoriaId = null, Guid? presetEntidadId = null,
-        Guid? presetBoardId = null, Guid? presetColumnId = null, Guid? parentId = null)
+        Guid? presetBoardId = null, Guid? presetColumnId = null, Guid? parentId = null,
+        DateTime? presetDueDate = null)
     {
         ResetAll();
         _presetProjectId = presetProjectId;
@@ -902,6 +903,8 @@
         // Al crear desde un tablero, la actividad debe caer EN ese tablero/columna (no solo por concepto).
         _presetBoardId = presetBoardId;
         _presetColumnId = presetColumnId;
+        // Crear desde el calendario: la fecha de entrega llega preseleccionada con el dia en que se hizo clic.
+        if (presetDueDate is DateTime pdd) { _dueDate = pdd; }
         // Subtarea completa: la tarea creada cuelga de esta tarea padre (aparece en "Subtareas").
         _parentId = parentId;
 

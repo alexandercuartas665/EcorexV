@@ -3,6 +3,8 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Voice
 @inject IRetellVoiceLineService VozSvc
+@inject IRetellVoiceService CallSvc
+@inject IJSRuntime JS
 
 <PageTitle>Lineas de voz IA (Retell) - ECOREX.tareas</PageTitle>
 
@@ -55,6 +57,23 @@ else
     </div>
 }
 
+@* ---- Llamada de prueba (traida del hermano Visal): lanza una llamada REAL por la linea por defecto. ---- *@
+@if (!_loading && _lines.Any(l => l.IsEnabled && l.HasApiKey && !string.IsNullOrWhiteSpace(l.FromNumber)))
+{
+    <div class="cv-card" style="margin-top:16px;max-width:580px;">
+        <div class="cv-card-head"><div class="cv-card-name">Llamada de prueba</div></div>
+        <p style="color:var(--ink-3);font-size:.9rem;margin:6px 0 10px;">
+            Lanza una llamada <strong>REAL</strong> con IA usando la línea <strong>por defecto</strong> (o la primera habilitada y configurada). No se asocia a ninguna tarea. <strong>Tiene costo.</strong>
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input class="form-control" style="max-width:240px;" @bind="_testTel" placeholder="Número destino (ej. 3001234567)" autocomplete="off" />
+            <button class="btn btn-primary" type="button" @onclick="LlamarPruebaAsync" disabled="@_testBusy">@(_testBusy ? "Llamando..." : "Llamar de prueba")</button>
+        </div>
+        @if (_testMsg is not null) { <p style="color:var(--ok);font-weight:600;margin-top:8px;">@_testMsg</p> }
+        @if (_testErr is not null) { <p style="color:var(--danger);font-weight:600;margin-top:8px;">@_testErr</p> }
+    </div>
+}
+
 @if (_msg is not null)
 {
     <p style="margin-top:12px;color:@(_ok ? "var(--ok)" : "var(--danger)");font-weight:600;">@_msg</p>
@@ -80,38 +99,22 @@ else
                            placeholder="@(_hasApiKey ? "**** configurada (deja vacio para conservar)" : "Pega la API key de Retell")" />
                 </div>
                 <div class="field">
-                    <label class="form-label">Numero saliente (E.164)</label>
-                    <input class="form-control" @bind="_fFromNumber" placeholder="+57XXXXXXXXXX" autocomplete="off" />
+                    <label class="form-label">Agent ID (modo simple)</label>
+                    <input class="form-control" @bind="_fAgentId" placeholder="agent_... (agente ya armado en Retell)" autocomplete="off" />
+                    <small style="color:var(--ink-3);">Si lo pones, la llamada usa ESE agente de Retell (con su voz/idioma/prompt) y no hace falta llenar lo "Avanzado". Dejalo vacio para que ECOREX componga el agente.</small>
                 </div>
                 <div style="display:flex;gap:12px;flex-wrap:wrap;">
                     <div class="field" style="flex:1;min-width:200px;">
-                        <label class="form-label">Voz (voice_id)</label>
-                        <input class="form-control" @bind="_fVoiceId" placeholder="ej. 11labs-Adrian" autocomplete="off" />
+                        <label class="form-label">Numero saliente (E.164)</label>
+                        <input class="form-control" @bind="_fFromNumber" placeholder="+57XXXXXXXXXX" autocomplete="off" />
                     </div>
-                    <div class="field" style="flex:1;min-width:120px;">
-                        <label class="form-label">Idioma</label>
-                        <input class="form-control" @bind="_fLanguage" placeholder="es-419" autocomplete="off" />
+                    <div class="field" style="flex:1;min-width:200px;">
+                        <label class="form-label">Telnyx SIP Username (opcional)</label>
+                        <input class="form-control" @bind="_fSipUsername" placeholder="Solo si Telnyx lo exige" autocomplete="off" />
                     </div>
                 </div>
 
-                <h4 style="margin:8px 0 4px;">Telnyx</h4>
-                <div class="field">
-                    <label class="form-label">Termination URI (FQDN)</label>
-                    <input class="form-control" @bind="_fTerminationUri" placeholder="ej. sip.telnyx.com" autocomplete="off" />
-                </div>
-                <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                    <div class="field" style="flex:1;min-width:200px;">
-                        <label class="form-label">Usuario SIP</label>
-                        <input class="form-control" @bind="_fSipUsername" placeholder="usuario del trunk" autocomplete="off" />
-                    </div>
-                    <div class="field" style="flex:1;min-width:200px;">
-                        <label class="form-label">Clave SIP</label>
-                        <input class="form-control" type="password" autocomplete="new-password" @bind="_fSipPassword"
-                               placeholder="@(_hasSipPassword ? "**** configurada" : "clave del trunk")" />
-                    </div>
-                </div>
-
-                <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;">
+                <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:6px;">
                     <label style="display:inline-flex;align-items:center;gap:8px;">
                         <input type="checkbox" checked="@_fEnabled" @onchange="e => _fEnabled = (bool)(e.Value ?? false)" />
                         <span>Habilitada</span>
@@ -121,6 +124,31 @@ else
                         <span>Por defecto</span>
                     </label>
                 </div>
+
+                <details style="margin-top:12px;">
+                    <summary style="cursor:pointer;color:var(--ink-3);font-weight:600;">Avanzado (modo compuesto — solo si NO usas Agent ID)</summary>
+                    <div style="padding-top:8px;">
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="field" style="flex:1;min-width:200px;">
+                                <label class="form-label">Voz (voice_id)</label>
+                                <input class="form-control" @bind="_fVoiceId" placeholder="ej. 11labs-Adrian" autocomplete="off" />
+                            </div>
+                            <div class="field" style="flex:1;min-width:120px;">
+                                <label class="form-label">Idioma</label>
+                                <input class="form-control" @bind="_fLanguage" placeholder="es-419" autocomplete="off" />
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Telnyx Termination URI (FQDN)</label>
+                            <input class="form-control" @bind="_fTerminationUri" placeholder="ej. sip.telnyx.com" autocomplete="off" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Clave SIP de Telnyx</label>
+                            <input class="form-control" type="password" autocomplete="new-password" @bind="_fSipPassword"
+                                   placeholder="@(_hasSipPassword ? "**** configurada" : "clave del trunk")" />
+                        </div>
+                    </div>
+                </details>
 
                 @if (_editError is not null)
                 {
@@ -147,7 +175,7 @@ else
     private string? _editError;
     private bool _hasApiKey, _hasSipPassword;
     private string _fName = "";
-    private string? _fApiKey, _fFromNumber, _fVoiceId, _fTerminationUri, _fSipUsername, _fSipPassword;
+    private string? _fApiKey, _fFromNumber, _fVoiceId, _fTerminationUri, _fSipUsername, _fSipPassword, _fAgentId;
     private string _fLanguage = "es-419";
     private bool _fEnabled = true;
     private bool _fDefault;
@@ -164,7 +192,7 @@ else
     {
         _editId = null; _editError = null; _hasApiKey = false; _hasSipPassword = false;
         _fName = ""; _fApiKey = null; _fFromNumber = null; _fVoiceId = null; _fTerminationUri = null;
-        _fSipUsername = null; _fSipPassword = null; _fLanguage = "es-419"; _fEnabled = true;
+        _fSipUsername = null; _fSipPassword = null; _fAgentId = null; _fLanguage = "es-419"; _fEnabled = true;
         _fDefault = _lines.Count == 0; // la primera linea es por defecto
         _editOpen = true;
     }
@@ -174,6 +202,7 @@ else
         _editId = l.Id; _editError = null; _hasApiKey = l.HasApiKey; _hasSipPassword = l.HasSipPassword;
         _fName = l.Name; _fApiKey = null; _fFromNumber = l.FromNumber; _fVoiceId = l.VoiceId;
         _fTerminationUri = l.TerminationUri; _fSipUsername = l.SipUsername; _fSipPassword = null;
+        _fAgentId = l.RetellAgentId;
         _fLanguage = l.Language; _fEnabled = l.IsEnabled; _fDefault = l.IsDefault;
         _editOpen = true;
     }
@@ -189,7 +218,7 @@ else
             var req = new SaveRetellVoiceLineRequest(
                 Name: _fName, ApiKey: _fApiKey, FromNumber: _fFromNumber, TerminationUri: _fTerminationUri,
                 SipUsername: _fSipUsername, SipPassword: _fSipPassword, VoiceId: _fVoiceId,
-                Language: _fLanguage, IsEnabled: _fEnabled, IsDefault: _fDefault);
+                Language: _fLanguage, IsEnabled: _fEnabled, IsDefault: _fDefault, AgentId: _fAgentId);
             if (_editId is Guid id) { await VozSvc.UpdateAsync(id, req); }
             else { await VozSvc.CreateAsync(req); }
             await ReloadAsync();
@@ -217,5 +246,42 @@ else
         _busy = true; _msg = null;
         try { await VozSvc.DeleteAsync(id); await ReloadAsync(); _ok = true; _msg = "Linea eliminada."; }
         finally { _busy = false; }
+    }
+
+    // ---- Llamada de prueba (reusa IRetellVoiceService.PlaceCallAsync; usa la linea por defecto habilitada) ----
+    private string _testTel = "";
+    private bool _testBusy;
+    private string? _testMsg, _testErr;
+
+    private async Task LlamarPruebaAsync()
+    {
+        _testMsg = _testErr = null;
+        var to = NormalizeE164(_testTel);
+        if (to is null) { _testErr = "Indica un número válido (ej. 3001234567)."; return; }
+        if (!await JS.InvokeAsync<bool>("confirm", $"Se hará una LLAMADA REAL con IA al {to}. Tiene costo. ¿Continuar?")) { return; }
+        _testBusy = true;
+        try
+        {
+            var req = new VoicePlaceCallRequest(
+                ToNumber: to, AiAgentId: null, PromptExtra: null, Objetivo: "Llamada de prueba",
+                FormulariosPermitidos: Array.Empty<Guid>(),
+                ContactVariables: new Dictionary<string, string?>(),
+                ContactWorkflowRunId: null);
+            var r = await CallSvc.PlaceCallAsync(req);
+            if (r.Placed) { _testMsg = $"Llamada lanzada. call_id: {r.CallId}"; }
+            else { _testErr = r.Error ?? "No se pudo lanzar la llamada."; }
+        }
+        catch (Exception ex) { _testErr = "Error: " + ex.Message; }
+        finally { _testBusy = false; }
+    }
+
+    /// <summary>Normaliza a E.164: movil CO de 10 digitos (empieza en 3) -> +57; si trae +/indicativo se conserva.</summary>
+    private static string? NormalizeE164(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var d = new string(s.Where(char.IsDigit).ToArray());
+        if (d.Length < 7) { return null; }
+        if (d.Length == 10 && d.StartsWith("3")) { d = "57" + d; }
+        return "+" + d;
     }
 }

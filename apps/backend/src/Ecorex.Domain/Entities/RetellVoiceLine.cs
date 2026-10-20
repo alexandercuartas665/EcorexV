@@ -32,7 +32,14 @@ public class RetellVoiceLine : TenantEntity
 
     // ---- Agente de voz Retell provisionado ----
 
-    /// <summary>Voz de Retell a usar (voice_id). Se elige una voz en espanol.</summary>
+    /// <summary>
+    /// MODO SIMPLE (como el hermano Visal): id de un agente YA ARMADO en Retell (agent_...). Si esta presente, la
+    /// llamada usa ESE agente (override_agent_id) y ECOREX NO compone/crea uno (ignora VoiceId/Language/prompt). Si
+    /// es null, ECOREX compone el agente al vuelo (modo clasico, con VoiceId/Language y el prompt del AiAgent).
+    /// </summary>
+    public string? RetellAgentId { get; set; }
+
+    /// <summary>Voz de Retell a usar (voice_id). Se elige una voz en espanol. Solo aplica en modo compuesto (sin RetellAgentId).</summary>
     public string? VoiceId { get; set; }
 
     /// <summary>Idioma/locale del agente (ej. "es-419" para espanol LatAm).</summary>

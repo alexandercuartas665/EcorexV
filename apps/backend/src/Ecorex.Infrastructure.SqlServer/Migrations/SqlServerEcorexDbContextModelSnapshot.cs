@@ -11133,6 +11133,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("name");
 
+                    b.Property<string>("RetellAgentId")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("retell_agent_id");
+
                     b.Property<string>("RetellApiKeyEncrypted")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("retell_api_key_encrypted");

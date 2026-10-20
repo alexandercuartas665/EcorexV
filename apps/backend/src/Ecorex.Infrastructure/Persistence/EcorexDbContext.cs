@@ -627,6 +627,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.TerminationUri).HasMaxLength(200);
             b.Property(x => x.SipUsername).HasMaxLength(120);
             b.Property(x => x.VoiceId).HasMaxLength(120);
+            b.Property(x => x.RetellAgentId).HasMaxLength(120);
             b.Property(x => x.Language).HasMaxLength(16);
             // Varias lineas por tenant (no unico); indice por tenant para el listado.
             b.HasIndex(x => x.TenantId);

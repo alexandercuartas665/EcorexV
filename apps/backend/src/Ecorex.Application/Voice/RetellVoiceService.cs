@@ -64,23 +64,33 @@ public sealed class RetellVoiceService : IRetellVoiceService
         try { apiKey = _protector.Unprotect(cfg.RetellApiKeyEncrypted); }
         catch { return new VoicePlaceCallResult(false, null, "La API key de Retell no se pudo descifrar.", Retryable: false); }
 
-        // 3) Prompt COMPUESTO por ECOREX (reemplaza el del agente Retell).
-        var systemPrompt = "";
-        if (request.AiAgentId is Guid agentId)
+        // 3-4) Agente Retell. MODO SIMPLE (como el hermano Visal): si la linea trae un agent_id ya armado en Retell,
+        //      se usa DIRECTO (override_agent_id) y ECOREX no compone ni crea nada. MODO COMPUESTO (sin agent_id):
+        //      ECOREX arma el prompt (AiAgent + extra + objetivo) y asegura el agente al vuelo (crea/reusa LLM+agente).
+        string overrideAgentId;
+        if (!string.IsNullOrWhiteSpace(cfg.RetellAgentId))
         {
-            systemPrompt = await _db.AiAgents.AsNoTracking()
-                .Where(a => a.Id == agentId).Select(a => a.SystemPrompt).FirstOrDefaultAsync(cancellationToken) ?? "";
+            overrideAgentId = cfg.RetellAgentId!.Trim();
         }
-        var voiceId = string.IsNullOrWhiteSpace(cfg.VoiceId) ? DefaultVoiceId : cfg.VoiceId!;
-        var language = string.IsNullOrWhiteSpace(cfg.Language) ? "es-419" : cfg.Language;
-        var prompt = ComposePrompt(systemPrompt, request.PromptExtra, request.Objetivo);
-        var hash = PromptHash(prompt, voiceId, language);
-
-        // 4) Asegurar el agente Retell para ese prompt (crea LLM + agente si no existe; reusa si si).
-        var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, cancellationToken);
-        if (!ensure.Ok)
+        else
         {
-            return new VoicePlaceCallResult(false, null, ensure.Error, ensure.Retryable);
+            var systemPrompt = "";
+            if (request.AiAgentId is Guid agentId)
+            {
+                systemPrompt = await _db.AiAgents.AsNoTracking()
+                    .Where(a => a.Id == agentId).Select(a => a.SystemPrompt).FirstOrDefaultAsync(cancellationToken) ?? "";
+            }
+            var voiceId = string.IsNullOrWhiteSpace(cfg.VoiceId) ? DefaultVoiceId : cfg.VoiceId!;
+            var language = string.IsNullOrWhiteSpace(cfg.Language) ? "es-419" : cfg.Language;
+            var prompt = ComposePrompt(systemPrompt, request.PromptExtra, request.Objetivo);
+            var hash = PromptHash(prompt, voiceId, language);
+
+            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, cancellationToken);
+            if (!ensure.Ok)
+            {
+                return new VoicePlaceCallResult(false, null, ensure.Error, ensure.Retryable);
+            }
+            overrideAgentId = ensure.AgentId;
         }
 
         // 5) Colocar la llamada.
@@ -94,7 +104,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         var callRes = await _retell.CreatePhoneCallAsync(apiKey, new RetellCreateCallRequest(
             FromNumber: cfg.FromNumber!,
             ToNumber: request.ToNumber,
-            OverrideAgentId: ensure.AgentId,
+            OverrideAgentId: overrideAgentId,
             DynamicVariables: dyn,
             CustomSipHeaders: sipHeaders,
             Metadata: metadata), cancellationToken);
@@ -110,7 +120,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         {
             CallId = callRes.CallId!,
             RetellVoiceLineId = cfg.Id,
-            RetellAgentId = ensure.AgentId,
+            RetellAgentId = overrideAgentId,
             FromNumber = cfg.FromNumber!,
             ToNumber = request.ToNumber,
             Status = VoiceCallStatus.Registered,
@@ -122,7 +132,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         });
         await _db.SaveChangesAsync(cancellationToken);
 
-        _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, ensure.AgentId);
+        _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
         return new VoicePlaceCallResult(true, callRes.CallId, null, Retryable: false);
     }
 

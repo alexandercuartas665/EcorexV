@@ -16,7 +16,9 @@ public sealed record RetellVoiceLineDto(
     string Language,
     bool IsEnabled,
     bool IsDefault,
-    DateTimeOffset? LastValidatedAt);
+    DateTimeOffset? LastValidatedAt,
+    // Modo simple (Visal): id de un agente Retell ya armado. Si esta, se usa ese agente y se omite la composicion.
+    string? RetellAgentId = null);
 
 /// <summary>
 /// Alta/edicion de una linea. Secretos: null = NO cambiar (conserva el cifrado existente); cadena vacia =
@@ -32,7 +34,9 @@ public sealed record SaveRetellVoiceLineRequest(
     string? VoiceId,
     string? Language,
     bool IsEnabled,
-    bool IsDefault);
+    bool IsDefault,
+    // Modo simple (Visal): id del agente Retell ya armado (agent_...). Null/vacio = modo compuesto.
+    string? AgentId = null);
 
 public sealed record RetellValidationResult(bool Ok, string? Error);
 

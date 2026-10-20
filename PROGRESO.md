@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-19 - v0.16.210: calendario (dia/semana/mes) + voz "Agent ID" + prueba de llamada + limpieza YCloud
+
+- CALENDARIO (ActivityBoardDetail): vistas Dia/Semana/Mes + boton Hoy + flechas que navegan segun la vista;
+  clic en un dia -> abre el wizard con la Fecha de entrega preseleccionada (TaskWizard +presetDueDate); clic en
+  un chip -> abre la tarea. Ubica por Card.DueDate.
+- VOZ (traido del hermano Visal, decidido con el usuario = multi-linea + Agent ID): RetellVoiceLine +RetellAgentId;
+  si la linea trae agent_id, PlaceCallAsync usa ESE agente de Retell (override_agent_id) y NO compone (ignora
+  voz/idioma/prompt); sin agent_id, modo clasico compuesto (compatible). UI /config-voz: campos simples primero
+  (API Key, Agent ID, Numero, Telnyx SIP User) + "Avanzado" plegable (voz/idioma/termination/clave SIP). Migracion
+  dual AddRetellVoiceLineAgentId (columna nullable).
+- PRUEBA DE LLAMADA (traida de Visal): seccion "Llamada de prueba" en /config-voz reusa IRetellVoiceService.
+  PlaceCallAsync (linea por defecto) con confirmacion "llamada real, tiene costo"; muestra call_id o error.
+- LIMPIEZA: removido el log crudo temporal [YCLOUD-RAW-TMP] de /webhooks/ycloud (ya confirmado que el estado de
+  entrega fluye y correlaciona por id de YCloud o wamid; el log volcaba datos personales).
+
+
 ## 2026-10-19 - v0.16.208: UX detalle de tarea (Reabrir en forms de paso + navegar entre tareas de la columna) (DESPLEGADO)
 
 - Feature 1: el boton "Reabrir" (TaskDetailModal) ahora aparece tambien en formularios de PASO (antes solo

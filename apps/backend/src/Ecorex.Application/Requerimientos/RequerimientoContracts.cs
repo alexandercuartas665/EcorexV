@@ -65,6 +65,10 @@ public sealed record ProveedorContactoDto(
     string? Email,
     string? Telefono);
 
+/// <summary>Ultimo precio unitario registrado para un producto+proveedor en planificaciones anteriores
+/// (Ola 10, "ultimo precio cotizado" del historico: no captura nada nuevo, lee los hijos ya registrados).</summary>
+public sealed record UltimoPrecioDto(decimal Precio, DateTimeOffset? Fecha);
+
 /// <summary>Entrada para crear/editar un hijo (Id null = nuevo).</summary>
 public sealed record HijoInput(
     Guid? Id,
@@ -147,4 +151,10 @@ public interface IRequerimientoService
 
     /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.</summary>
     Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default);
+
+    // ---- Ola 10: ultimo precio del historico ----
+    /// <summary>Ultimo precio unitario (&gt;0) usado para el MISMO producto+proveedor en cualquier hijo previo.
+    /// Empareja por ItemId cuando existe; si no, por Descripcion del padre. Excluye la necesidad actual.
+    /// Devuelve null si no hay historial. No persiste nada: sirve de referencia al planificar.</summary>
+    Task<UltimoPrecioDto?> GetUltimoPrecioAsync(Guid? itemId, string descripcion, Guid proveedorId, Guid excluirRequerimientoId, CancellationToken ct = default);
 }

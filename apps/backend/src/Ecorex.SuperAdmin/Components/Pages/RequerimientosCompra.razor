@@ -226,12 +226,18 @@
         }
     </div>
 
+    @* Vista por proveedor (aplana las lineas de planificacion y agrupa por proveedor) *@
+    <button class="cd-tbtn @(_byProvider ? "on" : "")" @onclick="ToggleByProvider" title="Alternar entre la vista de necesidades y una vista que agrupa las lineas de planificacion por proveedor">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-9M14 17H5M17 3l3 4-3 4M7 13l-3 4 3 4"/></svg>
+        <span>Por proveedor</span>
+    </button>
+
     @* Expandir / colapsar distribuciones *@
-    <button class="cd-tbtn" @onclick="ExpandAll" title="Mostrar las distribuciones (hijos) de todas las compras">
+    <button class="cd-tbtn" @onclick="ExpandAll" disabled="@_byProvider" title="Mostrar las distribuciones (hijos) de todas las compras">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
         <span>Expandir todo</span>
     </button>
-    <button class="cd-tbtn" @onclick="CollapseAll" title="Ocultar las distribuciones (hijos)">
+    <button class="cd-tbtn" @onclick="CollapseAll" disabled="@_byProvider" title="Ocultar las distribuciones (hijos)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/></svg>
         <span>Colapsar todo</span>
     </button>
@@ -247,7 +253,11 @@
     </button>
 
     <div class="cd-toolbar-spacer"></div>
-    @if (_groups.Count > 0)
+    @if (_byProvider)
+    {
+        <span class="cd-toolbar-hint">Vista por proveedor (lineas de planificacion)</span>
+    }
+    else if (_groups.Count > 0)
     {
         <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
     }
@@ -348,6 +358,42 @@ else
                                 </td>
                             }
                             <td></td>
+                        </tr>
+                    }
+                    else if (it.Kind == GKind.ProvRow && it.R is { } ppr && it.H is { } ph)
+                    {
+                        <tr class="req-provrow">
+                            <td class="cd-exp-cell"></td>
+                            @foreach (var col in VisibleCols())
+                            {
+                                var c = col;
+                                <td class="@(c.Num ? "num" : null)">
+                                    @switch (c.Key)
+                                    {
+                                        case "producto": <text>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</text> break;
+                                        case "area": <text>@ppr.Area</text> break;
+                                        case "origen": <text>@ppr.OrigenNombre</text> break;
+                                        case "unidad": <text>@ppr.UnidadMedida</text> break;
+                                        case "proveedor": <text>@(string.IsNullOrWhiteSpace(ph.ProveedorNombre) ? "(sin proveedor)" : ph.ProveedorNombre)</text> break;
+                                        case "cantidad": <text>@Fmt(ph.Cantidad)</text> break;
+                                        case "precio": <text>@(ph.PrecioUnitario > 0 ? Fmt(ph.PrecioUnitario) : "-")</text> break;
+                                        case "monto": <text>@(ph.Total > 0 ? Fmt(ph.Total) : "-")</text> break;
+                                        case "fecha": <text>@(ph.FechaProgramadaCompra?.ToString("dd/MM/yyyy") ?? "-")</text> break;
+                                        case "estado":
+                                            <span>@RequerimientoFilter.EstadoLabel(ph.Estado)</span>
+                                            @if (ph.TaskItemId is not null)
+                                            {
+                                                <span class="req-badge-done" title="Compra ejecutada (actividad creada)">Ejecutada</span>
+                                            }
+                                            break;
+                                        case "hijos": <text>-</text> break;
+                                        default: <text></text> break;
+                                    }
+                                </td>
+                            }
+                            <td class="cd-th-acts">
+                                <button class="btn btn-sm btn-light" @onclick="() => OpenPlanificarAsync(ppr)" title="Abrir la planificacion de esta necesidad">Planificar</button>
+                            </td>
                         </tr>
                     }
                     else if (it.R is { } r)
@@ -573,7 +619,16 @@ else
                                             </div>
                                         }
                                     </td>
-                                    <td style="padding:5px 8px;text-align:right;"><input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" /></td>
+                                    <td style="padding:5px 8px;text-align:right;">
+                                        <input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" />
+                                        @if (hi.UltimoPrecio is { } up && up > 0)
+                                        {
+                                            <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:3px;white-space:nowrap;">
+                                                ult.: <strong>@Fmt(up)</strong>@(hi.UltimoPrecioFecha is { } f ? $" ({f:dd/MM/yy})" : "")
+                                                <button class="btn btn-link btn-sm" style="padding:0 0 0 4px;" title="Usar este precio" @onclick="() => UsarUltimoPrecio(hi)">usar</button>
+                                            </div>
+                                        }
+                                    </td>
                                     <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(hi.Cantidad * hi.Precio)</td>
                                     <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
                                         <div style="display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center;">
@@ -583,7 +638,10 @@ else
                                             }
                                             else if (hi.Id is not null && _canConfig)
                                             {
-                                                <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de cotizacion con el proceso de cotizacion del origen" @onclick="() => CotizarAsync(hi)" disabled="@_busy">Cotizar</button>
+                                                <label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ink-2,#374151);cursor:pointer;" title="Marca esta linea para cotizarla en lote con 'Cotizar seleccionadas'">
+                                                    <input type="checkbox" @bind="hi.Sel" />
+                                                    Cotizar
+                                                </label>
                                             }
                                             @if (hi.TaskItemId is not null)
                                             {
@@ -607,7 +665,11 @@ else
                 <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
                 @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
             </div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                @if (_canConfig)
+                {
+                    <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                }
                 <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
             </div>
@@ -645,6 +707,7 @@ else
     private string? _planError;
     private Guid _planReqId;
     private string _planProducto = "";
+    private string _planDescripcion = "";   // descripcion cruda del padre (para emparejar historico de precio)
     private decimal _planCantidadPadre;
     private Guid? _planItemId;
     private List<RequerimientoOpcionDto> _proveedores = new();
@@ -664,6 +727,9 @@ else
         public Guid? TaskItemId;
         public Guid? CotizacionTaskItemId;
         public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
+        public bool Sel;                       // marcada para "Cotizar seleccionadas" (Ola 10)
+        public decimal? UltimoPrecio;          // ultimo precio del historico para este producto+proveedor
+        public DateTimeOffset? UltimoPrecioFecha;
     }
     private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
     {
@@ -720,6 +786,8 @@ else
     private List<SortSpec> _sorts = new();
     private List<string> _groups = new();
     private int _frozen;
+    // Vista "por proveedor": aplana las lineas hijas (planificacion) y las agrupa por proveedor.
+    private bool _byProvider;
 
     private string? _dragCol;
     private string? _openMenu;
@@ -730,7 +798,7 @@ else
 
     private static readonly string[] _sumKeys = { "cantidad", "monto" };
 
-    private enum GKind { Group, Data, Child, Subtotal }
+    private enum GKind { Group, Data, Child, Subtotal, ProvRow }
     private sealed class GridItem
     {
         public GKind Kind;
@@ -875,14 +943,66 @@ else
 
     private void RebuildItems()
     {
-        var src = FilteredRows();
         var items = new List<GridItem>();
-        BuildItems(src, 0, items, expandChildren: false);
-        if (src.Count > 0)
+        if (_byProvider)
         {
-            items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
+            BuildProviderItems(items);
+        }
+        else
+        {
+            var src = FilteredRows();
+            BuildItems(src, 0, items, expandChildren: false);
+            if (src.Count > 0)
+            {
+                items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
+            }
         }
         _gridItems = items;
+    }
+
+    // Vista por proveedor: una fila por linea hija (planificacion), agrupada por proveedor,
+    // con subtotales de cantidad y monto por proveedor. Respeta el filtro actual.
+    private void BuildProviderItems(List<GridItem> outl)
+    {
+        var flat = new List<(RequerimientoDto Parent, RequerimientoHijoDto H)>();
+        foreach (var r in FilteredRows())
+        {
+            foreach (var h in r.Hijos) { flat.Add((r, h)); }
+        }
+        if (flat.Count == 0) { return; }
+        var groups = flat
+            .GroupBy(x => string.IsNullOrWhiteSpace(x.H.ProveedorNombre) ? "(sin proveedor)" : x.H.ProveedorNombre!)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+        decimal gc = 0m, gm = 0m;
+        foreach (var g in groups)
+        {
+            var glist = g.ToList();
+            outl.Add(new GridItem { Kind = GKind.Group, Level = 0, Label = $"Proveedor: {g.Key}", Count = glist.Count });
+            foreach (var x in glist.OrderBy(x => x.Parent.ItemNombre ?? x.Parent.Descripcion, StringComparer.OrdinalIgnoreCase))
+            {
+                outl.Add(new GridItem { Kind = GKind.ProvRow, R = x.Parent, H = x.H });
+            }
+            var cant = glist.Sum(x => x.H.Cantidad);
+            var monto = glist.Sum(x => x.H.Total);
+            outl.Add(new GridItem
+            {
+                Kind = GKind.Subtotal, Level = 0, Count = glist.Count,
+                Sums = new Dictionary<string, decimal> { ["cantidad"] = cant, ["monto"] = monto },
+            });
+            gc += cant; gm += monto;
+        }
+        outl.Add(new GridItem
+        {
+            Kind = GKind.Subtotal, Count = flat.Count,
+            Sums = new Dictionary<string, decimal> { ["cantidad"] = gc, ["monto"] = gm }, Grand = true,
+        });
+    }
+
+    private void ToggleByProvider()
+    {
+        _byProvider = !_byProvider;
+        RebuildItems();
+        _ = SavePrefsAsync();
     }
 
     // ---- Expansion ----
@@ -1154,6 +1274,7 @@ else
         public List<SortSpec>? sorts { get; set; }
         public List<string>? groups { get; set; }
         public int frozen { get; set; }
+        public bool byProvider { get; set; }
     }
 
     private async Task LoadPrefsAsync()
@@ -1173,6 +1294,7 @@ else
             _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
             _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
             _frozen = Math.Max(0, p.frozen);
+            _byProvider = p.byProvider;
         }
         catch { }
     }
@@ -1189,6 +1311,7 @@ else
                 sorts = _sorts,
                 groups = _groups,
                 frozen = _frozen,
+                byProvider = _byProvider,
             });
             await Prefs.SaveAsync(TableKey, json);
         }
@@ -1358,6 +1481,7 @@ else
         _planError = null;
         _planReqId = r.Id;
         _planItemId = r.ItemId;
+        _planDescripcion = r.Descripcion;
         var plan = await Svc.GetPlanificacionAsync(r.Id);
         _planProducto = plan?.Producto ?? r.Descripcion;
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
@@ -1378,8 +1502,14 @@ else
                 if (c is not null && string.IsNullOrWhiteSpace(h.ProvNombre)) { h.ProvNombre = c.Nombre; }
             }
             catch { h.Contacto = null; h.Email = null; h.Telefono = null; }
+            try
+            {
+                var up = await Svc.GetUltimoPrecioAsync(_planItemId, _planDescripcion, pid, _planReqId);
+                h.UltimoPrecio = up?.Precio; h.UltimoPrecioFecha = up?.Fecha;
+            }
+            catch { h.UltimoPrecio = null; h.UltimoPrecioFecha = null; }
         }
-        else { h.Contacto = null; h.Email = null; h.Telefono = null; }
+        else { h.Contacto = null; h.Email = null; h.Telefono = null; h.UltimoPrecio = null; h.UltimoPrecioFecha = null; }
     }
 
     private async Task OnProvChanged(HijoEdit h, ChangeEventArgs e)
@@ -1471,29 +1601,41 @@ else
         finally { _busy = false; }
     }
 
-    private async Task CotizarAsync(HijoEdit h)
+    // Cantidad de lineas marcadas que todavia se pueden cotizar.
+    private int SelCount => _pHijos.Count(h => h.Sel && h.Id is not null && h.CotizacionTaskItemId is null);
+
+    private void UsarUltimoPrecio(HijoEdit h)
     {
-        if (h.Id is not Guid hid) { return; }
-        _planError = null;
-        _busy = true;
+        if (h.UltimoPrecio is { } up && up > 0) { h.Precio = up; StateHasChanged(); }
+    }
+
+    private async Task CotizarSeleccionadasAsync()
+    {
+        var ids = _pHijos.Where(h => h.Sel && h.Id is Guid && h.CotizacionTaskItemId is null).Select(h => h.Id!.Value).ToList();
+        if (ids.Count == 0) { _planError = "Marca al menos una linea para cotizar."; return; }
+        _planError = null; _busy = true;
+        var nums = new List<string>();
         try
         {
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
-            var res = await Svc.CotizarHijoAsync(hid, actor, actorName);
-            if (!res.Ok) { _planError = res.Error ?? "No se pudo crear la cotizacion."; }
-            else
+            foreach (var id in ids)
             {
-                _msg = res.TaskNumber is { } num
-                    ? $"Cotizacion creada: actividad {num}."
-                    : "Cotizacion creada.";
+                var res = await Svc.CotizarHijoAsync(id, actor, actorName);
+                if (!res.Ok) { _planError = res.Error ?? "No se pudo crear una cotizacion."; break; }
+                if (res.TaskNumber is { } n) { nums.Add(n); }
             }
-            if (res.Plan is { } plan)
+            var plan = await Svc.GetPlanificacionAsync(_planReqId);
+            if (plan is not null)
             {
                 _planProducto = plan.Producto;
                 _planCantidadPadre = plan.CantidadPadre;
                 _pHijos = plan.Hijos.Select(MapHijo).ToList();
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+            }
+            if (_planError is null)
+            {
+                _msg = $"Cotizacion creada para {ids.Count} linea(s){(nums.Count > 0 ? ": " + string.Join(", ", nums) : "")}.";
             }
             await ReloadAsync();
         }

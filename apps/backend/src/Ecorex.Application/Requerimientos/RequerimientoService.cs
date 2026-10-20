@@ -462,6 +462,30 @@ public sealed class RequerimientoService : IRequerimientoService
         return new ProveedorContactoDto(proveedorId, t.Nombre, contactoNombre, email, tel);
     }
 
+    public async Task<UltimoPrecioDto?> GetUltimoPrecioAsync(Guid? itemId, string descripcion, Guid proveedorId, Guid excluirRequerimientoId, CancellationToken ct = default)
+    {
+        if (proveedorId == Guid.Empty) { return null; }
+        var q = _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => h.ProveedorId == proveedorId && h.PrecioUnitario > 0m && h.RequerimientoId != excluirRequerimientoId);
+        // Empareja por item cuando existe; si no, por la descripcion del padre.
+        if (itemId is Guid iid)
+        {
+            q = q.Where(h => h.Requerimiento!.ItemId == iid);
+        }
+        else
+        {
+            var desc = (descripcion ?? string.Empty).Trim();
+            if (desc.Length == 0) { return null; }
+            q = q.Where(h => h.Requerimiento!.ItemId == null && h.Requerimiento!.Descripcion == desc);
+        }
+        // El mas reciente (Id es Guid v7 ordenable por tiempo, respaldado por CreatedAt).
+        var hit = await q
+            .OrderByDescending(h => h.CreatedAt)
+            .Select(h => new { h.PrecioUnitario, h.FechaProgramadaCompra, h.CreatedAt })
+            .FirstOrDefaultAsync(ct);
+        return hit is null ? null : new UltimoPrecioDto(hit.PrecioUnitario, hit.FechaProgramadaCompra ?? hit.CreatedAt);
+    }
+
     /// <summary>Memoria del ultimo ejercicio de compra: upsert de una regla Aprendida en la dimension MAS
     /// especifica que tenga el item (Referencia > Marca > Subgrupo > Grupo > Categoria).</summary>
     private async Task AprenderReglaAsync(Guid itemId, Guid proveedorId, CancellationToken ct)

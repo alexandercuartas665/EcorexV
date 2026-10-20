@@ -55,7 +55,7 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && provs.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId)).ToList());
         var emptyHijos = (IReadOnlyList<RequerimientoHijoDto>)Array.Empty<RequerimientoHijoDto>();
 
         return rows.Select(r =>
@@ -199,6 +199,8 @@ public sealed class RequerimientoService : IRequerimientoService
             h.CaracteristicasDespacho = (inp.CaracteristicasDespacho ?? "").Trim();
             h.TiempoEntrega = (inp.TiempoEntrega ?? "").Trim();
             h.ProveedorId = inp.ProveedorId;
+            // El contacto elegido solo aplica si hay proveedor; si se quita el proveedor, se limpia.
+            h.ProveedorContactoId = inp.ProveedorId is null ? null : inp.ProveedorContactoId;
             h.PrecioUnitario = inp.PrecioUnitario < 0 ? 0 : inp.PrecioUnitario;
             // El hijo pasa a 'Con proveedor' si se le asigno uno (no se pisa si ya esta ejecutado).
             if (h.TaskItemId is null)
@@ -232,7 +234,7 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && proveedores.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId)).ToList());
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
@@ -299,13 +301,12 @@ public sealed class RequerimientoService : IRequerimientoService
                 null, null, await GetPlanificacionAsync(padre.Id, ct));
         }
 
-        // Datos del proveedor (para enlazar el Tercero y llevar su correo/telefono a la actividad).
+        // Datos del proveedor (para enlazar el Tercero y llevar el contacto elegido a la actividad).
         string? provNombre = null, provEmail = null, provTel = null;
         if (hijo.ProveedorId is Guid pid)
         {
-            var prov = await _db.Terceros.AsNoTracking().Where(t => t.Id == pid)
-                .Select(t => new { t.Nombre, t.Email, t.Telefono }).FirstOrDefaultAsync(ct);
-            provNombre = prov?.Nombre; provEmail = prov?.Email; provTel = prov?.Telefono;
+            var c = await GetProveedorContactoAsync(pid, hijo.ProveedorContactoId, ct);
+            provNombre = c?.Contacto ?? c?.Nombre; provEmail = c?.Email; provTel = c?.Telefono;
         }
 
         var titulo = $"Compra: {padre.Descripcion} x {hijo.Cantidad:#,##0.##}";
@@ -400,7 +401,7 @@ public sealed class RequerimientoService : IRequerimientoService
         string? provNombre = null, provEmail = null, provTel = null;
         if (hijo.ProveedorId is Guid pid)
         {
-            var c = await GetProveedorContactoAsync(pid, ct);
+            var c = await GetProveedorContactoAsync(pid, hijo.ProveedorContactoId, ct);
             provNombre = c?.Contacto ?? c?.Nombre; provEmail = c?.Email; provTel = c?.Telefono;
         }
 
@@ -439,7 +440,10 @@ public sealed class RequerimientoService : IRequerimientoService
         return new EjecutarCompraResultado(true, null, created.Value.Item.Id, created.Value.Item.Number, await GetPlanificacionAsync(padre.Id, ct));
     }
 
-    public async Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default)
+    public Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default)
+        => GetProveedorContactoAsync(proveedorId, null, ct);
+
+    public async Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, Guid? contactoId, CancellationToken ct = default)
     {
         var t = await _db.Terceros.AsNoTracking()
             .Where(x => x.Id == proveedorId)
@@ -448,8 +452,10 @@ public sealed class RequerimientoService : IRequerimientoService
                 x.Nombre,
                 x.Email,
                 x.Telefono,
-                Contacto = x.Contactos
-                    .OrderBy(c => c.Nombre)
+                // Contacto especifico si se pidio; si no, el primero por nombre.
+                Contacto = (contactoId == null
+                        ? x.Contactos.OrderBy(c => c.Nombre)
+                        : x.Contactos.Where(c => c.Id == contactoId).OrderBy(c => c.Nombre))
                     .Select(c => new { c.Nombre, c.Email, c.Telefono })
                     .FirstOrDefault(),
             })
@@ -460,6 +466,47 @@ public sealed class RequerimientoService : IRequerimientoService
         var email = !string.IsNullOrWhiteSpace(t.Contacto?.Email) ? t.Contacto!.Email : t.Email;
         var tel = !string.IsNullOrWhiteSpace(t.Contacto?.Telefono) ? t.Contacto!.Telefono : t.Telefono;
         return new ProveedorContactoDto(proveedorId, t.Nombre, contactoNombre, email, tel);
+    }
+
+    public async Task<IReadOnlyList<ProveedorContactoItemDto>> ListContactosAsync(Guid proveedorId, CancellationToken ct = default)
+        => await _db.TerceroContactos.AsNoTracking()
+            .Where(c => c.TerceroId == proveedorId)
+            .OrderBy(c => c.Nombre)
+            .Select(c => new ProveedorContactoItemDto(c.Id, c.Nombre, c.Cargo, c.Email, c.Telefono))
+            .ToListAsync(ct);
+
+    public async Task<ProveedorContactoItemDto> GuardarContactoAsync(Guid proveedorId, ContactoInput input, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { throw new InvalidOperationException("Sin tenant en contexto."); }
+        var nombre = (input.Nombre ?? "").Trim();
+        if (nombre.Length == 0) { throw new InvalidOperationException("El contacto debe tener nombre."); }
+        var prov = await _db.Terceros.AsNoTracking().FirstOrDefaultAsync(t => t.Id == proveedorId, ct);
+        if (prov is null) { throw new InvalidOperationException("No se encontro el proveedor."); }
+
+        TerceroContacto c;
+        if (input.Id is Guid cid && await _db.TerceroContactos.FirstOrDefaultAsync(x => x.Id == cid && x.TerceroId == proveedorId, ct) is { } found)
+        {
+            c = found;
+        }
+        else
+        {
+            c = new TerceroContacto { TenantId = tenantId, TerceroId = proveedorId };
+            _db.TerceroContactos.Add(c);
+        }
+        c.Nombre = nombre;
+        c.Cargo = string.IsNullOrWhiteSpace(input.Cargo) ? null : input.Cargo!.Trim();
+        c.Email = string.IsNullOrWhiteSpace(input.Email) ? null : input.Email!.Trim();
+        c.Telefono = string.IsNullOrWhiteSpace(input.Telefono) ? null : input.Telefono!.Trim();
+        await _db.SaveChangesAsync(ct);
+        return new ProveedorContactoItemDto(c.Id, c.Nombre, c.Cargo, c.Email, c.Telefono);
+    }
+
+    public async Task EliminarContactoAsync(Guid contactoId, CancellationToken ct = default)
+    {
+        var c = await _db.TerceroContactos.FirstOrDefaultAsync(x => x.Id == contactoId, ct);
+        if (c is null) { return; }
+        _db.TerceroContactos.Remove(c);
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<UltimoPrecioDto?> GetUltimoPrecioAsync(Guid? itemId, string descripcion, Guid proveedorId, Guid excluirRequerimientoId, CancellationToken ct = default)

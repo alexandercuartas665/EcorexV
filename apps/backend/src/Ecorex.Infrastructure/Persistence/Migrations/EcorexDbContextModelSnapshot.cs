@@ -10849,6 +10849,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("precio_unitario");
 
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("proveedor_contacto_id");
+
                     b.Property<Guid?>("ProveedorId")
                         .HasColumnType("uuid")
                         .HasColumnName("proveedor_id");

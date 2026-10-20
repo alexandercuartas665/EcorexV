@@ -10852,6 +10852,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("decimal(18,4)")
                         .HasColumnName("precio_unitario");
 
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_contacto_id");
+
                     b.Property<Guid?>("ProveedorId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("proveedor_id");

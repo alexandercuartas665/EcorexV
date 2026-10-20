@@ -50,11 +50,18 @@ public sealed record RequerimientoHijoDto(
     RequerimientoEstado Estado,
     Guid? TaskItemId,
     decimal PrecioUnitario,
-    Guid? CotizacionTaskItemId = null)
+    Guid? CotizacionTaskItemId = null,
+    Guid? ProveedorContactoId = null)
 {
     /// <summary>Total del hijo = Cantidad * PrecioUnitario (Ola 6).</summary>
     public decimal Total => Cantidad * PrecioUnitario;
 }
+
+/// <summary>Un contacto de un proveedor (TerceroContacto) para elegir/editar desde Requerimientos (Ola 11).</summary>
+public sealed record ProveedorContactoItemDto(Guid Id, string Nombre, string? Cargo, string? Email, string? Telefono);
+
+/// <summary>Alta/edicion de un contacto de proveedor (Id null = nuevo).</summary>
+public sealed record ContactoInput(Guid? Id, string Nombre, string? Cargo, string? Email, string? Telefono);
 
 /// <summary>Datos de contacto de un proveedor (Tercero) para el autocompletado del modal: nombre del
 /// contacto + correo + telefono. Prefiere el contacto embebido; cae a los datos del propio proveedor.</summary>
@@ -77,7 +84,8 @@ public sealed record HijoInput(
     string? CaracteristicasDespacho,
     string? TiempoEntrega,
     Guid? ProveedorId,
-    decimal PrecioUnitario);
+    decimal PrecioUnitario,
+    Guid? ProveedorContactoId = null);
 
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
@@ -149,8 +157,20 @@ public interface IRequerimientoService
     /// Idempotente: si el hijo ya tiene actividad de cotizacion, no crea otra.</summary>
     Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
 
-    /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.</summary>
+    /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.
+    /// Si <paramref name="contactoId"/> es null usa el primer contacto; si no, usa ese contacto especifico.</summary>
+    Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, Guid? contactoId, CancellationToken ct = default);
+
+    /// <summary>Sobrecarga sin contacto especifico (usa el primero). Compatibilidad.</summary>
     Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default);
+
+    // ---- Ola 11: editar los contactos del proveedor desde Requerimientos ----
+    /// <summary>Lista los contactos (TerceroContacto) de un proveedor para elegir/editar.</summary>
+    Task<IReadOnlyList<ProveedorContactoItemDto>> ListContactosAsync(Guid proveedorId, CancellationToken ct = default);
+    /// <summary>Crea o actualiza un contacto del proveedor (mas telefonos/correos). Devuelve el contacto guardado.</summary>
+    Task<ProveedorContactoItemDto> GuardarContactoAsync(Guid proveedorId, ContactoInput input, CancellationToken ct = default);
+    /// <summary>Elimina un contacto del proveedor.</summary>
+    Task EliminarContactoAsync(Guid contactoId, CancellationToken ct = default);
 
     // ---- Ola 10: ultimo precio del historico ----
     /// <summary>Ultimo precio unitario (&gt;0) usado para el MISMO producto+proveedor en cualquier hijo previo.

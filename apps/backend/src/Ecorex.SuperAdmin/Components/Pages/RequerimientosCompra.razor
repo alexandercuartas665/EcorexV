@@ -610,6 +610,25 @@ else
                                                 <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
                                             }
                                         </div>
+                                        @if (!string.IsNullOrWhiteSpace(hi.Prov))
+                                        {
+                                            <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                                                @if (hi.ContactosDisponibles.Count > 0)
+                                                {
+                                                    <select class="cd-in" style="height:28px;max-width:200px;font-size:12px;" @onchange="e => OnContactoPicked(hi, e)">
+                                                        <option value="" selected="@(hi.ContactoId is null)">(primer contacto / datos del proveedor)</option>
+                                                        @foreach (var ct in hi.ContactosDisponibles)
+                                                        {
+                                                            <option value="@ct.Id" selected="@(hi.ContactoId == ct.Id)">@ct.Nombre@(string.IsNullOrWhiteSpace(ct.Cargo) ? "" : $" ({ct.Cargo})")</option>
+                                                        }
+                                                    </select>
+                                                }
+                                                @if (_canConfig)
+                                                {
+                                                    <button class="btn btn-link btn-sm" style="padding:0;" title="Agregar o editar los contactos (telefonos/correos) de este proveedor" @onclick="() => OpenContactosAsync(hi.Prov)" disabled="@_busy">Editar contactos</button>
+                                                }
+                                            </div>
+                                        }
                                         @if (!string.IsNullOrWhiteSpace(hi.ProvNombre) && (!string.IsNullOrWhiteSpace(hi.Contacto) || !string.IsNullOrWhiteSpace(hi.Email) || !string.IsNullOrWhiteSpace(hi.Telefono)))
                                         {
                                             <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:3px;line-height:1.5;">
@@ -677,6 +696,72 @@ else
     </div>
 }
 
+@* ---- Editor de contactos del proveedor (Ola 11) ---- *@
+@if (_showContactos)
+{
+    <div style="position:fixed;inset:0;z-index:4200;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto;" @onclick="CerrarContactosAsync">
+        <div style="background:var(--surface,#fff);border-radius:12px;width:640px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">Contactos de @_contactosProvNombre</strong>
+                <button class="btn btn-link btn-sm" @onclick="CerrarContactosAsync">&times;</button>
+            </div>
+            <div style="padding:14px 18px;">
+                <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;margin-bottom:12px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                        <thead>
+                            <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
+                                <th style="padding:7px 10px;">Nombre</th>
+                                <th style="padding:7px 10px;">Cargo</th>
+                                <th style="padding:7px 10px;">Correo</th>
+                                <th style="padding:7px 10px;">Telefono</th>
+                                <th style="padding:7px 10px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_contactosList.Count == 0)
+                            {
+                                <tr><td colspan="5" style="padding:12px;text-align:center;color:var(--ink-3,#6b7280);">Sin contactos. Agrega el primero abajo.</td></tr>
+                            }
+                            @foreach (var c in _contactosList)
+                            {
+                                var cc = c;
+                                <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                    <td style="padding:5px 10px;">@cc.Nombre</td>
+                                    <td style="padding:5px 10px;">@cc.Cargo</td>
+                                    <td style="padding:5px 10px;">@cc.Email</td>
+                                    <td style="padding:5px 10px;">@cc.Telefono</td>
+                                    <td style="padding:5px 10px;text-align:right;white-space:nowrap;">
+                                        <button class="btn btn-link btn-sm" @onclick="() => EditarContacto(cc)" disabled="@_busy">Editar</button>
+                                        <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => EliminarContactoUiAsync(cc.Id)" disabled="@_busy">Eliminar</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div style="font-size:12px;font-weight:600;margin-bottom:6px;">@(_cEditId is null ? "Nuevo contacto" : "Editar contacto")</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <input style="flex:1;min-width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Nombre *" @bind="_cNombre" />
+                    <input style="flex:1;min-width:120px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Cargo" @bind="_cCargo" />
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    <input style="flex:1;min-width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Correo" @bind="_cEmail" />
+                    <input style="flex:1;min-width:120px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Telefono" @bind="_cTel" />
+                </div>
+                @if (_contactosError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_contactosError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                @if (_cEditId is not null)
+                {
+                    <button class="btn btn-link btn-sm" style="margin-right:auto;" @onclick="ClearContactoForm" disabled="@_busy">Cancelar edicion</button>
+                }
+                <button class="btn btn-primary btn-sm" @onclick="GuardarContactoUiAsync" disabled="@_busy">@(_cEditId is null ? "Agregar contacto" : "Guardar cambios")</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarContactosAsync" disabled="@_busy">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -730,6 +815,8 @@ else
         public bool Sel;                       // marcada para "Cotizar seleccionadas" (Ola 10)
         public decimal? UltimoPrecio;          // ultimo precio del historico para este producto+proveedor
         public DateTimeOffset? UltimoPrecioFecha;
+        public Guid? ContactoId;               // contacto especifico elegido (Ola 11); null = el primero
+        public List<ProveedorContactoItemDto> ContactosDisponibles = new();
     }
     private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
     {
@@ -744,8 +831,19 @@ else
         TaskItemId = h.TaskItemId,
         CotizacionTaskItemId = h.CotizacionTaskItemId,
         Estado = h.Estado,
+        ContactoId = h.ProveedorContactoId,
     };
     private List<HijoEdit> _pHijos = new();
+
+    // ---- Editor de contactos del proveedor (Ola 11) ----
+    private bool _showContactos;
+    private string _contactosProvId = "";
+    private string _contactosProvNombre = "";
+    private List<ProveedorContactoItemDto> _contactosList = new();
+    private string? _contactosError;
+    private Guid? _cEditId;
+    private string _cNombre = "", _cCargo = "", _cEmail = "", _cTel = "";
+
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
 
@@ -1497,7 +1595,14 @@ else
         {
             try
             {
-                var c = await Svc.GetProveedorContactoAsync(pid);
+                h.ContactosDisponibles = (await Svc.ListContactosAsync(pid)).ToList();
+                // Si el contacto elegido ya no existe para este proveedor, se cae al primero.
+                if (h.ContactoId is { } cid && h.ContactosDisponibles.All(c => c.Id != cid)) { h.ContactoId = null; }
+            }
+            catch { h.ContactosDisponibles = new(); }
+            try
+            {
+                var c = await Svc.GetProveedorContactoAsync(pid, h.ContactoId);
                 h.Contacto = c?.Contacto; h.Email = c?.Email; h.Telefono = c?.Telefono;
                 if (c is not null && string.IsNullOrWhiteSpace(h.ProvNombre)) { h.ProvNombre = c.Nombre; }
             }
@@ -1509,7 +1614,15 @@ else
             }
             catch { h.UltimoPrecio = null; h.UltimoPrecioFecha = null; }
         }
-        else { h.Contacto = null; h.Email = null; h.Telefono = null; h.UltimoPrecio = null; h.UltimoPrecioFecha = null; }
+        else { h.Contacto = null; h.Email = null; h.Telefono = null; h.UltimoPrecio = null; h.UltimoPrecioFecha = null; h.ContactosDisponibles = new(); h.ContactoId = null; }
+    }
+
+    // El usuario eligio otro contacto del proveedor para esta linea.
+    private async Task OnContactoPicked(HijoEdit h, ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        h.ContactoId = Guid.TryParse(v, out var cid) ? cid : null;
+        await FillContactoAsync(h);
     }
 
     private async Task OnProvChanged(HijoEdit h, ChangeEventArgs e)
@@ -1520,12 +1633,13 @@ else
         if (match is not null)
         {
             h.Prov = match.Id.ToString();
+            h.ContactoId = null; // proveedor nuevo -> contacto por defecto
             await FillContactoAsync(h);
         }
         else
         {
             // Texto que no corresponde a un proveedor del Directorio: se deja sin proveedor.
-            h.Prov = ""; h.Contacto = null; h.Email = null; h.Telefono = null;
+            h.Prov = ""; h.Contacto = null; h.Email = null; h.Telefono = null; h.ContactoId = null; h.ContactosDisponibles = new();
         }
     }
 
@@ -1546,7 +1660,8 @@ else
                 h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
                 h.Despacho, h.Entrega,
                 Guid.TryParse(h.Prov, out var pv) ? pv : null,
-                h.Precio)).ToList());
+                h.Precio,
+                h.ContactoId)).ToList());
             var plan = await Svc.GuardarHijosAsync(req);
             if (plan is null) { _planError = "No se pudo guardar."; return; }
             _showPlan = false;
@@ -1641,6 +1756,64 @@ else
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
+    }
+
+    // ---- Editor de contactos del proveedor (Ola 11) ----
+    private async Task OpenContactosAsync(string provId)
+    {
+        if (!Guid.TryParse(provId, out var pid)) { return; }
+        _contactosError = null;
+        _contactosProvId = provId;
+        _contactosProvNombre = _proveedores.FirstOrDefault(p => p.Id == pid)?.Nombre ?? "Proveedor";
+        _contactosList = (await Svc.ListContactosAsync(pid)).ToList();
+        ClearContactoForm();
+        _showContactos = true;
+    }
+
+    private void ClearContactoForm() { _cEditId = null; _cNombre = ""; _cCargo = ""; _cEmail = ""; _cTel = ""; }
+
+    private void EditarContacto(ProveedorContactoItemDto c)
+    {
+        _cEditId = c.Id; _cNombre = c.Nombre; _cCargo = c.Cargo ?? ""; _cEmail = c.Email ?? ""; _cTel = c.Telefono ?? "";
+    }
+
+    private async Task GuardarContactoUiAsync()
+    {
+        if (!Guid.TryParse(_contactosProvId, out var pid)) { return; }
+        if (string.IsNullOrWhiteSpace(_cNombre)) { _contactosError = "El contacto debe tener nombre."; return; }
+        _contactosError = null; _busy = true;
+        try
+        {
+            await Svc.GuardarContactoAsync(pid, new ContactoInput(_cEditId, _cNombre, _cCargo, _cEmail, _cTel));
+            _contactosList = (await Svc.ListContactosAsync(pid)).ToList();
+            ClearContactoForm();
+        }
+        catch (Exception ex) { _contactosError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EliminarContactoUiAsync(Guid id)
+    {
+        _contactosError = null; _busy = true;
+        try
+        {
+            await Svc.EliminarContactoAsync(id);
+            if (Guid.TryParse(_contactosProvId, out var pid)) { _contactosList = (await Svc.ListContactosAsync(pid)).ToList(); }
+            if (_cEditId == id) { ClearContactoForm(); }
+        }
+        catch (Exception ex) { _contactosError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CerrarContactosAsync()
+    {
+        _showContactos = false;
+        // Refresca el contacto mostrado / el selector de las lineas que usan este proveedor.
+        foreach (var h in _pHijos.Where(h => h.Prov == _contactosProvId).ToList())
+        {
+            try { await FillContactoAsync(h); } catch { }
+        }
+        StateHasChanged();
     }
 
     private async Task CerrarAsync(Guid id)

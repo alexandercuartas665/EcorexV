@@ -918,7 +918,8 @@ else
         [FormControlType.Audio] = new("Audio", "Audio", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Button] = new("Boton", "Boton", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"10\" rx=\"2\"/><path d=\"M7 12h2\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Chart] = new("Grafico", "Grafico", "M4 4v16h16", "var(--t-slate)", "var(--t-slate-bg)", "control"),
-        [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control")
+        [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control")
     };
 
     private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
@@ -2424,6 +2425,9 @@ else
             case FormControlType.Barcode:
                 <div class="fb-prev-input">|| ||| |  escanear</div>
                 break;
+            case FormControlType.TaskDocuments:
+                <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", 16)) Documentos de la tarea (se ven al llenar)</div>
+                break;
             default:
                 <div class="fb-prev-input">@ph</div>
                 break;
@@ -2466,7 +2470,7 @@ else
                         FormControlType.Geografia,
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
-                        FormControlType.Button
+                        FormControlType.Button, FormControlType.TaskDocuments
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)

@@ -104,5 +104,13 @@ public enum FormControlType
     /// simulacion fragil con decenas de Rows + campos sueltos alineados por width. Al FINAL del enum para preservar
     /// los ordinales.
     /// </summary>
-    FixedMatrix
+    FixedMatrix,
+
+    /// <summary>
+    /// DOCUMENTOS DE LA TAREA (solo lectura): muestra, dentro del formulario, los archivos adjuntos de la TAREA a la
+    /// que pertenece el registro (se resuelve por FormResponse.Reference = numero de tarea). Es el "visor de
+    /// documentos" de la tarea, embebido en el formulario, para gestionar desde aqui. No captura valor. Al FINAL del
+    /// enum para preservar los ordinales.
+    /// </summary>
+    TaskDocuments
 }

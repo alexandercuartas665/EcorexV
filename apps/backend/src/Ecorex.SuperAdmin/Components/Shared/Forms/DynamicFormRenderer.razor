@@ -17,6 +17,7 @@
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
+@inject Ecorex.Application.Tenancy.ITaskDocumentsService TaskDocsSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
@@ -413,6 +414,7 @@ else
     // ADR-0078: registro DERIVADO de esta respuesta (Orden de Trabajo creada por conversion). Non-null =>
     // esta respuesta ya fue "convertida"; la UI lo marca y ofrece reabrir el derivado (idempotente).
     private Ecorex.Application.Forms.DerivedFormRefDto? _derivedRecord;
+    private List<Ecorex.Application.Tenancy.TaskItemAttachmentDto> _taskDocs = new();   // adjuntos de la tarea (campo TaskDocuments)
 
     // #8: id unico del contenedor del formulario, usado como raiz del @scope del CSS personalizado.
     private string FormScopeId => $"ecx-form-{(_definition?.Id ?? DefinitionId):N}";
@@ -586,6 +588,13 @@ else
                 _derivedRecord = _response is not null
                     ? await ResponsesSvc.GetDerivedRecordAsync(_response.Id)
                     : null;
+                // Documentos de la TAREA (campo TaskDocuments): si el formulario se llena dentro de una tarea
+                // (Reference = numero de tarea) y la definicion tiene ese campo, cargar los adjuntos de la tarea.
+                _taskDocs = (Mode == FormRenderMode.Fill
+                        && _response is not null && !string.IsNullOrWhiteSpace(_response.Reference)
+                        && _definition.Questions.Any(q => q.ControlType == FormControlType.TaskDocuments))
+                    ? (await TaskDocsSvc.ListByTaskNumberAsync(_response.Reference!)).ToList()
+                    : new();
                 // Valor por defecto del disenador (ADR-0021): en Fill y en la vista previa interactiva
                 // (Sandbox), solo campos de captura reales y sin valor previo en el borrador.
                 if (IsEditableMode && !IsLocked)
@@ -1144,12 +1153,64 @@ else
                 @* Croquis / dibujo (ADR Canvas): editor de lienzo (form-canvas.js) -> SVG autocontenido. *@
                 @RenderCanvas(q, value)
                 break;
+            case FormControlType.TaskDocuments:
+                @* Documentos de la TAREA (solo lectura): galeria de los adjuntos de la tarea anfitriona. *@
+                @RenderTaskDocuments(q)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
                 break;
         }
     };
+
+    // Galeria de documentos de la TAREA (campo TaskDocuments). Solo lectura; abre cada archivo en pestana nueva.
+    private RenderFragment RenderTaskDocuments(FormQuestionDto q) => __builder =>
+    {
+        <div class="dfr-taskdocs">
+            @if (Mode != FormRenderMode.Fill || string.IsNullOrWhiteSpace(_response?.Reference))
+            {
+                <div class="dfr-taskdocs-empty">Los documentos cargados en la tarea se mostraran aqui (al abrir el formulario dentro de una tarea).</div>
+            }
+            else if (_taskDocs.Count == 0)
+            {
+                <div class="dfr-taskdocs-empty">Esta tarea aun no tiene documentos cargados.</div>
+            }
+            else
+            {
+                <div class="dfr-taskdocs-grid">
+                    @foreach (var d in _taskDocs)
+                    {
+                        <a class="dfr-doc-tile" href="@d.Url" target="_blank" rel="noopener" title="@d.FileName">
+                            <div class="dfr-doc-thumb">
+                                @if (IsImageDoc(d))
+                                {
+                                    <img src="@d.Url" alt="@d.FileName" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <span class="dfr-doc-ext">@DocExt(d)</span>
+                                }
+                            </div>
+                            <div class="dfr-doc-name">@d.FileName</div>
+                        </a>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private static bool IsImageDoc(Ecorex.Application.Tenancy.TaskItemAttachmentDto d)
+        => (d.MimeType ?? string.Empty).StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+        || new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" }.Any(e => (d.FileName ?? string.Empty).EndsWith(e, StringComparison.OrdinalIgnoreCase));
+
+    private static string DocExt(Ecorex.Application.Tenancy.TaskItemAttachmentDto d)
+    {
+        var fn = d.FileName ?? string.Empty;
+        var dot = fn.LastIndexOf('.');
+        var ext = dot >= 0 && dot < fn.Length - 1 ? fn[(dot + 1)..].ToUpperInvariant() : "DOC";
+        return ext.Length is > 0 and <= 5 ? ext : "DOC";
+    }
 
     /// <summary>
     /// Placeholder visual del prototipo para multimedia SIN captura real (ADR-0021):

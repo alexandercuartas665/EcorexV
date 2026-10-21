@@ -22,7 +22,9 @@ public static class FormFieldValidator
             or FormControlType.Button or FormControlType.Chart or FormControlType.Html
             or FormControlType.Paragraph or FormControlType.Divider or FormControlType.Spacer
             // Subform (ola F5): los hijos son FormResponse propios (FormRecordLink), no un valor en el documento.
-            or FormControlType.Subform;
+            or FormControlType.Subform
+            // TaskDocuments: solo lectura (muestra los adjuntos de la tarea); no captura valor.
+            or FormControlType.TaskDocuments;
 
     /// <summary>
     /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla

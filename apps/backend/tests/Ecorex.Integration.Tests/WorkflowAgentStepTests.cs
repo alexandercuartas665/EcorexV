@@ -465,6 +465,66 @@ public abstract class WorkflowAgentStepTestsBase
         }
     }
 
+    // ---- ADR-0126: cerrar la tarea libera la linea apartada por el flujo ----
+
+    /// <summary>
+    /// ADR-0126: un nodo-agente aparto la linea (Conversation.FlowHoldStepId). Al CERRAR la tarea, la linea se
+    /// libera (hold a null), se abandona el paso retenido (IsCurrent=false, Skipped) y queda la marca de
+    /// cierre-por-flujo (FlowHandledCloseAt/TaskId) para que el candado de SARA no recree el caso. Matriz dual.
+    /// </summary>
+    [Fact]
+    public async Task OnTaskClosed_ReleasesHeldLine_AbandonsStep_AndMarksClose()
+    {
+        var seed = await SeedTenantAsync("AgentStep CierreLibera");
+        ScenarioSeed scenario;
+        Guid conversationId;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+
+            var conv = new Conversation
+            {
+                TenantId = seed.TenantId,
+                ContactPhone = "573001112233",
+                FlowHoldStepId = scenario.AgentStepId,
+                FlowHoldNodeId = scenario.AgentNodeId
+            };
+            ctx.Conversations.Add(conv);
+            await ctx.SaveChangesAsync();
+            conversationId = conv.Id;
+
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.PendingWhatsAppConversationId = conv.Id;   // el paso retiene la conversacion (espera respuesta)
+            await ctx.SaveChangesAsync();
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            await FlowLineRelease.OnTaskClosedAsync(ctx, seed.TenantId, scenario.TaskItemId, now, CancellationToken.None);
+            await ctx.SaveChangesAsync();
+        }
+
+        // Re-leer desde OTRA conexion: se persistio de verdad.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var conv = await ctx.Conversations.AsNoTracking().FirstAsync(c => c.Id == conversationId);
+            Assert.Null(conv.FlowHoldStepId);                  // linea liberada
+            Assert.Null(conv.FlowHoldNodeId);
+            Assert.NotNull(conv.FlowHandledCloseAt);           // marca de cierre (candado de SARA)
+            Assert.Equal(scenario.TaskItemId, conv.FlowHandledTaskId);
+
+            var step = await ctx.WorkflowStepHistories.AsNoTracking().FirstAsync(s => s.Id == scenario.AgentStepId);
+            Assert.False(step.IsCurrent);                      // paso abandonado
+            Assert.Equal(WorkflowStepStatus.Skipped, step.Status);
+            Assert.Null(step.PendingWhatsAppConversationId);
+
+            var note = await ctx.TaskItemActivities.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.TaskItemId == scenario.TaskItemId && a.ActorName == "Sistema (flujo)");
+            Assert.NotNull(note);
+        }
+    }
+
     // ---- Dobles ----
 
     /// <summary>

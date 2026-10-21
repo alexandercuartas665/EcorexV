@@ -650,7 +650,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // Deshacer lo que el cierre activo aguas abajo: los pasos VIGENTES de nodos posteriores se
         // apagan (Pending -> Skipped, historial). Cuando el paso reabierto se vuelva a cerrar, el avance
         // creara filas nuevas para esos nodos (append-only).
-        foreach (var s in steps.Where(s => s.IsCurrent && downstream.Contains(s.NodeId)).ToList())
+        var reopenedSkipped = steps.Where(s => s.IsCurrent && downstream.Contains(s.NodeId)).ToList();
+        foreach (var s in reopenedSkipped)
         {
             s.IsCurrent = false;
             if (s.Status == WorkflowStepStatus.Pending)
@@ -658,6 +659,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 s.Status = WorkflowStepStatus.Skipped;
             }
         }
+        // ADR-0126: un paso-agente posterior que se apaga al reabrir no debe quedarse con la linea apartada.
+        await FlowLineRelease.ReleaseHoldsForStepsAsync(_db, reopenedSkipped.Select(s => s.Id).ToList(), cancellationToken);
 
         // Reactivar EN SITIO el paso cerrado: vuelve a Pending+IsCurrent, se limpia el cierre. Se conserva
         // el asignado para que regrese al mismo encargado.
@@ -783,7 +786,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 // manual, por ejemplo), porque dejar pasos Pending de una instancia cerrada los
                 // mantendria vivos en la bandeja de alguien.
                 // Ramas paralelas que quedaron vivas: sin efecto (Skipped), nunca se borran.
-                foreach (var stale in steps.Where(s => s.IsCurrent).ToList())
+                var staleHeld = steps.Where(s => s.IsCurrent).ToList();
+                foreach (var stale in staleHeld)
                 {
                     stale.IsCurrent = false;
                     if (stale.Status == WorkflowStepStatus.Pending)
@@ -791,6 +795,8 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         stale.Status = WorkflowStepStatus.Skipped;
                     }
                 }
+                // ADR-0126: si alguno de esos pasos tenia la linea apartada, sueltala (no dejarla colgada).
+                await FlowLineRelease.ReleaseHoldsForStepsAsync(_db, staleHeld.Select(s => s.Id).ToList(), cancellationToken);
                 return false;
             }
             hasWork = steps.Any(IsReady);
@@ -815,6 +821,12 @@ public sealed class WorkflowEngine : IWorkflowEngine
             // en silencio en vez de avisar. El aviso natural es al PUBLICAR (advertir ramas sin
             // endEvent), no en ejecucion, porque en ejecucion ya es tarde para corregir el diseno.
             CompleteInstance(instance, task);
+            // ADR-0126: el flujo cerro la tarea -> libera la linea de WhatsApp que un nodo-agente hubiera apartado
+            // (y deja la marca de cierre para el candado de SARA). Tras el cierre ya no hay pasos vigentes.
+            if (task is not null && task.Status is TaskItemStatus.Done or TaskItemStatus.Closed)
+            {
+                await FlowLineRelease.OnTaskClosedAsync(_db, instance.TenantId, task.Id, DateTimeOffset.UtcNow, cancellationToken);
+            }
         }
         return false;
 

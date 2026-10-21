@@ -781,6 +781,15 @@ public sealed class ActivityBoardService : IActivityBoardService
             }
         }
 
+        // ADR-0126: al CERRAR a mano (tarjeta en columna de cierre), libera la linea de WhatsApp que un nodo-agente
+        // del flujo hubiera apartado y deja la marca de cierre-por-flujo (candado de SARA). El flujo queda sin la
+        // linea; el proximo entrante del cliente lo atiende SARA. Idempotente si no habia nada apartado.
+        if (column.IsDone)
+        {
+            await Ecorex.Application.Workflows.FlowLineRelease.OnTaskClosedAsync(
+                _db, task.TenantId, task.Id, DateTimeOffset.UtcNow, cancellationToken);
+        }
+
         try
         {
             await _db.SaveChangesAsync(cancellationToken);

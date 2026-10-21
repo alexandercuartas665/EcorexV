@@ -246,10 +246,49 @@ window.ecorexFormCanvas = (function () {
                     ]
                 };
             }
+        },
+        bandeja: {
+            label: 'Bandeja', w: 240, h: 150,
+            geom: function (w, h) {
+                var k = 24; var H = h - k;   // k = largo del remate vertical
+                return {
+                    parts: [
+                        { t: 'line', x1: 0, y1: 0, x2: w, y2: H }, { t: 'line', x1: w, y1: 0, x2: 0, y2: H },
+                        { t: 'line', x1: 0, y1: 0, x2: 0, y2: k }, { t: 'line', x1: w, y1: 0, x2: w, y2: k },
+                        { t: 'line', x1: 0, y1: H, x2: 0, y2: h }, { t: 'line', x1: w, y1: H, x2: w, y2: h }
+                    ],
+                    cotas: [
+                        { key: 'rem_sup', label: '40', x: w + 8, y: k / 2 },
+                        { key: 'rem_inf', label: '40', x: w + 8, y: h - k / 2 },
+                        { key: 'largo', label: 'largo', x: w / 2, y: H / 2 }
+                    ]
+                };
+            }
+        },
+        bandeja_pestana: {
+            label: 'Bandeja con pestana', w: 240, h: 150,
+            geom: function (w, h) {
+                var k = 24, p = 16; var H = h - k;   // p = labio de retorno
+                return {
+                    parts: [
+                        { t: 'line', x1: 0, y1: 0, x2: w, y2: H }, { t: 'line', x1: w, y1: 0, x2: 0, y2: H },
+                        { t: 'line', x1: 0, y1: 0, x2: 0, y2: k }, { t: 'line', x1: w, y1: 0, x2: w, y2: k },
+                        { t: 'line', x1: 0, y1: H, x2: 0, y2: h }, { t: 'line', x1: w, y1: H, x2: w, y2: h },
+                        { t: 'line', x1: 0, y1: k, x2: p, y2: k }, { t: 'line', x1: w, y1: k, x2: w - p, y2: k },
+                        { t: 'line', x1: 0, y1: h, x2: p, y2: h }, { t: 'line', x1: w, y1: h, x2: w - p, y2: h }
+                    ],
+                    cotas: [
+                        { key: 'rem_sup', label: '40', x: w + 8, y: k / 2 },
+                        { key: 'rem_inf', label: '40', x: w + 8, y: h - k / 2 },
+                        { key: 'pestana', label: 'pest', x: p, y: k },
+                        { key: 'largo', label: 'largo', x: w / 2, y: H / 2 }
+                    ]
+                };
+            }
         }
     };
     var SHAPE_ORDER = ['lamina', 'brida_cuadrada', 'brida_circular', 'angulo', 'canal_u', 'canal_ce',
-        'canal_omega', 'bandeja_sencilla', 'bandeja_doble', 'cilindro', 'perfil_rolado', 'cono'];
+        'canal_omega', 'bandeja_sencilla', 'bandeja_doble', 'cilindro', 'perfil_rolado', 'bandeja', 'bandeja_pestana'];
 
     // Geometria efectiva de un grupo (escala la base a w,h actuales; dims solo alimentan las etiquetas).
     function groupGeom(sh) {
@@ -274,6 +313,7 @@ window.ecorexFormCanvas = (function () {
         var g = el('g', {
             'data-ecx': sh.id, 'data-ecx-kind': sh.kind,
             'data-ecx-dims': JSON.stringify(sh.dims || {}),
+            'data-ecx-cotaoff': JSON.stringify(sh.cotaOff || {}),
             'data-ecx-w': r2(sh.w), 'data-ecx-h': r2(sh.h)
         });
         var tr = 'translate(' + r2(sh.x) + ' ' + r2(sh.y) + ')';
@@ -290,12 +330,16 @@ window.ecorexFormCanvas = (function () {
             else if (p.t === 'path') { e = el('path', { d: p.d, fill: 'none', stroke: stroke, 'stroke-width': sw, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }); }
             if (e) { g.appendChild(e); }
         });
-        // Cotas: etiqueta + punto amarillo clicable (data-ecx-cota). Se exportan e imprimen con el grupo.
+        // Cotas: etiqueta + punto amarillo. Clic limpio -> escribe la medida; arrastre -> reposiciona la cota
+        // (offset por cota en sh.cotaOff[key] = {dx,dy}, que viaja en el SVG y se imprime). Se exportan con el grupo.
+        var off = sh.cotaOff || {};
         geom.cotas.forEach(function (c) {
-            var label = el('text', { x: c.x + 8, y: c.y - 6, fill: '#7a5b00', 'font-size': 12, 'font-family': 'Inter, Arial, sans-serif', 'data-ecx-cotalabel': c.key });
+            var o = off[c.key] || { dx: 0, dy: 0 };
+            var cxp = c.x + (o.dx || 0), cyp = c.y + (o.dy || 0);
+            var label = el('text', { x: cxp + 8, y: cyp - 6, fill: '#7a5b00', 'font-size': 12, 'font-family': 'Inter, Arial, sans-serif', 'data-ecx-cotalabel': c.key, style: 'cursor:move' });
             label.textContent = cotaText(sh, c);
             g.appendChild(label);
-            g.appendChild(el('circle', { cx: c.x, cy: c.y, r: 5, fill: '#FFC400', stroke: '#7a5b00', 'stroke-width': 1.2, 'data-ecx-cota': c.key, style: 'cursor:pointer' }));
+            g.appendChild(el('circle', { cx: cxp, cy: cyp, r: 5, fill: '#FFC400', stroke: '#7a5b00', 'stroke-width': 1.2, 'data-ecx-cota': c.key, style: 'cursor:move' }));
         });
         return g;
     }
@@ -338,6 +382,12 @@ window.ecorexFormCanvas = (function () {
     function unrotate(px, py, cx, cy, deg) {
         var r = -deg * Math.PI / 180, cos = Math.cos(r), sin = Math.sin(r), dx = px - cx, dy = py - cy;
         return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+    }
+    // Gira un VECTOR (delta) deg grados. Para llevar un arrastre global al marco LOCAL de un grupo rotado
+    // (arrastre de cotas) se pasa deg = -sh.rot.
+    function rotDelta(dx, dy, deg) {
+        var r = deg * Math.PI / 180, cos = Math.cos(r), sin = Math.sin(r);
+        return { dx: dx * cos - dy * sin, dy: dx * sin + dy * cos };
     }
 
     function boundsOf(sh) {
@@ -401,14 +451,24 @@ window.ecorexFormCanvas = (function () {
         var p = pt(s, evt);
         s.svg.setPointerCapture && s.svg.setPointerCapture(evt.pointerId);
         if (s.tool === 'select') {
-            // Cota clicable de una forma predefinida: un clic en el punto amarillo abre el input inline
-            // para escribir la medida (no mueve el grupo).
-            var cotaEl = evt.target && evt.target.closest ? evt.target.closest('[data-ecx-cota]') : null;
+            // Cota de una forma predefinida (punto amarillo o etiqueta): drag POTENCIAL. Si el puntero se
+            // mueve mas del umbral -> se arrastra la cota (reposiciona, offset persistente); si fue un clic
+            // limpio -> se abre el input inline para escribir la medida (comportamiento anterior).
+            var cotaEl = evt.target && evt.target.closest ? evt.target.closest('[data-ecx-cota],[data-ecx-cotalabel]') : null;
             if (cotaEl) {
                 var gEl = cotaEl.closest('[data-ecx-kind]');
                 var gid = gEl && gEl.getAttribute('data-ecx');
                 var gsh = gid ? s.scene.find(function (x) { return x.id === gid; }) : null;
-                if (gsh) { s.sel = gsh.id; openCotaInput(s, gsh, cotaEl.getAttribute('data-ecx-cota'), evt); render(s); return; }
+                var ckey = cotaEl.getAttribute('data-ecx-cota') || cotaEl.getAttribute('data-ecx-cotalabel');
+                if (gsh && ckey) {
+                    s.sel = gsh.id;
+                    s.drag = {
+                        mode: 'cotapend', sh: gsh, key: ckey, ox: p.x, oy: p.y, sx: p.x, sy: p.y,
+                        downEvt: { clientX: evt.clientX, clientY: evt.clientY }
+                    };
+                    render(s);
+                    return;
+                }
             }
             var cur = s.scene.find(function (x) { return x.id === s.sel; });
             // manija de ROTACION?
@@ -493,6 +553,20 @@ window.ecorexFormCanvas = (function () {
                 ex = d.ox + dist * Math.cos(snap); ey = d.oy + dist * Math.sin(snap);
             }
             d.sh.pts[1] = [r2(ex), r2(ey)]; d.sh.d = ptsToD(d.sh.pts);
+        } else if (d.mode === 'cotapend' || d.mode === 'cota') {
+            if (d.mode === 'cotapend') {
+                if (Math.hypot(p.x - d.sx, p.y - d.sy) <= 3) { return; } // aun es clic potencial: no mover
+                pushUndo(s);                 // arrastre real: un solo punto de undo por gesto
+                d.sh.cotaOff = d.sh.cotaOff || {};
+                d.mode = 'cota';
+                d.ox = d.sx; d.oy = d.sy;     // acumula desde el punto donde arranco el gesto
+            }
+            var gdx = p.x - d.ox, gdy = p.y - d.oy; d.ox = p.x; d.oy = p.y;
+            // El delta llega en coords de escena; si el grupo esta rotado lo pasamos a su marco local.
+            var ld = d.sh.rot ? rotDelta(gdx, gdy, -d.sh.rot) : { dx: gdx, dy: gdy };
+            var coff = d.sh.cotaOff[d.key] || { dx: 0, dy: 0 };
+            coff.dx = r2(coff.dx + ld.dx); coff.dy = r2(coff.dy + ld.dy);
+            d.sh.cotaOff[d.key] = coff;
         }
         render(s);
     }
@@ -500,6 +574,9 @@ window.ecorexFormCanvas = (function () {
     function onUp(s, evt) {
         if (!s.drag) { return; }
         var d = s.drag; s.drag = null;
+        // Cota: sin arrastre (clic limpio) -> abrir el input de medida; con arrastre -> ya quedo reposicionada.
+        if (d.mode === 'cotapend') { openCotaInput(s, d.sh, d.key, d.downEvt); render(s); return; }
+        if (d.mode === 'cota') { render(s); return; }
         // descartar formas degeneradas
         if ((d.mode === 'draw') && (Math.abs(d.sh.w) < 3 && Math.abs(d.sh.h) < 3)) {
             s.scene = s.scene.filter(function (x) { return x.id !== d.sh.id; }); s.sel = null;
@@ -584,7 +661,7 @@ window.ecorexFormCanvas = (function () {
         var sh = newShape(s, 'group');
         sh.kind = kind; sh.w = def.w; sh.h = def.h;
         sh.x = r2((s.vw - def.w) / 2); sh.y = r2((s.vh - def.h) / 2);
-        sh.stroke = s.color || '#1B1B1E'; sh.sw = 2; sh.rot = 0; sh.dims = {};
+        sh.stroke = s.color || '#1B1B1E'; sh.sw = 2; sh.rot = 0; sh.dims = {}; sh.cotaOff = {};
         s.scene.push(sh); s.sel = sh.id; s.tool = 'select';
         if (s.onTool) { try { s.onTool('select'); } catch (e) { } }
         render(s);
@@ -726,6 +803,7 @@ window.ecorexFormCanvas = (function () {
         sh.w = parseFloat(n.getAttribute('data-ecx-w')) || SHAPES[kind].w;
         sh.h = parseFloat(n.getAttribute('data-ecx-h')) || SHAPES[kind].h;
         try { sh.dims = JSON.parse(n.getAttribute('data-ecx-dims') || '{}') || {}; } catch (e) { sh.dims = {}; }
+        try { sh.cotaOff = JSON.parse(n.getAttribute('data-ecx-cotaoff') || '{}') || {}; } catch (e) { sh.cotaOff = {}; }
         var tr = n.getAttribute('transform') || '';
         var mt = tr.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
         sh.x = mt ? parseFloat(mt[1]) : 0; sh.y = mt ? parseFloat(mt[2]) : 0;

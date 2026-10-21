@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-20 - v0.16.213: graficador de formularios - formas Bandeja + cotas arrastrables (form-canvas.js)
+
+- FORMAS NUEVAS "Bandeja" y "Bandeja con pestana" (SHAPES.bandeja + SHAPES.bandeja_pestana + SHAPE_ORDER): X/aspa
+  con remates doblados HACIA ABAJO en las 4 puntas; la variante con pestana agrega un labio de retorno hacia
+  adentro. Cotas rem_sup/rem_inf/largo (+ pestana en la variante). La paleta/round-trip/export son genericos,
+  aparecen solas.
+- COTAS ARRASTRABLES (generico para TODA forma): offset por cota en sh.cotaOff[key]={dx,dy}. groupToNode dibuja
+  etiqueta + punto en (c.x+dx, c.y+dy). En onDown, presionar una cota (punto o etiqueta) inicia un drag POTENCIAL;
+  si el puntero supera ~3px -> modo 'cota' que acumula el offset (en marco local, corrige rotacion del grupo con
+  rotDelta); si fue clic limpio -> abre el input de medida (comportamiento anterior). Un solo undo por gesto.
+  Round-trip: data-ecx-cotaoff en el <g> + parseo en groupNodeToShape; el offset viaja en el SVG exportado y se
+  imprime. Verificado en navegador (harness): aspa 6 lineas+4 cotas, arrastre mueve la cota, export con cotaoff,
+  round-trip conserva la posicion. Solo JS cliente (sin C#, sin migracion).
+
+## 2026-10-20 - v0.16.212: liberar la linea del flujo al cerrar la tarea (ADR-0126) (SIN deploy)
+
+- PROBLEMA: cuando un nodo-agente aparta la linea de WhatsApp (ADR-0122, Conversation.FlowHoldStepId) y la tarea
+  llega a CIERRE por otra via que no sea el propio paso resolviendo, la marca quedaba colgada: SARA muda, ninguna
+  otra tarea podia tomar la linea y los entrantes del cliente reactivaban un paso de una tarea ya cerrada. Pasaba
+  al cerrar a mano (ActivityBoardService.MoveTaskAsync pone Done pero no tocaba el flujo ni el hold) y al apagar
+  pasos por el motor (cierre de instancia / reabrir).
+- FIX (ADR-0126, helper FlowLineRelease, sin migracion): (1) al cerrar la tarea -manual o por flujo-
+  OnTaskClosedAsync suelta el hold, deja la marca de cierre-por-flujo (FlowHandledCloseAt/TaskId -> candado de SARA
+  no recrea caso/tarea/lead) y abandona el paso-agente retenido que siga vigente; (2) cuando el motor apaga pasos
+  sin runner (barrido de cierre de instancia, reabrir aguas abajo) ReleaseHoldsForStepsAsync suelta el hold.
+  Enganchado en WorkflowEngine (tras CompleteInstance + los dos skip) y en ActivityBoardService.MoveTaskAsync.
+- Comportamiento: linea liberada -> el proximo entrante lo atiende SARA (conversacional), sin recrear el caso. El
+  avance normal entre nodos-agente ya estaba cubierto (el paso suelta su hold al resolver). Build de solucion
+  verde. Pendiente: E2E (caso held -> cerrar -> linea libre + SARA sin duplicar). NO desplegar sin OK.
+
 ## 2026-10-20 - Integracion Requerimientos Olas 9-12 al tronco + fix harness Api (SIN deploy)
 
 - INTEGRADO (merge --no-ff b9d99143, 0 conflictos por merge-tree): 4 commits aditivos de requerimiento_compras:

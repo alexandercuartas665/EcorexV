@@ -80,6 +80,11 @@
                             <div class="ac-dato">Fecha: <span>@Fecha(r.FechaEmision)</span></div>
                             <div class="ac-dato">NIT: <span>@Txt(r.NitProveedor)</span></div>
                             <div class="ac-dato">Total: <span class="ac-total">@Moneda(r.TotalFactura)</span></div>
+                            <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
+                                    title="Ver detalle de la factura y el formulario de autorizacion">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
+                                Detalle y formulario
+                            </button>
                         </div>
                     }
                 }
@@ -128,10 +133,21 @@
             </div>
         </div>
 
-        @* Resumen (solo lectura) + formulario del concepto configurado (sin disparar la autorizacion) *@
-        <div class="ac-col-panel">
-            <div class="ac-panel">
-                <h4>Detalle de la factura</h4>
+    </div>
+
+    @* Detalle de la factura + formulario del concepto, en MODAL (se abre con el boton de cada tarjeta;
+       antes era la 3ra columna fija). Deja mas espacio a la lista y al visor. *@
+    @if (_panelOpen && _sel is not null)
+    {
+        <div class="ac-modal-backdrop" @onclick="CerrarPanel"></div>
+        <div class="ac-modal ac-detail-modal" @onclick:stopPropagation="true">
+            <div class="ac-modal-head">
+                <h3>@Txt(_sel.NombreProveedor) &middot; @Txt(_sel.NumFacturaProveedor)</h3>
+                <button class="ac-modal-close" @onclick="CerrarPanel">&times;</button>
+            </div>
+            <div class="ac-modal-body">
+                <div class="ac-panel">
+                    <h4>Detalle de la factura</h4>
                 @if (_sel is { } s)
                 {
                     <div class="ac-res">Proveedor<span>@Txt(s.NombreProveedor)</span></div>
@@ -202,8 +218,9 @@
                     </div>
                 </div>
             }
+            </div>
         </div>
-    </div>
+    }
 
 </div>
 
@@ -215,6 +232,7 @@
 
     private List<ConciliacionDianRenglonDto> _items = new();
     private ConciliacionDianRenglonDto? _sel;
+    private bool _panelOpen;   // el detalle+formulario se muestra en modal (boton de la tarjeta), no como columna fija
 
     private bool _viewLoading;
     private List<StoredFileDto> _viewFiles = new();
@@ -431,6 +449,14 @@
     }
 
     private void SelectFile(StoredFileDto f) { _viewFile = f; _viewUrl = f.Url; }
+
+    // Abre el modal de detalle+formulario para una factura (selecciona primero -> carga visor + datos).
+    private async Task AbrirPanelAsync(ConciliacionDianRenglonDto r)
+    {
+        await SelectAsync(r);
+        _panelOpen = true;
+    }
+    private void CerrarPanel() => _panelOpen = false;
 
     // ---- Visor PDF (zoom + arrastre) via interop ----
     private string? _loadedUrl;

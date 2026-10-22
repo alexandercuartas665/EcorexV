@@ -158,6 +158,7 @@ public static class DependencyInjection
         // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error
         // tipado, nunca Activator.CreateInstance sobre texto como el legacy).
         services.AddScoped<Rules.IRulesEngine, Rules.RulesEngine>();
+        services.AddScoped<Rules.IRuleParamOptionsProvider, Rules.RuleParamOptionsProvider>();  // opciones de parametros Select (listas)
         services.AddScoped<Rules.IRuleDocumentService, Rules.RuleDocumentService>();
         services.AddScoped<Rules.IFormRuleDispatcher, Rules.FormRuleDispatcher>();
         services.AddScoped<Rules.IRuleExecutionLogCleaner, Rules.RuleExecutionLogCleaner>();

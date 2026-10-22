@@ -9,6 +9,7 @@
 @using Ecorex.Domain.Enums
 @inject IRuleDocumentService RulesSvc
 @inject IRulesEngine Engine
+@inject IRuleParamOptionsProvider ParamOptions
 
 <PageTitle>Reglas - ECOREX.tareas</PageTitle>
 
@@ -288,6 +289,61 @@
                                                     <textarea rows="3" value="@GetParamValue(p.Name)"
                                                               @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))"></textarea>
                                                     break;
+                                                case RuleParamType.Select:
+                                                {
+                                                    var opts = OptionsFor(p);
+                                                    var cur = GetParamValue(p.Name);
+                                                    <select value="@cur" @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))">
+                                                        <option value="" selected="@string.IsNullOrEmpty(cur)">@(p.Required ? "Elige..." : "(sin valor)")</option>
+                                                        @foreach (var op in opts)
+                                                        {
+                                                            <option value="@op.Value" selected="@(op.Value == cur)">@op.Label</option>
+                                                        }
+                                                        @if (!string.IsNullOrEmpty(cur) && !opts.Any(o => o.Value == cur))
+                                                        {
+                                                            <option value="@cur" selected="true">@cur (actual)</option>
+                                                        }
+                                                    </select>
+                                                    break;
+                                                }
+                                                case RuleParamType.Mapping:
+                                                {
+                                                    var mrows = GetMapRows(p.Name);
+                                                    var mtargets = MappingTargets(p);
+                                                    <div class="rg-map">
+                                                        <div class="rg-map-head">
+                                                            <span>Destino</span><span>Fuente</span><span>Columna / campo / valor</span><span></span>
+                                                        </div>
+                                                        @for (var mi = 0; mi < mrows.Count; mi++)
+                                                        {
+                                                            var row = mrows[mi]; var idx = mi;
+                                                            var isCol = row.Kind == "col"; var isField = row.Kind == "field"; var isFixed = row.Kind == "fixed";
+                                                            var ph = isFixed ? "valor fijo" : (isField ? "codigo del campo" : "id de columna");
+                                                            <div class="rg-map-row">
+                                                                <select value="@row.Target" @onchange="@(e => MapTargetChanged(p.Name, row, e))">
+                                                                    <option value="">Destino...</option>
+                                                                    @foreach (var op in mtargets)
+                                                                    {
+                                                                        <option value="@op.Value" selected="@(op.Value == row.Target)">@op.Label</option>
+                                                                    }
+                                                                    @if (!string.IsNullOrEmpty(row.Target) && !mtargets.Any(o => o.Value == row.Target))
+                                                                    {
+                                                                        <option value="@row.Target" selected="true">@row.Target</option>
+                                                                    }
+                                                                </select>
+                                                                <select value="@row.Kind" @onchange="@(e => MapKindChanged(p.Name, row, e))">
+                                                                    <option value="col" selected="@isCol">Columna del grid</option>
+                                                                    <option value="field" selected="@isField">Campo del formulario</option>
+                                                                    <option value="fixed" selected="@isFixed">Valor fijo</option>
+                                                                </select>
+                                                                <input value="@row.Ref" placeholder="@ph" @onchange="@(e => MapRefChanged(p.Name, row, e))" />
+                                                                <button class="rg-btn sm" title="Quitar" @onclick="@(() => RemoveMapRow(p.Name, idx))">&times;</button>
+                                                            </div>
+                                                        }
+                                                        <button class="rg-btn sm" @onclick="@(() => AddMapRow(p.Name))">+ Agregar destino</button>
+                                                    </div>
+                                                    break;
+                                                }
                                                 default:
                                                     <input value="@GetParamValue(p.Name)"
                                                            @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))" />
@@ -631,6 +687,11 @@
     private List<RuleListItemDto> _allRules = new();
     private List<RuleDocumentDto> _documents = new();
     private IReadOnlyList<RuleVerbDescriptor> _catalog = [];
+    // Opciones resueltas para parametros tipo Select con origen dinamico, por clave de origen.
+    private readonly Dictionary<string, IReadOnlyList<RuleParamOption>> _paramOptions = new(StringComparer.Ordinal);
+    // Filas del editor de parametros tipo Mapping (destino -> fuente), por nombre de parametro.
+    private sealed class MapRow { public string Target = ""; public string Kind = "col"; public string Ref = ""; }
+    private readonly Dictionary<string, List<MapRow>> _mapRows = new(StringComparer.Ordinal);
 
     // Seleccion / editor
     private Guid _selectedId;
@@ -755,6 +816,7 @@
     protected override async Task OnInitializedAsync()
     {
         _catalog = Engine.GetVerbCatalog();
+        await LoadParamOptionsAsync();
         await LoadDocumentsAsync();
         await LoadAllRulesAsync();
         await LoadStatsAsync();
@@ -766,6 +828,95 @@
     }
 
     // ---- Cargas ----
+
+    // Resuelve una vez las opciones de todos los parametros Select con origen dinamico del catalogo.
+    private async Task LoadParamOptionsAsync()
+    {
+        var sources = _catalog
+            .SelectMany(v => v.Params)
+            .Where(p => (p.Type == RuleParamType.Select || p.Type == RuleParamType.Mapping) && !string.IsNullOrWhiteSpace(p.OptionsSource))
+            .Select(p => p.OptionsSource!)
+            .Distinct(StringComparer.Ordinal);
+        foreach (var src in sources)
+        {
+            try { _paramOptions[src] = await ParamOptions.GetOptionsAsync(src); }
+            catch { _paramOptions[src] = Array.Empty<RuleParamOption>(); }
+        }
+    }
+
+    // Opciones a mostrar para un parametro Select (dinamicas por origen, o estaticas del descriptor).
+    private IReadOnlyList<RuleParamOption> OptionsFor(RuleVerbParamDescriptor p)
+        => !string.IsNullOrWhiteSpace(p.OptionsSource) && _paramOptions.TryGetValue(p.OptionsSource!, out var opts)
+            ? opts
+            : (p.Options ?? Array.Empty<RuleParamOption>());
+
+    // Destinos a ofrecer en un parametro Mapping: opciones estaticas del descriptor + dinamicas del origen.
+    private IReadOnlyList<RuleParamOption> MappingTargets(RuleVerbParamDescriptor p)
+    {
+        var list = new List<RuleParamOption>(p.Options ?? Array.Empty<RuleParamOption>());
+        if (!string.IsNullOrWhiteSpace(p.OptionsSource) && _paramOptions.TryGetValue(p.OptionsSource!, out var dyn))
+        {
+            list.AddRange(dyn);
+        }
+        return list;
+    }
+
+    // ---- Editor de parametros tipo Mapping (destino -> "kind:ref") ----
+    private List<MapRow> GetMapRows(string name)
+    {
+        if (!_mapRows.TryGetValue(name, out var rows))
+        {
+            rows = ParseMapRows(GetParamValue(name));
+            _mapRows[name] = rows;
+        }
+        return rows;
+    }
+
+    private static List<MapRow> ParseMapRows(string json)
+    {
+        var list = new List<MapRow>();
+        if (string.IsNullOrWhiteSpace(json)) { return list; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var pr in doc.RootElement.EnumerateObject())
+                {
+                    var expr = pr.Value.ValueKind == JsonValueKind.String ? (pr.Value.GetString() ?? "") : pr.Value.GetRawText();
+                    var i = expr.IndexOf(':');
+                    list.Add(new MapRow
+                    {
+                        Target = pr.Name,
+                        Kind = i >= 0 ? expr[..i] : "fixed",
+                        Ref = i >= 0 ? expr[(i + 1)..] : expr,
+                    });
+                }
+            }
+        }
+        catch (JsonException) { }
+        return list;
+    }
+
+    private void ApplyMapRows(string name)
+    {
+        var rows = _mapRows.TryGetValue(name, out var r) ? r : new List<MapRow>();
+        var obj = new JsonObject();
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Target)) { continue; }
+            obj[row.Target] = $"{row.Kind}:{row.Ref ?? ""}";
+        }
+        if (obj.Count == 0) { _paramValues.Remove(name); }
+        else { _paramValues[name] = obj.ToJsonString(); }
+        RegenerateXmlFromForm();
+    }
+
+    private void AddMapRow(string name) { GetMapRows(name).Add(new MapRow()); ApplyMapRows(name); }
+    private void RemoveMapRow(string name, int idx) { var rows = GetMapRows(name); if (idx >= 0 && idx < rows.Count) { rows.RemoveAt(idx); ApplyMapRows(name); } }
+    private void MapTargetChanged(string name, MapRow row, ChangeEventArgs e) { row.Target = e.Value?.ToString() ?? ""; ApplyMapRows(name); }
+    private void MapKindChanged(string name, MapRow row, ChangeEventArgs e) { row.Kind = e.Value?.ToString() ?? "col"; ApplyMapRows(name); }
+    private void MapRefChanged(string name, MapRow row, ChangeEventArgs e) { row.Ref = e.Value?.ToString() ?? ""; ApplyMapRows(name); }
 
     private async Task LoadDocumentsAsync()
         => _documents = (await RulesSvc.ListDocumentsAsync(includeArchived: true)).ToList();
@@ -801,6 +952,7 @@
         _rDocumentId = rule.DocumentId;
         _rStatus = rule.Status;
         _paramValues.Clear();
+        _mapRows.Clear();
         LoadParamValuesFromJson(rule.ParamsJson);
         RegenerateXmlFromForm();
 
@@ -883,6 +1035,7 @@
         _rDocumentId = documentId;
         _rStatus = RuleStatus.Active;
         _paramValues.Clear();
+        _mapRows.Clear();
         _history = new List<RuleExecutionLogDto>();
         _metrics = null;
         _audit = null;
@@ -1098,6 +1251,7 @@
         }
         // XML valido: pasa a ser la fuente de los parametros (vista renderizada incluida).
         _paramValues.Clear();
+        _mapRows.Clear();
         LoadParamValuesFromJson(result.Value);
         _xmlOk = true;
         _xmlMessage = "XML valido: parametros aplicados a la vista renderizada. Guarda para persistir.";
@@ -1107,6 +1261,7 @@
     {
         _rVerbName = e.Value?.ToString() ?? "";
         _paramValues.Clear();
+        _mapRows.Clear();
         _xmlMessage = null;
         RegenerateXmlFromForm();
     }
@@ -1181,6 +1336,7 @@
                     result[name] = number;
                     break;
                 case RuleParamType.Json:
+                case RuleParamType.Mapping:
                     try
                     {
                         result[name] = JsonNode.Parse(raw);

@@ -14,12 +14,27 @@ public enum RuleParamType
     /// <summary>FieldCode de una pregunta de formulario (texto con semantica de campo).</summary>
     FieldCode,
     /// <summary>Fragmento JSON (arreglos/objetos, ej. mapeos de PASAR_CAMPOS).</summary>
-    Json
+    Json,
+    /// <summary>Lista desplegable: opciones estaticas (<see cref="RuleVerbParamDescriptor.Options"/>) o
+    /// dinamicas de un origen (<see cref="RuleVerbParamDescriptor.OptionsSource"/>). El valor guardado
+    /// es el Value de la opcion (texto).</summary>
+    Select,
+    /// <summary>Mapeo destino -> fuente: cada destino (de <see cref="RuleVerbParamDescriptor.Options"/> +
+    /// <see cref="RuleVerbParamDescriptor.OptionsSource"/>) se llena desde una columna del grid, un campo
+    /// del formulario o un valor fijo. Se guarda como objeto JSON { "destino": "kind:ref" } (kind: col|field|fixed).</summary>
+    Mapping
 }
 
+/// <summary>Una opcion para un parametro tipo <see cref="RuleParamType.Select"/>: valor guardado + etiqueta visible.</summary>
+public sealed record RuleParamOption(string Value, string Label);
+
 /// <summary>Parametro esperado por un verbo (port TIPADO del protocolo PARAM_XML legacy).</summary>
+/// <param name="OptionsSource">Para Select: clave de un origen dinamico de opciones (lo resuelve
+/// <c>IRuleParamOptionsProvider</c>, p. ej. "requerimiento-origenes").</param>
+/// <param name="Options">Para Select: opciones estaticas (si no hay OptionsSource).</param>
 public sealed record RuleVerbParamDescriptor(
-    string Name, string Label, RuleParamType Type, bool Required, string? Description = null);
+    string Name, string Label, RuleParamType Type, bool Required, string? Description = null,
+    string? OptionsSource = null, IReadOnlyList<RuleParamOption>? Options = null);
 
 /// <summary>
 /// Contrato de configuracion de un verbo: la UI del modulo de reglas lo usa para renderizar

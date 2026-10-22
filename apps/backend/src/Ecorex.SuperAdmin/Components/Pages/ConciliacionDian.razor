@@ -1049,13 +1049,47 @@ else
                             }
                         </div>
                     </div>
+
+                    @* ---- Reglas por proveedor: la instruccion (prompt) con la que el asistente elige la ruta de flujo ---- *@
+                    <div class="cd-muted" style="margin:12px 0 2px; font-weight:800; color:var(--ink,#111827);">Reglas por proveedor</div>
+                    <div class="cd-muted" style="font-size:12px; margin-bottom:6px;">Por cada proveedor escribi la instruccion que usara el asistente para validar los datos del documento (NIT, concepto, valores) y elegir la ruta de flujo (salida). Aun NO se cablea la IA: esto es solo la configuracion.</div>
+                    <datalist id="cd-prov-sug">
+                        @foreach (var p in ProveedoresSugeridos())
+                        {
+                            <option value="@p"></option>
+                        }
+                    </datalist>
+                    @if (_asisReglas.Count == 0)
+                    {
+                        <div class="cd-muted" style="padding:6px 2px;">Sin reglas por proveedor. Agrega una para guiar al asistente.</div>
+                    }
+                    @for (var ai = 0; ai < _asisReglas.Count; ai++)
+                    {
+                        var rg = _asisReglas[ai]; var ridx = ai;
+                        <div class="cd-rule-card">
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Proveedor</label>
+                                    <input class="cd-in" style="flex:1" list="cd-prov-sug" value="@rg.Proveedor" @onchange="e => rg.Proveedor = e.Value?.ToString() ?? string.Empty" placeholder="NIT o nombre del proveedor" />
+                                    <button type="button" class="cd-ic cd-ic-del" @onclick="() => _asisReglas.RemoveAt(ridx)" title="Quitar regla">&times;</button>
+                                </div>
+                                <div class="cd-rule-row" style="align-items:flex-start;">
+                                    <label class="cd-rule-lbl" style="padding-top:6px;">Instruccion</label>
+                                    <textarea class="cd-in" style="flex:1; min-height:72px; resize:vertical;" @onchange="e => rg.Prompt = e.Value?.ToString() ?? string.Empty"
+                                              placeholder="Ej: valida los datos del documento de este proveedor y selecciona la ruta de flujo adecuada (p. ej. si el total supera X o el concepto es Y, usa la salida Z).">@rg.Prompt</textarea>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    <button class="cd-fb-add" style="align-self:flex-start;" @onclick="AddAsisRegla">+ Agregar regla de proveedor</button>
+
                     @if (_cfgMsg is { Length: > 0 })
                     {
                         <div class="cd-muted">@_cfgMsg</div>
                     }
                 </div>
                 <div class="cd-rules-foot">
-                    <span class="cd-muted">El agente elegido queda disponible para los pasos del conciliador que lo usen.</span>
+                    <span class="cd-muted">El agente y las reglas por proveedor quedan disponibles para los pasos del conciliador que los usen.</span>
                     <div style="flex:1"></div>
                     <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
                     <button class="btn btn-primary btn-sm" @onclick="GuardarAsistenteAsync" disabled="@_busy">Guardar</button>
@@ -1430,6 +1464,9 @@ else
     private List<FormDefinitionListItemDto> _taskForms = new();     // formularios disponibles
     private List<AiAgentDto> _agentes = new();                      // agentes de IA del tenant (tab Asistente)
     private Guid? _asistenteSel;                                    // agente asistente elegido
+    // Regla del asistente por proveedor: proveedor (NIT o nombre) + prompt para elegir la ruta de flujo.
+    private sealed class AsisReglaEdit { public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty; }
+    private List<AsisReglaEdit> _asisReglas = new();
 
     // Un mapeo "Direccionar compra": campo del formulario -> columna del conciliador.
     private sealed class DireEdit { public string FormField { get; set; } = string.Empty; public string Target { get; set; } = string.Empty; }
@@ -1479,6 +1516,8 @@ else
             await LoadReglasDataAsync();   // contenedores + _ruleList para la pestaña Reglas
             _agentes = (await AiAgents.ListAsync()).ToList();        // pestaña Asistente de IA
             _asistenteSel = await TaskCfg.GetAsistenteAgentIdAsync();
+            _asisReglas = (await TaskCfg.GetAsistenteReglasAsync())
+                .Select(r => new AsisReglaEdit { Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt }).ToList();
             _cfgTab = "salidas";
             _cfgOpen = true;
         }
@@ -1489,14 +1528,21 @@ else
 
     // ---- Asistente de IA ----
     private void OnAsistenteChange(ChangeEventArgs e) => _asistenteSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private void AddAsisRegla() => _asisReglas.Add(new AsisReglaEdit { Id = Guid.CreateVersion7() });
+    // Proveedores sugeridos para el autocompletar: distintos del documento cargado.
+    private IEnumerable<string> ProveedoresSugeridos()
+        => _renglones.Select(r => r.NombreProveedor).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().OrderBy(n => n).Take(300)!;
     private async Task GuardarAsistenteAsync()
     {
         _busy = true; _cfgMsg = null;
         try
         {
             await TaskCfg.SetAsistenteAgentIdAsync(_asistenteSel);
+            await TaskCfg.SaveAsistenteReglasAsync(_asisReglas
+                .Select(r => new AsistenteProveedorReglaDto(r.Id, r.Proveedor, r.Prompt)).ToList());
             var nombre = _asistenteSel is Guid a ? _agentes.FirstOrDefault(x => x.Id == a)?.Name : null;
-            _cfgMsg = nombre is null ? "Asistente de IA: sin agente." : $"Asistente de IA guardado: {nombre}.";
+            var n = _asisReglas.Count(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt));
+            _cfgMsg = (nombre is null ? "Asistente sin agente" : $"Asistente: {nombre}") + $" · {n} regla(s) por proveedor guardada(s).";
         }
         catch (Exception ex) { _cfgMsg = "Error al guardar el asistente: " + ex.Message; }
         finally { _busy = false; }

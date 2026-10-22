@@ -38,6 +38,13 @@ public sealed record SalidaFlujoDto(
     bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps);
 
 /// <summary>
+/// Regla del asistente de IA POR PROVEEDOR: cuando el agente procesa una factura de ese proveedor, usa esta
+/// instruccion (prompt) para validar los datos del documento y elegir la ruta/salida de flujo de proceso.
+/// Es solo configuracion (el cableado de la IA viene despues). Proveedor = NIT o nombre (texto libre).
+/// </summary>
+public sealed record AsistenteProveedorReglaDto(Guid Id, string Proveedor, string Prompt);
+
+/// <summary>
 /// Configuracion POR TENANT del modulo de autorizacion. Guarda en TenantConfiguration (clave/valor, JSON) la
 /// subcategoria de actividad (000270) y el formulario a asociar. El formulario se elige APARTE (no se hereda).
 /// NO dispara la accion de autorizacion (crear la actividad): eso va en otra fase.
@@ -95,6 +102,11 @@ public interface IAutorizacionComprasConfigService
     Task<Guid?> GetAsistenteAgentIdAsync(CancellationToken ct = default);
     /// <summary>Guarda (o limpia con null) el agente de IA asistente del conciliador.</summary>
     Task SetAsistenteAgentIdAsync(Guid? agentId, CancellationToken ct = default);
+
+    /// <summary>Reglas del asistente por proveedor (proveedor + prompt para elegir la ruta de flujo). Por-tenant.</summary>
+    Task<IReadOnlyList<AsistenteProveedorReglaDto>> GetAsistenteReglasAsync(CancellationToken ct = default);
+    /// <summary>Guarda las reglas del asistente por proveedor (descarta las vacias).</summary>
+    Task SaveAsistenteReglasAsync(IReadOnlyList<AsistenteProveedorReglaDto> reglas, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -487,6 +499,34 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         }
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteKey, ConfigValue = aid.ToString() }); }
         else { row.ConfigValue = aid.ToString(); }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // Reglas del asistente por proveedor (proveedor + prompt). Solo configuracion; la IA se cablea despues.
+    private const string AsistenteReglasKey = "conciliacion-dian.asistente-reglas";
+
+    public async Task<IReadOnlyList<AsistenteProveedorReglaDto>> GetAsistenteReglasAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AsistenteReglasKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(raw)) { return Array.Empty<AsistenteProveedorReglaDto>(); }
+        try { return JsonSerializer.Deserialize<List<AsistenteProveedorReglaDto>>(raw) ?? new(); }
+        catch { return Array.Empty<AsistenteProveedorReglaDto>(); }
+    }
+
+    public async Task SaveAsistenteReglasAsync(IReadOnlyList<AsistenteProveedorReglaDto> reglas, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var clean = (reglas ?? Array.Empty<AsistenteProveedorReglaDto>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt))
+            .Select(r => new AsistenteProveedorReglaDto(
+                r.Id == Guid.Empty ? Guid.CreateVersion7() : r.Id,
+                (r.Proveedor ?? string.Empty).Trim(), (r.Prompt ?? string.Empty).Trim()))
+            .ToList();
+        var json = JsonSerializer.Serialize(clean);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteReglasKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteReglasKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
         await _db.SaveChangesAsync(ct);
     }
 }

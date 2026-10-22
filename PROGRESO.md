@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-22 - Integracion Requerimientos (Agrupar/alta campos propios) + Reglas (params Select/Mapping + override por formulario) al tronco (SIN deploy)
+
+- INTEGRADO (merge --no-ff 67ca41fe, 0 conflictos merge-tree) desde requerimiento_compras, base 00e6a29c:
+  d28ae886 (Agrupar unifica proveedor + campos dinamicos + modal Campos estilo DIAN + filtro por campos),
+  11740678 (el alta de necesidad captura los campos propios del Padre),
+  14935bf6 (reglas: parametros tipo lista Select + mapeo de destino form/columna/fijo; IRuleParamOptionsProvider),
+  ab4cb62d (editar la regla desde el chip del disenador, deep-link /reglas?rule=),
+  78bd5875 (mapeo POR FORMULARIO: params_override_json en form_field_rules/form_submit_rules, override OPT-IN del
+  vinculo que pisa por clave los parametros de la regla; NULL = sin cambio; asistente visual en el disenador).
+- MIGRACION DUAL unica y aditiva: AddFormRuleParamsOverride (PG 20261022105751 / SQL 20261022105954), 2 columnas
+  jsonb nullable. Snapshots actualizados.
+- VERIFICACION (toca motor de reglas + vinculos de formulario, COMPARTIDOS): build Release 0 errores;
+  has-pending-model-changes "No changes" en EcorexDbContext (PG) y SqlServerEcorexDbContext; Application.Tests
+  1114/1114; Domain.Tests 35/35; Integration.Tests dual (reglas/verbos/formularios + ValidateOnBuild del host).
+  Merge preserva el trabajo reciente del tronco (form-canvas bandejas, FlowLineRelease, TaskDocuments,
+  EcorexApiFactory No-Op) y suma lo nuevo (RuleParamOptionsProvider, ParamsOverrideJson). SIN deploy.
+
 ## 2026-10-20 - v0.16.213: graficador de formularios - formas Bandeja + cotas arrastrables (form-canvas.js)
 
 - FORMAS NUEVAS "Bandeja" y "Bandeja con pestana" (SHAPES.bandeja + SHAPES.bandeja_pestana + SHAPE_ORDER): X/aspa

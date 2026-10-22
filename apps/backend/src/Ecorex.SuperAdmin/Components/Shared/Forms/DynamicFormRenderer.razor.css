@@ -459,12 +459,24 @@
 .dfr-canvas-pageno { text-align: right; font-size: 11px; color: var(--ink-3, #999); margin-top: 2px; }
 
 /* Campo "Documentos de la tarea" (TaskDocuments): galeria de los adjuntos de la tarea anfitriona. */
-.dfr-taskdocs { }
+.dfr-taskdocs { display: flex; flex-direction: column; gap: 10px; }
 .dfr-taskdocs-empty { font-size: 12.5px; color: var(--ink-3, #9ca3af); padding: 10px 2px; }
-.dfr-taskdocs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
-.dfr-doc-tile { display: flex; flex-direction: column; gap: 6px; text-decoration: none; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 8px; background: var(--surface, #fff); transition: border-color .12s ease, box-shadow .12s ease; }
-.dfr-doc-tile:hover { border-color: var(--brand, #4f46e5); box-shadow: 0 2px 10px rgba(79,70,229,.14); }
-.dfr-doc-thumb { height: 86px; border-radius: 8px; background: var(--surface-3, #f2f4f7); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.dfr-doc-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.dfr-doc-ext { font-weight: 800; font-size: 13px; letter-spacing: .5px; color: #b91c1c; background: #fee2e2; border-radius: 6px; padding: 4px 9px; }
-.dfr-doc-name { font-size: 11.5px; color: var(--ink-2, #4b5563); line-height: 1.3; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dfr-doc-viewerwrap { border: 1px solid var(--line, #e5e7eb); border-radius: 12px; overflow: hidden; background: var(--surface, #fff); }
+.dfr-doc-vbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line, #eef2f7); background: var(--surface-3, #f8fafc); }
+.dfr-doc-vname { font-size: 12.5px; font-weight: 700; color: var(--ink, #111827); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+.dfr-doc-open { font-size: 12px; font-weight: 700; color: var(--brand, #4f46e5); text-decoration: none; white-space: nowrap; }
+.dfr-doc-open:hover { text-decoration: underline; }
+.dfr-doc-viewer { height: 520px; background: #525659; display: flex; align-items: center; justify-content: center; overflow: auto; }
+.dfr-doc-frame { width: 100%; height: 100%; border: 0; }
+.dfr-doc-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.dfr-doc-ext { font-weight: 800; font-size: 12px; letter-spacing: .5px; color: #b91c1c; background: #fee2e2; border-radius: 6px; padding: 3px 7px; }
+/* Tira de miniaturas para cambiar de documento. */
+.dfr-doc-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px; }
+.dfr-doc-sthumb { flex: 0 0 auto; width: 96px; cursor: pointer; border: 1px solid var(--line, #e5e7eb); border-radius: 9px; padding: 6px; background: var(--surface, #fff); display: flex; flex-direction: column; gap: 5px; transition: border-color .12s ease, box-shadow .12s ease; }
+.dfr-doc-sthumb:hover { border-color: var(--brand, #4f46e5); }
+.dfr-doc-sthumb.on { border-color: var(--brand, #4f46e5); box-shadow: 0 0 0 2px rgba(79,70,229,.18); }
+.dfr-doc-sthumb-ic { height: 58px; border-radius: 6px; background: var(--surface-3, #f2f4f7); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.dfr-doc-sthumb-ic img { width: 100%; height: 100%; object-fit: cover; }
+.dfr-doc-sthumb-nm { font-size: 10.5px; color: var(--ink-2, #4b5563); line-height: 1.25; word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dfr-doc-fallback { color: #d7dadd; text-align: center; padding: 28px 16px; font-size: 13px; }
+.dfr-doc-fallback a { color: #fff; text-decoration: underline; font-weight: 700; }

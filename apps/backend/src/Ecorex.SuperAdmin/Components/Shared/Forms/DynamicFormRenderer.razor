@@ -415,6 +415,7 @@ else
     // esta respuesta ya fue "convertida"; la UI lo marca y ofrece reabrir el derivado (idempotente).
     private Ecorex.Application.Forms.DerivedFormRefDto? _derivedRecord;
     private List<Ecorex.Application.Tenancy.TaskItemAttachmentDto> _taskDocs = new();   // adjuntos de la tarea (campo TaskDocuments)
+    private Guid? _taskDocSel;   // documento seleccionado en el visor del campo TaskDocuments
 
     // #8: id unico del contenedor del formulario, usado como raiz del @scope del CSS personalizado.
     private string FormScopeId => $"ecx-form-{(_definition?.Id ?? DefinitionId):N}";
@@ -595,6 +596,7 @@ else
                         && _definition.Questions.Any(q => q.ControlType == FormControlType.TaskDocuments))
                     ? (await TaskDocsSvc.ListByTaskNumberAsync(_response.Reference!)).ToList()
                     : new();
+                _taskDocSel = _taskDocs.FirstOrDefault()?.Id;   // abre el visor en el primer documento
                 // Valor por defecto del disenador (ADR-0021): en Fill y en la vista previa interactiva
                 // (Sandbox), solo campos de captura reales y sin valor previo en el borrador.
                 if (IsEditableMode && !IsLocked)
@@ -1164,7 +1166,8 @@ else
         }
     };
 
-    // Galeria de documentos de la TAREA (campo TaskDocuments). Solo lectura; abre cada archivo en pestana nueva.
+    // Documentos de la TAREA (campo TaskDocuments): VISOR embebido (iframe PDF / imagen) + tira de miniaturas
+    // para cambiar. Solo lectura; se ve el contenido del documento desde el propio formulario.
     private RenderFragment RenderTaskDocuments(FormQuestionDto q) => __builder =>
     {
         <div class="dfr-taskdocs">
@@ -1178,24 +1181,54 @@ else
             }
             else
             {
-                <div class="dfr-taskdocs-grid">
-                    @foreach (var d in _taskDocs)
-                    {
-                        <a class="dfr-doc-tile" href="@d.Url" target="_blank" rel="noopener" title="@d.FileName">
-                            <div class="dfr-doc-thumb">
-                                @if (IsImageDoc(d))
-                                {
-                                    <img src="@d.Url" alt="@d.FileName" loading="lazy" />
-                                }
-                                else
-                                {
-                                    <span class="dfr-doc-ext">@DocExt(d)</span>
-                                }
-                            </div>
-                            <div class="dfr-doc-name">@d.FileName</div>
-                        </a>
-                    }
+                var sel = _taskDocs.FirstOrDefault(x => x.Id == _taskDocSel) ?? _taskDocs[0];
+                <div class="dfr-doc-viewerwrap">
+                    <div class="dfr-doc-vbar">
+                        <span class="dfr-doc-vname" title="@sel.FileName">@sel.FileName</span>
+                        <div style="flex:1"></div>
+                        <a class="dfr-doc-open" href="@sel.Url" target="_blank" rel="noopener">Abrir en pestana &#8599;</a>
+                    </div>
+                    <div class="dfr-doc-viewer">
+                        @if (IsImageDoc(sel))
+                        {
+                            <img src="@sel.Url" alt="@sel.FileName" class="dfr-doc-img" />
+                        }
+                        else if (IsPdfDoc(sel))
+                        {
+                            <object data="@(sel.Url)#view=FitH" type="application/pdf" class="dfr-doc-frame">
+                                <div class="dfr-doc-fallback">
+                                    No se pudo mostrar el PDF aqui.
+                                    <a href="@sel.Url" target="_blank" rel="noopener">Abrir en una pestana</a>.
+                                </div>
+                            </object>
+                        }
+                        else
+                        {
+                            <div class="dfr-taskdocs-empty">Vista previa no disponible para este tipo. <a href="@sel.Url" target="_blank" rel="noopener">Abrir el archivo</a>.</div>
+                        }
+                    </div>
                 </div>
+                @if (_taskDocs.Count > 1)
+                {
+                    <div class="dfr-doc-strip">
+                        @foreach (var d in _taskDocs)
+                        {
+                            <div class="dfr-doc-sthumb @(d.Id == sel.Id ? "on" : "")" @onclick="() => _taskDocSel = d.Id" title="@d.FileName">
+                                <div class="dfr-doc-sthumb-ic">
+                                    @if (IsImageDoc(d))
+                                    {
+                                        <img src="@d.Url" alt="@d.FileName" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="dfr-doc-ext">@DocExt(d)</span>
+                                    }
+                                </div>
+                                <span class="dfr-doc-sthumb-nm">@d.FileName</span>
+                            </div>
+                        }
+                    </div>
+                }
             }
         </div>
     };
@@ -1203,6 +1236,10 @@ else
     private static bool IsImageDoc(Ecorex.Application.Tenancy.TaskItemAttachmentDto d)
         => (d.MimeType ?? string.Empty).StartsWith("image/", StringComparison.OrdinalIgnoreCase)
         || new[] { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp" }.Any(e => (d.FileName ?? string.Empty).EndsWith(e, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsPdfDoc(Ecorex.Application.Tenancy.TaskItemAttachmentDto d)
+        => (d.MimeType ?? string.Empty).Contains("pdf", StringComparison.OrdinalIgnoreCase)
+        || (d.FileName ?? string.Empty).EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
 
     private static string DocExt(Ecorex.Application.Tenancy.TaskItemAttachmentDto d)
     {

@@ -89,6 +89,12 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Config de "Direccionar compra" para el formulario dado (busca la salida cuyo formulario coincide;
     /// si ninguna, cae a la config legacy). Lo usa el verbo DIRECCIONAR_CONCILIADOR para resolver los mapeos por form.</summary>
     Task<DireccionarConfigDto> GetDireccionarByFormAsync(Guid formDefinitionId, CancellationToken ct = default);
+
+    // ---- Asistente de IA del conciliador (agente elegido para apoyar la gestion) ----
+    /// <summary>Id del agente de IA elegido como asistente del conciliador (null si no hay). Por-tenant.</summary>
+    Task<Guid?> GetAsistenteAgentIdAsync(CancellationToken ct = default);
+    /// <summary>Guarda (o limpia con null) el agente de IA asistente del conciliador.</summary>
+    Task SetAsistenteAgentIdAsync(Guid? agentId, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -457,6 +463,30 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SalidasKey, ct);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SalidasKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // ================= Asistente de IA (agente elegido para apoyar el conciliador) =================
+    private const string AsistenteKey = "conciliacion-dian.asistente-ia";
+
+    public async Task<Guid?> GetAsistenteAgentIdAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AsistenteKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return Guid.TryParse(raw, out var g) ? g : null;
+    }
+
+    public async Task SetAsistenteAgentIdAsync(Guid? agentId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteKey, ct);
+        if (agentId is not Guid aid)
+        {
+            if (row is not null) { _db.TenantConfigurations.Remove(row); await _db.SaveChangesAsync(ct); }
+            return;
+        }
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteKey, ConfigValue = aid.ToString() }); }
+        else { row.ConfigValue = aid.ToString(); }
         await _db.SaveChangesAsync(ct);
     }
 }

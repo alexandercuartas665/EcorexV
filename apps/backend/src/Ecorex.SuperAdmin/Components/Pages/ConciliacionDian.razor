@@ -24,6 +24,7 @@
 @inject IFileStorageService Files
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
+@inject IAiAgentService AiAgents
 @inject ITaskItemService Tasks
 @inject IFormResponseService FormResponses
 @inject AuthenticationStateProvider AuthState
@@ -788,6 +789,7 @@ else
             <div class="cd-cfg-tabs">
                 <button class="cd-tab @(_cfgTab == "salidas" ? "on" : "")" @onclick='() => _cfgTab = "salidas"'>Salidas de tarea</button>
                 <button class="cd-tab @(_cfgTab == "reglas" ? "on" : "")" @onclick='() => _cfgTab = "reglas"'>Reglas</button>
+                <button class="cd-tab @(_cfgTab == "asistente" ? "on" : "")" @onclick='() => _cfgTab = "asistente"'>Asistente de IA</button>
             </div>
             @if (_cfgTab == "salidas")
             {
@@ -885,7 +887,7 @@ else
                     <button class="btn btn-primary btn-sm" @onclick="GuardarSalidasAsync" disabled="@_busy">Guardar</button>
                 </div>
             }
-            else
+            else if (_cfgTab == "reglas")
             {
             <div class="cd-rules-body">
                 <div class="cd-rules-tb">
@@ -1024,6 +1026,40 @@ else
                 <div style="flex:1"></div>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
             </div>
+            }
+            else
+            {
+                <div class="cd-rules-body">
+                    <div class="cd-muted" style="margin-bottom:4px;">Elegi el agente de IA que asistira la gestion del conciliador (clasificar, sugerir el direccionamiento de compras, etc.). Se configura aqui; su uso se ira habilitando por paso.</div>
+                    <div class="cd-rule-card">
+                        <div class="cd-rule-grid">
+                            <div class="cd-rule-row">
+                                <label class="cd-rule-lbl">Agente asistente</label>
+                                <select class="cd-in" style="flex:1" @onchange="OnAsistenteChange">
+                                    <option value="">&mdash; Sin asistente &mdash;</option>
+                                    @foreach (var ag in _agentes)
+                                    {
+                                        <option value="@ag.Id" selected="@(_asistenteSel == ag.Id)">@ag.Name@(string.IsNullOrWhiteSpace(ag.Role) ? "" : $" &mdash; {ag.Role}")</option>
+                                    }
+                                </select>
+                            </div>
+                            @if (_agentes.Count == 0)
+                            {
+                                <div class="cd-muted" style="font-size:12px;">No hay agentes de IA creados en este tenant. Crea uno en «Agentes» (Infraestructura IA).</div>
+                            }
+                        </div>
+                    </div>
+                    @if (_cfgMsg is { Length: > 0 })
+                    {
+                        <div class="cd-muted">@_cfgMsg</div>
+                    }
+                </div>
+                <div class="cd-rules-foot">
+                    <span class="cd-muted">El agente elegido queda disponible para los pasos del conciliador que lo usen.</span>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarAsistenteAsync" disabled="@_busy">Guardar</button>
+                </div>
             }
         </div>
     }
@@ -1392,6 +1428,8 @@ else
     private string? _cfgMsg;
     private List<TareaProcesoOpcionDto> _taskSubs = new();          // conceptos 000270 (para los selects de cada salida)
     private List<FormDefinitionListItemDto> _taskForms = new();     // formularios disponibles
+    private List<AiAgentDto> _agentes = new();                      // agentes de IA del tenant (tab Asistente)
+    private Guid? _asistenteSel;                                    // agente asistente elegido
 
     // Un mapeo "Direccionar compra": campo del formulario -> columna del conciliador.
     private sealed class DireEdit { public string FormField { get; set; } = string.Empty; public string Target { get; set; } = string.Empty; }
@@ -1439,6 +1477,8 @@ else
                 _salidas.Add(e);
             }
             await LoadReglasDataAsync();   // contenedores + _ruleList para la pestaña Reglas
+            _agentes = (await AiAgents.ListAsync()).ToList();        // pestaña Asistente de IA
+            _asistenteSel = await TaskCfg.GetAsistenteAgentIdAsync();
             _cfgTab = "salidas";
             _cfgOpen = true;
         }
@@ -1446,6 +1486,21 @@ else
         finally { _busy = false; }
     }
     private void CerrarConfig() => _cfgOpen = false;
+
+    // ---- Asistente de IA ----
+    private void OnAsistenteChange(ChangeEventArgs e) => _asistenteSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private async Task GuardarAsistenteAsync()
+    {
+        _busy = true; _cfgMsg = null;
+        try
+        {
+            await TaskCfg.SetAsistenteAgentIdAsync(_asistenteSel);
+            var nombre = _asistenteSel is Guid a ? _agentes.FirstOrDefault(x => x.Id == a)?.Name : null;
+            _cfgMsg = nombre is null ? "Asistente de IA: sin agente." : $"Asistente de IA guardado: {nombre}.";
+        }
+        catch (Exception ex) { _cfgMsg = "Error al guardar el asistente: " + ex.Message; }
+        finally { _busy = false; }
+    }
 
     private void AddSalida() => _salidas.Add(new SalidaEdit { Id = Guid.CreateVersion7(), Nombre = $"Salida {_salidas.Count + 1}" });
     private void OnSalidaSubChange(SalidaEdit s, ChangeEventArgs e)

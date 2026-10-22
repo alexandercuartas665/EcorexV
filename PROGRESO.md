@@ -27,6 +27,9 @@
   verde "derivada de X" y arista punteada origen->hija; conector FromTable sin edicion por el form generico.
 - PRUEBAS: 30 unit (DerivedRowsBuilderTests) + 4x2 integracion dual PG/SQL Server (DerivedTableTests:
   crear/refrescar/poda/columna propia, un solo nivel, guard de borrado, aislamiento tenant) en verde.
+  Suites completas: Domain 35/35, Application 1144/1144, Integration dual 493/493 (con
+  xunit.maxParallelThreads=3: sin tope, la suite entera levanta decenas de SQL Server a la vez y Docker
+  local (12.5 GB) revienta por timeouts; no es del codigo). dotnet format limpio.
   Validado en navegador (5264, /dev/login BITCODE, contenedor ALEGRA/Items 319 filas -> "Items por
   categoria" 11 grupos, vista previa, creacion, filas reales, "Actualizar datos" 11 actualizadas).
 - COMMITS en rama claude/feat-contenedor-derivado-ea18ad: 7c14f854 (core+migracion+tests), 6ae619a2 (UI),

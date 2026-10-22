@@ -2,6 +2,37 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-22 - Tabla DERIVADA del Contenedor de datos (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: desde el lienzo del contenedor, "Derivar tabla" (boton sigma en cualquier tabla normal) abre un wizard
+  determinista (nombre -> agrupar -> agregados -> filtro -> VISTA PREVIA -> refresco -> crear) que crea una
+  tabla hija MATERIALIZADA (filas reales) agrupando la tabla origen por las columnas marcadas, con agregados
+  (Count siempre; Sum/Avg para numericas; Min/Max para numericas y fechas). Sin agregados = proyeccion
+  distinta. Opcion A del diagnostico (vista virtual descartada: todo lo que lee contenedores espera filas).
+- DOMINIO: ConnectorKind.FromTable ("Desde otra tabla"); DataContainer.DerivedFromContainerId (FK Restrict
+  en ambos motores). Spec tipada DerivationSpec en DataConnector.MappingJson (jsonb). Migracion dual
+  AddDerivedTables (PG 20261022125733 / SQL Server 20261022130043), aplicada en dev local (5442/ecorex).
+- MOTOR: DerivedRowsBuilder (puro, sin EF): normaliza por tipo antes de la clave ("10"=="10.0", fechas ISO,
+  booleanos true/false, texto trim), agrupa, agrega (Count->Number, Sum/Avg->Decimal, Min/Max heredan tipo y
+  comparan por tipo), Avg sin numericos = null. DerivedTableService: vista previa, alta en UNA transaccion
+  (hija + columnas + conector + ImportProcess Upsert por "Clave") y refresco con IRowIngestService + PODA de
+  grupos huerfanos en transaccion. Las columnas PROPIAS de la hija sobreviven al refresco (Upsert conserva
+  celdas no mapeadas). UN SOLO NIVEL (no derivar de derivada) validado en servicio + oculto en lienzo.
+- RUNNER: ProcessRunner.RunNowAsync rama FromTable server-direct con ImportRun (Inserted/Updated/Deleted
+  incl. poda). "Actualizar datos" ahora tambien aparece para procesos server-direct y muestra el desenlace
+  inmediato; resumen de bitacora dice nuevas/actualizadas/borradas.
+- BORRADO: el origen no se borra mientras exista una derivada (mensaje con nombre); borrar la derivada
+  limpia conector + proceso + corridas (cascada diferida).
+- UI: componente aparte Components/Shared/DataContainers/DerivedTableWizard.razor (+css); lienzo con nodo
+  verde "derivada de X" y arista punteada origen->hija; conector FromTable sin edicion por el form generico.
+- PRUEBAS: 30 unit (DerivedRowsBuilderTests) + 4x2 integracion dual PG/SQL Server (DerivedTableTests:
+  crear/refrescar/poda/columna propia, un solo nivel, guard de borrado, aislamiento tenant) en verde.
+  Validado en navegador (5264, /dev/login BITCODE, contenedor ALEGRA/Items 319 filas -> "Items por
+  categoria" 11 grupos, vista previa, creacion, filas reales, "Actualizar datos" 11 actualizadas).
+- COMMITS en rama claude/feat-contenedor-derivado-ea18ad: 7c14f854 (core+migracion+tests), 6ae619a2 (UI),
+  + ADR/PROGRESO. NO mergeado al tronco, NO desplegado, sin push (pendiente OK del usuario).
+- PENDIENTE / fase 2: chat IA asistido para armar la derivacion (fuera de alcance a proposito).
+
 ## 2026-10-20 - v0.16.213: graficador de formularios - formas Bandeja + cotas arrastrables (form-canvas.js)
 
 - FORMAS NUEVAS "Bandeja" y "Bandeja con pestana" (SHAPES.bandeja + SHAPES.bandeja_pestana + SHAPE_ORDER): X/aspa

@@ -1460,7 +1460,8 @@ else
 
     private static string RunSummary(ImportRunDto r) => r.Result switch
     {
-        ImportRunResult.Ok => $"{r.Inserted} filas" + (r.Deleted > 0 ? $" (reemplazo {r.Deleted})" : ""),
+        // Upsert (REST o derivada): "0 filas" con 11 actualizadas enganaba; se dicen las tres cifras cuando aplican.
+        ImportRunResult.Ok => $"{r.Inserted} nueva(s)" + (r.Updated > 0 ? $", {r.Updated} actualizada(s)" : "") + (r.Deleted > 0 ? $", {r.Deleted} borrada(s)" : ""),
         ImportRunResult.Running => "ejecutando...",
         ImportRunResult.PendingOffline => "agente offline; se reintentara",
         _ => r.Detail ?? r.Result.ToString()

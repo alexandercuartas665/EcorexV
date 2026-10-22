@@ -140,7 +140,7 @@
                     @if (_preview is not null)
                     {
                         <div class="text-muted dtw-help">
-                            @_preview.TotalGroups grupo(s) en total &#183; @_preview.SourceRowsRead fila(s) leidas del origen@(_preview.SourceRowsAfterFilter != _preview.SourceRowsRead ? $" · {_preview.SourceRowsAfterFilter} tras el filtro" : "")
+                            @_preview.TotalGroups grupo(s) en total &#183; @_preview.SourceRowsRead fila(s) leidas del origen@(_preview.SourceRowsAfterFilter != _preview.SourceRowsRead ? $" &#183; {_preview.SourceRowsAfterFilter} tras el filtro" : "")
                         </div>
                         <div class="dtw-preview-wrap">
                             <table class="dtw-preview">
@@ -148,7 +148,7 @@
                                     <tr>
                                         @foreach (var c in _preview.Columns)
                                         {
-                                            <th>@c.Name <span class="dc-th-type">@TypeLabel(c.Type)@(c.Role == DerivedColumnRole.Key ? " · clave" : "")</span></th>
+                                            <th>@c.Name <span class="dc-th-type">@TypeLabel(c.Type)@(c.Role == DerivedColumnRole.Key ? " &#183; clave" : "")</span></th>
                                         }
                                     </tr>
                                 </thead>

@@ -80,7 +80,9 @@ public sealed class RulesEngine : IRulesEngine
                 $"Verbo no registrado en el catalogo: {rule.VerbName}.");
         }
 
-        var (parameters, paramsError) = ParseParams(rule.ParamsJson);
+        // Mezcla el override POR FORMULARIO (del vinculo) sobre los parametros de la regla (override gana por clave).
+        var effectiveParamsJson = MergeParams(rule.ParamsJson, invocation.ParamsOverrideJson);
+        var (parameters, paramsError) = ParseParams(effectiveParamsJson);
         if (paramsError is not null)
         {
             var failed = await WriteLogAsync(rule, invocation, RuleExecutionStatus.Failed,
@@ -138,27 +140,28 @@ public sealed class RulesEngine : IRulesEngine
         Guid? actorUserId = null, string actorName = "Sistema",
         CancellationToken cancellationToken = default)
     {
-        var ruleIds = await _db.FormFieldRules
+        var ruleRows = await _db.FormFieldRules
             .Where(l => l.FormQuestionId == formQuestionId)
-            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l.SortOrder, Rule = r })
+            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l.SortOrder, l.ParamsOverrideJson, Rule = r })
             .Where(x => x.Rule.Status == RuleStatus.Active)
             .Join(_db.RuleDocuments, x => x.Rule.DocumentId, d => d.Id,
-                (x, d) => new { x.SortOrder, x.Rule.Id, Document = d })
+                (x, d) => new { x.SortOrder, x.ParamsOverrideJson, x.Rule.Id, Document = d })
             .Where(x => x.Document.Status == RuleStatus.Active && !x.Document.IsArchived)
             .OrderBy(x => x.SortOrder)
-            .Select(x => x.Id)
+            .Select(x => new { x.Id, x.ParamsOverrideJson })
             .ToListAsync(cancellationToken);
 
         var executions = new List<RuleExecutionOutcome>();
         var actions = new List<RuleAction>();
         var currentData = new Dictionary<string, string?>(formData, StringComparer.Ordinal);
-        foreach (var ruleId in ruleIds)
+        foreach (var row in ruleRows)
         {
-            var result = await ExecuteRuleAsync(ruleId, new RuleInvocation(
+            var result = await ExecuteRuleAsync(row.Id, new RuleInvocation(
                 RuleTriggerKind.FormField, currentData,
                 FormResponseId: formResponseId,
                 ExecutedByTenantUserId: executedByTenantUserId,
-                ActorUserId: actorUserId, ActorName: actorName), cancellationToken);
+                ActorUserId: actorUserId, ActorName: actorName,
+                ParamsOverrideJson: row.ParamsOverrideJson), cancellationToken);
             if (result.Value is not RuleExecutionOutcome outcome)
             {
                 continue;
@@ -181,27 +184,28 @@ public sealed class RulesEngine : IRulesEngine
         Guid? actorUserId = null, string actorName = "Formulario",
         CancellationToken cancellationToken = default)
     {
-        var ruleIds = await _db.FormSubmitRules
+        var ruleRows = await _db.FormSubmitRules
             .Where(l => l.DefinitionId == definitionId)
-            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l.SortOrder, Rule = r })
+            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l.SortOrder, l.ParamsOverrideJson, Rule = r })
             .Where(x => x.Rule.Status == RuleStatus.Active)
             .Join(_db.RuleDocuments, x => x.Rule.DocumentId, d => d.Id,
-                (x, d) => new { x.SortOrder, x.Rule.Id, Document = d })
+                (x, d) => new { x.SortOrder, x.ParamsOverrideJson, x.Rule.Id, Document = d })
             .Where(x => x.Document.Status == RuleStatus.Active && !x.Document.IsArchived)
             .OrderBy(x => x.SortOrder)
-            .Select(x => x.Id)
+            .Select(x => new { x.Id, x.ParamsOverrideJson })
             .ToListAsync(cancellationToken);
 
         var executions = new List<RuleExecutionOutcome>();
         var actions = new List<RuleAction>();
         var currentData = new Dictionary<string, string?>(formData, StringComparer.Ordinal);
-        foreach (var ruleId in ruleIds)
+        foreach (var row in ruleRows)
         {
-            var result = await ExecuteRuleAsync(ruleId, new RuleInvocation(
+            var result = await ExecuteRuleAsync(row.Id, new RuleInvocation(
                 RuleTriggerKind.FormSubmit, currentData,
                 FormResponseId: formResponseId,
                 ExecutedByTenantUserId: executedByTenantUserId,
-                ActorUserId: actorUserId, ActorName: actorName), cancellationToken);
+                ActorUserId: actorUserId, ActorName: actorName,
+                ParamsOverrideJson: row.ParamsOverrideJson), cancellationToken);
             if (result.Value is not RuleExecutionOutcome outcome)
             {
                 continue;
@@ -288,6 +292,30 @@ public sealed class RulesEngine : IRulesEngine
         catch (JsonException ex)
         {
             return (empty, $"ParamsJson invalido: {ex.Message}");
+        }
+    }
+
+    /// <summary>Mezcla el override (del vinculo del formulario) sobre los parametros de la regla: las claves
+    /// de primer nivel del override PISAN a las de la regla. Override vacio -> deja la regla tal cual.</summary>
+    private static string? MergeParams(string? ruleJson, string? overrideJson)
+    {
+        if (string.IsNullOrWhiteSpace(overrideJson)) { return ruleJson; }
+        try
+        {
+            var merged = (System.Text.Json.Nodes.JsonNode.Parse(string.IsNullOrWhiteSpace(ruleJson) ? "{}" : ruleJson!)
+                as System.Text.Json.Nodes.JsonObject) ?? new System.Text.Json.Nodes.JsonObject();
+            if (System.Text.Json.Nodes.JsonNode.Parse(overrideJson!) is System.Text.Json.Nodes.JsonObject ov)
+            {
+                foreach (var kv in ov)
+                {
+                    merged[kv.Key] = kv.Value?.DeepClone();
+                }
+            }
+            return merged.ToJsonString();
+        }
+        catch
+        {
+            return ruleJson; // override corrupto: se ignora y se usan los parametros de la regla
         }
     }
 

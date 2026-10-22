@@ -398,6 +398,22 @@ public sealed class RuleDocumentService : IRuleDocumentService
         return RuleResult<bool>.Ok(true);
     }
 
+    public async Task<string?> GetFieldRuleOverrideAsync(Guid formFieldRuleId, CancellationToken cancellationToken = default)
+        => await _db.FormFieldRules.AsNoTracking()
+            .Where(l => l.Id == formFieldRuleId)
+            .Select(l => l.ParamsOverrideJson)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public async Task<RuleResult<bool>> SetFieldRuleOverrideAsync(
+        Guid formFieldRuleId, string? paramsOverrideJson, CancellationToken cancellationToken = default)
+    {
+        var link = await _db.FormFieldRules.FirstOrDefaultAsync(l => l.Id == formFieldRuleId, cancellationToken);
+        if (link is null) { return RuleResult<bool>.NotFound("Vinculo no encontrado."); }
+        link.ParamsOverrideJson = string.IsNullOrWhiteSpace(paramsOverrideJson) ? null : paramsOverrideJson;
+        await _db.SaveChangesAsync(cancellationToken);
+        return RuleResult<bool>.Ok(true);
+    }
+
     public async Task<RuleResult<QuestionRuleLinkDto>> CreateFieldConditionRuleAsync(
         CreateFieldConditionRequest request, CancellationToken cancellationToken = default)
     {

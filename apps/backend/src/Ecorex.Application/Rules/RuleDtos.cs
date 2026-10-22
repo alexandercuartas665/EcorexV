@@ -210,7 +210,8 @@ public sealed record RuleInvocation(
     Guid? FormResponseId = null,
     Guid? ExecutedByTenantUserId = null,
     Guid? ActorUserId = null,
-    string ActorName = "Sistema")
+    string ActorName = "Sistema",
+    string? ParamsOverrideJson = null)
 {
     public static RuleInvocation Manual(Guid? executedByTenantUserId = null, Guid? actorUserId = null, string actorName = "Sistema")
         => new(RuleTriggerKind.Manual, ExecutedByTenantUserId: executedByTenantUserId,

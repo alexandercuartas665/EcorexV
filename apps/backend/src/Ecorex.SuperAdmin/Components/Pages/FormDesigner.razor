@@ -16,6 +16,7 @@
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
+@inject IRuleParamOptionsProvider RuleOpts
 @inject IFormLookupService LookupSvc
 @inject IMenuConfigService MenuSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
@@ -867,6 +868,17 @@ else
     private List<RuleDto> _ruleOptions = new();
     private Guid? _pickDocId;
     private Guid? _pickRuleId;
+
+    // Asistente de mapeo por formulario (GENERAR_REQUERIMIENTOS).
+    private sealed class MapeoRow { public string Target = ""; public string Kind = "col"; public string Ref = ""; }
+    private bool _mapeoOpen;
+    private Guid _mapeoLinkId;
+    private string _mapeoGrid = "";
+    private string _mapeoOrigen = "";
+    private string? _mapeoError;
+    private List<RuleParamOption> _mapeoOrigenes = new();
+    private List<RuleParamOption> _mapeoCustomTargets = new();
+    private List<MapeoRow> _mapeoRows = new();
 
     // Editor de condicion inline (D4).
     private bool _condOpen;
@@ -2104,6 +2116,118 @@ else
         {
             _busy = false;
         }
+    }
+
+    // ---- Asistente de mapeo por formulario (GENERAR_REQUERIMIENTOS) ----
+    private static readonly RuleParamOption[] _mapeoBaseTargets =
+    {
+        new("descripcion", "Producto / descripcion"),
+        new("cantidad", "Cantidad"),
+        new("unidad", "Unidad"),
+        new("fecha", "Fecha requerida"),
+        new("area", "Area solicitante"),
+    };
+    private IReadOnlyList<RuleParamOption> MapeoTargets()
+        => _mapeoBaseTargets.Concat(_mapeoCustomTargets).ToList();
+
+    private IEnumerable<FormGridColumn> MapeoGridCols()
+    {
+        var q = _def?.Questions.FirstOrDefault(x => x.FieldCode == _mapeoGrid && x.ControlType == FormControlType.GridDetail);
+        return q is null ? Enumerable.Empty<FormGridColumn>() : FormGridCalculator.ParseColumns(q.OptionsJson);
+    }
+    private IEnumerable<FormQuestionDto> MapeoHeaderFields()
+        => _def?.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType) && x.ControlType != FormControlType.GridDetail)
+               .OrderBy(x => x.SortOrder) ?? Enumerable.Empty<FormQuestionDto>();
+
+    private void MapeoTargetChanged(MapeoRow row, ChangeEventArgs e) => row.Target = e.Value?.ToString() ?? "";
+    private void MapeoKindChanged(MapeoRow row, ChangeEventArgs e) { row.Kind = e.Value?.ToString() ?? "col"; row.Ref = ""; }
+    private void MapeoRefChanged(MapeoRow row, ChangeEventArgs e) => row.Ref = e.Value?.ToString() ?? "";
+    private void MapeoRemoveRow(int idx) { if (idx >= 0 && idx < _mapeoRows.Count) { _mapeoRows.RemoveAt(idx); } }
+
+    private async Task OpenMapeoAssistantAsync(QuestionRuleLinkDto link)
+    {
+        _mapeoError = null;
+        _mapeoLinkId = link.Id;
+        _rulePickerOpen = false;
+        _mapeoGrid = ""; _mapeoOrigen = ""; _mapeoRows = new();
+        try { _mapeoOrigenes = (await RuleOpts.GetOptionsAsync("requerimiento-origenes")).ToList(); } catch { _mapeoOrigenes = new(); }
+        try { _mapeoCustomTargets = (await RuleOpts.GetOptionsAsync("requerimiento-campos-padre")).ToList(); } catch { _mapeoCustomTargets = new(); }
+        var existing = await RulesSvc.GetFieldRuleOverrideAsync(link.Id);
+        if (!string.IsNullOrWhiteSpace(existing)) { LoadMapeoFromJson(existing!); }
+        else { AutoSuggestMapeo(); }
+        _mapeoOpen = true;
+    }
+
+    private void LoadMapeoFromJson(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("tableField", out var tf) && tf.ValueKind == System.Text.Json.JsonValueKind.String) { _mapeoGrid = tf.GetString() ?? ""; }
+            if (root.TryGetProperty("origenId", out var oi) && oi.ValueKind == System.Text.Json.JsonValueKind.String) { _mapeoOrigen = oi.GetString() ?? ""; }
+            _mapeoRows = new();
+            if (root.TryGetProperty("mapeo", out var mp) && mp.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in mp.EnumerateObject())
+                {
+                    var expr = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? (p.Value.GetString() ?? "") : p.Value.GetRawText();
+                    var i = expr.IndexOf(':');
+                    _mapeoRows.Add(new MapeoRow { Target = p.Name, Kind = i >= 0 ? expr[..i] : "fixed", Ref = i >= 0 ? expr[(i + 1)..] : expr });
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void AutoSuggestMapeo()
+    {
+        // Elige la primera grilla si no hay una.
+        if (string.IsNullOrWhiteSpace(_mapeoGrid))
+        {
+            _mapeoGrid = _def?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail)?.FieldCode ?? "";
+        }
+        var cols = MapeoGridCols().ToList();
+        string? ColLike(params string[] needles) => cols.FirstOrDefault(c => needles.Any(n =>
+            c.Id.Contains(n, StringComparison.OrdinalIgnoreCase) || c.Label.Contains(n, StringComparison.OrdinalIgnoreCase)))?.Id;
+        var rows = new List<MapeoRow>();
+        void AddCol(string target, string? col) { if (!string.IsNullOrWhiteSpace(col)) { rows.Add(new MapeoRow { Target = target, Kind = "col", Ref = col! }); } }
+        AddCol("descripcion", ColLike("producto", "descrip", "material", "item"));
+        AddCol("cantidad", ColLike("cantidad", "cant", "qty"));
+        AddCol("unidad", ColLike("unidad", "und", "um"));
+        AddCol("fecha", ColLike("fecha", "requerida"));
+        // Area: un campo de cabecera que se llame area.
+        var areaField = MapeoHeaderFields().FirstOrDefault(f =>
+            f.FieldCode.Contains("area", StringComparison.OrdinalIgnoreCase) || f.Label.Contains("area", StringComparison.OrdinalIgnoreCase) || f.Label.Contains("área", StringComparison.OrdinalIgnoreCase));
+        if (areaField is not null) { rows.Add(new MapeoRow { Target = "area", Kind = "field", Ref = areaField.FieldCode }); }
+        _mapeoRows = rows;
+    }
+
+    private async Task SaveMapeoAsync()
+    {
+        _mapeoError = null;
+        if (string.IsNullOrWhiteSpace(_mapeoGrid)) { _mapeoError = "Elige la grilla de origen."; return; }
+        _busy = true;
+        try
+        {
+            var obj = new System.Text.Json.Nodes.JsonObject
+            {
+                ["tableField"] = _mapeoGrid,
+            };
+            if (!string.IsNullOrWhiteSpace(_mapeoOrigen)) { obj["origenId"] = _mapeoOrigen; }
+            var mapeo = new System.Text.Json.Nodes.JsonObject();
+            foreach (var row in _mapeoRows)
+            {
+                if (string.IsNullOrWhiteSpace(row.Target) || string.IsNullOrWhiteSpace(row.Ref)) { continue; }
+                mapeo[row.Target] = $"{row.Kind}:{row.Ref}";
+            }
+            if (mapeo.Count > 0) { obj["mapeo"] = mapeo; }
+            var result = await RulesSvc.SetFieldRuleOverrideAsync(_mapeoLinkId, obj.ToJsonString());
+            if (!result.IsOk) { _mapeoError = result.Error; return; }
+            _mapeoOpen = false;
+        }
+        catch (Exception ex) { _mapeoError = ex.Message; }
+        finally { _busy = false; }
     }
 
     private async Task SaveConditionAsync(Node n)
@@ -3645,8 +3769,17 @@ else
                         <div class="fb-rule-verb">@link.VerbName</div>
                         <div class="fb-rule-trigger">Al cambiar - @link.DocumentCode @link.RuleName</div>
                     </div>
-                    <a class="fb-rule-edit" href="@($"/reglas?rule={link.RuleId}")" target="_blank" title="Editar los parametros y el mapeo de esta regla"
-                       style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);text-decoration:none;margin-right:8px;white-space:nowrap;">Editar</a>
+                    @if (link.VerbName == "GENERAR_REQUERIMIENTOS_DESDE_TABLA")
+                    {
+                        <button class="fb-rule-edit" title="Configurar el mapeo de esta regla para ESTE formulario (asistente visual)"
+                                style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);background:none;border:none;cursor:pointer;margin-right:8px;white-space:nowrap;"
+                                @onclick="@(() => OpenMapeoAssistantAsync(link))">Configurar mapeo</button>
+                    }
+                    else
+                    {
+                        <a class="fb-rule-edit" href="@($"/reglas?rule={link.RuleId}")" target="_blank" title="Editar los parametros y el mapeo de esta regla"
+                           style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);text-decoration:none;margin-right:8px;white-space:nowrap;">Editar</a>
+                    }
                     <span class="fb-rule-x" @onclick="@(() => UnlinkRuleAsync(node, link.Id))">&times;</span>
                 </div>
             }
@@ -3689,6 +3822,87 @@ else
         else
         {
             <button class="fb-rule-add" @onclick="OpenRulePickerAsync">+ Vincular regla existente</button>
+        }
+
+        @* Asistente de MAPEO por formulario (GENERAR_REQUERIMIENTOS): grilla + origen + destinos,
+           con los campos/columnas REALES de este formulario. Guarda un override en el vinculo. *@
+        @if (_mapeoOpen)
+        {
+            <div class="fb-rule-picker" style="margin-top:10px;">
+                <div class="fb-rules-desc" style="font-weight:700;margin-bottom:6px;">Mapeo de requerimientos (solo este formulario)</div>
+                <div class="fb-field">
+                    <label>Grilla de origen (cada fila es una necesidad)</label>
+                    <select class="fb-select" value="@_mapeoGrid" @onchange="@(e => _mapeoGrid = e.Value?.ToString() ?? "")">
+                        <option value="">Selecciona la tabla...</option>
+                        @foreach (var g in _def.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+                        {
+                            <option value="@g.FieldCode" selected="@(g.FieldCode == _mapeoGrid)">@g.Label</option>
+                        }
+                    </select>
+                </div>
+                <div class="fb-field">
+                    <label>Origen (proceso de compra/cotizacion)</label>
+                    <select class="fb-select" value="@_mapeoOrigen" @onchange="@(e => _mapeoOrigen = e.Value?.ToString() ?? "")">
+                        <option value="">(sin origen)</option>
+                        @foreach (var o in _mapeoOrigenes)
+                        {
+                            <option value="@o.Value" selected="@(o.Value == _mapeoOrigen)">@o.Label</option>
+                        }
+                    </select>
+                </div>
+                <label style="font-size:11px;font-weight:700;color:var(--ink-3,#9ca3af);text-transform:uppercase;letter-spacing:.04em;">Datos de la necesidad</label>
+                @for (var mi = 0; mi < _mapeoRows.Count; mi++)
+                {
+                    var row = _mapeoRows[mi]; var idx = mi;
+                    var isCol = row.Kind == "col"; var isField = row.Kind == "field"; var isFixed = row.Kind == "fixed";
+                    <div style="display:flex;gap:6px;align-items:center;margin:6px 0;">
+                        <select class="fb-select" style="flex:1.1;" @onchange="@(e => MapeoTargetChanged(row, e))">
+                            <option value="">Destino...</option>
+                            @foreach (var t in MapeoTargets())
+                            {
+                                <option value="@t.Value" selected="@(t.Value == row.Target)">@t.Label</option>
+                            }
+                        </select>
+                        <select class="fb-select" style="flex:1;" @onchange="@(e => MapeoKindChanged(row, e))">
+                            <option value="col" selected="@isCol">Columna del grid</option>
+                            <option value="field" selected="@isField">Campo del formulario</option>
+                            <option value="fixed" selected="@isFixed">Valor fijo</option>
+                        </select>
+                        @if (isFixed)
+                        {
+                            <input class="fb-select" style="flex:1;" placeholder="valor" value="@row.Ref" @onchange="@(e => MapeoRefChanged(row, e))" />
+                        }
+                        else if (isField)
+                        {
+                            <select class="fb-select" style="flex:1;" @onchange="@(e => MapeoRefChanged(row, e))">
+                                <option value="">Campo...</option>
+                                @foreach (var f in MapeoHeaderFields())
+                                {
+                                    <option value="@f.FieldCode" selected="@(f.FieldCode == row.Ref)">@f.Label</option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            <select class="fb-select" style="flex:1;" @onchange="@(e => MapeoRefChanged(row, e))">
+                                <option value="">Columna...</option>
+                                @foreach (var c in MapeoGridCols())
+                                {
+                                    <option value="@c.Id" selected="@(c.Id == row.Ref)">@c.Label</option>
+                                }
+                            </select>
+                        }
+                        <span class="fb-rule-x" title="Quitar" @onclick="@(() => MapeoRemoveRow(idx))">&times;</span>
+                    </div>
+                }
+                <button class="fb-rule-add" @onclick="@(() => _mapeoRows.Add(new MapeoRow()))">+ Agregar dato</button>
+                @if (_mapeoError is not null) { <div style="color:#b91c1c;font-size:12px;margin-top:6px;">@_mapeoError</div> }
+                <div style="display:flex;gap:8px;margin-top:10px;">
+                    <button class="fb-btn-ghost" title="Sugerir el mapeo por el nombre de columnas/campos" @onclick="AutoSuggestMapeo">Auto-sugerir</button>
+                    <button class="fb-btn-ghost" style="flex:1;" @onclick="@(() => _mapeoOpen = false)">Cancelar</button>
+                    <button class="fb-btn-primary" style="flex:1;" disabled="@(_busy || string.IsNullOrWhiteSpace(_mapeoGrid))" @onclick="SaveMapeoAsync">Guardar</button>
+                </div>
+            </div>
         }
 
         @* D4: autoria inline de una condicion "si campo = valor -> mostrar/ocultar/requerir otro".

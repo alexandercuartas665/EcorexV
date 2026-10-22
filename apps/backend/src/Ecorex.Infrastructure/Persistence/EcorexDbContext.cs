@@ -2145,6 +2145,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.FormQuestionId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Rule).WithMany()
                 .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.Property(x => x.ParamsOverrideJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.FormQuestionId, x.RuleId }).IsUnique();
             b.HasIndex(x => x.RuleId);
         });
@@ -2156,6 +2157,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Rule).WithMany()
                 .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.Property(x => x.ParamsOverrideJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.DefinitionId, x.RuleId }).IsUnique();
             b.HasIndex(x => x.RuleId);
         });

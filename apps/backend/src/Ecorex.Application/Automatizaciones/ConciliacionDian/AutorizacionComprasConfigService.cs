@@ -38,11 +38,15 @@ public sealed record SalidaFlujoDto(
     bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps);
 
 /// <summary>
-/// Regla del asistente de IA POR PROVEEDOR: cuando el agente procesa una factura de ese proveedor, usa esta
-/// instruccion (prompt) para validar los datos del documento y elegir la ruta/salida de flujo de proceso.
-/// Es solo configuracion (el cableado de la IA viene despues). Proveedor = NIT o nombre (texto libre).
+/// Regla del asistente de IA POR PROVEEDOR: cuando el agente procesa una factura de ese proveedor, valida con la
+/// instruccion (prompt) SI la regla se cumple (si/no); si se cumple, se aplica la asignacion PRE-ELEGIDA aqui:
+/// el usuario (<see cref="AssignUserId"/>) y/o la salida/concepto de actividad (<see cref="SalidaId"/>). Asi el
+/// agente solo decide si la condicion se cumple y el "selector" ya esta resuelto por configuracion. Es solo
+/// configuracion (el cableado de la IA viene despues). Proveedor = NIT o nombre (texto libre).
 /// </summary>
-public sealed record AsistenteProveedorReglaDto(Guid Id, string Proveedor, string Prompt);
+public sealed record AsistenteProveedorReglaDto(
+    Guid Id, string Proveedor, string Prompt,
+    Guid? AssignUserId = null, Guid? SalidaId = null);
 
 /// <summary>
 /// Configuracion POR TENANT del modulo de autorizacion. Guarda en TenantConfiguration (clave/valor, JSON) la
@@ -521,7 +525,8 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .Where(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt))
             .Select(r => new AsistenteProveedorReglaDto(
                 r.Id == Guid.Empty ? Guid.CreateVersion7() : r.Id,
-                (r.Proveedor ?? string.Empty).Trim(), (r.Prompt ?? string.Empty).Trim()))
+                (r.Proveedor ?? string.Empty).Trim(), (r.Prompt ?? string.Empty).Trim(),
+                r.AssignUserId, r.SalidaId))
             .ToList();
         var json = JsonSerializer.Serialize(clean);
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteReglasKey, ct);

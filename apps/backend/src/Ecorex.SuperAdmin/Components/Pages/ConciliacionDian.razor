@@ -1076,7 +1076,26 @@ else
                                 <div class="cd-rule-row" style="align-items:flex-start;">
                                     <label class="cd-rule-lbl" style="padding-top:6px;">Instruccion</label>
                                     <textarea class="cd-in" style="flex:1; min-height:72px; resize:vertical;" @onchange="e => rg.Prompt = e.Value?.ToString() ?? string.Empty"
-                                              placeholder="Ej: valida los datos del documento de este proveedor y selecciona la ruta de flujo adecuada (p. ej. si el total supera X o el concepto es Y, usa la salida Z).">@rg.Prompt</textarea>
+                                              placeholder="Ej: valida los datos del documento de este proveedor y responde SI cuando corresponda esta regla (p. ej. si el total supera X o el concepto es Y).">@rg.Prompt</textarea>
+                                </div>
+                                <div class="cd-rule-sub">Si la regla se cumple, asignar:</div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Usuario</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => rg.AssignUserId = Guid.TryParse(e.Value?.ToString(), out var gu) ? gu : null">
+                                        <option value="" selected="@(rg.AssignUserId is null)">&mdash; Sin asignar usuario &mdash;</option>
+                                        @foreach (var u in _usuarios)
+                                        {
+                                            <option value="@u.Id" selected="@(rg.AssignUserId == u.Id)">@UserLabel(u)</option>
+                                        }
+                                    </select>
+                                    <label class="cd-rule-lbl">Concepto (salida)</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => rg.SalidaId = Guid.TryParse(e.Value?.ToString(), out var gs) ? gs : null">
+                                        <option value="" selected="@(rg.SalidaId is null)">&mdash; Sin salida &mdash;</option>
+                                        @foreach (var s in _salidasRun)
+                                        {
+                                            <option value="@s.Id" selected="@(rg.SalidaId == s.Id)">@s.Nombre@(s.Categoria is null ? "" : $" ({s.Categoria} › {s.Subcategoria})")</option>
+                                        }
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -1465,7 +1484,7 @@ else
     private List<AiAgentDto> _agentes = new();                      // agentes de IA del tenant (tab Asistente)
     private Guid? _asistenteSel;                                    // agente asistente elegido
     // Regla del asistente por proveedor: proveedor (NIT o nombre) + prompt para elegir la ruta de flujo.
-    private sealed class AsisReglaEdit { public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty; }
+    private sealed class AsisReglaEdit { public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty; public Guid? AssignUserId { get; set; } public Guid? SalidaId { get; set; } }
     private List<AsisReglaEdit> _asisReglas = new();
 
     // Un mapeo "Direccionar compra": campo del formulario -> columna del conciliador.
@@ -1517,7 +1536,7 @@ else
             _agentes = (await AiAgents.ListAsync()).ToList();        // pestaña Asistente de IA
             _asistenteSel = await TaskCfg.GetAsistenteAgentIdAsync();
             _asisReglas = (await TaskCfg.GetAsistenteReglasAsync())
-                .Select(r => new AsisReglaEdit { Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt }).ToList();
+                .Select(r => new AsisReglaEdit { Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt, AssignUserId = r.AssignUserId, SalidaId = r.SalidaId }).ToList();
             _cfgTab = "salidas";
             _cfgOpen = true;
         }
@@ -1539,7 +1558,7 @@ else
         {
             await TaskCfg.SetAsistenteAgentIdAsync(_asistenteSel);
             await TaskCfg.SaveAsistenteReglasAsync(_asisReglas
-                .Select(r => new AsistenteProveedorReglaDto(r.Id, r.Proveedor, r.Prompt)).ToList());
+                .Select(r => new AsistenteProveedorReglaDto(r.Id, r.Proveedor, r.Prompt, r.AssignUserId, r.SalidaId)).ToList());
             var nombre = _asistenteSel is Guid a ? _agentes.FirstOrDefault(x => x.Id == a)?.Name : null;
             var n = _asisReglas.Count(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt));
             _cfgMsg = (nombre is null ? "Asistente sin agente" : $"Asistente: {nombre}") + $" · {n} regla(s) por proveedor guardada(s).";

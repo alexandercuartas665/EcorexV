@@ -68,13 +68,17 @@ public sealed class DataModelService : IDataModelService
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
 
+        var nameById = tables.ToDictionary(t => t.Id, t => t.Name);
         var tableDtos = new List<ModelTableDto>(tables.Count);
         foreach (var t in tables)
         {
             // Reusa el detalle de tabla (resuelve ChildContainerName/ReferencedContainerName).
             var detail = await _containers.GetAsync(t.Id, ct);
             var columns = detail?.Columns ?? Array.Empty<DataContainerColumnDto>();
-            tableDtos.Add(new ModelTableDto(t.Id, t.Name, t.Description, t.CanvasX, t.CanvasY, columns));
+            // Derivada (ADR-0127): el origen vive en el mismo contenedor, asi que su nombre ya esta en memoria.
+            string? derivedFromName = t.DerivedFromContainerId is Guid src && nameById.TryGetValue(src, out var n) ? n : null;
+            tableDtos.Add(new ModelTableDto(t.Id, t.Name, t.Description, t.CanvasX, t.CanvasY, columns,
+                t.DerivedFromContainerId, derivedFromName));
         }
 
         // Relaciones = aristas del ER (entidad DataModelRelation) del modelo.

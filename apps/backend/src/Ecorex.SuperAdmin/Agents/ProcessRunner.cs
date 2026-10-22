@@ -39,6 +39,7 @@ public sealed class ProcessRunner(
     IAgentRegistry registry,
     IAgentImportService imports,
     IApiImportService api,
+    IDerivedTableService derived,
     IImportRunLog runLog) : IProcessRunner
 {
     public async Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
@@ -63,13 +64,21 @@ public sealed class ProcessRunner(
 
         var connector = await db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(c => c.Id == connectorId, ct);
         if (connector is null) { return new(false, null, "El conector ya no existe."); }
-        if (connector.Kind != ConnectorKind.Database && connector.Kind != ConnectorKind.RestApi)
+        if (connector.Kind is not (ConnectorKind.Database or ConnectorKind.RestApi or ConnectorKind.FromTable))
         {
-            return new(false, null, $"Solo los conectores de tipo Base de datos o API REST se pueden refrescar (este es {connector.Kind}).");
+            return new(false, null, $"Solo los conectores de tipo Base de datos, API REST o Desde otra tabla se pueden refrescar (este es {connector.Kind}).");
         }
         if (connector.ContainerId is not Guid targetTableId)
         {
             return new(false, null, "El conector no tiene TABLA destino: eligela en el conector para poder refrescar solo.");
+        }
+
+        // FromTable (ADR-0127) -> SERVER-DIRECT siempre (el origen es otra tabla del mismo contenedor; no
+        // hay nada que pedirle a un agente). Abre la corrida, corre motor + ingesta con el Mode/KeyColumn
+        // persistidos y la cierra sincronicamente con Inserted/Updated/Deleted (Deleted incluye la poda).
+        if (connector.Kind == ConnectorKind.FromTable)
+        {
+            return await RunFromTableAsync(process, connector, trigger, firedAt, ct);
         }
 
         // RestApi -> DOS caminos (ADR-0061):
@@ -354,6 +363,52 @@ public sealed class ProcessRunner(
         }
 
         return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
+    }
+
+    /// <summary>
+    /// Refresca una tabla DERIVADA (conector FromTable, ADR-0127). Mismo contrato de bitacora que el REST
+    /// server-direct: la corrida se abre ANTES de calcular (idempotente por ventana) y se cierra con el
+    /// desenlace real. Las validaciones de la spec (origen existe, no es derivado, columnas existen) las
+    /// hace el servicio y vuelven como error legible en la corrida.
+    /// </summary>
+    private async Task<RunProcessResult> RunFromTableAsync(
+        Domain.Entities.ImportProcess process, Domain.Entities.DataConnector connector,
+        ImportRunTrigger trigger, DateTimeOffset? firedAt, CancellationToken ct)
+    {
+        var correlationId = AgentImportService.NewCorrelationId();
+        var window = firedAt ?? DateTimeOffset.UtcNow;
+
+        var runId = await runLog.OpenAsync(process.Id, trigger, window, correlationId, ct);
+        if (runId is null)
+        {
+            return new(false, null, "Esa ejecucion ya la tomo otro proceso.");
+        }
+
+        DerivedRefreshOutcome outcome;
+        try
+        {
+            outcome = await derived.RefreshAsync(connector.Id, (ApiImportMode)process.Mode, process.KeyColumn, ct);
+        }
+        catch (Exception ex)
+        {
+            await runLog.FailAsync(runId.Value, $"No se pudo refrescar la tabla derivada: {ex.Message}", ct);
+            return new(false, correlationId, $"No se pudo refrescar la tabla derivada: {ex.Message}");
+        }
+
+        await runLog.CloseAsync(correlationId, outcome.Success, outcome.Inserted, outcome.Updated, outcome.Deleted, outcome.Error, ct);
+
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == process.Id, ct);
+        if (tracked is not null)
+        {
+            tracked.LastRunAt = window;
+            tracked.PendingSince = null;
+            await db.SaveChangesAsync(ct);
+        }
+
+        var msg = outcome.Success
+            ? $"Derivada refrescada: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
+            : (outcome.Error ?? "El refresco no trajo resultados.");
+        return new(outcome.Success, correlationId, msg);
     }
 
     /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el

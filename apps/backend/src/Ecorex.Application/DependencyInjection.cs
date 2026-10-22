@@ -220,6 +220,8 @@ public static class DependencyInjection
         services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();
         services.AddScoped<Agents.IAgentActivityQuery, Agents.AgentActivityQuery>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
+        // Tablas DERIVADAS (ADR-0127): vista previa, alta transaccional y refresco (motor + Upsert + poda).
+        services.AddScoped<DataContainers.IDerivedTableService, DataContainers.DerivedTableService>();
         // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
         services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
         // Vinculos dato-a-dato de las relaciones (FASE 2 del rediseno de relaciones).

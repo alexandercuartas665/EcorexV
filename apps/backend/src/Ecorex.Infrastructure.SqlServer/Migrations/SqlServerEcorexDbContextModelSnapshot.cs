@@ -3658,6 +3658,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("DerivedFromContainerId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("derived_from_container_id");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)")
@@ -3724,6 +3728,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasKey("Id")
                         .HasName("pk_data_containers");
 
+                    b.HasIndex("DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_derived_from_container_id");
+
                     b.HasIndex("MenuNodeId")
                         .HasDatabaseName("ix_data_containers_menu_node_id");
 
@@ -3734,6 +3741,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_data_containers_model_id_name")
                         .HasFilter("[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
+
+                    b.HasIndex("TenantId", "DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_tenant_id_derived_from_container_id");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_data_containers_tenant_id_model_id");
@@ -18520,6 +18530,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainer", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "DerivedFromContainer")
+                        .WithMany()
+                        .HasForeignKey("DerivedFromContainerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_data_containers_data_containers_derived_from_container_id");
+
                     b.HasOne("Ecorex.Domain.Entities.MenuNode", "MenuNode")
                         .WithMany()
                         .HasForeignKey("MenuNodeId")
@@ -18537,6 +18553,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasForeignKey("ParentContainerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_data_containers_data_containers_parent_container_id");
+
+                    b.Navigation("DerivedFromContainer");
 
                     b.Navigation("MenuNode");
 

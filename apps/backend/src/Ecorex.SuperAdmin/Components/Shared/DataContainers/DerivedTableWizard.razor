@@ -1,0 +1,473 @@
+@using System.Globalization
+@using Ecorex.Application.DataContainers
+@using Ecorex.Domain.Enums
+@inject IDerivedTableService Derived
+@inject Ecorex.SuperAdmin.Agents.IProcessRunner Runner
+
+@*
+    Wizard "Derivar tabla" (ADR-0127): crea, desde una tabla del contenedor, una tabla DERIVADA
+    materializada (agrupada por columnas elegidas, con agregados), con VISTA PREVIA calculada por el
+    MISMO motor del refresco. Vive aparte de ContenedorDatos.razor a proposito (esa pagina ya es enorme).
+    Al crear, en UNA transaccion nacen la tabla hija, sus columnas, el conector FromTable y el proceso
+    (Upsert por "Clave"); luego se dispara el primer refresco por el runner (queda en la bitacora).
+*@
+
+<div class="modal-overlay" style="z-index:1070;">
+    <div class="modal-dialog dtw-dialog" @onclick:stopPropagation="true">
+        <div class="modal-head">
+            <h3>Derivar tabla &#183; desde @Source.Name</h3>
+            <button class="modal-close" @onclick="CloseAsync" disabled="@_busy">&times;</button>
+        </div>
+        <div class="modal-body">
+            <ol class="dtw-steps">
+                @for (var i = 0; i < StepTitles.Length; i++)
+                {
+                    var idx = i;
+                    <li class="@(idx == _step ? "cur" : idx < _step ? "done" : "")" @onclick="() => GoTo(idx)">@StepTitles[idx]</li>
+                }
+            </ol>
+
+            @switch (_step)
+            {
+                case 0:
+                    <div class="field">
+                        <label class="form-label">Nombre de la tabla derivada</label>
+                        <input class="form-control" @bind="_name" maxlength="120" placeholder="Ej. Ventas por ciudad" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Descripcion (opcional)</label>
+                        <input class="form-control" @bind="_description" maxlength="400" />
+                    </div>
+                    <p class="text-muted dtw-help">
+                        La tabla derivada tendra filas REALES calculadas a partir de <strong>@Source.Name</strong>: una fila por cada
+                        combinacion de las columnas de agrupacion. Se refresca con "Actualizar datos" o por horario, y puedes
+                        agregarle columnas propias que sobreviven a cada refresco.
+                    </p>
+                    break;
+
+                case 1:
+                    <div class="dc-section-sub">Agrupar por (marca una o varias)</div>
+                    @if (!ScalarColumns.Any())
+                    {
+                        <div class="text-muted dtw-help">La tabla origen no tiene columnas escalares.</div>
+                    }
+                    <div class="dtw-checks">
+                        @foreach (var col in ScalarColumns)
+                        {
+                            var c = col;
+                            <label class="dtw-check">
+                                <input type="checkbox" checked="@_groupBy.Contains(c.Id)" @onchange="e => ToggleGroup(c.Id, e.Value is true)" />
+                                <span>@c.Name</span> <span class="dc-th-type">@TypeLabel(c.Type)</span>
+                            </label>
+                        }
+                    </div>
+                    <p class="text-muted dtw-help">
+                        Los valores se normalizan antes de agrupar: "10" y "10.0" caen en el mismo grupo, las fechas se
+                        comparan como fecha y los booleanos como si/no. Si no agregas nada en el paso siguiente, la derivada es
+                        la proyeccion DISTINTA de estas columnas.
+                    </p>
+                    break;
+
+                case 2:
+                    <div class="dc-section-sub">Cantidad de filas por grupo (siempre incluida)</div>
+                    <div class="dc-map-row">
+                        <span class="dc-map-col">Count <span class="dc-th-type">num</span></span>
+                        <input class="form-control" @bind="_countName" maxlength="150" placeholder="Nombre de la columna" />
+                    </div>
+                    <div class="dc-section-sub" style="margin-top:10px;">Agregados por columna (opcional)</div>
+                    @if (!AggregatableColumns.Any())
+                    {
+                        <div class="text-muted dtw-help">No hay columnas numericas ni de fecha en el origen.</div>
+                    }
+                    @foreach (var col in AggregatableColumns)
+                    {
+                        var c = col;
+                        <div class="dtw-agg-row">
+                            <div class="dtw-agg-col">@c.Name <span class="dc-th-type">@TypeLabel(c.Type)</span></div>
+                            <div class="dtw-agg-fns">
+                                @foreach (var fn in FnsFor(c.Type))
+                                {
+                                    var f = fn;
+                                    var on = _aggs.TryGetValue((c.Id, f), out _);
+                                    <label class="dtw-check">
+                                        <input type="checkbox" checked="@on" @onchange="e => ToggleAgg(c, f, e.Value is true)" />
+                                        <span>@FnLabel(f)</span>
+                                    </label>
+                                    @if (on)
+                                    {
+                                        <input class="form-control dtw-agg-name" value="@_aggs[(c.Id, f)]" maxlength="150"
+                                               @onchange="e => _aggs[(c.Id, f)] = e.Value?.ToString() ?? string.Empty" />
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                    <p class="text-muted dtw-help">Suma y Promedio producen Decimal; Minimo y Maximo heredan el tipo de la columna.</p>
+                    break;
+
+                case 3:
+                    <div class="dc-section-sub">Filtro previo (opcional): solo entran al calculo las filas que cumplan TODAS las condiciones</div>
+                    @for (var i = 0; i < _filters.Count; i++)
+                    {
+                        var idx = i;
+                        var f = _filters[idx];
+                        <div class="dtw-filter-row">
+                            <select class="form-control" value="@f.ColumnId" @onchange="e => f.ColumnId = e.Value?.ToString() ?? string.Empty">
+                                <option value="">(columna)</option>
+                                @foreach (var col in ScalarColumns) { <option value="@col.Id">@col.Name</option> }
+                            </select>
+                            <select class="form-control" @bind="f.Op">
+                                <option value="@DerivationFilterOp.Equals">es igual a</option>
+                                <option value="@DerivationFilterOp.NotEquals">es distinto de</option>
+                                <option value="@DerivationFilterOp.Contains">contiene</option>
+                                <option value="@DerivationFilterOp.GreaterThan">mayor que</option>
+                                <option value="@DerivationFilterOp.LessThan">menor que</option>
+                                <option value="@DerivationFilterOp.IsEmpty">esta vacio</option>
+                                <option value="@DerivationFilterOp.NotEmpty">no esta vacio</option>
+                            </select>
+                            <input class="form-control" @bind="f.Value" placeholder="valor" disabled="@(f.Op is DerivationFilterOp.IsEmpty or DerivationFilterOp.NotEmpty)" />
+                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => _filters.RemoveAt(idx)">&times;</button>
+                        </div>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _filters.Add(new FilterDraft())">+ Condicion</button>
+                    break;
+
+                case 4:
+                    <div class="dtw-preview-head">
+                        <div class="dc-section-sub" style="margin:0;">Vista previa: primeros 20 grupos</div>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="PreviewAsync" disabled="@_busy">@(_busy ? "Calculando..." : (_preview is null ? "Calcular" : "Recalcular"))</button>
+                    </div>
+                    @if (_preview is not null)
+                    {
+                        <div class="text-muted dtw-help">
+                            @_preview.TotalGroups grupo(s) en total &#183; @_preview.SourceRowsRead fila(s) leidas del origen@(_preview.SourceRowsAfterFilter != _preview.SourceRowsRead ? $" · {_preview.SourceRowsAfterFilter} tras el filtro" : "")
+                        </div>
+                        <div class="dtw-preview-wrap">
+                            <table class="dtw-preview">
+                                <thead>
+                                    <tr>
+                                        @foreach (var c in _preview.Columns)
+                                        {
+                                            <th>@c.Name <span class="dc-th-type">@TypeLabel(c.Type)@(c.Role == DerivedColumnRole.Key ? " · clave" : "")</span></th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (_preview.Rows.Count == 0)
+                                    {
+                                        <tr><td colspan="@_preview.Columns.Count" class="text-muted">Sin grupos (el origen esta vacio o el filtro no deja pasar filas).</td></tr>
+                                    }
+                                    @foreach (var row in _preview.Rows)
+                                    {
+                                        <tr>
+                                            @foreach (var c in _preview.Columns)
+                                            {
+                                                <td>@(row.TryGetValue(c.Name, out var v) ? v : null)</td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case 5:
+                    <div class="dc-section-sub">Cuando se refresca</div>
+                    <select class="form-control" @bind="_recurrence">
+                        <option value="@ScheduleRecurrence.Manual">Manual (solo con "Actualizar datos")</option>
+                        <option value="@ScheduleRecurrence.Daily">Todos los dias</option>
+                        <option value="@ScheduleRecurrence.Weekly">Ciertos dias de la semana</option>
+                        <option value="@ScheduleRecurrence.Monthly">Un dia del mes</option>
+                        <option value="@ScheduleRecurrence.EveryN">Cada cierto tiempo</option>
+                    </select>
+                    @if (_recurrence == ScheduleRecurrence.Weekly)
+                    {
+                        <div class="dc-day-chips">
+                            @foreach (var chip in DayChips)
+                            {
+                                var d = chip.Day;
+                                <button type="button" class="dc-day-chip @(_days.Contains(d) ? "on" : "")" @onclick="() => ToggleDay(d)">@chip.Label</button>
+                            }
+                        </div>
+                    }
+                    @if (_recurrence == ScheduleRecurrence.Monthly)
+                    {
+                        <label class="dc-inline-field">Dia del mes
+                            <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_dayOfMonth" />
+                        </label>
+                    }
+                    @if (_recurrence is ScheduleRecurrence.Daily or ScheduleRecurrence.Weekly or ScheduleRecurrence.Monthly)
+                    {
+                        <label class="dc-inline-field">Hora
+                            <input class="form-control" type="time" style="max-width:130px;" @bind="_time" />
+                        </label>
+                    }
+                    @if (_recurrence == ScheduleRecurrence.EveryN)
+                    {
+                        <div class="dc-inline-field">Cada
+                            <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_everyValue" />
+                            <select class="form-control" style="max-width:130px;" @bind="_everyUnit">
+                                <option value="@ScheduleEveryUnit.Minutes">minutos</option>
+                                <option value="@ScheduleEveryUnit.Hours">horas</option>
+                            </select>
+                        </div>
+                    }
+                    <div class="dc-sched-summary">@FriendlySchedule.DescribeSpec(ScheduleSpec())</div>
+                    <p class="text-muted dtw-help">Al crear se hace un primer refresco inmediato. El modo es Upsert por la columna "Clave": las columnas propias que agregues a la derivada se conservan.</p>
+                    break;
+
+                case 6:
+                    <div class="dc-section-sub">Resumen</div>
+                    <ul class="dtw-summary">
+                        <li><strong>@_name</strong> derivada de <strong>@Source.Name</strong></li>
+                        <li>Agrupa por: @string.Join(", ", GroupNames())</li>
+                        <li>Agregados: @_countName@(_aggs.Count > 0 ? ", " + string.Join(", ", _aggs.Values) : "")</li>
+                        <li>Filtro: @(_filters.Count == 0 ? "ninguno" : $"{_filters.Count} condicion(es)")</li>
+                        <li>Refresco: @FriendlySchedule.DescribeSpec(ScheduleSpec())</li>
+                    </ul>
+                    @if (_created is not null)
+                    {
+                        <div class="dc-flash-ok">Tabla creada. @_runMessage</div>
+                    }
+                    break;
+            }
+
+            @if (_error is not null)
+            {
+                <div class="tk-field-error" style="margin-top:8px;">@_error</div>
+            }
+        </div>
+        <div class="modal-foot">
+            @if (_created is null)
+            {
+                <button class="btn btn-outline-secondary" @onclick="CloseAsync" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-outline-secondary" @onclick="Back" disabled="@(_busy || _step == 0)">Atras</button>
+                @if (_step < StepTitles.Length - 1)
+                {
+                    <button class="btn btn-primary" @onclick="Next" disabled="@_busy">Siguiente</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear tabla derivada")</button>
+                }
+            }
+            else
+            {
+                <button class="btn btn-primary" @onclick="CloseAsync">Cerrar</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid ModelId { get; set; }
+    [Parameter, EditorRequired] public ModelTableDto Source { get; set; } = null!;
+    [Parameter] public Guid ActorUserId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    /// <summary>Se dispara al crear (id de la tabla hija), DESPUES del primer refresco.</summary>
+    [Parameter] public EventCallback<Guid> OnCreated { get; set; }
+
+    private static readonly string[] StepTitles = { "Nombre", "Agrupar", "Agregados", "Filtro", "Vista previa", "Refresco", "Crear" };
+
+    private static readonly (int Day, string Label)[] DayChips =
+    {
+        (1, "L"), (2, "M"), (3, "X"), (4, "J"), (5, "V"), (6, "S"), (0, "D")
+    };
+
+    private int _step;
+    private bool _busy;
+    private string? _error;
+
+    private string _name = "";
+    private string _description = "";
+    private readonly HashSet<Guid> _groupBy = new();
+    private string _countName = "Cantidad";
+    /// <summary>(columna origen, funcion) -> nombre de la columna destino.</summary>
+    private readonly Dictionary<(Guid ColumnId, DerivationFn Fn), string> _aggs = new();
+    private readonly List<FilterDraft> _filters = new();
+    private DerivationPreviewDto? _preview;
+
+    private ScheduleRecurrence _recurrence = ScheduleRecurrence.Manual;
+    private TimeOnly? _time = new TimeOnly(6, 0);
+    private readonly HashSet<int> _days = new();
+    private int? _dayOfMonth = 1;
+    private int? _everyValue = 1;
+    private ScheduleEveryUnit _everyUnit = ScheduleEveryUnit.Hours;
+
+    private DerivedTableCreatedDto? _created;
+    private string? _runMessage;
+
+    private sealed class FilterDraft
+    {
+        public string ColumnId { get; set; } = "";
+        public DerivationFilterOp Op { get; set; } = DerivationFilterOp.Equals;
+        public string? Value { get; set; }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) { _name = $"{Source.Name} agrupada"; }
+    }
+
+    private IEnumerable<DataContainerColumnDto> ScalarColumns
+        => Source.Columns.Where(c => DerivedRowsBuilder.IsScalar(c.Type)).OrderBy(c => c.SortOrder);
+
+    private IEnumerable<DataContainerColumnDto> AggregatableColumns
+        => ScalarColumns.Where(c => DerivedRowsBuilder.IsNumeric(c.Type) || c.Type == DataContainerColumnType.Date);
+
+    private static IEnumerable<DerivationFn> FnsFor(DataContainerColumnType t)
+        => DerivedRowsBuilder.IsNumeric(t)
+            ? new[] { DerivationFn.Sum, DerivationFn.Avg, DerivationFn.Min, DerivationFn.Max }
+            : new[] { DerivationFn.Min, DerivationFn.Max };
+
+    private static string FnLabel(DerivationFn f) => f switch
+    {
+        DerivationFn.Sum => "Suma",
+        DerivationFn.Avg => "Promedio",
+        DerivationFn.Min => "Minimo",
+        DerivationFn.Max => "Maximo",
+        _ => "Cantidad"
+    };
+
+    private static string TypeLabel(DataContainerColumnType t) => t switch
+    {
+        DataContainerColumnType.Text => "texto",
+        DataContainerColumnType.Number => "num",
+        DataContainerColumnType.Decimal => "dec",
+        DataContainerColumnType.Date => "fecha",
+        DataContainerColumnType.Boolean => "bool",
+        _ => t.ToString().ToLowerInvariant()
+    };
+
+    private IEnumerable<string> GroupNames()
+        => ScalarColumns.Where(c => _groupBy.Contains(c.Id)).Select(c => c.Name);
+
+    private void ToggleGroup(Guid id, bool on)
+    {
+        if (on) { _groupBy.Add(id); } else { _groupBy.Remove(id); }
+        _preview = null;
+    }
+
+    private void ToggleAgg(DataContainerColumnDto col, DerivationFn fn, bool on)
+    {
+        var key = (col.Id, fn);
+        if (on) { _aggs[key] = $"{FnLabel(fn)} {col.Name}"; } else { _aggs.Remove(key); }
+        _preview = null;
+    }
+
+    private void ToggleDay(int d)
+    {
+        if (!_days.Add(d)) { _days.Remove(d); }
+    }
+
+    private FriendlyScheduleSpec ScheduleSpec()
+        => new(_recurrence, _time, _days.OrderBy(x => x).ToList(), _dayOfMonth, _everyValue, _everyUnit);
+
+    /// <summary>La spec tal como se persistira. Lanza con mensaje legible si algo del wizard esta incompleto.</summary>
+    private DerivationSpec BuildSpec()
+    {
+        var aggs = new List<DerivationAggregate>
+        {
+            new(null, DerivationFn.Count, string.IsNullOrWhiteSpace(_countName) ? "Cantidad" : _countName.Trim())
+        };
+        foreach (var ((colId, fn), target) in _aggs)
+        {
+            aggs.Add(new DerivationAggregate(colId, fn, (target ?? "").Trim()));
+        }
+        var filters = new List<DerivationFilter>();
+        foreach (var f in _filters)
+        {
+            if (!Guid.TryParse(f.ColumnId, out var cid)) { throw new InvalidOperationException("Cada condicion del filtro necesita una columna."); }
+            filters.Add(new DerivationFilter(cid, f.Op, f.Value));
+        }
+        return new DerivationSpec(Source.Id,
+            ScalarColumns.Where(c => _groupBy.Contains(c.Id)).Select(c => c.Id).ToList(),
+            aggs,
+            filters.Count == 0 ? null : filters);
+    }
+
+    private string? ValidateStep(int step)
+    {
+        switch (step)
+        {
+            case 0:
+                return string.IsNullOrWhiteSpace(_name) ? "El nombre es obligatorio." : null;
+            case 1:
+                return _groupBy.Count == 0 ? "Marca al menos una columna de agrupacion." : null;
+            case 2:
+                {
+                    var spec = BuildSpec();
+                    var plan = DerivedRowsBuilder.Plan(spec, Source.Columns.Select(c => new SourceColumnInfo(c.Id, c.Name, c.Type)).ToList());
+                    return plan.Ok ? null : plan.Error;
+                }
+            case 3:
+                return _filters.Any(f => !Guid.TryParse(f.ColumnId, out _)) ? "Cada condicion del filtro necesita una columna." : null;
+            default:
+                return null;
+        }
+    }
+
+    private void Next()
+    {
+        _error = ValidateStep(_step);
+        if (_error is not null) { return; }
+        if (_step < StepTitles.Length - 1) { _step++; }
+    }
+
+    private void Back()
+    {
+        _error = null;
+        if (_step > 0) { _step--; }
+    }
+
+    private void GoTo(int idx)
+    {
+        if (_busy || _created is not null) { return; }
+        // Solo se puede saltar hacia atras o al siguiente inmediato (validando el actual).
+        if (idx < _step) { _step = idx; _error = null; }
+        else if (idx == _step + 1) { Next(); }
+    }
+
+    private async Task PreviewAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            _preview = await Derived.PreviewAsync(BuildSpec(), 20);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        for (var s = 0; s <= 3; s++)
+        {
+            _error = ValidateStep(s);
+            if (_error is not null) { _step = s; return; }
+        }
+
+        _busy = true;
+        try
+        {
+            var (kind, interval, cron) = FriendlySchedule.ToStorage(ScheduleSpec());
+            var req = new CreateDerivedTableRequest(ModelId, _name.Trim(),
+                string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                BuildSpec(), kind, interval, cron);
+            _created = await Derived.CreateAsync(req, ActorUserId);
+
+            // Primer refresco por el MISMO runner del boton "Actualizar datos": queda en la bitacora.
+            var run = await Runner.RunNowAsync(_created.ProcessId);
+            _runMessage = run.Ok ? run.Message : $"La tabla se creo pero el primer refresco fallo: {run.Message}";
+
+            await OnCreated.InvokeAsync(_created.TableId);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

@@ -10,6 +10,7 @@
 @using Ecorex.Contracts.Agent
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.DataContainers
 @using Microsoft.AspNetCore.Components.Authorization
 @implements IDisposable
 @inject IDataModelService ModelSvc
@@ -174,16 +175,31 @@ else
                                                 @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.Name ?? "")}</text>")
                                             }
                                         }
+                                        @* Arista origen -> derivada (ADR-0127): verde punteada, con punto en la hija. *@
+                                        @foreach (var dt in _detail.Tables.Where(x => x.IsDerived))
+                                        {
+                                            @if (TryDerivedEdge(dt, out var dx1, out var dy1, out var dx2, out var dy2))
+                                            {
+                                                <line x1="@F(dx1)" y1="@F(dy1)" x2="@F(dx2)" y2="@F(dy2)" stroke="#1c7a44" stroke-width="2" stroke-dasharray="3 3" />
+                                                <circle cx="@F(dx2)" cy="@F(dy2)" r="4" fill="#1c7a44" />
+                                                @((MarkupString)$"<text x=\"{F((dx1 + dx2) / 2)}\" y=\"{F((dy1 + dy2) / 2 - 4)}\" fill=\"#1c7a44\" font-size=\"11\" text-anchor=\"middle\">derivada</text>")
+                                            }
+                                        }
                                     </svg>
 
                                     @foreach (var t in _detail.Tables)
                                     {
-                                        <div class="dc-table-node" data-table-id="@t.Id"
+                                        <div class="dc-table-node @(t.IsDerived ? "dc-node-derived" : "")" data-table-id="@t.Id"
                                              style="left:@Px(GetX(t.Id))px; top:@Px(GetY(t.Id))px;">
                                             <div class="dc-node-head">
                                                 <span class="dc-node-title" title="@t.Name">@t.Name</span>
                                                 <span class="dc-node-tools">
                                                     <button class="dc-node-btn" title="Ver datos / importar Excel" @onclick="() => OpenData(t)">&#9636;</button>
+                                                    @if (_canEdit && !t.IsDerived)
+                                                    {
+                                                        @* Derivar tabla (ADR-0127): solo desde tablas normales (un solo nivel). *@
+                                                        <button class="dc-node-btn dc-node-btn-derive" title="Derivar tabla: crear una tabla agrupada a partir de esta" @onclick="() => OpenDerive(t)">&#8721;</button>
+                                                    }
                                                     @if (_canEdit)
                                                     {
                                                         <button class="dc-node-btn @(IsPublished(t.Id) ? "dc-node-btn-pub" : "")"
@@ -197,6 +213,10 @@ else
                                                     }
                                                 </span>
                                             </div>
+                                            @if (t.IsDerived)
+                                            {
+                                                <div class="dc-node-derived-badge" title="Tabla derivada: sus filas se calculan agrupando la tabla origen y se refrescan por el proceso del contenedor.">derivada de @t.DerivedFromName</div>
+                                            }
                                             <div class="dc-node-fields">
                                                 @if (t.Columns.Count == 0)
                                                 {
@@ -226,6 +246,7 @@ else
                             <div class="dc-legend">
                                 <span><i class="dc-lg dc-lg-ref"></i> Referencia (N:1)</span>
                                 <span><i class="dc-lg dc-lg-many"></i> Relacion (N:N)</span>
+                                <span><i class="dc-lg dc-lg-derived"></i> Derivada (agrupada)</span>
                                 <span class="text-muted">Arrastra el encabezado de una caja para moverla.</span>
                             </div>
 
@@ -332,7 +353,7 @@ else
                                                 {
                                                     <button class="btn btn-sm btn-primary" @onclick="() => OpenApiImport(c)" disabled="@_busy" title="Traer datos del API a una tabla">Importar</button>
                                                 }
-                                                @if (_canEdit)
+                                                @if (_canEdit && c.Kind != ConnectorKind.FromTable)
                                                 {
                                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditConnector(c)" disabled="@_busy">Editar</button>
                                                 }
@@ -644,10 +665,10 @@ else
                                                 @* "Actualizar datos": ejecuta ESTA programacion ahora.
                                                    Solo tiene sentido si la ejecuta un agente (tiene
                                                    cliente); sin cliente, no hay a quien pedirselo. *@
-                                                @if (_canEdit && p.ClientName is not null)
+                                                @if (_canEdit && (p.ClientName is not null || IsServerDirect(p)))
                                                 {
                                                     <button class="btn btn-sm btn-primary" @onclick="() => RunProcessAsync(p.Id)" disabled="@_busy"
-                                                            title="Pide al agente que ejecute la consulta del conector y refresque la tabla destino.">
+                                                            title="@(IsServerDirect(p) ? "Recalcula la tabla derivada a partir de su origen (en el servidor)." : "Pide al agente que ejecute la consulta del conector y refresque la tabla destino.")">
                                                         Actualizar datos
                                                     </button>
                                                 }
@@ -842,6 +863,13 @@ else
             </div>
         </div>
     </div>
+}
+
+@* ===== Sub-modal: wizard "Derivar tabla" (ADR-0127). Componente aparte para no crecer esta pagina. ===== *@
+@if (_derivOpen && _derivSource is not null && _mId is Guid derivModelId)
+{
+    <DerivedTableWizard ModelId="derivModelId" Source="_derivSource" ActorUserId="_actor"
+                        OnClose="CloseDerive" OnCreated="OnDerivedCreatedAsync" />
 }
 
 @* ===== Sub-modal: PUBLICAR la tabla como modulo del menu =====
@@ -1158,6 +1186,12 @@ else
     .dc-lg { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
     .dc-lg-ref { border-color: #7c5cff; }
     .dc-lg-many { border-top-style: dashed; border-color: #e08b2f; }
+    .dc-lg-derived { border-top-style: dotted; border-color: #1c7a44; }
+    /* Tabla derivada (ADR-0127): borde y distintivo verdes; el boton de derivar lleva el sigma. */
+    .dc-node-derived { border-color: #1c7a44; }
+    .dc-node-derived .dc-node-head { background: #1c7a44; }
+    .dc-node-derived-badge { font-size: 10.5px; font-weight: 700; color: #1c7a44; background: #e9f8ef; padding: 3px 10px; border-bottom: 1px dashed #bfe6cd; }
+    .dc-node-btn-derive { background: rgba(255,255,255,.28); font-weight: 700; }
 
     /* Editor de columnas */
     .dc-cols { display: flex; flex-direction: column; gap: 10px; }
@@ -1448,6 +1482,16 @@ else
             if (!r.Ok || r.CorrelationId is null)
             {
                 _runResult[processId] = (false, r.Message);
+                return;
+            }
+
+            // Server-direct (derivada FromTable): RunNowAsync ya trae el desenlace final; no hay agente al que esperar.
+            var proc = _processes.FirstOrDefault(p => p.Id == processId);
+            if (proc is not null && IsServerDirect(proc))
+            {
+                _runResult[processId] = (r.Ok, r.Message);
+                if (_mId is Guid midDirect) { await LoadDetailCoreAsync(midDirect); }
+                await LoadRunsAsync();
                 return;
             }
 
@@ -1875,6 +1919,50 @@ else
             catch (Exception ex) { _pageError = ex.Message; }
         });
         StateHasChanged();
+    }
+
+    // ---------- Derivar tabla (ADR-0127) ----------
+    private bool _derivOpen;
+    private ModelTableDto? _derivSource;
+
+    private void OpenDerive(ModelTableDto t)
+    {
+        _derivSource = t;
+        _derivOpen = true;
+    }
+
+    private void CloseDerive()
+    {
+        _derivOpen = false;
+        _derivSource = null;
+    }
+
+    /// <summary>La hija ya existe y tuvo su primer refresco: recargar lienzo + alimentacion (conector y
+    /// proceso nuevos) para que aparezcan sin cerrar el modal.</summary>
+    private Task OnDerivedCreatedAsync(Guid tableId) => GuardAsync(async () =>
+    {
+        if (_mId is Guid mid)
+        {
+            await LoadDetailCoreAsync(mid);
+            await LoadFeedingCoreAsync(mid);
+        }
+    });
+
+    /// <summary>Un proceso corre en el SERVIDOR (sin agente) cuando su conector es "Desde otra tabla".</summary>
+    private bool IsServerDirect(ImportProcessDto p)
+        => p.ConnectorId is Guid cid && _connectors.FirstOrDefault(c => c.Id == cid)?.Kind == ConnectorKind.FromTable;
+
+    /// <summary>Arista origen -> derivada: del centro del origen al centro de la hija.</summary>
+    private bool TryDerivedEdge(ModelTableDto derived, out double x1, out double y1, out double x2, out double y2)
+    {
+        x1 = y1 = x2 = y2 = 0;
+        if (_detail is null || derived.DerivedFromContainerId is not Guid src) { return false; }
+        if (_detail.Tables.All(t => t.Id != src)) { return false; }
+        x1 = GetX(src) + NodeW / 2;
+        y1 = GetY(src) + NodeH(src) / 2;
+        x2 = GetX(derived.Id) + NodeW / 2;
+        y2 = GetY(derived.Id) + NodeH(derived.Id) / 2;
+        return true;
     }
 
     // ---------- Editor de tabla ----------
@@ -2979,6 +3067,7 @@ else
         ConnectorKind.Excel => "Excel",
         ConnectorKind.RestApi => "API REST",
         ConnectorKind.Database => "Base de datos",
+        ConnectorKind.FromTable => "Desde otra tabla",
         _ => k.ToString()
     };
 
@@ -2987,6 +3076,7 @@ else
         ConnectorKind.Excel => "archivo Excel",
         ConnectorKind.RestApi => string.IsNullOrWhiteSpace(c.EndpointUrl) ? "(sin endpoint)" : c.EndpointUrl!,
         ConnectorKind.Database => $"{c.DbEngine?.ToString() ?? "BD"} {c.Host}{(c.Port is int p ? ":" + p : "")}",
+        ConnectorKind.FromTable => "tabla derivada (agrupada); se configura desde el lienzo con 'Derivar tabla'",
         _ => ""
     };
 

@@ -13,6 +13,20 @@
    asi el contenido no se sale por la derecha con CardLayout=Completo. */
 .dfr-root.dfr-cw-completo { width: min(1560px, 92vw); margin: 0 auto; }
 
+/* Maquetacion de los contenedores de NIVEL RAIZ en una grilla de 12 columnas: cada contenedor
+   ocupa 'span Width' columnas (inline style), igual que en el disenador. Asi se pueden tener
+   columnas de nivel superior lado a lado (p.ej. datos | visor). Los de ancho 12 ocupan la fila
+   completa y quedan apilados (comportamiento previo). El gap lo maneja el grid (sin desbordes). */
+.dfr-toplevel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.dfr-top-cell { min-width: 0; }
+/* El contenedor interno llena su celda de grilla (anula el width:% en linea de WidthStyle, que
+   dentro de la grilla sobra porque el ancho ya lo da el span). */
+.dfr-top-cell > .dfr-group, .dfr-top-cell > .dfr-segment { width: 100% !important; }
+@media (max-width: 760px) {
+    .dfr-toplevel { grid-template-columns: 1fr; }
+    .dfr-top-cell { grid-column: auto !important; }
+}
+
 .dfr-head { display: flex; flex-direction: column; gap: 4px; }
 .dfr-title { font-size: 20px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0; }
 .dfr-sub { font-size: 13px; color: var(--ink-2, #5C5C66); margin: 0; }

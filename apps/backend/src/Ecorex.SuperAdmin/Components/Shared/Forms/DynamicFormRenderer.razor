@@ -129,10 +129,17 @@ else
                 }
             </div>
         }
-        @foreach (var container in ChildrenOf(null))
-        {
-            @RenderContainer(container)
-        }
+        @* Contenedores de NIVEL RAIZ en una grilla de 12: cada uno ocupa 'span Width' columnas, para permitir
+           columnas de nivel superior (p.ej. datos | visor) como en el disenador. Los de ancho 12 ocupan la fila
+           completa (se apilan). El gap lo maneja el grid (sin desbordes). *@
+        <div class="dfr-toplevel">
+            @foreach (var container in ChildrenOf(null))
+            {
+                <div class="dfr-top-cell" style="grid-column: span @(container.Width is >= 1 and <= 12 ? container.Width : 12);">
+                    @RenderContainer(container)
+                </div>
+            }
+        </div>
 
         @if (Mode == FormRenderMode.Fill && _response is not null)
         {

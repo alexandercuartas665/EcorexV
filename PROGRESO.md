@@ -2,6 +2,44 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-22 - Asistente IA para tablas derivadas (ADR-0130, fase 2 de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: en el wizard "Derivar tabla" aparece el boton "Asistente IA" que abre, como columna del mismo modal, un
+  chat donde el usuario describe la tabla ("items por categoria y marca con total de precio"); el asistente ve
+  las tablas del contenedor con sus columnas tipadas, pide una muestra si la necesita, PROPONE la derivacion
+  con la vista previa REAL (motor del refresco, primeros 10 grupos, pintada como tabla en el panel) y, cuando
+  el usuario esta de acuerdo, pide crearla: esa accion llega SIEMPRE como propuesta con Confirmar/Rechazar.
+  Al confirmar, la tabla nace por el MISMO IDerivedTableService del wizard (transaccion, un solo nivel) y el
+  wizard hace su mismo cierre (primer refresco por el runner, resumen, recarga del lienzo).
+- MOTOR GENERICO: Tenancy/ProposalChatEngine.cs extrae la maquinaria "proponer y confirmar" del asistente de
+  formularios (lecturas solas, mutantes como propuesta, escribir descarta, Confirmar/Rechazar, tope de vueltas,
+  timeout, cupo del plan, AiUsageLog) para cualquier toolset + prompt. FormBuilderChatService NO se migro.
+- TOOLSET: Tenancy/DerivedTableToolset.cs (describir_tabla / proponer_derivacion / crear_tabla_derivada) por
+  NOMBRE de columna, Count siempre, vocabulario tolerante (sum|suma|total, mayor|>, ...), origen derivado
+  rechazado antes del servicio. SERVICIO: DataContainers/DerivedTableChatService.cs (+Contracts): arnes con
+  las tablas del contenedor, proveedor "IA gestion de formularios" (Gemini respaldo), contenedor_id FORZADO
+  en cada tool-call, conversaciones en memoria del circuito, consumo con fuente "derived-table-chat".
+- UI: Components/Shared/DataContainers/DerivedTableChatPanel.razor (+css); DerivedTableWizard gano el boton,
+  la columna de chat y OnChatCreatedAsync. ContenedorDatos.razor intacto. dc-canvas.js?v=3 (scroll helper).
+- PRUEBAS: DerivedTableToolsetTests (18) + DerivedTableChatServiceTests (8) sobre EF InMemory + fakes de IA y
+  del servicio de derivadas; Application 1170/1170, Domain 35/35; dotnet format limpio en los proyectos tocados
+  (se corrigio de paso el whitespace heredado del tronco en RuleParamOptionsProvider.cs y Program.cs).
+- VALIDADO EN NAVEGADOR (5267, publish del worktree en appout5267, /dev/login BITCODE, Gemini 2.5 pro REAL):
+  "items por categoria y tipo con total de precio y suma de existencia" -> el asistente llamo
+  proponer_derivacion solo (lectura), el panel pinto la vista previa real (22 grupos, 319 filas), propuso el
+  nombre, al decir "si" llego la propuesta crear_tabla_derivada con Confirmar/Rechazar, y al confirmar nacio
+  "Items por categoria y tipo" (22 filas, 6 columnas) con primer refresco por el runner ("22 nuevas") y el
+  lienzo recargado (5 tablas, 2 conectores, 2 procesos). AiUsageLog con fuente derived-table-chat.
+- HALLAZGOS corregidos en la prueba real: (1) Gemini via API compatible OpenAI devuelve el nombre de la
+  herramienta con un prefijo inventado ("ecorex.proponer_derivacion"): el motor ahora NORMALIZA al nombre
+  conocido (si no, la lectura caia al gate y al confirmar fallaba). (2) ALEGRA tiene 'Items' e 'ITEMS': la
+  resolucion por nombre era solo case-insensitive y tomaba la equivocada; ahora id -> exacto -> laxo solo si
+  es unico (si no, error que pide precisar), y el arnes lista cada tabla con su id.
+- RAMA: claude/feat-contenedor-derivado-ea18ad (se le mergeo fase-0/clon-backbone v0.16.214, conflicto solo
+  en PROGRESO.md). SIN merge al tronco, SIN deploy, SIN push (pendiente OK del usuario).
+- SIGUIENTE: migrar FormBuilderChatService al motor generico cuando se toque; persistir el hilo si algun
+  dia el asistente sale del modal; la derivada de prueba "Items por categoria y tipo" quedo en la BD dev local.
+
 ## 2026-10-22 - Tabla DERIVADA del Contenedor de datos (ADR-0127) (worktree, SIN merge ni deploy)
 
 - QUE: desde el lienzo del contenedor, "Derivar tabla" (boton sigma en cualquier tabla normal) abre un wizard

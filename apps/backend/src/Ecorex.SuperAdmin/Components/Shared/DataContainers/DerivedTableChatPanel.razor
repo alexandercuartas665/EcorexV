@@ -1,0 +1,292 @@
+@* Panel del ASISTENTE IA de tablas derivadas (ADR-0130). Vive al lado del wizard "Derivar tabla": el usuario
+   describe en lenguaje natural la tabla que quiere, el asistente propone la derivacion (vista previa real,
+   sin crear nada) y la creacion llega como PROPUESTA con Confirmar/Rechazar. Al confirmar, la tabla nace por
+   el mismo servicio del wizard y se avisa al padre (OnCreated) para el primer refresco + recarga del lienzo. *@
+@using Ecorex.Application.DataContainers
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IDerivedTableChatService Chat
+@inject IJSRuntime JS
+
+<div class="dtc">
+    <div class="dtc-head">
+        <div class="dtc-title">Asistente IA</div>
+        <div class="dtc-sub">Describe la tabla que quieres y la armamos con vista previa.</div>
+    </div>
+
+    <div class="dtc-msgs" id="dtc-msgs">
+        @foreach (var m in _messages)
+        {
+            <div class="dtc-bubble @m.Css">@m.Text</div>
+        }
+
+        @if (_preview is not null)
+        {
+            <div class="dtc-preview">
+                <div class="dtc-preview-h">
+                    Vista previa &#183; @_preview.TotalGroups grupo(s)
+                    @if (_preview.SourceRowsRead > 0)
+                    {
+                        <span class="dtc-muted"> &#183; @_preview.SourceRowsRead fila(s) del origen@(_preview.SourceRowsAfterFilter != _preview.SourceRowsRead ? $", {_preview.SourceRowsAfterFilter} tras el filtro" : "")</span>
+                    }
+                </div>
+                <div class="dtc-preview-wrap">
+                    <table class="dtc-preview-t">
+                        <thead>
+                            <tr>
+                                @foreach (var c in _preview.Columns)
+                                {
+                                    <th>@c.Name<span class="dtc-th-type">@TypeLabel(c.Type)@(c.Role == DerivedColumnRole.Key ? " &#183; clave" : "")</span></th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_preview.Rows.Count == 0)
+                            {
+                                <tr><td colspan="@Math.Max(1, _preview.Columns.Count)" class="dtc-muted">Sin grupos (origen vacio o el filtro no deja pasar filas).</td></tr>
+                            }
+                            @foreach (var row in _preview.Rows)
+                            {
+                                <tr>
+                                    @foreach (var c in _preview.Columns)
+                                    {
+                                        <td>@(row.TryGetValue(c.Name, out var v) ? v : null)</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (_awaiting && _proposals.Count > 0)
+        {
+            <div class="dtc-proposal">
+                <div class="dtc-proposal-h">El asistente quiere:</div>
+                <ul class="dtc-proposal-list">
+                    @foreach (var p in _proposals)
+                    {
+                        <li>
+                            <b>@ToolLabel(p.ToolName)</b>
+                            <span class="dtc-args">@Summarize(p)</span>
+                        </li>
+                    }
+                </ul>
+                <div class="dtc-proposal-actions">
+                    <button class="btn btn-primary btn-sm" @onclick="ConfirmAsync" disabled="@_busy">Confirmar</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="RejectAsync" disabled="@_busy">Rechazar</button>
+                </div>
+                <div class="dtc-proposal-hint">O escribe abajo para ajustar (se descarta lo propuesto).</div>
+            </div>
+        }
+
+        @if (_busy)
+        {
+            <div class="dtc-bubble bot dtc-typing">Pensando...</div>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="dtc-error">@_error</div>
+    }
+
+    @if (_tokIn > 0 || _tokOut > 0)
+    {
+        <div class="dtc-usage" title="Consumo de este chat (entrada + salida). En cache = prefijo repetido servido mas barato. Costo estimado.">
+            <span>Consumo: <strong>@Fmt(_tokIn + _tokOut) tokens</strong>@(_tokCached > 0 ? $" ({Fmt(_tokCached)} en cache)" : "")</span>
+            <span>~$@_costUsd.ToString("0.0000")</span>
+        </div>
+    }
+
+    <div class="dtc-input">
+        <textarea class="form-control dtc-textarea" @bind="_input" @bind:event="oninput"
+                  placeholder="@(_done ? "Tabla creada. Puedes cerrar." : _awaiting ? "Escribe para ajustar..." : "Ej. items por categoria y marca con total de precio")"
+                  disabled="@(_busy || _done)" @onkeydown="OnKeyDown"></textarea>
+        <button class="btn btn-primary btn-sm" @onclick="SendAsync" disabled="@(_busy || _done || string.IsNullOrWhiteSpace(_input))">Enviar</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid ModelId { get; set; }
+    /// <summary>Tabla desde la que se abrio el wizard (el asistente la asume como origen).</summary>
+    [Parameter] public Guid? SourceTableId { get; set; }
+    [Parameter] public Guid ActorUserId { get; set; }
+    /// <summary>Se dispara cuando el usuario CONFIRMO la creacion y la tabla ya existe (sin refresco aun).</summary>
+    [Parameter] public EventCallback<DerivedTableCreatedDto> OnCreated { get; set; }
+
+    private sealed record Bubble(string Css, string Text);
+
+    private Guid? _conversationId;
+    private readonly List<Bubble> _messages = new();
+    private List<ProposalDto> _proposals = new();
+    private DerivationPreviewDto? _preview;
+    private string _input = string.Empty;
+    private bool _busy;
+    private bool _awaiting;
+    private bool _started;
+    private bool _done;
+    private string? _error;
+    private int _tokIn;
+    private int _tokOut;
+    private int _tokCached;
+    private decimal _costUsd;
+
+    protected override async Task OnInitializedAsync() => await EnsureStartedAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("ecorexScrollToBottom", "dtc-msgs"); }
+        catch { /* interop no disponible durante el prerender: no es critico */ }
+    }
+
+    private async Task EnsureStartedAsync()
+    {
+        if (_started) { return; }
+        _started = true;
+        var r = await Chat.StartAsync(ModelId, SourceTableId, ActorUserId);
+        if (!r.Ok) { _error = r.Error; return; }
+        _conversationId = r.ConversationId;
+        if (!string.IsNullOrWhiteSpace(r.Greeting)) { _messages.Add(new Bubble("bot", r.Greeting!)); }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) { await SendAsync(); }
+    }
+
+    private async Task SendAsync()
+    {
+        if (_busy || _done) { return; }
+        await EnsureStartedAsync();
+        if (_conversationId is null) { return; }
+        var text = _input?.Trim();
+        if (string.IsNullOrWhiteSpace(text)) { return; }
+
+        _messages.Add(new Bubble("me", text!));
+        _input = string.Empty;
+        _awaiting = false; _proposals = new();
+        _busy = true; _error = null;
+        StateHasChanged();
+
+        DerivedChatTurnResult r;
+        try { r = await Chat.SendAsync(_conversationId.Value, text!, ActorUserId); }
+        catch (Exception ex) { r = DerivedChatTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        await ApplyAsync(r);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        DerivedChatTurnResult r;
+        try { r = await Chat.ConfirmAsync(_conversationId.Value, ActorUserId); }
+        catch (Exception ex) { r = DerivedChatTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        await ApplyAsync(r);
+    }
+
+    private async Task RejectAsync()
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        DerivedChatTurnResult r;
+        try { r = await Chat.RejectAsync(_conversationId.Value, null, ActorUserId); }
+        catch (Exception ex) { r = DerivedChatTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        await ApplyAsync(r);
+    }
+
+    private async Task ApplyAsync(DerivedChatTurnResult r)
+    {
+        _tokIn += r.TurnInputTokens;
+        _tokOut += r.TurnOutputTokens;
+        _tokCached += r.TurnCachedInputTokens;
+        _costUsd += r.TurnCostUsd;
+        if (r.Preview is not null) { _preview = r.Preview; }
+        if (!r.Ok)
+        {
+            _error = r.Error;
+            _awaiting = false;
+            _proposals = new();
+            StateHasChanged();
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(r.AssistantText)) { _messages.Add(new Bubble("bot", r.AssistantText!)); }
+        _proposals = r.Proposals?.ToList() ?? new();
+        _awaiting = r.AwaitingConfirmation;
+        if (r.Created is not null)
+        {
+            _done = true;
+            _awaiting = false;
+            _proposals = new();
+            StateHasChanged();
+            await OnCreated.InvokeAsync(r.Created);
+            return;
+        }
+        StateHasChanged();
+    }
+
+    private static string Fmt(int n) => n >= 1000 ? (n / 1000d).ToString("0.0") + "k" : n.ToString();
+
+    private static string ToolLabel(string tool) => tool switch
+    {
+        DerivedTableToolset.CreateTool => "Crear la tabla derivada",
+        DerivedTableToolset.ProposeTool => "Calcular la vista previa",
+        DerivedTableToolset.DescribeTool => "Leer una muestra de la tabla",
+        _ => tool
+    };
+
+    private static string TypeLabel(DataContainerColumnType t) => t switch
+    {
+        DataContainerColumnType.Text => "texto",
+        DataContainerColumnType.Number => "num",
+        DataContainerColumnType.Decimal => "dec",
+        DataContainerColumnType.Date => "fecha",
+        DataContainerColumnType.Boolean => "bool",
+        _ => t.ToString().ToLowerInvariant()
+    };
+
+    // Resume la receta propuesta en lenguaje humano (nombre, origen, agrupacion, agregados, filtro, refresco).
+    private static string Summarize(ProposalDto p)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(p.ArgumentsJson);
+            var a = doc.RootElement;
+            if (a.ValueKind != System.Text.Json.JsonValueKind.Object) { return p.ArgumentsJson; }
+            var parts = new List<string>();
+            if (a.TryGetProperty("nombre", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String) { parts.Add("Nombre: " + n.GetString()); }
+            if (a.TryGetProperty("tabla_origen", out var o) && o.ValueKind == System.Text.Json.JsonValueKind.String) { parts.Add("Origen: " + o.GetString()); }
+            if (a.TryGetProperty("agrupar_por", out var g) && g.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                parts.Add("Agrupa por: " + string.Join(", ", g.EnumerateArray().Select(x => x.ToString())));
+            }
+            if (a.TryGetProperty("agregados", out var ag) && ag.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var items = ag.EnumerateArray().Where(x => x.ValueKind == System.Text.Json.JsonValueKind.Object).Select(x =>
+                {
+                    var fn = x.TryGetProperty("funcion", out var f) ? f.ToString() : "?";
+                    var col = x.TryGetProperty("columna", out var c) ? c.ToString() : "";
+                    var nm = x.TryGetProperty("nombre", out var nn) ? nn.ToString() : "";
+                    var core = string.IsNullOrWhiteSpace(col) ? fn : $"{fn}({col})";
+                    return string.IsNullOrWhiteSpace(nm) ? core : $"{nm} = {core}";
+                }).ToList();
+                if (items.Count > 0) { parts.Add("Agregados: " + string.Join(", ", items)); }
+            }
+            if (a.TryGetProperty("filtro", out var fl) && fl.ValueKind == System.Text.Json.JsonValueKind.Array && fl.GetArrayLength() > 0)
+            {
+                parts.Add("Filtro: " + string.Join(" y ", fl.EnumerateArray().Where(x => x.ValueKind == System.Text.Json.JsonValueKind.Object).Select(x =>
+                    $"{(x.TryGetProperty("columna", out var c) ? c.ToString() : "?")} {(x.TryGetProperty("operador", out var op) ? op.ToString() : "?")} {(x.TryGetProperty("valor", out var v) ? v.ToString() : "")}".Trim())));
+            }
+            if (a.TryGetProperty("refresco", out var rf) && rf.ValueKind == System.Text.Json.JsonValueKind.Object && rf.TryGetProperty("tipo", out var tipo))
+            {
+                parts.Add("Refresco: " + tipo.ToString());
+            }
+            return parts.Count == 0 ? p.ArgumentsJson : string.Join(" | ", parts);
+        }
+        catch { return p.ArgumentsJson; }
+    }
+}

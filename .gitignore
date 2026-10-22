@@ -108,6 +108,7 @@ apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/jquery/
 
 # Salida de build aislada dev worktree requerimiento_compras (NO versionar)
 /apps/backend/appout5265/
+/apps/backend/appout5267/
 
 # Build dev aislado del worktree (puerto 5265), en la raiz
 /appout5265/

@@ -25,3 +25,15 @@
 .dtw-preview td { padding: 5px 8px; border-top: 1px solid var(--line, var(--border)); white-space: nowrap; }
 
 .dtw-summary { font-size: 13px; line-height: 1.6; padding-left: 18px; }
+
+/* Asistente IA (ADR-0130): columna de chat a la IZQUIERDA del wizard cuando esta abierto. */
+.dtw-dialog.dtw-chat-open { max-width: 1240px; }
+.dtw-head-actions { display: flex; align-items: center; gap: 8px; }
+.dtw-split { display: flex; align-items: stretch; min-height: 0; }
+.dtw-split .dtw-body { flex: 1 1 auto; min-width: 0; }
+.dtw-chat { flex: 0 0 420px; border-right: 1px solid var(--line, var(--border)); display: flex; flex-direction: column; min-height: 0; max-height: calc(90vh - 150px); }
+.dtw-chat ::deep .dtc { height: 100%; }
+@media (max-width: 1100px) {
+  .dtw-split { flex-direction: column; }
+  .dtw-chat { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--line, var(--border)); max-height: 46vh; }
+}

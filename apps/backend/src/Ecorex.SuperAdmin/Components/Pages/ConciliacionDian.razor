@@ -88,8 +88,7 @@ else
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigReglasAsync" disabled="@_busy" title="Configurar las reglas (VLOOKUP y condiciones) sin codigo">&#9881; Reglas</button>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigTareaAsync" disabled="@_busy" title="Configurar el concepto de actividad y el formulario para las tareas que se generan desde las facturas">&#9881; Configuracion de tarea</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigAsync" disabled="@_busy" title="Configurar las salidas al flujo de tareas (concepto+formulario) y las reglas de conciliacion">&#9881; Configuracion</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
         <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
     </div>
@@ -438,9 +437,9 @@ else
                                                     else
                                                     {
                                                         <button type="button" class="cd-task-btn"
-                                                                title="@(_taskCfg.SubcategoriaId is null ? "Configura primero el concepto en 'Configuracion de tarea'" : r.AssignedTenantUserId is null ? "Asigna primero un usuario a esta fila" : "Crear tarea con el concepto configurado (cae en su flujo) y asignada al usuario elegido")"
-                                                                disabled="@(_creandoTarea || _taskCfg.SubcategoriaId is null || r.AssignedTenantUserId is null)"
-                                                                @onclick="() => CrearTareaDesdeRenglonAsync(r)" @onclick:stopPropagation="true">+ Tarea</button>
+                                                                title="@(_salidasRun.Count == 0 ? "Configura primero una salida en «Configuracion»" : r.AssignedTenantUserId is null ? "Asigna primero un usuario a esta fila" : _salidasRun.Count > 1 ? "Crear tarea: elegir la salida al flujo" : "Crear tarea en el flujo de la salida configurada, asignada al usuario elegido")"
+                                                                disabled="@(_creandoTarea || _salidasRun.Count == 0 || r.AssignedTenantUserId is null)"
+                                                                @onclick="() => OnCrearTareaClick(r)" @onclick:stopPropagation="true">+ Tarea</button>
                                                     }
                                                 </div>
                                                 break;
@@ -775,17 +774,119 @@ else
         </div>
     }
 
-    @if (_reglasConfigOpen)
+    @if (_cfgOpen)
     {
-        <div class="cd-doc-backdrop" @onclick="CerrarConfigReglas"></div>
+        <div class="cd-doc-backdrop" @onclick="CerrarConfig"></div>
         <div class="cd-rules-modal" @onclick:stopPropagation="true">
             <div class="cd-doc-head">
                 <div class="cd-doc-title">
-                    <div class="cd-doc-title-main">Reglas de conciliacion</div>
-                    <div class="cd-doc-title-sub">Se aplican EN ORDEN sobre cada factura; cada regla puede reusar el campo que calculo la anterior.</div>
+                    <div class="cd-doc-title-main">Configuracion del conciliador</div>
+                    <div class="cd-doc-title-sub">Salidas al flujo de tareas (concepto + formulario, cada una con su Direccionar) y reglas de conciliacion.</div>
                 </div>
-                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfigReglas">&times;</button>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfig">&times;</button>
             </div>
+            <div class="cd-cfg-tabs">
+                <button class="cd-tab @(_cfgTab == "salidas" ? "on" : "")" @onclick='() => _cfgTab = "salidas"'>Salidas de tarea</button>
+                <button class="cd-tab @(_cfgTab == "reglas" ? "on" : "")" @onclick='() => _cfgTab = "reglas"'>Reglas</button>
+            </div>
+            @if (_cfgTab == "salidas")
+            {
+                <div class="cd-rules-body">
+                    <div class="cd-muted" style="margin-bottom:4px;">Cada salida es un tipo de autorizacion: un concepto (que trae su flujo) + su formulario + su propio boton «Direccionar compra». En la grilla, «+ Tarea» usa la salida elegida.</div>
+                    @if (_salidas.Count == 0)
+                    {
+                        <div class="cd-muted" style="padding:10px 2px;">Sin salidas todavia. Agrega una para poder crear tareas desde las facturas.</div>
+                    }
+                    @for (var si = 0; si < _salidas.Count; si++)
+                    {
+                        var s = _salidas[si]; var sidx = si;
+                        <div class="cd-rule-card">
+                            <div class="cd-rule-head">
+                                <span class="cd-rule-ord">@(sidx + 1)</span>
+                                <input class="cd-in cd-rule-name" value="@s.Nombre" @onchange="e => s.Nombre = e.Value?.ToString() ?? string.Empty" placeholder="Nombre de la salida (ej. Autorizacion de compra)" />
+                                <div class="cd-rule-actions">
+                                    <button class="cd-ic cd-ic-del" @onclick="() => _salidas.RemoveAt(sidx)" title="Quitar salida">&times;</button>
+                                </div>
+                            </div>
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Concepto (flujo)</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => OnSalidaSubChange(s, e)">
+                                        <option value="">&mdash; Sin concepto &mdash;</option>
+                                        @foreach (var sc in _taskSubs)
+                                        {
+                                            <option value="@sc.SubcategoriaId" selected="@(s.Sub == sc.SubcategoriaId)">@sc.Categoria &rsaquo; @sc.Nombre</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Formulario</label>
+                                    <select class="cd-in" style="flex:1" @onchange="e => OnSalidaFormChange(s, e)">
+                                        <option value="">&mdash; Sin formulario &mdash;</option>
+                                        @foreach (var fm in _taskForms)
+                                        {
+                                            <option value="@fm.Id" selected="@(s.Form == fm.Id)">@fm.Title@(string.IsNullOrWhiteSpace(fm.Code) ? "" : $" ({fm.Code})")</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="cd-rule-row cd-rule-norm">
+                                    <label><input type="checkbox" checked="@s.DireEnabled" @onchange="e => s.DireEnabled = (e.Value is bool b && b)" /> Boton &laquo;Direccionar compra&raquo; en el formulario</label>
+                                </div>
+                                @if (s.DireEnabled)
+                                {
+                                    @if (s.Form is null)
+                                    {
+                                        <div class="cd-muted" style="font-size:12px;">Elegi primero un formulario para mapear sus campos.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="cd-muted" style="font-size:12px;">Al pulsar el boton en el formulario de la tarea, cada campo cae en la columna del conciliador que elijas.</div>
+                                        @for (var mi = 0; mi < s.DireMaps.Count; mi++)
+                                        {
+                                            var row = s.DireMaps[mi]; var midx = mi;
+                                            <div class="cd-rule-row">
+                                                <select class="cd-in" @onchange="e => row.FormField = e.Value?.ToString() ?? string.Empty">
+                                                    <option value="">&mdash; Campo del formulario &mdash;</option>
+                                                    @foreach (var f in s.FormFields)
+                                                    {
+                                                        <option value="@f.Code" selected="@(row.FormField == f.Code)">@f.Label (@f.Code)</option>
+                                                    }
+                                                </select>
+                                                <span class="cd-rule-eq">&rarr;</span>
+                                                <select class="cd-in" @onchange="e => row.Target = e.Value?.ToString() ?? string.Empty">
+                                                    <option value="">&mdash; Columna del conciliador &mdash;</option>
+                                                    <option value="oc" selected="@(row.Target == "oc")">Orden de compra</option>
+                                                    <option value="numsol" selected="@(row.Target == "numsol")">Num Factura SISTEMA</option>
+                                                    @foreach (var d in _dynDefs)
+                                                    {
+                                                        var dk = "dyn:" + d.FieldKey;
+                                                        <option value="@dk" selected="@(row.Target == dk)">@d.Label</option>
+                                                    }
+                                                </select>
+                                                <button type="button" class="cd-ic cd-ic-del" @onclick="() => s.DireMaps.RemoveAt(midx)" title="Quitar mapeo">&times;</button>
+                                            </div>
+                                        }
+                                        <button type="button" class="cd-fb-add" @onclick="() => s.DireMaps.Add(new DireEdit())">+ Mapeo</button>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                    <button class="cd-fb-add" style="align-self:flex-start;" @onclick="AddSalida">+ Agregar salida</button>
+                    @if (_cfgMsg is { Length: > 0 })
+                    {
+                        <div class="cd-muted">@_cfgMsg</div>
+                    }
+                </div>
+                <div class="cd-rules-foot">
+                    <span class="cd-muted">Si hay varias salidas, al crear la tarea desde una factura se pregunta cual usar.</span>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarSalidasAsync" disabled="@_busy">Guardar</button>
+                </div>
+            }
+            else
+            {
             <div class="cd-rules-body">
                 <div class="cd-rules-tb">
                     <button class="cd-fb-add" @onclick="AddLookupAsync">+ Busqueda (VLOOKUP)</button>
@@ -921,8 +1022,9 @@ else
             <div class="cd-rules-foot">
                 <span class="cd-muted">Guarda cada regla; "Aplicar reglas" las corre en este orden.</span>
                 <div style="flex:1"></div>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfigReglas">Cerrar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
             </div>
+            }
         </div>
     }
 
@@ -1132,94 +1234,32 @@ else
     }
 
     @* ---- Configuracion de tarea (concepto 000270 + formulario) movida desde Autorizacion de compras ---- *@
-    @if (_taskCfgOpen)
+    @* Selector de salida al flujo: aparece al crear la tarea desde una factura cuando hay MAS DE UNA salida.
+       Con una sola salida no se muestra (se dispara directo). *@
+    @if (_pickSalidaOpen && _pickRow is { } pr)
     {
-        <div class="cd-doc-backdrop" @onclick="CerrarConfigTarea"></div>
-        <div class="cd-rules-modal" style="width:min(560px,96vw);height:auto;max-height:88vh;" @onclick:stopPropagation="true">
+        <div class="cd-doc-backdrop" @onclick="CerrarPickSalida"></div>
+        <div class="cd-rules-modal" style="width:min(460px,96vw);height:auto;max-height:80vh;" @onclick:stopPropagation="true">
             <div class="cd-doc-head">
                 <div class="cd-doc-title">
-                    <div class="cd-doc-title-main">Configuracion de tarea</div>
-                    <div class="cd-doc-title-sub">Concepto de actividad y formulario para las tareas que se generan desde las facturas (autorizacion y gestion por linea).</div>
+                    <div class="cd-doc-title-main">Crear tarea &mdash; elegi la salida</div>
+                    <div class="cd-doc-title-sub">@($"{pr.NumFacturaProveedor} · {pr.NombreProveedor}")</div>
                 </div>
-                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarConfigTarea">&times;</button>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CerrarPickSalida">&times;</button>
             </div>
-            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:auto;">
-                <div style="display:flex;flex-direction:column;gap:6px;">
-                    <label class="cd-dd-title" style="margin:0;">Concepto de actividad</label>
-                    <select class="cd-in" style="width:100%" @onchange="OnTaskSubChange">
-                        <option value="">&mdash; Sin concepto &mdash;</option>
-                        @foreach (var sc in _taskSubs)
-                        {
-                            <option value="@sc.SubcategoriaId" selected="@(_taskSubSel == sc.SubcategoriaId)">@sc.Categoria &rsaquo; @sc.Nombre</option>
-                        }
-                    </select>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:6px;">
-                    <label class="cd-dd-title" style="margin:0;">Formulario a asociar</label>
-                    <select class="cd-in" style="width:100%" @onchange="OnTaskFormChange">
-                        <option value="">&mdash; Sin formulario &mdash;</option>
-                        @foreach (var fm in _taskForms)
-                        {
-                            <option value="@fm.Id" selected="@(_taskFormSel == fm.Id)">@fm.Title@(string.IsNullOrWhiteSpace(fm.Code) ? "" : $" ({fm.Code})")</option>
-                        }
-                    </select>
-                </div>
-
-                @* ---- Direccionar compra: boton del formulario que devuelve datos al conciliador ---- *@
-                <div style="border-top:1px solid var(--line-2,#e5e7eb); padding-top:12px; display:flex; flex-direction:column; gap:10px;">
-                    <label class="cd-dd-title" style="margin:0; display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" checked="@_direEnabled" @onchange="e => _direEnabled = (e.Value is bool b && b)" />
-                        Boton &laquo;Direccionar compra&raquo; en el formulario
-                    </label>
-                    @if (_direEnabled)
-                    {
-                        @if (_taskFormSel is null)
-                        {
-                            <div class="cd-muted" style="font-size:12px;">Elegi primero un formulario para mapear sus campos.</div>
-                        }
-                        else
-                        {
-                            <div class="cd-muted" style="font-size:12px;">Al pulsar el boton en el formulario de la tarea, cada campo cae en la columna del conciliador que elijas.</div>
-                            @for (int i = 0; i < _direMaps.Count; i++)
-                            {
-                                var row = _direMaps[i]; var idx = i;
-                                <div style="display:flex; gap:6px; align-items:center;">
-                                    <select class="cd-in" style="flex:1" @onchange="e => row.FormField = e.Value?.ToString() ?? string.Empty">
-                                        <option value="">&mdash; Campo del formulario &mdash;</option>
-                                        @foreach (var f in _direFormFields)
-                                        {
-                                            <option value="@f.Code" selected="@(row.FormField == f.Code)">@f.Label (@f.Code)</option>
-                                        }
-                                    </select>
-                                    <span style="color:var(--ink-3,#9ca3af);">&rarr;</span>
-                                    <select class="cd-in" style="flex:1" @onchange="e => row.Target = e.Value?.ToString() ?? string.Empty">
-                                        <option value="">&mdash; Columna del conciliador &mdash;</option>
-                                        <option value="oc" selected="@(row.Target == "oc")">Orden de compra</option>
-                                        <option value="numsol" selected="@(row.Target == "numsol")">Num Factura SISTEMA</option>
-                                        @foreach (var d in _dynDefs)
-                                        {
-                                            var dk = "dyn:" + d.FieldKey;
-                                            <option value="@dk" selected="@(row.Target == dk)">@d.Label</option>
-                                        }
-                                    </select>
-                                    <button type="button" class="cd-task-btn" title="Quitar mapeo" @onclick="() => _direMaps.RemoveAt(idx)">&times;</button>
-                                </div>
-                            }
-                            <button type="button" class="cd-fb-add" style="align-self:flex-start;" @onclick="() => _direMaps.Add(new DireEdit())">+ Mapeo</button>
-                        }
-                    }
-                </div>
-
-                @if (_taskCfgMsg is { Length: > 0 })
+            <div style="padding:14px 18px; display:flex; flex-direction:column; gap:8px; overflow:auto;">
+                @foreach (var sx in _salidasRun)
                 {
-                    <div class="cd-muted">@_taskCfgMsg</div>
+                    var salida = sx;
+                    <button type="button" class="cd-pick-salida" @onclick="() => ElegirSalidaAsync(salida)" disabled="@_creandoTarea">
+                        <span class="cd-pick-salida-name">@salida.Nombre</span>
+                        <span class="cd-pick-salida-sub">@(salida.Categoria is null ? "Sin concepto" : $"{salida.Categoria} › {salida.Subcategoria}")@(salida.FormTitle is null ? "" : $" · {salida.FormTitle}")</span>
+                    </button>
                 }
             </div>
             <div class="cd-rules-foot">
-                <span class="cd-muted">Lo usan la autorizacion de facturas y la gestion de tareas por linea.</span>
                 <div style="flex:1"></div>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfigTarea">Cerrar</button>
-                <button class="btn btn-primary btn-sm" @onclick="GuardarConfigTareaAsync">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarPickSalida">Cancelar</button>
             </div>
         </div>
     }
@@ -1346,68 +1386,133 @@ else
         : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
     private string UserNameById(Guid? id) => id is Guid g && _usuarios.FirstOrDefault(u => u.Id == g) is { } u ? UserLabel(u) : "";
 
-    // ---- Configuracion de tarea (movida desde Autorizacion de compras): concepto de actividad 000270 +
-    // formulario a asociar. Comparte el servicio/almacen con el modulo de autorizacion (misma tarea). ----
-    private bool _taskCfgOpen;
-    private AutorizacionModConfigDto _taskCfg = new(null, null, null, null, null);  // concepto+form configurado (para el boton por fila)
-    private List<TareaProcesoOpcionDto> _taskSubs = new();
-    private List<FormDefinitionListItemDto> _taskForms = new();
-    private Guid? _taskSubSel;
-    private Guid? _taskFormSel;
-    private string? _taskCfgMsg;
+    // ---- Configuracion unificada del conciliador (modal con pestañas "Salidas de tarea" + "Reglas") ----
+    private bool _cfgOpen;
+    private string _cfgTab = "salidas";
+    private string? _cfgMsg;
+    private List<TareaProcesoOpcionDto> _taskSubs = new();          // conceptos 000270 (para los selects de cada salida)
+    private List<FormDefinitionListItemDto> _taskForms = new();     // formularios disponibles
 
-    // ---- "Direccionar compra": mapeos campo del formulario -> columna del conciliador (editor en el modal) ----
+    // Un mapeo "Direccionar compra": campo del formulario -> columna del conciliador.
     private sealed class DireEdit { public string FormField { get; set; } = string.Empty; public string Target { get; set; } = string.Empty; }
-    private bool _direEnabled;
-    private List<DireEdit> _direMaps = new();
-    private List<FormFieldOptionDto> _direFormFields = new();
+    // Una salida al flujo en edicion: concepto (trae su flujo) + formulario + su propio Direccionar.
+    private sealed class SalidaEdit
+    {
+        public Guid Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public Guid? Sub { get; set; }
+        public Guid? Form { get; set; }
+        public bool DireEnabled { get; set; }
+        public List<DireEdit> DireMaps { get; set; } = new();
+        public List<FormFieldOptionDto> FormFields { get; set; } = new();   // campos del form elegido (para los mapeos)
+    }
+    private List<SalidaEdit> _salidas = new();          // editor del modal
+    private List<SalidaFlujoDto> _salidasRun = new();   // runtime: lo que usa "+ Tarea" en la grilla (solo con concepto)
 
-    // ---- Crear tarea desde la fila (cae en el flujo del concepto). Mapa renglon->numero compartido con
+    // Selector de salida al crear la tarea (solo aparece con >1 salida; con una sola se dispara directo).
+    private bool _pickSalidaOpen;
+    private ConciliacionDianRenglonDto? _pickRow;
+
+    // ---- Crear tarea desde la fila (cae en el flujo de la salida). Mapa renglon->numero compartido con
     // la autorizacion (anti-duplicado); se carga en bloque en ReloadAsync. ----
     private Dictionary<Guid, string> _tareaDeRenglon = new();
     private bool _creandoTarea;
 
-    private async Task AbrirConfigTareaAsync()
+    private async Task AbrirConfigAsync()
     {
-        var cfg = await TaskCfg.GetAsync();
-        _taskSubs = (await TaskCfg.ListSubcategoriasAsync()).ToList();
-        _taskForms = (await TaskCfg.ListFormulariosAsync()).ToList();
-        _taskSubSel = cfg.SubcategoriaId;
-        _taskFormSel = cfg.FormDefinitionId;
-        var dire = await TaskCfg.GetDireccionarAsync();
-        _direEnabled = dire.Enabled;
-        _direMaps = dire.Mappings.Select(m => new DireEdit { FormField = m.FormField, Target = m.Target }).ToList();
-        _direFormFields = _taskFormSel is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
-        _taskCfgMsg = null;
-        _taskCfgOpen = true;
+        _busy = true; _cfgMsg = null; _msg = null;
+        try
+        {
+            _taskSubs = (await TaskCfg.ListSubcategoriasAsync()).ToList();
+            _taskForms = (await TaskCfg.ListFormulariosAsync()).ToList();
+            var salidas = await TaskCfg.ListSalidasAsync();
+            _salidas = new();
+            foreach (var s in salidas)
+            {
+                var e = new SalidaEdit
+                {
+                    Id = s.Id, Nombre = s.Nombre, Sub = s.SubcategoriaId, Form = s.FormDefinitionId,
+                    DireEnabled = s.DireccionarEnabled,
+                    DireMaps = s.DireccionarMaps.Select(m => new DireEdit { FormField = m.FormField, Target = m.Target }).ToList(),
+                };
+                if (s.FormDefinitionId is Guid ff) { e.FormFields = (await TaskCfg.ListFormFieldsAsync(ff)).ToList(); }
+                _salidas.Add(e);
+            }
+            await LoadReglasDataAsync();   // contenedores + _ruleList para la pestaña Reglas
+            _cfgTab = "salidas";
+            _cfgOpen = true;
+        }
+        catch (Exception ex) { _msg = "Error al abrir la configuracion: " + ex.Message; }
+        finally { _busy = false; }
     }
-    private void CerrarConfigTarea() => _taskCfgOpen = false;
-    private void OnTaskSubChange(ChangeEventArgs e) => _taskSubSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-    private async Task OnTaskFormChange(ChangeEventArgs e)
+    private void CerrarConfig() => _cfgOpen = false;
+
+    private void AddSalida() => _salidas.Add(new SalidaEdit { Id = Guid.CreateVersion7(), Nombre = $"Salida {_salidas.Count + 1}" });
+    private void OnSalidaSubChange(SalidaEdit s, ChangeEventArgs e)
+        => s.Sub = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private async Task OnSalidaFormChange(SalidaEdit s, ChangeEventArgs e)
     {
-        _taskFormSel = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-        _direFormFields = _taskFormSel is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
-    }
-    private async Task GuardarConfigTareaAsync()
-    {
-        await TaskCfg.SetAsync(_taskSubSel, _taskFormSel);
-        var maps = _direMaps
-            .Where(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target))
-            .Select(m => new DireccionarMapDto(m.FormField, m.Target))
-            .ToList();
-        await TaskCfg.SetDireccionarAsync(_direEnabled, maps, _taskFormSel);   // auto-cablea el boton+regla si enabled
-        _taskCfg = await TaskCfg.GetAsync();   // refresca para habilitar el boton "+ Tarea" por fila
-        _taskCfgMsg = _direEnabled && maps.Count > 0 ? "Configuracion guardada (boton Direccionar compra listo en el formulario)." : "Configuracion guardada.";
+        s.Form = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        s.FormFields = s.Form is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
     }
 
-    // Crea la actividad desde la fila con el concepto configurado: si el concepto tiene un flujo asociado,
-    // CreateAsync lo lanza (la tarea "cae" en ese flujo). Queda asignada al usuario elegido en la fila.
-    private async Task CrearTareaDesdeRenglonAsync(ConciliacionDianRenglonDto rowArg)
+    private async Task GuardarSalidasAsync()
+    {
+        _busy = true; _cfgMsg = null;
+        try
+        {
+            var dto = _salidas.Select(s => new SalidaFlujoDto(
+                s.Id == Guid.Empty ? Guid.CreateVersion7() : s.Id,
+                string.IsNullOrWhiteSpace(s.Nombre) ? "Salida" : s.Nombre.Trim(),
+                s.Sub, null, null, s.Form, null,
+                s.DireEnabled,
+                s.DireMaps.Select(m => new DireccionarMapDto(m.FormField, m.Target)).ToList()))
+                .ToList();
+            await TaskCfg.SaveSalidasAsync(dto);
+            await LoadSalidasRunAsync();   // refresca lo que habilita "+ Tarea"
+            var conDire = _salidas.Count(s => s.DireEnabled && s.DireMaps.Any(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target)));
+            _cfgMsg = conDire > 0
+                ? $"Guardado. {_salidasRun.Count} salida(s) con concepto; boton «Direccionar compra» listo en {conDire} formulario(s)."
+                : $"Guardado. {_salidasRun.Count} salida(s) con concepto.";
+        }
+        catch (Exception ex) { _cfgMsg = "Error al guardar: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadSalidasRunAsync()
+    {
+        // Solo las salidas con concepto pueden crear tarea (el concepto trae el flujo).
+        try { _salidasRun = (await TaskCfg.ListSalidasAsync()).Where(s => s.SubcategoriaId is not null).ToList(); }
+        catch { _salidasRun = new(); }
+    }
+
+    // "+ Tarea" en la grilla: con una sola salida la dispara directo; con varias, abre el selector.
+    private async Task OnCrearTareaClick(ConciliacionDianRenglonDto rowArg)
     {
         if (_creandoTarea) { return; }
-        if (_taskCfg.SubcategoriaId is not Guid subId)
+        var r = _renglones.FirstOrDefault(x => x.Id == rowArg.Id) ?? rowArg;
+        if (_salidasRun.Count == 0) { _msg = "Configura primero una salida (concepto) en «Configuracion»."; return; }
+        if (r.AssignedTenantUserId is null) { _msg = "Asigna primero un usuario a la factura antes de crear la tarea."; return; }
+        if (_tareaDeRenglon.ContainsKey(r.Id)) { return; }   // ya tiene tarea
+        if (_salidasRun.Count == 1) { await CrearTareaDesdeRenglonAsync(r, _salidasRun[0]); return; }
+        _pickRow = r; _pickSalidaOpen = true;
+    }
+    private void CerrarPickSalida() { _pickSalidaOpen = false; _pickRow = null; }
+    private async Task ElegirSalidaAsync(SalidaFlujoDto salida)
+    {
+        var r = _pickRow;
+        _pickSalidaOpen = false; _pickRow = null;
+        if (r is not null) { await CrearTareaDesdeRenglonAsync(r, salida); }
+    }
+
+    // Crea la actividad desde la fila con la SALIDA elegida: si el concepto tiene un flujo asociado,
+    // CreateAsync lo lanza (la tarea "cae" en ese flujo). Queda asignada al usuario elegido en la fila.
+    private async Task CrearTareaDesdeRenglonAsync(ConciliacionDianRenglonDto rowArg, SalidaFlujoDto salida)
+    {
+        if (_creandoTarea) { return; }
+        if (salida.SubcategoriaId is not Guid subId)
         {
-            _msg = "Configura primero el concepto en «Configuracion de tarea».";
+            _msg = "La salida elegida no tiene concepto configurado.";
             return;
         }
         // El lambda del boton captura el DTO del render de la grilla, que puede quedar OBSOLETO (OnAssigneeChanged
@@ -1443,7 +1548,7 @@ else
             // El formulario configurado "cae" en la tarea (via ActividadSubcategoria.FormDefinitionId). Aqui
             // lo prellenamos con los datos de la factura del conciliador, en un borrador keyed por el NUMERO de
             // tarea (los codigos deben existir en el form: proveedor/nit/rut/fecha_compra/num_factura).
-            if (_taskCfg.FormDefinitionId is Guid fid)
+            if (salida.FormDefinitionId is Guid fid)
             {
                 try
                 {
@@ -2442,7 +2547,7 @@ else
         }
         catch { /* sin nombre: se guarda sin autoria */ }
         try { _usuarios = (await Users.ListAsync()).ToList(); } catch { _usuarios = new(); }
-        try { _taskCfg = await TaskCfg.GetAsync(); } catch { /* sin concepto configurado */ }
+        await LoadSalidasRunAsync();   // habilita "+ Tarea" por fila y alimenta el selector de salida
         await LoadDynDefsAsync();   // antes de LoadPrefs: para que las columnas dinamicas sean "conocidas"
         await LoadPrefsAsync();
         await LoadSavedFiltersAsync();
@@ -2562,7 +2667,6 @@ else
         public bool Dirty;
     }
 
-    private bool _reglasConfigOpen;
     private List<RuleEdit> _ruleList = new();
     private List<RuleContenedorDto> _contenedores = new();
     private static readonly System.Text.Json.JsonSerializerOptions _rjson = new() { PropertyNameCaseInsensitive = true };
@@ -2570,36 +2674,28 @@ else
     private IReadOnlyList<string> ColsDe(Guid cid) => _contenedores.FirstOrDefault(c => c.ContainerId == cid)?.Columns ?? Array.Empty<string>();
     private static void DirtyRu(RuleEdit ru) => ru.Dirty = true;
 
-    private async Task AbrirConfigReglasAsync()
+    // Carga los datos de la pestaña Reglas (contenedores + reglas). La abre el modal unificado (AbrirConfigAsync).
+    private async Task LoadReglasDataAsync()
     {
-        _busy = true; _msg = null;
-        try
+        _contenedores = (await Reglas.ListContenedoresAsync()).ToList();
+        _ruleList = (await Reglas.ListAsync()).Select(d =>
         {
-            _contenedores = (await Reglas.ListContenedoresAsync()).ToList();
-            _ruleList = (await Reglas.ListAsync()).Select(d =>
+            var e = new RuleEdit { Id = d.Id, SortOrder = d.SortOrder, Name = d.Name, Kind = d.Kind, Enabled = d.Enabled };
+            if (string.Equals(d.Kind, "Lookup", StringComparison.OrdinalIgnoreCase))
             {
-                var e = new RuleEdit { Id = d.Id, SortOrder = d.SortOrder, Name = d.Name, Kind = d.Kind, Enabled = d.Enabled };
-                if (string.Equals(d.Kind, "Lookup", StringComparison.OrdinalIgnoreCase))
-                {
-                    e.Lookup = TryDes<RuleLookupSpec>(d.DefinitionJson) ?? new RuleLookupSpec();
-                    if (e.Lookup.Matches.Count == 0) { e.Lookup.Matches.Add(new RuleLookupMatch()); }
-                    e.Lookup.Norm ??= new RuleNorm();
-                }
-                else
-                {
-                    e.Condition = TryDes<RuleConditionSpec>(d.DefinitionJson) ?? new RuleConditionSpec();
-                    e.Condition.When ??= new RuleCond { Kind = "group", Op = "and" };
-                    e.Condition.Then ??= new();
-                }
-                return e;
-            }).ToList();
-            _reglasConfigOpen = true;
-        }
-        catch (Exception ex) { _msg = "Error al abrir reglas: " + ex.Message; }
-        finally { _busy = false; }
+                e.Lookup = TryDes<RuleLookupSpec>(d.DefinitionJson) ?? new RuleLookupSpec();
+                if (e.Lookup.Matches.Count == 0) { e.Lookup.Matches.Add(new RuleLookupMatch()); }
+                e.Lookup.Norm ??= new RuleNorm();
+            }
+            else
+            {
+                e.Condition = TryDes<RuleConditionSpec>(d.DefinitionJson) ?? new RuleConditionSpec();
+                e.Condition.When ??= new RuleCond { Kind = "group", Op = "and" };
+                e.Condition.Then ??= new();
+            }
+            return e;
+        }).ToList();
     }
-
-    private void CerrarConfigReglas() { _reglasConfigOpen = false; }
 
     private static T? TryDes<T>(string json) where T : class
     {

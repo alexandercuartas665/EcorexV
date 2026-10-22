@@ -54,7 +54,9 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la tarea {reference}.");
         }
 
-        var cfg = await _cfg.GetDireccionarAsync(cancellationToken);
+        // Mapeos POR FORMULARIO: cada salida configurada tiene su propio Direccionar; se resuelve por el
+        // formulario de esta respuesta (cae a la config legacy compartida si no hay salida que coincida).
+        var cfg = await _cfg.GetDireccionarByFormAsync(resp!.DefinitionId, cancellationToken);
         if (!cfg.Enabled || cfg.Mappings.Count == 0)
         {
             return RuleVerbResult.Fail("El 'Direccionar compra' no esta configurado en el conciliador.");

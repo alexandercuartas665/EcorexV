@@ -1,0 +1,49 @@
+ECOREX.tareas - Tunel a la BD de PROD desde PC2
+================================================
+
+Objetivo: que PC2 (con la VPN conectada) abra un tunel SSH a la BD de PROD
+(contenedor Docker ecorex-postgres-prod en 10.0.0.3) y el sistema se conecte
+a traves de  localhost:15433.
+
+Requisitos en PC2
+-----------------
+  - VPN conectada (PC2 debe poder alcanzar 10.0.0.3).
+  - Cliente OpenSSH de Windows (trae ssh / ssh-keygen). Si falta:
+      Configuracion > Aplicaciones > Caracteristicas opcionales > "Cliente OpenSSH".
+
+Paso 1 - Crear la llave (una sola vez por PC)
+---------------------------------------------
+  Abre PowerShell en esta carpeta y corre:
+      .\crear-llave-tunel.ps1
+
+  Esto genera el par ed25519 (sin passphrase) en:
+      %USERPROFILE%\.ssh\id_ed25519_visal   (privada, NUNCA se comparte/commitea)
+      %USERPROFILE%\.ssh\id_ed25519_visal.pub (publica, la que va al servidor)
+
+  El script imprime la llave PUBLICA. Hay que instalarla en el servidor:
+    - Opcion A (si PC2 ya tiene algun acceso SSH al server):
+          .\crear-llave-tunel.ps1 -InstalarEnServidor
+    - Opcion B (manual): pega la publica en ~/.ssh/authorized_keys de root@10.0.0.3
+      (desde la consola del server, o desde otro PC que si tenga acceso).
+
+  El propio script, al final, verifica que la llave autentica.
+  (Instalar la publica de PC2 NO afecta las llaves de otros PCs: se agregan todas.)
+
+Paso 2 - Abrir el tunel (cada vez que necesites conectar)
+---------------------------------------------------------
+      .\abrir-tunel-prod.ps1
+
+  Deja esa ventana ABIERTA mientras uses el sistema. Ctrl+C cierra el tunel.
+  Queda escuchando en  localhost:15433  ->  ecorex-postgres-prod:5432.
+
+Paso 3 - Apuntar el sistema a la BD de prod (por el tunel)
+----------------------------------------------------------
+  Antes de levantar la app en PC2, define la cadena de conexion al tunel:
+      $env:ECOREX_DB_CONNECTION = 'Host=localhost;Port=15433;Database=ecorex;Username=ecorex;Password=<clave_de_prod>'
+  (la clave de prod NO va en el repo; pidela por un canal seguro).
+
+Notas
+-----
+  - La llave se crea SIN passphrase a proposito (el tunel corre en BatchMode, sin prompts).
+  - Si el puerto 15433 ya esta en uso, el tunel ya estaba abierto.
+  - Errores tipicos: VPN caida, antivirus bloquea ssh.exe, o falta instalar la publica en el server.

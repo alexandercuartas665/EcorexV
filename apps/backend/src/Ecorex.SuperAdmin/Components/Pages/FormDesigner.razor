@@ -3645,6 +3645,8 @@ else
                         <div class="fb-rule-verb">@link.VerbName</div>
                         <div class="fb-rule-trigger">Al cambiar - @link.DocumentCode @link.RuleName</div>
                     </div>
+                    <a class="fb-rule-edit" href="@($"/reglas?rule={link.RuleId}")" target="_blank" title="Editar los parametros y el mapeo de esta regla"
+                       style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);text-decoration:none;margin-right:8px;white-space:nowrap;">Editar</a>
                     <span class="fb-rule-x" @onclick="@(() => UnlinkRuleAsync(node, link.Id))">&times;</span>
                 </div>
             }

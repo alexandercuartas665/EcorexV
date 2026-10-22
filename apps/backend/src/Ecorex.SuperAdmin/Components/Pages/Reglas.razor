@@ -10,6 +10,7 @@
 @inject IRuleDocumentService RulesSvc
 @inject IRulesEngine Engine
 @inject IRuleParamOptionsProvider ParamOptions
+@inject NavigationManager Nav
 
 <PageTitle>Reglas - ECOREX.tareas</PageTitle>
 
@@ -820,10 +821,22 @@
         await LoadDocumentsAsync();
         await LoadAllRulesAsync();
         await LoadStatsAsync();
-        var first = _allRules.FirstOrDefault();
-        if (first is not null)
+        // Deep-link: /reglas?rule={id} preselecciona esa regla (p. ej. desde el diseñador de formularios).
+        Guid? deepLink = null;
+        try
         {
-            await SelectRuleAsync(first.Id);
+            var query = new Uri(Nav.Uri).Query.TrimStart('?');
+            foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = part.Split('=', 2);
+                if (kv.Length == 2 && kv[0] == "rule" && Guid.TryParse(Uri.UnescapeDataString(kv[1]), out var rid)) { deepLink = rid; break; }
+            }
+        }
+        catch { }
+        var target = (deepLink is Guid dl && _allRules.Any(r => r.Id == dl)) ? dl : _allRules.FirstOrDefault()?.Id;
+        if (target is Guid sel)
+        {
+            await SelectRuleAsync(sel);
         }
     }
 

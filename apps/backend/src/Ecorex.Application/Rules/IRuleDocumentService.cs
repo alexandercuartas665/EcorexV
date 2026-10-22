@@ -60,6 +60,11 @@ public interface IRuleDocumentService
     Task<RuleResult<RuleFormLinkDto>> LinkToQuestionAsync(Guid ruleId, Guid formQuestionId, int sortOrder = 0, CancellationToken cancellationToken = default);
     Task<RuleResult<bool>> UnlinkQuestionAsync(Guid formFieldRuleId, CancellationToken cancellationToken = default);
 
+    /// <summary>Override de parametros POR FORMULARIO guardado en el vinculo (null si no tiene).</summary>
+    Task<string?> GetFieldRuleOverrideAsync(Guid formFieldRuleId, CancellationToken cancellationToken = default);
+    /// <summary>Guarda (o limpia con null/"") el override de parametros del vinculo formulario-regla.</summary>
+    Task<RuleResult<bool>> SetFieldRuleOverrideAsync(Guid formFieldRuleId, string? paramsOverrideJson, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Crea una regla condicional de campo "si {sourceField} {op} {value} -&gt; {effect} {targetField}"
     /// (verbo BLOQUEAR_CAMPO_XCONDICION) y la vincula a la pregunta disparadora, en un solo paso.

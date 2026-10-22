@@ -17,10 +17,11 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
     public const string VerbName = "GENERAR_REQUERIMIENTOS_DESDE_TABLA";
 
     private readonly IRequerimientoService _req;
+    private readonly IRequerimientoFieldService _fields;
 
-    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req)
+    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req, IRequerimientoFieldService fields)
     {
-        _req = req;
+        _req = req; _fields = fields;
     }
 
     public string Name => VerbName;
@@ -32,8 +33,9 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
         [
             new RuleVerbParamDescriptor("tableField", "Campo tabla", RuleParamType.FieldCode, Required: true,
                 "FieldCode del grid cuyo valor es un arreglo JSON de filas (cada fila = una necesidad)."),
-            new RuleVerbParamDescriptor("origenId", "Origen (Id)", RuleParamType.Text, Required: false,
-                "Guid del RequerimientoOrigen al que quedan asociadas las necesidades (define el proceso de compra/cotizacion). Vacio = sin origen."),
+            new RuleVerbParamDescriptor("origenId", "Origen", RuleParamType.Select, Required: false,
+                "Origen de Requerimientos al que quedan asociadas las necesidades (define el proceso de compra/cotizacion). Vacio = sin origen.",
+                OptionsSource: "requerimiento-origenes"),
             new RuleVerbParamDescriptor("areaField", "Campo area (cabecera)", RuleParamType.FieldCode, Required: false,
                 "FieldCode de cabecera cuyo valor es el area solicitante para todas las filas."),
             new RuleVerbParamDescriptor("productoCol", "Columna producto", RuleParamType.Text, Required: false,
@@ -46,6 +48,18 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 "Id de la columna con la fecha requerida (default: fecha_requerida)."),
             new RuleVerbParamDescriptor("obsCol", "Columna observaciones", RuleParamType.Text, Required: false,
                 "Id de la columna con observaciones; se anexa a la descripcion (default: observaciones)."),
+            new RuleVerbParamDescriptor("mapeo", "Mapeo de destino (avanzado)", RuleParamType.Mapping, Required: false,
+                "Llena cada dato de la necesidad desde una columna del grid, un campo del formulario o un valor fijo. Sobrescribe las columnas de arriba. Incluye los campos propios de la necesidad.",
+                OptionsSource: "requerimiento-campos-padre",
+                Options:
+                [
+                    new RuleParamOption("descripcion", "Descripcion (producto)"),
+                    new RuleParamOption("cantidad", "Cantidad"),
+                    new RuleParamOption("unidad", "Unidad"),
+                    new RuleParamOption("fecha", "Fecha requerida"),
+                    new RuleParamOption("area", "Area solicitante"),
+                    new RuleParamOption("origen", "Origen (sobrescribe)")
+                ]),
             new RuleVerbParamDescriptor("autoComplete", "Completar paso", RuleParamType.Boolean, Required: false,
                 "Si es true y la regla es autonoma de un nodo, el paso del flujo se completa solo.")
         ]);
@@ -66,9 +80,9 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 autoCompleteStep: context.GetBoolParam("autoComplete"));
         }
 
-        Guid? origenId = Guid.TryParse(context.GetStringParam("origenId"), out var oid) ? oid : null;
+        Guid? origenParam = Guid.TryParse(context.GetStringParam("origenId"), out var oid) ? oid : null;
         var areaField = context.GetStringParam("areaField");
-        var area = !string.IsNullOrWhiteSpace(areaField)
+        var areaHeader = !string.IsNullOrWhiteSpace(areaField)
             ? (context.FormData.GetValueOrDefault(areaField!) ?? "")
             : "";
 
@@ -78,20 +92,60 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
         var fechaCol = context.GetStringParam("fechaCol") ?? "fecha_requerida";
         var obsCol = context.GetStringParam("obsCol") ?? "observaciones";
 
+        // Mapeo avanzado destino -> "kind:ref" (col|field|fixed). Sobrescribe/añade datos del destino.
+        var mapeo = ReadMapeo(context);
+        // Resuelve los campos propios (Padre) por clave solo si el mapeo los usa.
+        Dictionary<string, Guid>? dynDefs = null;
+        if (mapeo.Keys.Any(k => k.StartsWith("dyn:", StringComparison.Ordinal)))
+        {
+            dynDefs = (await _fields.ListDefsAsync("Padre", cancellationToken))
+                .ToDictionary(d => "dyn:" + d.FieldKey, d => d.Id, StringComparer.Ordinal);
+        }
+
         var created = 0;
         var skipped = 0;
         foreach (var row in rows)
         {
             if (row.ValueKind != JsonValueKind.Object) { skipped++; continue; }
+
+            // Valores base desde columnas (compatibilidad).
             var producto = Cell(row, productoCol);
-            if (string.IsNullOrWhiteSpace(producto)) { skipped++; continue; }
-
-            if (!TryNum(Cell(row, cantidadCol), out var cantidad) || cantidad <= 0) { skipped++; continue; }
-
+            var cantidad = TryNum(Cell(row, cantidadCol), out var cBase) ? cBase : 0m;
             var unidad = Cell(row, unidadCol) ?? "";
             var obs = Cell(row, obsCol);
-            var descripcion = string.IsNullOrWhiteSpace(obs) ? producto!.Trim() : $"{producto!.Trim()} ({obs!.Trim()})";
-            DateTimeOffset? fecha = TryDate(Cell(row, fechaCol), out var d) ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null;
+            DateTimeOffset? fecha = TryDate(Cell(row, fechaCol), out var dBase) ? new DateTimeOffset(dBase.Date, TimeSpan.Zero) : null;
+            var area = areaHeader;
+            var origenId = origenParam;
+            string? descripcionOverride = null;
+            var dynValues = new Dictionary<Guid, string?>();
+
+            // Overrides por mapeo.
+            foreach (var (target, expr) in mapeo)
+            {
+                var val = ResolveSource(expr, row, context);
+                switch (target)
+                {
+                    case "descripcion": descripcionOverride = val; break;
+                    case "cantidad": if (TryNum(val, out var cm)) { cantidad = cm; } break;
+                    case "unidad": unidad = val ?? ""; break;
+                    case "fecha": if (TryDate(val, out var dm)) { fecha = new DateTimeOffset(dm.Date, TimeSpan.Zero); } break;
+                    case "area": area = val ?? ""; break;
+                    case "origen": if (Guid.TryParse(val, out var og)) { origenId = og; } break;
+                    default:
+                        if (target.StartsWith("dyn:", StringComparison.Ordinal) && dynDefs is not null
+                            && dynDefs.TryGetValue(target, out var defId))
+                        {
+                            dynValues[defId] = string.IsNullOrWhiteSpace(val) ? null : val!.Trim();
+                        }
+                        break;
+                }
+            }
+
+            // Descripcion final (override o producto), con las observaciones entre parentesis.
+            var baseDesc = descripcionOverride ?? producto;
+            if (string.IsNullOrWhiteSpace(baseDesc)) { skipped++; continue; }
+            var descripcion = string.IsNullOrWhiteSpace(obs) ? baseDesc!.Trim() : $"{baseDesc!.Trim()} ({obs!.Trim()})";
+            if (cantidad <= 0) { skipped++; continue; }
 
             try
             {
@@ -99,6 +153,11 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                     new CrearRequerimientoRequest(origenId, area, null, descripcion, cantidad, unidad, fecha),
                     cancellationToken);
                 if (saved is null) { return new RuleVerbResult(false, $"No se pudo crear la necesidad '{descripcion}'.", created); }
+                // Campos propios de la necesidad creada.
+                foreach (var (defId, v) in dynValues)
+                {
+                    try { await _fields.SetValueAsync(saved.Id, defId, v, cancellationToken); } catch { }
+                }
                 created++;
             }
             catch (Exception ex)
@@ -109,6 +168,38 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
 
         var msg = $"{created} necesidad(es) de compra creada(s)." + (skipped > 0 ? $" {skipped} fila(s) omitida(s) (sin producto o cantidad)." : "");
         return RuleVerbResult.Ok(msg, created, autoCompleteStep: context.GetBoolParam("autoComplete"));
+    }
+
+    /// <summary>Lee el parametro 'mapeo' (objeto JSON destino -> "kind:ref"); ignora valores vacios.</summary>
+    private static Dictionary<string, string> ReadMapeo(RuleContext context)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (context.Params.TryGetValue("mapeo", out var el) && el.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in el.EnumerateObject())
+            {
+                var v = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : prop.Value.GetRawText();
+                if (!string.IsNullOrWhiteSpace(v)) { map[prop.Name] = v!; }
+            }
+        }
+        return map;
+    }
+
+    /// <summary>Resuelve una fuente "kind:ref": col=&gt;columna del grid (por fila), field=&gt;campo de cabecera,
+    /// fixed=&gt;literal. Sin prefijo reconocido se toma como literal.</summary>
+    private static string? ResolveSource(string expr, JsonElement row, RuleContext context)
+    {
+        var i = expr.IndexOf(':');
+        if (i < 0) { return expr; }
+        var kind = expr[..i];
+        var reference = expr[(i + 1)..];
+        return kind switch
+        {
+            "col" => Cell(row, reference),
+            "field" => context.FormData.GetValueOrDefault(reference),
+            "fixed" => reference,
+            _ => expr,
+        };
     }
 
     /// <summary>Filas desde el campo tabla del FormData (arreglo JSON) o, en su defecto, params.rows.</summary>

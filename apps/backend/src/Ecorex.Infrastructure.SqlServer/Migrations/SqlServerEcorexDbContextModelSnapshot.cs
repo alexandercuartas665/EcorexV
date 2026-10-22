@@ -6675,6 +6675,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("form_question_id");
 
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_override_json");
+
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("rule_id");
@@ -7288,6 +7292,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid>("DefinitionId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
+
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_override_json");
 
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uniqueidentifier")

@@ -1809,7 +1809,10 @@ app.MapPost("/webhooks/ycloud", async (
         // evento crudo (antes el motivo se perdia y un "no llego" quedaba invisible).
         static int StatusRank(string? st) => (st ?? "").ToLowerInvariant() switch
         {
-            "sent" => 1, "delivered" => 2, "read" => 3, _ => 0
+            "sent" => 1,
+            "delivered" => 2,
+            "read" => 3,
+            _ => 0
         };
         var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
         var updated = 0; var recorded = 0;

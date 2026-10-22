@@ -30,16 +30,16 @@ public sealed class RuleParamOptionsProvider : IRuleParamOptionsProvider
         {
             // Origenes de Requerimientos (definen el proceso de compra/cotizacion). value = Guid, label = nombre.
             case "requerimiento-origenes":
-            {
-                var origenes = await _req.ListOrigenesActivosAsync(ct);
-                return origenes.Select(o => new RuleParamOption(o.Id.ToString(), o.Nombre)).ToList();
-            }
+                {
+                    var origenes = await _req.ListOrigenesActivosAsync(ct);
+                    return origenes.Select(o => new RuleParamOption(o.Id.ToString(), o.Nombre)).ToList();
+                }
             // Campos propios de la NECESIDAD (ambito Padre) como destinos de mapeo. value = "dyn:{fieldKey}".
             case "requerimiento-campos-padre":
-            {
-                var defs = await _fields.ListDefsAsync("Padre", ct);
-                return defs.Select(d => new RuleParamOption("dyn:" + d.FieldKey, d.Label + " (campo propio)")).ToList();
-            }
+                {
+                    var defs = await _fields.ListDefsAsync("Padre", ct);
+                    return defs.Select(d => new RuleParamOption("dyn:" + d.FieldKey, d.Label + " (campo propio)")).ToList();
+                }
             default:
                 return Array.Empty<RuleParamOption>();
         }

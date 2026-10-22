@@ -236,18 +236,12 @@
         </button>
     }
 
-    @* Vista por proveedor (aplana las lineas de planificacion y agrupa por proveedor) *@
-    <button class="cd-tbtn @(_byProvider ? "on" : "")" @onclick="ToggleByProvider" title="Alternar entre la vista de necesidades y una vista que agrupa las lineas de planificacion por proveedor">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-9M14 17H5M17 3l3 4-3 4M7 13l-3 4 3 4"/></svg>
-        <span>Por proveedor</span>
-    </button>
-
     @* Expandir / colapsar distribuciones *@
-    <button class="cd-tbtn" @onclick="ExpandAll" disabled="@_byProvider" title="Mostrar las distribuciones (hijos) de todas las compras">
+    <button class="cd-tbtn" @onclick="ExpandAll" disabled="@ByProvider" title="Mostrar las distribuciones (hijos) de todas las compras">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
         <span>Expandir todo</span>
     </button>
-    <button class="cd-tbtn" @onclick="CollapseAll" disabled="@_byProvider" title="Ocultar las distribuciones (hijos)">
+    <button class="cd-tbtn" @onclick="CollapseAll" disabled="@ByProvider" title="Ocultar las distribuciones (hijos)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 11l-5-5-5 5M17 18l-5-5-5 5"/></svg>
         <span>Colapsar todo</span>
     </button>
@@ -263,9 +257,9 @@
     </button>
 
     <div class="cd-toolbar-spacer"></div>
-    @if (_byProvider)
+    @if (ByProvider)
     {
-        <span class="cd-toolbar-hint">Vista por proveedor (lineas de planificacion)</span>
+        <span class="cd-toolbar-hint">Agrupado por Proveedor (lineas de planificacion)</span>
     }
     else if (_groups.Count > 0)
     {
@@ -533,7 +527,7 @@ else
             <button class="cd-doc-close" title="Cerrar" @onclick="CloseFilterBuilder">&times;</button>
         </div>
         <div class="cd-fb-body">
-            <RequerimientoFilterGroup Group="_filterRoot" Depth="0" OnChanged="OnFilterChanged" />
+            <RequerimientoFilterGroup Group="_filterRoot" Depth="0" ExtraFields="FilterExtraFields()" OnChanged="OnFilterChanged" />
         </div>
         <div class="cd-fb-foot">
             <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
@@ -583,6 +577,36 @@ else
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Fecha de necesidad
                     <input type="date" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aFecha" />
                 </label>
+                @foreach (var d in _dynDefsPadre)
+                {
+                    var dd = d; var av = _altaDynValues.TryGetValue(dd.Id, out var v) ? v : null;
+                    @if (dd.Type == "Bool")
+                    {
+                        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2,#4b5563);" title="@dd.Description">
+                            <input type="checkbox" checked="@(av == "true")" @onchange="e => SetAltaDynBool(dd.Id, e)" />
+                            @dd.Label
+                        </label>
+                    }
+                    else
+                    {
+                        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);" title="@dd.Description">@dd.Label
+                            @if (dd.Type == "Select")
+                            {
+                                <select class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @onchange="e => SetAltaDyn(dd.Id, e.Value?.ToString())">
+                                    <option value="" selected="@string.IsNullOrEmpty(av)">-</option>
+                                    @foreach (var op in dd.Options)
+                                    {
+                                        <option value="@op" selected="@(av == op)">@op</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input type="@(dd.Type == "Number" ? "number" : dd.Type == "Date" ? "date" : "text")" step="any" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="@(dd.Type == "Url" ? "https://..." : "")" value="@av" @onchange="e => SetAltaDyn(dd.Id, e.Value?.ToString())" />
+                            }
+                        </label>
+                    }
+                }
                 @if (_altaError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_altaError</div> }
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
@@ -843,69 +867,111 @@ else
 @* ---- Configuracion de campos propios (dinamicos) (Ola 12) ---- *@
 @if (_showCampos)
 {
-    <div style="position:fixed;inset:0;z-index:4200;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:50px 16px;overflow:auto;" @onclick="() => _showCampos = false">
-        <div style="background:var(--surface,#fff);border-radius:12px;width:760px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <strong style="font-size:14px;">Campos propios</strong>
-                <button class="btn btn-link btn-sm" @onclick="() => _showCampos = false">&times;</button>
+    <div class="cd-doc-backdrop" @onclick="CerrarCamposAsync"></div>
+    <div class="cd-rules-modal" style="width:min(820px,96vw);height:min(640px,86vh);" @onclick:stopPropagation="true">
+        <div class="cd-doc-head">
+            <div class="cd-doc-title">
+                <div class="cd-doc-title-main">Campos de la tabla</div>
+                <div class="cd-doc-title-sub">Campos a medida: en la NECESIDAD (columnas de la grilla) y en la LINEA de planificacion.</div>
             </div>
-            <div style="padding:14px 18px;display:flex;gap:18px;flex-wrap:wrap;">
-                <div style="flex:1;min-width:300px;">
-                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">Necesidad (columnas de la grilla)</div>
-                    @foreach (var d in _camposDefs.Where(x => x.Scope == "Padre"))
-                    {
-                        var dd = d;
-                        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line,#f1f5f9);">
-                            <span style="flex:1;font-size:12.5px;">@dd.Label <span style="color:var(--ink-3,#6b7280);">(@TipoLabel(dd.Type))</span></span>
-                            <button class="btn btn-link btn-sm" @onclick="() => EditCampo(dd)">Editar</button>
-                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCampoAsync(dd.Id)">Eliminar</button>
+            <button class="cd-doc-close" title="Cerrar" @onclick="CerrarCamposAsync">&times;</button>
+        </div>
+        <div class="cd-fields-body">
+            @* ---- Izquierda: lista de campos por ambito ---- *@
+            <div class="cd-fields-list">
+                <div class="cd-fields-sec">Necesidad (columnas de la grilla)</div>
+                <button class="cd-fb-add" style="width:100%;margin-bottom:8px;" @onclick="@(() => AddCampoAsync("Padre"))">+ Campo</button>
+                @{ var padres = _fieldEditList.Where(f => f.Scope == "Padre").ToList(); }
+                @if (padres.Count == 0) { <div class="cd-muted" style="padding:2px 2px 8px;">Sin campos.</div> }
+                @foreach (var fe in padres)
+                {
+                    var f = fe; var pos = padres.IndexOf(fe);
+                    <div class="cd-field-item @(fe.Id == _selFieldId ? "sel" : "")" @onclick="() => SelectCampo(f)">
+                        <span class="cd-field-ord">@(pos + 1)</span>
+                        <div class="cd-field-meta">
+                            <div class="cd-field-name">@(string.IsNullOrWhiteSpace(fe.Label) ? "(sin nombre)" : fe.Label)@if (fe.Dirty) { <span class="cd-field-dot" title="Cambios sin guardar">&#9679;</span> }</div>
+                            <div class="cd-field-type">@TipoLabel(fe.Type)</div>
                         </div>
-                    }
-                    <div style="font-size:12px;font-weight:600;margin:12px 0 6px;">Linea de planificacion (en Planificar)</div>
-                    @foreach (var d in _camposDefs.Where(x => x.Scope == "Hija"))
-                    {
-                        var dd = d;
-                        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--line,#f1f5f9);">
-                            <span style="flex:1;font-size:12.5px;">@dd.Label <span style="color:var(--ink-3,#6b7280);">(@TipoLabel(dd.Type))</span></span>
-                            <button class="btn btn-link btn-sm" @onclick="() => EditCampo(dd)">Editar</button>
-                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCampoAsync(dd.Id)">Eliminar</button>
+                        <div class="cd-field-acts" @onclick:stopPropagation="true">
+                            <button class="cd-ic" @onclick="() => MoveCampoAsync(f, -1)" disabled="@(pos == 0)" title="Subir">&#8593;</button>
+                            <button class="cd-ic" @onclick="() => MoveCampoAsync(f, 1)" disabled="@(pos == padres.Count - 1)" title="Bajar">&#8595;</button>
+                            <button class="cd-ic cd-ic-del" @onclick="() => BorrarCampoAsync(f)" title="Eliminar">&times;</button>
                         </div>
-                    }
-                    @if (_camposDefs.Count == 0) { <div style="font-size:12px;color:var(--ink-3,#6b7280);">Aun no hay campos propios.</div> }
-                </div>
-                <div style="width:300px;">
-                    <div style="font-size:12px;font-weight:600;margin-bottom:6px;">@(_fId is null ? "Nuevo campo" : "Editar campo")</div>
-                    <input style="width:100%;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" placeholder="Etiqueta *" @bind="_fLabel" />
-                    <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Ambito</label>
-                    <select class="cd-in" style="width:100%;height:30px;margin-bottom:8px;" @bind="_fScope" disabled="@(_fId is not null)">
-                        <option value="Padre">Necesidad (columna de la grilla)</option>
-                        <option value="Hija">Linea de planificacion</option>
-                    </select>
-                    <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Tipo</label>
-                    <select class="cd-in" style="width:100%;height:30px;margin-bottom:8px;" @bind="_fType">
-                        <option value="Text">Texto</option>
-                        <option value="Number">Numero</option>
-                        <option value="Date">Fecha</option>
-                        <option value="Bool">Si/No</option>
-                        <option value="Select">Lista</option>
-                        <option value="Url">Enlace (URL)</option>
-                    </select>
-                    @if (_fType == "Select")
-                    {
-                        <label style="font-size:11.5px;color:var(--ink-3,#6b7280);">Opciones (una por linea)</label>
-                        <textarea style="width:100%;height:70px;padding:6px 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" @bind="_fOptions"></textarea>
-                    }
-                    <input style="width:100%;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;margin-bottom:8px;" placeholder="Descripcion (tooltip)" @bind="_fDesc" />
-                    @if (_camposError is not null) { <div style="color:#b91c1c;font-size:12px;margin-bottom:8px;">@_camposError</div> }
-                    <div style="display:flex;gap:8px;">
-                        <button class="btn btn-primary btn-sm" @onclick="SaveCampoAsync" disabled="@_busy">@(_fId is null ? "Agregar" : "Guardar")</button>
-                        @if (_fId is not null) { <button class="btn btn-link btn-sm" @onclick="ClearCampoForm">Cancelar</button> }
                     </div>
-                </div>
+                }
+
+                <div class="cd-fields-sec">Linea de planificacion (en Planificar)</div>
+                <button class="cd-fb-add" style="width:100%;margin-bottom:8px;" @onclick="@(() => AddCampoAsync("Hija"))">+ Campo</button>
+                @{ var hijas = _fieldEditList.Where(f => f.Scope == "Hija").ToList(); }
+                @if (hijas.Count == 0) { <div class="cd-muted" style="padding:2px 2px 8px;">Sin campos.</div> }
+                @foreach (var fe in hijas)
+                {
+                    var f = fe; var pos = hijas.IndexOf(fe);
+                    <div class="cd-field-item @(fe.Id == _selFieldId ? "sel" : "")" @onclick="() => SelectCampo(f)">
+                        <span class="cd-field-ord">@(pos + 1)</span>
+                        <div class="cd-field-meta">
+                            <div class="cd-field-name">@(string.IsNullOrWhiteSpace(fe.Label) ? "(sin nombre)" : fe.Label)@if (fe.Dirty) { <span class="cd-field-dot" title="Cambios sin guardar">&#9679;</span> }</div>
+                            <div class="cd-field-type">@TipoLabel(fe.Type)</div>
+                        </div>
+                        <div class="cd-field-acts" @onclick:stopPropagation="true">
+                            <button class="cd-ic" @onclick="() => MoveCampoAsync(f, -1)" disabled="@(pos == 0)" title="Subir">&#8593;</button>
+                            <button class="cd-ic" @onclick="() => MoveCampoAsync(f, 1)" disabled="@(pos == hijas.Count - 1)" title="Bajar">&#8595;</button>
+                            <button class="cd-ic cd-ic-del" @onclick="() => BorrarCampoAsync(f)" title="Eliminar">&times;</button>
+                        </div>
+                    </div>
+                }
             </div>
-            <div style="display:flex;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarCamposAsync" disabled="@_busy">Cerrar</button>
+            @* ---- Derecha: panel de configuracion del campo seleccionado ---- *@
+            <div class="cd-field-cfg">
+                @if (SelField is { } sf)
+                {
+                    <div class="cd-cfg-title">@(string.IsNullOrWhiteSpace(sf.Label) ? "Nuevo campo" : "Editar campo") <span class="cd-sys-badge">@(sf.Scope == "Hija" ? "LINEA" : "NECESIDAD")</span></div>
+                    <div class="cd-cfg-row">
+                        <label class="cd-cfg-lbl">Etiqueta</label>
+                        <input class="cd-in" value="@sf.Label" @onchange="e => SetCampoLabel(sf, e)" placeholder="Nombre de la columna" />
+                    </div>
+                    <div class="cd-cfg-row">
+                        <label class="cd-cfg-lbl">Tipo</label>
+                        <select class="cd-in" @onchange="e => SetCampoType(sf, e)">
+                            @foreach (var t in _tiposCampo)
+                            {
+                                <option value="@t.Key" selected="@(t.Key == sf.Type)">@t.Label</option>
+                            }
+                        </select>
+                    </div>
+                    @if (sf.Type == "Select")
+                    {
+                        <div class="cd-cfg-row">
+                            <label class="cd-cfg-lbl">Opciones (separadas por coma)</label>
+                            <input class="cd-in" value="@sf.OptionsText" @onchange="e => SetCampoOptions(sf, e)" placeholder="Ej: Alta, Media, Baja" />
+                        </div>
+                    }
+                    <div class="cd-cfg-row">
+                        <label class="cd-cfg-lbl">Descripcion (opcional)</label>
+                        <input class="cd-in" value="@sf.Description" @onchange="e => SetCampoDescription(sf, e)" placeholder="Se muestra como tooltip en el encabezado" />
+                    </div>
+                    @if (sf.Scope == "Padre")
+                    {
+                        <label class="cd-cfg-check">
+                            <input type="checkbox" checked="@sf.ShowInFilter" @onchange="e => SetCampoShowInFilter(sf, e)" />
+                            Ofrecer como filtro en el listado
+                        </label>
+                    }
+                    @if (_camposError is not null) { <div class="cd-cfg-hint" style="color:#b91c1c;">@_camposError</div> }
+                    <div class="cd-cfg-actions">
+                        <button class="cd-ic-save @(sf.Dirty ? "on" : "")" @onclick="() => GuardarCampoAsync(sf)" disabled="@(!sf.Dirty || _busy)">Guardar</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="cd-cfg-empty">Elige un campo de la lista para editarlo, o crea uno con &ldquo;+ Campo&rdquo;.</div>
+                }
             </div>
+        </div>
+        <div class="cd-rules-foot">
+            <span class="cd-muted">Los campos de la necesidad aparecen como columnas al final de la tabla.</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarCamposAsync">Cerrar</button>
         </div>
     </div>
 }
@@ -1002,7 +1068,16 @@ else
     private string? _saveName;
     private string? _activeFilterName;
     private List<SavedFilterDto> _savedFilters = new();
-    private int FilterCount => RequerimientoFilter.CountConditions(_filterRoot);
+    private int FilterCount => RequerimientoFilter.CountConditions(_filterRoot, FilterExtraFields());
+
+    // Campos dinamicos (ambito Padre) ofrecidos como filtro -> FilterField con clave "dyn:{defId}".
+    private List<FilterField> FilterExtraFields()
+        => _dynDefsPadre.Where(d => d.ShowInFilter)
+            .Select(d => new FilterField("dyn:" + d.Id, d.Label, RequerimientoFilter.MapDynFilterType(d.Type))).ToList();
+
+    // Resolver del valor de un campo dinamico para una fila (clave "dyn:{defId}").
+    private string? DynFilterValue(RequerimientoDto r, string key)
+        => DynDefByKey(key) is { } d ? DynVal(r.Id, d.Id) : "";
 
     // ======================= MOTOR DE TABLA =======================
     private const string TableKey = "requerimientos-compra";
@@ -1015,7 +1090,7 @@ else
         new("area", "Area", false, true),
         new("origen", "Origen", false, true),
         new("estado", "Estado", false, true),
-        new("proveedor", "Proveedor", false, false),
+        new("proveedor", "Proveedor", false, true),
         new("cantidad", "Cantidad", true, false),
         new("unidad", "Unidad", false, true),
         new("precio", "Precio unit.", true, false),
@@ -1032,8 +1107,9 @@ else
     private List<SortSpec> _sorts = new();
     private List<string> _groups = new();
     private int _frozen;
-    // Vista "por proveedor": aplana las lineas hijas (planificacion) y las agrupa por proveedor.
-    private bool _byProvider;
+    // Vista "por proveedor": cuando se agrupa por "proveedor" (que vive en la linea hija), la grilla se
+    // aplana a las lineas de planificacion y se agrupa por proveedor con subtotales.
+    private bool ByProvider => _groups.Contains("proveedor");
 
     private string? _dragCol;
     private string? _openMenu;
@@ -1049,12 +1125,31 @@ else
     private string? DynHijoVal(Guid hijoId, Guid defId)
         => _dynHijoValues.TryGetValue(hijoId, out var d) && d.TryGetValue(defId, out var v) ? v : null;
 
-    // Config de campos propios (modal)
+    // Config de campos propios (modal, estilo Conciliacion DIAN)
     private bool _showCampos;
-    private List<RequerimientoFieldDefDto> _camposDefs = new();
     private string? _camposError;
-    private Guid? _fId;
-    private string _fLabel = "", _fScope = "Padre", _fType = "Text", _fOptions = "", _fDesc = "";
+    private sealed class FieldEdit
+    {
+        public Guid Id;
+        public string FieldKey = "";
+        public string Label = "";
+        public string Scope = "Padre";
+        public string Type = "Text";
+        public int SortOrder;
+        public string OptionsText = "";   // Select: opciones separadas por coma
+        public string Description = "";
+        public bool ShowInFilter = true;
+        public bool Dirty;
+    }
+    private List<FieldEdit> _fieldEditList = new();
+    private Guid _selFieldId;
+    private FieldEdit? SelField => _fieldEditList.FirstOrDefault(f => f.Id == _selFieldId);
+    private void SelectCampo(FieldEdit fe) => _selFieldId = fe.Id;
+    private static readonly (string Key, string Label)[] _tiposCampo =
+    {
+        ("Text", "Texto"), ("Number", "Numero"), ("Date", "Fecha"),
+        ("Bool", "Si/No"), ("Select", "Lista"), ("Url", "Enlace (URL)"),
+    };
 
     private IEnumerable<GridCol> AllCols => _allCols.Concat(_dynCols);
     private void BuildDynCols() => _dynCols = _dynDefsPadre
@@ -1216,13 +1311,13 @@ else
     }
 
     private List<RequerimientoDto> FilteredRows() => FilterCount > 0
-        ? _rows.Where(r => RequerimientoFilter.Evaluate(_filterRoot, r)).ToList()
+        ? _rows.Where(r => RequerimientoFilter.Evaluate(_filterRoot, r, FilterExtraFields(), DynFilterValue)).ToList()
         : _rows.ToList();
 
     private void RebuildItems()
     {
         var items = new List<GridItem>();
-        if (_byProvider)
+        if (ByProvider)
         {
             BuildProviderItems(items);
         }
@@ -1274,13 +1369,6 @@ else
             Kind = GKind.Subtotal, Count = flat.Count,
             Sums = new Dictionary<string, decimal> { ["cantidad"] = gc, ["monto"] = gm }, Grand = true,
         });
-    }
-
-    private void ToggleByProvider()
-    {
-        _byProvider = !_byProvider;
-        RebuildItems();
-        _ = SavePrefsAsync();
     }
 
     // ---- Expansion ----
@@ -1346,74 +1434,114 @@ else
         return SetDynValueAsync(ownerId, defId, on ? "true" : null);
     }
 
-    // ---- Config de campos propios (Ola 12) ----
-    private static string TipoLabel(string t) => t switch
-    {
-        "Number" => "Numero", "Date" => "Fecha", "Bool" => "Si/No", "Select" => "Lista", "Url" => "Enlace", _ => "Texto",
-    };
+    // ---- Config de campos propios (Ola 12, estilo Conciliacion DIAN) ----
+    private static string TipoLabel(string type) => _tiposCampo.FirstOrDefault(t => t.Key == type).Label ?? type;
+
+    private static List<string> ParseOptions(string text)
+        => (text ?? "").Split(',').Select(o => o.Trim()).Where(o => o.Length > 0).ToList();
+
+    private RequerimientoFieldDefDto ToDefDto(FieldEdit fe)
+        => new(fe.Id, fe.FieldKey, fe.Label, fe.Scope, fe.Type, fe.SortOrder,
+            ParseOptions(fe.OptionsText), string.IsNullOrWhiteSpace(fe.Description) ? null : fe.Description.Trim(), fe.ShowInFilter);
 
     private async Task OpenCamposAsync()
     {
         _camposError = null;
-        _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
-        ClearCampoForm();
+        var defs = (await FieldSvc.ListDefsAsync()).ToList();
+        _fieldEditList = defs.Select(d => new FieldEdit
+        {
+            Id = d.Id, FieldKey = d.FieldKey, Label = d.Label, Scope = d.Scope, Type = d.Type, SortOrder = d.SortOrder,
+            OptionsText = string.Join(", ", d.Options), Description = d.Description ?? "", ShowInFilter = d.ShowInFilter,
+        }).ToList();
+        _selFieldId = _fieldEditList.FirstOrDefault()?.Id ?? Guid.Empty;
         _showCampos = true;
     }
 
-    private void ClearCampoForm()
-    {
-        _fId = null; _fLabel = ""; _fScope = "Padre"; _fType = "Text"; _fOptions = ""; _fDesc = "";
-    }
+    private void SetCampoLabel(FieldEdit fe, ChangeEventArgs e) { fe.Label = e.Value?.ToString() ?? ""; fe.Dirty = true; }
+    private void SetCampoType(FieldEdit fe, ChangeEventArgs e) { fe.Type = e.Value?.ToString() ?? "Text"; fe.Dirty = true; }
+    private void SetCampoOptions(FieldEdit fe, ChangeEventArgs e) { fe.OptionsText = e.Value?.ToString() ?? ""; fe.Dirty = true; }
+    private void SetCampoDescription(FieldEdit fe, ChangeEventArgs e) { fe.Description = e.Value?.ToString() ?? ""; fe.Dirty = true; }
+    private void SetCampoShowInFilter(FieldEdit fe, ChangeEventArgs e) { fe.ShowInFilter = e.Value is bool b && b; fe.Dirty = true; }
 
-    private void EditCampo(RequerimientoFieldDefDto d)
+    private async Task AddCampoAsync(string scope)
     {
-        _fId = d.Id; _fLabel = d.Label; _fScope = d.Scope; _fType = d.Type;
-        _fOptions = string.Join("\n", d.Options); _fDesc = d.Description ?? "";
-    }
-
-    private async Task SaveCampoAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_fLabel)) { _camposError = "La etiqueta es obligatoria."; return; }
         _camposError = null; _busy = true;
         try
         {
-            var opts = _fType == "Select"
-                ? _fOptions.Split('\n').Select(o => o.Trim()).Where(o => o.Length > 0).ToList()
-                : new List<string>();
-            var dto = new RequerimientoFieldDefDto(_fId ?? Guid.Empty, "", _fLabel, _fScope, _fType,
-                _camposDefs.Count(x => x.Scope == _fScope), opts, string.IsNullOrWhiteSpace(_fDesc) ? null : _fDesc, true);
-            await FieldSvc.SaveDefAsync(dto);
-            _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
-            ClearCampoForm();
+            var fe = new FieldEdit { Label = "Nuevo campo", Scope = scope, Type = "Text", SortOrder = _fieldEditList.Count(x => x.Scope == scope) };
+            var saved = await FieldSvc.SaveDefAsync(ToDefDto(fe));
+            if (saved is not null)
+            {
+                fe.Id = saved.Id; fe.FieldKey = saved.FieldKey;
+                _fieldEditList.Add(fe); _selFieldId = fe.Id;
+                await RefreshDynAsync();
+            }
         }
         catch (Exception ex) { _camposError = ex.Message; }
         finally { _busy = false; }
     }
 
-    private async Task DeleteCampoAsync(Guid id)
+    private async Task GuardarCampoAsync(FieldEdit fe)
     {
+        if (string.IsNullOrWhiteSpace(fe.Label)) { _camposError = "La etiqueta es obligatoria."; return; }
         _camposError = null; _busy = true;
         try
         {
-            await FieldSvc.DeleteDefAsync(id);
-            _camposDefs = (await FieldSvc.ListDefsAsync()).ToList();
-            if (_fId == id) { ClearCampoForm(); }
+            var saved = await FieldSvc.SaveDefAsync(ToDefDto(fe));
+            if (saved is not null) { fe.Id = saved.Id; fe.FieldKey = saved.FieldKey; fe.Dirty = false; await RefreshDynAsync(); }
         }
         catch (Exception ex) { _camposError = ex.Message; }
         finally { _busy = false; }
     }
 
-    private async Task CerrarCamposAsync()
+    private async Task BorrarCampoAsync(FieldEdit fe)
     {
-        _showCampos = false;
-        // Reconstruye columnas dinamicas + orden + valores para reflejar los cambios en la grilla.
+        _camposError = null; _busy = true;
+        try
+        {
+            await FieldSvc.DeleteDefAsync(fe.Id);
+            _fieldEditList.Remove(fe);
+            if (_selFieldId == fe.Id) { _selFieldId = _fieldEditList.FirstOrDefault()?.Id ?? Guid.Empty; }
+            await PersistOrderAsync();
+            await RefreshDynAsync();
+        }
+        catch (Exception ex) { _camposError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveCampoAsync(FieldEdit fe, int dir)
+    {
+        var sameScope = _fieldEditList.Where(x => x.Scope == fe.Scope).ToList();
+        var pos = sameScope.IndexOf(fe);
+        var tgt = pos + dir;
+        if (tgt < 0 || tgt >= sameScope.Count) { return; }
+        var other = sameScope[tgt];
+        var i1 = _fieldEditList.IndexOf(fe); var i2 = _fieldEditList.IndexOf(other);
+        (_fieldEditList[i1], _fieldEditList[i2]) = (_fieldEditList[i2], _fieldEditList[i1]);
+        await PersistOrderAsync();
+        await RefreshDynAsync();
+    }
+
+    private async Task PersistOrderAsync()
+        => await FieldSvc.ReorderDefsAsync(_fieldEditList.Select(x => x.Id).ToList());
+
+    // Reconstruye columnas dinamicas + orden + valores para reflejar los cambios en la grilla (sin cerrar el modal).
+    private async Task RefreshDynAsync()
+    {
         await LoadDynDefsAsync();
         foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
-        // Limpia del orden las columnas dinamicas que ya no existen.
         _order = _order.Where(k => !IsDynKey(k) || _dynCols.Any(c => c.Key == k)).ToList();
+        if (_dynDefsPadre.Count > 0)
+        {
+            try { _dynValues = (await FieldSvc.GetValuesAsync(_rows.Select(r => r.Id).ToList())).ToDictionary(kv => kv.Key, kv => kv.Value); }
+            catch { _dynValues = new(); }
+        }
+        else { _dynValues = new(); }
         await SavePrefsAsync();
-        await ReloadAsync();
+        RebuildItems();
     }
+
+    private void CerrarCamposAsync() { _showCampos = false; }
 
     private async Task ReloadAsync()
     {
@@ -1659,7 +1787,6 @@ else
         public List<SortSpec>? sorts { get; set; }
         public List<string>? groups { get; set; }
         public int frozen { get; set; }
-        public bool byProvider { get; set; }
     }
 
     private async Task LoadPrefsAsync()
@@ -1679,7 +1806,6 @@ else
             _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
             _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
             _frozen = Math.Max(0, p.frozen);
-            _byProvider = p.byProvider;
         }
         catch { }
     }
@@ -1696,7 +1822,6 @@ else
                 sorts = _sorts,
                 groups = _groups,
                 frozen = _frozen,
-                byProvider = _byProvider,
             });
             await Prefs.SaveAsync(TableKey, json);
         }
@@ -1822,10 +1947,16 @@ else
     private static string Px(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
 
     // ======================= Alta / planificacion / acciones =======================
+    // Valores de los campos dinamicos (Padre) capturados en el alta: defId -> valor.
+    private Dictionary<Guid, string?> _altaDynValues = new();
+    private void SetAltaDyn(Guid defId, string? value) => _altaDynValues[defId] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private void SetAltaDynBool(Guid defId, ChangeEventArgs e) => _altaDynValues[defId] = (e.Value is bool b && b) ? "true" : null;
+
     private void OpenAlta()
     {
         _altaError = null;
         _aOrigen = ""; _aItem = ""; _aDescripcion = ""; _aCantidad = 1; _aUnidad = ""; _aArea = ""; _aFecha = null;
+        _altaDynValues = new();
         _showAlta = true;
     }
 
@@ -1845,6 +1976,11 @@ else
                 _aFecha is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null);
             var saved = await Svc.CrearAsync(req);
             if (saved is null) { _altaError = "No se pudo crear."; return; }
+            // Persiste los campos dinamicos (Padre) capturados, ligados a la nueva necesidad.
+            foreach (var kv in _altaDynValues.Where(x => !string.IsNullOrWhiteSpace(x.Value)))
+            {
+                try { await FieldSvc.SetValueAsync(saved.Id, kv.Key, kv.Value); } catch { }
+            }
             _showAlta = false;
             _msg = $"Necesidad '{saved.Descripcion}' creada.";
             await ReloadAsync();

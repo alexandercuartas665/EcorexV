@@ -36,6 +36,38 @@
   + ADR/PROGRESO. NO mergeado al tronco, NO desplegado, sin push (pendiente OK del usuario).
 - PENDIENTE / fase 2: chat IA asistido para armar la derivacion (fuera de alcance a proposito).
 
+## 2026-10-22 - v0.16.214: agente - crear_actividad sin formulario (ADR-0129) + asignacion round-robin por usuarios del agente (ADR-0128) (SIN deploy)
+
+- HAND-OFF 1 (ADR-0129, sin migracion): crear_actividad (ActividadesToolset) ahora funciona con o SIN formulario.
+  Si el concepto no tiene FormDefinitionId se salta validacion + crear/llenar/enviar el form y solo da de alta la
+  actividad (arranca el flujo igual); 'datos' es opcional en el spec. Con formulario: identico a antes. Caso:
+  SARA/AGRO registra con el concepto "Seguimiento comercial agente IA" (sin form) para disparar su flujo.
+- HAND-OFF 2 (ADR-0128, migracion dual): asignacion round-robin por usuarios configurados en el agente.
+  AiAgent +AssigneeUserIdsJson (lista ordenada de TenantUser ids, jsonb) +AssigneeCursor (int). Picker compartido
+  AgentAssigneePicker: round-robin sobre la lista del agente (rota con el cursor; salta ids no-activos) o FALLBACK
+  al pool de asesores del tenant (AssignableByAgent). Aplicado en crear_tarea Y crear_actividad (antes la
+  actividad no asignaba). UI en Agentes.razor: acordeon con agregar/quitar/subir/bajar usuarios. Migracion dual
+  AddAgentRoundRobinAssignees (aditiva, OPT-IN: lista NULL => comportamiento anterior).
+- VERIFICACION: build Release 0 errores; has-pending-model-changes "No changes" en PG y SQL Server. Pendiente:
+  tests. SIN deploy sin OK.
+
+## 2026-10-22 - Integracion Requerimientos (Agrupar/alta campos propios) + Reglas (params Select/Mapping + override por formulario) al tronco (SIN deploy)
+
+- INTEGRADO (merge --no-ff 67ca41fe, 0 conflictos merge-tree) desde requerimiento_compras, base 00e6a29c:
+  d28ae886 (Agrupar unifica proveedor + campos dinamicos + modal Campos estilo DIAN + filtro por campos),
+  11740678 (el alta de necesidad captura los campos propios del Padre),
+  14935bf6 (reglas: parametros tipo lista Select + mapeo de destino form/columna/fijo; IRuleParamOptionsProvider),
+  ab4cb62d (editar la regla desde el chip del disenador, deep-link /reglas?rule=),
+  78bd5875 (mapeo POR FORMULARIO: params_override_json en form_field_rules/form_submit_rules, override OPT-IN del
+  vinculo que pisa por clave los parametros de la regla; NULL = sin cambio; asistente visual en el disenador).
+- MIGRACION DUAL unica y aditiva: AddFormRuleParamsOverride (PG 20261022105751 / SQL 20261022105954), 2 columnas
+  jsonb nullable. Snapshots actualizados.
+- VERIFICACION (toca motor de reglas + vinculos de formulario, COMPARTIDOS): build Release 0 errores;
+  has-pending-model-changes "No changes" en EcorexDbContext (PG) y SqlServerEcorexDbContext; Application.Tests
+  1114/1114; Domain.Tests 35/35; Integration.Tests dual (reglas/verbos/formularios + ValidateOnBuild del host).
+  Merge preserva el trabajo reciente del tronco (form-canvas bandejas, FlowLineRelease, TaskDocuments,
+  EcorexApiFactory No-Op) y suma lo nuevo (RuleParamOptionsProvider, ParamsOverrideJson). SIN deploy.
+
 ## 2026-10-20 - v0.16.213: graficador de formularios - formas Bandeja + cotas arrastrables (form-canvas.js)
 
 - FORMAS NUEVAS "Bandeja" y "Bandeja con pestana" (SHAPES.bandeja + SHAPES.bandeja_pestana + SHAPE_ORDER): X/aspa

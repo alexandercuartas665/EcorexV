@@ -18,4 +18,8 @@ public class FormSubmitRule : TenantEntity
     public Rule? Rule { get; set; }
 
     public int SortOrder { get; set; }
+
+    /// <summary>Override de parametros POR FORMULARIO (jsonb). Pisa los parametros de la regla al ejecutar
+    /// (mezcla por clave de primer nivel). Null = usa los de la regla. Ver <see cref="FormFieldRule"/>.</summary>
+    public string? ParamsOverrideJson { get; set; }
 }

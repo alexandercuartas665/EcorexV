@@ -827,6 +827,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<int>("AssigneeCursor")
+                        .HasColumnType("int")
+                        .HasColumnName("assignee_cursor");
+
+                    b.Property<string>("AssigneeUserIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("assignee_user_ids_json");
+
                     b.Property<string>("CierreJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("cierre_json");
@@ -6685,6 +6693,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("form_question_id");
 
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_override_json");
+
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("rule_id");
@@ -7298,6 +7310,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid>("DefinitionId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
+
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_override_json");
 
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uniqueidentifier")

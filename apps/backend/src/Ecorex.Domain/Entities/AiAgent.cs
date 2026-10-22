@@ -81,4 +81,16 @@ public class AiAgent : TenantEntity
     /// AgentReactivacionConfig.
     /// </summary>
     public string? ReactivacionJson { get; set; }
+
+    /// <summary>
+    /// ASIGNACION ROUND-ROBIN del agente (jsonb): lista ORDENADA de TenantUser ids a los que el agente reparte
+    /// las tareas/actividades que crea (crear_tarea / crear_actividad), rotando una ronda por cada registro
+    /// (A, B, A, B...). Null o vacio = sin lista -> se cae al pool de asesores del tenant marcados
+    /// AssignableByAgent (comportamiento anterior). Ver AgentAssigneePicker.
+    /// </summary>
+    public string? AssigneeUserIdsJson { get; set; }
+
+    /// <summary>Cursor de rotacion del reparto round-robin (<see cref="AssigneeUserIdsJson"/>): indice del
+    /// PROXIMO usuario de la lista a asignar. Avanza (modulo el tamano de la lista) en cada asignacion.</summary>
+    public int AssigneeCursor { get; set; }
 }

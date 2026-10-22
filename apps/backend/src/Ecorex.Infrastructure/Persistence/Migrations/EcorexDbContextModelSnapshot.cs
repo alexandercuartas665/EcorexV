@@ -827,6 +827,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<int>("AssigneeCursor")
+                        .HasColumnType("integer")
+                        .HasColumnName("assignee_cursor");
+
+                    b.Property<string>("AssigneeUserIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("assignee_user_ids_json");
+
                     b.Property<string>("CierreJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("cierre_json");
@@ -6683,6 +6691,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("form_question_id");
 
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("params_override_json");
+
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uuid")
                         .HasColumnName("rule_id");
@@ -7296,6 +7308,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("DefinitionId")
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
+
+                    b.Property<string>("ParamsOverrideJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("params_override_json");
 
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uuid")

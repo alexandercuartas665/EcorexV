@@ -55,6 +55,18 @@ public static class RequerimientoFilter
 
     public static FilterField? FieldByKey(string? key) => Fields.FirstOrDefault(f => f.Key == key);
 
+    /// <summary>Busca el campo en el catalogo base MAS los campos dinamicos (a medida) ofrecidos como filtro.</summary>
+    public static FilterField? FieldByKey(string? key, IReadOnlyList<FilterField>? extra)
+        => Fields.FirstOrDefault(f => f.Key == key) ?? extra?.FirstOrDefault(f => f.Key == key);
+
+    /// <summary>Mapea el tipo de un campo dinamico a un tipo de filtro.</summary>
+    public static FilterFieldType MapDynFilterType(string? t) => t switch
+    {
+        "Number" => FilterFieldType.Number,
+        "Date" => FilterFieldType.Date,
+        _ => FilterFieldType.Text, // Text | Bool | Select | Url
+    };
+
     public static readonly IReadOnlyList<RequerimientoEstado> Estados = Enum.GetValues<RequerimientoEstado>();
 
     public static string EstadoLabel(RequerimientoEstado e) => e switch
@@ -98,46 +110,55 @@ public static class RequerimientoFilter
 
     public static bool OperatorNeedsValue2(string op) => op == "between";
 
-    public static bool Evaluate(FilterNode? node, RequerimientoDto r)
+    /// <summary>Resolver del valor (texto) de un campo DINAMICO para una fila, por su clave ("dyn:{id}").</summary>
+    public delegate string? DynValueResolver(RequerimientoDto r, string key);
+
+    public static bool Evaluate(FilterNode? node, RequerimientoDto r,
+        IReadOnlyList<FilterField>? extra = null, DynValueResolver? dyn = null)
     {
         if (node is null) { return true; }
         if (node.Kind == "group")
         {
-            var active = node.Children.Where(IsActive).ToList();
+            var active = node.Children.Where(c => IsActive(c, extra)).ToList();
             if (active.Count == 0) { return true; }
             return node.Op == "or"
-                ? active.Any(c => Evaluate(c, r))
-                : active.All(c => Evaluate(c, r));
+                ? active.Any(c => Evaluate(c, r, extra, dyn))
+                : active.All(c => Evaluate(c, r, extra, dyn));
         }
-        return EvalCond(node, r);
+        return EvalCond(node, r, extra, dyn);
     }
 
-    public static bool IsActive(FilterNode n)
+    public static bool IsActive(FilterNode n, IReadOnlyList<FilterField>? extra = null)
     {
-        if (n.Kind == "group") { return n.Children.Any(IsActive); }
-        return IsConditionComplete(n);
+        if (n.Kind == "group") { return n.Children.Any(c => IsActive(c, extra)); }
+        return IsConditionComplete(n, extra);
     }
 
-    public static bool IsConditionComplete(FilterNode n)
+    public static bool IsConditionComplete(FilterNode n, IReadOnlyList<FilterField>? extra = null)
     {
-        var f = FieldByKey(n.Field);
+        var f = FieldByKey(n.Field, extra);
         if (f is null || string.IsNullOrEmpty(n.Operator)) { return false; }
         if (OperatorNeedsValue(n.Operator) && string.IsNullOrWhiteSpace(n.Value)) { return false; }
         if (OperatorNeedsValue2(n.Operator) && string.IsNullOrWhiteSpace(n.Value2)) { return false; }
         return true;
     }
 
-    public static int CountConditions(FilterNode? node)
+    public static int CountConditions(FilterNode? node, IReadOnlyList<FilterField>? extra = null)
     {
         if (node is null) { return 0; }
-        if (node.Kind == "cond") { return IsConditionComplete(node) ? 1 : 0; }
-        return node.Children.Sum(CountConditions);
+        if (node.Kind == "cond") { return IsConditionComplete(node, extra) ? 1 : 0; }
+        return node.Children.Sum(c => CountConditions(c, extra));
     }
 
-    private static bool EvalCond(FilterNode n, RequerimientoDto r)
+    private static bool EvalCond(FilterNode n, RequerimientoDto r, IReadOnlyList<FilterField>? extra, DynValueResolver? dyn)
     {
-        var f = FieldByKey(n.Field);
+        var f = FieldByKey(n.Field, extra);
         if (f is null || string.IsNullOrEmpty(n.Operator)) { return true; } // incompleta -> se ignora
+        // Campo dinamico (a medida): el valor no esta en el DTO, se resuelve por el delegate.
+        if (extra is not null && extra.Any(x => x.Key == n.Field))
+        {
+            return EvalDyn(f.Type, dyn?.Invoke(r, n.Field), n.Operator, n.Value, n.Value2);
+        }
         switch (f.Type)
         {
             case FilterFieldType.Text: return EvalText(TextOf(r, n.Field), n.Operator, n.Value);
@@ -145,6 +166,19 @@ public static class RequerimientoFilter
             case FilterFieldType.Date: return EvalDate(r.FechaNecesidad, n.Operator, n.Value, n.Value2);
             case FilterFieldType.Estado: return EvalEstado(r, n.Operator, n.Value);
             default: return true;
+        }
+    }
+
+    private static bool EvalDyn(FilterFieldType type, string? value, string op, string? arg, string? arg2)
+    {
+        switch (type)
+        {
+            case FilterFieldType.Number:
+                return TryNum(value, out var nv) && EvalNumber(nv, op, arg, arg2);
+            case FilterFieldType.Date:
+                return TryDate(value, out var dv) && EvalDate(new DateTimeOffset(dv.Date, TimeSpan.Zero), op, arg, arg2);
+            default:
+                return EvalText(value ?? "", op, arg);
         }
     }
 

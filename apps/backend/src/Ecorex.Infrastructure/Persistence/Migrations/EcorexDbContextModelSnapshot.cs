@@ -827,6 +827,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<int>("AssigneeCursor")
+                        .HasColumnType("integer")
+                        .HasColumnName("assignee_cursor");
+
+                    b.Property<string>("AssigneeUserIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("assignee_user_ids_json");
+
                     b.Property<string>("CierreJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("cierre_json");

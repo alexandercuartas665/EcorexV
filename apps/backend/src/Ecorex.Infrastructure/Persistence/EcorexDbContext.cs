@@ -1083,6 +1083,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
             b.Property(x => x.CierreJson).HasColumnType(jsonColumnType);
             b.Property(x => x.ReactivacionJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AssigneeUserIdsJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 

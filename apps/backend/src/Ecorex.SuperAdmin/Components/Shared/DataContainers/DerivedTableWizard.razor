@@ -2,6 +2,7 @@
 @using Ecorex.Application.DataContainers
 @using Ecorex.Domain.Enums
 @inject IDerivedTableService Derived
+@inject IDataModelService Models
 @inject Ecorex.SuperAdmin.Agents.IProcessRunner Runner
 
 @*
@@ -31,7 +32,7 @@
         @if (_chatOpen)
         {
             <aside class="dtw-chat">
-                <DerivedTableChatPanel ModelId="ModelId" SourceTableId="Source.Id" ActorUserId="ActorUserId" OnCreated="OnChatCreatedAsync" />
+                <DerivedTableChatPanel ModelId="ModelId" SourceTableId="Source.Id" TargetModelId="_targetModelId" ActorUserId="ActorUserId" OnCreated="OnChatCreatedAsync" />
             </aside>
         }
         <div class="modal-body dtw-body">
@@ -54,6 +55,22 @@
                         <label class="form-label">Descripcion (opcional)</label>
                         <input class="form-control" @bind="_description" maxlength="400" />
                     </div>
+                    @if (_models.Count > 1)
+                    {
+                        <div class="field">
+                            <label class="form-label">Crear en el contenedor</label>
+                            <select class="form-control" value="@_targetModelId" @onchange="e => _targetModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : ModelId">
+                                @foreach (var m in _models)
+                                {
+                                    <option value="@m.Id">@m.Name@(m.Id == ModelId ? " (este)" : "")</option>
+                                }
+                            </select>
+                            @if (_targetModelId != ModelId)
+                            {
+                                <div class="text-muted dtw-help">La derivada nacera en otro contenedor; alli se vera como "derivada de @ModelName / @Source.Name" y se refresca desde ese contenedor.</div>
+                            }
+                        </div>
+                    }
                     <p class="text-muted dtw-help">
                         La tabla derivada tendra filas REALES calculadas a partir de <strong>@Source.Name</strong>: una fila por cada
                         combinacion de las columnas de agrupacion. Se refresca con "Actualizar datos" o por horario, y puedes
@@ -236,7 +253,7 @@
                 case 6:
                     <div class="dc-section-sub">Resumen</div>
                     <ul class="dtw-summary">
-                        <li><strong>@_name</strong> derivada de <strong>@Source.Name</strong></li>
+                        <li><strong>@_name</strong> derivada de <strong>@Source.Name</strong>@(_targetModelId != ModelId ? $", en el contenedor {TargetModelName}" : "")</li>
                         <li>Agrupa por: @string.Join(", ", GroupNames())</li>
                         <li>Agregados: @_countName@(_aggs.Count > 0 ? ", " + string.Join(", ", _aggs.Values) : "")</li>
                         <li>Filtro: @(_filters.Count == 0 ? "ninguno" : $"{_filters.Count} condicion(es)")</li>
@@ -296,6 +313,11 @@
     private bool _busy;
     private bool _chatOpen;
     private string? _error;
+    // Contenedor DESTINO (extension de ADR-0127): por defecto el actual; puede ser otro del tenant.
+    private Guid _targetModelId;
+    private IReadOnlyList<DataModelDto> _models = Array.Empty<DataModelDto>();
+    private string ModelName => _models.FirstOrDefault(m => m.Id == ModelId)?.Name ?? "este contenedor";
+    private string TargetModelName => _models.FirstOrDefault(m => m.Id == _targetModelId)?.Name ?? "otro contenedor";
 
     private string _name = "";
     private string _description = "";
@@ -326,6 +348,13 @@
     protected override void OnParametersSet()
     {
         if (string.IsNullOrWhiteSpace(_name)) { _name = $"{Source.Name} agrupada"; }
+        if (_targetModelId == Guid.Empty) { _targetModelId = ModelId; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _models = await Models.ListAsync(); }
+        catch { _models = Array.Empty<DataModelDto>(); }
     }
 
     private IEnumerable<DataContainerColumnDto> ScalarColumns
@@ -472,7 +501,7 @@
         try
         {
             var (kind, interval, cron) = FriendlySchedule.ToStorage(ScheduleSpec());
-            var req = new CreateDerivedTableRequest(ModelId, _name.Trim(),
+            var req = new CreateDerivedTableRequest(_targetModelId, _name.Trim(),
                 string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
                 BuildSpec(), kind, interval, cron);
             _created = await Derived.CreateAsync(req, ActorUserId);
@@ -480,6 +509,7 @@
             // Primer refresco por el MISMO runner del boton "Actualizar datos": queda en la bitacora.
             var run = await Runner.RunNowAsync(_created.ProcessId);
             _runMessage = run.Ok ? run.Message : $"La tabla se creo pero el primer refresco fallo: {run.Message}";
+            if (_targetModelId != ModelId) { _runMessage = $"Creada en el contenedor '{TargetModelName}'. {_runMessage}"; }
 
             await OnCreated.InvokeAsync(_created.TableId);
         }

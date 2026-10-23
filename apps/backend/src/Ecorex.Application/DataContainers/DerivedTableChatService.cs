@@ -22,7 +22,11 @@ public sealed class DerivedTableChatService : IDerivedTableChatService
     public const string UsageSource = "derived-table-chat";
     private const AiProvider DefaultProvider = AiProvider.Gemini;
 
-    private sealed record Session(ProposalConversation Conversation, Guid ModelId, Guid? SourceTableId, AiProvider Provider, string Model);
+    private sealed record Session(ProposalConversation Conversation, Guid ModelId, Guid? SourceTableId, AiProvider Provider, string Model)
+    {
+        /// <summary>Destino elegido en la UI (null = el contenedor del origen).</summary>
+        public Guid? TargetModelId { get; set; }
+    }
 
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
@@ -96,6 +100,14 @@ public sealed class DerivedTableChatService : IDerivedTableChatService
         return Map(conversationId, await _engine.RejectAsync(s.Conversation, settings, reason, actorUserId, ct));
     }
 
+    public void SetTargetModel(Guid conversationId, Guid? targetModelId)
+    {
+        if (_sessions.TryGetValue(conversationId, out var s))
+        {
+            s.TargetModelId = targetModelId == s.ModelId ? null : targetModelId;
+        }
+    }
+
     // Resuelve clave/modelo/prompt para ESTE turno. El prompt se rearma cada turno (las tablas del contenedor
     // cambian al crear una derivada), pero su texto es estable entre turnos para aprovechar el prompt caching.
     private async Task<ProposalChatSettings?> SettingsAsync(Session s, CancellationToken ct)
@@ -110,17 +122,25 @@ public sealed class DerivedTableChatService : IDerivedTableChatService
 
         var prompt = await BuildSystemPromptAsync(s, ct);
         var modelId = s.ModelId;
+        var target = s.TargetModelId;
         return new ProposalChatSettings(s.Provider, apiKey, baseUrl, s.Model, prompt, _toolset, _toolset.ReadOnlyTools, UsageSource,
-            (_, args) => ForceModelId(args, modelId));
+            (_, args) => ForceModelId(args, modelId, target));
     }
 
-    /// <summary>Pisa/agrega <c>contenedor_id</c> en los argumentos de CUALQUIER herramienta.</summary>
-    internal static string ForceModelId(string argsJson, Guid modelId)
+    /// <summary>Pisa/agrega <c>contenedor_id</c> en los argumentos de CUALQUIER herramienta y, si la UI eligio
+    /// un destino y el modelo no mando <c>contenedor_destino</c>, lo agrega (lo que el modelo diga explicitamente
+    /// gana, porque viene de la frase del usuario).</summary>
+    internal static string ForceModelId(string argsJson, Guid modelId, Guid? targetModelId = null)
     {
         JsonObject obj;
         try { obj = JsonNode.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson) as JsonObject ?? new JsonObject(); }
         catch (JsonException) { obj = new JsonObject(); }
         obj[DerivedTableToolset.ModelIdArg] = modelId.ToString("D");
+        if (targetModelId is Guid t)
+        {
+            var existing = obj[DerivedTableToolset.TargetModelArg]?.ToString();
+            if (string.IsNullOrWhiteSpace(existing)) { obj[DerivedTableToolset.TargetModelArg] = t.ToString("D"); }
+        }
         return obj.ToJsonString();
     }
 
@@ -184,6 +204,12 @@ public sealed class DerivedTableChatService : IDerivedTableChatService
             .ToListAsync(ct);
         var byTable = cols.GroupBy(c => c.ContainerId).ToDictionary(g => g.Key, g => g.ToList());
         var sourceName = s.SourceTableId is Guid sid ? tables.FirstOrDefault(t => t.Id == sid)?.Name : null;
+        var otherModels = await _db.DataModels.AsNoTracking()
+            .Where(m => m.Id != s.ModelId)
+            .OrderBy(m => m.Name)
+            .Select(m => new { m.Id, m.Name })
+            .ToListAsync(ct);
+        var targetName = s.TargetModelId is Guid tm ? otherModels.FirstOrDefault(m => m.Id == tm)?.Name : null;
 
         var sb = new StringBuilder();
         sb.Append("Eres el asistente de TABLAS DERIVADAS del Contenedor de datos de ECOREX. Hablas en espanol, breve y concreto.\n");
@@ -205,6 +231,16 @@ public sealed class DerivedTableChatService : IDerivedTableChatService
             sb.Append(": ");
             sb.Append(tcols.Count == 0 ? "(sin columnas)" : string.Join(", ", tcols.Select(c => $"{c.Name} ({TypeLabel(c.Type)})")));
             sb.Append('\n');
+        }
+        sb.Append('\n');
+        if (otherModels.Count > 0)
+        {
+            sb.Append("La tabla derivada nace por defecto en este mismo contenedor. Puede nacer en OTRO contenedor del tenant si el usuario lo pide: manda 'contenedor_destino' (nombre exacto o id) en proponer_derivacion y crear_tabla_derivada. Otros contenedores: ");
+            sb.Append(string.Join(", ", otherModels.Select(m => $"{m.Name} [{m.Id:D}]"))).Append(".\n");
+        }
+        if (targetName is not null)
+        {
+            sb.Append($"El usuario eligio en pantalla el contenedor destino '{targetName}' (id {s.TargetModelId:D}): si no dice otra cosa, la tabla se crea ahi (el sistema lo inyecta).\n");
         }
         sb.Append('\n');
         sb.Append("COMO TRABAJAS:\n");

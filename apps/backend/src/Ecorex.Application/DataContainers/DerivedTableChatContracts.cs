@@ -53,4 +53,8 @@ public interface IDerivedTableChatService
     Task<DerivedChatTurnResult> ConfirmAsync(Guid conversationId, Guid actorUserId, CancellationToken ct = default);
 
     Task<DerivedChatTurnResult> RejectAsync(Guid conversationId, string? reason, Guid actorUserId, CancellationToken ct = default);
+
+    /// <summary>Contenedor DESTINO elegido en la UI (selector del wizard). null = el mismo del origen. Se
+    /// inyecta como <c>contenedor_destino</c> en proponer/crear cuando el modelo no lo manda.</summary>
+    void SetTargetModel(Guid conversationId, Guid? targetModelId);
 }

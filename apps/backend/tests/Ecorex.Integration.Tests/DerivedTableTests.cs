@@ -81,7 +81,12 @@ public abstract class DerivedTableTestsBase
             notaCol = Guid.CreateVersion7();
             ctx.DataContainerColumns.Add(new DataContainerColumn
             {
-                Id = notaCol, TenantId = seed.TenantId, ContainerId = created.TableId, Name = "Nota", Type = DataContainerColumnType.Text, SortOrder = 99
+                Id = notaCol,
+                TenantId = seed.TenantId,
+                ContainerId = created.TableId,
+                Name = "Nota",
+                Type = DataContainerColumnType.Text,
+                SortOrder = 99
             });
             var keyCol = await ctx.DataContainerColumns.SingleAsync(c => c.ContainerId == created.TableId && c.Name == "Clave");
             var caliRowId = await ctx.DataContainerCells.Where(c => c.ColumnId == keyCol.Id && c.Value == "Cali").Select(c => c.RowId).SingleAsync();
@@ -173,6 +178,72 @@ public abstract class DerivedTableTestsBase
         }
     }
 
+    // Extension de ADR-0127: la derivada puede vivir en OTRO contenedor del mismo tenant. La hija, su
+    // conector y su proceso cuelgan del destino; el refresco lee el origen por id; el origen (y su
+    // contenedor) no se borran mientras la derivada exista.
+    [Fact]
+    public async Task Create_InOtherModel_RefreshWorks_AndSourceGuardsHold()
+    {
+        var seed = await SeedSourceAsync("Derivada cross", new[] { ("Bogota", "1"), ("Cali", "2") });
+        var hijoId = Guid.CreateVersion7();
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            ctx.DataModels.Add(new DataModel { Id = hijoId, TenantId = seed.TenantId, Name = "TEST_HIJO" });
+            await ctx.SaveChangesAsync();
+        }
+
+        var spec = new DerivationSpec(seed.SourceId, new[] { seed.CiudadCol }, new[] { new DerivationAggregate(null, DerivationFn.Count, "N") });
+        var created = await RunAsync(seed, s => s.CreateAsync(new CreateDerivedTableRequest(hijoId, "Ventas por ciudad", null, spec), Guid.Empty));
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var child = await ctx.DataContainers.SingleAsync(c => c.Id == created.TableId);
+            Assert.Equal(hijoId, child.ModelId);                       // vive en el destino
+            Assert.Equal(seed.SourceId, child.DerivedFromContainerId);  // y apunta al origen de otro contenedor
+            Assert.Equal(40, child.CanvasX);                            // lienzo destino vacio -> sitio libre (40, 40)
+            Assert.Equal(40, child.CanvasY);
+            Assert.Equal(hijoId, (await ctx.DataConnectors.SingleAsync(c => c.Id == created.ConnectorId)).ModelId);
+            Assert.Equal(hijoId, (await ctx.ImportProcesses.SingleAsync(p => p.Id == created.ProcessId)).ModelId);
+        }
+
+        var refresh = await RunAsync(seed, s => s.RefreshAsync(created.ConnectorId, ApiImportMode.Upsert, "Clave"));
+        Assert.True(refresh.Success, refresh.Error);
+        Assert.Equal(2, refresh.Inserted);
+        var rows = await ReadChildAsync(seed, created.TableId);
+        Assert.Equal("1", rows["Bogota"]["N"]);
+
+        // El distintivo del lienzo destino resuelve "Contenedor / Tabla" del origen.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var models = new DataModelService(ctx, new TestTenantContext(seed.TenantId), new DataContainerService(ctx, new TestTenantContext(seed.TenantId)));
+            var detail = await models.GetAsync(hijoId);
+            var dto = detail!.Tables.Single(t => t.Id == created.TableId);
+            Assert.True(dto.IsDerivedFromOtherModel);
+            Assert.Equal("Ventas", dto.DerivedFromName);
+            Assert.Equal("Modelo Derivada cross", dto.DerivedFromModelName);
+
+            // Guards: ni la tabla origen ni su contenedor se borran mientras exista la derivada en TEST_HIJO.
+            var containers = new DataContainerService(ctx, new TestTenantContext(seed.TenantId));
+            var ex1 = await Assert.ThrowsAsync<InvalidOperationException>(() => containers.DeleteAsync(seed.SourceId, Guid.Empty));
+            Assert.Contains("Ventas por ciudad", ex1.Message);
+            var ex2 = await Assert.ThrowsAsync<InvalidOperationException>(() => models.DeleteModelAsync(seed.ModelId, Guid.Empty));
+            Assert.Contains("TEST_HIJO", ex2.Message);
+        }
+
+        // Borrar la derivada limpia conector + proceso en el destino y libera el origen.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var containers = new DataContainerService(ctx, new TestTenantContext(seed.TenantId));
+            Assert.True(await containers.DeleteAsync(created.TableId, Guid.Empty));
+        }
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            Assert.False(await ctx.DataConnectors.AnyAsync(c => c.Id == created.ConnectorId));
+            Assert.False(await ctx.ImportProcesses.AnyAsync(p => p.Id == created.ProcessId));
+            Assert.True(await ctx.DataContainers.AnyAsync(c => c.Id == seed.SourceId));
+        }
+    }
+
     [Fact]
     public async Task Refresh_IsTenantIsolated()
     {
@@ -241,11 +312,21 @@ public abstract class DerivedTableTestsBase
             ctx.DataContainers.Add(new DataContainer { Id = seed.SourceId, TenantId = tenantId, ModelId = seed.ModelId, Name = "Ventas" });
             ctx.DataContainerColumns.Add(new DataContainerColumn
             {
-                Id = seed.CiudadCol, TenantId = tenantId, ContainerId = seed.SourceId, Name = "Ciudad", Type = DataContainerColumnType.Text, SortOrder = 0
+                Id = seed.CiudadCol,
+                TenantId = tenantId,
+                ContainerId = seed.SourceId,
+                Name = "Ciudad",
+                Type = DataContainerColumnType.Text,
+                SortOrder = 0
             });
             ctx.DataContainerColumns.Add(new DataContainerColumn
             {
-                Id = seed.MontoCol, TenantId = tenantId, ContainerId = seed.SourceId, Name = "Monto", Type = DataContainerColumnType.Decimal, SortOrder = 1
+                Id = seed.MontoCol,
+                TenantId = tenantId,
+                ContainerId = seed.SourceId,
+                Name = "Monto",
+                Type = DataContainerColumnType.Decimal,
+                SortOrder = 1
             });
             foreach (var (ciudad, monto) in rows) { AddSourceRow(ctx, seed, ciudad, monto); }
             await ctx.SaveChangesAsync();

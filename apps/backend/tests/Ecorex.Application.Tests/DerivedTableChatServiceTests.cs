@@ -98,7 +98,7 @@ public class DerivedTableChatServiceTests
             => throw new NotSupportedException();
     }
 
-    private sealed record Fixture(DerivedTableChatService Chat, FakeAi Ai, FakeDerived Derived, FakeUsage Usage, Guid ItemsId);
+    private sealed record Fixture(DerivedTableChatService Chat, FakeAi Ai, FakeDerived Derived, FakeUsage Usage, Guid ItemsId, DerivedChatTestDb.InnerDb Inner);
 
     private static Fixture NewFixture(bool providerEnabled = true)
     {
@@ -127,7 +127,7 @@ public class DerivedTableChatServiceTests
         var toolset = new DerivedTableToolset(db, tenant, derived);
         var engine = new ProposalChatEngine(ai, usage);
         var chat = new DerivedTableChatService(db, tenant, new IdentitySecrets(), toolset, engine);
-        return new Fixture(chat, ai, derived, usage, items.Id);
+        return new Fixture(chat, ai, derived, usage, items.Id, inner);
     }
 
     private static string Recipe(string? nombre = null) => JsonSerializer.Serialize(new
@@ -302,6 +302,45 @@ public class DerivedTableChatServiceTests
         Assert.NotNull(r.Preview);
         var call = f.Ai.Threads[^1].Single(m => m.Role == "assistant" && m.ToolCalls is { Count: > 0 }).ToolCalls![0];
         Assert.Equal("proponer_derivacion", call.Name); // al proveedor vuelve el nombre canonico
+    }
+
+    [Fact]
+    public void ForceModelId_inyecta_el_destino_elegido_solo_si_el_modelo_no_lo_mando()
+    {
+        var id = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var sin = DerivedTableChatService.ForceModelId("{\"tabla_origen\":\"Items\"}", id, target);
+        Assert.Contains("\"contenedor_destino\":\"" + target.ToString("D") + "\"", sin);
+        var con = DerivedTableChatService.ForceModelId("{\"contenedor_destino\":\"TEST_HIJO\"}", id, target);
+        Assert.Contains("\"contenedor_destino\":\"TEST_HIJO\"", con);   // lo dicho por el usuario gana
+        Assert.DoesNotContain(target.ToString("D"), con);
+        var nulo = DerivedTableChatService.ForceModelId("{}", id, null);
+        Assert.DoesNotContain("contenedor_destino", nulo);
+    }
+
+    [Fact]
+    public async Task Destino_elegido_en_la_ui_llega_a_la_herramienta_y_se_lista_en_el_arnes()
+    {
+        var f = NewFixture();
+        var hijo = new DataModel { TenantId = Tenant, Name = "TEST_HIJO" };
+        f.Inner.DataModels.Add(hijo);
+        f.Inner.SaveChanges();
+        f.Ai.Enqueue(new AiCompletion(true, "Creo la tabla.", null, 0, 0, new[] { new AiToolCall("c1", "crear_tabla_derivada", Recipe("Items por categoria")) }));
+        f.Ai.Enqueue(new AiCompletion(true, "Listo.", null, 0, 0, Array.Empty<AiToolCall>()));
+
+        var start = await f.Chat.StartAsync(ModelId, f.ItemsId, Actor);
+        f.Chat.SetTargetModel(start.ConversationId, hijo.Id);
+        var r1 = await f.Chat.SendAsync(start.ConversationId, "creala en TEST_HIJO", Actor);
+        Assert.True(r1.AwaitingConfirmation);
+        Assert.Contains(hijo.Id.ToString("D"), r1.Proposals[0].ArgumentsJson);
+        Assert.Contains("TEST_HIJO [" + hijo.Id.ToString("D") + "]", f.Ai.SystemPrompts[^1]);
+        Assert.Contains("eligio en pantalla el contenedor destino 'TEST_HIJO'", f.Ai.SystemPrompts[^1]);
+
+        var r2 = await f.Chat.ConfirmAsync(start.ConversationId, Actor);
+        Assert.True(r2.Ok);
+        Assert.Equal(hijo.Id, f.Derived.LastCreate!.ModelId);     // nacio en el destino elegido
+        Assert.Equal(f.ItemsId, f.Derived.LastCreate.Spec.SourceTableId);
+        Assert.Contains("(en TEST_HIJO)", r2.CreatedName);
     }
 
     [Fact]

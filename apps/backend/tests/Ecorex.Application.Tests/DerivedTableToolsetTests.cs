@@ -410,6 +410,81 @@ public class DerivedTableToolsetTests
         Assert.NotEqual(Guid.Empty, created.Value.Created.ProcessId);
     }
 
+    // Extension de ADR-0127: la derivada puede nacer en OTRO contenedor del tenant (contenedor_destino por
+    // nombre o id). Sin destino, nace en el contenedor del origen. Un destino inexistente se rechaza ANTES de crear.
+    [Fact]
+    public async Task Crear_con_contenedor_destino_crea_la_derivada_en_ese_contenedor()
+    {
+        var f = NewFixture();
+        var hijo = new DataModel { TenantId = Tenant, Name = "TEST_HIJO" };
+        f.Inner.DataModels.Add(hijo);
+        f.Inner.SaveChanges();
+
+        var porNombre = await RunAsync(f.Toolset, "crear_tabla_derivada", new
+        {
+            contenedor_id = ModelId,
+            nombre = "Items por categoria",
+            tabla_origen = "Items",
+            agrupar_por = new[] { "Categoria" },
+            contenedor_destino = "TEST_HIJO"
+        });
+        Assert.True(Ok(porNombre));
+        Assert.Equal(hijo.Id, f.Derived.LastCreate!.ModelId);
+        Assert.Equal(f.ItemsId, f.Derived.LastCreate.Spec.SourceTableId);
+        Assert.Equal("TEST_HIJO", porNombre.GetProperty("destino").GetString());
+        Assert.Equal(hijo.Id.ToString("D"), porNombre.GetProperty("contenedor_destino_id").GetString());
+        var parsed = DerivedTableToolset.TryParseCreated(porNombre.GetRawText());
+        Assert.Contains("(en TEST_HIJO)", parsed!.Value.Name);
+
+        var porId = await RunAsync(f.Toolset, "crear_tabla_derivada", new
+        {
+            contenedor_id = ModelId,
+            nombre = "Items por categoria 2",
+            tabla_origen = "Items",
+            agrupar_por = new[] { "Categoria" },
+            contenedor_destino = hijo.Id
+        });
+        Assert.True(Ok(porId));
+        Assert.Equal(hijo.Id, f.Derived.LastCreate!.ModelId);
+
+        var sinDestino = await RunAsync(f.Toolset, "crear_tabla_derivada", new
+        {
+            contenedor_id = ModelId,
+            nombre = "Items por categoria 3",
+            tabla_origen = "Items",
+            agrupar_por = new[] { "Categoria" }
+        });
+        Assert.True(Ok(sinDestino));
+        Assert.Equal(ModelId, f.Derived.LastCreate!.ModelId);
+    }
+
+    [Fact]
+    public async Task Destino_inexistente_se_rechaza_en_proponer_y_en_crear_sin_crear_nada()
+    {
+        var f = NewFixture();
+        var proponer = await RunAsync(f.Toolset, "proponer_derivacion", new
+        {
+            contenedor_id = ModelId,
+            tabla_origen = "Items",
+            agrupar_por = new[] { "Categoria" },
+            contenedor_destino = "NoExiste"
+        });
+        Assert.False(Ok(proponer));
+        Assert.Contains("NoExiste", Error(proponer));
+        Assert.Contains("ALEGRA", Error(proponer));
+
+        var crear = await RunAsync(f.Toolset, "crear_tabla_derivada", new
+        {
+            contenedor_id = ModelId,
+            nombre = "X",
+            tabla_origen = "Items",
+            agrupar_por = new[] { "Categoria" },
+            contenedor_destino = "NoExiste"
+        });
+        Assert.False(Ok(crear));
+        Assert.Null(f.Derived.LastCreate);
+    }
+
     [Fact]
     public async Task Crear_con_refresco_intervalo_sin_minutos_devuelve_error()
     {

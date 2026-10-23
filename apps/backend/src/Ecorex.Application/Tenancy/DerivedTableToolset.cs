@@ -27,6 +27,9 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
     public const string ProposeTool = "proponer_derivacion";
     public const string CreateTool = "crear_tabla_derivada";
     public const string ModelIdArg = "contenedor_id";
+    /// <summary>Contenedor DESTINO (nombre o id) donde nace la derivada. Opcional: por defecto el mismo
+    /// del origen. Lo puede mandar el modelo (si el usuario lo dijo) o inyectarlo el chat (selector).</summary>
+    public const string TargetModelArg = "contenedor_destino";
 
     /// <summary>Filas de muestra que devuelve describir_tabla.</summary>
     public const int SampleRows = 10;
@@ -67,7 +70,8 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
             "\"columna\":{\"type\":\"string\"}," +
             "\"operador\":{\"type\":\"string\",\"enum\":[\"igual\",\"distinto\",\"contiene\",\"mayor\",\"menor\",\"vacio\",\"no_vacio\"]}," +
             "\"valor\":{\"type\":\"string\"}},\"required\":[\"columna\",\"operador\"]}," +
-            "\"description\":\"Condiciones previas (AND): solo entran al calculo las filas del origen que las cumplan todas. Opcional.\"}";
+            "\"description\":\"Condiciones previas (AND): solo entran al calculo las filas del origen que las cumplan todas. Opcional.\"}," +
+        "\"" + TargetModelArg + "\":{\"type\":\"string\",\"description\":\"Contenedor DESTINO (nombre exacto o id) donde se crea la tabla derivada. Opcional: si no se indica, el mismo contenedor del origen. Solo si el usuario pide ponerla en otro contenedor.\"}";
 
     public IReadOnlyList<AiToolSpec> GetSpecs() => new[]
     {
@@ -203,11 +207,14 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
     private async Task<AgentToolResult> ProposeAsync(Guid modelId, JsonElement args, CancellationToken ct)
     {
         var (table, cols, spec) = await BuildSpecAsync(modelId, args, ct);
+        // Se valida el destino desde la propuesta para que un nombre equivocado salga ANTES de crear.
+        var target = await ResolveTargetModelAsync(modelId, Str(args, TargetModelArg), ct);
         var preview = await _derived.PreviewAsync(spec, PreviewGroups, ct);
         return Ok(new
         {
             ok = true,
             origen = table.Name,
+            destino = target.Name,
             resumen = Summarize(spec, cols),
             columnas_resultado = preview.Columns.Select(c => new { nombre = c.Name, tipo = TypeLabel(c.Type), rol = RoleLabel(c.Role) }),
             total_grupos = preview.TotalGroups,
@@ -254,7 +261,8 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
             }
         }
 
-        var req = new CreateDerivedTableRequest(modelId, name, Str(args, "descripcion"), spec, kind, interval, cron);
+        var target = await ResolveTargetModelAsync(modelId, Str(args, TargetModelArg), ct);
+        var req = new CreateDerivedTableRequest(target.Id, name, Str(args, "descripcion"), spec, kind, interval, cron);
         var created = await _derived.CreateAsync(req, actorUserId, ct);
         return Ok(new
         {
@@ -262,10 +270,15 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
             tabla_id = created.TableId,
             conector_id = created.ConnectorId,
             proceso_id = created.ProcessId,
+            contenedor_destino_id = target.Id,
+            en_otro_contenedor = target.Id != modelId,
             nombre = name,
             origen = table.Name,
+            destino = target.Name,
             resumen = Summarize(spec, cols),
-            mensaje = $"Tabla derivada '{name}' creada a partir de '{table.Name}'. El sistema dispara el primer refresco."
+            mensaje = target.Id == modelId
+                ? $"Tabla derivada '{name}' creada a partir de '{table.Name}'. El sistema dispara el primer refresco."
+                : $"Tabla derivada '{name}' creada en el contenedor '{target.Name}' a partir de '{table.Name}'. El sistema dispara el primer refresco."
         });
     }
 
@@ -380,6 +393,33 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
             throw new InvalidOperationException($"Hay varias tablas que se llaman '{n}' (solo cambian las mayusculas): {string.Join(", ", loose.Select(t => $"'{t.Name}' (id {t.Id:D})"))}. Usa el nombre EXACTO o el id.");
         }
         throw new InvalidOperationException($"No existe la tabla '{n}' en este contenedor. Tablas: {string.Join(", ", tables.Select(t => t.Name))}.");
+    }
+
+    private sealed record ModelInfo(Guid Id, string Name);
+
+    /// <summary>Contenedor destino: el del origen si no se indica; si no, por id o nombre EXACTO (luego sin
+    /// mayusculas si es unico) entre los contenedores del tenant.</summary>
+    private async Task<ModelInfo> ResolveTargetModelAsync(Guid currentModelId, string? raw, CancellationToken ct)
+    {
+        var n = (raw ?? "").Trim();
+        var models = await _db.DataModels.AsNoTracking()
+            .Select(m => new ModelInfo(m.Id, m.Name))
+            .ToListAsync(ct);
+        if (n.Length == 0)
+        {
+            return models.FirstOrDefault(m => m.Id == currentModelId)
+                ?? throw new InvalidOperationException("El contenedor actual no existe.");
+        }
+        if (Guid.TryParse(n, out var g) && models.FirstOrDefault(m => m.Id == g) is { } byId) { return byId; }
+        var exact = models.Where(m => string.Equals(m.Name.Trim(), n, StringComparison.Ordinal)).ToList();
+        if (exact.Count == 1) { return exact[0]; }
+        var loose = models.Where(m => string.Equals(m.Name.Trim(), n, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (loose.Count == 1) { return loose[0]; }
+        if (loose.Count > 1)
+        {
+            throw new InvalidOperationException($"Hay varios contenedores que se llaman '{n}' (solo cambian las mayusculas): {string.Join(", ", loose.Select(m => $"'{m.Name}' (id {m.Id:D})"))}. Usa el nombre EXACTO o el id.");
+        }
+        throw new InvalidOperationException($"No existe el contenedor destino '{n}'. Contenedores: {string.Join(", ", models.Select(m => m.Name))}.");
     }
 
     private async Task<IReadOnlyList<SourceColumnInfo>> LoadColumnsAsync(Guid tableId, CancellationToken ct)
@@ -535,7 +575,10 @@ public sealed class DerivedTableToolset : IDerivedTableToolset
             {
                 return null;
             }
-            return (new DerivedTableCreatedDto(t, c, p), Str(root, "nombre") ?? "");
+            var name = Str(root, "nombre") ?? "";
+            var destino = Str(root, "destino");
+            var otro = root.TryGetProperty("en_otro_contenedor", out var eo) && eo.ValueKind == JsonValueKind.True;
+            return (new DerivedTableCreatedDto(t, c, p), otro && !string.IsNullOrWhiteSpace(destino) ? $"{name} (en {destino})" : name);
         }
         catch (JsonException) { return null; }
     }

@@ -215,7 +215,7 @@ else
                                             </div>
                                             @if (t.IsDerived)
                                             {
-                                                <div class="dc-node-derived-badge" title="Tabla derivada: sus filas se calculan agrupando la tabla origen y se refrescan por el proceso del contenedor.">derivada de @t.DerivedFromName</div>
+                                                <div class="dc-node-derived-badge" title="@(t.IsDerivedFromOtherModel ? "Tabla derivada de una tabla de OTRO contenedor: sus filas se calculan agrupando ese origen y se refrescan por el proceso de este contenedor." : "Tabla derivada: sus filas se calculan agrupando la tabla origen y se refrescan por el proceso del contenedor.")">derivada de @(t.IsDerivedFromOtherModel ? $"{t.DerivedFromModelName} / {t.DerivedFromName}" : t.DerivedFromName)</div>
                                             }
                                             <div class="dc-node-fields">
                                                 @if (t.Columns.Count == 0)

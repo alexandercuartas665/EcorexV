@@ -91,3 +91,19 @@ mantener dos caminos.
 - Tests: 30 unit del motor (normalizacion, tipos, Avg sin division por cero, filtro, validacion, round-trip
   de la spec) + 4 x 2 integracion dual (alta, refresco, poda, columna propia sobrevive, un solo nivel, guard
   de borrado, aislamiento por tenant).
+
+## Extension 2026-10-23: la derivada puede vivir en OTRO contenedor del tenant
+
+Caso real: el usuario creo el contenedor TEST_HIJO en BITCODE y quiere alli una tabla derivada de
+ALEGRA/Items. Decision (sin migracion): `CreateDerivedTableRequest.ModelId` pasa a ser el contenedor
+DESTINO elegido; la tabla hija, su conector FromTable y su ImportProcess cuelgan del destino, y la spec
+sigue apuntando al origen por id. Se quitan las validaciones "mismo contenedor" del alta y del refresco:
+el tenant lo garantiza el filtro global y la regla de un solo nivel y el guard de borrado del origen van
+por id. Si el destino es otro, la hija no se pone "al lado" del origen sino en un sitio libre del lienzo
+destino (a la derecha de su tabla mas a la derecha, o (40,40) si esta vacio). El lienzo destino muestra
+"derivada de <Contenedor> / <Tabla>" y NO dibuja arista (el origen no esta en ese lienzo); el lienzo del
+origen no cambia. Borrar el CONTENEDOR del origen se bloquea con mensaje mientras exista una derivada en
+otro contenedor (FK Restrict). El wizard gana el selector "Crear en el contenedor" (por defecto el
+actual); el asistente IA acepta `contenedor_destino` (nombre o id) en proponer/crear y el selector del
+wizard se inyecta cuando el modelo no lo manda.
+

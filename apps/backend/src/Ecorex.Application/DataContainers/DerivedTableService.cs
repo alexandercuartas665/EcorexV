@@ -58,11 +58,10 @@ public sealed class DerivedTableService : IDerivedTableService
             throw new InvalidOperationException("El contenedor no existe.");
         }
 
+        // El origen puede vivir en OTRO contenedor del tenant (extension de ADR-0127): req.ModelId es el
+        // contenedor DESTINO; el tenant lo garantiza el filtro global y "un solo nivel" va por id.
         var source = await LoadSourceAsync(req.Spec.SourceTableId, ct);
-        if (source.Table.ModelId != req.ModelId)
-        {
-            throw new InvalidOperationException("La tabla origen no pertenece a este contenedor.");
-        }
+        var sameModel = source.Table.ModelId == req.ModelId;
         if (await _db.DataContainers.AnyAsync(c => c.ModelId == req.ModelId && c.ParentContainerId == null && c.Name == name, ct))
         {
             throw new InvalidOperationException($"Ya existe una tabla llamada '{name}' en este contenedor.");
@@ -72,11 +71,17 @@ public sealed class DerivedTableService : IDerivedTableService
         if (!planned.Ok) { throw new InvalidOperationException(planned.Error); }
         var columns = planned.Columns!;
 
+        // Posicion en el lienzo: al lado del origen si comparten contenedor; si no, un sitio libre del
+        // lienzo destino (a la derecha de su tabla mas a la derecha, o el origen del lienzo si esta vacio).
+        var (canvasX, canvasY) = sameModel
+            ? (source.Table.CanvasX + 260, source.Table.CanvasY)
+            : await FreeCanvasSpotAsync(req.ModelId, ct);
+
         var joinTx = _db.HasActiveTransaction;
         var tx = joinTx ? null : await _db.BeginTransactionAsync(ct);
         try
         {
-            // 1) Tabla hija en el mismo contenedor, al lado del origen en el lienzo.
+            // 1) Tabla hija en el contenedor DESTINO.
             var table = new DataContainer
             {
                 TenantId = tenantId,
@@ -84,8 +89,8 @@ public sealed class DerivedTableService : IDerivedTableService
                 Name = name,
                 Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim(),
                 DerivedFromContainerId = source.Table.Id,
-                CanvasX = source.Table.CanvasX + 260,
-                CanvasY = source.Table.CanvasY
+                CanvasX = canvasX,
+                CanvasY = canvasY
             };
             _db.DataContainers.Add(table);
 
@@ -181,14 +186,10 @@ public sealed class DerivedTableService : IDerivedTableService
         var target = await _db.DataContainers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == targetId, ct);
         if (target is null) { return DerivedRefreshOutcome.Fail("La tabla derivada ya no existe."); }
 
-        // Validaciones de origen: existe, mismo contenedor, y NO es derivado (un solo nivel).
+        // Validaciones de origen: existe y NO es derivado (un solo nivel). Puede estar en otro contenedor.
         SourceSnapshot source;
         try { source = await LoadSourceAsync(spec.SourceTableId, ct); }
         catch (InvalidOperationException ex) { return DerivedRefreshOutcome.Fail(ex.Message); }
-        if (source.Table.ModelId != target.ModelId)
-        {
-            return DerivedRefreshOutcome.Fail("La tabla origen ya no pertenece al mismo contenedor que la derivada.");
-        }
 
         var planned = DerivedRowsBuilder.Plan(spec, source.Columns);
         if (!planned.Ok) { return DerivedRefreshOutcome.Fail(planned.Error!); }
@@ -287,6 +288,19 @@ public sealed class DerivedTableService : IDerivedTableService
         _db.DataContainerRows.RemoveRange(rows);
         await _db.SaveChangesAsync(ct);
         return dead.Count;
+    }
+
+    /// <summary>Sitio libre del lienzo de un contenedor: a la derecha de la tabla mas a la derecha
+    /// (misma fila), o (40, 40) si el lienzo esta vacio.</summary>
+    private async Task<(double X, double Y)> FreeCanvasSpotAsync(Guid modelId, CancellationToken ct)
+    {
+        var spots = await _db.DataContainers.AsNoTracking()
+            .Where(c => c.ModelId == modelId && c.ParentContainerId == null)
+            .Select(c => new { c.CanvasX, c.CanvasY })
+            .ToListAsync(ct);
+        if (spots.Count == 0) { return (40, 40); }
+        var rightmost = spots.OrderByDescending(s => s.CanvasX).ThenBy(s => s.CanvasY).First();
+        return (rightmost.CanvasX + 260, rightmost.CanvasY);
     }
 
     // ---- Lectura del origen ----

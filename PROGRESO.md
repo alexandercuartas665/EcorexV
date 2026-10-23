@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-23 - Tabla derivada en OTRO contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: la derivada puede nacer en un contenedor DISTINTO al de su tabla origen (caso: TEST_HIJO con una
+  derivada de ALEGRA/Items). Sin migracion: `CreateDerivedTableRequest.ModelId` es el contenedor DESTINO;
+  hija + conector FromTable + ImportProcess cuelgan del destino; la spec sigue apuntando al origen por id.
+- SERVICIO: DerivedTableService sin las validaciones "mismo contenedor" (alta y refresco); un solo nivel y
+  guard de borrado del origen siguen por id. Posicion: al lado del origen si es el mismo contenedor, si no
+  sitio libre del lienzo destino (derecha de la tabla mas a la derecha; (40,40) si vacio).
+  DataModelService: GetAsync resuelve "Contenedor / Tabla" del origen foraneo (ModelTableDto.DerivedFromModelName);
+  DeleteModelAsync bloquea con mensaje si una derivada de OTRO contenedor apunta a una tabla de este.
+- UI: wizard con selector "Crear en el contenedor" (default el actual, solo si hay mas de uno); resumen y
+  mensaje final dicen donde nacio. Lienzo: distintivo "derivada de <Contenedor> / <Tabla>" y sin arista
+  cuando el origen no esta en ese lienzo (TryDerivedEdge ya lo omitia). ContenedorDatos.razor: 1 linea.
+- ASISTENTE IA: toolset acepta `contenedor_destino` (nombre o id) en proponer/crear (se valida desde la
+  propuesta); el arnes lista los otros contenedores con id; el selector del wizard se inyecta via
+  SetTargetModel cuando el modelo no manda destino (lo dicho por el usuario gana).
+- PRUEBAS: unit (toolset: destino por nombre/id/sin destino, destino inexistente; chat: inyeccion del
+  destino + arnes) e integracion dual nueva Create_InOtherModel_RefreshWorks_AndSourceGuardsHold (alta en
+  TEST_HIJO, refresco, distintivo, guards de tabla y contenedor origen, limpieza al borrar la hija).
+- ADR-0127: seccion "Extension 2026-10-23". dotnet format limpio en los 4 proyectos tocados (de paso se
+  formateo WorkflowAgentStepTests.cs, whitespace heredado del tronco). Unit Application 1174/1174;
+  integracion dual DerivedTableTests 10/10 (5 x PG/SQL Server).
+- VALIDADO EN 5267 (publish Release del worktree en appout5267, /dev/login BITCODE): wizard de ALEGRA/Items
+  con "Crear en el contenedor" = TEST_HIJO -> "Items por tipo (hijo)" nacio en TEST_HIJO en (40,40) con 3
+  filas reales (product 226, simple 73, service 20 = 319), conector y proceso en TEST_HIJO, distintivo
+  "derivada de ALEGRA / Items" sin arista, y "Actualizar datos" desde TEST_HIJO: 0 nuevas, 3 actualizadas.
+  La tabla de prueba quedo en la BD dev local.
+
 ## 2026-10-22 - Asistente IA para tablas derivadas (ADR-0130, fase 2 de ADR-0127) (worktree, SIN merge ni deploy)
 
 - QUE: en el wizard "Derivar tabla" aparece el boton "Asistente IA" que abre, como columna del mismo modal, un

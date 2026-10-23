@@ -112,6 +112,8 @@
     [Parameter, EditorRequired] public Guid ModelId { get; set; }
     /// <summary>Tabla desde la que se abrio el wizard (el asistente la asume como origen).</summary>
     [Parameter] public Guid? SourceTableId { get; set; }
+    /// <summary>Contenedor DESTINO elegido en el wizard (null o igual a ModelId = el mismo del origen).</summary>
+    [Parameter] public Guid? TargetModelId { get; set; }
     [Parameter] public Guid ActorUserId { get; set; }
     /// <summary>Se dispara cuando el usuario CONFIRMO la creacion y la tabla ya existe (sin refresco aun).</summary>
     [Parameter] public EventCallback<DerivedTableCreatedDto> OnCreated { get; set; }
@@ -148,7 +150,14 @@
         var r = await Chat.StartAsync(ModelId, SourceTableId, ActorUserId);
         if (!r.Ok) { _error = r.Error; return; }
         _conversationId = r.ConversationId;
+        Chat.SetTargetModel(r.ConversationId, TargetModelId);
         if (!string.IsNullOrWhiteSpace(r.Greeting)) { _messages.Add(new Bubble("bot", r.Greeting!)); }
+    }
+
+    // El selector del wizard puede cambiar en cualquier momento: se sincroniza antes de cada turno.
+    private void SyncTarget()
+    {
+        if (_conversationId is Guid cid) { Chat.SetTargetModel(cid, TargetModelId); }
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
@@ -170,6 +179,7 @@
         _busy = true; _error = null;
         StateHasChanged();
 
+        SyncTarget();
         DerivedChatTurnResult r;
         try { r = await Chat.SendAsync(_conversationId.Value, text!, ActorUserId); }
         catch (Exception ex) { r = DerivedChatTurnResult.Fail(_conversationId.Value, ex.Message); }
@@ -181,6 +191,7 @@
     {
         if (_conversationId is null || _busy) { return; }
         _busy = true; _error = null; StateHasChanged();
+        SyncTarget();
         DerivedChatTurnResult r;
         try { r = await Chat.ConfirmAsync(_conversationId.Value, ActorUserId); }
         catch (Exception ex) { r = DerivedChatTurnResult.Fail(_conversationId.Value, ex.Message); }
@@ -260,6 +271,7 @@
             var parts = new List<string>();
             if (a.TryGetProperty("nombre", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String) { parts.Add("Nombre: " + n.GetString()); }
             if (a.TryGetProperty("tabla_origen", out var o) && o.ValueKind == System.Text.Json.JsonValueKind.String) { parts.Add("Origen: " + o.GetString()); }
+            if (a.TryGetProperty("contenedor_destino", out var dst) && dst.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(dst.GetString())) { parts.Add("Destino: " + dst.GetString()); }
             if (a.TryGetProperty("agrupar_por", out var g) && g.ValueKind == System.Text.Json.JsonValueKind.Array)
             {
                 parts.Add("Agrupa por: " + string.Join(", ", g.EnumerateArray().Select(x => x.ToString())));

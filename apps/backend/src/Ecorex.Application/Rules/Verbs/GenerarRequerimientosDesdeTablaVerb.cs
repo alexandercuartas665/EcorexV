@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
+using Ecorex.Application.Common;
 using Ecorex.Application.Requerimientos;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Rules.Verbs;
 
@@ -18,10 +20,11 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
 
     private readonly IRequerimientoService _req;
     private readonly IRequerimientoFieldService _fields;
+    private readonly IApplicationDbContext _db;
 
-    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req, IRequerimientoFieldService fields)
+    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req, IRequerimientoFieldService fields, IApplicationDbContext db)
     {
-        _req = req; _fields = fields;
+        _req = req; _fields = fields; _db = db;
     }
 
     public string Name => VerbName;
@@ -102,6 +105,22 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 .ToDictionary(d => "dyn:" + d.FieldKey, d => d.Id, StringComparer.Ordinal);
         }
 
+        // Trazabilidad: quien pidio (el que envio el formulario) y desde que actividad.
+        // En on-submit el contexto trae ExecutedByTenantUserId (= submitter) y FormResponseId;
+        // la actividad origen se resuelve por el Reference (= numero de tarea) de la respuesta.
+        var solicitanteUserId = context.ExecutedByTenantUserId;
+        Guid? sourceTaskId = context.TaskItemId;
+        if (sourceTaskId is null && context.FormResponseId is Guid frId)
+        {
+            var reference = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.Id == frId).Select(r => r.Reference).FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(reference))
+            {
+                sourceTaskId = await _db.TaskItems.AsNoTracking()
+                    .Where(t => t.Number == reference).Select(t => (Guid?)t.Id).FirstOrDefaultAsync(cancellationToken);
+            }
+        }
+
         var created = 0;
         var skipped = 0;
         foreach (var row in rows)
@@ -150,7 +169,8 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
             try
             {
                 var saved = await _req.CrearAsync(
-                    new CrearRequerimientoRequest(origenId, area, null, descripcion, cantidad, unidad, fecha),
+                    new CrearRequerimientoRequest(origenId, area, null, descripcion, cantidad, unidad, fecha,
+                        SolicitanteUserId: solicitanteUserId, SourceTaskItemId: sourceTaskId),
                     cancellationToken);
                 if (saved is null) { return new RuleVerbResult(false, $"No se pudo crear la necesidad '{descripcion}'.", created); }
                 // Campos propios de la necesidad creada.

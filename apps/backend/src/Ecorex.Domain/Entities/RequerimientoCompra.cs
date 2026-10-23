@@ -62,6 +62,14 @@ public sealed class RequerimientoCompra : TenantEntity
     /// <summary>Clave por la que se agrupan los pedidos del MISMO producto (p.ej. ItemId o referencia).</summary>
     public string ClaveAgrupacion { get; set; } = string.Empty;
 
+    // ---- Trazabilidad de la solicitud (quien pidio y desde que actividad) ----
+    /// <summary>TenantUser que origino la solicitud (quien envio el formulario). Null si anonimo (/f publico).</summary>
+    public Guid? SolicitanteUserId { get; set; }
+    /// <summary>Nombre/correo del solicitante, snapshot al crear (para no perderlo si cambia el usuario).</summary>
+    public string? SolicitanteNombre { get; set; }
+    /// <summary>Actividad (TaskItem) donde se origino la solicitud (el formulario vivia en esa tarea). Null si no aplica.</summary>
+    public Guid? SourceTaskItemId { get; set; }
+
     public ICollection<RequerimientoCompraHijo> Hijos { get; set; } = new List<RequerimientoCompraHijo>();
 }
 

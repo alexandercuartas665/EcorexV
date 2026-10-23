@@ -39,6 +39,12 @@ public sealed class RequerimientoService : IRequerimientoService
         var items = await _db.Items.AsNoTracking()
             .Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => new { i.Name, i.Sku }, ct);
         var reqIds = rows.Select(r => r.Id).ToList();
+        // Numero de la actividad origen (para mostrar/linkear "de que actividad vino la solicitud").
+        var taskIds = rows.Where(r => r.SourceTaskItemId != null).Select(r => r.SourceTaskItemId!.Value).Distinct().ToList();
+        var taskNums = taskIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Number, ct);
         // Carga TODOS los hijos (no solo el agregado): los necesita la grilla para las filas hijas expandibles
         // y el export. Resuelve el nombre del proveedor en memoria.
         var hijosRows = await _db.RequerimientoCompraHijos.AsNoTracking()
@@ -71,7 +77,9 @@ public sealed class RequerimientoService : IRequerimientoService
                 hl.Count,
                 hl.Sum(x => x.Cantidad),
                 hl.Sum(x => x.Total),
-                hl);
+                hl,
+                r.SolicitanteUserId, r.SolicitanteNombre, r.SourceTaskItemId,
+                r.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null);
         }).ToList();
     }
 
@@ -90,6 +98,19 @@ public sealed class RequerimientoService : IRequerimientoService
         // La clave de agrupacion une pedidos del MISMO producto: el item si existe, si no el texto normalizado.
         var clave = req.ItemId is Guid ci ? ci.ToString() : desc.ToUpperInvariant();
 
+        // Solicitante: snapshot del nombre/correo si no viene dado (traza de quien pidio).
+        var solicitanteNombre = req.SolicitanteNombre;
+        if (string.IsNullOrWhiteSpace(solicitanteNombre) && req.SolicitanteUserId is Guid su)
+        {
+            // Nombre visible: DisplayName del PlatformUser, fallback al correo del TenantUser (mismo patron que
+            // el campo de sistema "Usuario" en formularios). Se guarda como snapshot para no perderlo despues.
+            solicitanteNombre = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == su)
+                .Join(_db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(), tu => tu.PlatformUserId, pu => pu.Id,
+                    (tu, pu) => pu.DisplayName ?? tu.Email)
+                .FirstOrDefaultAsync(ct);
+        }
+
         var entity = new RequerimientoCompra
         {
             TenantId = tenantId,
@@ -102,6 +123,9 @@ public sealed class RequerimientoService : IRequerimientoService
             FechaNecesidad = req.FechaNecesidad,
             Estado = RequerimientoEstado.Recibido,
             ClaveAgrupacion = clave,
+            SolicitanteUserId = req.SolicitanteUserId,
+            SolicitanteNombre = string.IsNullOrWhiteSpace(solicitanteNombre) ? null : solicitanteNombre!.Trim(),
+            SourceTaskItemId = req.SourceTaskItemId,
         };
         _db.RequerimientosCompra.Add(entity);
         await _db.SaveChangesAsync(ct);

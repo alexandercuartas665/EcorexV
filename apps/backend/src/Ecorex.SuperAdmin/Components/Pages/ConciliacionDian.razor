@@ -1866,7 +1866,12 @@ else
             for (var i = 0; i < candidatos.Count; i++)
             {
                 var r = candidatos[i];
-                sb.AppendLine($"{i + 1}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}");
+                // Campos adicionales (EAV) con valor, para que las reglas puedan referirlos (p.ej. placa, centro de operacion).
+                var dyn = string.Join(" ", _dynDefs
+                    .Select(d => (d.Label, Val: DynVal(r.Id, d.Id)))
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Val))
+                    .Select(x => $"{x.Label}=\"{x.Val}\""));
+                sb.AppendLine($"{i + 1}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}{(dyn.Length > 0 ? " " + dyn : "")}");
             }
             sb.AppendLine();
             sb.AppendLine("REGLAS (indice global; una regla aplica solo a facturas de su mismo proveedor):");
@@ -1875,7 +1880,11 @@ else
                 sb.AppendLine($"{k + 1}) proveedor=\"{reglas[k].Proveedor}\" condicion=\"{reglas[k].Prompt}\"");
             }
 
-            const string system = "Eres un clasificador del conciliador DIAN. Para CADA factura, evalua SOLO las reglas cuyo proveedor coincide (por nombre o NIT) y determina la PRIMERA regla cuya condicion se cumple segun los datos de la factura. Si ninguna se cumple, usa null. Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden, con la forma [{\"f\":<indice_factura>,\"r\":<indice_regla o null>}]. No incluyas texto fuera del JSON ni markdown.";
+            // El PROMPT DEL AGENTE (criterio general que configuro el usuario) va como base y se REFUERZA con el
+            // framing de la tarea; las reglas por proveedor (condiciones especificas) viajan en el mensaje de usuario.
+            var basePrompt = (await AiAgents.GetAsync(aid))?.Agent.SystemPrompt?.Trim();
+            const string tarea = "Actua como clasificador del conciliador DIAN. Para CADA factura, evalua SOLO las reglas cuyo proveedor coincide (por nombre o NIT) y determina la PRIMERA regla cuya condicion se cumple segun los datos de la factura (incluidos sus campos adicionales). Si ninguna se cumple, usa null. Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden: [{\"f\":<indice_factura>,\"r\":<indice_regla o null>}]. Sin texto fuera del JSON ni markdown.";
+            var system = string.IsNullOrWhiteSpace(basePrompt) ? tarea : basePrompt + "\n\n---\n" + tarea;
             var turns = new List<AiChatTurn> { new("user", sb.ToString()) };
             var res = await AiInfer.TestChatAsync(aid, turns, systemPromptOverride: system, actorUserId: _actorId);
             if (!res.Ok || string.IsNullOrWhiteSpace(res.Text)) { _msg = "El asistente no respondio: " + (res.Error ?? "sin texto"); return; }

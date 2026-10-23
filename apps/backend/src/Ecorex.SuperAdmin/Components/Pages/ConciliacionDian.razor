@@ -25,6 +25,7 @@
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
 @inject IAiAgentService AiAgents
+@inject IAiInferenceService AiInfer
 @inject ITaskItemService Tasks
 @inject IFormResponseService FormResponses
 @inject AuthenticationStateProvider AuthState
@@ -89,6 +90,7 @@ else
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AnalizarConIaAsync" disabled="@(_busy || _iaBusy)" title="El asistente de IA evalua las reglas por proveedor sobre las facturas pendientes y PROPONE a que salida/usuario va cada una (tu confirmas antes de crear las tareas)">@(_iaBusy ? "Analizando..." : "\U0001F916 Analizar con IA")</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigAsync" disabled="@_busy" title="Configurar las salidas al flujo de tareas (concepto+formulario) y las reglas de conciliacion">&#9881; Configuracion</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
         <button class="btn btn-primary btn-sm" @onclick="PrepararEnvioAsync" disabled="@_busy" title="Radica los eventos RADIAN en NEWTON (IRREVERSIBLE)">Enviar a Newton</button>
@@ -1353,6 +1355,85 @@ else
         </div>
     }
 
+    @* Propuestas del asistente de IA: por cada factura pendiente cuyo proveedor tiene regla, el agente
+       evalua y propone la salida+usuario; el usuario revisa y confirma antes de crear las tareas. *@
+    @if (_iaPropOpen)
+    {
+        <div class="cd-doc-backdrop" @onclick="() => _iaPropOpen = false"></div>
+        <div class="cd-rules-modal" style="width:min(980px,97vw);height:min(760px,90vh);" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Propuestas del asistente de IA</div>
+                    <div class="cd-doc-title-sub">El agente evaluo las reglas por proveedor. Revisa y marca cuales crear; la tarea se crea solo al confirmar.</div>
+                </div>
+                <button class="cd-doc-close" title="Cerrar" @onclick="() => _iaPropOpen = false">&times;</button>
+            </div>
+            <div class="cd-rules-body">
+                @if (_iaProps.Count == 0)
+                {
+                    <div class="cd-muted">Sin propuestas.</div>
+                }
+                else
+                {
+                    <table class="cd-ia-tbl">
+                        <thead>
+                            <tr>
+                                <th style="width:34px;"><input type="checkbox" checked="@(_iaProps.Any(p => p.Estado == "ok") && _iaProps.Where(p => p.Estado == "ok").All(p => p.Incluir))" @onchange="e => ToggleAllProps(e.Value is bool b && b)" title="Marcar/desmarcar todas las aplicables" /></th>
+                                <th>Factura</th>
+                                <th>Proveedor</th>
+                                <th>Resultado</th>
+                                <th>Usuario</th>
+                                <th>Salida (ruta)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in _iaProps)
+                            {
+                                var prop = p;
+                                <tr class="@(prop.Estado == "ok" ? "" : "cd-ia-off")">
+                                    <td><input type="checkbox" checked="@prop.Incluir" disabled="@(prop.Estado != "ok")" @onchange="e => prop.Incluir = (e.Value is bool b && b)" /></td>
+                                    <td>@prop.Factura</td>
+                                    <td title="@prop.Proveedor">@prop.Proveedor</td>
+                                    <td>
+                                        @if (prop.Estado == "ok")
+                                        {
+                                            <span class="cd-ia-badge ok">Aplica</span>
+                                            @if (!string.IsNullOrWhiteSpace(prop.Motivo)) { <span class="cd-muted" style="margin-left:6px; font-size:11px;">@prop.Motivo</span> }
+                                        }
+                                        else if (prop.Estado == "sin-regla")
+                                        {
+                                            <span class="cd-ia-badge no">Ninguna regla</span>
+                                        }
+                                        else if (prop.Estado == "creada")
+                                        {
+                                            <span class="cd-ia-badge ok">Tarea creada</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="cd-ia-badge warn">@(prop.Estado == "sin-usuario" ? "Falta usuario en la regla" : "Falta salida en la regla")</span>
+                                        }
+                                    </td>
+                                    <td>@(prop.UserId is Guid uu ? UserNameById(uu) : "—")</td>
+                                    <td>@(_salidasRun.FirstOrDefault(s => s.Id == prop.SalidaId)?.Nombre ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (_iaMsg is { Length: > 0 })
+                    {
+                        <div class="cd-muted" style="margin-top:8px;">@_iaMsg</div>
+                    }
+                }
+            </div>
+            <div class="cd-rules-foot">
+                <span class="cd-muted">@_iaProps.Count(p => p.Incluir) de @_iaProps.Count seleccionada(s) para crear.</span>
+                <div style="flex:1"></div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _iaPropOpen = false" disabled="@_iaBusy">Cerrar</button>
+                <button class="btn btn-primary btn-sm" @onclick="CrearPropuestasAsync" disabled="@(_iaBusy || !_iaProps.Any(p => p.Incluir))">Crear tareas seleccionadas</button>
+            </div>
+        </div>
+    }
+
     @* Detalle de la tarea creada desde una fila (se abre al hacer clic en el badge con el numero). *@
     <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 }
@@ -1627,10 +1708,10 @@ else
 
     // Crea la actividad desde la fila con la SALIDA elegida: si el concepto tiene un flujo asociado,
     // CreateAsync lo lanza (la tarea "cae" en ese flujo). Queda asignada al usuario elegido en la fila.
-    private async Task CrearTareaDesdeRenglonAsync(ConciliacionDianRenglonDto rowArg, SalidaFlujoDto salida)
+    private async Task CrearTareaDesdeRenglonAsync(ConciliacionDianRenglonDto rowArg, SalidaFlujoDto salida, Guid? assigneeOverride = null)
     {
         if (_creandoTarea) { return; }
-        if (salida.SubcategoriaId is not Guid subId)
+        if (salida.SubcategoriaId is null)
         {
             _msg = "La salida elegida no tiene concepto configurado.";
             return;
@@ -1640,12 +1721,26 @@ else
         // usuario asignado vigente (y el resto de datos frescos).
         var r = _renglones.FirstOrDefault(x => x.Id == rowArg.Id) ?? rowArg;
         if (_tareaDeRenglon.ContainsKey(r.Id)) { return; }   // ya tiene tarea
-        if (r.AssignedTenantUserId is null)
+        var assignee = assigneeOverride ?? r.AssignedTenantUserId;
+        if (assignee is null)
         {
             _msg = "Asigna primero un usuario a la factura antes de crear la tarea.";
             return;
         }
         _creandoTarea = true; _msg = null;
+        try
+        {
+            var (ok, res) = await CrearTareaCoreAsync(r, salida, assignee.Value);
+            _msg = ok ? $"Tarea {res} creada y asignada a {UserNameById(assignee)}." : res;
+        }
+        finally { _creandoTarea = false; }
+    }
+
+    // Crea la tarea (sin los guards de UI): la usan el boton por fila y el analisis masivo con IA. Devuelve
+    // (true, numero) o (false, mensaje de error). NO toca _creandoTarea ni _msg (los maneja quien la llama).
+    private async Task<(bool Ok, string Result)> CrearTareaCoreAsync(ConciliacionDianRenglonDto r, SalidaFlujoDto salida, Guid assignee)
+    {
+        if (salida.SubcategoriaId is not Guid subId) { return (false, "La salida no tiene concepto configurado."); }
         try
         {
             var titulo = $"Compra {r.NumFacturaProveedor} - {r.NombreProveedor}".Trim();
@@ -1654,16 +1749,12 @@ else
                 Title: titulo,
                 ActivityTypeId: null,
                 Description: BuildTareaResumen(r),
-                AssigneeTenantUserId: r.AssignedTenantUserId,
+                AssigneeTenantUserId: assignee,
                 RequesterName: r.NombreProveedor,
                 RequesterDocument: r.NitProveedor,
                 SubcategoriaId: subId);
             var result = await Tasks.CreateAsync(req, _actorId, _userName ?? "Usuario");
-            if (!result.IsOk || result.Value is null)
-            {
-                _msg = result.Error ?? "No se pudo crear la tarea.";
-                return;
-            }
+            if (!result.IsOk || result.Value is null) { return (false, result.Error ?? "No se pudo crear la tarea."); }
             var num = result.Value.Item.Number;
             // El formulario configurado "cae" en la tarea (via ActividadSubcategoria.FormDefinitionId). Aqui
             // lo prellenamos con los datos de la factura del conciliador, en un borrador keyed por el NUMERO de
@@ -1716,10 +1807,154 @@ else
 
             await TaskCfg.SetSolicitadaAsync(r.Id, num);
             _tareaDeRenglon[r.Id] = num;
-            _msg = $"Tarea {num} creada" + (r.AssignedTenantUserId is not null ? $" y asignada a {UserNameById(r.AssignedTenantUserId)}." : ".");
+            return (true, num);
         }
-        catch (Exception ex) { _msg = "Error al crear la tarea: " + ex.Message; }
-        finally { _creandoTarea = false; }
+        catch (Exception ex) { return (false, "Error al crear la tarea: " + ex.Message); }
+    }
+
+    // ===== Asistente de IA: analisis masivo del documento (propone salida+usuario por factura; se confirma) =====
+    private bool _iaBusy;
+    private bool _iaPropOpen;
+    private string? _iaMsg;
+    private sealed class IaProp
+    {
+        public Guid RenglonId { get; set; }
+        public string Factura { get; set; } = string.Empty;
+        public string Proveedor { get; set; } = string.Empty;
+        public string? Motivo { get; set; }
+        public Guid? UserId { get; set; }
+        public Guid? SalidaId { get; set; }
+        public string Estado { get; set; } = "sin-regla";   // ok | sin-regla | sin-usuario | sin-salida | creada
+        public bool Incluir { get; set; }
+    }
+    private List<IaProp> _iaProps = new();
+
+    private void ToggleAllProps(bool v) { foreach (var p in _iaProps.Where(x => x.Estado == "ok")) { p.Incluir = v; } }
+
+    private async Task AnalizarConIaAsync()
+    {
+        if (_iaBusy) { return; }
+        _iaBusy = true; _busy = true; _msg = null; _iaMsg = null;
+        try
+        {
+            var agentId = await TaskCfg.GetAsistenteAgentIdAsync();
+            if (agentId is not Guid aid) { _msg = "Configura primero el agente en «Configuracion → Asistente de IA»."; return; }
+            var reglas = (await TaskCfg.GetAsistenteReglasAsync()).Where(r => !string.IsNullOrWhiteSpace(r.Prompt)).ToList();
+            if (reglas.Count == 0) { _msg = "No hay reglas por proveedor configuradas (Configuracion → Asistente de IA)."; return; }
+            await LoadSalidasRunAsync();   // salidas frescas para resolver la ruta
+
+            static bool ProvMatch(ConciliacionDianRenglonDto r, AsistenteProveedorReglaDto rg)
+            {
+                var p = (rg.Proveedor ?? string.Empty).Trim();
+                if (p.Length == 0) { return false; }
+                var nom = r.NombreProveedor ?? string.Empty;
+                var nit = r.NitProveedor ?? string.Empty;
+                return nom.Contains(p, StringComparison.OrdinalIgnoreCase)
+                    || (nit.Length > 0 && nit.Equals(p, StringComparison.OrdinalIgnoreCase))
+                    || (nom.Length > 0 && p.Contains(nom, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var candidatos = _renglones
+                .Where(r => !_tareaDeRenglon.ContainsKey(r.Id))
+                .Where(r => reglas.Any(rg => ProvMatch(r, rg)))
+                .Take(40)
+                .ToList();
+            if (candidatos.Count == 0) { _msg = "No hay facturas pendientes cuyo proveedor tenga una regla configurada."; return; }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("FACTURAS (evalua cada una contra las reglas de SU proveedor):");
+            for (var i = 0; i < candidatos.Count; i++)
+            {
+                var r = candidatos[i];
+                sb.AppendLine($"{i + 1}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("REGLAS (indice global; una regla aplica solo a facturas de su mismo proveedor):");
+            for (var k = 0; k < reglas.Count; k++)
+            {
+                sb.AppendLine($"{k + 1}) proveedor=\"{reglas[k].Proveedor}\" condicion=\"{reglas[k].Prompt}\"");
+            }
+
+            const string system = "Eres un clasificador del conciliador DIAN. Para CADA factura, evalua SOLO las reglas cuyo proveedor coincide (por nombre o NIT) y determina la PRIMERA regla cuya condicion se cumple segun los datos de la factura. Si ninguna se cumple, usa null. Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden, con la forma [{\"f\":<indice_factura>,\"r\":<indice_regla o null>}]. No incluyas texto fuera del JSON ni markdown.";
+            var turns = new List<AiChatTurn> { new("user", sb.ToString()) };
+            var res = await AiInfer.TestChatAsync(aid, turns, systemPromptOverride: system, actorUserId: _actorId);
+            if (!res.Ok || string.IsNullOrWhiteSpace(res.Text)) { _msg = "El asistente no respondio: " + (res.Error ?? "sin texto"); return; }
+
+            var map = ParseIaArray(res.Text!);
+            _iaProps = new();
+            var soloUna = _salidasRun.Count == 1 ? _salidasRun[0].Id : (Guid?)null;
+            for (var i = 0; i < candidatos.Count; i++)
+            {
+                var r = candidatos[i];
+                map.TryGetValue(i + 1, out var ridx);
+                AsistenteProveedorReglaDto? regla = (ridx is int rk && rk >= 1 && rk <= reglas.Count) ? reglas[rk - 1] : null;
+                var prop = new IaProp { RenglonId = r.Id, Factura = r.NumFacturaProveedor ?? string.Empty, Proveedor = r.NombreProveedor ?? string.Empty };
+                if (regla is null) { prop.Estado = "sin-regla"; }
+                else
+                {
+                    prop.UserId = regla.AssignUserId ?? r.AssignedTenantUserId;
+                    prop.SalidaId = regla.SalidaId ?? soloUna;
+                    prop.Estado = prop.UserId is null ? "sin-usuario" : prop.SalidaId is null ? "sin-salida" : "ok";
+                    prop.Incluir = prop.Estado == "ok";
+                }
+                _iaProps.Add(prop);
+            }
+            var aplican = _iaProps.Count(p => p.Estado == "ok");
+            _iaMsg = $"{candidatos.Count} factura(s) analizada(s); {aplican} con regla aplicable.";
+            _iaPropOpen = true;
+        }
+        catch (Exception ex) { _msg = "Error en el analisis con IA: " + ex.Message; }
+        finally { _iaBusy = false; _busy = false; }
+    }
+
+    // Extrae del texto del modelo el mapa indice_factura(1..n) -> indice_regla(1..k) o null.
+    private static Dictionary<int, int?> ParseIaArray(string text)
+    {
+        var map = new Dictionary<int, int?>();
+        var a = text.IndexOf('['); var b = text.LastIndexOf(']');
+        if (a < 0 || b <= a) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(text.Substring(a, b - a + 1));
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty("f", out var fp)) { continue; }
+                var f = fp.ValueKind == JsonValueKind.Number ? fp.GetInt32() : (int.TryParse(fp.GetString(), out var fi) ? fi : -1);
+                if (f < 1) { continue; }
+                int? r = null;
+                if (el.TryGetProperty("r", out var rp) && rp.ValueKind != JsonValueKind.Null)
+                {
+                    r = rp.ValueKind == JsonValueKind.Number ? rp.GetInt32() : (int.TryParse(rp.GetString(), out var ri) ? ri : (int?)null);
+                }
+                map[f] = r;
+            }
+        }
+        catch { /* respuesta no parseable -> queda sin reglas */ }
+        return map;
+    }
+
+    private async Task CrearPropuestasAsync()
+    {
+        if (_iaBusy) { return; }
+        _iaBusy = true; _busy = true;
+        var creadas = 0; var fallos = 0;
+        try
+        {
+            foreach (var p in _iaProps.Where(x => x.Incluir && x.Estado == "ok").ToList())
+            {
+                var r = _renglones.FirstOrDefault(x => x.Id == p.RenglonId);
+                var salida = _salidasRun.FirstOrDefault(s => s.Id == p.SalidaId);
+                if (r is null || salida is null || p.UserId is not Guid uid) { fallos++; continue; }
+                if (_tareaDeRenglon.ContainsKey(r.Id)) { continue; }
+                var (ok, _) = await CrearTareaCoreAsync(r, salida, uid);
+                if (ok) { creadas++; p.Estado = "creada"; p.Incluir = false; } else { fallos++; }
+            }
+            _iaMsg = $"{creadas} tarea(s) creada(s)" + (fallos > 0 ? $", {fallos} con error." : ".");
+            _msg = _iaMsg;
+            RebuildItems();
+        }
+        catch (Exception ex) { _iaMsg = "Error al crear: " + ex.Message; }
+        finally { _iaBusy = false; _busy = false; }
     }
 
     private string BuildTareaResumen(ConciliacionDianRenglonDto r)

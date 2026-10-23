@@ -24,7 +24,9 @@ public static class FormFieldValidator
             // Subform (ola F5): los hijos son FormResponse propios (FormRecordLink), no un valor en el documento.
             or FormControlType.Subform
             // TaskDocuments: solo lectura (muestra los adjuntos de la tarea); no captura valor.
-            or FormControlType.TaskDocuments;
+            or FormControlType.TaskDocuments
+            // AiIntake: asistente IA que PROPONE filas para una grilla; no captura valor propio.
+            or FormControlType.AiIntake;
 
     /// <summary>
     /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla

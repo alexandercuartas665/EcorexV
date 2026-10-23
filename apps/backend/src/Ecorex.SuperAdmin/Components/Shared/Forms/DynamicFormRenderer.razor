@@ -21,6 +21,8 @@
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
+@inject Ecorex.Application.Forms.IFormAiIntakeService AiIntakeSvc
+@inject Ecorex.Application.Storage.IFileStorageService FileStore
 @inject NavigationManager Nav
 
 @* =====================================================================================
@@ -1166,6 +1168,10 @@ else
                 @* Documentos de la TAREA (solo lectura): galeria de los adjuntos de la tarea anfitriona. *@
                 @RenderTaskDocuments(q)
                 break;
+            case FormControlType.AiIntake:
+                @* Asistente de requerimiento (IA, imagen/PDF -> tabla): dropzone + preview + aplicar. *@
+                @RenderAiIntake(q)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
@@ -1563,6 +1569,151 @@ else
         }
         catch (JSException) { }
     }
+
+    // ===== Asistente de requerimiento (IA, imagen/PDF -> tabla) (ADR-0131). Reusa _aiBusy/_aiError del
+    // asistente de texto (keyed por fieldCode; los campos de intake son distintos, sin colision de estado). =====
+    private readonly Dictionary<string, Ecorex.Application.Forms.AiIntakeResult> _aiResult = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (string Url, string Name, bool IsPdf)> _aiFile = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderAiIntake(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+        var busy = _aiBusy.Contains(q.FieldCode);
+        var err = _aiError.GetValueOrDefault(q.FieldCode);
+        var res = _aiResult.GetValueOrDefault(q.FieldCode);
+        var hasFile = _aiFile.TryGetValue(q.FieldCode, out var file);
+        var accept = string.Join(",", new[] { cfg.AcceptsImages ? "image/*" : null, cfg.AcceptsPdf ? "application/pdf" : null }.Where(x => x is not null));
+        var gridQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, cfg.TargetGrid, StringComparison.OrdinalIgnoreCase));
+
+        <div class="dfr-ai">
+            @if (cfg.AgentId is null || gridQ is null)
+            {
+                <div class="dfr-note-err">Este asistente aun no esta configurado (falta el agente de IA o la grilla destino). Configuralo en el disenador.</div>
+            }
+            else
+            {
+                <label class="dfr-ai-drop @(busy ? "busy" : "")">
+                    <InputFile OnChange="@(e => OnAiFileSelectedAsync(q, e))" accept="@accept" disabled="@(busy || IsLocked)" style="display:none" />
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" /></svg>
+                    <span class="dfr-ai-droptitle">@(busy ? "Analizando el documento..." : hasFile ? "Reemplazar / re-analizar (imagen o PDF)" : "Arrastra o elige una imagen/PDF del requerimiento")</span>
+                    <small>El asistente lee el documento y PROPONE las filas de "@gridQ.Label". Tu confirmas antes de escribir.</small>
+                </label>
+
+                @if (hasFile && !busy)
+                {
+                    <div class="dfr-ai-file">
+                        @if (file.IsPdf || string.IsNullOrEmpty(file.Url)) { <span class="dfr-ai-fileicon">@(file.IsPdf ? "PDF" : "IMG")</span> }
+                        else { <img src="@file.Url" class="dfr-ai-thumb" alt="origen" /> }
+                        <span class="dfr-ai-filename">@file.Name</span>
+                    </div>
+                }
+
+                @if (err is not null) { <div class="dfr-note-err">@err</div> }
+
+                @if (res is { Ok: true } && res.Rows.Count > 0)
+                {
+                    var cols = GridColumnsOf(gridQ);
+                    var usedCols = cols.Where(c => res.Rows.Any(r => r.Values.ContainsKey(c.Id))).ToList();
+                    <div class="dfr-ai-preview">
+                        <div class="dfr-ai-previewhead">
+                            <strong>@res.Rows.Count fila(s) propuesta(s)</strong>
+                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <span class="dfr-ai-notes">@res.Notes</span> }
+                        </div>
+                        <div class="dfr-ai-tablewrap">
+                            <table class="dfr-ai-table">
+                                <thead><tr>@foreach (var c in usedCols) { <th>@c.Label</th> }</tr></thead>
+                                <tbody>
+                                    @foreach (var r in res.Rows)
+                                    {
+                                        <tr>@foreach (var c in usedCols) { <td>@r.Values.GetValueOrDefault(c.Id)</td> }</tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="dfr-ai-actions">
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiRowsAsync(q, gridQ, res))" disabled="@IsLocked">Aplicar a la tabla (@(string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase) ? "reemplazar" : "agregar"))</button>
+                            <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAi(q))">Descartar</button>
+                        </div>
+                        <small class="dfr-ai-hint">Las filas caen en "@gridQ.Label", donde puedes editarlas o quitarlas antes de guardar.</small>
+                    </div>
+                }
+            }
+        </div>
+    };
+
+    private async Task OnAiFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
+    {
+        var upload = e.File;
+        if (upload is null || _definition is null) { return; }
+        var cfg = Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+        _aiError.Remove(q.FieldCode);
+        _aiResult.Remove(q.FieldCode);
+        long max = (long)cfg.MaxMb * 1024 * 1024;
+        if (upload.Size > max) { _aiError[q.FieldCode] = $"El archivo supera el tope de {cfg.MaxMb} MB."; return; }
+        var mime = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType.ToLowerInvariant();
+        var isImage = mime.StartsWith("image/", StringComparison.Ordinal);
+        var isPdf = mime == "application/pdf";
+        if (!isImage && !isPdf) { _aiError[q.FieldCode] = "Solo se aceptan imagenes o PDF."; return; }
+
+        _aiBusy.Add(q.FieldCode);
+        try
+        {
+            // El registro debe existir para colgarle el analisis/adjunto (igual que las gestiones por fila).
+            if (_response is null)
+            {
+                await SaveAsync(submit: false);
+                if (_response is null) { _aiError[q.FieldCode] = "Guarda el registro antes de analizar."; return; }
+            }
+
+            byte[] bytes;
+            await using (var stream = upload.OpenReadStream(max))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var b64 = Convert.ToBase64String(bytes);
+
+            // Guardar el archivo origen para auditoria (best-effort) + miniatura.
+            string? url = null;
+            try
+            {
+                var saved = await FileStore.SaveAsync(new Ecorex.Application.Storage.FileStorageSaveRequest(
+                    "form-ai-intake", _response.Id.ToString(), q.FieldCode, upload.Name, mime, bytes));
+                url = saved.Url;
+            }
+            catch { /* el guardado del origen es best-effort; el analisis sigue */ }
+            _aiFile[q.FieldCode] = (url ?? (isImage ? $"data:{mime};base64,{b64}" : ""), upload.Name, isPdf);
+
+            var res = await AiIntakeSvc.AnalyzeAsync(_response.Id, q.FieldCode, b64, mime, SubmittedByTenantUserId ?? Guid.Empty);
+            if (!res.Ok) { _aiError[q.FieldCode] = res.Error ?? "El asistente no pudo analizar el documento."; }
+            else if (res.Rows.Count == 0) { _aiError[q.FieldCode] = "El asistente no encontro filas en el documento."; }
+            else { _aiResult[q.FieldCode] = res; }
+        }
+        catch (Exception ex) { _aiError[q.FieldCode] = $"No se pudo analizar: {ex.Message}"; }
+        finally { _aiBusy.Remove(q.FieldCode); }
+    }
+
+    private async Task ApplyAiRowsAsync(FormQuestionDto q, FormQuestionDto gridQ, Ecorex.Application.Forms.AiIntakeResult res)
+    {
+        var rows = GridRowsOf(gridQ);
+        if (string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase)) { rows.Clear(); }
+        var extras = GridExtrasOf(gridQ);
+        var cols = GridColumnsOf(gridQ);
+        foreach (var pr in res.Rows)
+        {
+            var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var col in cols) { row[col.Id] = extras.GetValueOrDefault(col.Id)?.Default; }
+            foreach (var kv in pr.Values) { row[kv.Key] = kv.Value; }
+            row[GestionRowIdKey] = Guid.NewGuid().ToString("N");
+            rows.Add(row);
+        }
+        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));   // recalcula calc/lookup
+        _aiResult.Remove(q.FieldCode);
+    }
+
+    private void DiscardAi(FormQuestionDto q) => _aiResult.Remove(q.FieldCode);
 
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
     {

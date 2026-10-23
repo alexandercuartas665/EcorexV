@@ -112,5 +112,14 @@ public enum FormControlType
     /// documentos" de la tarea, embebido en el formulario, para gestionar desde aqui. No captura valor. Al FINAL del
     /// enum para preservar los ordinales.
     /// </summary>
-    TaskDocuments
+    TaskDocuments,
+
+    /// <summary>
+    /// ASISTENTE DE REQUERIMIENTO (IA, imagen/PDF -> tabla): control drag-and-drop que es un AGENTE IA con una
+    /// herramienta ACOTADA AL MISMO formulario. Lee el requerimiento del cliente (foto/PDF) y PROPONE filas para
+    /// una grilla de ESTE formulario (el humano confirma antes de escribir). Config en OptionsJson
+    /// (<c>AiIntakeConfig</c>): agente, prompt, grilla destino, accept, max, modo. No captura valor por si mismo
+    /// (escribe en la grilla destino). Al FINAL del enum para preservar los ordinales.
+    /// </summary>
+    AiIntake
 }

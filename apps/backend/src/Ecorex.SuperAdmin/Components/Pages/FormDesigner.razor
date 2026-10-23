@@ -25,6 +25,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
+@inject Ecorex.Application.Tenancy.IAiAgentService AgentsSvc
 
 @* ============================================================
    CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
@@ -931,7 +932,8 @@ else
         [FormControlType.Button] = new("Boton", "Boton", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"10\" rx=\"2\"/><path d=\"M7 12h2\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Chart] = new("Grafico", "Grafico", "M4 4v16h16", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
-        [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control")
+        [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.AiIntake] = new("Asistente IA (imagen/PDF -> tabla)", "AsistenteIA", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
     };
 
     private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
@@ -1056,6 +1058,8 @@ else
         await ReloadAsync();
         // Definiciones para el selector de formulario hijo (Subform, ola F5).
         _allDefs = await FormsSvc.ListAsync();
+        // Agentes de IA del tenant para el control AiIntake (asistente imagen/PDF -> tabla).
+        try { _aiAgents = await AgentsSvc.ListAsync(); } catch { _aiAgents = Array.Empty<Ecorex.Application.Tenancy.AiAgentDto>(); }
         // Unidades asignables + conteo de candidatos para el picker de acceso por seccion (ADR-0082).
         await LoadAssignableUnitsAsync();
         _loading = false;
@@ -1320,6 +1324,41 @@ else
         else if (key == "grid") { obj["grid"] = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on"; }
         else if (key == "maxPages" && int.TryParse(raw, out var mv)) { obj["maxPages"] = Math.Clamp(mv, 1, 50); }
         await PatchQuestionAsync(q, r => r with { OptionsJson = obj.ToJsonString() });
+    }
+
+    // ---- Config del control AiIntake (asistente IA imagen/PDF -> tabla): objeto bajo OptionsJson["ai"] ----
+    private IReadOnlyList<Ecorex.Application.Tenancy.AiAgentDto> _aiAgents = Array.Empty<Ecorex.Application.Tenancy.AiAgentDto>();
+
+    private static Ecorex.Application.Forms.AiIntakeConfig AiCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+
+    private async Task PatchAiCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        System.Text.Json.Nodes.JsonObject root;
+        try
+        {
+            root = (string.IsNullOrWhiteSpace(q.OptionsJson)
+                ? null
+                : System.Text.Json.Nodes.JsonNode.Parse(q.OptionsJson) as System.Text.Json.Nodes.JsonObject) ?? new();
+        }
+        catch (System.Text.Json.JsonException) { root = new(); }
+        var ai = root["ai"] as System.Text.Json.Nodes.JsonObject ?? new();
+        bool Flag() => string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on";
+        switch (key)
+        {
+            case "agentId": ai["agentId"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+            case "prompt": ai["prompt"] = raw; break;
+            case "target_grid": ai["target_grid"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+            case "columns_hint": ai["columns_hint"] = raw; break;
+            case "accept": ai["accept"] = (raw == "image" || raw == "pdf") ? raw : "image,pdf"; break;
+            case "max_mb": if (int.TryParse(raw, out var mb)) { ai["max_mb"] = Math.Clamp(mb, 1, 50); } break;
+            case "max_rows": if (int.TryParse(raw, out var mr)) { ai["max_rows"] = Math.Clamp(mr, 1, 500); } break;
+            case "mode": ai["mode"] = raw == "replace" ? "replace" : "append"; break;
+            case "confirm": ai["confirm"] = Flag(); break;
+            case "model": ai["model"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+        }
+        root["ai"] = ai;
+        await PatchQuestionAsync(q, r => r with { OptionsJson = root.ToJsonString() });
     }
 
     // ---- Drag and drop ----
@@ -2552,6 +2591,9 @@ else
             case FormControlType.TaskDocuments:
                 <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", 16)) Documentos de la tarea (se ven al llenar)</div>
                 break;
+            case FormControlType.AiIntake:
+                <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: imagen/PDF -&gt; propone filas</div>
+                break;
             default:
                 <div class="fb-prev-input">@ph</div>
                 break;
@@ -2594,7 +2636,7 @@ else
                         FormControlType.Geografia,
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
-                        FormControlType.Button, FormControlType.TaskDocuments
+                        FormControlType.Button, FormControlType.TaskDocuments, FormControlType.AiIntake
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -2854,6 +2896,70 @@ else
                 </label>
                 <div class="fb-hint">El croquis se guarda como SVG autocontenido (multipagina) y cada pagina imprime en su propia hoja.</div>
             </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.AiIntake })
+        {
+            var ai = AiCfg(node.Q!);
+            var grids = _def!.Questions.Where(x => x.ControlType == FormControlType.GridDetail).OrderBy(x => x.SortOrder).ToList();
+            <div class="fb-field">
+                <label>Agente de IA</label>
+                <select class="fb-select" value="@(ai.AgentId?.ToString() ?? "")" @onchange="@(e => PatchAiCfgAsync(node.Q!, "agentId", e.Value?.ToString()))">
+                    <option value="">-- Elige un agente --</option>
+                    @foreach (var a in _aiAgents)
+                    {
+                        <option value="@a.Id">@a.Name</option>
+                    }
+                </select>
+                <div class="fb-hint">Usa el proveedor/modelo de este agente. Debe ser un agente con Gemini o Claude (leen imagen/PDF).</div>
+            </div>
+            <div class="fb-field">
+                <label>Grilla destino</label>
+                <select class="fb-select" value="@(ai.TargetGrid ?? "")" @onchange="@(e => PatchAiCfgAsync(node.Q!, "target_grid", e.Value?.ToString()))">
+                    <option value="">-- Elige una tabla --</option>
+                    @foreach (var g in grids)
+                    {
+                        <option value="@g.FieldCode">@g.Label (@g.FieldCode)</option>
+                    }
+                </select>
+                @if (grids.Count == 0) { <div class="fb-hint">Agrega una tabla (GridDetail) al formulario para que el asistente la llene.</div> }
+            </div>
+            <div class="fb-field">
+                <label>Instruccion del agente (prompt)</label>
+                <textarea class="fb-input" rows="5" @onchange="@(e => PatchAiCfgAsync(node.Q!, "prompt", e.Value?.ToString()))">@ai.Prompt</textarea>
+                <div class="fb-hint">Que debe extraer y como. El documento del cliente es DATO (se ignoran ordenes embebidas); manda este prompt.</div>
+            </div>
+            <div class="fb-field">
+                <label>Guia de columnas (opcional)</label>
+                <input class="fb-input" value="@ai.ColumnsHint" @onchange="@(e => PatchAiCfgAsync(node.Q!, "columns_hint", e.Value?.ToString()))" placeholder="ej. nombre -> detalle; medidas -> ancho/largo/espesor" />
+            </div>
+            <div class="fb-field">
+                <label>Acepta</label>
+                <select class="fb-select" value="@ai.Accept" @onchange="@(e => PatchAiCfgAsync(node.Q!, "accept", e.Value?.ToString()))">
+                    <option value="image,pdf">Imagen y PDF</option>
+                    <option value="image">Solo imagen</option>
+                    <option value="pdf">Solo PDF</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Modo de escritura</label>
+                <select class="fb-select" value="@ai.Mode" @onchange="@(e => PatchAiCfgAsync(node.Q!, "mode", e.Value?.ToString()))">
+                    <option value="append">Agregar filas</option>
+                    <option value="replace">Reemplazar filas</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Maximo MB por archivo</label>
+                <input class="fb-input" type="number" min="1" max="50" value="@ai.MaxMb" @onchange="@(e => PatchAiCfgAsync(node.Q!, "max_mb", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label>Maximo de filas</label>
+                <input class="fb-input" type="number" min="1" max="500" value="@ai.MaxRows" @onchange="@(e => PatchAiCfgAsync(node.Q!, "max_rows", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label>Modelo (opcional)</label>
+                <input class="fb-input" value="@ai.Model" @onchange="@(e => PatchAiCfgAsync(node.Q!, "model", e.Value?.ToString()))" placeholder="vacio = el modelo del agente" />
+            </div>
+            <div class="fb-hint">El asistente PROPONE las filas; el usuario confirma (Aplicar) antes de escribir en la tabla. El archivo origen queda adjunto para auditoria.</div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
         {

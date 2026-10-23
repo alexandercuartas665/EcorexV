@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-23 - v0.16.216: control "Asistente de requerimiento (IA, imagen/PDF -> tabla)" (ADR-0131) (SIN deploy)
+
+- NUEVO FormControlType.AiIntake: control drag-and-drop que es un agente IA con una herramienta ACOTADA al mismo
+  formulario. Lee la foto/PDF del requerimiento del cliente y PROPONE filas para la grilla de detalle de ESE
+  formulario (nombre + medidas); el humano confirma (Aplicar) antes de escribir. Self-serve en el FormDesigner.
+- Backend (Application/Forms): AiIntakeConfig (OptionsJson["ai"]), FormScopedToolset (get_grid_schema +
+  rellenar_tabla que RECOLECTA filas, ignora columnas calculadas + tope maxRows + set_campo; acotado por ctor a la
+  definicion, no toca otros forms/registros/tenants), IFormAiIntakeService (resuelve el AGENTE referenciado ->
+  proveedor/modelo/prompt base, cupo + AiUsageLog "form-ai-intake", tool-loop con CompleteWithToolsAsync + imagen/PDF
+  inline, devuelve filas propuestas SIN escribir; solo Gemini/Claude). FormFieldValidator exime AiIntake.
+- UI: render en DynamicFormRenderer (dropzone + "Analizando" + preview + Aplicar/Descartar; aplica reusando
+  SetValue -> recalcula; guarda el archivo origen en StoredFile). Config en FormDesigner (agente, prompt, grilla
+  destino, guia columnas, accept, max_mb, max_rows, modo) + paleta + preview + dropdown de tipo.
+- Decisiones del usuario: referencia a un AGENTE (no proveedor suelto); solo autenticado (no link publico);
+  guardar el archivo origen. Gobernanza: el documento es DATO (ignora ordenes embebidas); confirmacion humana;
+  AiUsageLog + cupos; tenant-scoped. Build de solucion Release verde. Sin migracion. La config de la COT de AGRO
+  la deja el usuario en el disenador.
+
 ## 2026-10-23 - v0.16.215: PhoneField segmentado (diseno de captura de telefono) (SIN deploy)
 
 - El campo de telefono (PhoneField, usado en /directorio-general, /directorio-especializado, GestorContactos y

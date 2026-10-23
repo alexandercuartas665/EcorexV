@@ -1857,27 +1857,16 @@ else
             var candidatos = _renglones
                 .Where(r => !_tareaDeRenglon.ContainsKey(r.Id))
                 .Where(r => reglas.Any(rg => ProvMatch(r, rg)))
-                .Take(40)
+                .Take(100)
                 .ToList();
             if (candidatos.Count == 0) { _msg = "No hay facturas pendientes cuyo proveedor tenga una regla configurada."; return; }
 
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("FACTURAS (evalua cada una contra las reglas de SU proveedor):");
-            for (var i = 0; i < candidatos.Count; i++)
-            {
-                var r = candidatos[i];
-                // Campos adicionales (EAV) con valor, para que las reglas puedan referirlos (p.ej. placa, centro de operacion).
-                var dyn = string.Join(" ", _dynDefs
-                    .Select(d => (d.Label, Val: DynVal(r.Id, d.Id)))
-                    .Where(x => !string.IsNullOrWhiteSpace(x.Val))
-                    .Select(x => $"{x.Label}=\"{x.Val}\""));
-                sb.AppendLine($"{i + 1}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}{(dyn.Length > 0 ? " " + dyn : "")}");
-            }
-            sb.AppendLine();
-            sb.AppendLine("REGLAS (indice global; una regla aplica solo a facturas de su mismo proveedor):");
+            // Lista de reglas (indice global; estable entre lotes).
+            var reglasText = new System.Text.StringBuilder();
+            reglasText.AppendLine("REGLAS (indice global; una regla aplica solo a facturas de su mismo proveedor):");
             for (var k = 0; k < reglas.Count; k++)
             {
-                sb.AppendLine($"{k + 1}) proveedor=\"{reglas[k].Proveedor}\" condicion=\"{reglas[k].Prompt}\"");
+                reglasText.AppendLine($"{k + 1}) proveedor=\"{reglas[k].Proveedor}\" condicion=\"{reglas[k].Prompt}\"");
             }
 
             // El PROMPT DEL AGENTE (criterio general que configuro el usuario) va como base y se REFUERZA con el
@@ -1885,31 +1874,59 @@ else
             var basePrompt = (await AiAgents.GetAsync(aid))?.Agent.SystemPrompt?.Trim();
             const string tarea = "Actua como clasificador del conciliador DIAN. Para CADA factura, evalua SOLO las reglas cuyo proveedor coincide (por nombre o NIT) y determina la PRIMERA regla cuya condicion se cumple segun los datos de la factura (incluidos sus campos adicionales). Si ninguna se cumple, usa null. Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden: [{\"f\":<indice_factura>,\"r\":<indice_regla o null>}]. Sin texto fuera del JSON ni markdown.";
             var system = string.IsNullOrWhiteSpace(basePrompt) ? tarea : basePrompt + "\n\n---\n" + tarea;
-            var turns = new List<AiChatTurn> { new("user", sb.ToString()) };
-            var res = await AiInfer.TestChatAsync(aid, turns, systemPromptOverride: system, actorUserId: _actorId);
-            if (!res.Ok || string.IsNullOrWhiteSpace(res.Text)) { _msg = "El asistente no respondio: " + (res.Error ?? "sin texto"); return; }
 
-            var map = ParseIaArray(res.Text!);
+            // Arma la linea de una factura (indice local del lote) incluyendo sus campos EAV con valor.
+            string FacturaLinea(int n, ConciliacionDianRenglonDto r)
+            {
+                var dyn = string.Join(" ", _dynDefs
+                    .Select(d => (d.Label, Val: DynVal(r.Id, d.Id)))
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Val))
+                    .Select(x => $"{x.Label}=\"{x.Val}\""));
+                return $"{n}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}{(dyn.Length > 0 ? " " + dyn : "")}";
+            }
+
+            // Procesar en LOTES (prompts mas chicos y confiables). El indice de factura es LOCAL por lote;
+            // el indice de regla es GLOBAL (la lista de reglas es la misma en todos los lotes).
+            const int batchSize = 20;
             _iaProps = new();
             var soloUna = _salidasRun.Count == 1 ? _salidasRun[0].Id : (Guid?)null;
-            for (var i = 0; i < candidatos.Count; i++)
+            var totalLotes = (candidatos.Count + batchSize - 1) / batchSize;
+            var errores = 0;
+            for (var bi = 0; bi < totalLotes; bi++)
             {
-                var r = candidatos[i];
-                map.TryGetValue(i + 1, out var ridx);
-                AsistenteProveedorReglaDto? regla = (ridx is int rk && rk >= 1 && rk <= reglas.Count) ? reglas[rk - 1] : null;
-                var prop = new IaProp { RenglonId = r.Id, Factura = r.NumFacturaProveedor ?? string.Empty, Proveedor = r.NombreProveedor ?? string.Empty };
-                if (regla is null) { prop.Estado = "sin-regla"; }
-                else
+                var lote = candidatos.Skip(bi * batchSize).Take(batchSize).ToList();
+                _iaMsg = $"Analizando lote {bi + 1}/{totalLotes}...";
+                StateHasChanged();
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("FACTURAS (evalua cada una contra las reglas de SU proveedor):");
+                for (var i = 0; i < lote.Count; i++) { sb.AppendLine(FacturaLinea(i + 1, lote[i])); }
+                sb.AppendLine();
+                sb.Append(reglasText);
+
+                var res = await AiInfer.TestChatAsync(aid, new List<AiChatTurn> { new("user", sb.ToString()) }, systemPromptOverride: system, actorUserId: _actorId);
+                var map = (res.Ok && !string.IsNullOrWhiteSpace(res.Text)) ? ParseIaArray(res.Text!) : new Dictionary<int, int?>();
+                if (!res.Ok) { errores++; }
+
+                for (var i = 0; i < lote.Count; i++)
                 {
-                    prop.UserId = regla.AssignUserId ?? r.AssignedTenantUserId;
-                    prop.SalidaId = regla.SalidaId ?? soloUna;
-                    prop.Estado = prop.UserId is null ? "sin-usuario" : prop.SalidaId is null ? "sin-salida" : "ok";
-                    prop.Incluir = prop.Estado == "ok";
+                    var r = lote[i];
+                    map.TryGetValue(i + 1, out var ridx);
+                    AsistenteProveedorReglaDto? regla = (ridx is int rk && rk >= 1 && rk <= reglas.Count) ? reglas[rk - 1] : null;
+                    var prop = new IaProp { RenglonId = r.Id, Factura = r.NumFacturaProveedor ?? string.Empty, Proveedor = r.NombreProveedor ?? string.Empty };
+                    if (regla is null) { prop.Estado = "sin-regla"; }
+                    else
+                    {
+                        prop.UserId = regla.AssignUserId ?? r.AssignedTenantUserId;
+                        prop.SalidaId = regla.SalidaId ?? soloUna;
+                        prop.Estado = prop.UserId is null ? "sin-usuario" : prop.SalidaId is null ? "sin-salida" : "ok";
+                        prop.Incluir = prop.Estado == "ok";
+                    }
+                    _iaProps.Add(prop);
                 }
-                _iaProps.Add(prop);
             }
             var aplican = _iaProps.Count(p => p.Estado == "ok");
-            _iaMsg = $"{candidatos.Count} factura(s) analizada(s); {aplican} con regla aplicable.";
+            _iaMsg = $"{candidatos.Count} factura(s) en {totalLotes} lote(s); {aplican} con regla aplicable." + (errores > 0 ? $" ({errores} lote(s) con error de IA.)" : "");
             _iaPropOpen = true;
         }
         catch (Exception ex) { _msg = "Error en el analisis con IA: " + ex.Message; }

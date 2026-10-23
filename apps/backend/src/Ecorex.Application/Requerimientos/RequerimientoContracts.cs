@@ -20,7 +20,12 @@ public sealed record RequerimientoDto(
     int CantidadHijos,
     decimal CantidadPlanificada,
     decimal MontoTotal,
-    IReadOnlyList<RequerimientoHijoDto> Hijos);
+    IReadOnlyList<RequerimientoHijoDto> Hijos,
+    // Trazabilidad: quien pidio y desde que actividad.
+    Guid? SolicitanteUserId = null,
+    string? SolicitanteNombre = null,
+    Guid? SourceTaskItemId = null,
+    string? SourceTaskNumber = null);
 
 /// <summary>Filtro de la grilla de necesidades.</summary>
 public sealed record RequerimientoFiltro(string? Texto = null, RequerimientoEstado? Estado = null, Guid? OrigenId = null);
@@ -33,7 +38,11 @@ public sealed record CrearRequerimientoRequest(
     string Descripcion,
     decimal Cantidad,
     string UnidadMedida,
-    DateTimeOffset? FechaNecesidad);
+    DateTimeOffset? FechaNecesidad,
+    // Trazabilidad opcional: quien pidio (TenantUser) y la actividad origen. El nombre se resuelve si va vacio.
+    Guid? SolicitanteUserId = null,
+    string? SolicitanteNombre = null,
+    Guid? SourceTaskItemId = null);
 
 /// <summary>Opcion de item para el selector (del modulo de Inventarios).</summary>
 public sealed record ItemOpcionDto(Guid Id, string Nombre, string? Sku);

@@ -10781,6 +10781,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("origen_id");
 
+                    b.Property<string>("SolicitanteNombre")
+                        .HasColumnType("text")
+                        .HasColumnName("solicitante_nombre");
+
+                    b.Property<Guid?>("SolicitanteUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("solicitante_user_id");
+
+                    b.Property<Guid?>("SourceTaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_task_item_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");

@@ -10784,6 +10784,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("origen_id");
 
+                    b.Property<string>("SolicitanteNombre")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("solicitante_nombre");
+
+                    b.Property<Guid?>("SolicitanteUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("solicitante_user_id");
+
+                    b.Property<Guid?>("SourceTaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("source_task_item_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");

@@ -422,6 +422,14 @@ else
                                             break;
                                         case "area": <text>@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</text> break;
                                         case "origen": <text>@(r.OrigenNombre ?? "-")</text> break;
+                                        case "solicitante": <text>@(string.IsNullOrWhiteSpace(r.SolicitanteNombre) ? "-" : r.SolicitanteNombre)</text> break;
+                                        case "actividad":
+                                            @if (!string.IsNullOrWhiteSpace(r.SourceTaskNumber))
+                                            {
+                                                <span class="req-actnum" title="Actividad donde se origino la solicitud">@r.SourceTaskNumber</span>
+                                            }
+                                            else { <span class="cd-muted">-</span> }
+                                            break;
                                         case "unidad": <text>@(string.IsNullOrWhiteSpace(r.UnidadMedida) ? "-" : r.UnidadMedida)</text> break;
                                         case "proveedor": <span class="cd-muted">-</span> break;
                                         case "cantidad": <text>@Fmt(r.Cantidad)</text> break;
@@ -1089,6 +1097,8 @@ else
         new("producto", "Producto", false, true),
         new("area", "Area", false, true),
         new("origen", "Origen", false, true),
+        new("solicitante", "Solicitante", false, true),
+        new("actividad", "Actividad", false, true),
         new("estado", "Estado", false, true),
         new("proveedor", "Proveedor", false, true),
         new("cantidad", "Cantidad", true, false),
@@ -1195,6 +1205,8 @@ else
             "producto" => r.ItemNombre ?? r.Descripcion,
             "area" => r.Area,
             "origen" => r.OrigenNombre ?? "",
+            "solicitante" => r.SolicitanteNombre ?? "",
+            "actividad" => r.SourceTaskNumber ?? "",
             "unidad" => r.UnidadMedida,
             "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
             "fecha" => r.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "",
@@ -1212,6 +1224,8 @@ else
             "producto" => (r.ItemNombre ?? r.Descripcion) + (string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})"),
             "area" => r.Area,
             "origen" => r.OrigenNombre ?? "",
+            "solicitante" => r.SolicitanteNombre ?? "",
+            "actividad" => r.SourceTaskNumber ?? "",
             "unidad" => r.UnidadMedida,
             "estado" => RequerimientoFilter.EstadoLabel(r.Estado),
             "proveedor" => "",
@@ -1966,6 +1980,8 @@ else
         _busy = true;
         try
         {
+            // Alta manual: el solicitante es quien la registra (snapshot del nombre visible). No tenemos a mano
+            // el TenantUserId en la consola (el claim es el PlatformUserId), asi que guardamos solo el nombre.
             var req = new CrearRequerimientoRequest(
                 Guid.TryParse(_aOrigen, out var o) ? o : null,
                 _aArea,
@@ -1973,7 +1989,8 @@ else
                 _aDescripcion,
                 _aCantidad,
                 _aUnidad,
-                _aFecha is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null);
+                _aFecha is { } d ? new DateTimeOffset(d, TimeSpan.Zero) : null,
+                SolicitanteNombre: string.IsNullOrWhiteSpace(_userName) ? null : _userName);
             var saved = await Svc.CrearAsync(req);
             if (saved is null) { _altaError = "No se pudo crear."; return; }
             // Persiste los campos dinamicos (Padre) capturados, ligados a la nueva necesidad.

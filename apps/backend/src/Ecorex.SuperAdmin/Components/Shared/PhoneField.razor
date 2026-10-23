@@ -3,19 +3,21 @@
    valido (vacio = valido, "validar solo si lo escriben"). La validacion es por pais (longitud + primer digito movil
    cuando aplica). Pensado para TerceroModal y cualquier otro form que capture un telefono de WhatsApp. ASCII-only. *@
 
-<div style="display:flex; gap:6px; align-items:center; min-width:0;">
-    <select class="dg-input" style="max-width:118px; flex:0 0 auto;" value="@_cc" @onchange="OnCcChanged" disabled="@Disabled">
+@* Control SEGMENTADO: el indicativo y el numero comparten UN solo borde/caja (en vez de dos cajas sueltas),
+   para que se vea limpio y consistente con los demas campos del formulario. Estilos en PhoneField.razor.css. *@
+<div class="ph-wrap @(_touched && HasDigits && !IsValid ? "is-invalid" : "") @(Disabled ? "is-disabled" : "")">
+    <select class="ph-cc" value="@_cc" @onchange="OnCcChanged" disabled="@Disabled" aria-label="Codigo de pais">
         @foreach (var c in Countries)
         {
             <option value="@c.Code">@c.Flag +@c.Code</option>
         }
     </select>
-    <input class="dg-input" style="flex:1 1 auto; min-width:0;" inputmode="numeric" autocomplete="tel"
+    <input class="ph-num" inputmode="numeric" autocomplete="tel"
            placeholder="@PlaceholderFor(_cc)" value="@_display" @oninput="OnLocalInput" disabled="@Disabled" />
 </div>
 @if (_touched && HasDigits && !IsValid)
 {
-    <div class="dg-note-err" style="margin-top:4px;">@ErrorFor(_cc)</div>
+    <div class="ph-err">@ErrorFor(_cc)</div>
 }
 
 @code {

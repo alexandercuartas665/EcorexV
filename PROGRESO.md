@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-23 - v0.16.215: PhoneField segmentado (diseno de captura de telefono) (SIN deploy)
+
+- El campo de telefono (PhoneField, usado en /directorio-general, /directorio-especializado, GestorContactos y
+  TaskWizard via TerceroModal) se veia mal: indicativo y numero eran DOS cajas sueltas con un gap, desalineadas.
+  Rediseno a un control SEGMENTADO: una sola caja/borde con el indicativo pegado al numero por un divisor fino
+  (como un input unico), consistente con los demas campos. Auto-contenido en PhoneField.razor.css (scoped), ya no
+  depende del dg-input del host. Estados: focus (borde resaltado), invalido (borde rojo + nota), deshabilitado.
+  Solo UI, sin migracion ni cambios de logica.
+
 ## 2026-10-22 - v0.16.214: agente - crear_actividad sin formulario (ADR-0129) + asignacion round-robin por usuarios del agente (ADR-0128) (SIN deploy)
 
 - HAND-OFF 1 (ADR-0129, sin migracion): crear_actividad (ActividadesToolset) ahora funciona con o SIN formulario.

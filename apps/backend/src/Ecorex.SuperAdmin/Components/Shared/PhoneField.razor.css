@@ -1,0 +1,56 @@
+/* Control de telefono SEGMENTADO: indicativo (select) + numero (input) en UNA sola caja con un solo borde.
+   Reemplaza las dos cajas sueltas (se veian desalineadas). Auto-contenido: no depende del dg-input del host,
+   asi se ve igual en TerceroModal, GestorContactos y TaskWizard. Usa las variables de tema (:root global). */
+
+.ph-wrap {
+    display: flex;
+    align-items: stretch;
+    height: 40px;
+    box-sizing: border-box;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--surface-2);
+    overflow: hidden;
+    transition: border-color .12s ease;
+}
+
+.ph-wrap:focus-within { border-color: var(--ink-3); }
+.ph-wrap.is-invalid { border-color: var(--danger); }
+.ph-wrap.is-disabled { opacity: .6; }
+
+/* Indicativo del pais: pegado al input, separado por un divisor fino. */
+.ph-cc {
+    flex: 0 0 auto;
+    border: 0;
+    outline: none;
+    cursor: pointer;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 0 6px 0 12px;
+    border-right: 1px solid var(--line-2);
+}
+
+/* Numero local: ocupa el resto. */
+.ph-num {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 13.5px;
+    letter-spacing: .2px;
+    padding: 0 12px;
+}
+
+.ph-num::placeholder { color: var(--ink-3); }
+
+.ph-err {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--danger);
+}

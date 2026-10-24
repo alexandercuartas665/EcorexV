@@ -2,7 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1)
+## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1) [DESPLEGADO]
+
+- DESPLEGADO a prod (10.0.0.3) via rapida (GHCR + actualizar-en-linux.sh): prod pasa de v0.16.213 -> v0.16.218.
+  Migraciones aplicadas al arranque: AddFormRuleParamsOverride, AddAgentRoundRobinAssignees,
+  AddFormContainerHiddenSurfaces (aditivas). Imagen anterior (rollback): sha256:829dc405... HTTP 200 OK.
+  Incluye todo lo acumulado sin desplegar: round-robin (214), PhoneField (215), asistente IA conciliador (216),
+  AiIntake (216) + estas mejoras/fixes (218), y el "ocultar secciones por salida" de la sesion de formularios.
 
 - UX del control AiIntake (ADR-0131): el "Analizando" pasa a OVERLAY con spinner + puntos (antes solo cambiaba un
   texto chico, parecia colgado; se fuerza StateHasChanged para pintarlo al instante) y la propuesta de filas sale en

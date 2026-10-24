@@ -35,7 +35,13 @@ public sealed record SalidaFlujoDto(
     Guid Id, string Nombre,
     Guid? SubcategoriaId, string? Subcategoria, string? Categoria,
     Guid? FormDefinitionId, string? FormTitle,
-    bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps);
+    bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps,
+    // Secciones (contenedores) del formulario a OCULTAR cuando este se muestra en el modulo de autorizacion
+    // (ej. el visor de documentos sobra ahi porque el PDF ya se ve aparte). Ids de FormContainer.
+    IReadOnlyList<Guid>? HiddenContainerIds = null);
+
+/// <summary>Una seccion (contenedor con nombre) de un formulario, para el selector de "secciones a ocultar".</summary>
+public sealed record FormContainerOptionDto(Guid Id, string Name);
 
 /// <summary>
 /// Regla del asistente de IA POR PROVEEDOR: cuando el agente procesa una factura de ese proveedor, valida con la
@@ -89,6 +95,10 @@ public interface IAutorizacionComprasConfigService
     Task<Guid?> ResolveRenglonByTaskNumberAsync(string taskNumber, CancellationToken ct = default);
     /// <summary>Campos (code+label) de un formulario, para el editor de mapeos (excluye no-dato: Button/Heading/etc.).</summary>
     Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default);
+    /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
+    Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default);
+    /// <summary>Secciones a ocultar en autorizacion para el formulario dado (salen de la salida cuyo form coincide).</summary>
+    Task<IReadOnlyList<Guid>> GetHiddenContainerIdsForFormAsync(Guid formDefinitionId, CancellationToken ct = default);
 
     // ---- Salidas al flujo de tareas (N conceptos+formularios configurables; cada una con su Direccionar) ----
     /// <summary>Lista las salidas configuradas (con nombres resueltos). Si no hay salidas pero existe la config
@@ -335,6 +345,25 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .ToList();
     }
 
+    public async Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return Array.Empty<FormContainerOptionDto>(); }
+        // Secciones de nivel superior (las que el usuario oculta). Nombre con fallback por tipo.
+        return def.Containers
+            .Where(c => c.ParentId is null)
+            .OrderBy(c => c.SortOrder)
+            .Select(c => new FormContainerOptionDto(c.Id, string.IsNullOrWhiteSpace(c.Name) ? $"Seccion ({c.ContainerType})" : c.Name))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetHiddenContainerIdsForFormAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var salidas = await ListSalidasAsync(ct);
+        var match = salidas.FirstOrDefault(s => s.FormDefinitionId == formDefinitionId);
+        return match?.HiddenContainerIds ?? Array.Empty<Guid>();
+    }
+
     // Auto-cablea (idempotente) el boton "Direccionar compra" + la regla DIRECCIONAR_CONCILIADOR (Active) en el form.
     private async Task EnsureDireccionarWiringAsync(Guid formId, CancellationToken ct)
     {
@@ -381,7 +410,7 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
 
     // ================= Salidas al flujo de tareas (N conceptos+formularios, cada una con su Direccionar) =================
     private const string SalidasKey = "conciliacion-dian.salidas";
-    private sealed record SalidaStored(Guid Id, string Nombre, Guid? Sub, Guid? Form, bool DireEnabled, List<DireccionarMapDto> DireMaps);
+    private sealed record SalidaStored(Guid Id, string Nombre, Guid? Sub, Guid? Form, bool DireEnabled, List<DireccionarMapDto> DireMaps, List<Guid>? HiddenSecs = null);
 
     public async Task<IReadOnlyList<SalidaFlujoDto>> ListSalidasAsync(CancellationToken ct = default)
     {
@@ -407,7 +436,8 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             var sub = s.Sub is Guid sid ? subs.FirstOrDefault(x => x.SubcategoriaId == sid) : null;
             var form = s.Form is Guid fid ? forms.FirstOrDefault(x => x.Id == fid) : null;
             return new SalidaFlujoDto(s.Id, s.Nombre, s.Sub, sub?.Nombre, sub?.Categoria,
-                s.Form, form?.Title, s.DireEnabled, s.DireMaps ?? new List<DireccionarMapDto>());
+                s.Form, form?.Title, s.DireEnabled, s.DireMaps ?? new List<DireccionarMapDto>(),
+                s.HiddenSecs ?? new List<Guid>());
         }).ToList();
     }
 
@@ -420,7 +450,8 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             s.SubcategoriaId, s.FormDefinitionId, s.DireccionarEnabled,
             (s.DireccionarMaps ?? Array.Empty<DireccionarMapDto>())
                 .Where(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target))
-                .Select(m => new DireccionarMapDto(m.FormField.Trim(), m.Target.Trim())).ToList()))
+                .Select(m => new DireccionarMapDto(m.FormField.Trim(), m.Target.Trim())).ToList(),
+            (s.HiddenContainerIds ?? Array.Empty<Guid>()).Distinct().ToList()))
             .ToList();
 
         await GuardarSalidasAsync(list, ct);

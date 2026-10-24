@@ -833,6 +833,25 @@ else
                                         }
                                     </select>
                                 </div>
+                                @* Secciones del formulario a OCULTAR cuando se abre en el modulo de autorizacion (ej. el
+                                   visor de documentos sobra ahi porque el PDF ya se ve aparte). Se guarda EN LA SALIDA. *@
+                                @if (s.Form is not null && s.FormSecciones.Count > 0)
+                                {
+                                    <div class="cd-rule-row" style="align-items:flex-start;">
+                                        <label class="cd-rule-lbl" style="padding-top:4px;">Ocultar secciones (en autorizacion)</label>
+                                        <div style="flex:1; display:flex; flex-direction:column; gap:3px;">
+                                            @foreach (var sec in s.FormSecciones)
+                                            {
+                                                var secId = sec.Id; var on = s.HiddenSecs.Contains(secId);
+                                                <label style="display:flex; align-items:center; gap:7px; cursor:pointer;">
+                                                    <input type="checkbox" checked="@on" @onchange="@(e => ToggleSalidaSeccion(s, secId, e.Value is bool b && b))" />
+                                                    <span>@sec.Name</span>
+                                                </label>
+                                            }
+                                            <span class="cd-muted" style="font-size:11px;">Las marcadas no se muestran al abrir este formulario en «Autorizacion facturas compras DIAN».</span>
+                                        </div>
+                                    </div>
+                                }
                                 <div class="cd-rule-row cd-rule-norm">
                                     <label><input type="checkbox" checked="@s.DireEnabled" @onchange="e => s.DireEnabled = (e.Value is bool b && b)" /> Boton &laquo;Direccionar compra&raquo; en el formulario</label>
                                 </div>
@@ -1580,6 +1599,8 @@ else
         public bool DireEnabled { get; set; }
         public List<DireEdit> DireMaps { get; set; } = new();
         public List<FormFieldOptionDto> FormFields { get; set; } = new();   // campos del form elegido (para los mapeos)
+        public List<FormContainerOptionDto> FormSecciones { get; set; } = new();   // secciones del form (para ocultar)
+        public List<Guid> HiddenSecs { get; set; } = new();   // secciones a ocultar en autorizacion
     }
     private List<SalidaEdit> _salidas = new();          // editor del modal
     private List<SalidaFlujoDto> _salidasRun = new();   // runtime: lo que usa "+ Tarea" en la grilla (solo con concepto)
@@ -1609,8 +1630,13 @@ else
                     Id = s.Id, Nombre = s.Nombre, Sub = s.SubcategoriaId, Form = s.FormDefinitionId,
                     DireEnabled = s.DireccionarEnabled,
                     DireMaps = s.DireccionarMaps.Select(m => new DireEdit { FormField = m.FormField, Target = m.Target }).ToList(),
+                    HiddenSecs = (s.HiddenContainerIds ?? Array.Empty<Guid>()).ToList(),
                 };
-                if (s.FormDefinitionId is Guid ff) { e.FormFields = (await TaskCfg.ListFormFieldsAsync(ff)).ToList(); }
+                if (s.FormDefinitionId is Guid ff)
+                {
+                    e.FormFields = (await TaskCfg.ListFormFieldsAsync(ff)).ToList();
+                    e.FormSecciones = (await TaskCfg.ListFormContainersAsync(ff)).ToList();
+                }
                 _salidas.Add(e);
             }
             await LoadReglasDataAsync();   // contenedores + _ruleList para la pestaña Reglas
@@ -1651,10 +1677,17 @@ else
     private void AddSalida() => _salidas.Add(new SalidaEdit { Id = Guid.CreateVersion7(), Nombre = $"Salida {_salidas.Count + 1}" });
     private void OnSalidaSubChange(SalidaEdit s, ChangeEventArgs e)
         => s.Sub = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+    private void ToggleSalidaSeccion(SalidaEdit s, Guid secId, bool on)
+    {
+        if (on) { if (!s.HiddenSecs.Contains(secId)) { s.HiddenSecs.Add(secId); } }
+        else { s.HiddenSecs.RemoveAll(x => x == secId); }
+    }
     private async Task OnSalidaFormChange(SalidaEdit s, ChangeEventArgs e)
     {
         s.Form = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         s.FormFields = s.Form is Guid ff ? (await TaskCfg.ListFormFieldsAsync(ff)).ToList() : new();
+        s.FormSecciones = s.Form is Guid ff2 ? (await TaskCfg.ListFormContainersAsync(ff2)).ToList() : new();
+        s.HiddenSecs = new();   // al cambiar de formulario, las secciones ocultas anteriores ya no aplican
     }
 
     private async Task GuardarSalidasAsync()
@@ -1667,7 +1700,8 @@ else
                 string.IsNullOrWhiteSpace(s.Nombre) ? "Salida" : s.Nombre.Trim(),
                 s.Sub, null, null, s.Form, null,
                 s.DireEnabled,
-                s.DireMaps.Select(m => new DireccionarMapDto(m.FormField, m.Target)).ToList()))
+                s.DireMaps.Select(m => new DireccionarMapDto(m.FormField, m.Target)).ToList(),
+                s.HiddenSecs.ToList()))
                 .ToList();
             await TaskCfg.SaveSalidasAsync(dto);
             await LoadSalidasRunAsync();   // refresca lo que habilita "+ Tarea"

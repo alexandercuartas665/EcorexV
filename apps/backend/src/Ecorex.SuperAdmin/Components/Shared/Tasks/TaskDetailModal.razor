@@ -1480,7 +1480,6 @@
                                      SubmittedByTenantUserId="@_actorTenantUserId"
                                      TaskTokens="@BuildTaskTokens()"
                                      EmbeddedInTask="true"
-                                     Surface="task"
                                      ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
                                      OnOpenFormRequested="@OnConvertToFormAsync"
                                      OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />

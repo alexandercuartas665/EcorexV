@@ -393,9 +393,10 @@ else
     /// del wizard). Los demas hosts (detalle de tarea, modulo standalone) lo dejan en false.</summary>
     [Parameter] public bool EmbeddedInTask { get; set; }
 
-    /// <summary>Superficie/modulo donde se renderiza el MISMO formulario (p.ej. "autorizacion", "task", "public").
-    /// Las secciones cuyo HiddenSurfacesJson incluya esta clave no se pintan. Null/vacio = no oculta por superficie.</summary>
-    [Parameter] public string? Surface { get; set; }
+    /// <summary>Ids de SECCIONES (contenedores) a NO pintar en esta vista, decididas por quien renderiza el form
+    /// (p.ej. el modulo de autorizacion pasa las secciones que la salida del conciliador marco para ocultar).
+    /// El mismo formulario se reusa en varios lados y cada uno oculta lo que no aplica. Null/vacio = muestra todo.</summary>
+    [Parameter] public IReadOnlyList<Guid>? HiddenContainerIds { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
     /// <summary>
     /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
@@ -750,7 +751,7 @@ else
     {
         @* Contenedores ocultos por el disenador, O por visibilidad condicional por VALOR (visible_when_json):
            ni el nodo ni su subarbol se pintan (ni se exigen). *@
-        if (container.IsHidden || !IsContainerVisibleByValue(container) || IsContainerHiddenInSurface(container))
+        if (container.IsHidden || !IsContainerVisibleByValue(container) || IsContainerHidden(container))
         {
             return;
         }
@@ -3941,18 +3942,11 @@ else
     private bool IsContainerVisibleByValue(FormContainerDto c)
         => FormVisibilityEvaluator.IsVisible(c.VisibleWhenJson, code => _values.GetValueOrDefault(code));
 
-    // Oculta la seccion si su lista de superficies (HiddenSurfacesJson) incluye la superficie actual (Surface).
-    // Asi un mismo formulario se reusa en varios modulos escondiendo lo que no aplica. Sin Surface -> nunca oculta.
-    private bool IsContainerHiddenInSurface(FormContainerDto c)
-    {
-        if (string.IsNullOrWhiteSpace(Surface) || string.IsNullOrWhiteSpace(c.HiddenSurfacesJson)) { return false; }
-        try
-        {
-            var list = System.Text.Json.JsonSerializer.Deserialize<string[]>(c.HiddenSurfacesJson);
-            return list is not null && list.Any(s => string.Equals(s, Surface, StringComparison.OrdinalIgnoreCase));
-        }
-        catch { return false; }
-    }
+    // Oculta la seccion si el caller la paso en HiddenContainerIds (p.ej. el modulo de autorizacion pasa las
+    // secciones que la SALIDA del conciliador marco para ocultar). Un mismo form se reusa en varios lados y cada
+    // uno decide que secciones no mostrar. Sin lista -> no oculta nada.
+    private bool IsContainerHidden(FormContainerDto c)
+        => HiddenContainerIds is { Count: > 0 } && HiddenContainerIds.Contains(c.Id);
 
     /// <summary>FieldCodes que quedan OCULTOS al enviar (para que el servidor no los exija): union de los
     /// ocultos por regla (runtime) MAS los ocultos por visibilidad condicional por valor (campos y todo el
@@ -3965,7 +3959,7 @@ else
         var hiddenContainers = new HashSet<Guid>();
         foreach (var c in _definition.Containers)
         {
-            if (!IsContainerVisibleByValue(c) || IsContainerHiddenInSurface(c)) { hiddenContainers.Add(c.Id); }
+            if (!IsContainerVisibleByValue(c) || IsContainerHidden(c)) { hiddenContainers.Add(c.Id); }
         }
         foreach (var q in _definition.Questions)
         {

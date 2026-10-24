@@ -176,7 +176,7 @@
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" Surface="autorizacion" @key="_sel.Id" />
+                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" @key="_sel.Id" />
                     }
                     else
                     {
@@ -245,6 +245,8 @@
     // (/conciliacion-dian -> "Configuracion de tarea", modulo administrativo); aqui solo se LEE (_cfg)
     // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
+    // Secciones del formulario a OCULTAR aqui (configuradas en la salida del conciliador). Se pasan al renderer.
+    private IReadOnlyList<Guid> _hiddenSecs = Array.Empty<Guid>();
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
     private List<TenantUserDto> _usuarios = new();
@@ -387,6 +389,7 @@
     protected override async Task OnInitializedAsync()
     {
         _cfg = await Cfg.GetAsync();
+        if (_cfg.FormDefinitionId is Guid fid) { _hiddenSecs = await Cfg.GetHiddenContainerIdsForFormAsync(fid); }
         _usuarios = (await Users.ListAsync()).ToList();
         await CargarAsync();
     }

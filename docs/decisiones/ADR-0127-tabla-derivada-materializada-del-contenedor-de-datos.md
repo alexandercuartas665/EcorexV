@@ -107,3 +107,26 @@ otro contenedor (FK Restrict). El wizard gana el selector "Crear en el contenedo
 actual); el asistente IA acepta `contenedor_destino` (nombre o id) en proponer/crear y el selector del
 wizard se inyecta cuando el modelo no lo manda.
 
+
+## Extension 2026-10-24: crear y EDITAR la derivada desde el contenedor donde vive
+
+El usuario pidio poder crear y editar la tabla derivada desde el contenedor DESTINO (donde queda), no
+solo desde el contenedor del origen ("el padre"). Dos capacidades nuevas, sin migracion:
+
+- Crear desde el destino: boton "+ Derivada" en la barra del lienzo del contenedor. Abre el wizard con el
+  destino fijo a ESE contenedor y un selector "Derivar de..." que lista las tablas normales del tenant
+  (`IDerivedTableService.ListSourceTablesAsync`), de este u otro contenedor, nunca una derivada. El boton
+  sigma de una tabla normal (crear derivada desde el origen) se conserva como atajo; ambos abren el mismo
+  wizard.
+- Editar: engranaje en el nodo de una tabla derivada. Abre el wizard en modo edicion, precargado desde
+  `GetEditInfoAsync` (receta leida del conector + horario). El origen y el contenedor destino quedan FIJOS
+  (son la identidad de la derivada); solo cambian agrupacion, agregados, filtro y refresco. `UpdateAsync`
+  reescribe el MappingJson, reconcilia las columnas producidas (agrega/quita; al quitar una produccion
+  borra sus celdas) CONSERVANDO las columnas propias del usuario, renombra si cambio el nombre y recalcula
+  la programacion, todo en una transaccion; luego el llamador dispara un refresco por el runner. El lapiz
+  del nodo (editor generico de columnas) sigue disponible para agregar columnas propias a la derivada.
+
+Consecuencia a tener presente: si al editar cambian las columnas de AGRUPACION, los grupos cambian de
+identidad (otras claves), de modo que el refresco Upsert+poda reconstruye la tabla y las filas y columnas
+propias atadas a los grupos viejos se pierden. Cambiar solo agregados/filtro/horario mantiene las claves y
+conserva las columnas propias. El motor, la ingesta Upsert+poda y la regla de un solo nivel no cambian.

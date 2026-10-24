@@ -136,6 +136,54 @@ public sealed record CreateDerivedTableRequest(
 /// <summary>Lo que nace al crear una derivada (todo en UNA transaccion).</summary>
 public sealed record DerivedTableCreatedDto(Guid TableId, Guid ConnectorId, Guid ProcessId);
 
+/// <summary>
+/// Tabla ORIGEN candidata para una derivacion: una tabla normal (no derivada) del tenant, con su
+/// contenedor y columnas. Alimenta el selector "derivar de..." cuando la derivada se crea desde el
+/// contenedor DESTINO (no desde el origen), que puede estar en otro contenedor.
+/// </summary>
+public sealed record DerivationSourceDto(
+    Guid TableId,
+    string TableName,
+    Guid ModelId,
+    string ModelName,
+    IReadOnlyList<DataContainerColumnDto> Columns);
+
+/// <summary>
+/// Todo lo que el editor (wizard en modo edicion) necesita para reabrir una derivada ya creada: su
+/// nombre/descripcion, el contenedor donde vive, la tabla origen (con columnas), la
+/// <see cref="DerivationSpec"/> actual (leida del conector) y la programacion del refresco. El origen y el
+/// destino NO se cambian al editar (eso seria otra tabla): solo la receta (agrupacion/agregados/filtro) y
+/// el horario.
+/// </summary>
+public sealed record DerivedTableEditInfo(
+    Guid TableId,
+    string Name,
+    string? Description,
+    Guid ModelId,
+    string ModelName,
+    Guid ConnectorId,
+    Guid? ProcessId,
+    DerivationSourceDto Source,
+    DerivationSpec Spec,
+    ImportScheduleKind ScheduleKind,
+    int? IntervalMinutes,
+    string? CronExpression);
+
+/// <summary>
+/// Edicion de una derivada existente: cambia la receta y/o el horario. El origen y el contenedor destino
+/// quedan fijos (son la identidad de la tabla). Si la nueva receta cambia las columnas producidas, el
+/// servicio reconcilia el esquema de la hija (agrega/quita columnas producidas, conserva las propias) y el
+/// llamador dispara un refresco que reconstruye las filas por los nuevos grupos.
+/// </summary>
+public sealed record UpdateDerivedTableRequest(
+    Guid DerivedTableId,
+    string Name,
+    string? Description,
+    DerivationSpec Spec,
+    ImportScheduleKind ScheduleKind = ImportScheduleKind.Manual,
+    int? IntervalMinutes = null,
+    string? CronExpression = null);
+
 /// <summary>Desenlace de un refresco server-direct. <see cref="Deleted"/> incluye la PODA (grupos que
 /// desaparecieron del origen) ademas del vaciado de Replace.</summary>
 public sealed record DerivedRefreshOutcome(bool Success, int Inserted, int Updated, int Deleted, string? Error)
@@ -153,6 +201,20 @@ public interface IDerivedTableService
 {
     /// <summary>Calcula los primeros <paramref name="take"/> grupos SIN escribir nada.</summary>
     Task<DerivationPreviewDto> PreviewAsync(DerivationSpec spec, int take = 20, CancellationToken ct = default);
+
+    /// <summary>Tablas ORIGEN candidatas del tenant (normales, no derivadas) con su contenedor y columnas,
+    /// para el selector "derivar de..." cuando se crea desde el contenedor destino.</summary>
+    Task<IReadOnlyList<DerivationSourceDto>> ListSourceTablesAsync(CancellationToken ct = default);
+
+    /// <summary>Datos para reabrir una derivada en el editor: su receta actual (del conector), el origen con
+    /// columnas y la programacion. Null si la tabla no existe o no es una derivada.</summary>
+    Task<DerivedTableEditInfo?> GetEditInfoAsync(Guid derivedTableId, CancellationToken ct = default);
+
+    /// <summary>Actualiza la receta y/o el horario de una derivada existente: reescribe el MappingJson del
+    /// conector, reconcilia las columnas producidas de la hija (conservando las propias), renombra si cambio
+    /// el nombre y recalcula la programacion. En UNA transaccion. NO corre el refresco: eso lo hace el
+    /// llamador via el runner (queda en la bitacora) y reconstruye las filas por los nuevos grupos.</summary>
+    Task<DerivedTableCreatedDto> UpdateAsync(UpdateDerivedTableRequest req, Guid actorUserId, CancellationToken ct = default);
 
     /// <summary>Crea la tabla hija, sus columnas, el conector FromTable y el proceso (Upsert por clave),
     /// en una sola transaccion. NO corre el primer refresco: eso lo hace el llamador via el runner, para

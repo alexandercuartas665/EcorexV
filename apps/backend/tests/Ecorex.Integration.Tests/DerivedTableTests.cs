@@ -261,6 +261,88 @@ public abstract class DerivedTableTestsBase
         Assert.Equal(1, own.Inserted);
     }
 
+    // Edicion (fase 3 de ADR-0127): GetEditInfo devuelve la receta actual; Update reescribe la receta,
+    // reconcilia las columnas producidas (quita "Total"), CONSERVA la columna propia del usuario y el
+    // refresco reconstruye las filas. La agrupacion no cambia, asi que la clave de cada grupo es estable.
+    [Fact]
+    public async Task GetEditInfo_And_Update_ChangesRecipe_RemovesAggregate_KeepsOwnColumn()
+    {
+        var seed = await SeedSourceAsync("Derivada editar", new[]
+        {
+            ("Bogota", "10"), ("Bogota", "10.0"), ("Cali", "2,5")
+        });
+        var spec = new DerivationSpec(seed.SourceId, new[] { seed.CiudadCol }, new[]
+        {
+            new DerivationAggregate(null, DerivationFn.Count, "Cantidad"),
+            new DerivationAggregate(seed.MontoCol, DerivationFn.Sum, "Total")
+        });
+        var created = await RunAsync(seed, s => s.CreateAsync(new CreateDerivedTableRequest(seed.ModelId, "Por ciudad", null, spec), Guid.Empty));
+        Assert.True((await RunAsync(seed, s => s.RefreshAsync(created.ConnectorId, ApiImportMode.Upsert, "Clave"))).Success);
+
+        // Columna PROPIA con un valor en Bogota.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var keyCol = await ctx.DataContainerColumns.SingleAsync(c => c.ContainerId == created.TableId && c.Name == "Clave");
+            var bogotaRow = await ctx.DataContainerCells.Where(c => c.ColumnId == keyCol.Id && c.Value == "Bogota").Select(c => c.RowId).SingleAsync();
+            var nota = new DataContainerColumn { TenantId = seed.TenantId, ContainerId = created.TableId, Name = "Nota", Type = DataContainerColumnType.Text, SortOrder = 99 };
+            ctx.DataContainerColumns.Add(nota);
+            await ctx.SaveChangesAsync();
+            ctx.DataContainerCells.Add(new DataContainerCell { TenantId = seed.TenantId, RowId = bogotaRow, ColumnId = nota.Id, Value = "x" });
+            await ctx.SaveChangesAsync();
+        }
+
+        // GetEditInfo refleja la receta y el origen.
+        var info = await RunAsync(seed, s => s.GetEditInfoAsync(created.TableId));
+        Assert.NotNull(info);
+        Assert.Equal(seed.SourceId, info!.Source.TableId);
+        Assert.Equal(seed.ModelId, info.ModelId);
+        Assert.Contains(seed.CiudadCol, info.Spec.GroupBy);
+        Assert.Equal(2, info.Spec.Aggregates.Count); // Count + Sum
+        Assert.Equal(ImportScheduleKind.Manual, info.ScheduleKind);
+
+        // Update: quita el agregado "Total", conserva la agrupacion y el nombre.
+        var newSpec = new DerivationSpec(seed.SourceId, new[] { seed.CiudadCol }, new[]
+        {
+            new DerivationAggregate(null, DerivationFn.Count, "Cantidad")
+        });
+        var upd = await RunAsync(seed, s => s.UpdateAsync(new UpdateDerivedTableRequest(created.TableId, "Por ciudad", null, newSpec), Guid.Empty));
+        Assert.Equal(created.ConnectorId, upd.ConnectorId);
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var cols = await ctx.DataContainerColumns.Where(c => c.ContainerId == created.TableId).Select(c => c.Name).ToListAsync();
+            Assert.Contains("Cantidad", cols);
+            Assert.DoesNotContain("Total", cols); // columna producida retirada
+            Assert.Contains("Nota", cols);         // columna propia conservada
+            var spec2 = DerivationSpec.FromJson((await ctx.DataConnectors.SingleAsync(c => c.Id == created.ConnectorId)).MappingJson)!;
+            Assert.Single(spec2.Aggregates); // solo Count
+        }
+
+        // Refresco: filas reconstruidas; la clave de cada grupo es estable, asi que "Nota" sobrevive en Bogota.
+        Assert.True((await RunAsync(seed, s => s.RefreshAsync(created.ConnectorId, ApiImportMode.Upsert, "Clave"))).Success);
+        var rows = await ReadChildAsync(seed, created.TableId);
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("2", rows["Bogota"]["Cantidad"]);
+        Assert.False(rows["Bogota"].ContainsKey("Total"));
+        Assert.Equal("x", rows["Bogota"]["Nota"]);
+    }
+
+    // El selector "derivar de..." ofrece tablas normales del tenant, nunca una derivada (un solo nivel).
+    [Fact]
+    public async Task ListSourceTables_ReturnsNormalTables_NotDerived()
+    {
+        var seed = await SeedSourceAsync("Derivada origenes", new[] { ("Bogota", "1") });
+        var spec = new DerivationSpec(seed.SourceId, new[] { seed.CiudadCol }, new[] { new DerivationAggregate(null, DerivationFn.Count, "N") });
+        var created = await RunAsync(seed, s => s.CreateAsync(new CreateDerivedTableRequest(seed.ModelId, "Hija", null, spec), Guid.Empty));
+
+        var sources = await RunAsync(seed, s => s.ListSourceTablesAsync());
+        Assert.Contains(sources, x => x.TableId == seed.SourceId);
+        Assert.DoesNotContain(sources, x => x.TableId == created.TableId);
+        var src = sources.Single(x => x.TableId == seed.SourceId);
+        Assert.Contains(src.Columns, c => c.Name == "Ciudad");
+        Assert.Contains(src.Columns, c => c.Name == "Monto");
+    }
+
     // ---- Helpers ----
 
     private async Task<T> RunAsync<T>(SeedData seed, Func<IDerivedTableService, Task<T>> action)

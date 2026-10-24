@@ -43,6 +43,220 @@ public sealed class DerivedTableService : IDerivedTableService
         return new DerivationPreviewDto(result.Columns, page, result.Rows.Count, result.SourceRowsRead, result.SourceRowsAfterFilter);
     }
 
+    public async Task<IReadOnlyList<DerivationSourceDto>> ListSourceTablesAsync(CancellationToken ct = default)
+    {
+        // Tablas normales (no derivadas) de nivel raiz del tenant (filtro global), con su contenedor.
+        var tables = await _db.DataContainers.AsNoTracking()
+            .Where(c => c.ParentContainerId == null && c.DerivedFromContainerId == null && c.ModelId != null)
+            .Select(c => new { c.Id, c.Name, ModelId = c.ModelId!.Value })
+            .ToListAsync(ct);
+        if (tables.Count == 0) { return Array.Empty<DerivationSourceDto>(); }
+
+        var modelIds = tables.Select(t => t.ModelId).Distinct().ToList();
+        var nameByModel = (await _db.DataModels.AsNoTracking()
+                .Where(m => modelIds.Contains(m.Id))
+                .Select(m => new { m.Id, m.Name }).ToListAsync(ct))
+            .ToDictionary(m => m.Id, m => m.Name);
+
+        var tableIds = tables.Select(t => t.Id).ToList();
+        var cols = await _db.DataContainerColumns.AsNoTracking()
+            .Where(c => tableIds.Contains(c.ContainerId))
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => new { c.ContainerId, c.Id, c.Name, c.Description, c.Type, c.SortOrder, c.IsRequired, c.ChildContainerId })
+            .ToListAsync(ct);
+        var colsByTable = cols.GroupBy(c => c.ContainerId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var result = new List<DerivationSourceDto>();
+        foreach (var t in tables
+                     .OrderBy(t => nameByModel.GetValueOrDefault(t.ModelId, ""), StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var list = colsByTable.TryGetValue(t.Id, out var cc)
+                ? cc.Select(c => new DataContainerColumnDto(c.Id, c.Name, c.Description, c.Type, c.SortOrder, c.IsRequired, c.ChildContainerId, null)).ToList()
+                : new List<DataContainerColumnDto>();
+            result.Add(new DerivationSourceDto(t.Id, t.Name, t.ModelId, nameByModel.GetValueOrDefault(t.ModelId, "(contenedor)"), list));
+        }
+        return result;
+    }
+
+    public async Task<DerivedTableEditInfo?> GetEditInfoAsync(Guid derivedTableId, CancellationToken ct = default)
+    {
+        var table = await _db.DataContainers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == derivedTableId, ct);
+        if (table is null || table.DerivedFromContainerId is null || table.ModelId is not Guid modelId) { return null; }
+
+        var connector = await _db.DataConnectors.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ContainerId == derivedTableId && c.Kind == ConnectorKind.FromTable, ct);
+        if (connector is null) { return null; }
+        var spec = DerivationSpec.FromJson(connector.MappingJson);
+        if (spec is null) { return null; }
+
+        var process = await _db.ImportProcesses.AsNoTracking().FirstOrDefaultAsync(p => p.ConnectorId == connector.Id, ct);
+        var modelName = await _db.DataModels.AsNoTracking().Where(m => m.Id == modelId).Select(m => m.Name).FirstOrDefaultAsync(ct) ?? "(contenedor)";
+
+        var sourceDto = await BuildSourceDtoAsync(spec.SourceTableId, ct);
+        if (sourceDto is null) { return null; }
+
+        return new DerivedTableEditInfo(
+            table.Id, table.Name, table.Description, modelId, modelName,
+            connector.Id, process?.Id, sourceDto, spec,
+            process?.ScheduleKind ?? ImportScheduleKind.Manual,
+            process?.IntervalMinutes, process?.CronExpression);
+    }
+
+    public async Task<DerivedTableCreatedDto> UpdateAsync(UpdateDerivedTableRequest req, Guid actorUserId, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { throw new InvalidOperationException("Sin tenant en contexto."); }
+        var name = (req.Name ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(name)) { throw new InvalidOperationException("El nombre de la tabla derivada es obligatorio."); }
+        if (name.Length > 200) { throw new InvalidOperationException("El nombre de la tabla supera 200 caracteres."); }
+
+        var table = await _db.DataContainers.FirstOrDefaultAsync(c => c.Id == req.DerivedTableId, ct);
+        if (table is null || table.DerivedFromContainerId is null || table.ModelId is not Guid modelId)
+        {
+            throw new InvalidOperationException("La tabla derivada no existe.");
+        }
+
+        var connector = await _db.DataConnectors.FirstOrDefaultAsync(c => c.ContainerId == req.DerivedTableId && c.Kind == ConnectorKind.FromTable, ct);
+        if (connector is null) { throw new InvalidOperationException("El conector de la tabla derivada no existe."); }
+        var oldSpec = DerivationSpec.FromJson(connector.MappingJson) ?? throw new InvalidOperationException("La receta actual de la derivada no es valida.");
+
+        // El ORIGEN es la identidad de la derivada: al editar NO se cambia (eso seria otra tabla). Se toma
+        // siempre el del conector, por si el request trae otro.
+        var spec = req.Spec with
+        {
+            SourceTableId = oldSpec.SourceTableId,
+            KeyColumnName = string.IsNullOrWhiteSpace(req.Spec.KeyColumnName) ? oldSpec.KeyColumnName : req.Spec.KeyColumnName.Trim()
+        };
+
+        var source = await LoadSourceAsync(spec.SourceTableId, ct);
+        var plannedNew = DerivedRowsBuilder.Plan(spec, source.Columns);
+        if (!plannedNew.Ok) { throw new InvalidOperationException(plannedNew.Error); }
+        var plannedOld = DerivedRowsBuilder.Plan(oldSpec, source.Columns);
+        var oldProduced = plannedOld.Ok
+            ? plannedOld.Columns!.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.Equals(table.Name, name, StringComparison.Ordinal)
+            && await _db.DataContainers.AnyAsync(c => c.ModelId == modelId && c.ParentContainerId == null && c.Name == name && c.Id != table.Id, ct))
+        {
+            throw new InvalidOperationException($"Ya existe una tabla llamada '{name}' en este contenedor.");
+        }
+
+        var joinTx = _db.HasActiveTransaction;
+        var tx = joinTx ? null : await _db.BeginTransactionAsync(ct);
+        try
+        {
+            // Reconciliar columnas: las PRODUCIDAS (agrupacion/clave/agregados) se agregan o actualizan; las
+            // producidas que ya no lo son (estaban en la receta vieja) se borran con sus celdas; las PROPIAS
+            // del usuario (nunca producidas) se conservan y quedan despues de las producidas.
+            var existing = await _db.DataContainerColumns.Where(c => c.ContainerId == table.Id).ToListAsync(ct);
+            var existingByName = new Dictionary<string, DataContainerColumn>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in existing) { existingByName[e.Name] = e; }
+
+            var newProduced = plannedNew.Columns!;
+            var newProducedNames = newProduced.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var order = 0;
+            foreach (var col in newProduced)
+            {
+                if (existingByName.TryGetValue(col.Name, out var ex))
+                {
+                    ex.Type = col.Type;
+                    ex.SortOrder = order;
+                    ex.Description = DescribeRole(col.Role, source.Table.Name);
+                }
+                else
+                {
+                    _db.DataContainerColumns.Add(new DataContainerColumn
+                    {
+                        TenantId = tenantId,
+                        ContainerId = table.Id,
+                        Name = col.Name,
+                        Type = col.Type,
+                        SortOrder = order,
+                        Description = DescribeRole(col.Role, source.Table.Name)
+                    });
+                }
+                order++;
+            }
+
+            foreach (var ex in existing)
+            {
+                if (newProducedNames.Contains(ex.Name)) { continue; }
+                if (oldProduced.Contains(ex.Name))
+                {
+                    var cells = await _db.DataContainerCells.Where(c => c.ColumnId == ex.Id).ToListAsync(ct);
+                    if (cells.Count > 0) { _db.DataContainerCells.RemoveRange(cells); }
+                    _db.DataContainerColumns.Remove(ex);
+                }
+                else
+                {
+                    ex.SortOrder = order++; // columna propia del usuario: se conserva, va al final.
+                }
+            }
+
+            connector.MappingJson = spec.ToJson();
+            connector.Name = $"Derivada: {name}";
+
+            table.Name = name;
+            table.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim();
+
+            var process = await _db.ImportProcesses.FirstOrDefaultAsync(p => p.ConnectorId == connector.Id, ct);
+            if (process is not null)
+            {
+                process.Name = $"Refrescar {name}";
+                process.ScheduleKind = req.ScheduleKind;
+                process.IntervalMinutes = req.ScheduleKind == ImportScheduleKind.Interval ? req.IntervalMinutes : null;
+                process.CronExpression = req.ScheduleKind == ImportScheduleKind.Cron && !string.IsNullOrWhiteSpace(req.CronExpression)
+                    ? req.CronExpression!.Trim() : null;
+                process.Mode = ImportRunMode.Upsert;
+                process.KeyColumn = spec.KeyColumnName;
+                var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
+                    .Where(t => t.Id == tenantId).Select(t => t.TimeZoneId).FirstOrDefaultAsync(ct));
+                var next = ImportRecurrence.ComputeNextRun(process, DateTimeOffset.UtcNow, tz);
+                if (next.Problem == ImportScheduleProblem.Invalid)
+                {
+                    throw new InvalidOperationException(next.Reason ?? "El horario no es valido.");
+                }
+                process.NextRunAt = next.NextRunAt;
+            }
+
+            await _db.SaveChangesAsync(ct);
+            if (tx is not null) { await tx.CommitAsync(ct); }
+            return new DerivedTableCreatedDto(table.Id, connector.Id, process?.Id ?? Guid.Empty);
+        }
+        catch
+        {
+            if (tx is not null) { await tx.RollbackAsync(ct); }
+            throw;
+        }
+        finally
+        {
+            if (tx is not null) { await tx.DisposeAsync(); }
+        }
+    }
+
+    private static string DescribeRole(DerivedColumnRole role, string sourceName) => role switch
+    {
+        DerivedColumnRole.Key => "Clave del grupo (generada). No editar: es la columna clave del refresco.",
+        DerivedColumnRole.Aggregate => $"Agregado calculado desde '{sourceName}'.",
+        _ => $"Agrupacion desde '{sourceName}'."
+    };
+
+    /// <summary>Tabla origen como DTO (con contenedor y columnas). Null si no existe o no tiene contenedor.</summary>
+    private async Task<DerivationSourceDto?> BuildSourceDtoAsync(Guid sourceTableId, CancellationToken ct)
+    {
+        var table = await _db.DataContainers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == sourceTableId, ct);
+        if (table is null || table.ModelId is not Guid mid) { return null; }
+        var modelName = await _db.DataModels.AsNoTracking().Where(m => m.Id == mid).Select(m => m.Name).FirstOrDefaultAsync(ct) ?? "(contenedor)";
+        var cols = await _db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == sourceTableId)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .Select(c => new DataContainerColumnDto(c.Id, c.Name, c.Description, c.Type, c.SortOrder, c.IsRequired, c.ChildContainerId, null))
+            .ToListAsync(ct);
+        return new DerivationSourceDto(table.Id, table.Name, mid, modelName, cols);
+    }
+
     public async Task<DerivedTableCreatedDto> CreateAsync(CreateDerivedTableRequest req, Guid actorUserId, CancellationToken ct = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)

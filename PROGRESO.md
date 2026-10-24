@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-24 - Crear y EDITAR la derivada desde el contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: el usuario pidio crear y editar la tabla derivada desde el contenedor donde queda, no desde el del
+  origen. (1) Boton "+ Derivada" en la barra del lienzo: abre el wizard con el destino = ese contenedor y
+  un selector "Derivar de..." que lista las tablas normales del tenant (de este u otro contenedor). (2)
+  Engranaje en el nodo de una derivada: abre el wizard en modo EDICION precargado (receta + horario),
+  cambia agrupacion/agregados/filtro/refresco; origen y destino quedan fijos. El sigma de las tablas
+  normales y el lapiz (columnas propias) se conservan.
+- BACKEND: IDerivedTableService + 3 metodos nuevos: ListSourceTablesAsync (origenes candidatos con
+  columnas), GetEditInfoAsync (receta del conector + origen + horario para precargar) y UpdateAsync
+  (reescribe MappingJson, reconcilia columnas producidas conservando las propias, renombra, recalcula la
+  programacion, en transaccion; el refresco lo dispara el runner). Contratos nuevos DerivationSourceDto,
+  DerivedTableEditInfo, UpdateDerivedTableRequest. SIN migracion.
+- UI: DerivedTableWizard reescrito a 3 modos (origen fijo / destino fijo con selector de origen / edicion)
+  reutilizando pasos, vista previa y asistente IA (chat solo en creacion con origen elegido). ContenedorDatos
+  gana el boton "+ Derivada", el engranaje en nodos derivados y la invocacion del wizard con los 3 modos.
+- DECISION: al editar, cambiar las columnas de agrupacion cambia la identidad de los grupos, asi que el
+  refresco reconstruye la tabla y las filas/columnas propias atadas a los grupos viejos se pierden; cambiar
+  solo agregados/filtro/horario mantiene las claves y conserva las columnas propias.
+- PRUEBAS: 2 de integracion dual nuevas (Update quita agregado + conserva columna propia tras refresco;
+  ListSourceTables excluye derivadas). Build Release y format verdes. Validado en navegador en 5267.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
 ## 2026-10-23 - Tabla derivada en OTRO contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
 
 - QUE: la derivada puede nacer en un contenedor DISTINTO al de su tabla origen (caso: TEST_HIJO con una

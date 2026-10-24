@@ -153,6 +153,8 @@ else
                                     @if (_canEdit)
                                     {
                                         <button class="btn btn-sm btn-primary" @onclick="OpenNewTable">+ Tabla</button>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="OpenDeriveHere"
+                                                title="Crear una tabla derivada (agrupada) a partir de una tabla de este u otro contenedor">+ Derivada</button>
                                     }
                                 </div>
                             </div>
@@ -199,6 +201,11 @@ else
                                                     {
                                                         @* Derivar tabla (ADR-0127): solo desde tablas normales (un solo nivel). *@
                                                         <button class="dc-node-btn dc-node-btn-derive" title="Derivar tabla: crear una tabla agrupada a partir de esta" @onclick="() => OpenDerive(t)">&#8721;</button>
+                                                    }
+                                                    else if (_canEdit && t.IsDerived)
+                                                    {
+                                                        @* Editar la RECETA de la derivada (agrupacion/agregados/filtro/refresco). El lapiz de al lado edita columnas propias. *@
+                                                        <button class="dc-node-btn dc-node-btn-derive" title="Editar derivacion: agrupacion, agregados, filtro y refresco" @onclick="() => OpenDeriveEdit(t)">&#9881;</button>
                                                     }
                                                     @if (_canEdit)
                                                     {
@@ -866,9 +873,10 @@ else
 }
 
 @* ===== Sub-modal: wizard "Derivar tabla" (ADR-0127). Componente aparte para no crecer esta pagina. ===== *@
-@if (_derivOpen && _derivSource is not null && _mId is Guid derivModelId)
+@if (_derivOpen && _mId is Guid derivModelId)
 {
-    <DerivedTableWizard ModelId="derivModelId" Source="_derivSource" ActorUserId="_actor"
+    <DerivedTableWizard ModelId="derivModelId" Source="_derivSource"
+                        FixedDestinationModelId="_derivFixedDest" EditTableId="_derivEditId" ActorUserId="_actor"
                         OnClose="CloseDerive" OnCreated="OnDerivedCreatedAsync" />
 }
 
@@ -1923,12 +1931,37 @@ else
     }
 
     // ---------- Derivar tabla (ADR-0127) ----------
+    // Tres modos del wizard: desde el ORIGEN (sigma de una tabla normal), desde el CONTENEDOR DESTINO
+    // (boton "+ Derivada" de este contenedor, con selector de origen) y EDICION (engranaje de una derivada).
     private bool _derivOpen;
     private ModelTableDto? _derivSource;
+    private Guid? _derivFixedDest;
+    private Guid? _derivEditId;
 
     private void OpenDerive(ModelTableDto t)
     {
         _derivSource = t;
+        _derivFixedDest = null;
+        _derivEditId = null;
+        _derivOpen = true;
+    }
+
+    /// <summary>Crear una derivada DESDE este contenedor: el destino queda fijo a el y el origen se elige
+    /// de una lista (puede ser de otro contenedor).</summary>
+    private void OpenDeriveHere()
+    {
+        _derivSource = null;
+        _derivFixedDest = _mId;
+        _derivEditId = null;
+        _derivOpen = true;
+    }
+
+    /// <summary>Editar la derivacion (agrupacion/agregados/filtro/refresco) de una derivada ya creada.</summary>
+    private void OpenDeriveEdit(ModelTableDto t)
+    {
+        _derivSource = null;
+        _derivFixedDest = null;
+        _derivEditId = t.Id;
         _derivOpen = true;
     }
 
@@ -1936,6 +1969,8 @@ else
     {
         _derivOpen = false;
         _derivSource = null;
+        _derivFixedDest = null;
+        _derivEditId = null;
     }
 
     /// <summary>La hija ya existe y tuvo su primer refresco: recargar lienzo + alimentacion (conector y

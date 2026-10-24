@@ -6,19 +6,22 @@
 @inject Ecorex.SuperAdmin.Agents.IProcessRunner Runner
 
 @*
-    Wizard "Derivar tabla" (ADR-0127): crea, desde una tabla del contenedor, una tabla DERIVADA
-    materializada (agrupada por columnas elegidas, con agregados), con VISTA PREVIA calculada por el
-    MISMO motor del refresco. Vive aparte de ContenedorDatos.razor a proposito (esa pagina ya es enorme).
-    Al crear, en UNA transaccion nacen la tabla hija, sus columnas, el conector FromTable y el proceso
-    (Upsert por "Clave"); luego se dispara el primer refresco por el runner (queda en la bitacora).
+    Wizard "Derivar tabla" (ADR-0127). Crea o EDITA una tabla DERIVADA materializada (agrupada por
+    columnas elegidas, con agregados), con VISTA PREVIA calculada por el MISMO motor del refresco. Vive
+    aparte de ContenedorDatos.razor a proposito (esa pagina ya es enorme). Tres modos:
+      - Desde el ORIGEN (parametro Source puesto): la tabla origen viene fija; el destino se puede elegir.
+      - Desde el CONTENEDOR DESTINO (FixedDestinationModelId puesto, Source null): el destino es este
+        contenedor y la tabla origen se elige de una lista (puede estar en otro contenedor).
+      - EDICION (EditTableId puesto): reabre una derivada ya creada; origen y destino quedan fijos y solo
+        cambian la receta (agrupacion/agregados/filtro) y el horario.
 *@
 
 <div class="modal-overlay" style="z-index:1070;">
     <div class="modal-dialog dtw-dialog @(_chatOpen ? "dtw-chat-open" : "")" @onclick:stopPropagation="true">
         <div class="modal-head">
-            <h3>Derivar tabla &#183; desde @Source.Name</h3>
+            <h3>@(IsEdit ? "Editar derivacion" : "Derivar tabla")@(HasSource ? $" · desde {_sourceName}" : "")</h3>
             <div class="dtw-head-actions">
-                @if (_created is null)
+                @if (_created is null && !IsEdit && HasSource)
                 {
                     <button type="button" class="btn btn-sm @(_chatOpen ? "btn-primary" : "btn-outline-primary")" @onclick="ToggleChat" disabled="@_busy"
                             title="Describe en lenguaje natural la tabla que quieres y el asistente la propone con vista previa">
@@ -29,10 +32,10 @@
             </div>
         </div>
         <div class="dtw-split">
-        @if (_chatOpen)
+        @if (_chatOpen && HasSource && !IsEdit)
         {
             <aside class="dtw-chat">
-                <DerivedTableChatPanel ModelId="ModelId" SourceTableId="Source.Id" TargetModelId="_targetModelId" ActorUserId="ActorUserId" OnCreated="OnChatCreatedAsync" />
+                <DerivedTableChatPanel ModelId="ModelId" SourceTableId="_sourceId" TargetModelId="_targetModelId" ActorUserId="ActorUserId" OnCreated="OnChatCreatedAsync" />
             </aside>
         }
         <div class="modal-body dtw-body">
@@ -47,6 +50,21 @@
             @switch (_step)
             {
                 case 0:
+                    @if (!SourceLocked)
+                    {
+                        <div class="field">
+                            <label class="form-label">Derivar de (tabla origen)</label>
+                            <select class="form-control" value="@(_sourceId == Guid.Empty ? "" : _sourceId.ToString())"
+                                    @onchange="e => SelectSource(e.Value?.ToString())">
+                                <option value="">(elige una tabla)</option>
+                                @foreach (var s in _sources)
+                                {
+                                    <option value="@s.TableId">@(s.ModelId == _targetModelId ? s.TableName : $"{s.ModelName} / {s.TableName}")</option>
+                                }
+                            </select>
+                            <div class="text-muted dtw-help">Puedes derivar de una tabla de ESTE contenedor o de otro. No se puede derivar de una tabla que ya es derivada.</div>
+                        </div>
+                    }
                     <div class="field">
                         <label class="form-label">Nombre de la tabla derivada</label>
                         <input class="form-control" @bind="_name" maxlength="120" placeholder="Ej. Ventas por ciudad" />
@@ -55,7 +73,15 @@
                         <label class="form-label">Descripcion (opcional)</label>
                         <input class="form-control" @bind="_description" maxlength="400" />
                     </div>
-                    @if (_models.Count > 1)
+                    @if (IsEdit || DestinationLocked)
+                    {
+                        <div class="field">
+                            <label class="form-label">Contenedor</label>
+                            <input class="form-control" value="@TargetModelName" disabled />
+                            <div class="text-muted dtw-help">@(IsEdit ? "Al editar no se cambia el contenedor ni la tabla origen; eso seria otra derivada." : "La derivada se creara en este contenedor.")</div>
+                        </div>
+                    }
+                    else if (_models.Count > 1)
                     {
                         <div class="field">
                             <label class="form-label">Crear en el contenedor</label>
@@ -65,17 +91,20 @@
                                     <option value="@m.Id">@m.Name@(m.Id == ModelId ? " (este)" : "")</option>
                                 }
                             </select>
-                            @if (_targetModelId != ModelId)
+                            @if (_targetModelId != _sourceModelId && HasSource)
                             {
-                                <div class="text-muted dtw-help">La derivada nacera en otro contenedor; alli se vera como "derivada de @ModelName / @Source.Name" y se refresca desde ese contenedor.</div>
+                                <div class="text-muted dtw-help">La derivada nacera en otro contenedor; alli se vera como "derivada de @_sourceModelName / @_sourceName" y se refresca desde ese contenedor.</div>
                             }
                         </div>
                     }
-                    <p class="text-muted dtw-help">
-                        La tabla derivada tendra filas REALES calculadas a partir de <strong>@Source.Name</strong>: una fila por cada
-                        combinacion de las columnas de agrupacion. Se refresca con "Actualizar datos" o por horario, y puedes
-                        agregarle columnas propias que sobreviven a cada refresco.
-                    </p>
+                    @if (HasSource)
+                    {
+                        <p class="text-muted dtw-help">
+                            La tabla derivada tendra filas REALES calculadas a partir de <strong>@_sourceName</strong>: una fila por cada
+                            combinacion de las columnas de agrupacion. Se refresca con "Actualizar datos" o por horario, y puedes
+                            agregarle columnas propias que sobreviven a cada refresco.
+                        </p>
+                    }
                     break;
 
                 case 1:
@@ -247,13 +276,13 @@
                         </div>
                     }
                     <div class="dc-sched-summary">@FriendlySchedule.DescribeSpec(ScheduleSpec())</div>
-                    <p class="text-muted dtw-help">Al crear se hace un primer refresco inmediato. El modo es Upsert por la columna "Clave": las columnas propias que agregues a la derivada se conservan.</p>
+                    <p class="text-muted dtw-help">@(IsEdit ? "Al guardar se hace un refresco inmediato que reconstruye las filas por los nuevos grupos." : "Al crear se hace un primer refresco inmediato.") El modo es Upsert por la columna "Clave": las columnas propias que agregues a la derivada se conservan.</p>
                     break;
 
                 case 6:
                     <div class="dc-section-sub">Resumen</div>
                     <ul class="dtw-summary">
-                        <li><strong>@_name</strong> derivada de <strong>@Source.Name</strong>@(_targetModelId != ModelId ? $", en el contenedor {TargetModelName}" : "")</li>
+                        <li><strong>@_name</strong> derivada de <strong>@_sourceName</strong>@(_targetModelId != _sourceModelId ? $", en el contenedor {TargetModelName}" : "")</li>
                         <li>Agrupa por: @string.Join(", ", GroupNames())</li>
                         <li>Agregados: @_countName@(_aggs.Count > 0 ? ", " + string.Join(", ", _aggs.Values) : "")</li>
                         <li>Filtro: @(_filters.Count == 0 ? "ninguno" : $"{_filters.Count} condicion(es)")</li>
@@ -261,7 +290,7 @@
                     </ul>
                     @if (_created is not null)
                     {
-                        <div class="dc-flash-ok">Tabla creada. @_runMessage</div>
+                        <div class="dc-flash-ok">@(IsEdit ? "Cambios guardados." : "Tabla creada.") @_runMessage</div>
                     }
                     break;
             }
@@ -283,7 +312,7 @@
                 }
                 else
                 {
-                    <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear tabla derivada")</button>
+                    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_busy ? (IsEdit ? "Guardando..." : "Creando...") : (IsEdit ? "Guardar cambios" : "Crear tabla derivada"))</button>
                 }
             }
             else
@@ -295,14 +324,20 @@
 </div>
 
 @code {
+    /// <summary>Contenedor desde el que se abrio el wizard (el "actual"). Destino por defecto.</summary>
     [Parameter, EditorRequired] public Guid ModelId { get; set; }
-    [Parameter, EditorRequired] public ModelTableDto Source { get; set; } = null!;
+    /// <summary>Tabla origen FIJA (modo "desde el origen"); null si el origen se elige en el wizard.</summary>
+    [Parameter] public ModelTableDto? Source { get; set; }
+    /// <summary>Si viene puesto, el contenedor destino queda FIJO a este (modo "desde el contenedor destino").</summary>
+    [Parameter] public Guid? FixedDestinationModelId { get; set; }
+    /// <summary>Id de una derivada existente para EDITARLA; null para crear.</summary>
+    [Parameter] public Guid? EditTableId { get; set; }
     [Parameter] public Guid ActorUserId { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    /// <summary>Se dispara al crear (id de la tabla hija), DESPUES del primer refresco.</summary>
+    /// <summary>Se dispara al crear o guardar (id de la tabla hija), DESPUES del refresco.</summary>
     [Parameter] public EventCallback<Guid> OnCreated { get; set; }
 
-    private static readonly string[] StepTitles = { "Nombre", "Agrupar", "Agregados", "Filtro", "Vista previa", "Refresco", "Crear" };
+    private static readonly string[] StepTitles = { "Nombre", "Agrupar", "Agregados", "Filtro", "Vista previa", "Refresco", "Guardar" };
 
     private static readonly (int Day, string Label)[] DayChips =
     {
@@ -312,12 +347,26 @@
     private int _step;
     private bool _busy;
     private bool _chatOpen;
+    private bool _initialized;
     private string? _error;
-    // Contenedor DESTINO (extension de ADR-0127): por defecto el actual; puede ser otro del tenant.
+
+    // Origen (interno): puede venir del parametro Source, del selector, o de la derivada al editar.
+    private Guid _sourceId;
+    private string _sourceName = "";
+    private Guid _sourceModelId;
+    private string _sourceModelName = "";
+    private IReadOnlyList<DataContainerColumnDto> _sourceCols = Array.Empty<DataContainerColumnDto>();
+    private IReadOnlyList<DerivationSourceDto> _sources = Array.Empty<DerivationSourceDto>();
+
+    // Destino.
     private Guid _targetModelId;
     private IReadOnlyList<DataModelDto> _models = Array.Empty<DataModelDto>();
-    private string ModelName => _models.FirstOrDefault(m => m.Id == ModelId)?.Name ?? "este contenedor";
-    private string TargetModelName => _models.FirstOrDefault(m => m.Id == _targetModelId)?.Name ?? "otro contenedor";
+    private string TargetModelName => _models.FirstOrDefault(m => m.Id == _targetModelId)?.Name ?? "este contenedor";
+
+    private bool IsEdit => EditTableId is not null;
+    private bool HasSource => _sourceId != Guid.Empty;
+    private bool SourceLocked => Source is not null || IsEdit;
+    private bool DestinationLocked => FixedDestinationModelId is not null || IsEdit;
 
     private string _name = "";
     private string _description = "";
@@ -347,18 +396,117 @@
 
     protected override void OnParametersSet()
     {
-        if (string.IsNullOrWhiteSpace(_name)) { _name = $"{Source.Name} agrupada"; }
-        if (_targetModelId == Guid.Empty) { _targetModelId = ModelId; }
+        if (_targetModelId == Guid.Empty) { _targetModelId = FixedDestinationModelId ?? ModelId; }
     }
 
     protected override async Task OnInitializedAsync()
     {
+        if (_initialized) { return; }
+        _initialized = true;
+
         try { _models = await Models.ListAsync(); }
         catch { _models = Array.Empty<DataModelDto>(); }
+
+        _targetModelId = FixedDestinationModelId ?? ModelId;
+
+        if (IsEdit)
+        {
+            await LoadForEditAsync();
+            return;
+        }
+
+        if (Source is not null)
+        {
+            // Modo "desde el origen": la tabla origen vive en el contenedor actual.
+            SetSource(Source.Id, Source.Name, ModelId, ModelName(ModelId), Source.Columns);
+            if (string.IsNullOrWhiteSpace(_name)) { _name = $"{Source.Name} agrupada"; }
+            return;
+        }
+
+        // Modo "desde el contenedor destino": cargar las tablas origen candidatas.
+        try { _sources = await Derived.ListSourceTablesAsync(); }
+        catch { _sources = Array.Empty<DerivationSourceDto>(); }
+    }
+
+    private string ModelName(Guid id) => _models.FirstOrDefault(m => m.Id == id)?.Name ?? "este contenedor";
+
+    private async Task LoadForEditAsync()
+    {
+        try
+        {
+            var info = EditTableId is Guid id ? await Derived.GetEditInfoAsync(id) : null;
+            if (info is null) { _error = "No se pudo cargar la derivacion (la tabla o su conector no existen)."; return; }
+
+            _targetModelId = info.ModelId;
+            _name = info.Name;
+            _description = info.Description ?? "";
+            SetSource(info.Source.TableId, info.Source.TableName, info.Source.ModelId, info.Source.ModelName, info.Source.Columns);
+
+            _groupBy.Clear();
+            foreach (var g in info.Spec.GroupBy) { _groupBy.Add(g); }
+
+            _aggs.Clear();
+            foreach (var agg in info.Spec.Aggregates)
+            {
+                if (agg.Fn == DerivationFn.Count) { _countName = agg.TargetColumnName; continue; }
+                if (agg.SourceColumnId is Guid cid) { _aggs[(cid, agg.Fn)] = agg.TargetColumnName; }
+            }
+
+            _filters.Clear();
+            if (info.Spec.Filter is not null)
+            {
+                foreach (var f in info.Spec.Filter)
+                {
+                    _filters.Add(new FilterDraft { ColumnId = f.ColumnId.ToString(), Op = f.Op, Value = f.Value });
+                }
+            }
+
+            var friendly = FriendlySchedule.FromStorage(info.ScheduleKind, info.IntervalMinutes, info.CronExpression);
+            if (friendly is not null)
+            {
+                _recurrence = friendly.Recurrence;
+                _time = friendly.Time ?? _time;
+                _days.Clear();
+                if (friendly.DaysOfWeek is not null) { foreach (var d in friendly.DaysOfWeek) { _days.Add(d); } }
+                _dayOfMonth = friendly.DayOfMonth ?? _dayOfMonth;
+                _everyValue = friendly.EveryValue ?? _everyValue;
+                _everyUnit = friendly.EveryUnit;
+            }
+            else if (info.ScheduleKind == ImportScheduleKind.Cron)
+            {
+                // Cron "avanzado" que el selector humano no sabe representar: se deja Manual para no
+                // pisarlo con algo distinto; el horario original sigue vivo hasta que el usuario elija uno.
+                _recurrence = ScheduleRecurrence.Manual;
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void SetSource(Guid id, string name, Guid modelId, string modelName, IReadOnlyList<DataContainerColumnDto> cols)
+    {
+        _sourceId = id;
+        _sourceName = name;
+        _sourceModelId = modelId;
+        _sourceModelName = modelName;
+        _sourceCols = cols;
+    }
+
+    private void SelectSource(string? raw)
+    {
+        if (!Guid.TryParse(raw, out var id)) { _sourceId = Guid.Empty; _sourceCols = Array.Empty<DataContainerColumnDto>(); return; }
+        var s = _sources.FirstOrDefault(x => x.TableId == id);
+        if (s is null) { return; }
+        SetSource(s.TableId, s.TableName, s.ModelId, s.ModelName, s.Columns);
+        // Cambiar de origen invalida lo elegido sobre el origen anterior.
+        _groupBy.Clear();
+        _aggs.Clear();
+        _filters.Clear();
+        _preview = null;
+        if (string.IsNullOrWhiteSpace(_name)) { _name = $"{s.TableName} agrupada"; }
     }
 
     private IEnumerable<DataContainerColumnDto> ScalarColumns
-        => Source.Columns.Where(c => DerivedRowsBuilder.IsScalar(c.Type)).OrderBy(c => c.SortOrder);
+        => _sourceCols.Where(c => DerivedRowsBuilder.IsScalar(c.Type)).OrderBy(c => c.SortOrder);
 
     private IEnumerable<DataContainerColumnDto> AggregatableColumns
         => ScalarColumns.Where(c => DerivedRowsBuilder.IsNumeric(c.Type) || c.Type == DataContainerColumnType.Date);
@@ -428,7 +576,7 @@
             if (!Guid.TryParse(f.ColumnId, out var cid)) { throw new InvalidOperationException("Cada condicion del filtro necesita una columna."); }
             filters.Add(new DerivationFilter(cid, f.Op, f.Value));
         }
-        return new DerivationSpec(Source.Id,
+        return new DerivationSpec(_sourceId,
             ScalarColumns.Where(c => _groupBy.Contains(c.Id)).Select(c => c.Id).ToList(),
             aggs,
             filters.Count == 0 ? null : filters);
@@ -439,13 +587,14 @@
         switch (step)
         {
             case 0:
+                if (!HasSource) { return "Elige la tabla origen."; }
                 return string.IsNullOrWhiteSpace(_name) ? "El nombre es obligatorio." : null;
             case 1:
                 return _groupBy.Count == 0 ? "Marca al menos una columna de agrupacion." : null;
             case 2:
                 {
                     var spec = BuildSpec();
-                    var plan = DerivedRowsBuilder.Plan(spec, Source.Columns.Select(c => new SourceColumnInfo(c.Id, c.Name, c.Type)).ToList());
+                    var plan = DerivedRowsBuilder.Plan(spec, _sourceCols.Select(c => new SourceColumnInfo(c.Id, c.Name, c.Type)).ToList());
                     return plan.Ok ? null : plan.Error;
                 }
             case 3:
@@ -471,7 +620,6 @@
     private void GoTo(int idx)
     {
         if (_busy || _created is not null) { return; }
-        // Solo se puede saltar hacia atras o al siguiente inmediato (validando el actual).
         if (idx < _step) { _step = idx; _error = null; }
         else if (idx == _step + 1) { Next(); }
     }
@@ -488,7 +636,8 @@
         finally { _busy = false; }
     }
 
-    private async Task CreateAsync()
+    /// <summary>Crea o guarda, segun el modo.</summary>
+    private async Task SaveAsync()
     {
         _error = null;
         for (var s = 0; s <= 3; s++)
@@ -501,15 +650,25 @@
         try
         {
             var (kind, interval, cron) = FriendlySchedule.ToStorage(ScheduleSpec());
-            var req = new CreateDerivedTableRequest(_targetModelId, _name.Trim(),
-                string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
-                BuildSpec(), kind, interval, cron);
-            _created = await Derived.CreateAsync(req, ActorUserId);
+            if (IsEdit)
+            {
+                var upd = new UpdateDerivedTableRequest(EditTableId!.Value, _name.Trim(),
+                    string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                    BuildSpec(), kind, interval, cron);
+                _created = await Derived.UpdateAsync(upd, ActorUserId);
+            }
+            else
+            {
+                var req = new CreateDerivedTableRequest(_targetModelId, _name.Trim(),
+                    string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                    BuildSpec(), kind, interval, cron);
+                _created = await Derived.CreateAsync(req, ActorUserId);
+            }
 
-            // Primer refresco por el MISMO runner del boton "Actualizar datos": queda en la bitacora.
+            // Refresco por el MISMO runner del boton "Actualizar datos": queda en la bitacora.
             var run = await Runner.RunNowAsync(_created.ProcessId);
-            _runMessage = run.Ok ? run.Message : $"La tabla se creo pero el primer refresco fallo: {run.Message}";
-            if (_targetModelId != ModelId) { _runMessage = $"Creada en el contenedor '{TargetModelName}'. {_runMessage}"; }
+            _runMessage = run.Ok ? run.Message : $"La tabla {(IsEdit ? "se guardo" : "se creo")} pero el refresco fallo: {run.Message}";
+            if (!IsEdit && _targetModelId != _sourceModelId) { _runMessage = $"Creada en el contenedor '{TargetModelName}'. {_runMessage}"; }
 
             await OnCreated.InvokeAsync(_created.TableId);
         }

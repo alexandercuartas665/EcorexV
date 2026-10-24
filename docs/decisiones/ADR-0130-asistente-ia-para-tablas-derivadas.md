@@ -65,3 +65,11 @@ snapshots, verify_form forzado, adjuntos) y pesa 850 lineas.
 - Pruebas: `DerivedTableToolsetTests` (argumentos invalidos, origen derivado rechazado, describir, propuesta
   con vista previa, alta delegada) y `DerivedTableChatServiceTests` (propuesta -> confirmacion -> tabla
   creada, rechazar, descartar al escribir, contenedor_id forzado, consumo registrado). Sin IA ni BD real.
+
+
+## Revertido 2026-10-24
+
+El asistente IA de tablas derivadas se ELIMINO a pedido del usuario (prefiere crear las derivadas a mano
+con el wizard determinista). Se borraron el panel de chat, `DerivedTableChatService`, el toolset
+`DerivedTableToolset`, el motor `ProposalChatEngine`, su registro en DI y sus pruebas. El resto de la
+funcionalidad de tablas derivadas (ADR-0127) sigue vigente. Ver ADR-0127, "Extension 2026-10-24 (2)".

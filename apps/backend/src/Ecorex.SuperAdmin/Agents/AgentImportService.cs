@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Ecorex.Application.DataContainers;
 using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Entities;
+using Ecorex.Domain.Enums;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.RealTime;
 using Microsoft.AspNetCore.SignalR;
@@ -174,6 +175,18 @@ public sealed class AgentImportService : IAgentImportService
                     outcome.Deleted, $"{outcome.Inserted} insertadas, {outcome.Deleted} reemplazadas");
                 await RecordActivityAsync(p, chunk.CorrelationId, true,
                     $"ins {outcome.Inserted}, upd {outcome.Updated}, del {outcome.Deleted}");
+
+                // Regla de sincronizacion (ADR-0127): al terminar de sincronizar esta tabla via agente, poner
+                // al dia enseguida sus tablas derivadas. Un fallo aqui no debe tumbar el cierre de la ingesta.
+                try
+                {
+                    var runner = scope.ServiceProvider.GetRequiredService<IProcessRunner>();
+                    await runner.RefreshDependentsAsync(p.ContainerId, ImportRunTrigger.Scheduled, CancellationToken.None);
+                }
+                catch (Exception depEx)
+                {
+                    _log.LogWarning(depEx, "[INGESTA] corr={Corr} no se pudieron refrescar las derivadas dependientes", chunk.CorrelationId);
+                }
             }
         }
         catch (Exception ex)

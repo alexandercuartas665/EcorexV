@@ -30,6 +30,15 @@ public interface IProcessRunner
     /// </param>
     Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
         DateTimeOffset? firedAt = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Refresca INMEDIATAMENTE las tablas DERIVADAS (ADR-0127) cuyo origen es <paramref name="sourceTableId"/>,
+    /// justo despues de sincronizar esa tabla. Es la regla "si sincronizo el padre, la derivada se pone al
+    /// dia sola": cada derivada corre por su propio proceso FromTable (server-direct, queda en la bitacora).
+    /// Una derivada que falle no interrumpe a las demas ni a la sincronizacion del origen. No hay cascada en
+    /// cadena: una derivada no puede ser origen de otra (regla de un solo nivel).
+    /// </summary>
+    Task RefreshDependentsAsync(Guid sourceTableId, ImportRunTrigger trigger = ImportRunTrigger.Scheduled, CancellationToken ct = default);
 }
 
 public sealed class ProcessRunner(
@@ -262,10 +271,42 @@ public sealed class ProcessRunner(
             await db.SaveChangesAsync(ct);
         }
 
+        // Si la sincronizacion del origen salio bien, poner al dia sus tablas derivadas enseguida.
+        if (outcome.Success) { await RefreshDependentsAsync(targetTableId, trigger, ct); }
+
         var msg = outcome.Success
             ? $"Importadas: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
             : (detail ?? "La importacion no trajo resultados.");
         return new(outcome.Success, correlationId, msg);
+    }
+
+    public async Task RefreshDependentsAsync(Guid sourceTableId, ImportRunTrigger trigger = ImportRunTrigger.Scheduled, CancellationToken ct = default)
+    {
+        // Conectores "Desde otra tabla" activos del tenant (filtro global). Son pocos; se filtran en
+        // memoria por la tabla origen de su spec (el MappingJson no se consulta por JSON en ambos motores).
+        var fromTable = await db.DataConnectors.AsNoTracking()
+            .Where(c => c.Kind == ConnectorKind.FromTable && c.IsActive)
+            .Select(c => new { c.Id, c.MappingJson })
+            .ToListAsync(ct);
+        if (fromTable.Count == 0) { return; }
+
+        var dependentConnectorIds = fromTable
+            .Where(c => DerivationSpec.FromJson(c.MappingJson)?.SourceTableId == sourceTableId)
+            .Select(c => c.Id)
+            .ToHashSet();
+        if (dependentConnectorIds.Count == 0) { return; }
+
+        var processIds = await db.ImportProcesses.AsNoTracking()
+            .Where(p => p.IsActive && p.ConnectorId != null && dependentConnectorIds.Contains(p.ConnectorId!.Value))
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        foreach (var pid in processIds)
+        {
+            // Una derivada que falle no debe tumbar la sincronizacion del origen ni a las otras derivadas.
+            try { await RunNowAsync(pid, trigger, null, ct); }
+            catch { /* el fallo ya queda en la bitacora de esa corrida */ }
+        }
     }
 
     /// <summary>

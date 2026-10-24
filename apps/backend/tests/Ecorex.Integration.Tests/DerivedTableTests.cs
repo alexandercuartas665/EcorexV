@@ -1,8 +1,11 @@
+extern alias superadmin;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using superadmin::Ecorex.SuperAdmin.Agents;
 
 namespace Ecorex.Integration.Tests;
 
@@ -341,6 +344,45 @@ public abstract class DerivedTableTestsBase
         var src = sources.Single(x => x.TableId == seed.SourceId);
         Assert.Contains(src.Columns, c => c.Name == "Ciudad");
         Assert.Contains(src.Columns, c => c.Name == "Monto");
+    }
+
+    // Regla de sincronizacion (fase 3 de ADR-0127): al sincronizar la tabla ORIGEN, sus derivadas se
+    // refrescan enseguida. RefreshDependentsAsync encuentra las derivadas cuyo origen es esa tabla y corre
+    // el proceso de cada una (queda en la bitacora). No hay cascada en cadena (un solo nivel).
+    [Fact]
+    public async Task RefreshDependents_RefreshesDerivedTables_WhenSourceSyncs()
+    {
+        var seed = await SeedSourceAsync("Derivada cascada", new[] { ("Bogota", "1"), ("Cali", "2") });
+        var spec = new DerivationSpec(seed.SourceId, new[] { seed.CiudadCol }, new[] { new DerivationAggregate(null, DerivationFn.Count, "N") });
+        var created = await RunAsync(seed, s => s.CreateAsync(new CreateDerivedTableRequest(seed.ModelId, "Por ciudad", null, spec), Guid.Empty));
+        Assert.True((await RunAsync(seed, s => s.RefreshAsync(created.ConnectorId, ApiImportMode.Upsert, "Clave"))).Success);
+        Assert.Equal(2, (await ReadChildAsync(seed, created.TableId)).Count);
+
+        // El origen "se sincroniza": llega una ciudad nueva.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            AddSourceRow(ctx, seed, "Pasto", "5");
+            await ctx.SaveChangesAsync();
+        }
+
+        // Disparo la regla: refrescar las derivadas cuyo origen es seed.SourceId.
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var tenant = new TestTenantContext(seed.TenantId);
+            var runner = new ProcessRunner(ctx, tenant, null!, null!, null!, null!,
+                new DerivedTableService(ctx, tenant, new RowIngestService(ctx)),
+                new ImportRunLog(ctx, NullLogger<ImportRunLog>.Instance));
+            await runner.RefreshDependentsAsync(seed.SourceId);
+        }
+
+        // La derivada se puso al dia sola (3 grupos ahora) y quedo una corrida en la bitacora de su proceso.
+        var rows = await ReadChildAsync(seed, created.TableId);
+        Assert.Equal(3, rows.Count);
+        Assert.True(rows.ContainsKey("Pasto"));
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            Assert.True(await ctx.ImportRuns.AnyAsync(r => r.ProcessId == created.ProcessId && r.Result == ImportRunResult.Ok));
+        }
     }
 
     // ---- Helpers ----

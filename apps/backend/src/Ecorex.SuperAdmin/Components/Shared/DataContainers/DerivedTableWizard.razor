@@ -17,27 +17,14 @@
 *@
 
 <div class="modal-overlay" style="z-index:1070;">
-    <div class="modal-dialog dtw-dialog @(_chatOpen ? "dtw-chat-open" : "")" @onclick:stopPropagation="true">
+    <div class="modal-dialog dtw-dialog" @onclick:stopPropagation="true">
         <div class="modal-head">
             <h3>@(IsEdit ? "Editar derivacion" : "Derivar tabla")@(HasSource ? $" · desde {_sourceName}" : "")</h3>
             <div class="dtw-head-actions">
-                @if (_created is null && !IsEdit && HasSource)
-                {
-                    <button type="button" class="btn btn-sm @(_chatOpen ? "btn-primary" : "btn-outline-primary")" @onclick="ToggleChat" disabled="@_busy"
-                            title="Describe en lenguaje natural la tabla que quieres y el asistente la propone con vista previa">
-                        &#10024; Asistente IA
-                    </button>
-                }
                 <button class="modal-close" @onclick="CloseAsync" disabled="@_busy">&times;</button>
             </div>
         </div>
         <div class="dtw-split">
-        @if (_chatOpen && HasSource && !IsEdit)
-        {
-            <aside class="dtw-chat">
-                <DerivedTableChatPanel ModelId="ModelId" SourceTableId="_sourceId" TargetModelId="_targetModelId" ActorUserId="ActorUserId" OnCreated="OnChatCreatedAsync" />
-            </aside>
-        }
         <div class="modal-body dtw-body">
             <ol class="dtw-steps">
                 @for (var i = 0; i < StepTitles.Length; i++)
@@ -346,7 +333,6 @@
 
     private int _step;
     private bool _busy;
-    private bool _chatOpen;
     private bool _initialized;
     private string? _error;
 
@@ -671,26 +657,6 @@
             if (!IsEdit && _targetModelId != _sourceModelId) { _runMessage = $"Creada en el contenedor '{TargetModelName}'. {_runMessage}"; }
 
             await OnCreated.InvokeAsync(_created.TableId);
-        }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private void ToggleChat() => _chatOpen = !_chatOpen;
-
-    /// <summary>El asistente IA (ADR-0130) creo la tabla tras la confirmacion del usuario: mismo cierre que el
-    /// boton "Crear": primer refresco por el runner (queda en la bitacora), resumen y aviso al padre.</summary>
-    private async Task OnChatCreatedAsync(DerivedTableCreatedDto created)
-    {
-        _error = null;
-        _busy = true;
-        try
-        {
-            _created = created;
-            _step = StepTitles.Length - 1;
-            var run = await Runner.RunNowAsync(created.ProcessId);
-            _runMessage = run.Ok ? run.Message : $"La tabla se creo pero el primer refresco fallo: {run.Message}";
-            await OnCreated.InvokeAsync(created.TableId);
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

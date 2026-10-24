@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-24 - Quitar el asistente IA + auto-refresco de derivadas al sincronizar el origen (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUITADO el asistente IA de tablas derivadas (el usuario crea a mano): fuera el boton "Asistente IA" del
+  wizard y borradas sus piezas (DerivedTableChatPanel + .css, DerivedTableChatService/Contracts,
+  DerivedTableToolset, ProposalChatEngine, registros DI y pruebas DerivedTableChatServiceTests/
+  DerivedTableToolsetTests/DerivedChatTestDb). ADR-0130 queda REVERTIDO. El wizard determinista (selector de
+  origen + edicion) sigue igual.
+- NUEVA regla de sincronizacion: al sincronizar una tabla ORIGEN, sus derivadas se refrescan enseguida.
+  IProcessRunner.RefreshDependentsAsync(sourceTableId) busca los conectores FromTable cuya spec apunta a esa
+  tabla y corre el proceso de cada derivada (queda en la bitacora). Se dispara al cerrar con exito una
+  importacion server-direct REST (ProcessRunner) y la ingesta via agente (AgentImportService, Database/REST).
+  Incondicional, sin cascada en cadena (un solo nivel), sin migracion. Excel/edicion manual del origen NO
+  encadenan (no pasan por el motor de sync): ahi queda "Actualizar datos" en la derivada.
+- PRUEBAS: unit 1144/1144 (bajan 26: las del asistente borrado); integracion dual DerivedTable 8x2 = 16/16
+  (incluye la nueva RefreshDependents_RefreshesDerivedTables_WhenSourceSyncs); format limpio. Integration.Tests
+  ahora referencia Ecorex.SuperAdmin con alias 'superadmin' (evita el choque del Program global con Ecorex.Api).
+- VALIDADO en 5267: el wizard abre sin "Asistente IA"; crear/editar siguen funcionando.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
 ## 2026-10-24 - Crear y EDITAR la derivada desde el contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
 
 - QUE: el usuario pidio crear y editar la tabla derivada desde el contenedor donde queda, no desde el del

@@ -130,3 +130,23 @@ Consecuencia a tener presente: si al editar cambian las columnas de AGRUPACION, 
 identidad (otras claves), de modo que el refresco Upsert+poda reconstruye la tabla y las filas y columnas
 propias atadas a los grupos viejos se pierden. Cambiar solo agregados/filtro/horario mantiene las claves y
 conserva las columnas propias. El motor, la ingesta Upsert+poda y la regla de un solo nivel no cambian.
+
+## Extension 2026-10-24 (2): el asistente IA se retira y la derivada se sincroniza con su origen
+
+Dos ajustes pedidos por el usuario:
+
+- Se RETIRA el asistente IA de la derivada (el usuario crea las tablas a mano). Desaparece el boton
+  "Asistente IA" del wizard y se eliminan sus piezas (panel de chat, DerivedTableChatService, el toolset
+  DerivedTableToolset y el motor ProposalChatEngine, su registro en DI y sus pruebas). Esto deja sin efecto
+  a ADR-0130, marcado como revertido. El wizard determinista (con selector de origen y edicion) queda igual.
+- Nueva REGLA DE SINCRONIZACION: cuando se sincroniza una tabla ORIGEN, sus tablas derivadas se refrescan
+  enseguida, sin intervencion. `IProcessRunner.RefreshDependentsAsync(sourceTableId)` busca los conectores
+  FromTable cuya spec apunta a esa tabla y corre el proceso de cada derivada (server-direct, queda en la
+  bitacora como cualquier refresco). Se dispara en los dos puntos donde termina la sincronizacion de una
+  tabla: al cerrar con exito una importacion server-direct REST (`ProcessRunner.RunRestServerDirectAsync`) y
+  al cerrar con exito la ingesta via agente (`AgentImportService`, Database o REST via agente). Es
+  incondicional (no hay flag) y no hay cascada en cadena porque una derivada no puede ser origen de otra
+  (un solo nivel). Una derivada que falle su refresco no interrumpe la sincronizacion del origen ni a las
+  otras derivadas. Sin migracion. Alcance: cubre la sincronizacion por el motor de importacion/sync; la
+  carga por Excel y la edicion manual de filas del origen no encadenan (no pasan por ese motor); para esos
+  casos queda "Actualizar datos" en la derivada.

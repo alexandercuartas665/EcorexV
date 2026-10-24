@@ -1700,6 +1700,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.AllowedCargosJson).HasColumnType(jsonColumnType);
             // Visibilidad condicional por valor (motor de formularios): JSON {field,op,value}.
             b.Property(x => x.VisibleWhenJson).HasColumnType(jsonColumnType);
+            // Ocultar la seccion por superficie/modulo (JSON arreglo de claves de superficie).
+            b.Property(x => x.HiddenSurfacesJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Width).HasDefaultValue(12);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);

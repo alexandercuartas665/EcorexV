@@ -1435,7 +1435,7 @@ else
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
-        c.InlineLabels, c.AllowedCargosJson);
+        c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson, c.HiddenSurfacesJson);
 
     private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
     {
@@ -1832,6 +1832,28 @@ else
 
     private Task SetVisibleWhenContainerAsync(FormContainerDto c, string? field, string? op, string? value)
         => PatchContainerAsync(c, r => r with { VisibleWhenJson = BuildVisibleWhen(field, op, value) });
+
+    // Superficies/modulos donde se renderiza el MISMO formulario (clave que pasa cada caller como Surface).
+    private static readonly (string Key, string Label)[] _surfaces =
+    {
+        ("task", "Tarea (detalle)"),
+        ("autorizacion", "Autorizacion de compras DIAN"),
+        ("public", "Publico (/f)"),
+    };
+    private static string[] ParseSurfaces(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return JsonSerializer.Deserialize<string[]>(json) ?? Array.Empty<string>(); }
+        catch { return Array.Empty<string>(); }
+    }
+    private Task ToggleSurfaceAsync(FormContainerDto c, string key, bool on)
+    {
+        var set = ParseSurfaces(c.HiddenSurfacesJson).ToList();
+        if (on) { if (!set.Contains(key)) { set.Add(key); } }
+        else { set.RemoveAll(s => string.Equals(s, key, StringComparison.OrdinalIgnoreCase)); }
+        var json = set.Count == 0 ? null : JsonSerializer.Serialize(set);
+        return PatchContainerAsync(c, r => r with { HiddenSurfacesJson = json });
+    }
 
     // Acceso por seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit (Dependencia|Cargo).
     private static List<Guid> ParseUnitIds(string? json)
@@ -2759,6 +2781,26 @@ else
                             <button type="button" class="fb-btn-ghost" disabled="@string.IsNullOrEmpty(_addUnitId)"
                                     @onclick="@(() => AddContainerUnitAsync(node.C!))">+ Asignar</button>
                         </div>
+                    </div>
+                }
+                @* Ocultar la SECCION en ciertos modulos/superficies: el MISMO formulario se reusa en varios lados
+                   (tarea, autorizacion de compras, publico) y a veces una seccion no aplica en alguno. *@
+                @if (node.IsContainer)
+                {
+                    var hs = ParseSurfaces(node.C!.HiddenSurfacesJson);
+                    <div class="fb-field" style="margin-top:8px;">
+                        <label>Ocultar esta seccion en</label>
+                        <div class="fb-rows">
+                            @foreach (var s in _surfaces)
+                            {
+                                var sk = s.Key; var on = hs.Contains(sk);
+                                <label style="display:flex; align-items:center; gap:7px; padding:3px 0; cursor:pointer;">
+                                    <input type="checkbox" checked="@on" @onchange="@(e => ToggleSurfaceAsync(node.C!, sk, e.Value is bool b && b))" />
+                                    <span>@s.Label</span>
+                                </label>
+                            }
+                        </div>
+                        <div class="fb-hint">Marca los modulos donde NO quieres que se muestre esta seccion.</div>
                     </div>
                 }
                 @* Visibilidad condicional de la SECCION por valor de una pregunta (mismo motor que los campos). *@

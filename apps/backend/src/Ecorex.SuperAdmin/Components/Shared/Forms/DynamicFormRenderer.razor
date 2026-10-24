@@ -392,6 +392,10 @@ else
     /// HideSubmitBar, se oculta la barra de Enviar/Imprimir/autoguardado (el commit lo hace el boton "Listo"
     /// del wizard). Los demas hosts (detalle de tarea, modulo standalone) lo dejan en false.</summary>
     [Parameter] public bool EmbeddedInTask { get; set; }
+
+    /// <summary>Superficie/modulo donde se renderiza el MISMO formulario (p.ej. "autorizacion", "task", "public").
+    /// Las secciones cuyo HiddenSurfacesJson incluya esta clave no se pintan. Null/vacio = no oculta por superficie.</summary>
+    [Parameter] public string? Surface { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
     /// <summary>
     /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
@@ -746,7 +750,7 @@ else
     {
         @* Contenedores ocultos por el disenador, O por visibilidad condicional por VALOR (visible_when_json):
            ni el nodo ni su subarbol se pintan (ni se exigen). *@
-        if (container.IsHidden || !IsContainerVisibleByValue(container))
+        if (container.IsHidden || !IsContainerVisibleByValue(container) || IsContainerHiddenInSurface(container))
         {
             return;
         }
@@ -1611,31 +1615,55 @@ else
 
                 @if (err is not null) { <div class="dfr-note-err">@err</div> }
 
+                @* Overlay con spinner mientras el agente lee el documento (antes solo cambiaba un texto: parecia colgado). *@
+                @if (busy)
+                {
+                    <div class="dfr-aimodal-back">
+                        <div class="dfr-aimodal dfr-aimodal-spin" @onclick:stopPropagation="true">
+                            <div class="dfr-spinner" role="status" aria-label="Analizando"></div>
+                            <div class="dfr-aimodal-spintitle">Analizando el documento</div>
+                            <div class="dfr-aimodal-spinsub">El asistente de IA esta leyendo @(hasFile && file.IsPdf ? "el PDF" : "el documento") y extrayendo las piezas y medidas para "@gridQ.Label". Esto puede tardar varios segundos.</div>
+                            <div class="dfr-aimodal-dots"><span></span><span></span><span></span></div>
+                        </div>
+                    </div>
+                }
+
+                @* Previsualizacion de las filas propuestas en un modal (el humano confirma antes de escribir). *@
                 @if (res is { Ok: true } && res.Rows.Count > 0)
                 {
                     var cols = GridColumnsOf(gridQ);
                     var usedCols = cols.Where(c => res.Rows.Any(r => r.Values.ContainsKey(c.Id))).ToList();
-                    <div class="dfr-ai-preview">
-                        <div class="dfr-ai-previewhead">
-                            <strong>@res.Rows.Count fila(s) propuesta(s)</strong>
-                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <span class="dfr-ai-notes">@res.Notes</span> }
+                    <div class="dfr-aimodal-back" @onclick="@(() => DiscardAi(q))">
+                        <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true">
+                            <div class="dfr-aimodal-head">
+                                <div>
+                                    <strong>@res.Rows.Count fila(s) propuesta(s)</strong>
+                                    <span class="dfr-aimodal-sub">para "@gridQ.Label"</span>
+                                </div>
+                                <button type="button" class="dfr-aimodal-x" @onclick="@(() => DiscardAi(q))" aria-label="Cerrar">&times;</button>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <div class="dfr-aimodal-notes">@res.Notes</div> }
+                            <div class="dfr-aimodal-body">
+                                <table class="dfr-ai-table">
+                                    <thead><tr><th class="dfr-ai-rownum">#</th>@foreach (var c in usedCols) { <th>@c.Label</th> }</tr></thead>
+                                    <tbody>
+                                        @{ var __rowNo = 0; }
+                                        @foreach (var r in res.Rows)
+                                        {
+                                            __rowNo++;
+                                            <tr><td class="dfr-ai-rownum">@__rowNo</td>@foreach (var c in usedCols) { <td>@r.Values.GetValueOrDefault(c.Id)</td> }</tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="dfr-aimodal-foot">
+                                <small class="dfr-ai-hint">Caen en "@gridQ.Label"; podras editarlas o quitarlas antes de guardar.</small>
+                                <div class="dfr-aimodal-btns">
+                                    <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAi(q))">Descartar</button>
+                                    <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiRowsAsync(q, gridQ, res))" disabled="@IsLocked">Aplicar a la tabla (@(string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase) ? "reemplazar" : "agregar"))</button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="dfr-ai-tablewrap">
-                            <table class="dfr-ai-table">
-                                <thead><tr>@foreach (var c in usedCols) { <th>@c.Label</th> }</tr></thead>
-                                <tbody>
-                                    @foreach (var r in res.Rows)
-                                    {
-                                        <tr>@foreach (var c in usedCols) { <td>@r.Values.GetValueOrDefault(c.Id)</td> }</tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="dfr-ai-actions">
-                            <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiRowsAsync(q, gridQ, res))" disabled="@IsLocked">Aplicar a la tabla (@(string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase) ? "reemplazar" : "agregar"))</button>
-                            <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAi(q))">Descartar</button>
-                        </div>
-                        <small class="dfr-ai-hint">Las filas caen en "@gridQ.Label", donde puedes editarlas o quitarlas antes de guardar.</small>
                     </div>
                 }
             }
@@ -1657,6 +1685,7 @@ else
         if (!isImage && !isPdf) { _aiError[q.FieldCode] = "Solo se aceptan imagenes o PDF."; return; }
 
         _aiBusy.Add(q.FieldCode);
+        await InvokeAsync(StateHasChanged);   // pinta el spinner de inmediato antes del trabajo pesado
         try
         {
             // El registro debe existir para colgarle el analisis/adjunto (igual que las gestiones por fila).
@@ -1675,11 +1704,13 @@ else
             }
             var b64 = Convert.ToBase64String(bytes);
 
-            // Guardar el archivo origen para auditoria (best-effort) + miniatura.
+            // Guardar el archivo origen para auditoria (best-effort, idempotente) + miniatura. Si ya se subio
+            // el mismo archivo a este registro/campo (re-analizar), se reusa en vez de re-insertar (clave unica).
             string? url = null;
             try
             {
-                var saved = await FileStore.SaveAsync(new Ecorex.Application.Storage.FileStorageSaveRequest(
+                var existing = await FileStore.FindAsync("form-ai-intake", _response.Id.ToString(), q.FieldCode, upload.Name);
+                var saved = existing ?? await FileStore.SaveAsync(new Ecorex.Application.Storage.FileStorageSaveRequest(
                     "form-ai-intake", _response.Id.ToString(), q.FieldCode, upload.Name, mime, bytes));
                 url = saved.Url;
             }
@@ -3910,6 +3941,19 @@ else
     private bool IsContainerVisibleByValue(FormContainerDto c)
         => FormVisibilityEvaluator.IsVisible(c.VisibleWhenJson, code => _values.GetValueOrDefault(code));
 
+    // Oculta la seccion si su lista de superficies (HiddenSurfacesJson) incluye la superficie actual (Surface).
+    // Asi un mismo formulario se reusa en varios modulos escondiendo lo que no aplica. Sin Surface -> nunca oculta.
+    private bool IsContainerHiddenInSurface(FormContainerDto c)
+    {
+        if (string.IsNullOrWhiteSpace(Surface) || string.IsNullOrWhiteSpace(c.HiddenSurfacesJson)) { return false; }
+        try
+        {
+            var list = System.Text.Json.JsonSerializer.Deserialize<string[]>(c.HiddenSurfacesJson);
+            return list is not null && list.Any(s => string.Equals(s, Surface, StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
+    }
+
     /// <summary>FieldCodes que quedan OCULTOS al enviar (para que el servidor no los exija): union de los
     /// ocultos por regla (runtime) MAS los ocultos por visibilidad condicional por valor (campos y todo el
     /// subarbol de una seccion oculta). El servidor ya salta la validacion Required de estos.</summary>
@@ -3921,7 +3965,7 @@ else
         var hiddenContainers = new HashSet<Guid>();
         foreach (var c in _definition.Containers)
         {
-            if (!IsContainerVisibleByValue(c)) { hiddenContainers.Add(c.Id); }
+            if (!IsContainerVisibleByValue(c) || IsContainerHiddenInSurface(c)) { hiddenContainers.Add(c.Id); }
         }
         foreach (var q in _definition.Questions)
         {

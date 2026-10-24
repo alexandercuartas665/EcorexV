@@ -32,7 +32,10 @@ public sealed record FormContainerDto(
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // Ocultar la seccion en ciertas superficies/modulos donde se renderiza el mismo form (JSON arreglo de claves,
+    // p.ej. ["autorizacion"]). Null/vacio = visible en todas.
+    string? HiddenSurfacesJson = null);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -146,7 +149,10 @@ public sealed record SaveFormContainerRequest(
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // Ocultar la seccion en ciertas superficies/modulos donde se renderiza el mismo form (JSON arreglo de claves,
+    // p.ej. ["autorizacion"]). Null/vacio = visible en todas.
+    string? HiddenSurfacesJson = null);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el

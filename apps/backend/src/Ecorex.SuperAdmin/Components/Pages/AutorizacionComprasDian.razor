@@ -176,7 +176,7 @@
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" @key="_sel.Id" />
+                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" Surface="autorizacion" @key="_sel.Id" />
                     }
                     else
                     {

@@ -93,7 +93,7 @@ public sealed partial class FormDefinitionService
             Guid? newParent = c.ParentId is Guid p && idMap.TryGetValue(p, out var np) ? np : null;
             var req = new SaveFormContainerRequest(
                 c.Name, c.ContainerType, newParent, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels,
-                c.AllowedCargosJson, c.VisibleWhenJson);
+                c.AllowedCargosJson, c.VisibleWhenJson, c.HiddenSurfacesJson);
             var res = await AddContainerAsync(defId, req, cancellationToken);
             if (res.IsOk && res.Value is not null) { idMap[c.Id] = res.Value.Id; }
         }
@@ -171,7 +171,7 @@ public sealed partial class FormDefinitionService
             Guid? newParent = c.ParentId is Guid p && idMap.TryGetValue(p, out var np) ? np : null;
             var req = new SaveFormContainerRequest(
                 c.Name, c.ContainerType, newParent, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels,
-                c.AllowedCargosJson, c.VisibleWhenJson);
+                c.AllowedCargosJson, c.VisibleWhenJson, c.HiddenSurfacesJson);
             var res = await AddContainerAsync(definitionId, req, cancellationToken);
             if (res.IsOk && res.Value is not null) { idMap[c.Id] = res.Value.Id; }
         }

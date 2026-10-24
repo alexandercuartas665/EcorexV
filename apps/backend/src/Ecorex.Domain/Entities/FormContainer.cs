@@ -58,4 +58,13 @@ public class FormContainer : TenantEntity
     /// seccion ni su subarbol se pintan ni se exigen. Null = siempre visible. Se evalua en vivo en el renderer.
     /// </summary>
     public string? VisibleWhenJson { get; set; }
+
+    /// <summary>
+    /// Ocultar la SECCION (y su subarbol) en ciertas SUPERFICIES/modulos donde se renderiza el MISMO formulario.
+    /// JSON = arreglo de claves de superficie (p.ej. ["autorizacion"]). El renderer recibe su superficie actual
+    /// (DynamicFormRenderer.Surface) y, si esta en la lista, no pinta la seccion. Null/vacio = visible en todas.
+    /// Asi un mismo formulario se reusa en varios modulos ocultando lo que no aplica (ej: el visor de documentos
+    /// en autorizacion-compras-dian, donde el PDF ya se ve aparte).
+    /// </summary>
+    public string? HiddenSurfacesJson { get; set; }
 }

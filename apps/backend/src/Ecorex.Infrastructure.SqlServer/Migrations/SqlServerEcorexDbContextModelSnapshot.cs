@@ -6406,6 +6406,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("HiddenSurfacesJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("hidden_surfaces_json");
+
                     b.Property<bool>("InlineLabels")
                         .HasColumnType("bit")
                         .HasColumnName("inline_labels");

@@ -77,7 +77,11 @@ public sealed class FileStorageService(
             Provider = provider,
         };
         db.StoredFiles.Add(entity);
-        await db.SaveChangesAsync(ct);
+        // Un fallo al guardar (p. ej. clave duplicada) NO debe dejar la entidad "Added" colgada en el
+        // ChangeTracker: en Blazor Server el DbContext es por circuito y un SaveChanges posterior (otro
+        // modulo) reintentaria este insert y volveria a fallar. Se desacopla y se relanza limpio.
+        try { await db.SaveChangesAsync(ct); }
+        catch { db.Entry(entity).State = EntityState.Detached; throw; }
         return Map(entity);
     }
 

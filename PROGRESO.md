@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1)
+
+- UX del control AiIntake (ADR-0131): el "Analizando" pasa a OVERLAY con spinner + puntos (antes solo cambiaba un
+  texto chico, parecia colgado; se fuerza StateHasChanged para pintarlo al instante) y la propuesta de filas sale en
+  un MODAL (cabecera, tabla con scroll y cabecera fija, Aplicar/Descartar, cierra por fondo/X). CSS dfr-aimodal/
+  dfr-spinner en DynamicFormRenderer.razor.css (tema claro/oscuro + prefers-reduced-motion). [el markup del
+  renderer aterrizo en d39e486c; aqui van los estilos + el resto].
+- FIX "No se pudo analizar: ...saving the entity changes": re-subir el MISMO archivo chocaba con la clave unica de
+  stored_files; el guardado best-effort lo atrapaba PERO dejaba la entidad "Added" colgada en el DbContext del
+  circuito (Blazor Server, DbContext por circuito) y el SaveChanges siguiente (AiUsageLog) la reintentaba -> fallo.
+  (A) FileStorageService.SaveAsync DESACOPLA la entidad si SaveChanges falla (nunca envenena el contexto).
+  (B) el control AiIntake reusa el archivo via FindAsync (idempotente) en vez de re-insertar.
+- FIX Gemini se reseteaba a los 30s subiendo el PDF (SocketException 10054 al copiar el cuerpo). No era la red (un
+  POST de 693KB responde en 4s): era HTTP/2 reseteando el stream. AiProviderClient.SendWithRetryAsync fuerza
+  HTTP/1.1 explicito + REINTENTA ante cortes de transporte (reset/IOException), no solo ante codigos transitorios.
+- Config en BD local (AGRO): agente dedicado "Extractor de medidas (planos)" (Gemini) + control de la COT apuntado a
+  la grilla items. Build Release verde. Sin migracion propia.
+
 ## 2026-10-23 - v0.16.216: control "Asistente de requerimiento (IA, imagen/PDF -> tabla)" (ADR-0131) (SIN deploy)
 
 - NUEVO FormControlType.AiIntake: control drag-and-drop que es un agente IA con una herramienta ACOTADA al mismo

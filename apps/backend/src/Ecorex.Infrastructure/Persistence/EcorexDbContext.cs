@@ -3218,6 +3218,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasFilter(isNpgsql ? "model_id IS NOT NULL AND parent_container_id IS NULL" : "[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
             b.HasIndex(x => new { x.TenantId, x.ModelId });
             b.HasIndex(x => new { x.TenantId, x.ParentContainerId });
+            // Tabla DERIVADA -> tabla origen (ADR-0127). Restrict en AMBOS motores a proposito: el
+            // origen no se borra mientras tenga derivadas (el servicio lo explica), y asi no se suma
+            // otra ruta de cascada auto-referenciada (SQL Server error 1785). Borrar la derivada no
+            // toca al origen.
+            b.HasOne(x => x.DerivedFromContainer).WithMany()
+                .HasForeignKey(x => x.DerivedFromContainerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.DerivedFromContainerId });
 
             // ---- Publicacion como modulo del menu ----
             b.Property(x => x.ModuleRoute).HasMaxLength(160);

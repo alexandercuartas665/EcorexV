@@ -124,6 +124,26 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.HeadersJson = null;
                 entity.TokenExchangeJson = null;
                 break;
+            case ConnectorKind.FromTable:
+                // "Desde otra tabla" (ADR-0127): sin credenciales ni endpoint. La receta (DerivationSpec)
+                // viaja en MappingJson y se valida que parsee; la tabla destino es la derivada.
+                if (DerivationSpec.FromJson(entity.MappingJson) is null)
+                {
+                    throw new InvalidOperationException("El conector 'Desde otra tabla' necesita una especificacion de derivacion valida (MappingJson).");
+                }
+                entity.CredentialsEncrypted = null;
+                entity.EndpointUrl = null;
+                entity.HttpMethod = null;
+                entity.AuthKind = ConnectorAuthKind.None;
+                entity.HeadersJson = null;
+                entity.TokenExchangeJson = null;
+                entity.DbEngine = null;
+                entity.Host = null;
+                entity.Port = null;
+                entity.DatabaseName = null;
+                entity.Username = null;
+                entity.Query = null;
+                break;
             case ConnectorKind.Excel:
             default:
                 entity.EndpointUrl = null;
@@ -141,7 +161,8 @@ public sealed class DataImportConfigService : IDataImportConfigService
         }
 
         // Credenciales: si vienen en claro se cifran; si es edicion y llegan vacias, se conservan.
-        if (!string.IsNullOrWhiteSpace(req.Credentials))
+        // FromTable nunca lleva credenciales (no hay fuente externa).
+        if (req.Kind != ConnectorKind.FromTable && !string.IsNullOrWhiteSpace(req.Credentials))
         {
             entity.CredentialsEncrypted = _protector.Protect(req.Credentials!);
         }

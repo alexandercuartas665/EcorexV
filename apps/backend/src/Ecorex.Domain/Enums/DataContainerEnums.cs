@@ -135,7 +135,15 @@ public enum ConnectorKind
     /// <summary>API REST (endpoint que devuelve JSON con las estructuras).</summary>
     RestApi,
     /// <summary>Conexion directa a una base de datos externa.</summary>
-    Database
+    Database,
+    /// <summary>
+    /// "Desde otra tabla" (ADR-0127): la fuente es OTRA tabla del MISMO contenedor. El conector guarda
+    /// en <c>MappingJson</c> una especificacion de derivacion (agrupar por columnas + agregados + filtro)
+    /// y la tabla destino (<c>ContainerId</c>) es una tabla DERIVADA materializada (filas reales), que se
+    /// refresca por el mismo <c>ImportProcess</c> (manual / intervalo / cron) que los demas conectores.
+    /// Server-direct, sin agente ni credenciales.
+    /// </summary>
+    FromTable
 }
 
 /// <summary>Motor de base de datos (para conectores de tipo Database y destinos de BD aliada).</summary>

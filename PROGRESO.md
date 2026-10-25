@@ -52,6 +52,147 @@
   (como un input unico), consistente con los demas campos. Auto-contenido en PhoneField.razor.css (scoped), ya no
   depende del dg-input del host. Estados: focus (borde resaltado), invalido (borde rojo + nota), deshabilitado.
   Solo UI, sin migracion ni cambios de logica.
+## 2026-10-24 - Quitar el asistente IA + auto-refresco de derivadas al sincronizar el origen (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUITADO el asistente IA de tablas derivadas (el usuario crea a mano): fuera el boton "Asistente IA" del
+  wizard y borradas sus piezas (DerivedTableChatPanel + .css, DerivedTableChatService/Contracts,
+  DerivedTableToolset, ProposalChatEngine, registros DI y pruebas DerivedTableChatServiceTests/
+  DerivedTableToolsetTests/DerivedChatTestDb). ADR-0130 queda REVERTIDO. El wizard determinista (selector de
+  origen + edicion) sigue igual.
+- NUEVA regla de sincronizacion: al sincronizar una tabla ORIGEN, sus derivadas se refrescan enseguida.
+  IProcessRunner.RefreshDependentsAsync(sourceTableId) busca los conectores FromTable cuya spec apunta a esa
+  tabla y corre el proceso de cada derivada (queda en la bitacora). Se dispara al cerrar con exito una
+  importacion server-direct REST (ProcessRunner) y la ingesta via agente (AgentImportService, Database/REST).
+  Incondicional, sin cascada en cadena (un solo nivel), sin migracion. Excel/edicion manual del origen NO
+  encadenan (no pasan por el motor de sync): ahi queda "Actualizar datos" en la derivada.
+- PRUEBAS: unit 1144/1144 (bajan 26: las del asistente borrado); integracion dual DerivedTable 8x2 = 16/16
+  (incluye la nueva RefreshDependents_RefreshesDerivedTables_WhenSourceSyncs); format limpio. Integration.Tests
+  ahora referencia Ecorex.SuperAdmin con alias 'superadmin' (evita el choque del Program global con Ecorex.Api).
+- VALIDADO en 5267: el wizard abre sin "Asistente IA"; crear/editar siguen funcionando.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
+## 2026-10-24 - Crear y EDITAR la derivada desde el contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: el usuario pidio crear y editar la tabla derivada desde el contenedor donde queda, no desde el del
+  origen. (1) Boton "+ Derivada" en la barra del lienzo: abre el wizard con el destino = ese contenedor y
+  un selector "Derivar de..." que lista las tablas normales del tenant (de este u otro contenedor). (2)
+  Engranaje en el nodo de una derivada: abre el wizard en modo EDICION precargado (receta + horario),
+  cambia agrupacion/agregados/filtro/refresco; origen y destino quedan fijos. El sigma de las tablas
+  normales y el lapiz (columnas propias) se conservan.
+- BACKEND: IDerivedTableService + 3 metodos nuevos: ListSourceTablesAsync (origenes candidatos con
+  columnas), GetEditInfoAsync (receta del conector + origen + horario para precargar) y UpdateAsync
+  (reescribe MappingJson, reconcilia columnas producidas conservando las propias, renombra, recalcula la
+  programacion, en transaccion; el refresco lo dispara el runner). Contratos nuevos DerivationSourceDto,
+  DerivedTableEditInfo, UpdateDerivedTableRequest. SIN migracion.
+- UI: DerivedTableWizard reescrito a 3 modos (origen fijo / destino fijo con selector de origen / edicion)
+  reutilizando pasos, vista previa y asistente IA (chat solo en creacion con origen elegido). ContenedorDatos
+  gana el boton "+ Derivada", el engranaje en nodos derivados y la invocacion del wizard con los 3 modos.
+- DECISION: al editar, cambiar las columnas de agrupacion cambia la identidad de los grupos, asi que el
+  refresco reconstruye la tabla y las filas/columnas propias atadas a los grupos viejos se pierden; cambiar
+  solo agregados/filtro/horario mantiene las claves y conserva las columnas propias.
+- PRUEBAS: 2 de integracion dual nuevas (Update quita agregado + conserva columna propia tras refresco;
+  ListSourceTables excluye derivadas). Build Release y format verdes. Validado en navegador en 5267.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
+## 2026-10-23 - Tabla derivada en OTRO contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: la derivada puede nacer en un contenedor DISTINTO al de su tabla origen (caso: TEST_HIJO con una
+  derivada de ALEGRA/Items). Sin migracion: `CreateDerivedTableRequest.ModelId` es el contenedor DESTINO;
+  hija + conector FromTable + ImportProcess cuelgan del destino; la spec sigue apuntando al origen por id.
+- SERVICIO: DerivedTableService sin las validaciones "mismo contenedor" (alta y refresco); un solo nivel y
+  guard de borrado del origen siguen por id. Posicion: al lado del origen si es el mismo contenedor, si no
+  sitio libre del lienzo destino (derecha de la tabla mas a la derecha; (40,40) si vacio).
+  DataModelService: GetAsync resuelve "Contenedor / Tabla" del origen foraneo (ModelTableDto.DerivedFromModelName);
+  DeleteModelAsync bloquea con mensaje si una derivada de OTRO contenedor apunta a una tabla de este.
+- UI: wizard con selector "Crear en el contenedor" (default el actual, solo si hay mas de uno); resumen y
+  mensaje final dicen donde nacio. Lienzo: distintivo "derivada de <Contenedor> / <Tabla>" y sin arista
+  cuando el origen no esta en ese lienzo (TryDerivedEdge ya lo omitia). ContenedorDatos.razor: 1 linea.
+- ASISTENTE IA: toolset acepta `contenedor_destino` (nombre o id) en proponer/crear (se valida desde la
+  propuesta); el arnes lista los otros contenedores con id; el selector del wizard se inyecta via
+  SetTargetModel cuando el modelo no manda destino (lo dicho por el usuario gana).
+- PRUEBAS: unit (toolset: destino por nombre/id/sin destino, destino inexistente; chat: inyeccion del
+  destino + arnes) e integracion dual nueva Create_InOtherModel_RefreshWorks_AndSourceGuardsHold (alta en
+  TEST_HIJO, refresco, distintivo, guards de tabla y contenedor origen, limpieza al borrar la hija).
+- ADR-0127: seccion "Extension 2026-10-23". dotnet format limpio en los 4 proyectos tocados (de paso se
+  formateo WorkflowAgentStepTests.cs, whitespace heredado del tronco). Unit Application 1174/1174;
+  integracion dual DerivedTableTests 10/10 (5 x PG/SQL Server).
+- VALIDADO EN 5267 (publish Release del worktree en appout5267, /dev/login BITCODE): wizard de ALEGRA/Items
+  con "Crear en el contenedor" = TEST_HIJO -> "Items por tipo (hijo)" nacio en TEST_HIJO en (40,40) con 3
+  filas reales (product 226, simple 73, service 20 = 319), conector y proceso en TEST_HIJO, distintivo
+  "derivada de ALEGRA / Items" sin arista, y "Actualizar datos" desde TEST_HIJO: 0 nuevas, 3 actualizadas.
+  La tabla de prueba quedo en la BD dev local.
+
+## 2026-10-22 - Asistente IA para tablas derivadas (ADR-0130, fase 2 de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: en el wizard "Derivar tabla" aparece el boton "Asistente IA" que abre, como columna del mismo modal, un
+  chat donde el usuario describe la tabla ("items por categoria y marca con total de precio"); el asistente ve
+  las tablas del contenedor con sus columnas tipadas, pide una muestra si la necesita, PROPONE la derivacion
+  con la vista previa REAL (motor del refresco, primeros 10 grupos, pintada como tabla en el panel) y, cuando
+  el usuario esta de acuerdo, pide crearla: esa accion llega SIEMPRE como propuesta con Confirmar/Rechazar.
+  Al confirmar, la tabla nace por el MISMO IDerivedTableService del wizard (transaccion, un solo nivel) y el
+  wizard hace su mismo cierre (primer refresco por el runner, resumen, recarga del lienzo).
+- MOTOR GENERICO: Tenancy/ProposalChatEngine.cs extrae la maquinaria "proponer y confirmar" del asistente de
+  formularios (lecturas solas, mutantes como propuesta, escribir descarta, Confirmar/Rechazar, tope de vueltas,
+  timeout, cupo del plan, AiUsageLog) para cualquier toolset + prompt. FormBuilderChatService NO se migro.
+- TOOLSET: Tenancy/DerivedTableToolset.cs (describir_tabla / proponer_derivacion / crear_tabla_derivada) por
+  NOMBRE de columna, Count siempre, vocabulario tolerante (sum|suma|total, mayor|>, ...), origen derivado
+  rechazado antes del servicio. SERVICIO: DataContainers/DerivedTableChatService.cs (+Contracts): arnes con
+  las tablas del contenedor, proveedor "IA gestion de formularios" (Gemini respaldo), contenedor_id FORZADO
+  en cada tool-call, conversaciones en memoria del circuito, consumo con fuente "derived-table-chat".
+- UI: Components/Shared/DataContainers/DerivedTableChatPanel.razor (+css); DerivedTableWizard gano el boton,
+  la columna de chat y OnChatCreatedAsync. ContenedorDatos.razor intacto. dc-canvas.js?v=3 (scroll helper).
+- PRUEBAS: DerivedTableToolsetTests (18) + DerivedTableChatServiceTests (8) sobre EF InMemory + fakes de IA y
+  del servicio de derivadas; Application 1170/1170, Domain 35/35; dotnet format limpio en los proyectos tocados
+  (se corrigio de paso el whitespace heredado del tronco en RuleParamOptionsProvider.cs y Program.cs).
+- VALIDADO EN NAVEGADOR (5267, publish del worktree en appout5267, /dev/login BITCODE, Gemini 2.5 pro REAL):
+  "items por categoria y tipo con total de precio y suma de existencia" -> el asistente llamo
+  proponer_derivacion solo (lectura), el panel pinto la vista previa real (22 grupos, 319 filas), propuso el
+  nombre, al decir "si" llego la propuesta crear_tabla_derivada con Confirmar/Rechazar, y al confirmar nacio
+  "Items por categoria y tipo" (22 filas, 6 columnas) con primer refresco por el runner ("22 nuevas") y el
+  lienzo recargado (5 tablas, 2 conectores, 2 procesos). AiUsageLog con fuente derived-table-chat.
+- HALLAZGOS corregidos en la prueba real: (1) Gemini via API compatible OpenAI devuelve el nombre de la
+  herramienta con un prefijo inventado ("ecorex.proponer_derivacion"): el motor ahora NORMALIZA al nombre
+  conocido (si no, la lectura caia al gate y al confirmar fallaba). (2) ALEGRA tiene 'Items' e 'ITEMS': la
+  resolucion por nombre era solo case-insensitive y tomaba la equivocada; ahora id -> exacto -> laxo solo si
+  es unico (si no, error que pide precisar), y el arnes lista cada tabla con su id.
+- RAMA: claude/feat-contenedor-derivado-ea18ad (se le mergeo fase-0/clon-backbone v0.16.214, conflicto solo
+  en PROGRESO.md). SIN merge al tronco, SIN deploy, SIN push (pendiente OK del usuario).
+- SIGUIENTE: migrar FormBuilderChatService al motor generico cuando se toque; persistir el hilo si algun
+  dia el asistente sale del modal; la derivada de prueba "Items por categoria y tipo" quedo en la BD dev local.
+
+## 2026-10-22 - Tabla DERIVADA del Contenedor de datos (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: desde el lienzo del contenedor, "Derivar tabla" (boton sigma en cualquier tabla normal) abre un wizard
+  determinista (nombre -> agrupar -> agregados -> filtro -> VISTA PREVIA -> refresco -> crear) que crea una
+  tabla hija MATERIALIZADA (filas reales) agrupando la tabla origen por las columnas marcadas, con agregados
+  (Count siempre; Sum/Avg para numericas; Min/Max para numericas y fechas). Sin agregados = proyeccion
+  distinta. Opcion A del diagnostico (vista virtual descartada: todo lo que lee contenedores espera filas).
+- DOMINIO: ConnectorKind.FromTable ("Desde otra tabla"); DataContainer.DerivedFromContainerId (FK Restrict
+  en ambos motores). Spec tipada DerivationSpec en DataConnector.MappingJson (jsonb). Migracion dual
+  AddDerivedTables (PG 20261022125733 / SQL Server 20261022130043), aplicada en dev local (5442/ecorex).
+- MOTOR: DerivedRowsBuilder (puro, sin EF): normaliza por tipo antes de la clave ("10"=="10.0", fechas ISO,
+  booleanos true/false, texto trim), agrupa, agrega (Count->Number, Sum/Avg->Decimal, Min/Max heredan tipo y
+  comparan por tipo), Avg sin numericos = null. DerivedTableService: vista previa, alta en UNA transaccion
+  (hija + columnas + conector + ImportProcess Upsert por "Clave") y refresco con IRowIngestService + PODA de
+  grupos huerfanos en transaccion. Las columnas PROPIAS de la hija sobreviven al refresco (Upsert conserva
+  celdas no mapeadas). UN SOLO NIVEL (no derivar de derivada) validado en servicio + oculto en lienzo.
+- RUNNER: ProcessRunner.RunNowAsync rama FromTable server-direct con ImportRun (Inserted/Updated/Deleted
+  incl. poda). "Actualizar datos" ahora tambien aparece para procesos server-direct y muestra el desenlace
+  inmediato; resumen de bitacora dice nuevas/actualizadas/borradas.
+- BORRADO: el origen no se borra mientras exista una derivada (mensaje con nombre); borrar la derivada
+  limpia conector + proceso + corridas (cascada diferida).
+- UI: componente aparte Components/Shared/DataContainers/DerivedTableWizard.razor (+css); lienzo con nodo
+  verde "derivada de X" y arista punteada origen->hija; conector FromTable sin edicion por el form generico.
+- PRUEBAS: 30 unit (DerivedRowsBuilderTests) + 4x2 integracion dual PG/SQL Server (DerivedTableTests:
+  crear/refrescar/poda/columna propia, un solo nivel, guard de borrado, aislamiento tenant) en verde.
+  Suites completas: Domain 35/35, Application 1144/1144, Integration dual 493/493 (con
+  xunit.maxParallelThreads=3: sin tope, la suite entera levanta decenas de SQL Server a la vez y Docker
+  local (12.5 GB) revienta por timeouts; no es del codigo). dotnet format limpio.
+  Validado en navegador (5264, /dev/login BITCODE, contenedor ALEGRA/Items 319 filas -> "Items por
+  categoria" 11 grupos, vista previa, creacion, filas reales, "Actualizar datos" 11 actualizadas).
+- COMMITS en rama claude/feat-contenedor-derivado-ea18ad: 7c14f854 (core+migracion+tests), 6ae619a2 (UI),
+  + ADR/PROGRESO. NO mergeado al tronco, NO desplegado, sin push (pendiente OK del usuario).
+- PENDIENTE / fase 2: chat IA asistido para armar la derivacion (fuera de alcance a proposito).
 
 ## 2026-10-22 - v0.16.214: agente - crear_actividad sin formulario (ADR-0129) + asignacion round-robin por usuarios del agente (ADR-0128) (SIN deploy)
 

@@ -411,14 +411,38 @@ public abstract class WorkflowAgentStepTestsBase
             conversationId = conv.Id;
 
             ctx.Messages.AddRange(
-                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
-                    Body = "hola de otro caso viejo", SentAt = t0.AddMinutes(-5) },               // chatter viejo (excluido)
-                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound,
-                    Body = "Para su pedido, cuantas laminas y su cedula?", SentAt = t0 },          // la pregunta del flujo
-                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
-                    Body = "necesito 4 laminas", SentAt = t0.AddSeconds(10) },                     // rafaga 1
-                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Inbound,
-                    Body = "mi cedula es 10199857", SentAt = t0.AddSeconds(13) });                 // rafaga 2
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conv.Id,
+                    Direction = MessageDirection.Inbound,
+                    Body = "hola de otro caso viejo",
+                    SentAt = t0.AddMinutes(-5)
+                },               // chatter viejo (excluido)
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conv.Id,
+                    Direction = MessageDirection.Outbound,
+                    Body = "Para su pedido, cuantas laminas y su cedula?",
+                    SentAt = t0
+                },          // la pregunta del flujo
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conv.Id,
+                    Direction = MessageDirection.Inbound,
+                    Body = "necesito 4 laminas",
+                    SentAt = t0.AddSeconds(10)
+                },                     // rafaga 1
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conv.Id,
+                    Direction = MessageDirection.Inbound,
+                    Body = "mi cedula es 10199857",
+                    SentAt = t0.AddSeconds(13)
+                });                 // rafaga 2
             var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
             step.PendingWhatsAppConversationId = conv.Id;
             await ctx.SaveChangesAsync();
@@ -446,10 +470,22 @@ public abstract class WorkflowAgentStepTestsBase
             var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
             step.WhatsAppAnsweredInboundAt = t0.AddSeconds(13);
             ctx.Messages.AddRange(
-                new Message { TenantId = seed.TenantId, ConversationId = conversationId, Direction = MessageDirection.Inbound,
-                    Body = "en realidad son 6 laminas", SentAt = t0.AddSeconds(16) },              // llego antes del saliente
-                new Message { TenantId = seed.TenantId, ConversationId = conversationId, Direction = MessageDirection.Outbound,
-                    Body = "Perfecto, confirmo 4 laminas", SentAt = t0.AddSeconds(20) });          // nuestra respuesta
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conversationId,
+                    Direction = MessageDirection.Inbound,
+                    Body = "en realidad son 6 laminas",
+                    SentAt = t0.AddSeconds(16)
+                },              // llego antes del saliente
+                new Message
+                {
+                    TenantId = seed.TenantId,
+                    ConversationId = conversationId,
+                    Direction = MessageDirection.Outbound,
+                    Body = "Perfecto, confirmo 4 laminas",
+                    SentAt = t0.AddSeconds(20)
+                });          // nuestra respuesta
             await ctx.SaveChangesAsync();
         }
 

@@ -30,6 +30,15 @@ public interface IProcessRunner
     /// </param>
     Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
         DateTimeOffset? firedAt = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Refresca INMEDIATAMENTE las tablas DERIVADAS (ADR-0127) cuyo origen es <paramref name="sourceTableId"/>,
+    /// justo despues de sincronizar esa tabla. Es la regla "si sincronizo el padre, la derivada se pone al
+    /// dia sola": cada derivada corre por su propio proceso FromTable (server-direct, queda en la bitacora).
+    /// Una derivada que falle no interrumpe a las demas ni a la sincronizacion del origen. No hay cascada en
+    /// cadena: una derivada no puede ser origen de otra (regla de un solo nivel).
+    /// </summary>
+    Task RefreshDependentsAsync(Guid sourceTableId, ImportRunTrigger trigger = ImportRunTrigger.Scheduled, CancellationToken ct = default);
 }
 
 public sealed class ProcessRunner(
@@ -39,6 +48,7 @@ public sealed class ProcessRunner(
     IAgentRegistry registry,
     IAgentImportService imports,
     IApiImportService api,
+    IDerivedTableService derived,
     IImportRunLog runLog) : IProcessRunner
 {
     public async Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
@@ -63,13 +73,21 @@ public sealed class ProcessRunner(
 
         var connector = await db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(c => c.Id == connectorId, ct);
         if (connector is null) { return new(false, null, "El conector ya no existe."); }
-        if (connector.Kind != ConnectorKind.Database && connector.Kind != ConnectorKind.RestApi)
+        if (connector.Kind is not (ConnectorKind.Database or ConnectorKind.RestApi or ConnectorKind.FromTable))
         {
-            return new(false, null, $"Solo los conectores de tipo Base de datos o API REST se pueden refrescar (este es {connector.Kind}).");
+            return new(false, null, $"Solo los conectores de tipo Base de datos, API REST o Desde otra tabla se pueden refrescar (este es {connector.Kind}).");
         }
         if (connector.ContainerId is not Guid targetTableId)
         {
             return new(false, null, "El conector no tiene TABLA destino: eligela en el conector para poder refrescar solo.");
+        }
+
+        // FromTable (ADR-0127) -> SERVER-DIRECT siempre (el origen es otra tabla del mismo contenedor; no
+        // hay nada que pedirle a un agente). Abre la corrida, corre motor + ingesta con el Mode/KeyColumn
+        // persistidos y la cierra sincronicamente con Inserted/Updated/Deleted (Deleted incluye la poda).
+        if (connector.Kind == ConnectorKind.FromTable)
+        {
+            return await RunFromTableAsync(process, connector, trigger, firedAt, ct);
         }
 
         // RestApi -> DOS caminos (ADR-0061):
@@ -253,10 +271,42 @@ public sealed class ProcessRunner(
             await db.SaveChangesAsync(ct);
         }
 
+        // Si la sincronizacion del origen salio bien, poner al dia sus tablas derivadas enseguida.
+        if (outcome.Success) { await RefreshDependentsAsync(targetTableId, trigger, ct); }
+
         var msg = outcome.Success
             ? $"Importadas: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
             : (detail ?? "La importacion no trajo resultados.");
         return new(outcome.Success, correlationId, msg);
+    }
+
+    public async Task RefreshDependentsAsync(Guid sourceTableId, ImportRunTrigger trigger = ImportRunTrigger.Scheduled, CancellationToken ct = default)
+    {
+        // Conectores "Desde otra tabla" activos del tenant (filtro global). Son pocos; se filtran en
+        // memoria por la tabla origen de su spec (el MappingJson no se consulta por JSON en ambos motores).
+        var fromTable = await db.DataConnectors.AsNoTracking()
+            .Where(c => c.Kind == ConnectorKind.FromTable && c.IsActive)
+            .Select(c => new { c.Id, c.MappingJson })
+            .ToListAsync(ct);
+        if (fromTable.Count == 0) { return; }
+
+        var dependentConnectorIds = fromTable
+            .Where(c => DerivationSpec.FromJson(c.MappingJson)?.SourceTableId == sourceTableId)
+            .Select(c => c.Id)
+            .ToHashSet();
+        if (dependentConnectorIds.Count == 0) { return; }
+
+        var processIds = await db.ImportProcesses.AsNoTracking()
+            .Where(p => p.IsActive && p.ConnectorId != null && dependentConnectorIds.Contains(p.ConnectorId!.Value))
+            .Select(p => p.Id)
+            .ToListAsync(ct);
+
+        foreach (var pid in processIds)
+        {
+            // Una derivada que falle no debe tumbar la sincronizacion del origen ni a las otras derivadas.
+            try { await RunNowAsync(pid, trigger, null, ct); }
+            catch { /* el fallo ya queda en la bitacora de esa corrida */ }
+        }
     }
 
     /// <summary>
@@ -354,6 +404,52 @@ public sealed class ProcessRunner(
         }
 
         return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
+    }
+
+    /// <summary>
+    /// Refresca una tabla DERIVADA (conector FromTable, ADR-0127). Mismo contrato de bitacora que el REST
+    /// server-direct: la corrida se abre ANTES de calcular (idempotente por ventana) y se cierra con el
+    /// desenlace real. Las validaciones de la spec (origen existe, no es derivado, columnas existen) las
+    /// hace el servicio y vuelven como error legible en la corrida.
+    /// </summary>
+    private async Task<RunProcessResult> RunFromTableAsync(
+        Domain.Entities.ImportProcess process, Domain.Entities.DataConnector connector,
+        ImportRunTrigger trigger, DateTimeOffset? firedAt, CancellationToken ct)
+    {
+        var correlationId = AgentImportService.NewCorrelationId();
+        var window = firedAt ?? DateTimeOffset.UtcNow;
+
+        var runId = await runLog.OpenAsync(process.Id, trigger, window, correlationId, ct);
+        if (runId is null)
+        {
+            return new(false, null, "Esa ejecucion ya la tomo otro proceso.");
+        }
+
+        DerivedRefreshOutcome outcome;
+        try
+        {
+            outcome = await derived.RefreshAsync(connector.Id, (ApiImportMode)process.Mode, process.KeyColumn, ct);
+        }
+        catch (Exception ex)
+        {
+            await runLog.FailAsync(runId.Value, $"No se pudo refrescar la tabla derivada: {ex.Message}", ct);
+            return new(false, correlationId, $"No se pudo refrescar la tabla derivada: {ex.Message}");
+        }
+
+        await runLog.CloseAsync(correlationId, outcome.Success, outcome.Inserted, outcome.Updated, outcome.Deleted, outcome.Error, ct);
+
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == process.Id, ct);
+        if (tracked is not null)
+        {
+            tracked.LastRunAt = window;
+            tracked.PendingSince = null;
+            await db.SaveChangesAsync(ct);
+        }
+
+        var msg = outcome.Success
+            ? $"Derivada refrescada: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
+            : (outcome.Error ?? "El refresco no trajo resultados.");
+        return new(outcome.Success, correlationId, msg);
     }
 
     /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el

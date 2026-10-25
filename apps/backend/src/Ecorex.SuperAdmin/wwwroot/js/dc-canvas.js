@@ -110,3 +110,10 @@ window.ecorexDcCanvas = (function () {
     viewport: viewport
   };
 })();
+
+// Lleva al final un contenedor con scroll (por id). Lo usa el asistente IA de tablas derivadas
+// (DerivedTableChatPanel) para que siempre se vea el ultimo mensaje / la propuesta / la vista previa.
+window.ecorexScrollToBottom = function (id) {
+  const el = document.getElementById(id);
+  if (el) { el.scrollTop = el.scrollHeight; }
+};

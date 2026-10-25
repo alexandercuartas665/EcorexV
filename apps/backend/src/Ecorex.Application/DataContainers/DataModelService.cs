@@ -68,13 +68,38 @@ public sealed class DataModelService : IDataModelService
             .OrderBy(c => c.Name)
             .ToListAsync(ct);
 
+        var nameById = tables.ToDictionary(t => t.Id, t => t.Name);
+
+        // Derivadas (ADR-0127) cuyo origen vive en OTRO contenedor: se resuelven nombre de tabla y de
+        // contenedor en una sola consulta para el distintivo "derivada de Contenedor / Tabla".
+        var foreignSourceIds = tables
+            .Where(t => t.DerivedFromContainerId is Guid s && !nameById.ContainsKey(s))
+            .Select(t => t.DerivedFromContainerId!.Value).Distinct().ToList();
+        var foreign = new Dictionary<Guid, (string Table, string Model)>();
+        if (foreignSourceIds.Count > 0)
+        {
+            var rows = await _db.DataContainers.AsNoTracking()
+                .Where(c => foreignSourceIds.Contains(c.Id))
+                .Select(c => new { c.Id, c.Name, ModelName = c.Model != null ? c.Model.Name : "" })
+                .ToListAsync(ct);
+            foreach (var r in rows) { foreign[r.Id] = (r.Name, r.ModelName); }
+        }
+
         var tableDtos = new List<ModelTableDto>(tables.Count);
         foreach (var t in tables)
         {
             // Reusa el detalle de tabla (resuelve ChildContainerName/ReferencedContainerName).
             var detail = await _containers.GetAsync(t.Id, ct);
             var columns = detail?.Columns ?? Array.Empty<DataContainerColumnDto>();
-            tableDtos.Add(new ModelTableDto(t.Id, t.Name, t.Description, t.CanvasX, t.CanvasY, columns));
+            string? derivedFromName = null;
+            string? derivedFromModelName = null;
+            if (t.DerivedFromContainerId is Guid src)
+            {
+                if (nameById.TryGetValue(src, out var n)) { derivedFromName = n; }
+                else if (foreign.TryGetValue(src, out var f)) { derivedFromName = f.Table; derivedFromModelName = f.Model; }
+            }
+            tableDtos.Add(new ModelTableDto(t.Id, t.Name, t.Description, t.CanvasX, t.CanvasY, columns,
+                t.DerivedFromContainerId, derivedFromName, derivedFromModelName));
         }
 
         // Relaciones = aristas del ER (entidad DataModelRelation) del modelo.
@@ -130,6 +155,18 @@ public sealed class DataModelService : IDataModelService
     {
         var entity = await _db.DataModels.FirstOrDefaultAsync(m => m.Id == id, ct);
         if (entity is null) { return false; }
+        // Guard (ADR-0127 extendido): una tabla de OTRO contenedor puede derivar de una tabla de este
+        // (FK Restrict). Se avisa con nombres en vez de dejar que la BD reviente la cascada.
+        var foreignDerived = await _db.DataContainers.AsNoTracking()
+            .Where(c => c.ModelId != id && c.DerivedFromContainerId != null
+                && _db.DataContainers.Any(s => s.Id == c.DerivedFromContainerId && s.ModelId == id))
+            .Select(c => new { c.Name, ModelName = c.Model != null ? c.Model.Name : "" })
+            .FirstOrDefaultAsync(ct);
+        if (foreignDerived is not null)
+        {
+            throw new InvalidOperationException(
+                $"No se puede eliminar este contenedor: la tabla '{foreignDerived.Name}' del contenedor '{foreignDerived.ModelName}' deriva de una de sus tablas. Elimina primero esa derivada.");
+        }
         // La cascada de BD borra las tablas del contenedor (con sus columnas/filas/celdas), los
         // conectores, el destino y los procesos. No se borra a mano.
         _db.DataModels.Remove(entity);

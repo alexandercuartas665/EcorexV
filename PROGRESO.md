@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-25 - v0.16.220: fixes UI conciliacion (scroll modal) + config voz (E.164) [deploy]
+
+- Dos fixes de otra sesion, validados (build Release verde, sin migracion):
+  - conciliacion/UI (ea9d44b3): el modal de Configuracion (pestanas Salidas/Reglas/Asistente) hacia recorte con
+    ventanas de poca altura; fix flexbox en .cd-rules-* (min-height:0 en el cuerpo scrollable + flex:0 0 auto en
+    head/foot + flex-shrink:0 en las tarjetas). Solo CSS.
+  - config-voz (f4fe1e06): el numero saliente (FromNumber) se guardaba tal cual; si venia sin '+' la llamada de
+    prueba fallaba por E.164. SaveAsync ahora lo pasa por NormalizeE164 (igual que el destino de la prueba).
+- Bump 0.16.219 -> 0.16.220 para confirmar el deploy. Se despliega a prod por la via rapida.
+
 ## 2026-10-25 - v0.16.219: tabla derivada del Contenedor de datos (ADR-0127) [DESPLEGADO]
 
 - Se integro al tronco la feature "tabla derivada" (merge 3f76f3f1, ADR-0127 fases 1-4): tabla MATERIALIZADA que

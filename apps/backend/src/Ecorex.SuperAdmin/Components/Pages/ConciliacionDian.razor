@@ -2188,7 +2188,8 @@ else
 
     /// <summary>Resolver de valores dinamicos para el evaluador del filtro: (renglon, "dyn:key") -> valor.</summary>
     private string? DynFilterValue(ConciliacionDianRenglonDto r, string key)
-        => _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r, d) : "";
+        => key == "usuario" ? UserNameById(r.AssignedTenantUserId)
+         : _dynByKey.TryGetValue(key, out var d) ? DynDisplay(r, d) : "";
 
     private async Task LoadDynDefsAsync()
     {

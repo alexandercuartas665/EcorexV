@@ -59,6 +59,9 @@ public static class ConciliacionFilter
         new("plataforma", "En Newton (plataforma)", FilterFieldType.Bool),
         new("archivos", "Tiene archivos", FilterFieldType.Bool),
         new("aprobada", "Factura aprobada", FilterFieldType.Bool),
+        // Usuario asignado (texto = nombre). El valor lo resuelve la pagina via el resolver (UserNameById);
+        // con el operador "está vacío" se filtran los renglones SIN usuario asignado.
+        new("usuario", "Usuario", FilterFieldType.Text),
     };
 
     public static FilterField? FieldByKey(string? key) => Fields.FirstOrDefault(f => f.Key == key);
@@ -162,8 +165,9 @@ public static class ConciliacionFilter
         var f = FieldByKey(n.Field, extra);
         if (f is null || string.IsNullOrEmpty(n.Operator)) { return true; } // incompleta -> se ignora
 
-        // Campo dinamico (EAV): el valor viene del resolver; se evalua por tipo contra el string.
-        if (n.Field.StartsWith("dyn:", StringComparison.Ordinal) && dynResolver is not null)
+        // Campo dinamico (EAV) o "usuario": el valor lo resuelve la pagina (el nombre del usuario no se puede
+        // sacar del renglon aqui). Se evalua por tipo contra el string (texto vacio => sin usuario).
+        if (dynResolver is not null && (n.Field.StartsWith("dyn:", StringComparison.Ordinal) || n.Field == "usuario"))
         {
             var dv = dynResolver(r, n.Field) ?? "";
             return f.Type switch

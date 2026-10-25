@@ -2,14 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-10-25 - v0.16.219: tabla derivada del Contenedor de datos (ADR-0127) integrada + bump para deploy
+## 2026-10-25 - v0.16.219: tabla derivada del Contenedor de datos (ADR-0127) [DESPLEGADO]
 
 - Se integro al tronco la feature "tabla derivada" (merge 3f76f3f1, ADR-0127 fases 1-4): tabla MATERIALIZADA que
   agrupa otra tabla por columnas con agregados (un nivel), wizard "Derivar tabla", crear/editar cross-contenedor,
   y auto-refresco de derivadas al sincronizar su origen. Asistente IA (ADR-0130) revertido. Migracion dual
   AddDerivedTables. Validado: build Release, snapshots EF PG+SQL consistentes, integracion dual DerivedTable 16/16.
-- Bump 0.16.218 -> 0.16.219 para que el footer confirme el deploy (el merge no habia subido version). Se despliega
-  a prod por la via rapida (GHCR + actualizar-en-linux.sh); AddDerivedTables se aplica al arranque.
+- Bump 0.16.218 -> 0.16.219 para que el footer confirme el deploy (el merge no habia subido version). DESPLEGADO a
+  prod (10.0.0.3) por la via rapida (GHCR + actualizar-en-linux.sh): prod v0.16.218 -> v0.16.219, HTTP 200,
+  Restarts=0. Migracion AddDerivedTables aplicada al arranque (columna data_containers.derived_from_container_id
+  presente en prod). Backup previo: ecorex-2026-10-25-0720.sql.gz. Imagen anterior (rollback): sha256:49a7fcbf...
 
 ## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1) [DESPLEGADO]
 

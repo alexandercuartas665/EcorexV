@@ -215,8 +215,11 @@ else
         _busy = true; _editError = null;
         try
         {
+            // El numero saliente se guarda SIEMPRE normalizado a E.164 (con '+'), igual que el destino de la prueba.
+            // Asi la validacion E.164 de PlaceCallAsync no falla cuando el usuario lo escribe sin '+' (ej. 57XXXXXXXXXX).
+            var fromE164 = NormalizeE164(_fFromNumber);
             var req = new SaveRetellVoiceLineRequest(
-                Name: _fName, ApiKey: _fApiKey, FromNumber: _fFromNumber, TerminationUri: _fTerminationUri,
+                Name: _fName, ApiKey: _fApiKey, FromNumber: fromE164, TerminationUri: _fTerminationUri,
                 SipUsername: _fSipUsername, SipPassword: _fSipPassword, VoiceId: _fVoiceId,
                 Language: _fLanguage, IsEnabled: _fEnabled, IsDefault: _fDefault, AgentId: _fAgentId);
             if (_editId is Guid id) { await VozSvc.UpdateAsync(id, req); }

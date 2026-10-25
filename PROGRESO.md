@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-25 - v0.16.219: tabla derivada del Contenedor de datos (ADR-0127) integrada + bump para deploy
+
+- Se integro al tronco la feature "tabla derivada" (merge 3f76f3f1, ADR-0127 fases 1-4): tabla MATERIALIZADA que
+  agrupa otra tabla por columnas con agregados (un nivel), wizard "Derivar tabla", crear/editar cross-contenedor,
+  y auto-refresco de derivadas al sincronizar su origen. Asistente IA (ADR-0130) revertido. Migracion dual
+  AddDerivedTables. Validado: build Release, snapshots EF PG+SQL consistentes, integracion dual DerivedTable 16/16.
+- Bump 0.16.218 -> 0.16.219 para que el footer confirme el deploy (el merge no habia subido version). Se despliega
+  a prod por la via rapida (GHCR + actualizar-en-linux.sh); AddDerivedTables se aplica al arranque.
+
 ## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1) [DESPLEGADO]
 
 - DESPLEGADO a prod (10.0.0.3) via rapida (GHCR + actualizar-en-linux.sh): prod pasa de v0.16.213 -> v0.16.218.

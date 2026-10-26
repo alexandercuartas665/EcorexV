@@ -12,8 +12,10 @@
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.DataContainers
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
 @implements IDisposable
 @inject IDataModelService ModelSvc
+@inject IDataContainerPortabilityService Portability
 @inject IDataContainerService ContainerSvc
 @inject IDataImportConfigService ConfigSvc
 @inject IApiImportService ApiSvc
@@ -52,10 +54,19 @@
     <div style="display:flex;gap:8px;align-items:center;">
         @if (_canCreate)
         {
+            <label class="btn btn-outline-secondary" style="margin:0;cursor:pointer;" title="Importar la definicion de un contenedor desde un archivo JSON (estructura, conectores y programacion; sin datos ni credenciales)">
+                Importar contenedor
+                <InputFile OnChange="ImportContainerAsync" accept=".json" style="display:none;" />
+            </label>
             <button class="btn btn-primary" @onclick="OpenCreate">+ Nuevo contenedor</button>
         }
     </div>
 </div>
+
+@if (_importNote is not null)
+{
+    <div class="dc-flash-ok" style="margin-bottom:10px;">@_importNote</div>
+}
 
 @if (_loading)
 {
@@ -82,6 +93,8 @@ else
                 <div class="dc-card-meta">@m.TableCount tablas &#183; @m.RelationCount relaciones &#183; act. @m.UpdatedAt.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</div>
                 <div class="dc-card-actions">
                     <button class="btn btn-sm btn-primary" @onclick="() => OpenModelAsync(m.Id)">Abrir</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ExportContainerAsync(m.Id)" disabled="@_busy"
+                            title="Exportar la definicion a JSON (estructura, conectores y programacion; sin datos ni credenciales)">Exportar</button>
                     @if (_canDelete)
                     {
                         <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteModelAsync(m.Id, m.Name)" disabled="@_busy">Eliminar</button>
@@ -1731,6 +1744,54 @@ else
 
     // ---------- Lista ----------
     private Task ReloadListAsync() => GuardAsync(async () => _models = (await ModelSvc.ListAsync()).ToList());
+
+    // ---------- Exportar / importar la definicion del contenedor (ADR-0132) ----------
+    private string? _importNote;
+
+    /// <summary>Descarga la definicion del contenedor como JSON (estructura + conectores + programacion,
+    /// sin datos ni credenciales), reusando el mismo helper de descarga que el export a Excel.</summary>
+    private async Task ExportContainerAsync(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _pageError = null;
+        _importNote = null;
+        try
+        {
+            var res = await Portability.ExportAsync(id);
+            if (res is null) { _pageError = "No se pudo exportar el contenedor."; return; }
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", res.FileName,
+                Convert.ToBase64String(res.Bytes), "application/json");
+        }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Importa un paquete JSON como un contenedor NUEVO (ids nuevos, nombre unico). No trae datos ni
+    /// credenciales: los avisos dicen que conectores/destino hay que re-capturar.</summary>
+    private async Task ImportContainerAsync(InputFileChangeEventArgs e)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _pageError = null;
+        _importNote = null;
+        try
+        {
+            var file = e.File;
+            if (file is null) { return; }
+            const long max = 8L * 1024 * 1024;
+            if (file.Size > max) { _pageError = "El archivo es muy grande (maximo 8 MB)."; return; }
+            using var reader = new StreamReader(file.OpenReadStream(max));
+            var json = await reader.ReadToEndAsync();
+            var result = await Portability.ImportAsync(json, _actor);
+            _models = (await ModelSvc.ListAsync()).ToList();
+            _importNote = result.Warnings.Count == 0
+                ? $"Contenedor '{result.Model.Name}' importado."
+                : $"Contenedor '{result.Model.Name}' importado con {result.Warnings.Count} aviso(s): {string.Join(" ", result.Warnings)}";
+        }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    }
 
     private void OpenCreate()
     {

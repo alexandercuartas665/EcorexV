@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (worktree contenedores, SIN merge ni deploy)
+
+- QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:
+  tablas/columnas/submodelos/derivadas, relaciones, conectores y procesos) e "Importar contenedor" (InputFile
+  .json) que crea un contenedor NUEVO. NO exporta datos (filas) ni secretos (credenciales): de cada
+  fuente/destino solo viaja un flag "tenia credenciales" + aviso de re-captura.
+- COMO: IDataContainerPortabilityService (Application) + DataContainerPortabilityContracts (paquete tipado
+  ContainerPackage con formatVersion). Referencias por CLAVES locales (t1/c1) y nombre de columna, no por
+  GUID; al importar se crean ids nuevos y se remapea todo en UNA transaccion; nombre unico en el tenant. La
+  receta de las derivadas se guarda por clave/nombre y se reconstruye el DerivationSpec con ids nuevos (si la
+  fuente es de otro contenedor, se casa por nombre; si no, conector inactivo + aviso). Procesos cuya fuente
+  tenia credenciales entran INACTIVOS; los de derivadas (sin secreto) activos. SIN migracion.
+- UI: ContenedorDatos.razor - "Exportar" reusa ecorexDcCanvas.downloadBase64 (mime application/json);
+  "Importar contenedor" via InputFile; banner de aviso con el resultado.
+- PRUEBAS: round-trip dual PG+SQL Server (DataContainerPortabilityTests): estructura + relacion + derivada
+  remapeada a ids nuevos + SIN datos + SIN secretos + aviso de re-captura. Build + format verdes. Validado en
+  vivo en 5267: export de ALEGRA (JSON 7.4KB, sin secretos) e import -> "ALEGRA (importado)" con sus 4 tablas
+  y las 2 derivadas.
+- Rama worktree-contenedores (worktree .claude/worktrees/contenedores). NO merge, NO deploy, pendiente OK del usuario.
+
 ## 2026-10-26 - v0.16.224: formularios - presentacion ASISTENTE (wizard) para el contenedor Tabs
 
 - Un contenedor Tabs se puede pintar como WIZARD (asistente paso a paso) en vez de pestanas, activable por config

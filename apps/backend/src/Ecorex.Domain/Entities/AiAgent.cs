@@ -93,4 +93,13 @@ public class AiAgent : TenantEntity
     /// <summary>Cursor de rotacion del reparto round-robin (<see cref="AssigneeUserIdsJson"/>): indice del
     /// PROXIMO usuario de la lista a asignar. Avanza (modulo el tamano de la lista) en cada asignacion.</summary>
     public int AssigneeCursor { get; set; }
+
+    /// <summary>
+    /// CONCEPTO (ActividadSubcategoria 000270) POR DEFECTO que el agente adjunta a las tareas que crea con
+    /// crear_tarea. FK logica a actividad_subcategorias (SET NULL al borrar; no cascade). Nullable =
+    /// retrocompatibilidad: agente sin default se comporta EXACTO como hoy (tarea sin concepto, sin checklist).
+    /// Con un concepto fijado (y valido, mismo tenant, no archivado), CreateAsync siembra el checklist del
+    /// concepto (ActividadSubcategoria.Chequeo). El tablero sigue siendo el que elige el agente.
+    /// </summary>
+    public Guid? DefaultSubcategoriaId { get; set; }
 }

@@ -1085,6 +1085,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.CierreJson).HasColumnType(jsonColumnType);
             b.Property(x => x.ReactivacionJson).HasColumnType(jsonColumnType);
             b.Property(x => x.AssigneeUserIdsJson).HasColumnType(jsonColumnType);
+            // Concepto por defecto de las tareas del agente (FK logica a actividad_subcategorias; SET NULL al
+            // borrar el concepto, nunca cascade). Nullable -> retrocompatible.
+            b.HasOne<ActividadSubcategoria>()
+                .WithMany()
+                .HasForeignKey(x => x.DefaultSubcategoriaId)
+                .OnDelete(DeleteBehavior.SetNull);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 

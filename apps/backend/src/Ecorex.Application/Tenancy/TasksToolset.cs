@@ -244,6 +244,22 @@ public sealed class TasksToolset : ITasksToolset
         // (con usuario vinculado). No todos los asesores entran: solo los que tienen la marca.
         var asignado = await PickNextAssigneeAsync(ct);
 
+        // Concepto "Fijo por agente": si el agente tiene un concepto por defecto y valida (mismo tenant via filtro
+        // global + no archivado), se adjunta como SubcategoriaId para que CreateAsync siembre el checklist del
+        // concepto (ActividadSubcategoria.Chequeo). Null o no valido = comportamiento actual (sin concepto). El
+        // tablero sigue siendo el que eligio el agente (BoardId explicito gana sobre el del concepto).
+        Guid? defaultSubcatId = null;
+        if (AiToolRunContext.AgentId is Guid agentCtxId)
+        {
+            var defSub = await _db.AiAgents.AsNoTracking()
+                .Where(a => a.Id == agentCtxId).Select(a => a.DefaultSubcategoriaId).FirstOrDefaultAsync(ct);
+            if (defSub is Guid subId
+                && await _db.ActividadSubcategorias.AsNoTracking().AnyAsync(s => s.Id == subId && !s.IsArchived, ct))
+            {
+                defaultSubcatId = subId;
+            }
+        }
+
         var req = new CreateTaskItemRequest(
             Title: titulo!.Trim(),
             ActivityTypeId: tipoId,
@@ -256,6 +272,7 @@ public sealed class TasksToolset : ITasksToolset
             RequesterEmail: clienteEmail,
             RequesterPhone: clienteTelefono,
             RequesterDocument: clienteIdentificacion,
+            SubcategoriaId: defaultSubcatId,
             ConversationId: conversationId);
 
         var res = await _tasks.CreateAsync(req, actor, ActorName, ct);

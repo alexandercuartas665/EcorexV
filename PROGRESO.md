@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.228: agentes - concepto por defecto (crear_tarea siembra el checklist) (ADR-0134)
+
+Hand-off de la sesion de agentes: la tarea que crea el agente al cerrar/ganar un lead nacia SIN checklist por
+defecto. Raiz: `crear_tarea` (TasksToolset) armaba el request SIN SubcategoriaId -> el concepto llegaba null en
+CreateAsync y el checklist (ActividadSubcategoria.Chequeo del 000270) nunca se sembraba. Confirmado en prod EPRING
+(100% de las tareas del agente con subcategoria_id NULL). Solucion (concepto "Fijo por agente", ADR-0134):
+
+- DOMINIO: AiAgent.DefaultSubcategoriaId (Guid?, nullable). FK logica a actividad_subcategorias, OnDelete SET NULL.
+  Migracion DUAL AddAiAgentDefaultSubcategoria (PG 20261026204751 + SQL 20261026205013): columna + indice + FK.
+  Retrocompatible (null = comportamiento actual).
+- CABLEADO en crear_tarea: antes de armar el request, si el agente (AiToolRunContext.AgentId) tiene
+  DefaultSubcategoriaId y el concepto existe, es del mismo tenant (filtro global) y no esta archivado, se pasa como
+  SubcategoriaId. Null/invalido = sin concepto (no rompe el alta). Se MANTIENE BoardId del agente (el tablero del
+  concepto solo se hereda si BoardId es null). CreateAsync siembra el checklist solo (no se toco el bloque de siembra).
+- UI self-serve: editor del agente (Agentes.razor) con desplegable "Concepto por defecto de las tareas"
+  (conceptos no archivados del tenant + "(ninguno)"), enlazado a DefaultSubcategoriaId, guardado con el agente.
+- DTOs: AiAgentDto + UpdateAiAgentRequest + Map + UpdateAsync. Build Release OK (solo locks de copia DLL del server
+  dev), unitarios OK (Domain 35, Application 1144), snapshots PG+SQL consistentes.
+- Config (lo hace la sesion de agentes): fijar ai_agents.default_subcategoria_id del agente EPRING al concepto
+  "Nuevo lead" (01a0cfca...), o desde la UI; validar por el emulador que la tarea nace con ~30 items.
+
 ## 2026-10-26 - v0.16.227: formularios - iconos por bloque en el Lienzo + control "Asistente IA (llenar campos)"
 
 Dos hand-offs del junior de formularios:

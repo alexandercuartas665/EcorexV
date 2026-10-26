@@ -847,6 +847,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("DefaultSubcategoriaId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("default_subcategoria_id");
+
                     b.Property<string>("DisabledToolsJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("disabled_tools_json");
@@ -924,6 +928,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_ai_agents");
+
+                    b.HasIndex("DefaultSubcategoriaId")
+                        .HasDatabaseName("ix_ai_agents_default_subcategoria_id");
 
                     b.HasIndex("TenantId", "SortOrder")
                         .HasDatabaseName("ix_ai_agents_tenant_id_sort_order");
@@ -18421,6 +18428,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_activity_types_workflow_definitions_workflow_definition_id");
 
                     b.Navigation("WorkflowDefinition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultSubcategoriaId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_agents_actividad_subcategorias_default_subcategoria_id");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgentCacheField", b =>

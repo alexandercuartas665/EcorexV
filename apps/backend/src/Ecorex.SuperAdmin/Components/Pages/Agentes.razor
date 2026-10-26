@@ -6,6 +6,7 @@
 @using Ecorex.Domain.Enums
 @inject IAiAgentService AgentsSvc
 @inject ITaskBoardService BoardsSvc
+@inject Ecorex.Application.Actividades.IActividadCatalogoService ConceptosSvc
 @inject IEnumerable<IAgentToolset> Toolsets
 @inject IAiAgentCacheService CacheSvc
 @inject IAiServerConfigService AiServersSvc
@@ -771,6 +772,19 @@ else
                     </div>
 
                     <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="field">
+                        <label class="form-label">Concepto por defecto de las tareas</label>
+                        <select class="form-control" value="@(_fDefaultSubcatId?.ToString() ?? "")" @onchange="@(e => _fDefaultSubcatId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)" disabled="@_busy">
+                            <option value="">(ninguno)</option>
+                            @foreach (var c in _conceptos)
+                            {
+                                <option value="@c.Id">@c.Nombre</option>
+                            }
+                        </select>
+                        <div class="text-muted" style="font-size:12px;margin-top:6px;">Cuando el agente crea una tarea (crear_tarea), le adjunta ESTE concepto (000270) para que nazca con su <strong>checklist por defecto</strong>. Vacio = sin concepto (como hoy). El tablero sigue siendo el que elige el agente.</div>
+                    </div>
+
+                    <hr style="border-color:var(--border);margin:14px 0;" />
                     <div class="ag-accordion">
                         <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleAssignees">
                             <span class="ag-accordion-chev @(_assigneesOpen ? "open" : "")">&#9656;</span>
@@ -1378,6 +1392,11 @@ else
     private List<TenantUserDto> _assigneeUsers = new();
     private List<Guid> _fAssigneeUserIds = new();
 
+    // Concepto (ActividadSubcategoria 000270) por defecto de las tareas que crea el agente (crear_tarea).
+    // Vacio = sin concepto (comportamiento actual). El concepto aporta el checklist por defecto.
+    private List<Ecorex.Application.Actividades.ActividadSubcategoriaDto> _conceptos = new();
+    private Guid? _fDefaultSubcatId;
+
     // Reacciones automaticas (emoji) a los mensajes del cliente, sin pasar por el LLM (cero tokens).
     private bool _reactionsOpen;
     private bool _fReactionsEnabled;
@@ -1488,6 +1507,9 @@ else
         _phoneLines = (await LinesSvc.ListAsync()).Where(l => l.Status == WhatsAppLineStatus.Connected).ToList();
         _phoneLineId = _phoneLines.FirstOrDefault()?.Id ?? Guid.Empty;
         _allBoards = (await BoardsSvc.ListBoardsAsync()).ToList(); // no archivados; para la whitelist por agente
+        // Conceptos (000270) no archivados: para el "Concepto por defecto" del agente (aporta el checklist).
+        _conceptos = (await ConceptosSvc.ListSubcategoriasAsync(includeArchived: false))
+            .OrderBy(c => c.Nombre).ToList();
         await ReloadAsync();
         _loading = false;
     }
@@ -1540,6 +1562,7 @@ else
         _boardsOpen = false;
         _fAssigneeUserIds = new();
         _assigneesOpen = false;
+        _fDefaultSubcatId = null;
         _reactionsOpen = false;
         _fReactionsEnabled = false;
         _fReactionN = 3;
@@ -1602,6 +1625,7 @@ else
         _boardsOpen = false;
         _fAssigneeUserIds = (detail.Agent.AssigneeUserIds ?? Array.Empty<Guid>()).ToList();
         _assigneesOpen = false;
+        _fDefaultSubcatId = detail.Agent.DefaultSubcategoriaId;
         _fReactionsEnabled = detail.Agent.ReactionsEnabled;
         _fReactionN = detail.Agent.ReactionRatioN;
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;
@@ -2404,7 +2428,7 @@ else
             }
             else
             {
-                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList(), _fAssigneeUserIds.ToList()), actor);
+                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList(), _fAssigneeUserIds.ToList(), _fDefaultSubcatId), actor);
                 await ReloadVersionsAsync(_editId.Value);
             }
             await ReloadAsync();

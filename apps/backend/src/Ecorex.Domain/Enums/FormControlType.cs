@@ -121,5 +121,14 @@ public enum FormControlType
     /// (<c>AiIntakeConfig</c>): agente, prompt, grilla destino, accept, max, modo. No captura valor por si mismo
     /// (escribe en la grilla destino). Al FINAL del enum para preservar los ordinales.
     /// </summary>
-    AiIntake
+    AiIntake,
+
+    /// <summary>
+    /// LIENZO DE BLOQUES (preset Business Model Canvas): grilla de bloques con etiqueta + texto editable. El autor
+    /// define los bloques (id/label/posicion/span/acento + source opcional); BMC es un preset de 9 bloques. Captura
+    /// valor: un objeto JSON { blockId: texto } en FormResponse.Data (reportable). Con 'source' (field codes del
+    /// mismo formulario) el bloque se pre-llena concatenando esas respuestas y queda editable. NO es el Canvas
+    /// (croquis/dibujo) de la OT. Al FINAL del enum para preservar los ordinales.
+    /// </summary>
+    LienzoBloques
 }

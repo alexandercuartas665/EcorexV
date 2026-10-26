@@ -632,3 +632,19 @@
     .dfr-wiz-step .dfr-wiz-name { display: none; }    /* en movil solo el numero/check */
     .dfr-wiz-step.active .dfr-wiz-name { display: inline; }
 }
+
+/* ===== Lienzo de bloques (preset BMC): grilla de bloques editable (ADR-0133) ===== */
+.dfr-lienzo { display: grid; gap: 10px; grid-auto-rows: minmax(120px, auto); }
+.dfr-lb-card {
+    border: 1px solid var(--line, rgba(20,20,25,.1)); border-radius: 12px; padding: 12px;
+    background: var(--surface, #fff); min-width: 0; display: flex; flex-direction: column; gap: 8px;
+}
+.dfr-lb-card.accent { border-color: var(--brand, #2563eb); background: var(--brand-soft, #eef2ff); }
+.dfr-lb-title { font-size: .9rem; font-weight: 700; margin: 0; color: var(--ink, #1b1b1e); }
+.dfr-lb-text { flex: 1; min-height: 72px; resize: vertical; font-size: .86rem; }
+
+/* Movil: una sola columna (cada bloque ocupa toda la fila; se ignoran los spans). */
+@media (max-width: 760px) {
+    .dfr-lienzo { grid-template-columns: 1fr !important; }
+    .dfr-lb-card { grid-column: auto !important; grid-row: auto !important; }
+}

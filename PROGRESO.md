@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.226: formularios - control "Lienzo de bloques" (preset Business Model Canvas)
+
+- Nuevo tipo de control FormControlType.LienzoBloques: una grilla de bloques con etiqueta + texto editable
+  (p.ej. un Business Model Canvas). El autor define los bloques (id/etiqueta/posicion col-fila/span/acento +
+  origen opcional); BMC es un PRESET de 9 bloques en la disposicion canonica. Captura valor: un objeto JSON
+  { bloque: texto } en FormResponse.Data (REPORTABLE, no es display-only). NO es el Canvas (croquis/dibujo) de la OT.
+- 'source' (field codes del mismo formulario) pre-llena el bloque concatenando esas respuestas y queda editable
+  (AutoComposeLienzos en la carga, respeta lo ya escrito y el modo bloqueado).
+- Self-serve en FormDesigner: tarjeta en la paleta + opcion en el selector de tipo + vista de diseno (mini-grilla)
+  + editor de config: boton "Preset BMC", columnas de la grilla, y por bloque etiqueta/acento/col/fila/ancho/alto +
+  mapeo de Origen (field codes por coma, con la lista de campos disponibles). Agregar/quitar bloques.
+- Config en OptionsJson raiz {preset,columns,blocks} (LienzoBloquesConfig.Parse/Serialize/Bmc). SIN MIGRACION
+  (enum es codigo; el valor es dato de formulario). Build Release verde, unitarios OK (Domain 35, Application 1144),
+  sin cambios de modelo en PG ni SQL. Primer consumidor CANVAS-EMP (BITCODE): el junior agrega una pestana "Lienzo"
+  y mapea el origen por bloque. ADR-0133. Fuera de alcance: exportar/imprimir el lienzo.
+
 ## 2026-10-26 - v0.16.225: integridad de respuestas de formulario (soft-delete + auditoria + guards)
 
 - Raiz de un caso en prod (T00521 AGRO): una cotizacion ENVIADA y aprobada se perdio sin rastro porque

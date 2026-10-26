@@ -655,6 +655,8 @@ else
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
+                // Lienzo de bloques: pre-llena bloques con 'source' desde las respuestas del formulario (si vacios).
+                AutoComposeLienzos();
                 // Maestro-detalle (ola F5): registros hijos de los subformularios.
                 await LoadSubformChildrenAsync();
                 // Gestiones por fila (ADR-0085): conteos para los badges de las pildoras.
@@ -1288,12 +1290,90 @@ else
                 @* Asistente de requerimiento (IA, imagen/PDF -> tabla): dropzone + preview + aplicar. *@
                 @RenderAiIntake(q)
                 break;
+            case FormControlType.LienzoBloques:
+                @* Lienzo de bloques (preset BMC): grilla de bloques con etiqueta + texto editable. *@
+                @RenderLienzo(q, value)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
                 break;
         }
     };
+
+    // ===== Lienzo de bloques (preset BMC): grilla de bloques con etiqueta + texto editable (ADR-0133) =====
+    private RenderFragment RenderLienzo(FormQuestionDto q, string? value) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+        var vals = ParseLienzoValues(value);
+        <div class="dfr-lienzo" style="grid-template-columns:repeat(@cfg.Columns,minmax(0,1fr));">
+            @foreach (var blk in cfg.Blocks)
+            {
+                var block = blk;
+                var text = vals.GetValueOrDefault(block.Id) ?? "";
+                var accent = string.Equals(block.Accent, Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary, StringComparison.OrdinalIgnoreCase) ? "accent" : "";
+                <article class="dfr-lb-card @accent" style="grid-column:@block.Col / span @block.ColSpan; grid-row:@block.Row / span @block.RowSpan;">
+                    <h4 class="dfr-lb-title">@block.Label</h4>
+                    <textarea class="form-control dfr-lb-text" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
+                              @onchange="@(e => SetLienzoBlockAsync(q, block.Id, e.Value?.ToString()))">@text</textarea>
+                </article>
+            }
+        </div>
+    };
+
+    // Valor del campo Lienzo en Data: objeto JSON { blockId: texto }.
+    private static Dictionary<string, string> ParseLienzoValues(string? value)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(value)) { return d; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                {
+                    if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String) { d[p.Name] = p.Value.GetString() ?? ""; }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* valor corrupto -> vacio */ }
+        return d;
+    }
+
+    private async Task SetLienzoBlockAsync(FormQuestionDto q, string blockId, string? text)
+    {
+        var vals = ParseLienzoValues(_values.GetValueOrDefault(q.FieldCode));
+        vals[blockId] = text ?? "";
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(vals));
+    }
+
+    // Auto-componer: pre-llena los bloques con 'source' (concatena respuestas del formulario) si aun estan vacios.
+    // Conecta entrevista -> lienzo sin re-teclear; el usuario lo refina. Respeta lo ya escrito. Corre una vez al cargar.
+    private void AutoComposeLienzos()
+    {
+        if (_definition is null || !IsEditableMode || IsLocked) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques))
+        {
+            var cfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+            if (cfg.Blocks.All(b => b.Source.Count == 0)) { continue; }
+            var vals = ParseLienzoValues(_values.GetValueOrDefault(q.FieldCode));
+            var any = false;
+            foreach (var b in cfg.Blocks)
+            {
+                if (b.Source.Count == 0 || !string.IsNullOrWhiteSpace(vals.GetValueOrDefault(b.Id))) { continue; }
+                var composed = string.Join("\n", b.Source
+                    .Select(fc => _values.GetValueOrDefault(fc))
+                    .Where(v => !string.IsNullOrWhiteSpace(v))!);
+                if (!string.IsNullOrWhiteSpace(composed)) { vals[b.Id] = composed; any = true; }
+            }
+            if (any)
+            {
+                _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(vals);
+                _dirty = true;
+            }
+        }
+    }
 
     // Documentos de la TAREA (campo TaskDocuments): VISOR embebido (iframe PDF / imagen) + tira de miniaturas
     // para cambiar. Solo lectura; se ve el contenido del documento desde el propio formulario.

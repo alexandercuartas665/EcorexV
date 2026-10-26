@@ -6414,9 +6414,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
-                    b.Property<string>("HiddenSurfacesJson")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("hidden_surfaces_json");
+                    b.Property<bool>("FillFreeWidth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("fill_free_width");
 
                     b.Property<bool>("InlineLabels")
                         .HasColumnType("boolean")

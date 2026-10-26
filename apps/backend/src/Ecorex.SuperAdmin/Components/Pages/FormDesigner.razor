@@ -1435,7 +1435,7 @@ else
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
-        c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson, c.HiddenSurfacesJson);
+        c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson, c.FillFreeWidth);
 
     private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
     {
@@ -2761,6 +2761,14 @@ else
                                     @onclick="@(() => AddContainerUnitAsync(node.C!))">+ Asignar</button>
                         </div>
                     </div>
+                }
+                @* Layout responsivo: si una seccion HERMANA de su fila se oculta (por salida en el conciliador,
+                   por condicional, etc.), esta seccion crece para ocupar el ancho libre (hasta 12). *@
+                @if (node.IsContainer)
+                {
+                    @RenderToggleRow("Ocupar el ancho libre", "Si una seccion hermana de su fila se oculta, esta crece (hasta 12) para llenar el espacio",
+                        node.C!.FillFreeWidth,
+                        () => PatchContainerAsync(node.C!, r => r with { FillFreeWidth = !node.C!.FillFreeWidth }))
                 }
                 @* Nota: ocultar secciones por modulo (ej. autorizacion-compras-dian) se configura en el CONCILIADOR
                    (Configuracion -> Salidas, por salida), no aqui, porque depende de la salida/regla que use el form. *@

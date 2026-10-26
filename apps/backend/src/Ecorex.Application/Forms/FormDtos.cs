@@ -33,9 +33,8 @@ public sealed record FormContainerDto(
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
     string? VisibleWhenJson = null,
-    // Ocultar la seccion en ciertas superficies/modulos donde se renderiza el mismo form (JSON arreglo de claves,
-    // p.ej. ["autorizacion"]). Null/vacio = visible en todas.
-    string? HiddenSurfacesJson = null);
+    // Crecer para ocupar el ancho libre de su fila si una seccion hermana se oculta (layout del formulario).
+    bool FillFreeWidth = false);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -150,9 +149,8 @@ public sealed record SaveFormContainerRequest(
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
     string? VisibleWhenJson = null,
-    // Ocultar la seccion en ciertas superficies/modulos donde se renderiza el mismo form (JSON arreglo de claves,
-    // p.ej. ["autorizacion"]). Null/vacio = visible en todas.
-    string? HiddenSurfacesJson = null);
+    // Crecer para ocupar el ancho libre de su fila si una seccion hermana se oculta (layout del formulario).
+    bool FillFreeWidth = false);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el

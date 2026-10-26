@@ -135,9 +135,11 @@ else
            columnas de nivel superior (p.ej. datos | visor) como en el disenador. Los de ancho 12 ocupan la fila
            completa (se apilan). El gap lo maneja el grid (sin desbordes). *@
         <div class="dfr-toplevel">
-            @foreach (var container in ChildrenOf(null))
+            @* TopLevelLayout() devuelve SOLO las secciones visibles con su span EFECTIVO: si un hermano de su fila
+               se oculta y la seccion tiene "ocupar el ancho libre" (FillFreeWidth), crece para llenar el hueco. *@
+            @foreach (var (container, span) in TopLevelLayout())
             {
-                <div class="dfr-top-cell" style="grid-column: span @(container.Width is >= 1 and <= 12 ? container.Width : 12);">
+                <div class="dfr-top-cell" style="grid-column: span @span;">
                     @RenderContainer(container)
                 </div>
             }
@@ -3947,6 +3949,46 @@ else
     // uno decide que secciones no mostrar. Sin lista -> no oculta nada.
     private bool IsContainerHidden(FormContainerDto c)
         => HiddenContainerIds is { Count: > 0 } && HiddenContainerIds.Contains(c.Id);
+
+    private static int WidthOf(FormContainerDto c) => c.Width is >= 1 and <= 12 ? c.Width : 12;
+    // Una seccion de nivel superior esta oculta por el disenador, por visibilidad condicional, o por el caller.
+    private bool IsTopHidden(FormContainerDto c)
+        => c.IsHidden || !IsContainerVisibleByValue(c) || IsContainerHidden(c);
+
+    // Layout del NIVEL SUPERIOR con reacomodo responsivo: agrupa las secciones en filas por ancho (como el wrap de
+    // la grilla de 12) y, en cada fila, reparte el ancho que dejan libre las secciones OCULTAS entre las visibles
+    // que tengan "ocupar el ancho libre" (FillFreeWidth). Devuelve (seccion visible, span efectivo 1..12); las
+    // ocultas no se devuelven (no dejan celda vacia).
+    private IReadOnlyList<(FormContainerDto C, int Span)> TopLevelLayout()
+    {
+        var tops = ChildrenOf(null).ToList();
+        var result = new List<(FormContainerDto, int)>();
+        var i = 0;
+        while (i < tops.Count)
+        {
+            var row = new List<FormContainerDto>();
+            var acc = 0;
+            while (i < tops.Count)
+            {
+                var w = WidthOf(tops[i]);
+                if (row.Count > 0 && acc + w > 12) { break; }
+                row.Add(tops[i]); acc += w; i++;
+                if (acc >= 12) { break; }
+            }
+            var visibles = row.Where(c => !IsTopHidden(c)).ToList();
+            if (visibles.Count == 0) { continue; }
+            var libre = row.Where(IsTopHidden).Sum(WidthOf);
+            var flex = visibles.Where(c => c.FillFreeWidth).ToList();
+            var span = visibles.ToDictionary(c => c.Id, WidthOf);
+            if (libre > 0 && flex.Count > 0)
+            {
+                var each = libre / flex.Count; var rem = libre % flex.Count;
+                for (var k = 0; k < flex.Count; k++) { span[flex[k].Id] += each + (k < rem ? 1 : 0); }
+            }
+            foreach (var c in visibles) { result.Add((c, Math.Clamp(span[c.Id], 1, 12))); }
+        }
+        return result;
+    }
 
     /// <summary>FieldCodes que quedan OCULTOS al enviar (para que el servidor no los exija): union de los
     /// ocultos por regla (runtime) MAS los ocultos por visibilidad condicional por valor (campos y todo el

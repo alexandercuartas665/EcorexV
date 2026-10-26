@@ -301,7 +301,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             InlineLabels = request.InlineLabels,
             AllowedCargosJson = Normalize(request.AllowedCargosJson),
             VisibleWhenJson = Normalize(request.VisibleWhenJson),
-            HiddenSurfacesJson = Normalize(request.HiddenSurfacesJson)
+            FillFreeWidth = request.FillFreeWidth
         };
         _db.FormContainers.Add(container);
         TouchRevision(definition);
@@ -358,7 +358,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         container.InlineLabels = request.InlineLabels;
         container.AllowedCargosJson = Normalize(request.AllowedCargosJson);
         container.VisibleWhenJson = Normalize(request.VisibleWhenJson);
-        container.HiddenSurfacesJson = Normalize(request.HiddenSurfacesJson);
+        container.FillFreeWidth = request.FillFreeWidth;
         await TouchRevisionAsync(container.DefinitionId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<FormContainerDto>.Ok(ToDto(container));
@@ -947,7 +947,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     private static FormContainerDto ToDto(FormContainer c)
         => new(c.Id, c.Name, c.ContainerType, c.ParentId, c.SortOrder, c.Style,
             c.TabsJson, c.Width, c.IsLocked, c.IsHidden, c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson,
-            c.HiddenSurfacesJson);
+            c.FillFreeWidth);
 
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,

@@ -60,11 +60,10 @@ public class FormContainer : TenantEntity
     public string? VisibleWhenJson { get; set; }
 
     /// <summary>
-    /// Ocultar la SECCION (y su subarbol) en ciertas SUPERFICIES/modulos donde se renderiza el MISMO formulario.
-    /// JSON = arreglo de claves de superficie (p.ej. ["autorizacion"]). El renderer recibe su superficie actual
-    /// (DynamicFormRenderer.Surface) y, si esta en la lista, no pinta la seccion. Null/vacio = visible en todas.
-    /// Asi un mismo formulario se reusa en varios modulos ocultando lo que no aplica (ej: el visor de documentos
-    /// en autorizacion-compras-dian, donde el PDF ya se ve aparte).
+    /// Si una seccion HERMANA de su fila se OCULTA (por cualquier motivo: por salida, condicional, etc.), esta
+    /// seccion CRECE para ocupar el ancho libre de la fila (hasta 12). Es config de LAYOUT del formulario; el
+    /// renderer lo resuelve al pintar el nivel superior. Ej: "Fila" (ancho 4) junto a "Visor" (ancho 8): si se
+    /// oculta el Visor y "Fila" tiene esto activo, "Fila" pasa a ocupar 12.
     /// </summary>
-    public string? HiddenSurfacesJson { get; set; }
+    public bool FillFreeWidth { get; set; }
 }

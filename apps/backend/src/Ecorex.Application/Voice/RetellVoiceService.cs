@@ -100,6 +100,14 @@ public sealed class RetellVoiceService : IRetellVoiceService
 
         // 5) Colocar la llamada.
         var dyn = BuildDynamicVariables(request.ContactVariables, request.Objetivo);
+        // Variables EXTRA (p.ej. las que el humano da en la prueba para los {{placeholders}} del prompt).
+        if (request.ExtraDynamicVariables is { Count: > 0 })
+        {
+            foreach (var kv in request.ExtraDynamicVariables)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Value)) { dyn[kv.Key] = kv.Value!.Trim(); }
+            }
+        }
         var sipHeaders = string.IsNullOrWhiteSpace(cfg.SipUsername)
             ? null
             : new Dictionary<string, string> { ["X-Telnyx-Username"] = cfg.SipUsername! };
@@ -157,6 +165,68 @@ public sealed class RetellVoiceService : IRetellVoiceService
             TranscriptText: vc.TranscriptText,
             RecordingUrl: vc.RecordingUrl,
             AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson));
+    }
+
+    public async Task<VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default)
+    {
+        var line = await _db.RetellVoiceLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return null; }
+
+        // MODO SIMPLE: la linea trae un Agent ID ya armado en Retell -> leemos su config real (voz/idioma/prompt).
+        if (!string.IsNullOrWhiteSpace(line.RetellAgentId))
+        {
+            if (string.IsNullOrEmpty(line.RetellApiKeyEncrypted))
+            {
+                return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(),
+                    "La linea no tiene API key configurada; no se puede leer el agente de Retell.");
+            }
+            string apiKey;
+            try { apiKey = _protector.Unprotect(line.RetellApiKeyEncrypted); }
+            catch { return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(), "La API key de Retell no se pudo descifrar."); }
+
+            var agent = await _retell.GetAgentAsync(apiKey, line.RetellAgentId!.Trim(), cancellationToken);
+            if (!agent.Ok)
+            {
+                return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(),
+                    $"No se pudo leer el agente de Retell: {agent.Error}");
+            }
+            string? prompt = null, model = null;
+            if (!string.IsNullOrWhiteSpace(agent.LlmId))
+            {
+                var llm = await _retell.GetLlmAsync(apiKey, agent.LlmId!, cancellationToken);
+                if (llm.Ok) { prompt = llm.GeneralPrompt; model = llm.Model; }
+            }
+            return new VoiceTestAgentInfoDto("simple", agent.VoiceId ?? line.VoiceId, agent.Language ?? line.Language, model, prompt,
+                ExtractPromptVariables(prompt),
+                "En modo simple el prompt lo controla Retell: no se puede cambiar por llamada, pero las variables si se rellenan.");
+        }
+
+        // MODO COMPUESTO: ECOREX arma el prompt al vuelo (AiAgent + prompt adicional + objetivo). No hay agente fijo.
+        var systemPrompt = "";
+        if (aiAgentId is Guid agentId)
+        {
+            systemPrompt = await _db.AiAgents.AsNoTracking()
+                .Where(a => a.Id == agentId).Select(a => a.SystemPrompt).FirstOrDefaultAsync(cancellationToken) ?? "";
+        }
+        var composed = ComposePrompt(systemPrompt, promptExtra, objetivo);
+        var voiceId = string.IsNullOrWhiteSpace(line.VoiceId) ? DefaultVoiceId : line.VoiceId;
+        var language = string.IsNullOrWhiteSpace(line.Language) ? "es-419" : line.Language;
+        return new VoiceTestAgentInfoDto("compuesto", voiceId, language, null, composed, ExtractPromptVariables(composed), null);
+    }
+
+    private static readonly Regex PromptVar = new(@"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", RegexOptions.Compiled);
+
+    /// <summary>Nombres de variables {{...}} que aparecen en el prompt (distintas, en orden de aparicion).</summary>
+    public static IReadOnlyList<string> ExtractPromptVariables(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) { return Array.Empty<string>(); }
+        var seen = new List<string>();
+        foreach (Match m in PromptVar.Matches(prompt))
+        {
+            var name = m.Groups[1].Value;
+            if (!seen.Contains(name, StringComparer.OrdinalIgnoreCase)) { seen.Add(name); }
+        }
+        return seen;
     }
 
     /// <summary>Saca un resumen legible del call_analysis (call_summary + exito + sentimiento) para la UI. Best-effort.</summary>

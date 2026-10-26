@@ -22,4 +22,10 @@ public interface IRetellApiClient
 
     /// <summary>Validacion liviana de la key (sin colocar llamadas ni costo).</summary>
     Task<RetellPingResult> PingAsync(string apiKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Lee un agente (GET /get-agent/{id}): voz, idioma, llm_id. Para previsualizar su config en la prueba.</summary>
+    Task<RetellGetAgentResult> GetAgentAsync(string apiKey, string agentId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lee un Response Engine (GET /get-retell-llm/{id}): general_prompt y modelo. Para previsualizar el prompt.</summary>
+    Task<RetellGetLlmResult> GetLlmAsync(string apiKey, string llmId, CancellationToken cancellationToken = default);
 }

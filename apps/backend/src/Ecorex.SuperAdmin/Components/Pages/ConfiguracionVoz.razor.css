@@ -99,3 +99,28 @@
     border-radius: 50%; display: inline-block; animation: cv-spin .8s linear infinite;
 }
 @keyframes cv-spin { to { transform: rotate(360deg); } }
+
+/* Seccion Agente (preview voz/idioma/modelo/prompt) */
+.cv-agent {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f8fafc);
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.cv-agent-head { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
+.cv-agent-head strong { color: var(--ink); }
+.cv-linkbtn {
+    border: 0; background: transparent; cursor: pointer; color: var(--primary, #4f46e5);
+    font-size: .78rem; font-weight: 600; padding: 0; margin-left: auto;
+}
+.cv-linkbtn:disabled { opacity: .5; cursor: default; }
+.cv-agent-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--ink-3); }
+.cv-agent-prompt summary { cursor: pointer; font-size: .8rem; color: var(--ink-2, #5c5c66); font-weight: 600; }
+.cv-agent-prompt .cv-transcript { margin-top: 6px; max-height: 180px; }
+
+/* Variables dinamicas */
+.cv-var-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cv-var-key {
+    font-family: ui-monospace, monospace; font-size: .78rem; color: var(--ink-2, #5c5c66);
+    background: var(--surface-3, #f2f2f3); border-radius: 6px; padding: 3px 8px; white-space: nowrap; min-width: 92px;
+}
+.cv-var-add { display: flex; gap: 8px; margin-top: 8px; }
+.cv-var-add .form-control { max-width: 220px; }

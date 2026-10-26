@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.222: config voz - ver agente (prompt/voz/idioma/modelo) + variables dinamicas editables en la prueba
+
+- El modal de prueba deja de ser caja negra: muestra el AGENTE que atendera. En modo simple (linea con Agent ID)
+  LEE de Retell el agente + su LLM (GET /get-agent, GET /get-retell-llm) y muestra voz, idioma, modelo y el prompt
+  (general_prompt). En modo compuesto muestra el prompt que armaria ECOREX (AiAgent + prompt adicional + objetivo).
+- Variables dinamicas: detecta los {{placeholders}} del prompt y pinta un input por cada uno (+ agregar manuales);
+  sus valores se mandan como retell_llm_dynamic_variables en la llamada de prueba (antes solo iba {objetivo}).
+  Boton "Actualizar" para re-leer el agente tras cambiar objetivo/prompt (modo compuesto).
+- Backend: IRetellApiClient +GetAgentAsync/+GetLlmAsync (RetellApiClient GET con lectura anidada response_engine.
+  llm_id); IRetellVoiceService.GetTestAgentInfoAsync + VoiceTestAgentInfoDto (modo/voz/idioma/modelo/prompt/vars/
+  warning); ExtractPromptVariables (regex {{...}}); VoicePlaceCallRequest +ExtraDynamicVariables (merge a dyn en
+  PlaceCallAsync). Sin migracion. Build Release verde, unitarios OK.
+
 ## 2026-10-26 - v0.16.221: config voz - prueba por LINEA (modal) + grabacion/transcripcion/analisis
 
 - Modulo /config-voz: la prueba deja de ser una caja global que usa la linea por defecto y pasa a ser una ACCION

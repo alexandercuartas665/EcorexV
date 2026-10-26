@@ -15,7 +15,10 @@ public sealed record VoicePlaceCallRequest(
     Guid? ContactWorkflowRunId = null,
     // Linea de voz a usar. Null = se elige la por defecto (o la primera habilitada+configurada).
     // La prueba por tarjeta la fija para probar una linea CONCRETA.
-    Guid? RetellVoiceLineId = null);
+    Guid? RetellVoiceLineId = null,
+    // Variables dinamicas EXTRA (clave->valor) que se mandan tal cual a Retell (retell_llm_dynamic_variables),
+    // ademas de las del contacto. La prueba por linea las usa para rellenar los {{placeholders}} del prompt.
+    IReadOnlyDictionary<string, string>? ExtraDynamicVariables = null);
 
 /// <summary>Resultado de colocar la llamada. Retryable = fallo transitorio (5xx/red); un 4xx NUNCA es retryable.</summary>
 public sealed record VoicePlaceCallResult(bool Placed, string? CallId, string? Error, bool Retryable);
@@ -32,6 +35,17 @@ public sealed record VoiceCallResultDto(
     string? RecordingUrl,
     string? AnalysisSummary);
 
+/// <summary>Previsualizacion del agente que atendera la prueba de una linea: modo (simple/compuesto), voz,
+/// idioma, modelo, prompt y las variables {{...}} detectadas en el prompt (para que el humano les de valor).</summary>
+public sealed record VoiceTestAgentInfoDto(
+    string Mode,
+    string? VoiceId,
+    string? Language,
+    string? Model,
+    string? Prompt,
+    IReadOnlyList<string> Variables,
+    string? Warning);
+
 public interface IRetellVoiceService
 {
     /// <summary>Coloca una llamada saliente para el tenant ambiente. No hace deduplicacion (eso lo garantiza
@@ -41,4 +55,9 @@ public interface IRetellVoiceService
     /// <summary>Estado/resultado de una llamada del tenant por su call_id (para refrescar la UI de prueba).
     /// Null si no existe (o no es del tenant). Se va completando a medida que llegan los webhooks.</summary>
     Task<VoiceCallResultDto?> GetCallResultAsync(string callId, CancellationToken cancellationToken = default);
+
+    /// <summary>Previsualiza el agente que usaria la prueba de una linea: en modo simple (la linea trae Agent ID)
+    /// LEE el agente+LLM de Retell; en modo compuesto arma el prompt que compondria ECOREX. Devuelve voz/idioma/
+    /// modelo/prompt y las variables {{...}} detectadas. Null si la linea no existe/no es del tenant.</summary>
+    Task<VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default);
 }

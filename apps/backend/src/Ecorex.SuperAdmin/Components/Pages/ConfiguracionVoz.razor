@@ -202,6 +202,58 @@ else
                         }
                     </div>
 
+                    @* ---- Agente (voz/idioma/modelo/prompt) que correra, leido de Retell (modo simple) o compuesto ---- *@
+                    <div class="cv-agent">
+                        <div class="cv-agent-head">
+                            <strong>Agente</strong>
+                            @if (_agentBusy) { <span class="cv-spin"></span> }
+                            <button type="button" class="cv-linkbtn" @onclick="RefreshAgentAsync" disabled="@(_agentBusy || _testBusy)">Actualizar</button>
+                        </div>
+                        @if (_agentInfo is not null)
+                        {
+                            <div class="cv-agent-meta">
+                                <span>@(_agentInfo.Mode == "simple" ? "Agente Retell propio" : "Compuesto por ECOREX")</span>
+                                @if (!string.IsNullOrWhiteSpace(_agentInfo.VoiceId)) { <span>voz: @_agentInfo.VoiceId</span> }
+                                @if (!string.IsNullOrWhiteSpace(_agentInfo.Language)) { <span>idioma: @_agentInfo.Language</span> }
+                                @if (!string.IsNullOrWhiteSpace(_agentInfo.Model)) { <span>modelo: @_agentInfo.Model</span> }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_agentInfo.Warning)) { <div class="cv-test-note">@_agentInfo.Warning</div> }
+                            @if (!string.IsNullOrWhiteSpace(_agentInfo.Prompt))
+                            {
+                                <details class="cv-agent-prompt">
+                                    <summary>Ver prompt del agente</summary>
+                                    <div class="cv-transcript">@_agentInfo.Prompt</div>
+                                </details>
+                            }
+                        }
+                        else if (!_agentBusy)
+                        {
+                            <div class="cv-test-note">No se pudo cargar la info del agente (revisa la API key / Agent ID de la linea).</div>
+                        }
+                    </div>
+
+                    @* ---- Variables dinamicas: {{...}} detectadas en el prompt + manuales. Se mandan a Retell. ---- *@
+                    <div class="field">
+                        <label class="form-label">Variables</label>
+                        @if (_testVars.Count == 0)
+                        {
+                            <div class="cv-test-note">El prompt no declara variables {{ }}. Si tu agente usa alguna, agregala abajo.</div>
+                        }
+                        @foreach (var key in _testVars.Keys.ToList())
+                        {
+                            <div class="cv-var-row">
+                                <span class="cv-var-key">@key</span>
+                                <input class="form-control" value="@_testVars[key]" disabled="@_testBusy"
+                                       placeholder="valor"
+                                       @onchange="e => _testVars[key] = e.Value?.ToString() ?? string.Empty" />
+                            </div>
+                        }
+                        <div class="cv-var-add">
+                            <input class="form-control" @bind="_newVarKey" placeholder="nueva variable (sin llaves)" disabled="@_testBusy" />
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddVar" disabled="@_testBusy">+ Agregar</button>
+                        </div>
+                    </div>
+
                     @if (_testErr is not null) { <p style="color:var(--danger);font-weight:600;margin:0;">@_testErr</p> }
 
                     @if (_testResult is not null)
@@ -349,19 +401,55 @@ else
     private string? _testErr;
     private VoiceCallResultDto? _testResult;
     private CancellationTokenSource? _pollCts;
+    private VoiceTestAgentInfoDto? _agentInfo;
+    private bool _agentBusy;
+    private readonly Dictionary<string, string> _testVars = new(StringComparer.OrdinalIgnoreCase);
+    private string _newVarKey = "";
 
-    private void OpenTest(RetellVoiceLineDto l)
+    private async Task OpenTest(RetellVoiceLineDto l)
     {
         CancelPoll();
         _testLine = l; _testTo = ""; _testObjetivo = "Llamada de prueba"; _testPrompt = null;
         _testErr = null; _testResult = null; _testBusy = false;
+        _agentInfo = null; _testVars.Clear(); _newVarKey = "";
         _testOpen = true;
+        await LoadAgentInfoAsync();
+    }
+
+    // Lee la config del agente (modo simple: de Retell; compuesto: prompt armado) y siembra las variables {{...}}.
+    private async Task LoadAgentInfoAsync()
+    {
+        if (_testLine is null) { return; }
+        _agentBusy = true;
+        try
+        {
+            _agentInfo = await CallSvc.GetTestAgentInfoAsync(_testLine.Id, aiAgentId: null, promptExtra: _testPrompt, objetivo: _testObjetivo);
+            if (_agentInfo is not null)
+            {
+                foreach (var v in _agentInfo.Variables)
+                {
+                    if (!_testVars.ContainsKey(v)) { _testVars[v] = ""; }   // conserva valores ya escritos
+                }
+            }
+        }
+        catch (Exception ex) { _testErr = "No se pudo leer el agente: " + ex.Message; }
+        finally { _agentBusy = false; }
+    }
+
+    private Task RefreshAgentAsync() => LoadAgentInfoAsync();
+
+    private void AddVar()
+    {
+        var k = (_newVarKey ?? "").Trim().Trim('{', '}', ' ');
+        if (k.Length > 0 && !_testVars.ContainsKey(k)) { _testVars[k] = ""; }
+        _newVarKey = "";
     }
 
     private void CloseTest()
     {
         CancelPoll();
         _testOpen = false; _testLine = null; _testResult = null; _testErr = null;
+        _agentInfo = null; _testVars.Clear(); _newVarKey = "";
     }
 
     private async Task LaunchTestAsync()
@@ -375,6 +463,9 @@ else
         _testBusy = true; _testResult = null;
         try
         {
+            var extraVars = _testVars
+                .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.Trim(), StringComparer.OrdinalIgnoreCase);
             var req = new VoicePlaceCallRequest(
                 ToNumber: to, AiAgentId: null,
                 PromptExtra: string.IsNullOrWhiteSpace(_testPrompt) ? null : _testPrompt,
@@ -382,7 +473,8 @@ else
                 FormulariosPermitidos: Array.Empty<Guid>(),
                 ContactVariables: new Dictionary<string, string?>(),
                 ContactWorkflowRunId: null,
-                RetellVoiceLineId: _testLine.Id);
+                RetellVoiceLineId: _testLine.Id,
+                ExtraDynamicVariables: extraVars.Count > 0 ? extraVars : null);
             var r = await CallSvc.PlaceCallAsync(req);
             if (!r.Placed || string.IsNullOrEmpty(r.CallId))
             {

@@ -593,3 +593,42 @@
     .dfr-spinner { animation-duration: 1.6s; }
     .dfr-aimodal, .dfr-aimodal-back, .dfr-aimodal-dots span { animation: none; }
 }
+
+/* ===== Presentacion ASISTENTE (wizard) de un contenedor Tabs ===== */
+.dfr-wiz { }
+.dfr-wiz-grid { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
+.dfr-wiz-side { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 8px; }
+.dfr-wiz-step {
+    display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+    border: 1px solid var(--line, rgba(20,20,25,.08)); background: var(--surface, #fff);
+    border-radius: 10px; padding: 9px 12px; cursor: pointer; color: var(--ink-2, #5c5c66);
+    font-size: .86rem; font-weight: 600; transition: border-color .12s, background .12s;
+}
+.dfr-wiz-step:hover:not(:disabled) { border-color: var(--brand, #2563eb); }
+.dfr-wiz-step:disabled { cursor: default; opacity: .75; }
+.dfr-wiz-step .dfr-wiz-n {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 24px; height: 24px; border-radius: 50%; font-size: .78rem; font-weight: 700;
+    background: var(--surface-3, #f2f2f3); color: var(--ink-3, #a2a2ac);
+}
+.dfr-wiz-step.active { border-color: var(--brand, #2563eb); background: var(--brand-soft, #eef2ff); color: var(--ink, #1b1b1e); }
+.dfr-wiz-step.active .dfr-wiz-n { background: var(--brand, #2563eb); color: #fff; }
+.dfr-wiz-step.done { color: var(--ink, #1b1b1e); }
+.dfr-wiz-step.done .dfr-wiz-n { background: var(--success, var(--t-green, #059669)); color: #fff; }
+.dfr-wiz-name { overflow: hidden; text-overflow: ellipsis; }
+
+.dfr-wiz-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.dfr-wiz-prog { display: flex; justify-content: space-between; gap: 10px; font-size: .82rem; color: var(--ink-3, #a2a2ac); font-weight: 600; }
+.dfr-wiz-bar { height: 6px; border-radius: 999px; background: var(--surface-3, #f2f2f3); overflow: hidden; }
+.dfr-wiz-bar > span { display: block; height: 100%; background: var(--brand, #2563eb); border-radius: 999px; transition: width .2s ease; }
+.dfr-wiz-panel { min-width: 0; }
+.dfr-wiz-nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line, rgba(20,20,25,.08)); }
+
+/* Movil: el stepper lateral colapsa a una fila con scroll horizontal. */
+@media (max-width: 680px) {
+    .dfr-wiz-grid { grid-template-columns: 1fr; gap: 12px; }
+    .dfr-wiz-side { flex-direction: row; overflow-x: auto; position: static; padding-bottom: 4px; gap: 8px; }
+    .dfr-wiz-step { width: auto; flex: 0 0 auto; }
+    .dfr-wiz-step .dfr-wiz-name { display: none; }    /* en movil solo el numero/check */
+    .dfr-wiz-step.active .dfr-wiz-name { display: inline; }
+}

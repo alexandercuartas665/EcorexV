@@ -2704,7 +2704,16 @@ else
         @if (node.IsContainer && node.C!.ContainerType == FormContainerType.Tabs)
         {
             <div class="fb-field">
-                <label>Pestanas</label>
+                <label>Presentacion</label>
+                <select class="fb-select" value="@TabsPresentationOf(node.C)"
+                        @onchange="@(e => SetTabsPresentationAsync(node.C!, e.Value?.ToString() ?? "tabs"))">
+                    <option value="tabs">Pestanas (tabbar)</option>
+                    <option value="wizard">Asistente (wizard paso a paso)</option>
+                </select>
+                <small style="color:var(--ink-3);">En "Asistente" las mismas secciones se recorren paso a paso (stepper + Anterior/Siguiente + validacion por paso).</small>
+            </div>
+            <div class="fb-field">
+                <label>Pasos / pestanas</label>
                 @RenderChipList(TabsOf(node.C), "var(--t-amber)",
                     (i, v) => PatchTabsAsync(node.C!, i, v),
                     i => PatchTabsAsync(node.C!, i, null),
@@ -4141,19 +4150,17 @@ else
 
     private static List<string> TabsOf(FormContainerDto c)
     {
+        // TabsJson admite forma legacy (arreglo) u objeto {tabs,presentation}; el parser unico lo resuelve.
         if (string.IsNullOrWhiteSpace(c.TabsJson))
         {
             return new List<string> { "Pestana 1", "Pestana 2" };
         }
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(c.TabsJson) ?? new List<string>();
-        }
-        catch (JsonException)
-        {
-            return new List<string>();
-        }
+        return Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Tabs.ToList();
     }
+
+    // Presentacion del contenedor Tabs: "tabs" (pestanas) o "wizard" (asistente). Default "tabs".
+    private static string TabsPresentationOf(FormContainerDto c)
+        => Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Presentation;
 
     private async Task PatchTabsAsync(FormContainerDto c, int index, string? value)
     {
@@ -4170,7 +4177,15 @@ else
         {
             tabs[index] = value;
         }
-        await PatchContainerAsync(c, r => r with { TabsJson = JsonSerializer.Serialize(tabs) });
+        // Conserva la presentacion elegida al editar los nombres.
+        var pres = Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Presentation;
+        await PatchContainerAsync(c, r => r with { TabsJson = Ecorex.Application.Forms.FormTabsConfig.Serialize(tabs, pres) });
+    }
+
+    private async Task SetTabsPresentationAsync(FormContainerDto c, string presentation)
+    {
+        var tabs = TabsOf(c);
+        await PatchContainerAsync(c, r => r with { TabsJson = Ecorex.Application.Forms.FormTabsConfig.Serialize(tabs, presentation) });
     }
 
     private static List<string> OptionLabels(FormQuestionDto q)

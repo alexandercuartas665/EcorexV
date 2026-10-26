@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.224: formularios - presentacion ASISTENTE (wizard) para el contenedor Tabs
+
+- Un contenedor Tabs se puede pintar como WIZARD (asistente paso a paso) en vez de pestanas, activable por config
+  y sin romper los forms existentes. Pasos = hijos directos del Tabs (nombres de TabsJson). Stepper lateral
+  (activo/hecho ✓/pendiente, colapsa a scroll horizontal en movil) + barra de progreso "Paso X de N · %" +
+  Anterior/Siguiente (ultimo = Finalizar -> mismo envio que el boton Enviar). Clic en el stepper para volver atras.
+- Validacion POR PASO: al Siguiente valida los requeridos VISIBLES del paso (reusa FormFieldValidator, respeta
+  visible_when); el servidor valida todo igual al Finalizar. Mismo panel, asi que visible_when, cargo-readonly
+  (ADR-0082), autosave, /f/{token}, GridDetail y calculados siguen funcionando.
+- SIN MIGRACION: TabsJson admite forma objeto {tabs,presentation} ademas del arreglo legacy; parser unico
+  FormTabsConfig (Parse/Serialize) usado por renderer y disenador. Default "tabs" (forms actuales intactos).
+- FormDesigner: selector "Presentacion: Pestanas | Asistente" en el contenedor Tabs (self-serve). Primer consumidor
+  CANVAS-EMP (BITCODE); el junior activa el flag por SQL sobre su contenedor Tabs. Build Release verde, unitarios OK.
+
 ## 2026-10-26 - v0.16.223: config voz - la prueba muestra QUE LOGRO la llamada (exito + datos capturados)
 
 - El resultado de la prueba ahora muestra, ademas de grabacion/transcripcion/resumen: un badge de EXITO

@@ -59,20 +59,27 @@
         <div class="ac-col-list">
             <div class="ac-list-head">
                 <strong>Facturas por autorizar</strong>
-                <span class="ac-badge">@_items.Count</span>
+                <span class="ac-badge">@ItemsMostrados.Count</span>
             </div>
+            @if (_miTenantUserId is not null)
+            {
+                <label class="ac-mine" title="Muestra solo las facturas asignadas a ti (desde el conciliador)">
+                    <input type="checkbox" checked="@_soloMios" @onchange="OnSoloMiosChanged" />
+                    <span>Solo mis documentos (asignados a mi)</span>
+                </label>
+            }
             <div class="ac-list">
                 @if (_busy)
                 {
                     <div class="ac-muted" style="padding:16px 4px;">Cargando...</div>
                 }
-                else if (_items.Count == 0)
+                else if (ItemsMostrados.Count == 0)
                 {
-                    <div class="ac-muted" style="padding:16px 4px;">No hay facturas pendientes de autorizar con el filtro actual.</div>
+                    <div class="ac-muted" style="padding:16px 4px;">@(_soloMios && _miTenantUserId is not null ? "No tienes facturas asignadas pendientes de autorizar." : "No hay facturas pendientes de autorizar con el filtro actual.")</div>
                 }
                 else
                 {
-                    @foreach (var r in _items)
+                    @foreach (var r in ItemsMostrados)
                     {
                         <div class="ac-card @(_sel?.Id == r.Id ? "activa" : "")" @key="r.Id" @onclick="() => SelectAsync(r)">
                             <h5>@Txt(r.NombreProveedor)</h5>
@@ -234,6 +241,13 @@
     private ConciliacionDianRenglonDto? _sel;
     private bool _panelOpen;   // el detalle+formulario se muestra en modal (boton de la tarjeta), no como columna fija
 
+    // "Solo mis documentos": filtra las facturas a las asignadas al usuario actual (desde el conciliador). Por
+    // defecto ON al abrir el modulo. _miTenantUserId = TenantUser del usuario logueado (mapeo por PlatformUserId).
+    private bool _soloMios = true;
+    private Guid? _miTenantUserId;
+    private IReadOnlyList<ConciliacionDianRenglonDto> ItemsMostrados
+        => (_soloMios && _miTenantUserId is Guid me) ? _items.Where(r => r.AssignedTenantUserId == me).ToList() : _items;
+
     private bool _viewLoading;
     private List<StoredFileDto> _viewFiles = new();
     private StoredFileDto? _viewFile;
@@ -391,6 +405,10 @@
         _cfg = await Cfg.GetAsync();
         if (_cfg.FormDefinitionId is Guid fid) { _hiddenSecs = await Cfg.GetHiddenContainerIdsForFormAsync(fid); }
         _usuarios = (await Users.ListAsync()).ToList();
+        // Resolver el TenantUser del usuario actual (por PlatformUserId) para el filtro "solo mis documentos".
+        var actor = await ActorAsync();
+        _miTenantUserId = _usuarios.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
+        _soloMios = _miTenantUserId is not null;   // por defecto filtra a mis documentos si se pudo resolver
         await CargarAsync();
     }
 
@@ -407,14 +425,24 @@
         try
         {
             _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
-            // Si la seleccion ya no esta en la lista, se limpia; si no hay seleccion, se abre la primera.
-            if (_sel is not null && _items.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
-            if (_sel is null && _items.Count > 0) { await SelectAsync(_items[0]); }
+            // Si la seleccion ya no esta en la lista MOSTRADA (respeta "solo mios"), se limpia; si no hay, se abre la primera.
+            var vis = ItemsMostrados;
+            if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
+            if (_sel is null && vis.Count > 0) { await SelectAsync(vis[0]); }
         }
         finally { _busy = false; }
     }
 
     private async Task AplicarAsync() { _sel = null; await CargarAsync(); }
+
+    private async Task OnSoloMiosChanged(ChangeEventArgs e)
+    {
+        _soloMios = e.Value is bool b && b;
+        // Al cambiar el filtro, si la seleccion ya no esta en la lista mostrada se abre la primera de la nueva lista.
+        var vis = ItemsMostrados;
+        if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
+        if (_sel is null && vis.Count > 0) { await SelectAsync(vis[0]); }
+    }
     private async Task LimpiarAsync() { _texto = _desde = _hasta = string.Empty; _sel = null; await CargarAsync(); }
     private async Task OnFilterKey(KeyboardEventArgs e) { if (e.Key == "Enter") { await AplicarAsync(); } }
 

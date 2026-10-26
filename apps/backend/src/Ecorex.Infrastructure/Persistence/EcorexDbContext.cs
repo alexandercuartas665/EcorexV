@@ -153,6 +153,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FormContainer> FormContainers => Set<FormContainer>();
     public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();
+    public DbSet<FormResponseAudit> FormResponseAudits => Set<FormResponseAudit>();
     // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
@@ -1783,6 +1784,20 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()
                 .HasFilter(isNpgsql ? "record_number IS NOT NULL" : "[record_number] IS NOT NULL");
+            // Soft-delete (integridad): nunca DELETE fisico. El filtro global excluye IsDeleted.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Auditoria INMUTABLE de respuestas de formulario (integridad): append-only, tenant-scoped.
+        modelBuilder.Entity<FormResponseAudit>(b =>
+        {
+            b.Property(x => x.Reference).HasMaxLength(100);
+            b.Property(x => x.Note).HasMaxLength(500);
+            // Snapshot del jsonb anterior (jsonb en PG / nvarchar(max) en SQL Server).
+            b.Property(x => x.DataSnapshot).HasColumnType(jsonColumnType);
+            // Sin FK de navegacion dura: la respuesta puede soft-borrarse y el audit sobrevive.
+            b.HasIndex(x => new { x.TenantId, x.FormResponseId });
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
@@ -3680,13 +3695,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     {
         var applyMethod = typeof(EcorexDbContext)
             .GetMethod(nameof(ApplyTenantFilter), BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var applySoftDelete = typeof(EcorexDbContext)
+            .GetMethod(nameof(ApplyTenantSoftDeleteFilter), BindingFlags.NonPublic | BindingFlags.Instance)!;
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            if (typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType))
-            {
-                applyMethod.MakeGenericMethod(entityType.ClrType).Invoke(this, [modelBuilder]);
-            }
+            if (!typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType)) { continue; }
+            // Entidades con soft-delete: el filtro global excluye ademas las marcadas (IsDeleted).
+            var method = typeof(ISoftDeletable).IsAssignableFrom(entityType.ClrType) ? applySoftDelete : applyMethod;
+            method.MakeGenericMethod(entityType.ClrType).Invoke(this, [modelBuilder]);
         }
     }
 
@@ -3695,5 +3712,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     {
         // Fail-closed: si no hay tenant activo, TenantId del contexto es null y no devuelve filas.
         modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ApplyTenantSoftDeleteFilter<TEntity>(ModelBuilder modelBuilder)
+        where TEntity : class, ITenantScoped, ISoftDeletable
+    {
+        // Tenant (fail-closed) + excluye las soft-borradas. Para verlas/restaurarlas: IgnoreQueryFilters.
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId && !e.IsDeleted);
     }
 }

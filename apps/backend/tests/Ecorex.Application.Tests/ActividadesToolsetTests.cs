@@ -166,7 +166,8 @@ public class ActividadesToolsetTests
         public Task<IReadOnlyList<TaskGridRowsDto>> GetBoardTaskGridRowsAsync(Guid boardId, Guid formDefId, string gridFieldCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormResponseDto>> ReopenResponseAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, Guid? deletedByTenantUserId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RecordPdfSnapshotAsync(Guid responseId, string? note = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -345,6 +346,7 @@ public class ActividadesToolsetTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormResponseAudit> FormResponseAudits => throw new NotSupportedException();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
         public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
         public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();

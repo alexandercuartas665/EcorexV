@@ -3154,7 +3154,7 @@
         _busy = true;
         try
         {
-            var res = await FormResponsesSvc.DeleteRecordAsync(it.ResponseId);
+            var res = await FormResponsesSvc.DeleteRecordAsync(it.ResponseId, _actorTenantUserId);
             if (res.IsOk) { await ReloadAsync(_detail.Item.Id); }
             // Antes: si fallaba, no pasaba nada y el usuario no sabia por que. Ahora se muestra el motivo.
             else { await JS.InvokeVoidAsync("alert", res.Error ?? "No se pudo eliminar el formulario."); }

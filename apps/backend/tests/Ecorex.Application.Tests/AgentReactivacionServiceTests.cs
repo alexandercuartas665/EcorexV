@@ -221,6 +221,7 @@ public class AgentReactivacionServiceTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormResponseAudit> FormResponseAudits => throw new NotSupportedException();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
         public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
         public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();

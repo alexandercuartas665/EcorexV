@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.225: integridad de respuestas de formulario (soft-delete + auditoria + guards)
+
+- Raiz de un caso en prod (T00521 AGRO): una cotizacion ENVIADA y aprobada se perdio sin rastro porque
+  FormResponseService.DeleteRecordAsync hacia DELETE FISICO (sin soft-delete ni auditoria) y, al reabrir la tarea,
+  GetOrCreateDraft creaba un draft nuevo VACIO. Fix de codigo (1-4 del hand-off):
+  1. SOFT-DELETE en form_responses (IsDeleted/DeletedAt/DeletedByTenantUserId, ISoftDeletable): nunca DELETE fisico;
+     filtro global (tenant + !IsDeleted) via ApplyTenantSoftDeleteFilter. Se preserva el jsonb.
+  2. AUDITORIA inmutable tenant-scoped (tabla form_response_audits): Create/Submit/Delete/Void/PdfSnapshot con
+     actor, cuando, responseId, definicion, reference y SNAPSHOT del jsonb previo. (El autosave no se audita por fila.)
+  3. GUARDS: DeleteRecordAsync RECHAZA borrar una respuesta Submitted (enviada); GetOrCreateDraftAsync ABRE la
+     respuesta existente (enviada primero, luego borrador) en vez de crear un draft vacio que la tape.
+  4. Snapshot al GENERAR el PDF (QuoteDocumentRenderer -> RecordPdfSnapshotAsync), best-effort.
+- Callers (TaskDetailModal/FormModule) pasan el actor al borrar. MIGRACION DUAL AddFormResponseSoftDeleteAndAudit
+  (aditiva). Build Release verde, snapshots consistentes PG+SQL, unitarios OK.
+
 ## 2026-10-26 - v0.16.224: formularios - presentacion ASISTENTE (wizard) para el contenedor Tabs
 
 - Un contenedor Tabs se puede pintar como WIZARD (asistente paso a paso) en vez de pestanas, activable por config

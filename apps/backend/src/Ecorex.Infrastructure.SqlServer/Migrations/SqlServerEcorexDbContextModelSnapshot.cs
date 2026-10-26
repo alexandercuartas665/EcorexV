@@ -7098,6 +7098,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
                     b.Property<Guid?>("DerivedFromResponseId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("derived_from_response_id");
@@ -7107,6 +7115,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false)
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
@@ -7192,6 +7206,79 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
 
                     b.ToTable("form_responses", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormResponseAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("int")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorAiAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("actor_ai_agent_id");
+
+                    b.Property<Guid?>("ActorTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("actor_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DataSnapshot")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("data_snapshot");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("definition_id");
+
+                    b.Property<Guid>("FormResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("reference");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_response_audits");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_created_at");
+
+                    b.HasIndex("TenantId", "FormResponseId")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_form_response_id");
+
+                    b.ToTable("form_response_audits", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>

@@ -2050,11 +2050,24 @@ else
         await InvokeAsync(StateHasChanged);
         try
         {
-            // El registro debe existir y tener guardadas las respuestas que el asistente va a leer.
-            await SaveAsync(submit: false);
+            // El servicio lee el FormResponse PERSISTIDO por Id: hay que VOLCAR el borrador antes. En
+            // wizard + HideSubmitChrome el autosave periodico esta apagado (lo guarda el "Listo"/Finalizar),
+            // asi que sin este flush el row aun no existe/no esta actualizado (mismo gotcha de FlushDraftAsync
+            // de la ola HonorHideSubmitBar). Ademas garantiza que el agente vea lo recien escrito.
+            await FlushDraftAsync();
             if (_response is null) { _aiError[q.FieldCode] = "Guarda el registro antes de usar el asistente."; return; }
 
-            var res = await AiComposeSvc.ComposeAsync(_response.Id, q.FieldCode, SubmittedByTenantUserId ?? Guid.Empty);
+            // El servicio corre con el DbContext del circuito: toma el gate (sin "second operation") y fija el
+            // tenant ambiente del token en el visor publico /f/ (sin esto el HasQueryFilter oculta el row ->
+            // "El registro del formulario no existe").
+            Ecorex.Application.Forms.AiComposeResult res;
+            await _dbGate.WaitAsync();
+            try
+            {
+                using var ambient = BeginAmbient();
+                res = await AiComposeSvc.ComposeAsync(_response.Id, q.FieldCode, SubmittedByTenantUserId ?? Guid.Empty);
+            }
+            finally { _dbGate.Release(); }
             if (!res.Ok) { _aiError[q.FieldCode] = res.Error ?? "El asistente no pudo proponer valores."; return; }
             if (res.Fields.Count == 0 && res.Blocks.Count == 0) { _aiError[q.FieldCode] = "El asistente no propuso valores."; return; }
 

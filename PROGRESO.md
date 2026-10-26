@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.229: fix AiCompose en /f/ - FlushDraft + tenant ambiente (gotcha HonorHideSubmitBar)
+
+Validacion de la sesion de formularios (appout-bmc en /f/, CANVAS-EMP BITCODE): iconos y el control AiCompose
+RENDERIZAN OK, pero el boton "Armar lienzo con IA" fallaba con "El registro del formulario no existe". Dos causas
+en DynamicFormRenderer.OnAiComposeClickAsync:
+1. Llamaba SaveAsync(submit:false) pero el servicio lee el FormResponse PERSISTIDO por Id; se cambia a
+   FlushDraftAsync() (canonico de la ola HonorHideSubmitBar) para volcar el borrador antes (en wizard+HideSubmitChrome
+   el autosave periodico esta apagado) y asi el agente ve lo recien escrito.
+2. La llamada a ComposeAsync corria SIN el tenant ambiente: en el visor publico /f/ anonimo el HasQueryFilter
+   ocultaba el row -> "no existe". Ahora se envuelve en `using var ambient = BeginAmbient()` + `_dbGate` (como el
+   resto de llamadas a servicio del renderer). Solo UI (DynamicFormRenderer); sin migracion. Iconos + render del
+   control: aprobados por la sesion de formularios; pendiente revalidar la llamada real al agente Gemini.
+
 ## 2026-10-26 - v0.16.228: agentes - concepto por defecto (crear_tarea siembra el checklist) (ADR-0134)
 
 Hand-off de la sesion de agentes: la tarea que crea el agente al cerrar/ganar un lead nacia SIN checklist por

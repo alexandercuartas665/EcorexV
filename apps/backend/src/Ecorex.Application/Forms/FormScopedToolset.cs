@@ -23,15 +23,21 @@ public sealed class FormScopedToolset
 
     private readonly IReadOnlyList<FormQuestionDto> _grids;
     private readonly HashSet<string> _scalarFields;
+    private readonly IReadOnlyList<(string Field, HashSet<string> Blocks)> _lienzos;
     private readonly int _maxRows;
     private readonly List<(string Grid, Dictionary<string, string> Row)> _rows = new();
     private readonly Dictionary<string, string> _fields = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, string>> _blocks = new(StringComparer.OrdinalIgnoreCase);
 
     public FormScopedToolset(FormDefinitionDetailDto def, int maxRows)
     {
         _grids = def.Questions.Where(q => q.ControlType == FormControlType.GridDetail).ToList();
         _scalarFields = def.Questions.Where(q => ScalarInputs.Contains(q.ControlType))
             .Select(q => q.FieldCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _lienzos = def.Questions.Where(q => q.ControlType == FormControlType.LienzoBloques)
+            .Select(q => (q.FieldCode, LienzoBloquesConfig.Parse(q.OptionsJson).Blocks
+                .Select(b => b.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)))
+            .ToList();
         _maxRows = Math.Max(1, maxRows);
     }
 
@@ -40,8 +46,25 @@ public sealed class FormScopedToolset
         _rows.Select(r => (r.Grid, (IReadOnlyDictionary<string, string>)r.Row)).ToList();
     /// <summary>Campos simples (cabecera) propuestos por el agente.</summary>
     public IReadOnlyDictionary<string, string> ProposedFields => _fields;
+    /// <summary>Bloques de lienzo propuestos por el agente: lienzo(field_code) -> { blockId: texto }.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ProposedBlocks =>
+        _blocks.ToDictionary(k => k.Key, v => (IReadOnlyDictionary<string, string>)v.Value, StringComparer.OrdinalIgnoreCase);
 
-    public IReadOnlyList<AiToolSpec> GetSpecs() => new[]
+    public IReadOnlyList<AiToolSpec> GetSpecs()
+    {
+        var specs = new List<AiToolSpec>(Specs);
+        // set_bloque solo se ofrece cuando el formulario tiene al menos un control LienzoBloques (no ensucia AiIntake).
+        if (_lienzos.Count > 0)
+        {
+            specs.Add(new AiToolSpec("set_bloque",
+                "PROPONE el texto de un BLOQUE de un Lienzo de ESTE formulario (NO escribe aun; el humano confirma). " +
+                "'lienzo' es el field_code del control de lienzo y 'block' el id del bloque. Llama una vez por bloque.",
+                """{"type":"object","properties":{"lienzo":{"type":"string"},"block":{"type":"string"},"valor":{"type":"string"}},"required":["lienzo","block","valor"],"additionalProperties":false}"""));
+        }
+        return specs;
+    }
+
+    private static readonly AiToolSpec[] Specs =
     {
         new AiToolSpec("get_grid_schema",
             "Devuelve el ESQUEMA de columnas de una grilla de ESTE formulario: por columna el colId, label, tipo, " +
@@ -69,6 +92,7 @@ public sealed class FormScopedToolset
                 "get_grid_schema" => GetGridSchema(a),
                 "rellenar_tabla" => RellenarTabla(a),
                 "set_campo" => SetCampo(a),
+                "set_bloque" => SetBloque(a),
                 _ => Err($"Herramienta desconocida: {name}")
             };
         }
@@ -141,6 +165,21 @@ public sealed class FormScopedToolset
         if (!_scalarFields.Contains(field!)) { return Err($"'{field}' no es un campo simple de este formulario."); }
         _fields[field!] = valor ?? "";
         return Ok(new { ok = true, field, valor });
+    }
+
+    private AgentToolResult SetBloque(JsonElement a)
+    {
+        var lienzo = Str(a, "lienzo")?.Trim();
+        var block = Str(a, "block")?.Trim();
+        var valor = Str(a, "valor");
+        if (string.IsNullOrWhiteSpace(lienzo)) { return Err("Falta 'lienzo'."); }
+        if (string.IsNullOrWhiteSpace(block)) { return Err("Falta 'block'."); }
+        var lz = _lienzos.FirstOrDefault(l => string.Equals(l.Field, lienzo, StringComparison.OrdinalIgnoreCase));
+        if (lz.Field is null) { return Err($"'{lienzo}' no es un lienzo de este formulario. Lienzos: {string.Join(", ", _lienzos.Select(l => l.Field))}."); }
+        if (!lz.Blocks.Contains(block!)) { return Err($"El bloque '{block}' no existe en el lienzo '{lienzo}'. Bloques: {string.Join(", ", lz.Blocks)}."); }
+        if (!_blocks.TryGetValue(lz.Field, out var map)) { map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); _blocks[lz.Field] = map; }
+        map[block!] = valor ?? "";
+        return Ok(new { ok = true, lienzo = lz.Field, block });
     }
 
     private int CountRows(string grid) => _rows.Count(r => string.Equals(r.Grid, grid, StringComparison.OrdinalIgnoreCase));

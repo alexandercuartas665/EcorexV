@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Ecorex.Application.Forms;
 
-/// <summary>Un bloque del Lienzo: etiqueta + posicion en la grilla + acento + mapeo de origen opcional.</summary>
+/// <summary>Un bloque del Lienzo: etiqueta + posicion en la grilla + acento + mapeo de origen + icono opcional.</summary>
 public sealed record LienzoBlock(
     string Id,
     string Label,
@@ -11,7 +11,8 @@ public sealed record LienzoBlock(
     int Row,
     int ColSpan,
     int RowSpan,
-    IReadOnlyList<string> Source);
+    IReadOnlyList<string> Source,
+    string? Icon = null);
 
 /// <summary>
 /// Config del control "Lienzo de bloques" (FormControlType.LienzoBloques), guardada en FormQuestion.OptionsJson y
@@ -53,7 +54,8 @@ public sealed record LienzoBloquesConfig(string? Preset, int Columns, IReadOnlyL
                         Row: IntOr(b, "row", 1),
                         ColSpan: Math.Max(1, IntOr(b, "colSpan", 1)),
                         RowSpan: Math.Max(1, IntOr(b, "rowSpan", 1)),
-                        Source: ReadStrings(b, "source")));
+                        Source: ReadStrings(b, "source"),
+                        Icon: NullIfBlank(Str(b, "icon"))));
                 }
             }
             if (blocks.Count == 0) { return Bmc(); }
@@ -68,7 +70,7 @@ public sealed record LienzoBloquesConfig(string? Preset, int Columns, IReadOnlyL
         {
             preset = cfg.Preset,
             columns = cfg.Columns,
-            blocks = cfg.Blocks.Select(b => new { id = b.Id, label = b.Label, accent = b.Accent, col = b.Col, row = b.Row, colSpan = b.ColSpan, rowSpan = b.RowSpan, source = b.Source })
+            blocks = cfg.Blocks.Select(b => new { id = b.Id, label = b.Label, accent = b.Accent, col = b.Col, row = b.Row, colSpan = b.ColSpan, rowSpan = b.RowSpan, source = b.Source, icon = b.Icon })
         });
 
     /// <summary>Preset Business Model Canvas: 9 bloques en la disposicion canonica (grilla de 10 columnas internas
@@ -77,21 +79,22 @@ public sealed record LienzoBloquesConfig(string? Preset, int Columns, IReadOnlyL
     {
         var b = new List<LienzoBlock>
         {
-            new("partners",   "Socios clave",            null,          1, 1, 2, 2, Array.Empty<string>()),
-            new("activities", "Actividades clave",       null,          3, 1, 2, 1, Array.Empty<string>()),
-            new("resources",  "Recursos clave",          null,          3, 2, 2, 1, Array.Empty<string>()),
-            new("value",      "Propuesta de valor",      AccentPrimary, 5, 1, 2, 2, Array.Empty<string>()),
-            new("relations",  "Relaciones",              null,          7, 1, 2, 1, Array.Empty<string>()),
-            new("channels",   "Canales",                 null,          7, 2, 2, 1, Array.Empty<string>()),
-            new("segments",   "Segmentos de clientes",   null,          9, 1, 2, 2, Array.Empty<string>()),
-            new("costs",      "Estructura de costos",    null,          1, 3, 5, 1, Array.Empty<string>()),
-            new("revenue",    "Fuentes de ingresos",     null,          6, 3, 5, 1, Array.Empty<string>()),
+            new("partners",   "Socios clave",            null,          1, 1, 2, 2, Array.Empty<string>(), "handshake"),
+            new("activities", "Actividades clave",       null,          3, 1, 2, 1, Array.Empty<string>(), "activity"),
+            new("resources",  "Recursos clave",          null,          3, 2, 2, 1, Array.Empty<string>(), "box"),
+            new("value",      "Propuesta de valor",      AccentPrimary, 5, 1, 2, 2, Array.Empty<string>(), "star"),
+            new("relations",  "Relaciones",              null,          7, 1, 2, 1, Array.Empty<string>(), "heart"),
+            new("channels",   "Canales",                 null,          7, 2, 2, 1, Array.Empty<string>(), "truck"),
+            new("segments",   "Segmentos de clientes",   null,          9, 1, 2, 2, Array.Empty<string>(), "users"),
+            new("costs",      "Estructura de costos",    null,          1, 3, 5, 1, Array.Empty<string>(), "trending-down"),
+            new("revenue",    "Fuentes de ingresos",     null,          6, 3, 5, 1, Array.Empty<string>(), "trending-up"),
         };
         return new LienzoBloquesConfig("bmc", 10, b);
     }
 
     private static string? Str(JsonElement o, string name)
         => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
     private static int IntOr(JsonElement o, string name, int fallback)
         => o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : fallback;
     private static IReadOnlyList<string> ReadStrings(JsonElement o, string name)

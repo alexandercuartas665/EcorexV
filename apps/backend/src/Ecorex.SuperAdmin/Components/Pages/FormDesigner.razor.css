@@ -610,8 +610,9 @@
 .fb-prev-lb {
     border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface);
     padding: 6px 8px; font-size: 11px; font-weight: 600; color: var(--ink-2);
-    display: flex; align-items: flex-start; min-height: 32px;
+    display: flex; align-items: flex-start; gap: 5px; min-height: 32px;
 }
+.fb-prev-lb-ico { display: inline-flex; flex: 0 0 auto; opacity: .8; }
 .fb-prev-lb.accent { border-color: var(--brand, #7c3aed); background: var(--brand-soft, #f5f3ff); color: var(--brand, #7c3aed); }
 .fb-lz-block {
     border: 1px solid var(--line-2); border-radius: 9px; padding: 8px; margin-bottom: 8px;

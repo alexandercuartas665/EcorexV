@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.227: formularios - iconos por bloque en el Lienzo + control "Asistente IA (llenar campos)"
+
+Dos hand-offs del junior de formularios:
+
+1. ICONOS POR BLOQUE en LienzoBloques (ADR-0133): LienzoBlock.Icon (opcional); set corto compartido
+   LienzoIcons (SVG inline con currentColor -> respeta tema). El preset BMC trae un icono por bloque
+   (handshake/activity/box/star/heart/truck/users/trending-down/trending-up). RenderLienzo pinta el icono junto
+   al titulo; FormDesigner: selector de icono por bloque (self-serve). Sin icono = como antes (solo titulo).
+
+2. CONTROL NUEVO FormControlType.AiCompose "Asistente IA (llenar campos)" (primo de AiIntake): en vez de subir
+   imagen/PDF, lee las respuestas ya capturadas del propio formulario (FormResponse.Data) y PROPONE valores para
+   CAMPOS y/o BLOQUES de un LienzoBloques (targets). Config en OptionsJson (AiComposeConfig): agente, prompt,
+   sources (field codes o todas), targets ({field} o {lienzo,block}), buttonLabel, confirm, model.
+   - FormScopedToolset extendido con set_bloque (analoga a set_campo, acotada a la definicion; solo se ofrece si el
+     form tiene un lienzo) + ProposedBlocks.
+   - FormAiComposeService (hermano de FormAiIntakeService): arma contexto "etiqueta: valor", invoca al agente con
+     tool loop (MaxToolRounds), recoge propuestas ACOTADAS a los targets, reusa cupo + AiUsageLog ("form-ai-compose").
+   - Renderer: boton (buttonLabel) + spinner + modal de propuesta (campo/bloque) con aplicar/descartar; con
+     confirm=false aplica directo. El control no captura valor (IsNonInput), escribe en los targets via SetValue
+     (recalcula). Respeta /f/, wizard, cupo, multi-tenant (toolset acotado a la definicion).
+   - FormDesigner: paleta + selector de tipo + vista de diseno + editor (agente, boton, prompt, sources, targets por
+     checkbox de campos y bloques del lienzo, confirm, model). Self-serve.
+   - Primer consumidor CANVAS-EMP: el junior agrega el control en la pestana del Lienzo, lo apunta al agente
+     "Analista de Modelo de Negocio (BMC)" y mapea los 9 targets a los bloques; crea el agente en /agentes con el
+     prompt base del hand-off.
+
+SIN MIGRACION (enum es codigo; config/valor son datos de formulario; has-pending-model-changes limpio). Build
+Release OK (solo locks de copia DLL del server dev corriendo), unitarios OK (Domain 35, Application 1144). E2E del
+AiCompose pendiente de validar con agente real en CANVAS-EMP (requiere agente + proveedor con tools).
+
 ## 2026-10-26 - v0.16.226: formularios - control "Lienzo de bloques" (preset Business Model Canvas)
 
 - Nuevo tipo de control FormControlType.LienzoBloques: una grilla de bloques con etiqueta + texto editable

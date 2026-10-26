@@ -148,6 +148,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormSignatureService, Forms.FormSignatureService>();
         services.AddScoped<Forms.IFormTextAssistService, Forms.FormTextAssistService>();
         services.AddScoped<Forms.IFormAiIntakeService, Forms.FormAiIntakeService>();
+        services.AddScoped<Forms.IFormAiComposeService, Forms.FormAiComposeService>();
         // Formularios avanzados (ola F1, doc 01 D4): lookup/autocompletado desde tablas del
         // tenant. Un adaptador por origen (Tercero, Item, DataContainer) + fachada que despacha.
         // Sumar una fuente = registrar otro IFormLookupSource, sin tocar consumidores.

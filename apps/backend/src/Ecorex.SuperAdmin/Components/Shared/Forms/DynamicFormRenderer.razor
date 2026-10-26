@@ -22,6 +22,7 @@
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
 @inject Ecorex.Application.Forms.IFormAiIntakeService AiIntakeSvc
+@inject Ecorex.Application.Forms.IFormAiComposeService AiComposeSvc
 @inject Ecorex.Application.Storage.IFileStorageService FileStore
 @inject NavigationManager Nav
 
@@ -1294,6 +1295,10 @@ else
                 @* Lienzo de bloques (preset BMC): grilla de bloques con etiqueta + texto editable. *@
                 @RenderLienzo(q, value)
                 break;
+            case FormControlType.AiCompose:
+                @* Asistente IA (llenar campos): boton + propuesta (campos/bloques) + aplicar. *@
+                @RenderAiCompose(q)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
@@ -1312,8 +1317,15 @@ else
                 var block = blk;
                 var text = vals.GetValueOrDefault(block.Id) ?? "";
                 var accent = string.Equals(block.Accent, Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary, StringComparison.OrdinalIgnoreCase) ? "accent" : "";
+                var ico = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Inner(block.Icon);
                 <article class="dfr-lb-card @accent" style="grid-column:@block.Col / span @block.ColSpan; grid-row:@block.Row / span @block.RowSpan;">
-                    <h4 class="dfr-lb-title">@block.Label</h4>
+                    <h4 class="dfr-lb-title">
+                        @if (ico is not null)
+                        {
+                            <span class="dfr-lb-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">@((MarkupString)ico)</svg></span>
+                        }
+                        <span>@block.Label</span>
+                    </h4>
                     <textarea class="form-control dfr-lb-text" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                               @onchange="@(e => SetLienzoBlockAsync(q, block.Id, e.Value?.ToString()))">@text</textarea>
                 </article>
@@ -1937,6 +1949,145 @@ else
     }
 
     private void DiscardAi(FormQuestionDto q) => _aiResult.Remove(q.FieldCode);
+
+    // ===== Asistente IA (llenar campos) (AiCompose). Lee las respuestas del propio formulario y PROPONE
+    // valores para campos/bloques (targets); el humano confirma. Reusa _aiBusy/_aiError. =====
+    private readonly Dictionary<string, Ecorex.Application.Forms.AiComposeResult> _aiComposeResult = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderAiCompose(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+        var busy = _aiBusy.Contains(q.FieldCode);
+        var err = _aiError.GetValueOrDefault(q.FieldCode);
+        var res = _aiComposeResult.GetValueOrDefault(q.FieldCode);
+        var ready = cfg.AgentId is not null && cfg.Targets.Count > 0;
+
+        <div class="dfr-ai">
+            @if (!ready)
+            {
+                <div class="dfr-note-err">Este asistente aun no esta configurado (falta el agente de IA o los destinos). Configuralo en el disenador.</div>
+            }
+            else
+            {
+                <button type="button" class="dfr-ai-btn" disabled="@(busy || IsLocked)" @onclick="@(() => OnAiComposeClickAsync(q))">
+                    @if (busy)
+                    {
+                        <span class="dfr-spinner dfr-spinner-sm" role="status" aria-label="Pensando"></span>
+                        <span>Pensando...</span>
+                    }
+                    else
+                    {
+                        <span>&#10024; @cfg.ButtonLabel</span>
+                    }
+                </button>
+                @if (!string.IsNullOrWhiteSpace(q.HelpText)) { <small class="dfr-ai-hint">@q.HelpText</small> }
+
+                @if (err is not null) { <div class="dfr-note-err">@err</div> }
+
+                @if (busy)
+                {
+                    <div class="dfr-aimodal-back">
+                        <div class="dfr-aimodal dfr-aimodal-spin" @onclick:stopPropagation="true">
+                            <div class="dfr-spinner" role="status" aria-label="Pensando"></div>
+                            <div class="dfr-aimodal-spintitle">El asistente esta trabajando</div>
+                            <div class="dfr-aimodal-spinsub">Lee las respuestas del formulario y propone el contenido. Esto puede tardar varios segundos.</div>
+                            <div class="dfr-aimodal-dots"><span></span><span></span><span></span></div>
+                        </div>
+                    </div>
+                }
+
+                @if (res is { Ok: true } && (res.Fields.Count > 0 || res.Blocks.Count > 0))
+                {
+                    <div class="dfr-aimodal-back" @onclick="@(() => DiscardAiCompose(q))">
+                        <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true">
+                            <div class="dfr-aimodal-head">
+                                <div>
+                                    <strong>Propuesta del asistente</strong>
+                                    <span class="dfr-aimodal-sub">@(res.Fields.Count + res.Blocks.Count) destino(s)</span>
+                                </div>
+                                <button type="button" class="dfr-aimodal-x" @onclick="@(() => DiscardAiCompose(q))" aria-label="Cerrar">&times;</button>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <div class="dfr-aimodal-notes">@res.Notes</div> }
+                            <div class="dfr-aimodal-body">
+                                <div class="dfr-aicompose-list">
+                                    @foreach (var f in res.Fields)
+                                    {
+                                        <div class="dfr-aicompose-item">
+                                            <div class="dfr-aicompose-label">@(f.Label ?? f.Field)</div>
+                                            <div class="dfr-aicompose-val">@f.Value</div>
+                                        </div>
+                                    }
+                                    @foreach (var b in res.Blocks)
+                                    {
+                                        <div class="dfr-aicompose-item">
+                                            <div class="dfr-aicompose-label">@(b.BlockLabel ?? b.Block)</div>
+                                            <div class="dfr-aicompose-val">@b.Value</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="dfr-aimodal-foot">
+                                <small class="dfr-ai-hint">Podras editar cada destino despues de aplicar.</small>
+                                <div class="dfr-aimodal-btns">
+                                    <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAiCompose(q))">Descartar</button>
+                                    <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiComposeAsync(q, res))" disabled="@IsLocked">Aplicar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    };
+
+    private async Task OnAiComposeClickAsync(FormQuestionDto q)
+    {
+        if (_definition is null || IsLocked) { return; }
+        var cfg = Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+        _aiError.Remove(q.FieldCode);
+        _aiComposeResult.Remove(q.FieldCode);
+        if (!_aiBusy.Add(q.FieldCode)) { return; }
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // El registro debe existir y tener guardadas las respuestas que el asistente va a leer.
+            await SaveAsync(submit: false);
+            if (_response is null) { _aiError[q.FieldCode] = "Guarda el registro antes de usar el asistente."; return; }
+
+            var res = await AiComposeSvc.ComposeAsync(_response.Id, q.FieldCode, SubmittedByTenantUserId ?? Guid.Empty);
+            if (!res.Ok) { _aiError[q.FieldCode] = res.Error ?? "El asistente no pudo proponer valores."; return; }
+            if (res.Fields.Count == 0 && res.Blocks.Count == 0) { _aiError[q.FieldCode] = "El asistente no propuso valores."; return; }
+
+            if (cfg.Confirm) { _aiComposeResult[q.FieldCode] = res; }
+            else { await ApplyAiComposeAsync(q, res); }
+        }
+        catch (Exception ex) { _aiError[q.FieldCode] = $"No se pudo proponer: {ex.Message}"; }
+        finally { _aiBusy.Remove(q.FieldCode); }
+    }
+
+    private async Task ApplyAiComposeAsync(FormQuestionDto q, Ecorex.Application.Forms.AiComposeResult res)
+    {
+        if (_definition is null) { return; }
+        // Campos simples: escribir por su pregunta (recalcula calc/visible_when via SetValue).
+        foreach (var f in res.Fields)
+        {
+            var fieldQ = _definition.Questions.FirstOrDefault(x => string.Equals(x.FieldCode, f.Field, StringComparison.OrdinalIgnoreCase));
+            if (fieldQ is not null) { await SetValue(fieldQ, f.Value); }
+        }
+        // Bloques: agrupar por lienzo, mezclar sobre el valor actual y escribir una vez por lienzo.
+        foreach (var grp in res.Blocks.GroupBy(b => b.Lienzo, StringComparer.OrdinalIgnoreCase))
+        {
+            var lienzoQ = _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques
+                && string.Equals(x.FieldCode, grp.Key, StringComparison.OrdinalIgnoreCase));
+            if (lienzoQ is null) { continue; }
+            var vals = ParseLienzoValues(_values.GetValueOrDefault(lienzoQ.FieldCode));
+            foreach (var b in grp) { vals[b.Block] = b.Value; }
+            await SetValue(lienzoQ, System.Text.Json.JsonSerializer.Serialize(vals));
+        }
+        _aiComposeResult.Remove(q.FieldCode);
+    }
+
+    private void DiscardAiCompose(FormQuestionDto q) => _aiComposeResult.Remove(q.FieldCode);
 
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
     {

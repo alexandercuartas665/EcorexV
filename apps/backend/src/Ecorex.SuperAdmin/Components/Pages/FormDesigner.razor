@@ -934,7 +934,8 @@ else
         [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.AiIntake] = new("Asistente IA (imagen/PDF -> tabla)", "AsistenteIA", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
-        [FormControlType.LienzoBloques] = new("Lienzo de bloques (BMC)", "Lienzo", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 12h18M9 4v16M15 4v16\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
+        [FormControlType.LienzoBloques] = new("Lienzo de bloques (BMC)", "Lienzo", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 12h18M9 4v16M15 4v16\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.AiCompose] = new("Asistente IA (llenar campos)", "AsistenteLlenar", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
     };
 
     private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
@@ -1396,6 +1397,7 @@ else
             "colSpan" => b with { ColSpan = IntOr(b.ColSpan) },
             "rowSpan" => b with { RowSpan = IntOr(b.RowSpan) },
             "source" => b with { Source = (raw ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) },
+            "icon" => b with { Icon = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Has(raw) ? raw!.Trim() : null },
             _ => b
         };
         blocks[i] = b;
@@ -1418,6 +1420,58 @@ else
         var cfg = LzCfg(q);
         var blocks = cfg.Blocks.Where(b => b.Id != blockId).ToList();
         return SaveLzCfgAsync(q, cfg with { Preset = null, Blocks = blocks });
+    }
+
+    // ---- Config del control AiCompose (asistente IA que llena campos/bloques desde el formulario) ----
+    private static Ecorex.Application.Forms.AiComposeConfig AcCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+
+    private Task SaveAcCfgAsync(FormQuestionDto q, Ecorex.Application.Forms.AiComposeConfig cfg)
+        => PatchQuestionAsync(q, r => r with { OptionsJson = Ecorex.Application.Forms.AiComposeConfig.Serialize(cfg) });
+
+    private Task PatchAcCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        var cfg = AcCfg(q);
+        bool Flag() => string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on";
+        cfg = key switch
+        {
+            "agentId" => cfg with { AgentId = Guid.TryParse(raw, out var g) ? g : null },
+            "prompt" => cfg with { Prompt = string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim() },
+            "buttonLabel" => cfg with { ButtonLabel = string.IsNullOrWhiteSpace(raw) ? Ecorex.Application.Forms.AiComposeConfig.DefaultButtonLabel : raw!.Trim() },
+            "confirm" => cfg with { Confirm = Flag() },
+            "model" => cfg with { Model = string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim() },
+            "sources" => cfg with { Sources = (raw ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) },
+            _ => cfg
+        };
+        return SaveAcCfgAsync(q, cfg);
+    }
+
+    private static bool IsAcFieldTarget(Ecorex.Application.Forms.AiComposeConfig cfg, string code)
+        => cfg.Targets.Any(t => t.IsField && string.Equals(t.Field, code, StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleAcFieldTargetAsync(FormQuestionDto q, string code)
+    {
+        var cfg = AcCfg(q);
+        var targets = cfg.Targets.ToList();
+        var i = targets.FindIndex(t => t.IsField && string.Equals(t.Field, code, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) { targets.RemoveAt(i); }
+        else { targets.Add(new Ecorex.Application.Forms.AiComposeTarget(code, null, null)); }
+        return SaveAcCfgAsync(q, cfg with { Targets = targets });
+    }
+
+    private static bool IsAcBlockTarget(Ecorex.Application.Forms.AiComposeConfig cfg, string lienzo, string block)
+        => cfg.Targets.Any(t => t.IsLienzo && string.Equals(t.Lienzo, lienzo, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(t.Block, block, StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleAcBlockTargetAsync(FormQuestionDto q, string lienzo, string block)
+    {
+        var cfg = AcCfg(q);
+        var targets = cfg.Targets.ToList();
+        var i = targets.FindIndex(t => t.IsLienzo && string.Equals(t.Lienzo, lienzo, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(t.Block, block, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) { targets.RemoveAt(i); }
+        else { targets.Add(new Ecorex.Application.Forms.AiComposeTarget(null, lienzo, block)); }
+        return SaveAcCfgAsync(q, cfg with { Targets = targets });
     }
 
     // ---- Drag and drop ----
@@ -2654,14 +2708,24 @@ else
             case FormControlType.AiIntake:
                 <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: imagen/PDF -&gt; propone filas</div>
                 break;
+            case FormControlType.AiCompose:
+                <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: llena campos/bloques desde el formulario</div>
+                break;
             case FormControlType.LienzoBloques:
                 {
                     var lzCfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
                     <div class="fb-prev-lienzo" style="grid-template-columns:repeat(@lzCfg.Columns,minmax(0,1fr));">
                         @foreach (var blk in lzCfg.Blocks)
                         {
+                            var blkIco = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Inner(blk.Icon);
                             <div class="fb-prev-lb @(blk.Accent == Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary ? "accent" : "")"
-                                 style="grid-column:@blk.Col / span @blk.ColSpan; grid-row:@blk.Row / span @blk.RowSpan;">@blk.Label</div>
+                                 style="grid-column:@blk.Col / span @blk.ColSpan; grid-row:@blk.Row / span @blk.RowSpan;">
+                                @if (blkIco is not null)
+                                {
+                                    <span class="fb-prev-lb-ico">@((MarkupString)$"<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{blkIco}</svg>")</span>
+                                }
+                                <span>@blk.Label</span>
+                            </div>
                         }
                     </div>
                 }
@@ -2709,7 +2773,7 @@ else
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
                         FormControlType.Button, FormControlType.TaskDocuments, FormControlType.AiIntake,
-                        FormControlType.LienzoBloques
+                        FormControlType.LienzoBloques, FormControlType.AiCompose
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -3084,11 +3148,20 @@ else
                             <label>Ancho<input class="fb-input" type="number" min="1" value="@blk.ColSpan" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "colSpan", e.Value?.ToString()))" /></label>
                             <label>Alto<input class="fb-input" type="number" min="1" value="@blk.RowSpan" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "rowSpan", e.Value?.ToString()))" /></label>
                         </div>
-                        <label class="fb-check">
-                            <input type="checkbox" checked="@(blk.Accent == Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary)"
-                                   @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "accent", e.Value?.ToString()))" />
-                            Acento (resaltar)
-                        </label>
+                        <div class="fb-lz-row">
+                            <label class="fb-check" style="flex:1">
+                                <input type="checkbox" checked="@(blk.Accent == Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary)"
+                                       @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "accent", e.Value?.ToString()))" />
+                                Acento (resaltar)
+                            </label>
+                            <select class="fb-select" style="flex:1" value="@(blk.Icon ?? "")" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "icon", e.Value?.ToString()))">
+                                <option value="">(sin icono)</option>
+                                @foreach (var ic in Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Names)
+                                {
+                                    <option value="@ic">@ic</option>
+                                }
+                            </select>
+                        </div>
                         <div class="fb-lz-src">
                             <label>Origen (field codes separados por coma, se pre-llena concatenando)</label>
                             <input class="fb-input" value="@string.Join(", ", blk.Source)"
@@ -3104,6 +3177,75 @@ else
                 }
             </div>
             <div class="fb-hint">El valor capturado es un objeto JSON { bloque: texto } (reportable). Con Origen, cada bloque nace pre-llenado y editable. No es el Canvas (croquis) de la OT.</div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.AiCompose })
+        {
+            var ac = AcCfg(node.Q!);
+            var acFields = _def!.Questions
+                .Where(x => x.Id != node.Q!.Id && Ecorex.Application.Forms.FormFieldValidator.IsCapture(x.ControlType) && !string.IsNullOrWhiteSpace(x.FieldCode))
+                .OrderBy(x => x.SortOrder).ToList();
+            var acLienzos = _def!.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques)
+                .OrderBy(x => x.SortOrder).ToList();
+            <div class="fb-field">
+                <label>Agente de IA</label>
+                <select class="fb-select" value="@(ac.AgentId?.ToString() ?? "")" @onchange="@(e => PatchAcCfgAsync(node.Q!, "agentId", e.Value?.ToString()))">
+                    <option value="">-- Elige un agente --</option>
+                    @foreach (var a in _aiAgents)
+                    {
+                        <option value="@a.Id">@a.Name</option>
+                    }
+                </select>
+                <div class="fb-hint">Reusa proveedor/modelo/prompt base del agente, el cupo del plan y AiUsageLog.</div>
+            </div>
+            <div class="fb-field">
+                <label>Texto del boton</label>
+                <input class="fb-input" value="@ac.ButtonLabel" @onchange="@(e => PatchAcCfgAsync(node.Q!, "buttonLabel", e.Value?.ToString()))" placeholder="@Ecorex.Application.Forms.AiComposeConfig.DefaultButtonLabel" />
+            </div>
+            <div class="fb-field">
+                <label>Instruccion extra (prompt, opcional)</label>
+                <textarea class="fb-input" rows="4" @onchange="@(e => PatchAcCfgAsync(node.Q!, "prompt", e.Value?.ToString()))">@ac.Prompt</textarea>
+                <div class="fb-hint">Se suma al prompt base del agente.</div>
+            </div>
+            <div class="fb-field">
+                <label>Origen (field codes por coma; vacio = todas las respuestas)</label>
+                <input class="fb-input" value="@string.Join(", ", ac.Sources)" @onchange="@(e => PatchAcCfgAsync(node.Q!, "sources", e.Value?.ToString()))" placeholder="vacio = todo el formulario" />
+            </div>
+            <div class="fb-field">
+                <label>Destinos: campos</label>
+                @if (acFields.Count == 0) { <div class="fb-hint">No hay campos simples en el formulario.</div> }
+                @foreach (var f in acFields)
+                {
+                    <label class="fb-check">
+                        <input type="checkbox" checked="@IsAcFieldTarget(ac, f.FieldCode)" @onchange="@(() => ToggleAcFieldTargetAsync(node.Q!, f.FieldCode))" />
+                        @f.Label <span class="fb-hint" style="display:inline">(@f.FieldCode)</span>
+                    </label>
+                }
+            </div>
+            @foreach (var lz in acLienzos)
+            {
+                var lzCfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(lz.OptionsJson);
+                <div class="fb-field">
+                    <label>Destinos: bloques de "@lz.Label"</label>
+                    @foreach (var blk in lzCfg.Blocks)
+                    {
+                        <label class="fb-check">
+                            <input type="checkbox" checked="@IsAcBlockTarget(ac, lz.FieldCode, blk.Id)" @onchange="@(() => ToggleAcBlockTargetAsync(node.Q!, lz.FieldCode, blk.Id))" />
+                            @blk.Label <span class="fb-hint" style="display:inline">(@blk.Id)</span>
+                        </label>
+                    }
+                </div>
+            }
+            <div class="fb-field">
+                <label class="fb-check">
+                    <input type="checkbox" checked="@ac.Confirm" @onchange="@(e => PatchAcCfgAsync(node.Q!, "confirm", e.Value?.ToString()))" />
+                    Mostrar la propuesta y confirmar antes de escribir
+                </label>
+            </div>
+            <div class="fb-field">
+                <label>Modelo (opcional)</label>
+                <input class="fb-input" value="@ac.Model" @onchange="@(e => PatchAcCfgAsync(node.Q!, "model", e.Value?.ToString()))" placeholder="vacio = el modelo del agente" />
+            </div>
+            <div class="fb-hint">El asistente lee las respuestas del formulario y PROPONE los destinos (campos/bloques). El control no guarda valor propio; escribe en los destinos. Respeta cupo/AiUsageLog y multi-tenant.</div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
         {

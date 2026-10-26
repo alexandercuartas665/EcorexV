@@ -640,7 +640,8 @@
     background: var(--surface, #fff); min-width: 0; display: flex; flex-direction: column; gap: 8px;
 }
 .dfr-lb-card.accent { border-color: var(--brand, #2563eb); background: var(--brand-soft, #eef2ff); }
-.dfr-lb-title { font-size: .9rem; font-weight: 700; margin: 0; color: var(--ink, #1b1b1e); }
+.dfr-lb-title { font-size: .9rem; font-weight: 700; margin: 0; color: var(--ink, #1b1b1e); display: flex; align-items: center; gap: 6px; }
+.dfr-lb-ico { display: inline-flex; flex: 0 0 auto; color: currentColor; opacity: .85; }
 .dfr-lb-text { flex: 1; min-height: 72px; resize: vertical; font-size: .86rem; }
 
 /* Movil: una sola columna (cada bloque ocupa toda la fila; se ignoran los spans). */
@@ -648,3 +649,13 @@
     .dfr-lienzo { grid-template-columns: 1fr !important; }
     .dfr-lb-card { grid-column: auto !important; grid-row: auto !important; }
 }
+
+/* ---- Asistente IA (llenar campos) (AiCompose) ---- */
+.dfr-spinner-sm { width: 14px; height: 14px; border-width: 2px; }
+.dfr-aicompose-list { display: flex; flex-direction: column; gap: 10px; }
+.dfr-aicompose-item {
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 9px; padding: 8px 10px;
+    background: var(--surface-2, #f9fafb);
+}
+.dfr-aicompose-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3, #6b7280); margin-bottom: 3px; }
+.dfr-aicompose-val { font-size: .86rem; color: var(--ink, #1b1b1e); white-space: pre-wrap; }

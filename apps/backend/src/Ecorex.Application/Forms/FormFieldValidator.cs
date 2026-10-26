@@ -26,7 +26,9 @@ public static class FormFieldValidator
             // TaskDocuments: solo lectura (muestra los adjuntos de la tarea); no captura valor.
             or FormControlType.TaskDocuments
             // AiIntake: asistente IA que PROPONE filas para una grilla; no captura valor propio.
-            or FormControlType.AiIntake;
+            or FormControlType.AiIntake
+            // AiCompose: asistente IA que PROPONE valores para campos/bloques (targets); no captura valor propio.
+            or FormControlType.AiCompose;
 
     /// <summary>
     /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla

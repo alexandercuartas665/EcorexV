@@ -130,5 +130,15 @@ public enum FormControlType
     /// mismo formulario) el bloque se pre-llena concatenando esas respuestas y queda editable. NO es el Canvas
     /// (croquis/dibujo) de la OT. Al FINAL del enum para preservar los ordinales.
     /// </summary>
-    LienzoBloques
+    LienzoBloques,
+
+    /// <summary>
+    /// ASISTENTE IA (llenar campos): primo de AiIntake, pero NO sube imagen/PDF: lee las respuestas ya capturadas
+    /// del propio formulario (FormResponse.Data) y PROPONE valores para CAMPOS y/o BLOQUES de un LienzoBloques
+    /// (targets). Reusa set_campo y la nueva set_bloque del FormScopedToolset (ACOTADO a la definicion), el agente
+    /// del tenant, cupo y AiUsageLog. Config en OptionsJson (<c>AiComposeConfig</c>): agente, prompt, sources,
+    /// targets, buttonLabel, confirm, model. No captura valor por si mismo (escribe en los targets). Al FINAL del
+    /// enum para preservar los ordinales.
+    /// </summary>
+    AiCompose
 }

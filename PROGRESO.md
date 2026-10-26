@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.223: config voz - la prueba muestra QUE LOGRO la llamada (exito + datos capturados)
+
+- El resultado de la prueba ahora muestra, ademas de grabacion/transcripcion/resumen: un badge de EXITO
+  (call_analysis.call_successful -> "Objetivo logrado" / "NO logrado") y los DATOS CAPTURADOS
+  (call_analysis.custom_analysis_data) como lista campo -> valor (lo que el agente extrajo de la conversacion).
+  Si llega el analisis pero sin datos estructurados, avisa que hay que configurar "Post-Call Analysis"
+  (criterios de exito + campos a extraer) en el agente de Retell.
+- Backend: VoiceCallResultDto +CallSuccessful +CustomData; GetCallResultAsync los pobla con ExtractCallSuccessful
+  y ExtractCustomData (parsean call_analysis de la VoiceCall; el "exito" sale del resumen para mostrarse como badge).
+  Sin migracion. Build Release verde, unitarios OK.
+
 ## 2026-10-26 - v0.16.222: config voz - ver agente (prompt/voz/idioma/modelo) + variables dinamicas editables en la prueba
 
 - El modal de prueba deja de ser caja negra: muestra el AGENTE que atendera. En modo simple (linea con Agent ID)

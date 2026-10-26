@@ -269,6 +269,24 @@ else
                                 @if (_testResult.CostUsd is decimal c) { <span class="cv-result-meta">US$ @c.ToString("0.0000")</span> }
                                 <span class="cv-result-meta">call_id: @_testResult.CallId</span>
                             </div>
+                            @if (_testResult.CallSuccessful is bool okc)
+                            {
+                                <div class="cv-outcome @(okc ? "ok" : "no")">@(okc ? "Objetivo logrado" : "Objetivo NO logrado")</div>
+                            }
+                            @if (_testResult.CustomData is { Count: > 0 } cd)
+                            {
+                                <div class="cv-captured">
+                                    <div class="cv-captured-title">Datos capturados por el agente</div>
+                                    @foreach (var kv in cd)
+                                    {
+                                        <div class="cv-cap-row"><span class="cv-cap-key">@kv.Key</span><span class="cv-cap-val">@kv.Value</span></div>
+                                    }
+                                </div>
+                            }
+                            else if (st is "Analyzed")
+                            {
+                                <div class="cv-test-note">No llegaron datos estructurados. Configura "Post-Call Analysis" (criterios de exito + campos a extraer) en tu agente de Retell para que la prueba muestre que logro.</div>
+                            }
                             @if (!string.IsNullOrWhiteSpace(_testResult.RecordingUrl))
                             {
                                 <audio class="cv-audio" controls src="@_testResult.RecordingUrl"></audio>

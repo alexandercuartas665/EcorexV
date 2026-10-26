@@ -164,7 +164,59 @@ public sealed class RetellVoiceService : IRetellVoiceService
             CostUsd: vc.CostUsd,
             TranscriptText: vc.TranscriptText,
             RecordingUrl: vc.RecordingUrl,
-            AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson));
+            AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson),
+            CallSuccessful: ExtractCallSuccessful(vc.AnalysisJson),
+            CustomData: ExtractCustomData(vc.AnalysisJson));
+    }
+
+    /// <summary>call_analysis.call_successful (segun los success criteria del agente en Retell). Null si no vino.</summary>
+    public static bool? ExtractCallSuccessful(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("call_successful", out var ok)
+                && (ok.ValueKind == JsonValueKind.True || ok.ValueKind == JsonValueKind.False))
+            {
+                return ok.GetBoolean();
+            }
+        }
+        catch (JsonException) { }
+        return null;
+    }
+
+    /// <summary>call_analysis.custom_analysis_data: los campos estructurados que el agente extrajo (clave->valor).</summary>
+    public static IReadOnlyDictionary<string, string>? ExtractCustomData(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("custom_analysis_data", out var custom)
+                || custom.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var prop in custom.EnumerateObject())
+            {
+                var val = prop.Value.ValueKind switch
+                {
+                    JsonValueKind.String => prop.Value.GetString(),
+                    JsonValueKind.Number => prop.Value.GetRawText(),
+                    JsonValueKind.True => "si",
+                    JsonValueKind.False => "no",
+                    JsonValueKind.Null => null,
+                    _ => prop.Value.GetRawText()
+                };
+                if (val is not null) { d[prop.Name] = val; }
+            }
+            return d.Count > 0 ? d : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     public async Task<VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default)
@@ -243,11 +295,6 @@ public sealed class RetellVoiceService : IRetellVoiceService
                 && !string.IsNullOrWhiteSpace(s.GetString())) { parts.Add(s.GetString()!.Trim()); }
             if (root.TryGetProperty("user_sentiment", out var se) && se.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(se.GetString())) { parts.Add("Sentimiento: " + se.GetString()); }
-            if (root.TryGetProperty("call_successful", out var ok)
-                && (ok.ValueKind == JsonValueKind.True || ok.ValueKind == JsonValueKind.False))
-            {
-                parts.Add(ok.GetBoolean() ? "Resultado: exitosa" : "Resultado: no exitosa");
-            }
             return parts.Count > 0 ? string.Join("\n", parts) : null;
         }
         catch (JsonException) { return null; }

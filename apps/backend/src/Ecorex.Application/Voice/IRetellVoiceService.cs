@@ -33,7 +33,10 @@ public sealed record VoiceCallResultDto(
     decimal? CostUsd,
     string? TranscriptText,
     string? RecordingUrl,
-    string? AnalysisSummary);
+    string? AnalysisSummary,
+    // Lo que LOGRO la llamada (call_analysis de Retell):
+    bool? CallSuccessful = null,                              // call_successful (segun los success criteria del agente)
+    IReadOnlyDictionary<string, string>? CustomData = null); // custom_analysis_data: campos estructurados extraidos
 
 /// <summary>Previsualizacion del agente que atendera la prueba de una linea: modo (simple/compuesto), voz,
 /// idioma, modelo, prompt y las variables {{...}} detectadas en el prompt (para que el humano les de valor).</summary>

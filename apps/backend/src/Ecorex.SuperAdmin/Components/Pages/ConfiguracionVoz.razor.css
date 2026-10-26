@@ -124,3 +124,21 @@
 }
 .cv-var-add { display: flex; gap: 8px; margin-top: 8px; }
 .cv-var-add .form-control { max-width: 220px; }
+
+/* Resultado: que LOGRO la llamada (exito + datos capturados) */
+.cv-outcome {
+    align-self: flex-start; font-weight: 700; font-size: .78rem; padding: 3px 12px; border-radius: 999px;
+}
+.cv-outcome.ok { background: var(--ok-soft, #ecfdf5); color: var(--ok, #059669); }
+.cv-outcome.no { background: var(--danger-soft, #fef2f2); color: var(--danger, #e11d48); }
+.cv-captured {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.cv-captured-title { font-size: .76rem; font-weight: 700; color: var(--ink-2, #5c5c66); margin-bottom: 2px; }
+.cv-cap-row { display: flex; gap: 10px; font-size: .82rem; align-items: baseline; }
+.cv-cap-key {
+    font-family: ui-monospace, monospace; font-size: .76rem; color: var(--ink-3);
+    min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cv-cap-val { color: var(--ink); font-weight: 600; word-break: break-word; }

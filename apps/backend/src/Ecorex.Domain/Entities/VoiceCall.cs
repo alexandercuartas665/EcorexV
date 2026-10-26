@@ -34,6 +34,9 @@ public class VoiceCall : TenantEntity
 
     public string? TranscriptText { get; set; }
 
+    /// <summary>URL de la grabacion de la llamada (recording_url de Retell), si vino en el webhook.</summary>
+    public string? RecordingUrl { get; set; }
+
     /// <summary>Analisis post-llamada (call_analysis) serializado como JSON.</summary>
     public string? AnalysisJson { get; set; }
 

@@ -652,6 +652,10 @@ public abstract class WorkflowAgentStepTestsBase
         public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
             Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no disponible en pruebas", false));
+
+        public Task<Ecorex.Application.Voice.VoiceCallResultDto?> GetCallResultAsync(
+            string callId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Ecorex.Application.Voice.VoiceCallResultDto?>(null);
     }
 
     /// <summary>WhatsApp del agente de prueba: no envia nada real (los casos actuales no ejercitan el WhatsApp).</summary>

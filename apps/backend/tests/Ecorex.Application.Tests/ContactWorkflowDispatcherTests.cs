@@ -91,6 +91,10 @@ public class ContactWorkflowDispatcherTests
         public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
             Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no usado en test", false));
+
+        public Task<Ecorex.Application.Voice.VoiceCallResultDto?> GetCallResultAsync(
+            string callId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Ecorex.Application.Voice.VoiceCallResultDto?>(null);
     }
 
     // Doble de tareas: el paso Llamada no se ejercita en estos tests (solo WhatsApp), asi que todos los

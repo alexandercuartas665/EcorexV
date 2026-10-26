@@ -46,14 +46,19 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         // 2) Config del tenant (ambiente). Sin key habilitada no hay llamada.
-        // Elige la LINEA a usar: la habilitada por defecto; si no hay default, la primera habilitada completa.
-        var cfg = await _db.RetellVoiceLines
-            .Where(l => l.IsEnabled && l.RetellApiKeyEncrypted != null && l.FromNumber != null)
-            .OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name)
-            .FirstOrDefaultAsync(cancellationToken);
+        // Si la peticion fija una LINEA concreta (prueba por tarjeta), se usa esa; si no, la habilitada por
+        // defecto (o la primera habilitada y configurada completa).
+        var lines = _db.RetellVoiceLines.Where(l => l.IsEnabled && l.RetellApiKeyEncrypted != null && l.FromNumber != null);
+        var cfg = request.RetellVoiceLineId is Guid lineId
+            ? await lines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken)
+            : await lines.OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name).FirstOrDefaultAsync(cancellationToken);
         if (cfg is null)
         {
-            return new VoicePlaceCallResult(false, null, "No hay una linea de voz habilitada y configurada para el tenant.", Retryable: false);
+            return new VoicePlaceCallResult(false, null,
+                request.RetellVoiceLineId is null
+                    ? "No hay una linea de voz habilitada y configurada para el tenant."
+                    : "La linea elegida no existe, no esta habilitada o le falta API key / numero saliente.",
+                Retryable: false);
         }
         if (!IsE164(cfg.FromNumber))
         {
@@ -134,6 +139,48 @@ public sealed class RetellVoiceService : IRetellVoiceService
 
         _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
         return new VoicePlaceCallResult(true, callRes.CallId, null, Retryable: false);
+    }
+
+    public async Task<VoiceCallResultDto?> GetCallResultAsync(string callId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(callId)) { return null; }
+        var vc = await _db.VoiceCalls.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.CallId == callId, cancellationToken);
+        if (vc is null) { return null; }
+        return new VoiceCallResultDto(
+            CallId: vc.CallId,
+            Status: vc.Status.ToString(),
+            StartedAt: vc.StartedAt,
+            EndedAt: vc.EndedAt,
+            DurationSeconds: vc.DurationSeconds,
+            CostUsd: vc.CostUsd,
+            TranscriptText: vc.TranscriptText,
+            RecordingUrl: vc.RecordingUrl,
+            AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson));
+    }
+
+    /// <summary>Saca un resumen legible del call_analysis (call_summary + exito + sentimiento) para la UI. Best-effort.</summary>
+    public static string? ExtractAnalysisSummary(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            var parts = new List<string>();
+            if (root.TryGetProperty("call_summary", out var s) && s.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(s.GetString())) { parts.Add(s.GetString()!.Trim()); }
+            if (root.TryGetProperty("user_sentiment", out var se) && se.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(se.GetString())) { parts.Add("Sentimiento: " + se.GetString()); }
+            if (root.TryGetProperty("call_successful", out var ok)
+                && (ok.ValueKind == JsonValueKind.True || ok.ValueKind == JsonValueKind.False))
+            {
+                parts.Add(ok.GetBoolean() ? "Resultado: exitosa" : "Resultado: no exitosa");
+            }
+            return parts.Count > 0 ? string.Join("\n", parts) : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     // ---- Aseguramiento del agente (LLM + agente Retell keyed por hash del prompt) ----

@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.221: config voz - prueba por LINEA (modal) + grabacion/transcripcion/analisis
+
+- Modulo /config-voz: la prueba deja de ser una caja global que usa la linea por defecto y pasa a ser una ACCION
+  por tarjeta ("Probar") que abre un MODAL de prueba de ESA linea concreta. Tarjeta mas compacta (menos alta;
+  el grid ya no estira la tarjeta a la mas alta).
+- El modal permite: numero destino + OBJETIVO (prueba libre / ofrecer producto / llenar formulario) + PROMPT
+  ADICIONAL (opcional). Si la linea usa un agente Retell ya armado (Agent ID = modo simple), avisa que Retell no
+  deja cambiar el prompt por llamada (solo variables dinamicas); en modo compuesto el prompt extra SI se agrega.
+- Tras lanzar, muestra el RESULTADO en vivo sondeando la VoiceCall por call_id: estado (Registrada -> En curso ->
+  Finalizada -> Analizada), duracion, costo, GRABACION (audio + enlace), resumen del analisis y TRANSCRIPCION.
+  Requiere que llegue el webhook de Retell (en prod ya; en local, por el tunel).
+- Backend: VoicePlaceCallRequest +RetellVoiceLineId (prueba una linea concreta; antes elegia la default);
+  IRetellVoiceService.GetCallResultAsync + VoiceCallResultDto; VoiceCall +RecordingUrl y el webhook la captura
+  (recording_url) en call_ended/analyzed. ExtractAnalysisSummary (call_summary/sentimiento/exito).
+- MIGRACION DUAL AddVoiceCallRecordingUrl (aditiva: columna recording_url en voice_calls). Build Release verde,
+  snapshots EF consistentes (has-pending limpio PG+SQL), unitarios 1144/1144. Regenerada sobre HEAD tras commitear
+  otra sesion su FillFreeWidth (sin enredo).
+
 ## 2026-10-25 - v0.16.220: fixes UI conciliacion (scroll modal) + config voz (E.164) [deploy]
 
 - Dos fixes de otra sesion, validados (build Release verde, sin migracion):

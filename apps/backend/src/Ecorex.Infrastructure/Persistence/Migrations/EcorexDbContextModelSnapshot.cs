@@ -16574,6 +16574,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("objetivo");
 
+                    b.Property<string>("RecordingUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("recording_url");
+
                     b.Property<string>("RetellAgentId")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")

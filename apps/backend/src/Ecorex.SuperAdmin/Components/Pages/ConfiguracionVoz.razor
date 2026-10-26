@@ -1,6 +1,7 @@
 @page "/config-voz"
 @attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IDisposable
 @using Ecorex.Application.Voice
 @inject IRetellVoiceLineService VozSvc
 @inject IRetellVoiceService CallSvc
@@ -48,29 +49,16 @@ else
                     <div class="cv-card-row"><span>Validada</span><strong>@v.ToLocalTime().ToString("dd MMM HH:mm")</strong></div>
                 }
                 <div class="cv-card-actions">
+                    @if (l.IsEnabled && l.HasApiKey && !string.IsNullOrWhiteSpace(l.FromNumber))
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="() => OpenTest(l)">Probar</button>
+                    }
                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(l)">Editar</button>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => ValidateAsync(l.Id)" disabled="@_busy">Validar</button>
                     <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(l.Id)" disabled="@_busy">Eliminar</button>
                 </div>
             </div>
         }
-    </div>
-}
-
-@* ---- Llamada de prueba (traida del hermano Visal): lanza una llamada REAL por la linea por defecto. ---- *@
-@if (!_loading && _lines.Any(l => l.IsEnabled && l.HasApiKey && !string.IsNullOrWhiteSpace(l.FromNumber)))
-{
-    <div class="cv-card" style="margin-top:16px;max-width:580px;">
-        <div class="cv-card-head"><div class="cv-card-name">Llamada de prueba</div></div>
-        <p style="color:var(--ink-3);font-size:.9rem;margin:6px 0 10px;">
-            Lanza una llamada <strong>REAL</strong> con IA usando la línea <strong>por defecto</strong> (o la primera habilitada y configurada). No se asocia a ninguna tarea. <strong>Tiene costo.</strong>
-        </p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <input class="form-control" style="max-width:240px;" @bind="_testTel" placeholder="Número destino (ej. 3001234567)" autocomplete="off" />
-            <button class="btn btn-primary" type="button" @onclick="LlamarPruebaAsync" disabled="@_testBusy">@(_testBusy ? "Llamando..." : "Llamar de prueba")</button>
-        </div>
-        @if (_testMsg is not null) { <p style="color:var(--ok);font-weight:600;margin-top:8px;">@_testMsg</p> }
-        @if (_testErr is not null) { <p style="color:var(--danger);font-weight:600;margin-top:8px;">@_testErr</p> }
     </div>
 }
 
@@ -158,6 +146,106 @@ else
             <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--line);">
                 <button class="btn btn-outline-secondary" @onclick="Close">Cancelar</button>
                 <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Modal de PRUEBA de una linea (llamada REAL + resultado) ---- *@
+@if (_testOpen && _testLine is not null)
+{
+    var simpleMode = !string.IsNullOrWhiteSpace(_testLine.RetellAgentId);
+    <div class="modal-overlay" @onclick="CloseTest">
+        <div class="modal-dialog" style="max-width:600px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Probar linea</h3>
+                <button class="modal-close" @onclick="CloseTest">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cv-test-grid">
+                    <div class="cv-test-line">
+                        <span class="cv-dot on"></span>
+                        <strong>@_testLine.Name</strong>
+                        <span>@(_testLine.FromNumber ?? "-")</span>
+                        <span>@(simpleMode ? "agente Retell propio" : "agente compuesto por ECOREX")</span>
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label">Numero destino</label>
+                        <input class="form-control" @bind="_testTo" placeholder="ej. 3001234567" autocomplete="off" disabled="@_testBusy" />
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label">Objetivo</label>
+                        <select class="form-control" @bind="_testObjetivo" disabled="@_testBusy">
+                            <option value="Llamada de prueba">Llamada de prueba (libre)</option>
+                            <option value="OfrecerProducto">Ofrecer producto/servicio</option>
+                            <option value="LlenarFormulario">Llenar formulario</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label">Prompt adicional (opcional)</label>
+                        <textarea class="form-control" rows="3" @bind="_testPrompt" disabled="@_testBusy"
+                                  placeholder="Instruccion extra para esta llamada (ej. 'Presentate como Sara de Agrometalicas y confirma el interes en tolvas')."></textarea>
+                        @if (simpleMode)
+                        {
+                            <div class="cv-test-warn">
+                                Esta linea usa un agente de Retell ya armado (Agent ID). Retell NO permite cambiar su prompt por llamada:
+                                el prompt adicional se ignora. Para que aplique, usa una linea en modo compuesto (sin Agent ID) o
+                                parametriza con variables dinamicas en el prompt del agente.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="cv-test-note">Se agrega al prompt del agente como "Instruccion adicional para esta llamada".</div>
+                        }
+                    </div>
+
+                    @if (_testErr is not null) { <p style="color:var(--danger);font-weight:600;margin:0;">@_testErr</p> }
+
+                    @if (_testResult is not null)
+                    {
+                        var st = _testResult.Status;
+                        var done = st is "Analyzed" or "Ended";
+                        var err = st is "Error" or "Failed";
+                        <div class="cv-result">
+                            <div class="cv-result-head">
+                                @if (!done && !err) { <span class="cv-spin"></span> }
+                                <span class="cv-status @(done ? "done" : err ? "err" : "")">@EstadoEs(st)</span>
+                                @if (_testResult.DurationSeconds is int ds) { <span class="cv-result-meta">@ds s</span> }
+                                @if (_testResult.CostUsd is decimal c) { <span class="cv-result-meta">US$ @c.ToString("0.0000")</span> }
+                                <span class="cv-result-meta">call_id: @_testResult.CallId</span>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_testResult.RecordingUrl))
+                            {
+                                <audio class="cv-audio" controls src="@_testResult.RecordingUrl"></audio>
+                                <a href="@_testResult.RecordingUrl" target="_blank" rel="noopener" style="font-size:.78rem;">Abrir grabacion</a>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_testResult.AnalysisSummary))
+                            {
+                                <div class="cv-analysis">@_testResult.AnalysisSummary</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_testResult.TranscriptText))
+                            {
+                                <div class="cv-transcript">@_testResult.TranscriptText</div>
+                            }
+                            else if (!done && !err)
+                            {
+                                <div class="cv-result-meta">Esperando que termine la llamada y llegue el webhook de Retell... (la transcripcion/grabacion aparecen al finalizar).</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--line);">
+                <small style="color:var(--ink-3);">Llamada <strong>REAL</strong> con IA. Tiene costo.</small>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-outline-secondary" @onclick="CloseTest">Cerrar</button>
+                    <button class="btn btn-primary" @onclick="LaunchTestAsync" disabled="@_testBusy">
+                        @(_testBusy ? "Llamando..." : _testResult is null ? "Llamar" : "Llamar de nuevo")
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -251,32 +339,107 @@ else
         finally { _busy = false; }
     }
 
-    // ---- Llamada de prueba (reusa IRetellVoiceService.PlaceCallAsync; usa la linea por defecto habilitada) ----
-    private string _testTel = "";
+    // ---- Prueba de una linea CONCRETA (llamada REAL + resultado por webhook) ----
+    private bool _testOpen;
+    private RetellVoiceLineDto? _testLine;
+    private string _testTo = "";
+    private string _testObjetivo = "Llamada de prueba";
+    private string? _testPrompt;
     private bool _testBusy;
-    private string? _testMsg, _testErr;
+    private string? _testErr;
+    private VoiceCallResultDto? _testResult;
+    private CancellationTokenSource? _pollCts;
 
-    private async Task LlamarPruebaAsync()
+    private void OpenTest(RetellVoiceLineDto l)
     {
-        _testMsg = _testErr = null;
-        var to = NormalizeE164(_testTel);
-        if (to is null) { _testErr = "Indica un número válido (ej. 3001234567)."; return; }
-        if (!await JS.InvokeAsync<bool>("confirm", $"Se hará una LLAMADA REAL con IA al {to}. Tiene costo. ¿Continuar?")) { return; }
-        _testBusy = true;
+        CancelPoll();
+        _testLine = l; _testTo = ""; _testObjetivo = "Llamada de prueba"; _testPrompt = null;
+        _testErr = null; _testResult = null; _testBusy = false;
+        _testOpen = true;
+    }
+
+    private void CloseTest()
+    {
+        CancelPoll();
+        _testOpen = false; _testLine = null; _testResult = null; _testErr = null;
+    }
+
+    private async Task LaunchTestAsync()
+    {
+        if (_testLine is null) { return; }
+        _testErr = null;
+        var to = NormalizeE164(_testTo);
+        if (to is null) { _testErr = "Indica un numero valido (ej. 3001234567)."; return; }
+        if (!await JS.InvokeAsync<bool>("confirm", $"Se hara una LLAMADA REAL con IA al {to} por la linea {_testLine.Name}. Tiene costo. ¿Continuar?")) { return; }
+        CancelPoll();
+        _testBusy = true; _testResult = null;
         try
         {
             var req = new VoicePlaceCallRequest(
-                ToNumber: to, AiAgentId: null, PromptExtra: null, Objetivo: "Llamada de prueba",
+                ToNumber: to, AiAgentId: null,
+                PromptExtra: string.IsNullOrWhiteSpace(_testPrompt) ? null : _testPrompt,
+                Objetivo: _testObjetivo,
                 FormulariosPermitidos: Array.Empty<Guid>(),
                 ContactVariables: new Dictionary<string, string?>(),
-                ContactWorkflowRunId: null);
+                ContactWorkflowRunId: null,
+                RetellVoiceLineId: _testLine.Id);
             var r = await CallSvc.PlaceCallAsync(req);
-            if (r.Placed) { _testMsg = $"Llamada lanzada. call_id: {r.CallId}"; }
-            else { _testErr = r.Error ?? "No se pudo lanzar la llamada."; }
+            if (!r.Placed || string.IsNullOrEmpty(r.CallId))
+            {
+                _testErr = r.Error ?? "No se pudo lanzar la llamada.";
+                return;
+            }
+            _testResult = new VoiceCallResultDto(r.CallId!, "Registered", null, null, null, null, null, null, null);
+            _ = PollResultAsync(r.CallId!);   // sondeo en segundo plano; se cancela al cerrar/relanzar
         }
         catch (Exception ex) { _testErr = "Error: " + ex.Message; }
         finally { _testBusy = false; }
     }
+
+    // Sondea el resultado por call_id hasta Analyzed/Error/Failed o ~3 min. Los webhooks de Retell van
+    // completando la VoiceCall (started -> ended[+transcript/recording] -> analyzed[+analisis/costo]).
+    private async Task PollResultAsync(string callId)
+    {
+        var cts = new CancellationTokenSource();
+        _pollCts = cts;
+        var ct = cts.Token;
+        try
+        {
+            for (var i = 0; i < 45 && !ct.IsCancellationRequested; i++)
+            {
+                await Task.Delay(4000, ct);
+                if (ct.IsCancellationRequested) { return; }
+                var res = await CallSvc.GetCallResultAsync(callId, ct);
+                if (res is not null)
+                {
+                    _testResult = res;
+                    await InvokeAsync(StateHasChanged);
+                    if (res.Status is "Analyzed" or "Error" or "Failed") { return; }
+                }
+            }
+        }
+        catch (OperationCanceledException) { /* cerrado o relanzado */ }
+        catch { /* best-effort: el usuario puede relanzar */ }
+    }
+
+    private void CancelPoll()
+    {
+        try { _pollCts?.Cancel(); _pollCts?.Dispose(); } catch { /* ya dispuesto */ }
+        _pollCts = null;
+    }
+
+    public void Dispose() => CancelPoll();
+
+    private static string EstadoEs(string status) => status switch
+    {
+        "Registered" => "Registrada",
+        "Ongoing" => "En curso",
+        "Ended" => "Finalizada",
+        "Analyzed" => "Analizada",
+        "Error" => "Error",
+        "Failed" => "Fallida",
+        _ => status
+    };
 
     /// <summary>Normaliza a E.164: movil CO de 10 digitos (empieza en 3) -> +57; si trae +/indicativo se conserva.</summary>
     private static string? NormalizeE164(string? s)

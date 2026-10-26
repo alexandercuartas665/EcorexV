@@ -183,7 +183,7 @@
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" @key="_sel.Id" />
+                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" HonorHideSubmitBar="true" @key="_sel.Id" />
                     }
                     else
                     {
@@ -261,6 +261,9 @@
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
     // Secciones del formulario a OCULTAR aqui (configuradas en la salida del conciliador). Se pasan al renderer.
     private IReadOnlyList<Guid> _hiddenSecs = Array.Empty<Guid>();
+    // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) el autosave esta apagado, asi que
+    // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios / Solicitar autorizacion.
+    private DynamicFormRenderer? _formRenderer;
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
     private List<TenantUserDto> _usuarios = new();
@@ -287,6 +290,8 @@
         _guardando = true; _okMsg = null; _errMsg = null;
         try
         {
+            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador a mano.
+            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
             await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
             _okMsg = "Cambios guardados.";
         }
@@ -310,6 +315,10 @@
         _solicitando = true;
         try
         {
+            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador ANTES de
+            // leerlo, para que el resumen y los datos copiados a la tarea incluyan lo ultimo escrito.
+            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
+
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
 

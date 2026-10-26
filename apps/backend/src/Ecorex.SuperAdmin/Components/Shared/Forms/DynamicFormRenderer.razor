@@ -395,6 +395,13 @@ else
     /// del wizard). Los demas hosts (detalle de tarea, modulo standalone) lo dejan en false.</summary>
     [Parameter] public bool EmbeddedInTask { get; set; }
 
+    /// <summary>Opt-in para hosts que NO son el wizard: honra el HideSubmitBar de la definicion y oculta la
+    /// barra de Enviar/Imprimir aunque EmbeddedInTask sea false (p.ej. el modal de /autorizacion-compras-dian,
+    /// que tiene sus propias acciones Guardar cambios / Solicitar autorizacion). Con la barra oculta el autosave
+    /// periodico se apaga, asi que el host DEBE llamar FlushDraftAsync() en sus botones para no perder lo escrito.
+    /// Default false: los demas hosts conservan el comportamiento estandar (solo el wizard oculta la barra).</summary>
+    [Parameter] public bool HonorHideSubmitBar { get; set; }
+
     /// <summary>Ids de SECCIONES (contenedores) a NO pintar en esta vista, decididas por quien renderiza el form
     /// (p.ej. el modulo de autorizacion pasa las secciones que la salida del conciliador marco para ocultar).
     /// El mismo formulario se reusa en varios lados y cada uno oculta lo que no aplica. Null/vacio = muestra todo.</summary>
@@ -495,9 +502,10 @@ else
     // (lo usa el formulario del concepto mientras la tarea este abierta). Default: IsLocked == IsSubmitted.
     private bool IsLocked => IsSubmitted && !KeepEditable;
 
-    /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado: solo dentro del wizard de crear tarea
-    /// (EmbeddedInTask) y si la definicion lo pide (HideSubmitBar). Tambien apaga el autosave periodico.</summary>
-    private bool HideSubmitChrome => EmbeddedInTask && _definition?.HideSubmitBar == true;
+    /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado cuando la definicion lo pide (HideSubmitBar) Y
+    /// el host es el wizard de crear tarea (EmbeddedInTask) o lo honra explicitamente (HonorHideSubmitBar, p.ej.
+    /// el modal de autorizacion). Tambien apaga el autosave periodico: el host debe llamar FlushDraftAsync().</summary>
+    private bool HideSubmitChrome => (EmbeddedInTask || HonorHideSubmitBar) && _definition?.HideSubmitBar == true;
     // Editable en Fill (llenado real) y en Sandbox (vista previa interactiva de borrador, sin persistir).
     private bool IsEditableMode => Mode is FormRenderMode.Fill or FormRenderMode.Sandbox;
     private bool IsDisabled => _busy || !IsEditableMode || IsLocked;

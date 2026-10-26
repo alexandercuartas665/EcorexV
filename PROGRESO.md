@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
+
+- QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:
+  tablas/columnas/submodelos/derivadas, relaciones, conectores y procesos) e "Importar contenedor" (InputFile
+  .json) que crea un contenedor NUEVO. NO exporta datos (filas) ni secretos (credenciales): de cada
+  fuente/destino solo viaja un flag "tenia credenciales" + aviso de re-captura (regla #6 repo publico).
+- COMO: IDataContainerPortabilityService (Application) + DataContainerPortabilityContracts (paquete tipado
+  ContainerPackage con formatVersion). Referencias por CLAVES locales (t1/c1) y nombre de columna, no por
+  GUID; al importar se crean ids nuevos y se remapea todo en UNA transaccion; nombre unico en el tenant. La
+  receta de las derivadas (ADR-0127) se reconstruye con los ids nuevos. Procesos cuya fuente tenia credenciales
+  entran INACTIVOS. SIN migracion (no hay tablas nuevas).
+- UI: ContenedorDatos.razor - "Exportar" por tarjeta + "Importar contenedor" (InputFile .json) con banner de aviso.
+- PRUEBAS: round-trip dual PG+SQL Server (DataContainerPortabilityTests): estructura + relacion + derivada
+  remapeada + SIN datos + SIN secretos + aviso de re-captura. Validado en vivo en 5267 (export ALEGRA sin
+  secretos -> import "ALEGRA (importado)" con sus 4 tablas, 2 derivadas).
+- INTEGRACION (dev principal): cherry-pick de e9b14bc1 (rama worktree-contenedores) al tronco; ADR-0127
+  (derivadas) ya estaba en el tronco. Pendiente: OK del usuario para deploy.
+
 ## 2026-10-26 - v0.16.231: formularios - imprimir el Lienzo en A3 apaisado (papel mas grande)
 
 A pedido del usuario: el A4 quedaba apretado para un lienzo con mucho texto. FormPrintLienzo.razor ahora imprime en
@@ -123,7 +141,6 @@ AiCompose pendiente de validar con agente real en CANVAS-EMP (requiere agente + 
   4. Snapshot al GENERAR el PDF (QuoteDocumentRenderer -> RecordPdfSnapshotAsync), best-effort.
 - Callers (TaskDetailModal/FormModule) pasan el actor al borrar. MIGRACION DUAL AddFormResponseSoftDeleteAndAudit
   (aditiva). Build Release verde, snapshots consistentes PG+SQL, unitarios OK.
-
 ## 2026-10-26 - v0.16.224: formularios - presentacion ASISTENTE (wizard) para el contenedor Tabs
 
 - Un contenedor Tabs se puede pintar como WIZARD (asistente paso a paso) en vez de pestanas, activable por config

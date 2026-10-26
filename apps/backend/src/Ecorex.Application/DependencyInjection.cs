@@ -225,6 +225,9 @@ public static class DependencyInjection
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
         // Tablas DERIVADAS (ADR-0127): vista previa, alta transaccional y refresco (motor + Upsert + poda).
         services.AddScoped<DataContainers.IDerivedTableService, DataContainers.DerivedTableService>();
+        // Exportar/importar la definicion de un contenedor a JSON (ADR-0132): estructura + conectores +
+        // programacion, sin datos ni secretos.
+        services.AddScoped<DataContainers.IDataContainerPortabilityService, DataContainers.DataContainerPortabilityService>();
         // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
         services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
         // Vinculos dato-a-dato de las relaciones (FASE 2 del rediseno de relaciones).

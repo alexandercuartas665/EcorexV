@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.236: WhatsApp/YCloud - visibilidad del error de entrega (codigo real de Meta) [ADR-0135]
+
+- CONTEXTO (hand-off de la sesion data-ops): en prod, salientes a un numero (AGROMETALICAS, linea YCloud
+  COMERCIAL_AGENTE) fallaban 5/5; YCloud ACEPTA y Meta devuelve `failed` por el webhook de estado, pero la nota
+  quedaba "Motivo: sin detalle de Meta" -> no se capturaba el codigo real (1013/131026/131047...), asi que cada
+  "no llego" obligaba a adivinar en BD.
+- CAMBIO A (YCloudWebhookParser.ParseStatus): lectura tolerante EXTENDIDA del error. Ademas de
+  error.{code,message/title/detail} y errors[0], ahora lee el detalle ANIDADO de Meta (error_data.details /
+  errorData.details / .detail, y href como ultimo recurso) y el codigo anidado en error_data/errorData.code.
+  Nuevo campo YCloudStatusUpdate.ErrorRaw = subarbol de error CRUDO (JSON) para ajustar el parser con un payload
+  real si aparece una forma nueva.
+- CAMBIO B (Program.cs webhook YCloud): el motivo visible ahora es "codigo 131026 - Message undeliverable"
+  (codigo + texto) y se guarda en Message.DeliveryError; "sin detalle de Meta" SOLO cuando de verdad no llega
+  nada. El LogWarning del fallo incluye el payload de error CRUDO (errorRaw=...).
+- CORRECCION A LA PREMISA DEL HAND-OFF: el proyecto NO usa Serilog; usa el logging por defecto de .NET, que YA
+  escribe a stdout -> el warning sale en `docker compose logs superadmin`. No habia sink a archivo que arreglar;
+  lo que faltaba era el payload crudo (agregado). Si en prod aun no se viera, seria un override de nivel por env
+  del contenedor (Logging__LogLevel__*), no Serilog.
+- PRUEBAS: 3 tests nuevos en YCloudWebhookParserStatusTests (detalle anidado error_data.details; codigo anidado
+  errorData.code=1013; captura de ErrorRaw). Suite del parser de estado 10/10. Build Release verde. SIN migracion.
+
 ## 2026-10-27 - v0.16.235: fix - borrado robusto (no envenenar el DbContext del circuito Blazor)
 
 - SINTOMA (reporte del usuario): a veces no se podia eliminar una regla del conciliador ni un contenedor de

@@ -1821,9 +1821,14 @@ app.MapPost("/webhooks/ycloud", async (
             if (string.IsNullOrWhiteSpace(s.Status)) { continue; }
             // "undelivered" se muestra como "failed" (no llego); los demas pasan tal cual.
             var uiStatus = s.IsFailure ? "failed" : s.Status.Trim().ToLowerInvariant();
-            var reason = string.IsNullOrWhiteSpace(s.ErrorMessage)
-                ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
-                : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
+            // Motivo VISIBLE: "codigo 131026 - Message undeliverable" cuando Meta entrega codigo y texto; "codigo X"
+            // o el texto si solo viene uno; "sin detalle de Meta" SOLO cuando de verdad no llega nada (el payload
+            // crudo igual queda en el log para ajustar el parser).
+            var reason =
+                !string.IsNullOrWhiteSpace(s.ErrorCode) && !string.IsNullOrWhiteSpace(s.ErrorMessage) ? $"codigo {s.ErrorCode} - {s.ErrorMessage}"
+                : !string.IsNullOrWhiteSpace(s.ErrorCode) ? $"codigo {s.ErrorCode}"
+                : !string.IsNullOrWhiteSpace(s.ErrorMessage) ? s.ErrorMessage!
+                : "sin detalle de Meta";
 
             // 1) Actualizar el mensaje saliente. Se correlaciona por CUALQUIERA de los dos ids: el wamid de Meta o el
             //    id interno de YCloud (al enviar solemos guardar el id de YCloud porque el wamid aun no existe). No se
@@ -1856,9 +1861,13 @@ app.MapPost("/webhooks/ycloud", async (
             // 2) Fallo: log del evento crudo + nota visible en la conversacion (una sola vez por mensaje).
             if (s.IsFailure)
             {
+                // Se incluye el payload de error CRUDO (subarbol error/errors): si el parser no reconocio la forma,
+                // con el JSON real a la vista se ajusta con certeza. El logger por defecto escribe a stdout -> sale
+                // en `docker compose logs superadmin` (el proyecto NO usa Serilog; no hay sink a archivo).
                 log.LogWarning(
-                    "Webhook YCloud FALLO de entrega. id={Id} to={To} estado={Status} codigo={Code} motivo={Msg}",
-                    s.Wamid ?? s.ProviderId, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)");
+                    "Webhook YCloud FALLO de entrega. id={Id} to={To} estado={Status} codigo={Code} motivo={Msg} errorRaw={Raw}",
+                    s.Wamid ?? s.ProviderId, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)",
+                    s.ErrorRaw ?? "(sin payload de error)");
                 if (alreadyFailed) { continue; }
 
                 var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());

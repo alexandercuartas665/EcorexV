@@ -62,6 +62,12 @@ public interface IFormLookupService
 /// (id del contenedor, o vacio para las entidades del negocio). <see cref="Fields"/> son los
 /// campos de la fuente que el llamador necesita devueltos (union de DisplayField + los del
 /// mapa de autollenado), para no traer mas de lo necesario.</summary>
+/// <param name="EqFilters">
+/// Filtros de igualdad columna-&gt;valor YA RESUELTOS por quien llama (el renderer): columnas de la
+/// fuente que deben coincidir exactamente. Es el resultado de resolver la cascada
+/// (<see cref="FormLookupFilterSpec"/>) contra el estado del formulario; el adaptador solo los aplica,
+/// no conoce el formulario. Hoy lo honra el contenedor de datos; las demas fuentes lo ignoran.
+/// </param>
 public sealed record FormLookupRequest(
     FormSourceKind SourceKind,
     string? SourceRef,
@@ -70,7 +76,8 @@ public sealed record FormLookupRequest(
     string? DisplayField,
     IReadOnlyList<string> Fields,
     int Skip = 0,
-    int Take = 20);
+    int Take = 20,
+    IReadOnlyDictionary<string, string>? EqFilters = null);
 
 /// <summary>Un resultado normalizado: el id que se guarda (<see cref="Value"/>), la etiqueta que
 /// se muestra (<see cref="Display"/>) y los campos pedidos (<see cref="Fields"/>) para autollenar.</summary>

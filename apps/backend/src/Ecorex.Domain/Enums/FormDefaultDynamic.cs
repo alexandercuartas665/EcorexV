@@ -16,5 +16,10 @@ public enum FormDefaultDynamic
     CurrentUser,
 
     /// <summary>Entidad/sede del contexto (reservado; sin resolucion aun).</summary>
-    CurrentEntidad
+    CurrentEntidad,
+
+    /// <summary>Usuario asignado a la tarea anfitriona (id del TenantUser). Pensado para campos con origen
+    /// SystemUser: el campo cae por defecto en quien tiene asignada la actividad. Se resuelve del token
+    /// {tareas.asignado} que publica el host (detalle de tarea, wizard, modulo de autorizacion).</summary>
+    AssignedUser
 }

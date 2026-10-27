@@ -48,10 +48,12 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             return RuleVerbResult.Fail("El formulario no esta ligado a una tarea (sin referencia).");
         }
 
-        var renglonId = await _cfg.ResolveRenglonByTaskNumberAsync(reference!, cancellationToken);
+        // La referencia puede ser el numero de tarea (form dentro de la tarea) o el id del renglon directo
+        // (form abierto en el panel del modulo de autorizacion): se resuelve en ambos casos.
+        var renglonId = await _cfg.ResolveRenglonByReferenceAsync(reference!, cancellationToken);
         if (renglonId is not Guid rid)
         {
-            return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la tarea {reference}.");
+            return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la referencia {reference}.");
         }
 
         // Mapeos POR FORMULARIO: cada salida configurada tiene su propio Direccionar; se resuelve por el

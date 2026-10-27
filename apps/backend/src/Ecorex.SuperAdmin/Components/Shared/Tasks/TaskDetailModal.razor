@@ -1768,6 +1768,9 @@
             // persona conserva el comercial correcto (no depende de CurrentUser).
             ["comercial"] = AssigneeEmail(_detail.Item.AssigneeTenantUserId),
             ["responsable"] = AssigneeEmail(_detail.Item.AssigneeTenantUserId),
+            // Id del asignado (no el nombre): lo consume el default dinamico AssignedUser de un campo
+            // con origen SystemUser (ej. "Redireccionar a"), que precarga a quien tiene la actividad.
+            ["asignado"] = _detail.Item.AssigneeTenantUserId?.ToString(),
         };
     }
 

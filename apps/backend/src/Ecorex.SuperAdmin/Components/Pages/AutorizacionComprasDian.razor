@@ -183,7 +183,7 @@
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" HonorHideSubmitBar="true" @key="_sel.Id" />
+                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()" @key="_sel.Id" />
                     }
                     else
                     {
@@ -274,6 +274,15 @@
     private static string UserLabel(TenantUserDto u)
         => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
         : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
+
+    // Tokens {tareas.campo} para el formulario del panel: el modulo no tiene aun una tarea creada, pero SI
+    // conoce el usuario asignado a la factura, asi un campo con origen SystemUser y default "Usuario asignado"
+    // (AssignedUser) cae por defecto en ese usuario. Se reconstruye por render (barato) con el asignado vigente.
+    private IReadOnlyDictionary<string, string?> BuildFormTokens()
+        => new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["asignado"] = _asignadoSel?.ToString(),
+        };
 
     // Enlace del desplegable de responsable. Con @bind (no value= ni selected por opcion) Blazor fija el
     // valor del <select> nativo en cada render, asi al cambiar de factura se refresca (incluido a vacio);

@@ -3825,6 +3825,7 @@ else
                     <option value="@nameof(FormDefaultDynamic.None)">Ninguno</option>
                     <option value="@nameof(FormDefaultDynamic.Today)">Hoy (fecha)</option>
                     <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
+                    <option value="@nameof(FormDefaultDynamic.AssignedUser)">Usuario asignado a la tarea</option>
                 </select>
             </div>
             @* El formato de mascara (moneda/telefono/...) no aplica a controles de OPCION; para Radio/MultiCheck
@@ -3936,6 +3937,7 @@ else
                     <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
                     <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
                     <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
+                    <option value="@nameof(FormSourceKind.SystemUser)">Usuarios del sistema</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)
@@ -3985,11 +3987,21 @@ else
                     </select>
                 </div>
 
-                <div class="fb-field">
-                    <label>Filtro (JSON opcional)</label>
-                    <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
-                           @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
-                </div>
+                @if (q.SourceKind == FormSourceKind.DataContainer)
+                {
+                    <div class="fb-field">
+                        <label>Filtrar por otro campo (cascada)</label>
+                        @RenderCascadeEditor(q, fields)
+                    </div>
+                }
+                else
+                {
+                    <div class="fb-field">
+                        <label>Filtro (JSON opcional)</label>
+                        <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
+                               @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
+                    </div>
+                }
 
                 <div class="fb-field">
                     <label>Autollenar campos (al elegir, copia)</label>
@@ -3998,6 +4010,116 @@ else
             }
         </div>
     };
+
+    /// <summary>
+    /// Editor de CASCADA (sin JSON): cada fila dice "la columna X de esta tabla = el valor que tenga, en
+    /// el campo padre, su columna Y". El padre es otro campo lista de Contenedor del mismo formulario.
+    /// Escribe <see cref="FormQuestionDto.FilterJson"/> con <see cref="FormLookupFilterSpec"/>.
+    /// </summary>
+    private RenderFragment RenderCascadeEditor(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+
+        // Columnas de ESTA tabla (sin el pseudo-campo "id").
+        var ownCols = fields.Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+        // Campos padre candidatos: otros campos lista de Contenedor con fuente elegida.
+        var parents = _def!.Questions
+            .Where(x => x.Id != q.Id && x.SourceKind == FormSourceKind.DataContainer && !string.IsNullOrWhiteSpace(x.SourceRef))
+            .ToList();
+
+        <div class="fb-autofill">
+            @if (rules.Count == 0)
+            {
+                <div class="fb-hint">Sin filtros. Agrega uno para que esta lista dependa de otro campo (p. ej. SUBCENTROS por el CENTRO elegido).</div>
+            }
+            @for (var i = 0; i < rules.Count; i++)
+            {
+                var idx = i;
+                var rule = rules[idx];
+                var parentQ = parents.FirstOrDefault(x => x.FieldCode == rule.FromField);
+                if (parentQ is not null)
+                {
+                    _ = EnsureLookupMetaAsync(FormSourceKind.DataContainer, parentQ.SourceRef);
+                }
+                var parentCols = parentQ is null
+                    ? new List<FormLookupFieldMeta>()
+                    : LookupFieldsFor(FormSourceKind.DataContainer, parentQ.SourceRef)
+                        .Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                <div class="fb-autofill-row">
+                    <select class="fb-select" value="@rule.Column"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Column = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna de esta tabla...</option>
+                        @foreach (var c in ownCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.Column)">@c.Label</option>
+                        }
+                    </select>
+                    <span class="fb-autofill-arrow">= valor de</span>
+                    <select class="fb-select" value="@rule.FromField"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromField = e.Value?.ToString() ?? "" }))">
+                        <option value="">Campo padre...</option>
+                        @foreach (var p in parents)
+                        {
+                            <option value="@p.FieldCode" selected="@(p.FieldCode == rule.FromField)">@p.Label</option>
+                        }
+                    </select>
+                    <select class="fb-select" value="@rule.FromColumn"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromColumn = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna del padre...</option>
+                        @foreach (var c in parentCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.FromColumn)">@c.Label</option>
+                        }
+                    </select>
+                    <label title="Obliga a elegir primero el campo padre"
+                           style="display:inline-flex;align-items:center;gap:4px;font-size:.8rem;white-space:nowrap;">
+                        <input type="checkbox" checked="@rule.Require"
+                               @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Require = (bool)(e.Value ?? false) }))" />
+                        Obligatorio
+                    </label>
+                    <button type="button" class="fb-autofill-x" title="Quitar filtro"
+                            @onclick="@(() => RemoveCascadeRuleAsync(q, idx))">&times;</button>
+                </div>
+            }
+            <button type="button" class="fb-autofill-add" @onclick="@(() => AddCascadeRuleAsync(q))">+ Agregar filtro</button>
+        </div>
+    };
+
+    private Task AddCascadeRuleAsync(FormQuestionDto q)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        rules.Add(new FormLookupCascade("", "", "", true));
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task RemoveCascadeRuleAsync(FormQuestionDto q, int index)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules.RemoveAt(index); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task UpdateCascadeRuleAsync(FormQuestionDto q, int index, Func<FormLookupCascade, FormLookupCascade> edit)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules[index] = edit(rules[index]); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    /// <summary>Reescribe FilterJson conservando los filtros fijos; null si no queda nada.</summary>
+    private Task SaveCascadeAsync(FormQuestionDto q, FormLookupFilterSpec prev, List<FormLookupCascade> rules)
+    {
+        // Se guardan incluso reglas incompletas (el usuario las completa); el motor ignora las que falten.
+        var cleaned = rules.Count > 0 ? rules : null;
+        var next = new FormLookupFilterSpec(prev.Fixed, cleaned);
+        var json = next.IsEmpty ? null : next.ToJson();
+        return PatchQuestionAsync(q, r => r with { FilterJson = json });
+    }
 
     /// <summary>Editor del mapa de autollenado: filas campoFuente -> campoFormulario (se copia al elegir).</summary>
     private RenderFragment RenderAutofillMap(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>

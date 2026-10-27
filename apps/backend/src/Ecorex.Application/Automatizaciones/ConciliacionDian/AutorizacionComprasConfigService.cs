@@ -93,6 +93,10 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Resuelve el renglon del conciliador a partir del numero de tarea (reverse del mapa solicitadas;
     /// no hay FK task->renglon). null si no se encuentra.</summary>
     Task<Guid?> ResolveRenglonByTaskNumberAsync(string taskNumber, CancellationToken ct = default);
+    /// <summary>Resuelve el renglon desde la REFERENCIA del formulario, venga como quiera: primero como numero
+    /// de tarea (form abierto dentro de la tarea creada), y si no, como id de renglon directo (form abierto en
+    /// el PANEL del modulo de autorizacion, cuya referencia ES el id del renglon). null si ninguna aplica.</summary>
+    Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default);
     /// <summary>Campos (code+label) de un formulario, para el editor de mapeos (excluye no-dato: Button/Heading/etc.).</summary>
     Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
@@ -327,6 +331,23 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         foreach (var kv in map)
         {
             if (string.Equals(kv.Value, taskNumber, StringComparison.OrdinalIgnoreCase)) { return kv.Key; }
+        }
+        return null;
+    }
+
+    public async Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default)
+    {
+        reference = (reference ?? string.Empty).Trim();
+        if (reference.Length == 0) { return null; }
+        // 1) Form abierto DENTRO de la tarea: la referencia es el numero de tarea.
+        var byTask = await ResolveRenglonByTaskNumberAsync(reference, ct);
+        if (byTask is Guid g) { return g; }
+        // 2) Form abierto en el PANEL del modulo: la referencia ES el id del renglon. Se valida que exista
+        //    (y sea del tenant, via el filtro global) para no escribir sobre un id cualquiera.
+        if (Guid.TryParse(reference, out var rid)
+            && await _db.ConciliacionDianRenglones.AsNoTracking().AnyAsync(r => r.Id == rid, ct))
+        {
+            return rid;
         }
         return null;
     }

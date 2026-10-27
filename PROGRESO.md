@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.234: conceptos - tablero COMPARTIDO por categoria (antes creaba uno por subcategoria)
+
+- SINTOMA (reporte del usuario): al crear una subcategoria (concepto) aparecia un tablero nuevo cada vez.
+- CAUSA: EnsureConceptBoardAsync (ActividadCatalogoService) creaba un tablero dedicado 1:1 por concepto si se
+  dejaba "Tablero que aplica" en "Ninguno" (el default). Era intencional (ningun concepto huerfano) pero
+  proliferaban tableros. Decision del usuario (2026-10-27): reusar un tablero COMPARTIDO.
+- CAMBIO: EnsureConceptBoardAsync ahora comparte el tablero POR CATEGORIA. Si otra subcategoria de la misma
+  categoria ya tiene tablero (no archivado), lo reusa (con su estado de cierre); solo el PRIMER concepto de la
+  categoria crea el tablero (columnas default, code CNC-, nombrado por la CATEGORIA). El usuario puede
+  sobreescribir eligiendo un tablero concreto en el selector del concepto (se respeta). Afecta solo conceptos
+  NUEVOS; los existentes conservan su tablero actual. SIN migracion (no hay esquema nuevo; se resuelve por
+  hermanos de la misma CategoriaId).
+- PRUEBAS: test dual nuevo ActivityCatalogBoardSharingTests (PG + SQL Server): 2 conceptos de una categoria
+  comparten 1 tablero nombrado por la categoria; otra categoria obtiene el suyo; tablero explicito se respeta.
+  Application.Tests 1144/1144. SIN migracion.
+- SIGUIENTE: va junto con v0.16.233 (fix borrar estado); pedir OK del usuario para deploy
+  ([[pedir-ok-antes-de-deploy-prod]]).
+
 ## 2026-10-27 - v0.16.233: fix - no se podia eliminar un ESTADO del tablero (FK + guard en tabla equivocada)
 
 - SINTOMA (reporte del usuario): al eliminar un estado del tablero (modal "Estados del tablero") salia

@@ -52,11 +52,14 @@
     .lp-foot { margin-top: 14px; font-size: 10.5px; color: #9aa0ab; display: flex; justify-content: space-between; }
 
     @@media print {
-        @@page { size: A4 landscape; margin: 10mm; }
+        /* A3 apaisado: el doble de area que A4 para que el lienzo respire. Si la impresora es A4,
+           el dialogo del navegador lo achica con "Ajustar a la pagina". Margen chico para aprovechar la hoja. */
+        @@page { size: A3 landscape; margin: 8mm; }
         .lp-body { background: #fff; padding: 0; min-height: 0; }
         .lp-toolbar { display: none; }
         .lp-sheet { max-width: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }
-        .lp-grid { min-height: 170mm; }
+        /* A3 landscape util (420x297 - 2*8mm) ~= 281mm de alto; la grilla llena casi toda la hoja. */
+        .lp-grid { min-height: 262mm; gap: 7mm; }
         .lp-card { break-inside: avoid; }
     }
 </style>

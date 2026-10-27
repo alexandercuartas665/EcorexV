@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.231: formularios - imprimir el Lienzo en A3 apaisado (papel mas grande)
+
+A pedido del usuario: el A4 quedaba apretado para un lienzo con mucho texto. FormPrintLienzo.razor ahora imprime en
+A3 apaisado (el doble de area; mismo aspecto raiz-2 que A4, asi que la pantalla no cambia) con margen 8mm y la
+grilla llenando ~262mm de alto (A3 util ~281mm). Si la impresora es A4, el dialogo del navegador lo achica con
+"Ajustar a la pagina". Confirmado via CDP que la pagina sirve `@page { size: a3 landscape; margin: 8mm }`. Solo CSS
+de impresion.
+
 ## 2026-10-26 - v0.16.230: formularios - imprimir el Lienzo (BMC) a PDF (vista apaisada con la grilla)
 
 Hand-off de la sesion de formularios: imprimir una respuesta con un control LienzoBloques como UNA pagina apaisada

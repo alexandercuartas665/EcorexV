@@ -75,11 +75,13 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
-        var e = await _db.ConciliacionRules.FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (e is null) { return false; }
-        _db.ConciliacionRules.Remove(e);
-        await _db.SaveChangesAsync(ct);
-        return true;
+        // DELETE directo en vez de Remove+SaveChanges: el DbContext es scoped y en Blazor vive TODO el
+        // circuito, asi que un SaveChanges aqui volcaria el change-tracker entero; un cambio ajeno
+        // pendiente (p.ej. un borrado de contenedor a medias con ImportProcess/ImportRun) tumbaba el
+        // borrado de una regla con un error que no era suyo. ExecuteDelete respeta el filtro global por
+        // tenant (si la regla no es del tenant, no borra nada) y no toca entidades rastreadas de otros.
+        var deleted = await _db.ConciliacionRules.Where(x => x.Id == id).ExecuteDeleteAsync(ct);
+        return deleted > 0;
     }
 
     public async Task ReorderAsync(IReadOnlyList<Guid> orderedIds, CancellationToken ct = default)

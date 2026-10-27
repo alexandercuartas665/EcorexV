@@ -167,8 +167,22 @@ public sealed class DataModelService : IDataModelService
             throw new InvalidOperationException(
                 $"No se puede eliminar este contenedor: la tabla '{foreignDerived.Name}' del contenedor '{foreignDerived.ModelName}' deriva de una de sus tablas. Elimina primero esa derivada.");
         }
-        // La cascada de BD borra las tablas del contenedor (con sus columnas/filas/celdas), los
-        // conectores, el destino y los procesos. No se borra a mano.
+        // Los procesos de importacion del modelo (Model->ImportProcess es Cascade) arrastran su
+        // bitacora ImportRun, pero ImportRun->ImportProcess es Restrict (la bitacora SOBREVIVE al
+        // proceso): la cascada de BD choca contra esa FK. Hay que quitar runs y procesos a mano ANTES
+        // (cascada diferida, regla #5), igual que DataContainerService. Sin esto, borrar un contenedor
+        // con historial de dron reventaba el SaveChanges Y envenenaba el DbContext del circuito Blazor
+        // (scoped), de modo que todo SaveChanges posterior -incluido borrar una regla- re-lanzaba el error.
+        var processes = await _db.ImportProcesses.Where(p => p.ModelId == id).ToListAsync(ct);
+        if (processes.Count > 0)
+        {
+            var processIds = processes.Select(p => p.Id).ToList();
+            var runs = await _db.ImportRuns.Where(r => processIds.Contains(r.ProcessId)).ToListAsync(ct);
+            if (runs.Count > 0) { _db.ImportRuns.RemoveRange(runs); }
+            _db.ImportProcesses.RemoveRange(processes);
+        }
+        // La cascada de BD borra el resto del arbol (tablas con sus columnas/filas/celdas, conectores y
+        // el destino). Runs/procesos van arriba; EF ordena los DELETE en un solo SaveChanges.
         _db.DataModels.Remove(entity);
         await _db.SaveChangesAsync(ct);
         return true;

@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.235: fix - borrado robusto (no envenenar el DbContext del circuito Blazor)
+
+- SINTOMA (reporte del usuario): a veces no se podia eliminar una regla del conciliador ni un contenedor de
+  datos; salia un error de SaveChanges que no correspondia a lo que se estaba borrando.
+- CAUSA: el DbContext es scoped y en Blazor vive TODO el circuito. (1) ConciliacionRuleService.DeleteAsync hacia
+  Remove+SaveChanges, que volcaba el change-tracker ENTERO; un cambio ajeno pendiente (p.ej. un borrado de
+  contenedor a medias) tumbaba el borrado de la regla con un error que no era suyo. (2) DataModelService al
+  borrar un contenedor dejaba que la cascada de BD arrastrara los ImportProcess, pero ImportRun->ImportProcess
+  es Restrict (la bitacora SOBREVIVE): la cascada chocaba con esa FK y envenenaba el DbContext, de modo que todo
+  SaveChanges posterior (incluido borrar una regla) re-lanzaba el error.
+- FIX: (1) ConciliacionRuleService.DeleteAsync usa ExecuteDeleteAsync (respeta el filtro global por tenant, no
+  toca entidades rastreadas de otros). (2) DataModelService.DeleteAsync quita runs y procesos a mano ANTES de la
+  cascada (cascada diferida, regla #5), igual que DataContainerService. SIN migracion.
+- PRUEBAS: build Release verde; fix defensivo de borrado (sin test nuevo). Va junto con v0.16.233/234 y v0.16.236
+  en el mismo deploy.
+
 ## 2026-10-27 - v0.16.234: conceptos - tablero COMPARTIDO por categoria (antes creaba uno por subcategoria)
 
 - SINTOMA (reporte del usuario): al crear una subcategoria (concepto) aparecia un tablero nuevo cada vez.

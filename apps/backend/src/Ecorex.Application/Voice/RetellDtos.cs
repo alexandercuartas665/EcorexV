@@ -58,3 +58,9 @@ public sealed record RetellGetAgentResult(
 /// <summary>GET /get-retell-llm/{id}: el general_prompt y el modelo del Response Engine.</summary>
 public sealed record RetellGetLlmResult(
     bool Ok, string? LlmId, string? GeneralPrompt, string? Model, string? Error, int StatusCode);
+
+/// <summary>GET /v2/get-call/{id}: estado+resultado de la llamada (el objeto "call" viene al root). RawCall es
+/// el JSON de ese objeto para que el servicio lo vuelque a la VoiceCall (igual que haria el webhook). Es el
+/// FALLBACK de sondeo cuando el webhook de Retell no llega (ej. dev sin URL publica para el webhook).</summary>
+public sealed record RetellGetCallResult(
+    bool Ok, string? RawCall, string? CallStatus, string? Error, int StatusCode);

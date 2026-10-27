@@ -152,9 +152,21 @@ public sealed class RetellVoiceService : IRetellVoiceService
     public async Task<VoiceCallResultDto?> GetCallResultAsync(string callId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(callId)) { return null; }
-        var vc = await _db.VoiceCalls.AsNoTracking()
+        // Tracked (no AsNoTracking): el fallback de sondeo puede volcar el resultado de Retell a la fila.
+        var vc = await _db.VoiceCalls
             .FirstOrDefaultAsync(v => v.CallId == callId, cancellationToken);
         if (vc is null) { return null; }
+
+        // FALLBACK de sondeo: si el webhook de Retell no ha hecho avanzar la llamada (tipico en dev/tunel: Retell
+        // no alcanza esta instancia), le preguntamos a Retell directamente (GET /v2/get-call) con la API key de la
+        // linea y volcamos estado/transcript/grabacion/costo a la VoiceCall. Solo si NO es un estado terminal y
+        // sabemos con que linea consultar. Best-effort: cualquier fallo deja la fila como estaba.
+        if (vc.Status is not (VoiceCallStatus.Analyzed or VoiceCallStatus.Error or VoiceCallStatus.Failed)
+            && vc.RetellVoiceLineId is Guid lineId)
+        {
+            await TryRefreshFromRetellAsync(vc, lineId, cancellationToken);
+        }
+
         return new VoiceCallResultDto(
             CallId: vc.CallId,
             Status: vc.Status.ToString(),
@@ -167,6 +179,104 @@ public sealed class RetellVoiceService : IRetellVoiceService
             AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson),
             CallSuccessful: ExtractCallSuccessful(vc.AnalysisJson),
             CustomData: ExtractCustomData(vc.AnalysisJson));
+    }
+
+    /// <summary>Consulta a Retell el estado actual de la llamada y lo vuelca a la VoiceCall. Best-effort: si no
+    /// hay key, Retell falla, o el JSON es invalido, no toca la fila. Reemplaza la dependencia del webhook para el
+    /// sondeo de la UI de prueba (y sirve de red de seguridad si un webhook se pierde).</summary>
+    private async Task TryRefreshFromRetellAsync(VoiceCall vc, Guid lineId, CancellationToken ct)
+    {
+        var line = await _db.RetellVoiceLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lineId, ct);
+        if (line is null || string.IsNullOrEmpty(line.RetellApiKeyEncrypted)) { return; }
+        string apiKey;
+        try { apiKey = _protector.Unprotect(line.RetellApiKeyEncrypted); }
+        catch { return; }
+
+        var res = await _retell.GetCallAsync(apiKey, vc.CallId, ct);
+        if (!res.Ok || string.IsNullOrWhiteSpace(res.RawCall)) { return; }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(res.RawCall);
+            ApplyRetellCall(vc, doc.RootElement);
+        }
+        catch (JsonException) { return; }
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Voz IA: resultado refrescado por sondeo (GET call) call_id={CallId} status={Status}", vc.CallId, vc.Status);
+        }
+        catch (DbUpdateException)
+        {
+            // Carrera con el webhook (mismo row): la fila en memoria ya refleja lo de Retell, el DTO sale igual.
+        }
+    }
+
+    /// <summary>Vuelca el objeto "call" de Retell (GET /v2/get-call, al root) a la VoiceCall. El estado se deriva
+    /// de call_status + la presencia de call_analysis (que aparece cuando Retell termino de analizar).</summary>
+    private static void ApplyRetellCall(VoiceCall vc, JsonElement call)
+    {
+        var transcript = JsonStr(call, "transcript");
+        if (transcript is not null) { vc.TranscriptText = transcript; }
+        var recording = JsonStr(call, "recording_url");
+        if (recording is not null) { vc.RecordingUrl = recording; }
+
+        var started = JsonUnixMs(call, "start_timestamp");
+        if (started is not null) { vc.StartedAt = started; }
+        var ended = JsonUnixMs(call, "end_timestamp");
+        if (ended is not null) { vc.EndedAt = ended; }
+        var duration = JsonDurationSeconds(call);
+        if (duration is not null) { vc.DurationSeconds = duration; }
+
+        var hasAnalysis = call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object;
+        if (hasAnalysis) { vc.AnalysisJson = analysis.GetRawText(); }
+        var cost = JsonCostUsd(call);
+        if (cost is not null) { vc.CostUsd = cost; }
+
+        var callStatus = JsonStr(call, "call_status")?.ToLowerInvariant();
+        vc.Status = hasAnalysis
+            ? VoiceCallStatus.Analyzed
+            : callStatus switch
+            {
+                "ongoing" => VoiceCallStatus.Ongoing,
+                "ended" => VoiceCallStatus.Ended,
+                "error" => VoiceCallStatus.Error,
+                "not_connected" => VoiceCallStatus.Failed,
+                _ => vc.Status   // "registered" u otro desconocido: sin cambio
+            };
+    }
+
+    // ---- Lectura defensiva del payload de Retell (mismo criterio que el webhook) ----
+
+    private static string? JsonStr(JsonElement el, string name)
+        => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static DateTimeOffset? JsonUnixMs(JsonElement el, string name)
+        => el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var ms)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+
+    private static int? JsonDurationSeconds(JsonElement el)
+    {
+        if (el.TryGetProperty("duration_ms", out var d) && d.ValueKind == JsonValueKind.Number && d.TryGetInt64(out var ms))
+        {
+            return (int)(ms / 1000);
+        }
+        var start = JsonUnixMs(el, "start_timestamp");
+        var end = JsonUnixMs(el, "end_timestamp");
+        return start is not null && end is not null ? (int)(end.Value - start.Value).TotalSeconds : null;
+    }
+
+    private static decimal? JsonCostUsd(JsonElement el)
+    {
+        // call_cost.combined_cost suele venir en centavos de USD (igual que en el webhook).
+        if (el.TryGetProperty("call_cost", out var cost) && cost.ValueKind == JsonValueKind.Object
+            && cost.TryGetProperty("combined_cost", out var cc) && cc.ValueKind == JsonValueKind.Number
+            && cc.TryGetDecimal(out var cents))
+        {
+            return cents / 100m;
+        }
+        return null;
     }
 
     /// <summary>call_analysis.call_successful (segun los success criteria del agente en Retell). Null si no vino.</summary>

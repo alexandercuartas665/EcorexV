@@ -28,4 +28,8 @@ public interface IRetellApiClient
 
     /// <summary>Lee un Response Engine (GET /get-retell-llm/{id}): general_prompt y modelo. Para previsualizar el prompt.</summary>
     Task<RetellGetLlmResult> GetLlmAsync(string apiKey, string llmId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lee una llamada (GET /v2/get-call/{id}): estado, transcript, grabacion, analisis y costo. Es el
+    /// FALLBACK de sondeo cuando el webhook de Retell no llega (ej. dev sin URL publica). RawCall = JSON del call.</summary>
+    Task<RetellGetCallResult> GetCallAsync(string apiKey, string callId, CancellationToken cancellationToken = default);
 }

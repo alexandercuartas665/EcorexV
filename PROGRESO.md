@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-10-26 - Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
+## 2026-10-26 - v0.16.232: Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
 
 - QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:
   tablas/columnas/submodelos/derivadas, relaciones, conectores y procesos) e "Importar contenedor" (InputFile

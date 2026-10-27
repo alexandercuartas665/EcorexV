@@ -75,6 +75,10 @@
     {
         <div class="fpr-toolbar">
             <button class="fpr-btn primary" @onclick="PrintAsync">Imprimir / PDF</button>
+            @if (_hasLienzo)
+            {
+                <button class="fpr-btn" @onclick="OpenLienzoPrintAsync">Imprimir lienzo</button>
+            }
             <button class="fpr-btn" @onclick="Close">Cerrar</button>
         </div>
 
@@ -147,6 +151,7 @@
     private readonly Dictionary<string, string> _lookupDisplay = new(StringComparer.Ordinal);
     private bool _loading = true;
     private bool _printed;
+    private bool _hasLienzo;
 
     protected override async Task OnInitializedAsync()
     {
@@ -154,9 +159,17 @@
         if (_response is not null)
         {
             _definition = await DefinitionsSvc.GetAsync(_response.DefinitionId);
+            _hasLienzo = _definition?.Questions.Any(x => x.ControlType == FormControlType.LienzoBloques) ?? false;
             await ResolveLookupDisplaysAsync();
         }
         _loading = false;
+    }
+
+    private async Task OpenLienzoPrintAsync()
+    {
+        // Abre la vista dedicada del lienzo (una pagina apaisada con la grilla) en una pestana nueva.
+        try { await JS.InvokeVoidAsync("open", $"/formularios/imprimir-lienzo/{ResponseId}", "_blank"); }
+        catch (JSException) { }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -261,6 +274,9 @@
             case FormControlType.GridDetail:
                 @RenderGrid(q, value)
                 break;
+            case FormControlType.LienzoBloques:
+                @RenderLienzoList(q, value)
+                break;
             case FormControlType.FixedMatrix:
                 {
                     // Matriz fija: se imprime como tabla real (filas x columnas, celdas n/a en blanco).
@@ -357,6 +373,43 @@
             </tbody>
         </table>
     };
+
+    private RenderFragment RenderLienzoList(FormQuestionDto q, string value) => __builder =>
+    {
+        // Lienzo (ADR-0133): en el documento basico se lista como "Etiqueta: texto" por bloque con contenido.
+        // (La grilla apaisada es la vista dedicada /formularios/imprimir-lienzo/{id}.)
+        var cfg = LienzoBloquesConfig.Parse(q.OptionsJson);
+        var vals = ParseLienzoValues(value);
+        var any = false;
+        foreach (var b in cfg.Blocks)
+        {
+            var text = vals.GetValueOrDefault(b.Id);
+            if (string.IsNullOrWhiteSpace(text)) { continue; }
+            any = true;
+            <div style="margin-bottom:4px;"><strong>@b.Label:</strong> @text</div>
+        }
+        if (!any) { <text>&mdash;</text> }
+    };
+
+    // Valor del campo Lienzo en Data: objeto JSON { blockId: texto } (identico al parser del renderer).
+    private static Dictionary<string, string> ParseLienzoValues(string? value)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(value)) { return d; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                {
+                    if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String) { d[p.Name] = p.Value.GetString() ?? ""; }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* valor corrupto -> vacio */ }
+        return d;
+    }
 
     private string OptionLabel(FormQuestionDto q, string id)
     {

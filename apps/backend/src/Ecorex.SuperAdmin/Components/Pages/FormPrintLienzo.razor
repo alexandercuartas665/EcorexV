@@ -1,0 +1,214 @@
+@page "/formularios/imprimir-lienzo/{ResponseId:guid}"
+@layout EmptyLayout
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@inject IFormDefinitionService DefinitionsSvc
+@inject IFormResponseService ResponsesSvc
+@inject IJSRuntime JS
+
+@* Impresion del control LienzoBloques (ADR-0133): una sola pagina apaisada con la grilla del lienzo
+   (no el volcado de campos de FormPrint). La grilla se DERIVA de LienzoBloquesConfig (columnas +
+   Col/Row/ColSpan/RowSpan por bloque), asi sirve para cualquier lienzo custom, no solo BMC. Lanza el
+   dialogo NATIVO del navegador (Imprimir / Guardar como PDF), apaisado. Tokens VERBATIM del mockup
+   deploy/lienzo-print.html. *@
+
+<PageTitle>Imprimir lienzo - ECOREX</PageTitle>
+
+<style>
+    .lp-body { background: #f4f5f7; color: #1b1b1e; min-height: 100vh;
+        font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        padding: 20px; }
+    .lp-toolbar { max-width: 1180px; margin: 0 auto 14px; display: flex; gap: 8px; justify-content: flex-end; }
+    .lp-btn { border: 1px solid rgba(20,20,25,.12); background: #fff; border-radius: 8px; padding: 8px 15px;
+        font: inherit; font-size: 13px; font-weight: 600; color: #1b1b1e; cursor: pointer; }
+    .lp-btn.primary { background: #1b1b1e; color: #fff; border-color: #1b1b1e; }
+
+    .lp-sheet { max-width: 1180px; margin: 0 auto; background: #fff; border: 1px solid rgba(20,20,25,.12);
+        border-radius: 14px; padding: 22px 24px; box-shadow: 0 10px 30px rgba(20,20,25,.06); }
+    .lp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+        border-bottom: 2px solid #1b1b1e; padding-bottom: 12px; margin-bottom: 16px; }
+    .lp-head .co { font-size: 22px; font-weight: 800; letter-spacing: -.01em; margin: 0; }
+    .lp-head .ti { font-size: 13px; font-weight: 600; color: #5c5c66; margin: 2px 0 0; }
+    .lp-head .meta { text-align: right; font-size: 11.5px; color: #5c5c66; line-height: 1.5; }
+    .lp-head .meta .code { display: inline-block; border: 1px solid rgba(20,20,25,.12); border-radius: 999px;
+        padding: 2px 10px; font-weight: 700; color: #3a3a42; }
+
+    .lp-grid { display: grid; gap: 10px; min-height: 640px; }
+    .lp-card { border: 1px solid rgba(20,20,25,.12); border-radius: 12px; padding: 11px 12px; background: #fff;
+        display: flex; flex-direction: column; gap: 7px; min-width: 0; break-inside: avoid; }
+    .lp-card.accent { border-color: #2563eb; background: #eef2ff; }
+    .lp-card h4 { margin: 0; font-size: 12.5px; font-weight: 700; color: #1b1b1e;
+        display: flex; align-items: center; gap: 7px; }
+    .lp-card .ico { display: inline-flex; flex: 0 0 auto; color: #2563eb; opacity: .9; }
+    .lp-card.accent .ico { color: #2563eb; opacity: 1; }
+    .lp-card .body { flex: 1; font-size: 11px; color: #2a2a30; white-space: pre-wrap; line-height: 1.45;
+        overflow: hidden; }
+    .lp-card .body .ph { color: #9aa0ab; font-style: italic; }
+
+    .lp-foot { margin-top: 14px; font-size: 10.5px; color: #9aa0ab; display: flex; justify-content: space-between; }
+
+    @@media print {
+        @@page { size: A4 landscape; margin: 10mm; }
+        .lp-body { background: #fff; padding: 0; min-height: 0; }
+        .lp-toolbar { display: none; }
+        .lp-sheet { max-width: none; border: 0; border-radius: 0; box-shadow: none; padding: 0; }
+        .lp-grid { min-height: 170mm; }
+        .lp-card { break-inside: avoid; }
+    }
+</style>
+
+<div class="lp-body">
+    @if (_loading)
+    {
+        <p style="text-align:center;color:#5c5c66;"><em>Cargando lienzo...</em></p>
+    }
+    else if (_definition is null || _response is null || _lienzo is null)
+    {
+        <p style="text-align:center;color:#5c5c66;">El lienzo no esta disponible para este registro.</p>
+    }
+    else
+    {
+        var cfg = LienzoBloquesConfig.Parse(_lienzo.OptionsJson);
+        var vals = ParseLienzoValues(Raw(_lienzo));
+        var rows = cfg.Blocks.Count == 0 ? 1 : cfg.Blocks.Max(b => b.Row + b.RowSpan - 1);
+
+        <div class="lp-toolbar">
+            <button class="lp-btn primary" @onclick="PrintAsync">Imprimir / PDF</button>
+            <button class="lp-btn" @onclick="Close">Cerrar</button>
+        </div>
+
+        <div class="lp-sheet">
+            <div class="lp-head">
+                <div>
+                    <p class="co">@_definition.Title</p>
+                    <p class="ti">@(_lienzo.Label ?? "Lienzo del negocio")</p>
+                </div>
+                <div class="meta">
+                    <span class="code">@_definition.Code</span><br />
+                    @if (!string.IsNullOrWhiteSpace(_response.RecordNumber))
+                    {
+                        <span>@_response.RecordNumber</span><br />
+                    }
+                    <span>Generado: @DateTime.Now.ToString("dd/MM/yyyy")</span>
+                </div>
+            </div>
+
+            <div class="lp-grid"
+                 style="grid-template-columns:repeat(@cfg.Columns,minmax(0,1fr));grid-template-rows:repeat(@rows,minmax(0,1fr));">
+                @foreach (var blk in cfg.Blocks)
+                {
+                    var block = blk;
+                    var accent = string.Equals(block.Accent, LienzoBloquesConfig.AccentPrimary, StringComparison.OrdinalIgnoreCase) ? "accent" : "";
+                    var ico = LienzoIcons.Inner(block.Icon);
+                    var text = vals.GetValueOrDefault(block.Id) ?? "";
+                    <article class="lp-card @accent"
+                             style="grid-column:@block.Col / span @block.ColSpan;grid-row:@block.Row / span @block.RowSpan;">
+                        <h4>
+                            @if (ico is not null)
+                            {
+                                <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">@((MarkupString)ico)</svg></span>
+                            }
+                            <span>@block.Label</span>
+                        </h4>
+                        <div class="body">
+                            @if (string.IsNullOrWhiteSpace(text))
+                            {
+                                <span class="ph">(sin contenido)</span>
+                            }
+                            else
+                            {
+                                @text
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+
+            <div class="lp-foot">
+                <span>ECOREX.tareas &mdash; @_definition.Title</span>
+                <span>@_definition.Code</span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid ResponseId { get; set; }
+
+    /// <summary>Codigo del campo lienzo a imprimir; si falta, toma el primer LienzoBloques de la definicion.</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "field")] public string? Field { get; set; }
+
+    private FormDefinitionDetailDto? _definition;
+    private FormResponseDto? _response;
+    private FormQuestionDto? _lienzo;
+    private bool _loading = true;
+    private bool _printed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _response = await ResponsesSvc.GetAsync(ResponseId);
+        if (_response is not null)
+        {
+            _definition = await DefinitionsSvc.GetAsync(_response.DefinitionId);
+            if (_definition is not null)
+            {
+                var lienzos = _definition.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques);
+                _lienzo = !string.IsNullOrWhiteSpace(Field)
+                    ? lienzos.FirstOrDefault(x => string.Equals(x.FieldCode, Field, StringComparison.OrdinalIgnoreCase))
+                    : lienzos.FirstOrDefault();
+            }
+        }
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Lanza el dialogo de impresion una sola vez, cuando el lienzo ya esta pintado.
+        if (firstRender && !_printed && _lienzo is not null)
+        {
+            _printed = true;
+            await Task.Delay(350);
+            try { await JS.InvokeVoidAsync("window.print"); }
+            catch (JSException) { /* el usuario puede usar el boton Imprimir */ }
+        }
+    }
+
+    private async Task PrintAsync()
+    {
+        try { await JS.InvokeVoidAsync("window.print"); }
+        catch (JSException) { }
+    }
+
+    private async Task Close()
+    {
+        try { await JS.InvokeVoidAsync("window.close"); }
+        catch (JSException) { }
+    }
+
+    private string? Raw(FormQuestionDto q)
+        => _response!.Data.TryGetValue(q.FieldCode, out var v) ? v.Value : null;
+
+    // Valor del campo Lienzo en Data: objeto JSON { blockId: texto } (identico al parser del renderer).
+    private static Dictionary<string, string> ParseLienzoValues(string? value)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(value)) { return d; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                {
+                    if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String) { d[p.Name] = p.Value.GetString() ?? ""; }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* valor corrupto -> vacio */ }
+        return d;
+    }
+}

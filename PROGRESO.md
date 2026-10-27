@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-26 - v0.16.230: formularios - imprimir el Lienzo (BMC) a PDF (vista apaisada con la grilla)
+
+Hand-off de la sesion de formularios: imprimir una respuesta con un control LienzoBloques como UNA pagina apaisada
+con la grilla del lienzo (no el volcado de campos de FormPrint). Mockup de referencia: deploy/lienzo-print.html
+(tokens y grilla VERBATIM). Solo vista + CSS; nada de datos ni migracion.
+
+- NUEVA vista FormPrintLienzo.razor: `@page "/formularios/imprimir-lienzo/{ResponseId:guid}"` (hermana de
+  FormPrint, EmptyLayout + auto window.print()). Query opcional `?field={fieldCode}`; si falta toma el primer
+  LienzoBloques de la definicion. La grilla se DERIVA de LienzoBloquesConfig (columnas + Col/Row/ColSpan/RowSpan por
+  bloque; filas = max(Row+RowSpan-1)), asi sirve para cualquier lienzo custom, no solo BMC. Acento por
+  AccentPrimary, iconos por LienzoIcons.Inner. Valor del campo = JSON {blockId:texto} (mismo parser que el renderer).
+  Membrete generico: Title + Code + fecha; subtitulo = label del campo lienzo. Bloque vacio -> placeholder gris.
+  @page size A4 landscape, margin 10mm.
+- FormPrint.razor: boton "Imprimir lienzo" en la toolbar (solo si el form tiene un LienzoBloques) que abre la vista
+  nueva en pestana; y FIX del bug menor: RenderValue no tenia case LienzoBloques (caia al default e imprimia el JSON
+  crudo) -> ahora lista "Etiqueta: texto" por bloque con contenido.
+- Build Release OK (0 Errores via --artifacts-path; el bin/Release estaba bloqueado por el server dev PID 18220).
+  Siguiente: la sesion de formularios valida E2E contra CANVAS-EMP (BITCODE) imprimiendo un registro con el lienzo.
+
 ## 2026-10-26 - v0.16.229: fix AiCompose en /f/ - FlushDraft + tenant ambiente (gotcha HonorHideSubmitBar)
 
 Validacion de la sesion de formularios (appout-bmc en /f/, CANVAS-EMP BITCODE): iconos y el control AiCompose

@@ -148,6 +148,17 @@ internal sealed class RetellApiClient : IRetellApiClient
         return new RetellGetLlmResult(true, ReadString(body, "llm_id") ?? llmId, ReadString(body, "general_prompt"), ReadString(body, "model"), null, status);
     }
 
+    public async Task<RetellGetCallResult> GetCallAsync(string apiKey, string callId, CancellationToken cancellationToken = default)
+    {
+        // Lectura idempotente: se permite reintento en transitorios. El objeto "call" viene al ROOT del body.
+        var (status, body, err) = await SendAsync(HttpMethod.Get, $"/v2/get-call/{Uri.EscapeDataString(callId)}", apiKey, payload: null, allowRetry: true, cancellationToken);
+        if (err is not null || !IsSuccess(status))
+        {
+            return new RetellGetCallResult(false, null, null, err ?? ExtractError(body) ?? $"HTTP {status}", status);
+        }
+        return new RetellGetCallResult(true, body, ReadString(body, "call_status"), null, status);
+    }
+
     // ---- Transporte comun ----
 
     private async Task<(int Status, string Body, string? NetworkError)> SendAsync(

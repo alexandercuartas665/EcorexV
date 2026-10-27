@@ -138,11 +138,21 @@ public sealed class TaskBoardService : ITaskBoardService
             .ToListAsync(cancellationToken);
         if (columns.Count == 0) { return Array.Empty<TaskBoardColumnDto>(); }
 
-        var counts = await _db.TaskCards.AsNoTracking()
+        // Un tablero es kanban (TaskCard) O de actividades (TaskItem, ADR-0020); sumamos ambos para que
+        // el conteo sea veraz en los dos modelos (antes solo contaba TaskCards -> 0 en actividades).
+        var cardCounts = await _db.TaskCards.AsNoTracking()
             .Where(c => c.BoardId == boardId && !c.IsArchived)
             .GroupBy(c => c.ColumnId)
             .Select(g => new { ColumnId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.ColumnId, x => x.Count, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var itemCounts = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.BoardId == boardId && t.ColumnId != null && !t.IsArchived)
+            .GroupBy(t => t.ColumnId!.Value)
+            .Select(g => new { ColumnId = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var counts = new Dictionary<Guid, int>();
+        foreach (var x in cardCounts) { counts[x.ColumnId] = x.Count; }
+        foreach (var x in itemCounts) { counts[x.ColumnId] = (counts.TryGetValue(x.ColumnId, out var e) ? e : 0) + x.Count; }
 
         return columns.Select(c => new TaskBoardColumnDto(c.Id, c.BoardId, c.Name, c.Color, c.SortOrder, c.IsDone,
             counts.TryGetValue(c.Id, out var n) ? n : 0)).ToList();
@@ -179,7 +189,8 @@ public sealed class TaskBoardService : ITaskBoardService
         col.Color = string.IsNullOrWhiteSpace(request.Color) ? null : request.Color.Trim();
         col.IsDone = request.IsDone;
         await _db.SaveChangesAsync(cancellationToken);
-        var count = await _db.TaskCards.Where(c => c.ColumnId == col.Id && !c.IsArchived).CountAsync(cancellationToken);
+        var count = await _db.TaskCards.Where(c => c.ColumnId == col.Id && !c.IsArchived).CountAsync(cancellationToken)
+            + await _db.TaskItems.Where(t => t.ColumnId == col.Id && !t.IsArchived).CountAsync(cancellationToken);
         return new TaskBoardColumnDto(col.Id, col.BoardId, col.Name, col.Color, col.SortOrder, col.IsDone, count);
     }
 
@@ -187,10 +198,58 @@ public sealed class TaskBoardService : ITaskBoardService
     {
         var col = await _db.TaskBoardColumns.FirstOrDefaultAsync(c => c.Id == columnId, cancellationToken);
         if (col is null) { return false; }
-        // No permitimos borrar columnas que tengan tarjetas: el usuario debe moverlas primero.
-        var hasCards = await _db.TaskCards.AnyAsync(c => c.ColumnId == columnId && !c.IsArchived, cancellationToken);
-        if (hasCards) { return false; }
+
+        // No permitimos borrar un estado que todavia tiene tarjetas ACTIVAS (visibles): el usuario debe
+        // moverlas primero. Cubre los DOS modelos de tablero: TaskCard (kanban) y TaskItem (actividades,
+        // ADR-0020). Antes solo se miraba TaskCards, por eso un tablero de actividades pasaba el guard y
+        // luego la FK TaskItem.ColumnId (Restrict) tumbaba el SaveChanges.
+        var hasActiveCards = await _db.TaskCards.AnyAsync(c => c.ColumnId == columnId && !c.IsArchived, cancellationToken);
+        var hasActiveTasks = await _db.TaskItems.AnyAsync(t => t.ColumnId == columnId && !t.IsArchived, cancellationToken);
+        if (hasActiveCards || hasActiveTasks) { return false; }
+
+        // Las tarjetas ARCHIVADAS conservan su FK al estado (ColumnId es Restrict en ambos modelos): si no
+        // las reubicamos, el DELETE del estado viola la FK. Las mandamos a otro estado del mismo tablero
+        // (preferimos otro estado de cierre; si no, el primero que quede) manteniendolas archivadas.
+        var hasArchived = await _db.TaskCards.AnyAsync(c => c.ColumnId == columnId && c.IsArchived, cancellationToken)
+            || await _db.TaskItems.AnyAsync(t => t.ColumnId == columnId && t.IsArchived, cancellationToken);
+        var conceptoRefs = await _db.ActividadSubcategorias.AnyAsync(s => s.TaskBoardColumnId == columnId, cancellationToken);
+
+        Guid? fallbackColumnId = null;
+        if (hasArchived)
+        {
+            fallbackColumnId = await _db.TaskBoardColumns
+                .Where(c => c.BoardId == col.BoardId && c.Id != columnId)
+                .OrderByDescending(c => c.IsDone)   // preferimos otro estado de cierre
+                .ThenBy(c => c.SortOrder)
+                .Select(c => (Guid?)c.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            // No hay a donde reubicar las tarjetas archivadas: no borramos para no perderlas.
+            if (fallbackColumnId is null) { return false; }
+        }
+
+        // Reubicamos con entidades TRACKEADAS (no ExecuteUpdate) a proposito: al quitar la columna, EF
+        // aplicaria ClientSetNull a las dependientes trackeadas que aun apunten a ella (ColumnId es
+        // opcional) y les pondria ColumnId = null, pisando cualquier reasignacion por SQL directo. Al
+        // cargarlas y repuntarlas aqui, ninguna queda apuntando a la columna: un unico SaveChanges las
+        // persiste junto con el Remove de forma atomica. Es una accion de admin poco frecuente.
+        if (fallbackColumnId is Guid dest)
+        {
+            var cards = await _db.TaskCards.Where(c => c.ColumnId == columnId && c.IsArchived).ToListAsync(cancellationToken);
+            foreach (var c in cards) { c.ColumnId = dest; }
+            var items = await _db.TaskItems.Where(t => t.ColumnId == columnId && t.IsArchived).ToListAsync(cancellationToken);
+            foreach (var t in items) { t.ColumnId = dest; }
+        }
+        // Un concepto (000270) que apuntaba su estado "terminado" a este estado queda sin marcador: el
+        // admin lo re-elige. Sin esto la FK NO ACTION (TaskBoardColumnId) bloquearia el borrado.
+        if (conceptoRefs)
+        {
+            var conceptos = await _db.ActividadSubcategorias.Where(s => s.TaskBoardColumnId == columnId).ToListAsync(cancellationToken);
+            foreach (var s in conceptos) { s.TaskBoardColumnId = null; }
+        }
+
         _db.TaskBoardColumns.Remove(col);
+        _audit.Write(actorUserId, "task-board-column.delete", nameof(TaskBoardColumn), col.Id,
+            previousValue: new { col.Name, col.BoardId }, newValue: null, tenantId: col.TenantId);
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }

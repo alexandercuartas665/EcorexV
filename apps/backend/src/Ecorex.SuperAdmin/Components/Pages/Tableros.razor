@@ -666,7 +666,7 @@ else
                 // El servicio rechaza borrar un estado con tareas: no se pueden dejar huerfanas.
                 _error = col.CardCount > 0
                     ? $"No se puede eliminar \"{col.Name}\": tiene {col.CardCount} tarea(s). Muevelas primero."
-                    : $"No se pudo eliminar el estado \"{col.Name}\".";
+                    : $"No se pudo eliminar \"{col.Name}\": si tiene tareas archivadas, el tablero necesita otro estado al cual reubicarlas.";
             }
             await ReloadColumnsAsync();
         }

@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.233: fix - no se podia eliminar un ESTADO del tablero (FK + guard en tabla equivocada)
+
+- SINTOMA (reporte del usuario): al eliminar un estado del tablero (modal "Estados del tablero") salia
+  "No se pudo eliminar el estado: An error occurred while saving the entity changes. See the inner exception".
+- CAUSA (dos bugs combinados): (1) TaskBoardService.DeleteColumnAsync solo miraba `TaskCards` en el guard, pero
+  Tableros.razor gestiona tableros de ACTIVIDADES, cuyas tarjetas son `TaskItem` -> el guard pasaba aunque
+  hubiera tareas. (2) Tanto `TaskCard.ColumnId` como `TaskItem.ColumnId` son FK `Restrict`: una tarea (activa o
+  archivada) aun apuntando al estado tumbaba el SaveChanges. "Completado" (estado de cierre, auto-archivo 3 dias)
+  suele tener tareas movidas ahi sin archivar todavia.
+- FIX (TaskBoardService.cs): el guard bloquea con tarjetas ACTIVAS contando AMBOS modelos (TaskCards + TaskItems)
+  y devuelve el mensaje amigable "tiene N tarea(s), muevelas primero"; las ARCHIVADAS se reubican a otro estado
+  del mismo tablero (prefiere otro de cierre) con entidades TRACKEADAS + un unico SaveChanges atomico (evita que
+  ClientSetNull pise la reasignacion al quitar la columna); un concepto (000270) que apuntara su estado
+  "terminado" a este queda sin marcador (null). Auditoria `task-board-column.delete`. Conteos de ListColumns/
+  UpdateColumn ahora suman TaskItems (antes 0 en tableros de actividades -> badge y mensaje veraces).
+- PRUEBAS: test dual nuevo ActivityBoardTests.DeleteColumn_RelocatesArchivedTasks_ButBlocksWhenActiveRemain
+  (PG + SQL Server) verde; suites de tableros 52/52 dual; unitarios Application 1144/1144. SIN migracion.
+- SIGUIENTE: pedir OK del usuario para deploy ([[pedir-ok-antes-de-deploy-prod]]).
+
 ## 2026-10-26 - v0.16.232: Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
 
 - QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:

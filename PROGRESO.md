@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-28 - v0.16.240: consultar YCloud para recuperar el motivo REAL de un fallo "sin detalle" [ADR-0139]
+
+- CASO (AGRO, tarea T00558, cliente 573182800618): WhatsApp no llego; la pestana "Fallos de envio" mostraba
+  "sin detalle de Meta". DIAGNOSTICO (verificado en codigo + conversacion en prod): la decision
+  plantilla-vs-texto por ventana de 24h YA existe y funciona (SARA en WorkflowAgentWhatsApp.AskAsync y
+  AgentReactivacionService; el nodo NOTIFICACION del flujo en NodeNotifyService SIEMPRE usa plantilla). Para
+  T00558 se envio por PLANTILLA (lo correcto en frio), YCloud la ACEPTO y luego el webhook de entrega la marco
+  "failed" SIN codigo. O sea: el fallo NO fue la ventana, fue el destino (numero que no recibe; otros fallos del
+  tablero son un fijo 604 y un numero malformado 507). El hueco real: el webhook de estado llego sin el codigo
+  de Meta, por eso "sin detalle".
+- HECHO (mejora A, SOLO LECTURA, sin tocar el envio -> respeta "no multiplicar salidas del emisor"):
+  * IYCloudApiClient.GetMessageAsync + impl (GET /whatsapp/messages/{id} con fallback por listado; parser
+    tolerante de status + error.code/message, objeto "error" o arreglo "errors", code num/texto).
+  * IWhatsAppConnectorService.ProbeDeliveryStatusAsync (reusa la API key YCloud ya cifrada de la linea; solo YCloud).
+  * AiAgentLineService.RefreshDeliveryFailureReasonsAsync: toma los salientes "failed" SIN motivo con ExternalId,
+    consulta YCloud y rellena DeliveryError con el codigo real (mismo formato del webhook); no cambia DeliveryStatus.
+  * UI: boton "Actualizar motivos desde YCloud" en la pestana Fallos de BitacoraAgente.razor.
+- PRUEBAS: build verde (Infrastructure + Application + SuperAdmin razor, 0 errores); Application.Tests 1145/1145
+  (nuevo test RefreshDeliveryFailureReasons_*). Sin migracion (reusa Message.DeliveryStatus/DeliveryError de ADR-0135).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.240. SIGUIENTE: validar E2E con la API key real de AGRO
+  (confirmar el codigo de 573182800618); posible paso B = validar el numero antes de disparar.
+- OJO: la decision plantilla-vs-texto por ventana esta DUPLICADA (WorkflowAgentWhatsApp + AgentReactivacionService);
+  consolidarla en UN solo "portero de ventana" es un refactor pendiente (NO arregla T00558). Ver [[ADR-0139]].
+
 ## 2026-10-28 - v0.16.239: fix "A second operation was started on this context" en /conciliacion-dian [ADR-0138]
 
 - BUG (pre-existente, NO de c621e6d8): al asignar usuario desde el modal de tarea abierto sobre

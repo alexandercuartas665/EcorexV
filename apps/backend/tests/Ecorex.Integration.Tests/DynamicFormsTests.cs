@@ -978,6 +978,7 @@ public abstract class DynamicFormsTestsBase
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
         public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default) => No<Task<LineSendResult>>();
         public Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default) => No<Task<Ecorex.Application.Admin.EvolutionMediaResult>>();
+        public Task<Ecorex.Application.Tenancy.WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default) => No<Task<Ecorex.Application.Tenancy.WhatsAppDeliveryProbeResult>>();
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

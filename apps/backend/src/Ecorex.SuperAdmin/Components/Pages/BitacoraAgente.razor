@@ -166,9 +166,15 @@ else
 {
     @* Pestana "Fallos de envio": salientes de WhatsApp que NO llegaron, con el motivo real de Meta (ADR-0135). *@
     <div class="card" style="padding:18px;">
-        <div style="font-size:12.5px;color:var(--muted-foreground);margin-bottom:14px;">
-            Mensajes SALIENTES de WhatsApp que el proveedor marco como <strong>no entregados</strong>, con el motivo real
-            de Meta (codigo + texto). Mas recientes primero. Si el motivo dice "sin detalle", Meta no devolvio texto.
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div style="font-size:12.5px;color:var(--muted-foreground);flex:1;min-width:240px;">
+                Mensajes SALIENTES de WhatsApp que el proveedor marco como <strong>no entregados</strong>, con el motivo real
+                de Meta (codigo + texto). Mas recientes primero. Si el motivo dice "sin detalle", Meta no devolvio texto;
+                usa "Actualizar motivos desde YCloud" para consultar el codigo real por cada mensaje.
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshFailureReasonsAsync" disabled="@_busy" style="white-space:nowrap;">
+                @(_busy ? "Consultando..." : "Actualizar motivos desde YCloud")
+            </button>
         </div>
         @if (_failures.Count == 0)
         {
@@ -293,6 +299,22 @@ else
     {
         _tab = "fallos";
         await ReloadAsync();
+    }
+
+    /// <summary>ADR-0139: consulta YCloud por el id de cada saliente fallido SIN motivo y rellena el codigo real de
+    /// Meta, para que "sin detalle" pase a "codigo 131026 - ...". Solo lectura contra YCloud (no reenvia nada).</summary>
+    private async Task RefreshFailureReasonsAsync()
+    {
+        _busy = true; _flash = null;
+        try
+        {
+            var n = await AgentLinesSvc.RefreshDeliveryFailureReasonsAsync();
+            await ReloadAsync();
+            _flash = n > 0
+                ? $"Se actualizaron {n} motivo(s) consultando YCloud."
+                : "No se pudo recuperar mas detalle de Meta (YCloud no devolvio codigo para los fallos sin motivo, o no hay ninguno).";
+        }
+        finally { _busy = false; }
     }
 
     private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n] + "...";

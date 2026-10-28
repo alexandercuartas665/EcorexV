@@ -290,6 +290,104 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         return new YCloudTemplateListResult(true, list, null);
     }
 
+    public async Task<YCloudMessageStatusResult> GetMessageAsync(string apiKey, string messageId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, "Falta el id del mensaje.");
+        }
+        // 1) Recurso directo: GET /whatsapp/messages/{id}. 2) Si no existe por esa via (algunos ids solo salen por
+        //    listado), fallback a GET /whatsapp/messages?id={id}&limit=1 y se lee el primer item.
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/whatsapp/messages/{Uri.EscapeDataString(messageId)}");
+            req.Headers.Add("X-API-Key", apiKey);
+            using var res = await _http.SendAsync(req, cancellationToken);
+            var body = await res.Content.ReadAsStringAsync(cancellationToken);
+            if (res.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(body);
+                return ParseMessageStatus(doc.RootElement);
+            }
+            if ((int)res.StatusCode != 404)
+            {
+                return new YCloudMessageStatusResult(false, null, null, null, ExtractError(body) ?? $"HTTP {(int)res.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, ex.Message);
+        }
+
+        // Fallback por listado (el id directo dio 404).
+        try
+        {
+            using var req2 = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/whatsapp/messages?id={Uri.EscapeDataString(messageId)}&limit=1");
+            req2.Headers.Add("X-API-Key", apiKey);
+            using var res2 = await _http.SendAsync(req2, cancellationToken);
+            var body2 = await res2.Content.ReadAsStringAsync(cancellationToken);
+            if (!res2.IsSuccessStatusCode)
+            {
+                return new YCloudMessageStatusResult(false, null, null, null, ExtractError(body2) ?? $"HTTP {(int)res2.StatusCode}");
+            }
+            using var doc2 = JsonDocument.Parse(body2);
+            if (doc2.RootElement.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0)
+            {
+                return ParseMessageStatus(items[0]);
+            }
+            return new YCloudMessageStatusResult(false, null, null, null, "YCloud no devolvio el mensaje (id no encontrado).");
+        }
+        catch (Exception ex)
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, ex.Message);
+        }
+    }
+
+    /// <summary>Parsea un objeto de mensaje de YCloud: estado + (si fallo) codigo y texto de error de Meta. Tolerante
+    /// a que el error venga como objeto "error" o arreglo "errors", y a code numerico o texto.</summary>
+    private static YCloudMessageStatusResult ParseMessageStatus(JsonElement msg)
+    {
+        var status = TryStr(msg, "status");
+        string? code = null, message = null;
+
+        // error como objeto: { code, title, message, ... }
+        if (msg.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
+        {
+            (code, message) = ReadErrorFields(err);
+        }
+        // errors como arreglo: [ { code, title, message } ] (se toma el primero con datos).
+        if ((code is null && message is null) && msg.TryGetProperty("errors", out var errs) && errs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in errs.EnumerateArray())
+            {
+                if (e.ValueKind != JsonValueKind.Object) { continue; }
+                (code, message) = ReadErrorFields(e);
+                if (code is not null || message is not null) { break; }
+            }
+        }
+        return new YCloudMessageStatusResult(true, status, code, message, null);
+    }
+
+    // Lee (code, message) de un objeto de error de Meta/YCloud. code puede ser numero o texto; el texto puede venir
+    // en "message", "title" o "errorMessage". Devuelve (null, null) si no hay nada util.
+    private static (string? Code, string? Message) ReadErrorFields(JsonElement err)
+    {
+        string? code = null;
+        if (err.TryGetProperty("code", out var c))
+        {
+            code = c.ValueKind == JsonValueKind.Number ? c.GetRawText()
+                : c.ValueKind == JsonValueKind.String ? c.GetString()
+                : null;
+        }
+        var message = TryStr(err, "message") ?? TryStr(err, "title") ?? TryStr(err, "errorMessage");
+        // Detalle anidado estilo Meta: error.error_data.details
+        if (message is null && err.TryGetProperty("error_data", out var ed) && ed.ValueKind == JsonValueKind.Object)
+        {
+            message = TryStr(ed, "details");
+        }
+        return (string.IsNullOrWhiteSpace(code) ? null : code, string.IsNullOrWhiteSpace(message) ? null : message);
+    }
+
     private static string? TryStr(JsonElement el, string prop)
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()

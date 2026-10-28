@@ -48,6 +48,12 @@ public interface IYCloudApiClient
 
     /// <summary>Lista las plantillas de una WABA con su estado actual (para sincronizar).</summary>
     Task<YCloudTemplateListResult> ListTemplatesAsync(string apiKey, string wabaId, CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0139: consulta el ESTADO de UN mensaje por su id (el wamid de Meta o el id interno de YCloud,
+    /// lo que se guardo al enviar) para recuperar el MOTIVO REAL de Meta cuando el webhook de estado llego "failed"
+    /// sin detalle. Es solo lectura (GET /whatsapp/messages/{id}); no reenvia nada. Devuelve el estado y, si fallo,
+    /// el codigo + texto de error de Meta (ej. 131026 "Message undeliverable").</summary>
+    Task<YCloudMessageStatusResult> GetMessageAsync(string apiKey, string messageId, CancellationToken cancellationToken = default);
 }
 
 public enum YCloudMediaKind { Image, Video, Audio, Document }
@@ -55,6 +61,12 @@ public enum YCloudMediaKind { Image, Video, Audio, Document }
 public sealed record YCloudCheckResult(bool IsValid, string? VerifiedPhone, string? WabaId, string? Error);
 
 public sealed record YCloudSendResult(bool IsSuccess, string? MessageId, string? Error);
+
+/// <summary>Estado de UN mensaje consultado por id (ADR-0139). <paramref name="Status"/> es el estado de YCloud/Meta
+/// ("sent"/"delivered"/"read"/"failed"/"undelivered"...). Cuando fallo, <paramref name="ErrorCode"/> y
+/// <paramref name="ErrorMessage"/> traen el motivo real de Meta (ej. "131026" + "Message undeliverable"), si Meta lo
+/// devolvio. <paramref name="Error"/> no nulo = fallo la propia consulta (HTTP/parse), no el mensaje.</summary>
+public sealed record YCloudMessageStatusResult(bool IsSuccess, string? Status, string? ErrorCode, string? ErrorMessage, string? Error);
 
 /// <summary>Resultado de crear/someter una plantilla. <paramref name="Status"/> suele venir
 /// PENDING al crear (Meta la revisa); APPROVED inmediato solo para AUTHENTICATION.</summary>

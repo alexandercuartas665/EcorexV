@@ -880,6 +880,7 @@ else
                                                     <option value="">&mdash; Columna del conciliador &mdash;</option>
                                                     <option value="oc" selected="@(row.Target == "oc")">Orden de compra</option>
                                                     <option value="numsol" selected="@(row.Target == "numsol")">Num Factura SISTEMA</option>
+                                                    <option value="asignado" selected="@(row.Target == "asignado")">Usuario asignado (responsable)</option>
                                                     @foreach (var d in _dynDefs)
                                                     {
                                                         var dk = "dyn:" + d.FieldKey;

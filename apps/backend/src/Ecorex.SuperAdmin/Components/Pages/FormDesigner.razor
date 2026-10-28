@@ -3994,6 +3994,13 @@ else
                         @RenderCascadeEditor(q, fields)
                     </div>
                 }
+                else if (q.SourceKind == FormSourceKind.SystemUser)
+                {
+                    <div class="fb-field">
+                        <label>Usuarios permitidos (vacio = todos)</label>
+                        @RenderSystemUserPicker(q)
+                    </div>
+                }
                 else
                 {
                     <div class="fb-field">
@@ -4010,6 +4017,71 @@ else
             }
         </div>
     };
+
+    /// <summary>
+    /// Selector de USUARIOS PERMITIDOS para el origen "Usuarios del sistema" (sin JSON): casillas con los
+    /// usuarios del tenant; los marcados forman la lista blanca que guarda <see cref="FormQuestionDto.FilterJson"/>
+    /// como {"users":[..]} (ver <see cref="FormSystemUserFilter"/>). Ninguno marcado = todos (comportamiento
+    /// original). Asi un campo tipo "Aprobador del gasto" ofrece solo los usuarios elegidos.
+    /// </summary>
+    private RenderFragment RenderSystemUserPicker(FormQuestionDto q) => __builder =>
+    {
+        _ = EnsureSystemUsersAsync();
+        var selected = FormSystemUserFilter.Parse(q.FilterJson).UserIds
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        <div class="fb-autofill">
+            @if (_systemUsers.Count == 0)
+            {
+                <div class="fb-hint">Cargando usuarios del sistema...</div>
+            }
+            else
+            {
+                <div class="fb-hint">Marca los usuarios que apareceran en la lista. Si no marcas ninguno, se ofrecen todos.</div>
+                <div class="fb-chkgrid">
+                    @foreach (var u in _systemUsers)
+                    {
+                        <label class="pl-toggle">
+                            <input type="checkbox" checked="@selected.Contains(u.Value)"
+                                   @onchange="@(() => ToggleSystemUserAsync(q, u.Value))" />
+                            @u.Display
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    // Cache de los usuarios del tenant para el selector del disenador (se carga una vez via el lookup).
+    private List<FormLookupItem> _systemUsers = new();
+    private bool _systemUsersLoading;
+
+    private async Task EnsureSystemUsersAsync()
+    {
+        if (_systemUsers.Count > 0 || _systemUsersLoading) { return; }
+        _systemUsersLoading = true;
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                FormSourceKind.SystemUser, "", null, null, null, Array.Empty<string>(), Skip: 0, Take: 200));
+            _systemUsers = page.Items.ToList();
+        }
+        catch (Exception)
+        {
+            _systemUsers = new();
+        }
+        finally
+        {
+            _systemUsersLoading = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleSystemUserAsync(FormQuestionDto q, string userId)
+    {
+        var next = FormSystemUserFilter.Parse(q.FilterJson).Toggle(userId);
+        return PatchQuestionAsync(q, r => r with { FilterJson = next.ToJsonOrNull() });
+    }
 
     /// <summary>
     /// Editor de CASCADA (sin JSON): cada fila dice "la columna X de esta tabla = el valor que tenga, en

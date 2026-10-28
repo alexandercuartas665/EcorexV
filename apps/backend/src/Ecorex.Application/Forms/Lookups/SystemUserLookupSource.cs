@@ -23,11 +23,26 @@ public sealed class SystemUserLookupSource : IFormLookupSource
     {
         // Los usuarios de un tenant son pocos (decenas): se lista y filtra en memoria sin costo real.
         var all = await _users.ListAsync(cancellationToken);
+
+        // Lista blanca OPCIONAL (FilterJson {"users":[..]}): si el disenador eligio un subconjunto, el
+        // catalogo se acota a esos ids; vacio/ausente = todos (comportamiento original). Ver FormSystemUserFilter.
+        var whitelist = FormSystemUserFilter.Parse(request.FilterJson);
+        IEnumerable<TenantUserDto> catalog = all;
+        if (whitelist.HasWhitelist)
+        {
+            var allow = whitelist.UserIds
+                .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
+                .Where(g => g is not null)
+                .Select(g => g!.Value)
+                .ToHashSet();
+            catalog = all.Where(u => allow.Contains(u.Id));
+        }
+
         var q = request.Query?.Trim().ToLowerInvariant();
-        IEnumerable<TenantUserDto> filtered = all;
+        IEnumerable<TenantUserDto> filtered = catalog;
         if (!string.IsNullOrEmpty(q))
         {
-            filtered = all.Where(u =>
+            filtered = catalog.Where(u =>
                 Label(u).ToLowerInvariant().Contains(q)
                 || u.Email.ToLowerInvariant().Contains(q));
         }

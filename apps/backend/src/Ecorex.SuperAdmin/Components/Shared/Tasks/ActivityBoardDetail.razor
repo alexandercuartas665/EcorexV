@@ -3159,9 +3159,15 @@
                 try
                 {
                     var item = await formLookupSvc.ResolveAsync(meta.SourceKind, meta.SourceRef ?? "", val!, fields);
-                    if (item is not null && !string.IsNullOrWhiteSpace(item.Display))
+                    if (item is not null)
                     {
-                        _formLookupLabels[(defId, code, val!)] = item.Display;
+                        // ResolveAsync no conoce el DisplayField (su Display cae al fallback de la fuente: en el
+                        // Contenedor, la primera columna = CODIGO). Como fields ya pide el DisplayField, se prefiere
+                        // su valor (p.ej. "NOMBRE") para que la columna del tablero muestre el label y no el codigo.
+                        var disp = (!string.IsNullOrWhiteSpace(meta.DisplayField)
+                            && item.Fields.TryGetValue(meta.DisplayField!, out var dv) && !string.IsNullOrWhiteSpace(dv))
+                            ? dv! : item.Display;
+                        if (!string.IsNullOrWhiteSpace(disp)) { _formLookupLabels[(defId, code, val!)] = disp; }
                     }
                 }
                 catch { /* fila borrada / fuente no resoluble: se deja el valor crudo */ }

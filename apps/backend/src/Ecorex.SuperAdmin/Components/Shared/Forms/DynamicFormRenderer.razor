@@ -2459,11 +2459,24 @@ else
             try
             {
                 var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
-                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+                if (item is not null) { _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item); }
             }
             catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
         }
     }
+
+    /// <summary>
+    /// Etiqueta a mostrar de un valor de lookup ya resuelto. ResolveAsync (a diferencia de SearchAsync) NO
+    /// conoce el DisplayField, asi que su Display cae al fallback de la fuente (en el Contenedor, la primera
+    /// columna con valor, que suele ser el CODIGO, no el NOMBRE). Como LookupFields(q) ya pide el DisplayField,
+    /// su valor viene en item.Fields: se prefiere ese (p.ej. "NOMBRE") para que al reabrir se vea el label y no
+    /// el codigo. Sin DisplayField (p.ej. Usuarios del sistema) se usa el Display de la fuente.
+    /// </summary>
+    private static string DisplayFromItem(FormQuestionDto q, FormLookupItem item)
+        => (!string.IsNullOrWhiteSpace(q.DisplayField)
+            && item.Fields.TryGetValue(q.DisplayField!, out var dv)
+            && !string.IsNullOrWhiteSpace(dv))
+            ? dv! : item.Display;
 
     /// <summary>Resuelve la etiqueta de UN id de lookup bajo demanda (una sola vez por valor), fuera de la
     /// carga inicial: cubre los registros DERIVADOS cuyo id llego despues del load (el cliente recien creado
@@ -2479,7 +2492,7 @@ else
             var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
             if (item is not null)
             {
-                _lookupDisplay[q.FieldCode] = item.Display;
+                _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item);
                 await InvokeAsync(StateHasChanged);
             }
         }

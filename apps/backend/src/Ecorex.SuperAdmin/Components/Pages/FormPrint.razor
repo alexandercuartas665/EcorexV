@@ -468,7 +468,16 @@
             try
             {
                 var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, fields);
-                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+                if (item is not null)
+                {
+                    // ResolveAsync no conoce el DisplayField (su Display cae al fallback de la fuente: en el
+                    // Contenedor, la primera columna = CODIGO). LookupFields ya trae el DisplayField en item.Fields,
+                    // asi que se prefiere ese (p.ej. "NOMBRE") para imprimir el label y no el codigo.
+                    var disp = (!string.IsNullOrWhiteSpace(q.DisplayField)
+                        && item.Fields.TryGetValue(q.DisplayField!, out var dv) && !string.IsNullOrWhiteSpace(dv))
+                        ? dv! : item.Display;
+                    _lookupDisplay[q.FieldCode] = disp;
+                }
             }
             catch (Exception) { /* la resolucion de etiqueta nunca rompe el documento */ }
         }

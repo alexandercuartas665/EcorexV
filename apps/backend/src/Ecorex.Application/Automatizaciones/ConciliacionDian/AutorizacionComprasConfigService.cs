@@ -99,6 +99,12 @@ public interface IAutorizacionComprasConfigService
     Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default);
     /// <summary>Campos (code+label) de un formulario, para el editor de mapeos (excluye no-dato: Button/Heading/etc.).</summary>
     Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default);
+
+    /// <summary>Codigos de campo que son texto/numero/fecha PLANOS (SourceKind=Options): los unicos seguros para
+    /// prellenar con datos crudos de la factura. EXCLUYE campos repurposados a lookup del Contenedor, usuario del
+    /// sistema, tercero, item, etc., para no pisarlos con el valor crudo (p. ej. meter la fecha en un campo que
+    /// ahora es un selector de usuario).</summary>
+    Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
     Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones a ocultar en autorizacion para el formulario dado (salen de la salida cuyo form coincide).</summary>
@@ -364,6 +370,21 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .OrderBy(q => q.SortOrder)
             .Select(q => new FormFieldOptionDto(q.FieldCode, q.Label))
             .ToList();
+    }
+
+    public async Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+        // Solo campos "crudos": texto/area/numero/fecha con origen de opciones (no lookups ni usuarios).
+        var plain = new HashSet<FormControlType>
+        {
+            FormControlType.Text, FormControlType.TextArea, FormControlType.Number, FormControlType.Date,
+        };
+        return def.Questions
+            .Where(q => q.SourceKind == FormSourceKind.Options && plain.Contains(q.ControlType))
+            .Select(q => q.FieldCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default)

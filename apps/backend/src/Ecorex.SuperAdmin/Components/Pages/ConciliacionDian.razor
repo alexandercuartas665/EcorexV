@@ -1793,7 +1793,9 @@ else
             var num = result.Value.Item.Number;
             // El formulario configurado "cae" en la tarea (via ActividadSubcategoria.FormDefinitionId). Aqui
             // lo prellenamos con los datos de la factura del conciliador, en un borrador keyed por el NUMERO de
-            // tarea (los codigos deben existir en el form: proveedor/nit/rut/fecha_compra/num_factura).
+            // tarea. OJO: solo se prellenan los campos que SIGUEN siendo texto/numero/fecha PLANOS (SourceKind=
+            // Options). Si el usuario repurposo un codigo (p. ej. "fecha_compra" ahora es un selector de usuario,
+            // "proveedor"/"nit" son lookups del Contenedor) NO se pisa con el dato crudo de la factura.
             if (salida.FormDefinitionId is Guid fid)
             {
                 try
@@ -1801,7 +1803,7 @@ else
                     var td = await FormResponses.GetOrCreateDraftAsync(fid, num);
                     if (td.IsOk && td.Value is { } tdr)
                     {
-                        var data = new Dictionary<string, FormFieldValue>
+                        var candidatos = new Dictionary<string, FormFieldValue>
                         {
                             ["proveedor"] = new FormFieldValue(r.NombreProveedor ?? string.Empty, "Text"),
                             ["nit"] = new FormFieldValue(r.NitProveedor ?? string.Empty, "Text"),
@@ -1809,7 +1811,10 @@ else
                             ["fecha_compra"] = new FormFieldValue(r.FechaEmision.ToString("yyyy-MM-dd"), "Date"),
                             ["num_factura"] = new FormFieldValue(r.NumFacturaProveedor ?? string.Empty, "Text"),
                         };
-                        await FormResponses.SaveAsync(tdr.Id, data, false);
+                        var planos = await TaskCfg.GetPlainTextFieldCodesAsync(fid);
+                        var data = candidatos.Where(kv => planos.Contains(kv.Key))
+                            .ToDictionary(kv => kv.Key, kv => kv.Value);
+                        if (data.Count > 0) { await FormResponses.SaveAsync(tdr.Id, data, false); }
                     }
                 }
                 catch { /* el resumen ya viaja en la descripcion */ }

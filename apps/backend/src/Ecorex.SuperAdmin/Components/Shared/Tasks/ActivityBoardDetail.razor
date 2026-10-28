@@ -132,19 +132,26 @@
         }
 
         @* ---- Pestanas de alcance ---- *@
+        @* Alcance por usuario: con bloqueo duro (no puede ver todo) solo se muestran "mis tareas" + "no asignados". *@
         <div class="ab-scopes">
-            <button class="ab-scope @(_scope == ActivityBoardScope.Team ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Team))">
-                Todas del equipo<span class="ab-scope-n">@_detail.ScopeCounters.Team</span>
-            </button>
+            @if (_canSeeAllTasks)
+            {
+                <button class="ab-scope @(_scope == ActivityBoardScope.Team ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Team))">
+                    Todas del equipo<span class="ab-scope-n">@_detail.ScopeCounters.Team</span>
+                </button>
+            }
             <button class="ab-scope @(_scope == ActivityBoardScope.Mine ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Mine))">
                 Pendientes mios<span class="ab-scope-n">@_detail.ScopeCounters.Mine</span>
             </button>
             <button class="ab-scope @(_scope == ActivityBoardScope.Unassigned ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Unassigned))">
                 No asignados<span class="ab-scope-n">@_detail.ScopeCounters.Unassigned</span>
             </button>
-            <button class="ab-scope @(_scope == ActivityBoardScope.Done ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Done))">
-                Terminados<span class="ab-scope-n">@_detail.ScopeCounters.Done</span>
-            </button>
+            @if (_canSeeAllTasks)
+            {
+                <button class="ab-scope @(_scope == ActivityBoardScope.Done ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Done))">
+                    Terminados<span class="ab-scope-n">@_detail.ScopeCounters.Done</span>
+                </button>
+            }
             @* Papelera del tablero: alterna a mostrar SOLO las archivadas (para restaurarlas). *@
             <button class="ab-scope @(_onlyArchived ? "on" : "")" style="margin-left:auto" @onclick="ToggleArchivedAsync"
                     title="Ver las tareas archivadas de este tablero (para restaurarlas)">
@@ -1447,6 +1454,11 @@
     private string? _fSearch; // busqueda de texto libre (ID, titulo, descripcion, solicitante)
     private readonly HashSet<Guid> _fTags = new();
     private ActivityBoardScope _scope = ActivityBoardScope.Team;
+    // Alcance por usuario (SeeAllUserIds del tablero): si la restriccion esta ACTIVA, el tablero arranca en
+    // "mis tareas" y solo quien puede ver todo (Owner/Admin o usuario autorizado) ve los alcances equipo/terminados.
+    // _canSeeAllTasks default true = tablero sin restriccion (comportamiento clasico).
+    private bool _seeAllRestrictionOn;
+    private bool _canSeeAllTasks = true;
     private bool _onlyArchived;   // true = "papelera" del tablero: muestra solo las archivadas.
     private bool _filtersVisible = true;
     private string _view = "tablero";
@@ -1601,6 +1613,11 @@
             catch (Microsoft.JSInterop.JSException) { /* prerender: sin JS todavia */ }
             catch (InvalidOperationException) { }
             catch (System.Text.Json.JsonException) { /* pref vieja/corrupta: se ignora */ }
+            // Bloqueo duro: un alcance guardado de "equipo"/"terminados" no vale si el usuario no puede ver todo.
+            if (!_canSeeAllTasks && _scope is ActivityBoardScope.Team or ActivityBoardScope.Done)
+            {
+                _scope = ActivityBoardScope.Mine;
+            }
             _prefSig = System.Text.Json.JsonSerializer.Serialize(CurrentPrefs());
             // El alcance/chips restaurados cambian la consulta: recargar el tablero con el filtro guardado.
             await ReloadAsync();
@@ -1703,6 +1720,7 @@
         _fColumns.Clear(); _fUsers.Clear(); _fTags.Clear();
         _fDue = null; _fDueOn = null;
         _scope = ActivityBoardScope.Team;
+        _seeAllRestrictionOn = false; _canSeeAllTasks = true;
         _view = "tablero";
         _calMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         _ganttStart = DefaultGanttStart();
@@ -1717,6 +1735,12 @@
             .OrderBy(s => s.Nombre).ToList();
         _meTenantUserId = await MeTenantUserIdAsync();
         await LoadMembersAsync();
+        // Alcance por usuario: en tableros con la restriccion ACTIVA el default es "mis tareas" (cada quien ve
+        // su carga). La preferencia guardada (OnAfterRenderAsync) puede luego restaurar otro alcance.
+        if (_seeAllRestrictionOn && _meTenantUserId is not null)
+        {
+            _scope = ActivityBoardScope.Mine;
+        }
         await ReloadAsync();
         // Mis Procesos (?sub=): al aterrizar, abrir el WIZARD grande "Crear actividad" (4 pasos, form-first)
         // precargado con el concepto -> NO el modal rapido. Se dispara en OnAfterRenderAsync, cuando el
@@ -1757,7 +1781,14 @@
                 index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true,
                     CurrentTenantUserId: _meTenantUserId, CanSeeRestricted: _canSeeAllBoards));
             }
-            _members = index.Boards.FirstOrDefault(b => b.Id == BoardId)?.Members.ToList() ?? new List<ActivityBoardMemberDto>();
+            var summary = index.Boards.FirstOrDefault(b => b.Id == BoardId);
+            _members = summary?.Members.ToList() ?? new List<ActivityBoardMemberDto>();
+            // Alcance por usuario: restriccion ACTIVA si el tablero tiene usuarios en SeeAll. Puede ver todo
+            // quien es Owner/Admin (_canSeeAllBoards) o esta en esa lista; los demas quedan con bloqueo duro.
+            var seeAll = summary?.SeeAllUserIds ?? Array.Empty<Guid>();
+            _seeAllRestrictionOn = seeAll.Count > 0;
+            _canSeeAllTasks = !_seeAllRestrictionOn || _canSeeAllBoards
+                || (_meTenantUserId is Guid meSee && seeAll.Contains(meSee));
         }
         finally
         {
@@ -1804,9 +1835,18 @@
             if (result.IsOk)
             {
                 _detail = result.Value;
-                // Cache de etiquetas del tablero: solo del primer load SIN filtros,
-                // para que los chips no desaparezcan al filtrar.
-                if (FilterCount == 0 && _scope == ActivityBoardScope.Team)
+                // Alcance por usuario: el detalle es la fuente autoritativa (el servidor ya aplico el bloqueo
+                // duro). Sincroniza los flags y alinea el chip local si el servidor forzo "mis tareas".
+                _seeAllRestrictionOn = _detail!.SeeAllRestrictionOn;
+                _canSeeAllTasks = _detail!.CanSeeAllTasks;
+                if (!_canSeeAllTasks && _scope is ActivityBoardScope.Team or ActivityBoardScope.Done)
+                {
+                    _scope = ActivityBoardScope.Mine;
+                }
+                // Cache de etiquetas del tablero: solo del primer load SIN filtros, para que los chips no
+                // desaparezcan al filtrar. Con bloqueo duro el alcance mas amplio del usuario es "mis tareas".
+                if (FilterCount == 0 && (_scope == ActivityBoardScope.Team
+                        || (!_canSeeAllTasks && _scope == ActivityBoardScope.Mine)))
                 {
                     _boardTags = _detail!.Columns.SelectMany(c => c.Cards).SelectMany(c => c.Tags)
                         .GroupBy(t => t.Id).Select(g => g.First()).OrderBy(t => t.Name).ToList();
@@ -1908,6 +1948,8 @@
 
     private async Task SetScopeAsync(ActivityBoardScope scope)
     {
+        // Bloqueo duro: quien no puede ver todo no accede a "equipo"/"terminados" (defensa; los chips ya se ocultan).
+        if (!_canSeeAllTasks && scope is ActivityBoardScope.Team or ActivityBoardScope.Done) { return; }
         _scope = scope;
         await ReloadAsync();
     }

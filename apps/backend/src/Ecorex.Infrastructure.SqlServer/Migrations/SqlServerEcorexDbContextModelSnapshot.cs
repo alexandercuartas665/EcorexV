@@ -13460,6 +13460,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(150)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SeeAllUserIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("see_all_user_ids_json");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");

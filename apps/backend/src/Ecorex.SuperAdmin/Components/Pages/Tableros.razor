@@ -144,6 +144,33 @@ else
                         }
                     </div>
                 </div>
+                <div class="field">
+                    <label class="form-label">Quien ve todas las tareas</label>
+                    <div class="text-muted" style="font-size:12px;margin-bottom:6px;">
+                        @if (_fSeeAllUsers.Count == 0)
+                        {
+                            <span><strong>Todos</strong> ven todas las tareas del tablero. Marca usuarios para que el tablero abra en <strong>"mis tareas"</strong> para cada quien: solo los marcados (y los administradores) veran todo; los demas solo su carga y las no asignadas.</span>
+                        }
+                        else
+                        {
+                            <span>Solo <strong>@_fSeeAllUsers.Count</strong> usuario(s) (mas los administradores) ven todas las tareas. El resto abre en <strong>"mis tareas"</strong> y ve solo su carga + las no asignadas. Desmarca todos para que todos vean todo.</span>
+                        }
+                    </div>
+                    <div style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;">
+                        @foreach (var u in _users)
+                        {
+                            <label class="tb-state-done" style="gap:8px;">
+                                <input type="checkbox" checked="@_fSeeAllUsers.Contains(u.Id)"
+                                       @onchange="@(e => ToggleSeeAllUser(u.Id, (bool)(e.Value ?? false)))" />
+                                <span>@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!)</span>
+                            </label>
+                        }
+                        @if (_users.Count == 0)
+                        {
+                            <span class="text-muted" style="font-size:12px;">No hay usuarios en este tenant.</span>
+                        }
+                    </div>
+                </div>
                 @if (_editId is not null)
                 {
                     <div class="field">
@@ -397,6 +424,9 @@ else
     // Usuarios del tenant para el selector "Visible para" + la restriccion elegida en el modal (vacio = todos).
     private List<TenantUserDto> _users = new();
     private readonly HashSet<Guid> _fAllowedUsers = new();
+    // Alcance por usuario: quienes pueden ver TODAS las tareas del tablero (vacio = todos ven todo). Con usuarios,
+    // los demas abren en "mis tareas" y solo ven su carga + las no asignadas.
+    private readonly HashSet<Guid> _fSeeAllUsers = new();
     // Owner/Admin ven todos los tableros aunque esten restringidos (esta pagina es el administrador).
     private bool _isAdmin;
 
@@ -454,6 +484,7 @@ else
         _fCloseReasons = "";
         _fAutoArchiveDays = 15;
         _fAllowedUsers.Clear();
+        _fSeeAllUsers.Clear();
         _error = null;
         _columns.Clear();
         _tagEditColId = null;
@@ -474,6 +505,8 @@ else
         _fAutoArchiveDays = b.AutoArchiveDoneDays;
         _fAllowedUsers.Clear();
         foreach (var uid in b.AllowedUserIds ?? Array.Empty<Guid>()) { _fAllowedUsers.Add(uid); }
+        _fSeeAllUsers.Clear();
+        foreach (var uid in b.SeeAllUserIds ?? Array.Empty<Guid>()) { _fSeeAllUsers.Add(uid); }
         _error = null;
         _tagEditColId = null;
         _modalOpen = true;
@@ -490,6 +523,13 @@ else
     {
         if (on) { _fAllowedUsers.Add(tenantUserId); }
         else { _fAllowedUsers.Remove(tenantUserId); }
+    }
+
+    /// <summary>Marca/desmarca un usuario en "quien ve todas las tareas" del tablero (vacio = todos ven todo).</summary>
+    private void ToggleSeeAllUser(Guid tenantUserId, bool on)
+    {
+        if (on) { _fSeeAllUsers.Add(tenantUserId); }
+        else { _fSeeAllUsers.Remove(tenantUserId); }
     }
 
     // ---- Etiquetas permitidas por columna ----
@@ -706,14 +746,14 @@ else
                     .ToList();
                 var upd = await BoardsSvc.UpdateBoardAsync(
                     id,
-                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, CloseReasons: motivos, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact, AllowedUserIds: _fAllowedUsers.ToList(), AutoArchiveDoneDays: Math.Clamp(_fAutoArchiveDays, 0, 3650)),
+                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived, CloseReasons: motivos, MobileScanEnabled: _fScanEnabled, CardPrimaryContact: _fCardPrimaryContact, AllowedUserIds: _fAllowedUsers.ToList(), AutoArchiveDoneDays: Math.Clamp(_fAutoArchiveDays, 0, 3650), SeeAllUserIds: _fSeeAllUsers.ToList()),
                     actor, actorName);
                 if (!upd.IsOk) { _error = upd.Error ?? "No se pudo guardar el tablero."; return; }
             }
             else
             {
                 var created = await BoardsSvc.CreateBoardAsync(
-                    new CreateActivityBoardRequest(_fName, _fDescription, _fColor, AllowedUserIds: _fAllowedUsers.ToList()), actor, actorName);
+                    new CreateActivityBoardRequest(_fName, _fDescription, _fColor, AllowedUserIds: _fAllowedUsers.ToList(), SeeAllUserIds: _fSeeAllUsers.ToList()), actor, actorName);
                 if (!created.IsOk) { _error = created.Error ?? "No se pudo crear el tablero."; return; }
             }
 

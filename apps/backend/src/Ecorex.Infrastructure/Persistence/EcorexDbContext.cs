@@ -1185,6 +1185,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.ListViewConfigJson).HasColumnType(jsonColumnType);
             // Restriccion de visibilidad por usuario (arreglo de TenantUserId). Null/vacio = todos.
             b.Property(x => x.AllowedUserIdsJson).HasColumnType(jsonColumnType);
+            // Alcance por usuario: quienes ven TODAS las tareas (arreglo de TenantUserId). Null/vacio = todos ven todo.
+            b.Property(x => x.SeeAllUserIdsJson).HasColumnType(jsonColumnType);
             // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
             // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
             b.Property(x => x.Code).HasMaxLength(20);

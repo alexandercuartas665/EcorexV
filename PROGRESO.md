@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.237: tableros - alcance por usuario (default "mis tareas" + quien ve todo) [ADR-0136]
+
+- PEDIDO (usuario): que el tablero se filtre por defecto a cada usuario con SUS tareas (que vea solo su carga) y
+  poder configurar POR TABLERO que usuarios SI pueden ver todas las tareas.
+- DECISIONES CON EL USUARIO: (1) bloqueo DURO para el no autorizado (no solo default visual); (2) el restringido
+  ve SUS tareas + las NO ASIGNADAS (para tomar trabajo libre), nunca las de otros.
+- MODELO: nuevo TaskBoard.SeeAllUserIdsJson (gemelo de AllowedUserIdsJson, ADR-0117, pero para el ALCANCE interno).
+  Null/vacio = sin restriccion (default "equipo", todos ven todo). Con usuarios = restriccion ACTIVA: el tablero
+  abre en "Pendientes mios" y solo esos usuarios (+ Owner/Admin) ven todo; los demas quedan con bloqueo duro
+  (solo mios + no asignados). jsonb PG / nvarchar(max) SQL. Migracion dual AddBoardSeeAllUsers (solo la columna).
+- ENFORCEMENT EN SERVIDOR (ActivityBoardService.GetBoardDetailAsync): si no puede ver todo, el alcance pedido se
+  coacciona a Mine; contadores de equipo/terminados no se calculan ni se revelan. La UI ademas oculta esos chips,
+  pero la seguridad NO depende de la UI.
+- UI: ActivityBoardDetail computa el permiso desde el resumen (ya trae SeeAllUserIds) -> default Mine con
+  restriccion activa; sincroniza con el detalle tras cada reload; SetScopeAsync ignora equipo/terminados si no
+  puede ver todo. Self-serve en /tableros: segundo selector "Quien ve todas las tareas" (clon de "Visible para").
+- PRUEBAS: build verde, 1322 tests unitarios verdes (Application 1144 + SuperAdmin 178), migracion PG aplicada al
+  dev local. E2E navegador (AGROMETALICAS, Owner): el selector guarda see_all_user_ids_json; PRUEBAS OT con
+  restriccion abre en "Pendientes mios"; Owner conserva los 4 chips (bypass). FALTA validar con usuario Member
+  real (AGRO local solo tiene Admin/Owner) que al no-admin se le ocultan equipo/terminados.
+- DEPLOY: SIN desplegar (pendiente OK del usuario). Va aparte del batch v0.16.233/234/235/236 pendiente.
+
 ## 2026-10-27 - v0.16.236: WhatsApp/YCloud - visibilidad del error de entrega (codigo real de Meta) [ADR-0135]
 
 - CONTEXTO (hand-off de la sesion data-ops): en prod, salientes a un numero (AGROMETALICAS, linea YCloud

@@ -13455,6 +13455,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SeeAllUserIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("see_all_user_ids_json");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");

@@ -377,6 +377,10 @@ else
     /// el renderer emite aqui el nuevo responseId para que el HOST lo abra (modal en la tarea, etc.).</summary>
     [Parameter] public EventCallback<Guid> OnOpenFormRequested { get; set; }
 
+    /// <summary>Una regla de boton (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea: el
+    /// renderer avisa aqui para que el HOST (TaskDetailModal) recargue el flujo y refleje el avance.</summary>
+    [Parameter] public EventCallback OnStepCompleted { get; set; }
+
     /// <summary>
     /// Avisa al contenedor el borrador (FormResponse) en cuanto se crea/carga en modo Fill, SIN esperar
     /// al "Enviar". Lo usa la wizard de tareas para conocer el Id del borrador y poder anclarlo a la
@@ -5015,6 +5019,12 @@ else
             return;
         }
 
+        // Persiste el borrador ANTES de correr las reglas del boton: algunos verbos leen el formulario YA
+        // guardado (p. ej. COMPLETAR_PASO_FLUJO cierra el paso y el nodo siguiente resuelve su encargado desde
+        // un campo de ESTE form por su referencia). Sin este flush, lo recien elegido vive solo en memoria y el
+        // verbo veria el valor viejo. SaveAsync maneja su propio _dbGate, por eso va antes de tomarlo aqui.
+        try { await FlushDraftAsync(); } catch { /* guardado best-effort; la regla igual corre con _values */ }
+
         await _dbGate.WaitAsync();
         FormFieldRulesOutcome outcome;
         try
@@ -5049,7 +5059,8 @@ else
             _ruleUiState.Apply(outcome.Actions, _values);
             _dirty = true;
             foreach (var fieldCode in outcome.Actions
-                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm)
+                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm
+                    && a.Kind != RuleActionKind.StepCompleted)
                 .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
             {
                 var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
@@ -5062,6 +5073,13 @@ else
         if (print is not null)
         {
             await StartPrintFromRuleAsync(print);
+        }
+
+        // Flujo: una regla (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea. Avisa al HOST
+        // para que recargue el flujo (el DynamicFormRenderer no conoce el diagrama; solo reenvia la senal).
+        if (outcome.Actions.Any(a => a.Kind == RuleActionKind.StepCompleted) && OnStepCompleted.HasDelegate)
+        {
+            await OnStepCompleted.InvokeAsync();
         }
 
         // Transformacion (ADR-0078): una regla creo OTRO registro (CONVERTIR_A_FORMULARIO) y pide abrirlo.

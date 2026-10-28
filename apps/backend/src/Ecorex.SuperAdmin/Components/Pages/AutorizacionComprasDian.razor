@@ -505,7 +505,17 @@
         await SelectAsync(r);
         _panelOpen = true;
     }
-    private void CerrarPanel() => _panelOpen = false;
+    // Al cerrar el modal se PERSISTE el borrador: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar)
+    // el autosave periodico esta apagado, asi que sin este flush lo escrito se perdia si el usuario cerraba
+    // (x / fondo) sin pulsar "Guardar cambios". FlushDraftAsync es no-op si no hay borrador o no hubo cambios.
+    private async Task CerrarPanel()
+    {
+        if (_formRenderer is not null)
+        {
+            try { await _formRenderer.FlushDraftAsync(); } catch { /* cerrar nunca debe fallar por el guardado */ }
+        }
+        _panelOpen = false;
+    }
 
     // ---- Visor PDF (zoom + arrastre) via interop ----
     private string? _loadedUrl;

@@ -257,7 +257,8 @@ public sealed class FormResponseService : IFormResponseService
                     question.ControlType, question.Required, field?.Value,
                     FormFieldValidator.ParseOptions(question.OptionsJson),
                     FormFieldValidator.ParseRules(question.ValidationJson),
-                    question.OptionsJson);
+                    question.OptionsJson,
+                    question.SourceKind != FormSourceKind.Options);
                 if (error is not null)
                 {
                     errors[question.FieldCode] = error;

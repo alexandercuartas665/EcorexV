@@ -4775,7 +4775,8 @@ else
             _values.GetValueOrDefault(q.FieldCode),
             FormFieldValidator.ParseOptions(q.OptionsJson),
             FormFieldValidator.ParseRules(q.ValidationJson),
-            q.OptionsJson);
+            q.OptionsJson,
+            q.SourceKind != FormSourceKind.Options);
         if (error is null)
         {
             _errors.Remove(q.FieldCode);

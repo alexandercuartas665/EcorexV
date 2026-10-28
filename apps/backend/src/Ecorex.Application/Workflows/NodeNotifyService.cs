@@ -196,9 +196,10 @@ public sealed class NodeNotifyService : INodeNotifyService
                 // caption) para no mandar "texto" + "documento" por separado. En otros proveedores se manda la
                 // plantilla y luego el documento aparte (comportamiento anterior).
                 Forms.QuoteDocument? cotDoc = null;
+                string? cotFailReason = null;   // motivo ESPECIFICO si el PDF no se pudo generar (va a la nota visible)
                 if (rule.AdjuntarPdfFormDefId is Guid formDefId && task is not null)
                 {
-                    cotDoc = await ResolveFormPdfAsync(task, formDefId, rule.AdjuntarPdfTemplateId, ct);
+                    (cotDoc, cotFailReason) = await ResolveFormPdfAsync(task, formDefId, rule.AdjuntarPdfTemplateId, ct);
                 }
                 var provider = await _db.WhatsAppLines.AsNoTracking()
                     .Where(l => l.Id == lineId).Select(l => (Domain.Enums.WhatsAppProvider?)l.Provider).FirstOrDefaultAsync(ct);
@@ -246,7 +247,8 @@ public sealed class NodeNotifyService : INodeNotifyService
                         "Notify WhatsApp '{Plantilla}' NO enviada: la plantilla exige documento en el encabezado y no se pudo generar el PDF (formDef {FormDefId}, plantilla impresion {TemplateId}).",
                         rule.Plantilla, rule.AdjuntarPdfFormDefId, rule.AdjuntarPdfTemplateId);
                     waOutcome = new WhatsAppSendOutcome(false,
-                        "La plantilla exige un documento en el encabezado y no se pudo generar el PDF de la cotizacion (revisa la plantilla de impresion y que el formulario tenga datos).");
+                        cotFailReason
+                        ?? "La plantilla exige un documento en el encabezado y no se pudo generar el PDF de la cotizacion (revisa la plantilla de impresion y que el formulario tenga datos).");
                 }
                 else if (headerMediaType is not null && headerMediaUrl is null)
                 {
@@ -305,7 +307,11 @@ public sealed class NodeNotifyService : INodeNotifyService
 
     // Resuelve la respuesta del formulario <paramref name="formDefId"/> anclada a la tarea (Reference == numero o
     // "numero-n") y la renderiza a PDF. Devuelve null si no hay respuesta o falla el render (best-effort).
-    private async Task<Forms.QuoteDocument?> ResolveFormPdfAsync(Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, CancellationToken ct)
+    // Devuelve el PDF de la cotizacion y, cuando NO se puede generar, el MOTIVO ESPECIFICO (texto corto) para
+    // que la nota visible de "Fallos de envio" delate la causa real SIN tener que leer el log del servidor por
+    // SSH: distingue "no hay respuesta anclada del formulario que el nodo adjunta" vs "el render rindio vacio"
+    // vs "excepcion al renderizar". Pdf no nulo => FailReason nulo (exito).
+    private async Task<(Forms.QuoteDocument? Pdf, string? FailReason)> ResolveFormPdfAsync(Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, CancellationToken ct)
     {
         try
         {
@@ -324,11 +330,15 @@ public sealed class NodeNotifyService : INodeNotifyService
                 .FirstOrDefaultAsync(ct);
             if (responseId is not Guid rid)
             {
-                // No hay respuesta del formulario anclada a la tarea: no hay nada que adjuntar.
+                // No hay respuesta del formulario anclada a la tarea: no hay nada que adjuntar. Se nombra el
+                // formulario que el nodo ESPERA, porque el caso tipico es un desajuste (el nodo adjunta el
+                // formulario "Cotizacion" pero en la tarea solo esta diligenciado "Registro cotizaciones").
+                var formTitle = await _db.FormDefinitions.AsNoTracking()
+                    .Where(f => f.Id == formDefId).Select(f => f.Title).FirstOrDefaultAsync(ct);
                 _logger.LogWarning(
-                    "ResolveFormPdf: sin respuesta del formulario {FormDefId} anclada a la tarea {Numero}; no se adjunta PDF.",
-                    formDefId, num);
-                return null;
+                    "ResolveFormPdf: sin respuesta del formulario {FormDefId} ({FormTitle}) anclada a la tarea {Numero}; no se adjunta PDF.",
+                    formDefId, formTitle, num);
+                return (null, $"La tarea no tiene diligenciada una respuesta del formulario '{formTitle ?? formDefId.ToString()}' (ref {num}); el nodo adjunta ESE formulario y no lo encontro. Verifica que la cotizacion de la tarea sea de ese formulario y que el nodo apunte al formulario correcto.");
             }
 
             var pdf = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
@@ -338,9 +348,10 @@ public sealed class NodeNotifyService : INodeNotifyService
                 _logger.LogWarning(
                     "ResolveFormPdf: el render de la respuesta {ResponseId} (formulario {FormDefId}, plantilla impresion {TemplateId}) devolvio null; no se adjunta PDF.",
                     rid, formDefId, templateId);
+                return (null, "La respuesta del formulario SI existe, pero la plantilla de impresion rindio un PDF vacio (revisa la plantilla de impresion configurada en el nodo para el adjunto).");
             }
 
-            return pdf;
+            return (pdf, null);
         }
         catch (Exception ex)
         {
@@ -349,7 +360,7 @@ public sealed class NodeNotifyService : INodeNotifyService
             _logger.LogWarning(ex,
                 "ResolveFormPdf: fallo al generar el PDF del formulario {FormDefId} (plantilla impresion {TemplateId}) para la tarea {Numero}.",
                 formDefId, templateId, task.Number);
-            return null;
+            return (null, $"Error al renderizar el PDF de la cotizacion: {ex.Message}");
         }
     }
 

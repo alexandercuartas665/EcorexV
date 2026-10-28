@@ -1482,6 +1482,7 @@
                                      EmbeddedInTask="true"
                                      ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
                                      OnOpenFormRequested="@OnConvertToFormAsync"
+                                     OnStepCompleted="@OnFormClosedStepAsync"
                                      OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />
             </div>
             @* "Listo": guarda el borrador y cierra (igual que el wizard de crear tarea). No envia; el
@@ -2983,6 +2984,20 @@
     {
         // El submit completo el paso del flujo en el servidor: cierra el editor, refresca detalle y avisa.
         _openForm = null;
+        if (_detail is not null)
+        {
+            var taskId = _detail.Item.Id;
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnFormClosedStepAsync()
+    {
+        // Un boton del formulario (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo en el servidor. NO
+        // cerramos el editor del formulario (el renderer sigue montado tras disparar esta callback dentro de su
+        // propio click); solo recargamos el detalle/flujo para que el diagrama refleje el avance.
         if (_detail is not null)
         {
             var taskId = _detail.Item.Id;

@@ -176,6 +176,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CargarFilasDesdeGrillaVerb>();   // FEATURE C: cargar filas de una grilla a otra
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarRequerimientosDesdeTablaVerb>();  // Capa 10: necesidad de compra por fila
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DireccionarConciliadorVerb>();   // Conciliador: boton del form -> columna del renglon
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CompletarPasoFlujoVerb>();        // Flujo: boton del form cierra el paso actual (con campos obligatorios opcionales)
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();

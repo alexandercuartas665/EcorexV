@@ -1216,19 +1216,51 @@ public sealed class WorkflowEngine : IWorkflowEngine
         return null;
     }
 
-    /// <summary>Busca en las respuestas de formulario COMPLETADAS de OTROS nodos de la instancia el valor del
-    /// campo indicado (la mas reciente con valor no vacio) y lo mapea a un TenantUser (por id o correo).</summary>
+    /// <summary>Busca el valor del campo indicado y lo mapea a un TenantUser (por id o correo). Prioridad:
+    /// (1) formularios COMPLETADOS y ENLAZADOS al flujo (FormFlowLink) de OTROS nodos de la instancia -- la via
+    /// estandar; (2) FALLBACK: el formulario de la TAREA anclado por su numero (modulos que usan el formulario de
+    /// la subcategoria, UNO por tarea, no uno por nodo -- p. ej. "Autorizacion de compra" del conciliador, donde
+    /// el aprobador se elige en ese form y no hay FormFlowLink). El fallback solo actua si la via (1) no resolvio,
+    /// asi que no cambia el comportamiento de los flujos que si usan formularios por nodo.</summary>
     private async Task<Guid?> ResolveAssigneeFromFormAsync(
         Guid instanceId, Guid nodeId, string fieldCode, CancellationToken cancellationToken)
     {
-        var datas = await _db.FormFlowLinks.AsNoTracking()
+        // (1) Via estandar: respuestas enlazadas al flujo y completadas en OTROS nodos (la mas reciente primero).
+        var linked = await _db.FormFlowLinks.AsNoTracking()
             .Where(l => l.WorkflowInstanceId == instanceId && l.WorkflowNodeId != nodeId
                 && l.Status == FormFlowLinkStatus.Completed)
             .Join(_db.FormResponses.AsNoTracking(), l => l.FormResponseId, r => r.Id, (l, r) => r)
             .OrderByDescending(r => r.SubmittedAt)
             .Select(r => r.Data)
             .ToListAsync(cancellationToken);
+        var fromLinked = await FindUserInFormDatasAsync(linked, fieldCode, cancellationToken);
+        if (fromLinked is Guid) { return fromLinked; }
 
+        // (2) Fallback: el formulario de la tarea por su numero (no requiere FormFlowLink). Cubre los modulos que
+        //     diligencian UN formulario en la tarea (no por nodo). Se leen todas sus respuestas (incluido borrador),
+        //     la mas reciente primero; se filtra por el campo buscado, asi un form sin ese campo no interfiere.
+        var taskNumber = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == instanceId && i.TaskItemId != null)
+            .Join(_db.TaskItems.AsNoTracking(), i => i.TaskItemId, t => t.Id, (i, t) => t.Number)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(taskNumber))
+        {
+            var byRef = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.Reference == taskNumber)
+                .OrderByDescending(r => r.UpdatedAt)
+                .Select(r => r.Data)
+                .ToListAsync(cancellationToken);
+            var fromRef = await FindUserInFormDatasAsync(byRef, fieldCode, cancellationToken);
+            if (fromRef is Guid) { return fromRef; }
+        }
+        return null;
+    }
+
+    /// <summary>Primer valor no vacio del campo en la lista de datos (jsonb de respuestas) mapeado a un TenantUser
+    /// (id o correo); null si ninguno resuelve. La lista llega ya ordenada por prioridad/recencia.</summary>
+    private async Task<Guid?> FindUserInFormDatasAsync(
+        IReadOnlyList<string> datas, string fieldCode, CancellationToken cancellationToken)
+    {
         foreach (var data in datas)
         {
             var doc = FormResponseService.ParseDocument(data);

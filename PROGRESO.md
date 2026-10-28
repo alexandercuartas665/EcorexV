@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-27 - v0.16.238: bitacora - pestana "Fallos de envio" de WhatsApp (ver el "no llego" sin SSH) [ADR-0137]
+
+- PEDIDO (usuario): "si pasa un error, verlo en la bitacora" -> poder ver en la app los fallos de ENVIO de WhatsApp
+  (el "no llego") sin entrar al servidor por SSH a leer docker logs. Decisiones con el usuario: alcance = SOLO
+  fallos de envio de WhatsApp (no crashes del sistema ni errores del agente, que ya estan en /bitacora-agente);
+  ubicacion = dentro de /bitacora-agente.
+- CAMBIO: nueva pestana "Fallos de envio" en /bitacora-agente. Lista los salientes con DeliveryStatus=="failed"
+  del tenant (mas recientes primero): contacto+telefono+linea, fecha, MOTIVO real de Meta (DeliveryError, codigo +
+  texto; "sin detalle de Meta" si Meta no dio nada) y el texto del mensaje. SIN migracion (reusa
+  Message.DeliveryStatus/DeliveryError de ADR-0135).
+- IMPLEMENTACION: IAiAgentLineService.ListDeliveryFailuresAsync (tenant-scoped por filtro global) + DTO
+  AgentDeliveryFailureDto; UI con pestanas (_tab); el boton "Limpiar bitacora y cache" (borra logs del AGENTE) se
+  oculta en la pestana de fallos para no confundir (no toca mensajes).
+- PRUEBAS: build verde; sin fake de IAiAgentLineService en tests (no rompe). Verificado E2E en navegador: se sembro
+  un fallo de prueba en dev local -> contador "(1)" + fila con linea + fecha + "codigo 131026 - Message
+  undeliverable" + texto; luego se borro el dato de prueba; la pestana "Atencion del agente" sigue sin regresion.
+- OJO: la lista solo se puebla con fallos REALES posteriores al deploy de ADR-0135 en prod (el estado de entrega lo
+  avanza el webhook de estado; mensajes viejos no tienen DeliveryStatus). DEPLOY: SIN desplegar (pendiente OK).
+
 ## 2026-10-27 - v0.16.237: tableros - alcance por usuario (default "mis tareas" + quien ve todo) [ADR-0136]
 
 - PEDIDO (usuario): que el tablero se filtre por defecto a cada usuario con SUS tareas (que vea solo su carga) y

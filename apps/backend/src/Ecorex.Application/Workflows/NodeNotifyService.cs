@@ -528,6 +528,10 @@ public sealed class NodeNotifyService : INodeNotifyService
             Direction = Domain.Enums.MessageDirection.Outbound,
             Body = sb.ToString(),
             MessageType = "text",
+            // Rechazo SINCRONO del envio (Meta/YCloud lo rechazo, o falta plantilla/numero): no se persistio ningun
+            // saliente, asi que esta nota ES el registro del fallo para que aparezca en "Fallos de envio".
+            DeliveryStatus = "failed",
+            DeliveryError = string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor" : reason!.Trim(),
             SentByName = "Sistema (flujo)",
             SentAt = now
         });

@@ -1834,6 +1834,12 @@ app.MapPost("/webhooks/ycloud", async (
             //    id interno de YCloud (al enviar solemos guardar el id de YCloud porque el wamid aun no existe). No se
             //    RETROCEDE el estado (read>delivered>sent); failed siempre marca. Si ya estaba failed, no se re-nota.
             var alreadyFailed = false;
+            // Si el fallo NO corresponde a ningun mensaje saliente persistido (caso de las NOTIFICACIONES de flujo:
+            // NodeNotifyService envia la plantilla por el conector pero NO guarda un Message con su ExternalId), no
+            // hay fila que marcar como "failed" y el fallo quedaba invisible en la pestana "Fallos de envio". En ese
+            // caso marcamos la NOTA que se crea abajo como el registro de fallo (DeliveryStatus=failed). Para SARA/chat
+            // (que SI persiste el saliente con ExternalId) se correlaciona y la nota queda sin estado, para no duplicar.
+            var correlated = false;
             var matchIds = new List<string>();
             if (!string.IsNullOrWhiteSpace(s.Wamid)) { matchIds.Add(s.Wamid!); }
             if (!string.IsNullOrWhiteSpace(s.ProviderId)) { matchIds.Add(s.ProviderId!); }
@@ -1844,6 +1850,7 @@ app.MapPost("/webhooks/ycloud", async (
                         && x.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound, ct);
                 if (msg is not null)
                 {
+                    correlated = true;
                     alreadyFailed = msg.DeliveryStatus == "failed";
                     if (uiStatus == "failed")
                     {
@@ -1901,6 +1908,10 @@ app.MapPost("/webhooks/ycloud", async (
                     Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
                     Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
                     MessageType = "text",
+                    // Sin saliente correlacionado (notificacion de flujo): esta NOTA es el registro del fallo para que
+                    // aparezca en "Fallos de envio". Con saliente correlacionado (SARA/chat) la nota queda sin estado.
+                    DeliveryStatus = correlated ? null : "failed",
+                    DeliveryError = correlated ? null : reason,
                     SentByName = "Sistema (WhatsApp)",
                     SentAt = nowU
                 });

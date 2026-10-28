@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-28 - DEPLOY v0.16.238 a produccion + fix OOM del build-from-git
+
+- DEPLOY (con OK explicito del usuario) de v0.16.238 a app2.bitcode.com.co. Empaqueta: ADR-0135 (codigo real
+  de Meta en fallos de entrega, v0.16.236), ADR-0136 (alcance por usuario en tableros, v0.16.237) y ADR-0137
+  (pestana "Fallos de envio" en /bitacora-agente, v0.16.238). Verificado: interno 5480 y publico app2 reportan
+  version=v0.16.238, login=200.
+- BLOQUEO Y FIX: el build-from-git fallo 2 veces por OOM (csc exit 137 / MSB6006 en Ecorex.Infrastructure). El
+  host (10.0.0.3) tiene 7.8Gi RAM; 4GB de swap NO bastaron. Causa raiz: dotnet publish compila varios proyectos
+  csc EN PARALELO y el pico combinado agota RAM+swap. FIX PERMANENTE (commit cca681b2, en Dockerfile.superadmin):
+  compilar en serie -> `dotnet publish ... -maxcpucount:1 /p:UseSharedCompilation=false`. Con eso + 8GB de swap
+  temporal (no en fstab) el build paso (lento por el swap, pero estable). Ver memoria [[deploy-host-oom-swap]].
+- PENDIENTE/OJO: swap temporal de 8GB sigue en el host (se limpia al reiniciar; se puede quitar). La pestana de
+  fallos y el codigo de Meta solo se pueblan con fallos NUEVOS (post-deploy); los mensajes viejos no traen estado.
+
 ## 2026-10-27 - v0.16.238: bitacora - pestana "Fallos de envio" de WhatsApp (ver el "no llego" sin SSH) [ADR-0137]
 
 - PEDIDO (usuario): "si pasa un error, verlo en la bitacora" -> poder ver en la app los fallos de ENVIO de WhatsApp

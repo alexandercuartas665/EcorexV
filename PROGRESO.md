@@ -19,8 +19,13 @@
 - PRUEBAS: build verde (Infrastructure + Application); 1144 tests unitarios de Application en verde. Sin
   migracion (solo codigo). SuperAdmin compila (en el build de solucion solo fallo el COPY del DLL por
   instancias dev corriendo, no la compilacion).
-- PENDIENTE: E2E en /conciliacion-dian (SOLDARCO) + integrar al worktree 5263 via prompt. DEPLOY: SIN
-  desplegar (pendiente OK del usuario).
+- DEPLOY: DESPLEGADO 2026-10-28 por VIA RAPIDA (imagen GHCR a1267f8f + pull en prod); verificado
+  interno 5480 y publico app2 = v0.16.239, HTTP 200. PENDIENTE: E2E en /conciliacion-dian (SOLDARCO) +
+  integrar al worktree 5263 via prompt.
+- VIA RAPIDA AHORA ES LA POR DEFECTO: nuevo wrapper deploy/deploy-prod-fast.ps1 (gh run watch opcional
+  + ssh actualizar-en-linux.sh + verificacion). deploy-prod.ps1 (build-from-git) queda como FALLBACK
+  (marcado en su encabezado). El servidor ya corre sobre docker-compose.image.yml. Ver memoria
+  [[deploy-via-rapida-ghcr]].
 
 ## 2026-10-28 - DEPLOY v0.16.238 a produccion + fix OOM del build-from-git
 

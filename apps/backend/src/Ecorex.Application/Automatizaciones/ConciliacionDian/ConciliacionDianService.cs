@@ -14,15 +14,28 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     private const string MarcaInconsistencia = "Inconsistencia!";
 
     private readonly IApplicationDbContext _db;
+    private readonly IApplicationDbContextFactory _dbFactory;
     private readonly ITenantContext _tenant;
     private readonly INewtonEventSender? _sender;
 
-    public ConciliacionDianService(IApplicationDbContext db, ITenantContext tenant, INewtonEventSender? sender = null)
+    public ConciliacionDianService(
+        IApplicationDbContext db,
+        IApplicationDbContextFactory dbFactory,
+        ITenantContext tenant,
+        INewtonEventSender? sender = null)
     {
         _db = db;
+        _dbFactory = dbFactory;
         _tenant = tenant;
         _sender = sender;
     }
+
+    // Los metodos de SOLO LECTURA usan un contexto EFIMERO propio (_dbFactory.Create) en vez del
+    // _db scoped: la pagina /conciliacion-dian comparte _db con el modal de detalle de tarea, y si
+    // una recarga de la pagina (ContarPorEstado/ListRenglones) se solapa con el trabajo del modal
+    // (p.ej. asignar) sobre el MISMO _db, EF lanza "A second operation was started on this context".
+    // Con contexto propio por consulta no hay colision. Las ESCRITURAS siguen en _db (unidad de
+    // trabajo/transaccion del circuito).
 
     // Normaliza un numero de factura para el cruce: deja solo letras/digitos, en mayuscula (el molde quitaba
     // guiones; esto es un poco mas robusto ante espacios/puntos).
@@ -31,15 +44,19 @@ public sealed class ConciliacionDianService : IConciliacionDianService
 
     // ---- Documentos ----
 
-    public async Task<IReadOnlyList<ConciliacionDianDocumentoDto>> ListDocumentosAsync(CancellationToken ct = default) =>
-        (await _db.ConciliacionDianDocumentos.AsNoTracking()
+    public async Task<IReadOnlyList<ConciliacionDianDocumentoDto>> ListDocumentosAsync(CancellationToken ct = default)
+    {
+        await using var db = _dbFactory.Create();
+        return (await db.ConciliacionDianDocumentos.AsNoTracking()
             .OrderByDescending(d => d.Anio).ThenByDescending(d => d.Mes)
             .ToListAsync(ct))
             .Select(MapDoc).ToList();
+    }
 
     public async Task<ConciliacionDianDocumentoDto?> GetDocumentoAsync(Guid documentoId, CancellationToken ct = default)
     {
-        var d = await _db.ConciliacionDianDocumentos.AsNoTracking().FirstOrDefaultAsync(x => x.Id == documentoId, ct);
+        await using var db = _dbFactory.Create();
+        var d = await db.ConciliacionDianDocumentos.AsNoTracking().FirstOrDefaultAsync(x => x.Id == documentoId, ct);
         return d is null ? null : MapDoc(d);
     }
 
@@ -71,7 +88,8 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListRenglonesAsync(
         Guid documentoId, EstadoConciliacionDian estado, ConciliacionDianFiltro filtro, CancellationToken ct = default)
     {
-        var rows = await _db.ConciliacionDianRenglones.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var rows = await db.ConciliacionDianRenglones.AsNoTracking()
             .Where(r => r.DocumentoId == documentoId && r.Estado == estado)
             .OrderBy(r => r.FechaEmision).ThenBy(r => r.NombreProveedor)
             .ToListAsync(ct);
@@ -81,7 +99,8 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task<IReadOnlyDictionary<EstadoConciliacionDian, int>> ContarPorEstadoAsync(
         Guid documentoId, ConciliacionDianFiltro filtro, CancellationToken ct = default)
     {
-        var rows = await _db.ConciliacionDianRenglones.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var rows = await db.ConciliacionDianRenglones.AsNoTracking()
             .Where(r => r.DocumentoId == documentoId)
             .ToListAsync(ct);
         return rows.Where(r => PasaFiltro(r, filtro))
@@ -91,8 +110,9 @@ public sealed class ConciliacionDianService : IConciliacionDianService
 
     public async Task<IReadOnlyList<ConciliacionDianRenglonDto>> ListPorAutorizarAsync(ConciliacionDianFiltro filtro, CancellationToken ct = default)
     {
+        await using var db = _dbFactory.Create();
         // Estado en SQL (acota el set); la regla de "orden de compra valida" y los filtros, en memoria.
-        var rows = await _db.ConciliacionDianRenglones.AsNoTracking()
+        var rows = await db.ConciliacionDianRenglones.AsNoTracking()
             .Where(r => r.Estado == EstadoConciliacionDian.Conciliar)
             .ToListAsync(ct);
         return rows
@@ -269,7 +289,8 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     {
         value = (value ?? string.Empty).Trim();
         if (value.Length == 0) { return false; }
-        var q = _db.ConciliacionDianRenglones.Where(r => r.DocumentoId == documentoId && r.Id != excludeRenglonId);
+        await using var db = _dbFactory.Create();
+        var q = db.ConciliacionDianRenglones.Where(r => r.DocumentoId == documentoId && r.Id != excludeRenglonId);
         return column switch
         {
             "oc" => await q.AnyAsync(r => r.OrdenCompraSoldarco == value, ct),

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Infrastructure.Persistence;
 
-public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
+public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
 

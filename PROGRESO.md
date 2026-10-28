@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-28 - v0.16.239: fix "A second operation was started on this context" en /conciliacion-dian [ADR-0138]
+
+- BUG (pre-existente, NO de c621e6d8): al asignar usuario desde el modal de tarea abierto sobre
+  /conciliacion-dian, el circuito se caia con InvalidOperationException "A second operation was started on
+  this context instance...". Causa: el IApplicationDbContext scoped se COMPARTE entre la pagina y el modal;
+  el ReloadAsync del padre (ContarPorEstado/ListRenglones) se solapaba con el trabajo del modal sobre el
+  MISMO contexto.
+- FIX A (robusto): contexto EF efimero por consulta para las LECTURAS del conciliador. Nueva abstraccion
+  IApplicationDbContextFactory (Application) -> IScopedDbContext; impl ApplicationDbContextFactory
+  (Infrastructure) registrada Scoped en cada rama de proveedor (DAL dual), que newea el contexto del
+  proveedor activo con el MISMO ITenantContext del circuito (filtro multi-tenant intacto). ConciliacionDian
+  Service inyecta la fabrica y envuelve las lecturas en 'await using var db = _dbFactory.Create()'
+  (ListDocumentos/GetDocumento/ListRenglones/ContarPorEstado/ListPorAutorizar/IsColumnValueUsed). Las
+  escrituras siguen en el _db scoped (unidad de trabajo del circuito).
+- PRUEBAS: build verde (Infrastructure + Application); 1144 tests unitarios de Application en verde. Sin
+  migracion (solo codigo). SuperAdmin compila (en el build de solucion solo fallo el COPY del DLL por
+  instancias dev corriendo, no la compilacion).
+- PENDIENTE: E2E en /conciliacion-dian (SOLDARCO) + integrar al worktree 5263 via prompt. DEPLOY: SIN
+  desplegar (pendiente OK del usuario).
+
 ## 2026-10-28 - DEPLOY v0.16.238 a produccion + fix OOM del build-from-git
 
 - DEPLOY (con OK explicito del usuario) de v0.16.238 a app2.bitcode.com.co. Empaqueta: ADR-0135 (codigo real

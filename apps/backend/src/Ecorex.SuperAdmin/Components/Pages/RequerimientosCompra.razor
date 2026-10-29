@@ -713,6 +713,39 @@ else
                 <strong style="font-size:14px;">Planificar: @_planProducto</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showPlan = false">&times;</button>
             </div>
+            @* Pestanas: Detalle de la necesidad | Planificacion (mismo patron que Planificar grupo) *@
+            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <button class="req-pgtab @(_planTab == "detalle" ? "on" : "")" @onclick='() => _planTab = "detalle"'>Detalle</button>
+                <button class="req-pgtab @(_planTab == "plan" ? "on" : "")" @onclick='() => _planTab = "plan"'>Planificacion</button>
+            </div>
+            @if (_planTab == "detalle")
+            {
+                <div style="padding:14px 18px;">
+                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Necesidad que vas a planificar (origen, solicitante y actividad de donde vino el pedido).</p>
+                    <div class="cd-grid-wrap">
+                        <table class="cd-grid">
+                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th></tr></thead>
+                            <tbody>
+                                @if (_planReg is { } pr)
+                                {
+                                    <tr>
+                                        <td>@(string.IsNullOrWhiteSpace(pr.OrigenNombre) ? "(sin origen)" : pr.OrigenNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(pr.SolicitanteNombre) ? "-" : pr.SolicitanteNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(pr.SourceTaskNumber) ? "-" : pr.SourceTaskNumber)</td>
+                                        <td class="num">@Fmt(pr.Cantidad)</td>
+                                        <td class="num">@Fmt(pr.CantidadPlanificada)</td>
+                                        <td class="num">@Fmt(pr.Cantidad - pr.CantidadPlanificada)</td>
+                                        <td>@(pr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                        <td>@RequerimientoFilter.EstadoLabel(pr.Estado)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+            else
+            {
             <div style="padding:14px 18px;">
                 <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:12px;">
                     <span>Cantidad total: <strong>@Fmt(_planCantidadPadre)</strong></span>
@@ -875,12 +908,20 @@ else
                 <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
                 @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
             </div>
+            }
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                @if (_canConfig)
+                @if (_planTab == "detalle")
                 {
-                    <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                    <button class="btn btn-primary btn-sm" @onclick='() => _planTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
                 }
-                <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                else
+                {
+                    @if (_canConfig)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                    }
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                }
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
@@ -1290,6 +1331,8 @@ else
 
     // ---- Planificacion (division en hijos) ----
     private bool _showPlan;
+    private string _planTab = "detalle";      // pestana activa del modal individual (igual que Planificar grupo)
+    private RequerimientoDto? _planReg;        // necesidad que se esta planificando (para la pestana Detalle)
     private string? _planError;
     private Guid _planReqId;
     private string _planProducto = "";
@@ -2528,6 +2571,8 @@ else
     private async Task OpenPlanificarAsync(RequerimientoDto r)
     {
         _planError = null;
+        _planReg = r;
+        _planTab = "detalle";
         _planReqId = r.Id;
         _planItemId = r.ItemId;
         _planDescripcion = r.Descripcion;

@@ -22,5 +22,10 @@ public enum FormSourceKind
 
     /// <summary>Dataset externo (SQL) del tenant (Ola 6/A2, reusa ADR-0064/0084 via ExternalDatasetLookupSource).
     /// SourceRef = id del ExternalDataSet; modelo de copia (el valor guardado es el texto mostrado).</summary>
-    ExternalDataset
+    ExternalDataset,
+
+    /// <summary>Usuarios del tenant (modulo 1.2, via ITenantUserService). El valor guardado es el Id del
+    /// TenantUser; no requiere SourceRef (fuente unica). Se empareja con FormDefaultDynamic.AssignedUser
+    /// para que un campo "Redireccionar a" venga por defecto con el usuario asignado a la tarea.</summary>
+    SystemUser
 }

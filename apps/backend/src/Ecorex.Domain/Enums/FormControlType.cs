@@ -112,5 +112,33 @@ public enum FormControlType
     /// documentos" de la tarea, embebido en el formulario, para gestionar desde aqui. No captura valor. Al FINAL del
     /// enum para preservar los ordinales.
     /// </summary>
-    TaskDocuments
+    TaskDocuments,
+
+    /// <summary>
+    /// ASISTENTE DE REQUERIMIENTO (IA, imagen/PDF -> tabla): control drag-and-drop que es un AGENTE IA con una
+    /// herramienta ACOTADA AL MISMO formulario. Lee el requerimiento del cliente (foto/PDF) y PROPONE filas para
+    /// una grilla de ESTE formulario (el humano confirma antes de escribir). Config en OptionsJson
+    /// (<c>AiIntakeConfig</c>): agente, prompt, grilla destino, accept, max, modo. No captura valor por si mismo
+    /// (escribe en la grilla destino). Al FINAL del enum para preservar los ordinales.
+    /// </summary>
+    AiIntake,
+
+    /// <summary>
+    /// LIENZO DE BLOQUES (preset Business Model Canvas): grilla de bloques con etiqueta + texto editable. El autor
+    /// define los bloques (id/label/posicion/span/acento + source opcional); BMC es un preset de 9 bloques. Captura
+    /// valor: un objeto JSON { blockId: texto } en FormResponse.Data (reportable). Con 'source' (field codes del
+    /// mismo formulario) el bloque se pre-llena concatenando esas respuestas y queda editable. NO es el Canvas
+    /// (croquis/dibujo) de la OT. Al FINAL del enum para preservar los ordinales.
+    /// </summary>
+    LienzoBloques,
+
+    /// <summary>
+    /// ASISTENTE IA (llenar campos): primo de AiIntake, pero NO sube imagen/PDF: lee las respuestas ya capturadas
+    /// del propio formulario (FormResponse.Data) y PROPONE valores para CAMPOS y/o BLOQUES de un LienzoBloques
+    /// (targets). Reusa set_campo y la nueva set_bloque del FormScopedToolset (ACOTADO a la definicion), el agente
+    /// del tenant, cupo y AiUsageLog. Config en OptionsJson (<c>AiComposeConfig</c>): agente, prompt, sources,
+    /// targets, buttonLabel, confirm, model. No captura valor por si mismo (escribe en los targets). Al FINAL del
+    /// enum para preservar los ordinales.
+    /// </summary>
+    AiCompose
 }

@@ -753,6 +753,8 @@
             // Encargado (asignado) elegido en el wizard, NO quien diligencia (misma razon que en el detalle).
             ["comercial"] = SumEncargado,
             ["responsable"] = SumEncargado,
+            // Id del encargado para el default dinamico AssignedUser de un campo con origen SystemUser.
+            ["asignado"] = _assigneeId?.ToString(),
         };
 
     /// <summary>"Agregar": abre el modal para una cotizacion NUEVA (el renderer crea el borrador y lo

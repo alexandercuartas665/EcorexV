@@ -11,8 +11,15 @@ COPY apps/backend/ ./
 # que desde /src/src/Ecorex.SuperAdmin resuelve a /agent/libs/... Hay que traer ese proyecto (hoja,
 # net10.0, sin dependencias) al contexto o el publish falla con CS0246 (tipos del protocolo ausentes).
 COPY apps/agent/libs/Ecorex.Contracts.Agent/ /agent/libs/Ecorex.Contracts.Agent/
+# Compilacion EN SERIE (-maxcpucount:1) y sin compilador compartido/persistente
+# (UseSharedCompilation=false): el host de prod (10.0.0.3) tiene poca RAM y el build
+# en paralelo lanza varios 'csc' a la vez cuyo pico combinado agota RAM+swap y el kernel
+# mata uno (csc exit 137 / MSB6006, tipicamente en Ecorex.Infrastructure por el snapshot
+# EF). Serializado, cada csc compila solo con todo el headroom disponible. Mas lento pero
+# estable; aun asi conviene mantener swap temporal en el host (ver deploy-prod.ps1).
 RUN dotnet publish src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj \
-    -c Release -o /app/publish /p:UseAppHost=false
+    -c Release -o /app/publish /p:UseAppHost=false \
+    -maxcpucount:1 /p:UseSharedCompilation=false
 
 # --- runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

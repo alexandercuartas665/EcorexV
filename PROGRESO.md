@@ -2,6 +2,681 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
+
+- PEDIDO (usuario): poder ver el "curl" COMPLETO que se consume al enviar la plantilla a YCloud + la respuesta,
+  para diagnosticar por que el mensaje NO llega al cliente (la tarea ya tiene un numero valido = el del usuario).
+- HECHO (YCloudApiClient.SendMessageAsync, por donde pasan TODOS los envios: texto/media/plantilla/reaccion):
+  cuando `ECOREX_YCLOUD_TRACE=1` (o true/yes) se registra en el log del server:
+  * REQUEST: el curl equivalente (POST /v2/whatsapp/messages) con el PAYLOAD completo (plantilla, idioma,
+    components, header de documento con link/filename, from, to). La API KEY va REDACTADA (***REDACTED***) -nunca
+    se loguea el secreto, repo publico-; el payload no lleva secretos.
+  * RESPONSE: status HTTP + body completo de YCloud (wamid si acepto, o el error).
+  * EXCEPTION: si la llamada truena.
+  Off por defecto (volumen). Se lee una vez al cargar el tipo (activar/desactivar = reiniciar el contenedor).
+  Leer: `docker logs <ecorex-app> 2>&1 | grep "YCLOUD TRACE"`.
+- PRUEBAS: build Infrastructure verde (0 errores). Sin migracion. DI inyecta ILogger (AddHttpClient); nada
+  construye el cliente a mano.
+- OJO: la plantilla del flujo con PDF null NO llega a SendMessageAsync (se bloquea antes), asi que ahi no hay
+  trace; el trace SI captura los textos de SARA (que Meta marca failed "sin detalle") y cualquier plantilla que
+  SI se envie. Ver [[bitacora-fallos-envio-whatsapp]].
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.245 (incluye tambien v0.16.243 breaker + v0.16.244 URL PDF).
+
+## 2026-10-29 - v0.16.244: la bitacora registra la URL PUBLICA del PDF de la cotizacion
+
+- CONTEXTO: para YCloud/Cloud el PDF de la cotizacion NO viaja como bytes; se PUBLICA a una URL publica
+  (_mediaStore.PublishAsync) y esa URL se manda como header de media de la plantilla (es lo que Meta descarga).
+  Si el envio falla "sin detalle", no habia forma de verificar si el problema era el ARCHIVO (no generado,
+  vacio, inalcanzable, content-type, tamano) sin leer el log por SSH.
+- HECHO (NodeNotifyService): se captura headerMediaUrl y se deja en la bitacora:
+  * Fallo (RecordSendFailureNoteAsync): si el PDF SI se publico pero el envio igual fallo, la nota de "Fallos
+    de envio" ahora incluye "| PDF de la cotizacion publicado (abrelo para verificar...): <url>".
+  * Exito (RecordContactShareObservationAsync): la nota de contexto/bitacora del agente incluye
+    "cotizacion adjunta (archivo) - PDF: <url>".
+  OJO: si el PDF salio NULL (no se genero), NO hay URL; ahi sigue el motivo especifico de ResolveFormPdfAsync
+  (v0.16.242). La URL cubre el caso "se publico pero Meta lo rechazo".
+- PRUEBAS: build Application verde (0 errores). Sin migracion (solo texto en notas; reusa Message.Body). Cambios
+  solo en metodos privados (firmas internas); no afecta llamadas externas ni tests.
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.244. Ver [[bitacora-fallos-envio-whatsapp]].
+
+## 2026-10-28 - v0.16.243: circuit-breaker anti-loop del agente de nodo de flujo
+
+- INCIDENTE (AGRO): el nodo "Agente seguimiento inteligente" (agente IA en nodo, ADR-0090) entro en LOOP
+  INFINITO y agoto el cupo de Gemini del usuario. En /bitacora-agente > "Atencion del agente": ~50 lineas
+  atendidas por ese paso y el numero de prueba del usuario (573217626882) con 365 invocaciones.
+- CAUSA RAIZ (verificada en codigo): el runner trataba el envio como OK en cuanto YCloud ACEPTA (sent=true) y
+  pausaba esperando respuesta; el "failed" de Meta llega DESPUES por webhook. No habia NINGUN chequeo de
+  DeliveryStatus en runner/invoker. Cuando la entrega falla de forma sistemica (saldo/WABA YCloud, externo), el
+  cliente nunca recibe -> nunca responde -> la cadencia/reintentos re-invocan el modelo en todas las lineas
+  retenidas sin freno. MaxWhatsAppAsks=4 solo cuenta ENVIOS por paso; las re-corridas que esperan/re-deciden sin
+  enviar no lo tocaban.
+- HECHO (fix v0.16.243, en WorkflowAgentStepRunner.RunClaimedAsync, ANTES de armar contexto e invocar el modelo;
+  ambos cortan DURO via FinalizeAsFailureAsync(allowRoute:false) -ReturnToPersonAsync con OnFailure=Retry NO
+  pararia el loop-):
+  * Circuit breaker por fallo de entrega (K=3): si PendingWhatsAppConversationId esta seteado y los ULTIMOS 3
+    salientes de esa conversacion estan TODOS en DeliveryStatus="failed" -> no se invoca al modelo; paso a una
+    persona con el motivo real (revisar numero + saldo/estado de la linea). Const DeliveryFailStreakToBreak=3.
+  * Tope duro de invocaciones por paso: columna nueva WorkflowStepHistory.AgentInvokeCount (int, se incrementa
+    justo antes de cada invocacion real; sobrevive a reanudaciones, se reinicia por ciclo). Si >=
+    MaxAgentInvokesPerStep (env ECOREX_AGENT_MAX_INVOKES_PER_STEP, 20 por defecto) -> paso a una persona.
+  * Migracion dual AddAgentInvokeCount (PG + SQL Server, agent_invoke_count int NOT NULL default 0; prod aplica
+    en arranque via MigrateAsync).
+- PRUEBAS: build verde (Application + SuperAdmin aislado); Domain 35/35; Application 1145/1145; 3 tests nuevos del
+  breaker/tope en WorkflowAgentStepTests (matriz dual PG+SQLServer) 6/6. Integracion dual: 511/513 (los 2 fallos
+  son el MISMO test de forms DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical en ambos motores, ver abajo).
+- GOTCHA del tronco (ARREGLADO aqui): f56a7c4c (v0.16.240, ADR-0139) dejo WhatsAppTemplatesTests.cs SIN COMPILAR
+  (el fake UnusedYCloudClient no implementaba IYCloudApiClient.GetMessageAsync). Como el build de imagen GHCR no
+  compila los tests, paso inadvertido (el CI de PR si lo habria pillado). Se agrego el stub minimo; sin eso NINGUN
+  test de integracion compilaba.
+- BLOQUEO/HALLAZGO AJENO: DynamicFormsTests.DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical:86 falla
+  DETERMINISTA en ambos motores (Assert.NotEqual de ids: tras SUBMIT de REF-001, GetOrCreateDraftAsync devuelve la
+  respuesta ya enviada en vez de un draft nuevo). NO es de este cambio (no toco forms); es un bug LATENTE del
+  tronco que solo se vio ahora porque el fix de compilacion hizo correr la suite por primera vez. Dejado como tarea
+  aparte (dominio forms).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.243. SIGUIENTE (externo, usuario): resolver el saldo/estado
+  WABA en YCloud -raiz del dia, nada se entrega-; el fix solo ACOTA el gasto. Ver [[agente-flujo-circuit-breaker-loop]].
+
+## 2026-10-28 - v0.16.240: consultar YCloud para recuperar el motivo REAL de un fallo "sin detalle" [ADR-0139]
+
+- CASO (AGRO, tarea T00558, cliente 573182800618): WhatsApp no llego; la pestana "Fallos de envio" mostraba
+  "sin detalle de Meta". DIAGNOSTICO (verificado en codigo + conversacion en prod): la decision
+  plantilla-vs-texto por ventana de 24h YA existe y funciona (SARA en WorkflowAgentWhatsApp.AskAsync y
+  AgentReactivacionService; el nodo NOTIFICACION del flujo en NodeNotifyService SIEMPRE usa plantilla). Para
+  T00558 se envio por PLANTILLA (lo correcto en frio), YCloud la ACEPTO y luego el webhook de entrega la marco
+  "failed" SIN codigo. O sea: el fallo NO fue la ventana, fue el destino (numero que no recibe; otros fallos del
+  tablero son un fijo 604 y un numero malformado 507). El hueco real: el webhook de estado llego sin el codigo
+  de Meta, por eso "sin detalle".
+- HECHO (mejora A, SOLO LECTURA, sin tocar el envio -> respeta "no multiplicar salidas del emisor"):
+  * IYCloudApiClient.GetMessageAsync + impl (GET /whatsapp/messages/{id} con fallback por listado; parser
+    tolerante de status + error.code/message, objeto "error" o arreglo "errors", code num/texto).
+  * IWhatsAppConnectorService.ProbeDeliveryStatusAsync (reusa la API key YCloud ya cifrada de la linea; solo YCloud).
+  * AiAgentLineService.RefreshDeliveryFailureReasonsAsync: toma los salientes "failed" SIN motivo con ExternalId,
+    consulta YCloud y rellena DeliveryError con el codigo real (mismo formato del webhook); no cambia DeliveryStatus.
+  * UI: boton "Actualizar motivos desde YCloud" en la pestana Fallos de BitacoraAgente.razor.
+- PRUEBAS: build verde (Infrastructure + Application + SuperAdmin razor, 0 errores); Application.Tests 1145/1145
+  (nuevo test RefreshDeliveryFailureReasons_*). Sin migracion (reusa Message.DeliveryStatus/DeliveryError de ADR-0135).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.240. SIGUIENTE: validar E2E con la API key real de AGRO
+  (confirmar el codigo de 573182800618); posible paso B = validar el numero antes de disparar.
+- OJO: la decision plantilla-vs-texto por ventana esta DUPLICADA (WorkflowAgentWhatsApp + AgentReactivacionService);
+  consolidarla en UN solo "portero de ventana" es un refactor pendiente (NO arregla T00558). Ver [[ADR-0139]].
+
+## 2026-10-28 - v0.16.239: fix "A second operation was started on this context" en /conciliacion-dian [ADR-0138]
+
+- BUG (pre-existente, NO de c621e6d8): al asignar usuario desde el modal de tarea abierto sobre
+  /conciliacion-dian, el circuito se caia con InvalidOperationException "A second operation was started on
+  this context instance...". Causa: el IApplicationDbContext scoped se COMPARTE entre la pagina y el modal;
+  el ReloadAsync del padre (ContarPorEstado/ListRenglones) se solapaba con el trabajo del modal sobre el
+  MISMO contexto.
+- FIX A (robusto): contexto EF efimero por consulta para las LECTURAS del conciliador. Nueva abstraccion
+  IApplicationDbContextFactory (Application) -> IScopedDbContext; impl ApplicationDbContextFactory
+  (Infrastructure) registrada Scoped en cada rama de proveedor (DAL dual), que newea el contexto del
+  proveedor activo con el MISMO ITenantContext del circuito (filtro multi-tenant intacto). ConciliacionDian
+  Service inyecta la fabrica y envuelve las lecturas en 'await using var db = _dbFactory.Create()'
+  (ListDocumentos/GetDocumento/ListRenglones/ContarPorEstado/ListPorAutorizar/IsColumnValueUsed). Las
+  escrituras siguen en el _db scoped (unidad de trabajo del circuito).
+- PRUEBAS: build verde (Infrastructure + Application); 1144 tests unitarios de Application en verde. Sin
+  migracion (solo codigo). SuperAdmin compila (en el build de solucion solo fallo el COPY del DLL por
+  instancias dev corriendo, no la compilacion).
+- DEPLOY: DESPLEGADO 2026-10-28 por VIA RAPIDA (imagen GHCR a1267f8f + pull en prod); verificado
+  interno 5480 y publico app2 = v0.16.239, HTTP 200. PENDIENTE: E2E en /conciliacion-dian (SOLDARCO) +
+  integrar al worktree 5263 via prompt.
+- VIA RAPIDA AHORA ES LA POR DEFECTO: nuevo wrapper deploy/deploy-prod-fast.ps1 (gh run watch opcional
+  + ssh actualizar-en-linux.sh + verificacion). deploy-prod.ps1 (build-from-git) queda como FALLBACK
+  (marcado en su encabezado). El servidor ya corre sobre docker-compose.image.yml. Ver memoria
+  [[deploy-via-rapida-ghcr]].
+
+## 2026-10-28 - DEPLOY v0.16.238 a produccion + fix OOM del build-from-git
+
+- DEPLOY (con OK explicito del usuario) de v0.16.238 a app2.bitcode.com.co. Empaqueta: ADR-0135 (codigo real
+  de Meta en fallos de entrega, v0.16.236), ADR-0136 (alcance por usuario en tableros, v0.16.237) y ADR-0137
+  (pestana "Fallos de envio" en /bitacora-agente, v0.16.238). Verificado: interno 5480 y publico app2 reportan
+  version=v0.16.238, login=200.
+- BLOQUEO Y FIX: el build-from-git fallo 2 veces por OOM (csc exit 137 / MSB6006 en Ecorex.Infrastructure). El
+  host (10.0.0.3) tiene 7.8Gi RAM; 4GB de swap NO bastaron. Causa raiz: dotnet publish compila varios proyectos
+  csc EN PARALELO y el pico combinado agota RAM+swap. FIX PERMANENTE (commit cca681b2, en Dockerfile.superadmin):
+  compilar en serie -> `dotnet publish ... -maxcpucount:1 /p:UseSharedCompilation=false`. Con eso + 8GB de swap
+  temporal (no en fstab) el build paso (lento por el swap, pero estable). Ver memoria [[deploy-host-oom-swap]].
+- PENDIENTE/OJO: swap temporal de 8GB sigue en el host (se limpia al reiniciar; se puede quitar). La pestana de
+  fallos y el codigo de Meta solo se pueblan con fallos NUEVOS (post-deploy); los mensajes viejos no traen estado.
+
+## 2026-10-27 - v0.16.238: bitacora - pestana "Fallos de envio" de WhatsApp (ver el "no llego" sin SSH) [ADR-0137]
+
+- PEDIDO (usuario): "si pasa un error, verlo en la bitacora" -> poder ver en la app los fallos de ENVIO de WhatsApp
+  (el "no llego") sin entrar al servidor por SSH a leer docker logs. Decisiones con el usuario: alcance = SOLO
+  fallos de envio de WhatsApp (no crashes del sistema ni errores del agente, que ya estan en /bitacora-agente);
+  ubicacion = dentro de /bitacora-agente.
+- CAMBIO: nueva pestana "Fallos de envio" en /bitacora-agente. Lista los salientes con DeliveryStatus=="failed"
+  del tenant (mas recientes primero): contacto+telefono+linea, fecha, MOTIVO real de Meta (DeliveryError, codigo +
+  texto; "sin detalle de Meta" si Meta no dio nada) y el texto del mensaje. SIN migracion (reusa
+  Message.DeliveryStatus/DeliveryError de ADR-0135).
+- IMPLEMENTACION: IAiAgentLineService.ListDeliveryFailuresAsync (tenant-scoped por filtro global) + DTO
+  AgentDeliveryFailureDto; UI con pestanas (_tab); el boton "Limpiar bitacora y cache" (borra logs del AGENTE) se
+  oculta en la pestana de fallos para no confundir (no toca mensajes).
+- PRUEBAS: build verde; sin fake de IAiAgentLineService en tests (no rompe). Verificado E2E en navegador: se sembro
+  un fallo de prueba en dev local -> contador "(1)" + fila con linea + fecha + "codigo 131026 - Message
+  undeliverable" + texto; luego se borro el dato de prueba; la pestana "Atencion del agente" sigue sin regresion.
+- OJO: la lista solo se puebla con fallos REALES posteriores al deploy de ADR-0135 en prod (el estado de entrega lo
+  avanza el webhook de estado; mensajes viejos no tienen DeliveryStatus). DEPLOY: SIN desplegar (pendiente OK).
+
+## 2026-10-27 - v0.16.237: tableros - alcance por usuario (default "mis tareas" + quien ve todo) [ADR-0136]
+
+- PEDIDO (usuario): que el tablero se filtre por defecto a cada usuario con SUS tareas (que vea solo su carga) y
+  poder configurar POR TABLERO que usuarios SI pueden ver todas las tareas.
+- DECISIONES CON EL USUARIO: (1) bloqueo DURO para el no autorizado (no solo default visual); (2) el restringido
+  ve SUS tareas + las NO ASIGNADAS (para tomar trabajo libre), nunca las de otros.
+- MODELO: nuevo TaskBoard.SeeAllUserIdsJson (gemelo de AllowedUserIdsJson, ADR-0117, pero para el ALCANCE interno).
+  Null/vacio = sin restriccion (default "equipo", todos ven todo). Con usuarios = restriccion ACTIVA: el tablero
+  abre en "Pendientes mios" y solo esos usuarios (+ Owner/Admin) ven todo; los demas quedan con bloqueo duro
+  (solo mios + no asignados). jsonb PG / nvarchar(max) SQL. Migracion dual AddBoardSeeAllUsers (solo la columna).
+- ENFORCEMENT EN SERVIDOR (ActivityBoardService.GetBoardDetailAsync): si no puede ver todo, el alcance pedido se
+  coacciona a Mine; contadores de equipo/terminados no se calculan ni se revelan. La UI ademas oculta esos chips,
+  pero la seguridad NO depende de la UI.
+- UI: ActivityBoardDetail computa el permiso desde el resumen (ya trae SeeAllUserIds) -> default Mine con
+  restriccion activa; sincroniza con el detalle tras cada reload; SetScopeAsync ignora equipo/terminados si no
+  puede ver todo. Self-serve en /tableros: segundo selector "Quien ve todas las tareas" (clon de "Visible para").
+- PRUEBAS: build verde, 1322 tests unitarios verdes (Application 1144 + SuperAdmin 178), migracion PG aplicada al
+  dev local. E2E navegador (AGROMETALICAS, Owner): el selector guarda see_all_user_ids_json; PRUEBAS OT con
+  restriccion abre en "Pendientes mios"; Owner conserva los 4 chips (bypass). FALTA validar con usuario Member
+  real (AGRO local solo tiene Admin/Owner) que al no-admin se le ocultan equipo/terminados.
+- DEPLOY: SIN desplegar (pendiente OK del usuario). Va aparte del batch v0.16.233/234/235/236 pendiente.
+
+## 2026-10-27 - v0.16.236: WhatsApp/YCloud - visibilidad del error de entrega (codigo real de Meta) [ADR-0135]
+
+- CONTEXTO (hand-off de la sesion data-ops): en prod, salientes a un numero (AGROMETALICAS, linea YCloud
+  COMERCIAL_AGENTE) fallaban 5/5; YCloud ACEPTA y Meta devuelve `failed` por el webhook de estado, pero la nota
+  quedaba "Motivo: sin detalle de Meta" -> no se capturaba el codigo real (1013/131026/131047...), asi que cada
+  "no llego" obligaba a adivinar en BD.
+- CAMBIO A (YCloudWebhookParser.ParseStatus): lectura tolerante EXTENDIDA del error. Ademas de
+  error.{code,message/title/detail} y errors[0], ahora lee el detalle ANIDADO de Meta (error_data.details /
+  errorData.details / .detail, y href como ultimo recurso) y el codigo anidado en error_data/errorData.code.
+  Nuevo campo YCloudStatusUpdate.ErrorRaw = subarbol de error CRUDO (JSON) para ajustar el parser con un payload
+  real si aparece una forma nueva.
+- CAMBIO B (Program.cs webhook YCloud): el motivo visible ahora es "codigo 131026 - Message undeliverable"
+  (codigo + texto) y se guarda en Message.DeliveryError; "sin detalle de Meta" SOLO cuando de verdad no llega
+  nada. El LogWarning del fallo incluye el payload de error CRUDO (errorRaw=...).
+- CORRECCION A LA PREMISA DEL HAND-OFF: el proyecto NO usa Serilog; usa el logging por defecto de .NET, que YA
+  escribe a stdout -> el warning sale en `docker compose logs superadmin`. No habia sink a archivo que arreglar;
+  lo que faltaba era el payload crudo (agregado). Si en prod aun no se viera, seria un override de nivel por env
+  del contenedor (Logging__LogLevel__*), no Serilog.
+- PRUEBAS: 3 tests nuevos en YCloudWebhookParserStatusTests (detalle anidado error_data.details; codigo anidado
+  errorData.code=1013; captura de ErrorRaw). Suite del parser de estado 10/10. Build Release verde. SIN migracion.
+
+## 2026-10-27 - v0.16.235: fix - borrado robusto (no envenenar el DbContext del circuito Blazor)
+
+- SINTOMA (reporte del usuario): a veces no se podia eliminar una regla del conciliador ni un contenedor de
+  datos; salia un error de SaveChanges que no correspondia a lo que se estaba borrando.
+- CAUSA: el DbContext es scoped y en Blazor vive TODO el circuito. (1) ConciliacionRuleService.DeleteAsync hacia
+  Remove+SaveChanges, que volcaba el change-tracker ENTERO; un cambio ajeno pendiente (p.ej. un borrado de
+  contenedor a medias) tumbaba el borrado de la regla con un error que no era suyo. (2) DataModelService al
+  borrar un contenedor dejaba que la cascada de BD arrastrara los ImportProcess, pero ImportRun->ImportProcess
+  es Restrict (la bitacora SOBREVIVE): la cascada chocaba con esa FK y envenenaba el DbContext, de modo que todo
+  SaveChanges posterior (incluido borrar una regla) re-lanzaba el error.
+- FIX: (1) ConciliacionRuleService.DeleteAsync usa ExecuteDeleteAsync (respeta el filtro global por tenant, no
+  toca entidades rastreadas de otros). (2) DataModelService.DeleteAsync quita runs y procesos a mano ANTES de la
+  cascada (cascada diferida, regla #5), igual que DataContainerService. SIN migracion.
+- PRUEBAS: build Release verde; fix defensivo de borrado (sin test nuevo). Va junto con v0.16.233/234 y v0.16.236
+  en el mismo deploy.
+
+## 2026-10-27 - v0.16.234: conceptos - tablero COMPARTIDO por categoria (antes creaba uno por subcategoria)
+
+- SINTOMA (reporte del usuario): al crear una subcategoria (concepto) aparecia un tablero nuevo cada vez.
+- CAUSA: EnsureConceptBoardAsync (ActividadCatalogoService) creaba un tablero dedicado 1:1 por concepto si se
+  dejaba "Tablero que aplica" en "Ninguno" (el default). Era intencional (ningun concepto huerfano) pero
+  proliferaban tableros. Decision del usuario (2026-10-27): reusar un tablero COMPARTIDO.
+- CAMBIO: EnsureConceptBoardAsync ahora comparte el tablero POR CATEGORIA. Si otra subcategoria de la misma
+  categoria ya tiene tablero (no archivado), lo reusa (con su estado de cierre); solo el PRIMER concepto de la
+  categoria crea el tablero (columnas default, code CNC-, nombrado por la CATEGORIA). El usuario puede
+  sobreescribir eligiendo un tablero concreto en el selector del concepto (se respeta). Afecta solo conceptos
+  NUEVOS; los existentes conservan su tablero actual. SIN migracion (no hay esquema nuevo; se resuelve por
+  hermanos de la misma CategoriaId).
+- PRUEBAS: test dual nuevo ActivityCatalogBoardSharingTests (PG + SQL Server): 2 conceptos de una categoria
+  comparten 1 tablero nombrado por la categoria; otra categoria obtiene el suyo; tablero explicito se respeta.
+  Application.Tests 1144/1144. SIN migracion.
+- SIGUIENTE: va junto con v0.16.233 (fix borrar estado); pedir OK del usuario para deploy
+  ([[pedir-ok-antes-de-deploy-prod]]).
+
+## 2026-10-27 - v0.16.233: fix - no se podia eliminar un ESTADO del tablero (FK + guard en tabla equivocada)
+
+- SINTOMA (reporte del usuario): al eliminar un estado del tablero (modal "Estados del tablero") salia
+  "No se pudo eliminar el estado: An error occurred while saving the entity changes. See the inner exception".
+- CAUSA (dos bugs combinados): (1) TaskBoardService.DeleteColumnAsync solo miraba `TaskCards` en el guard, pero
+  Tableros.razor gestiona tableros de ACTIVIDADES, cuyas tarjetas son `TaskItem` -> el guard pasaba aunque
+  hubiera tareas. (2) Tanto `TaskCard.ColumnId` como `TaskItem.ColumnId` son FK `Restrict`: una tarea (activa o
+  archivada) aun apuntando al estado tumbaba el SaveChanges. "Completado" (estado de cierre, auto-archivo 3 dias)
+  suele tener tareas movidas ahi sin archivar todavia.
+- FIX (TaskBoardService.cs): el guard bloquea con tarjetas ACTIVAS contando AMBOS modelos (TaskCards + TaskItems)
+  y devuelve el mensaje amigable "tiene N tarea(s), muevelas primero"; las ARCHIVADAS se reubican a otro estado
+  del mismo tablero (prefiere otro de cierre) con entidades TRACKEADAS + un unico SaveChanges atomico (evita que
+  ClientSetNull pise la reasignacion al quitar la columna); un concepto (000270) que apuntara su estado
+  "terminado" a este queda sin marcador (null). Auditoria `task-board-column.delete`. Conteos de ListColumns/
+  UpdateColumn ahora suman TaskItems (antes 0 en tableros de actividades -> badge y mensaje veraces).
+- PRUEBAS: test dual nuevo ActivityBoardTests.DeleteColumn_RelocatesArchivedTasks_ButBlocksWhenActiveRemain
+  (PG + SQL Server) verde; suites de tableros 52/52 dual; unitarios Application 1144/1144. SIN migracion.
+- SIGUIENTE: pedir OK del usuario para deploy ([[pedir-ok-antes-de-deploy-prod]]).
+
+## 2026-10-26 - v0.16.232: Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
+
+- QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:
+  tablas/columnas/submodelos/derivadas, relaciones, conectores y procesos) e "Importar contenedor" (InputFile
+  .json) que crea un contenedor NUEVO. NO exporta datos (filas) ni secretos (credenciales): de cada
+  fuente/destino solo viaja un flag "tenia credenciales" + aviso de re-captura (regla #6 repo publico).
+- COMO: IDataContainerPortabilityService (Application) + DataContainerPortabilityContracts (paquete tipado
+  ContainerPackage con formatVersion). Referencias por CLAVES locales (t1/c1) y nombre de columna, no por
+  GUID; al importar se crean ids nuevos y se remapea todo en UNA transaccion; nombre unico en el tenant. La
+  receta de las derivadas (ADR-0127) se reconstruye con los ids nuevos. Procesos cuya fuente tenia credenciales
+  entran INACTIVOS. SIN migracion (no hay tablas nuevas).
+- UI: ContenedorDatos.razor - "Exportar" por tarjeta + "Importar contenedor" (InputFile .json) con banner de aviso.
+- PRUEBAS: round-trip dual PG+SQL Server (DataContainerPortabilityTests): estructura + relacion + derivada
+  remapeada + SIN datos + SIN secretos + aviso de re-captura. Validado en vivo en 5267 (export ALEGRA sin
+  secretos -> import "ALEGRA (importado)" con sus 4 tablas, 2 derivadas).
+- INTEGRACION (dev principal): cherry-pick de e9b14bc1 (rama worktree-contenedores) al tronco; ADR-0127
+  (derivadas) ya estaba en el tronco. Pendiente: OK del usuario para deploy.
+
+## 2026-10-26 - v0.16.231: formularios - imprimir el Lienzo en A3 apaisado (papel mas grande)
+
+A pedido del usuario: el A4 quedaba apretado para un lienzo con mucho texto. FormPrintLienzo.razor ahora imprime en
+A3 apaisado (el doble de area; mismo aspecto raiz-2 que A4, asi que la pantalla no cambia) con margen 8mm y la
+grilla llenando ~262mm de alto (A3 util ~281mm). Si la impresora es A4, el dialogo del navegador lo achica con
+"Ajustar a la pagina". Confirmado via CDP que la pagina sirve `@page { size: a3 landscape; margin: 8mm }`. Solo CSS
+de impresion.
+
+## 2026-10-26 - v0.16.230: formularios - imprimir el Lienzo (BMC) a PDF (vista apaisada con la grilla)
+
+Hand-off de la sesion de formularios: imprimir una respuesta con un control LienzoBloques como UNA pagina apaisada
+con la grilla del lienzo (no el volcado de campos de FormPrint). Mockup de referencia: deploy/lienzo-print.html
+(tokens y grilla VERBATIM). Solo vista + CSS; nada de datos ni migracion.
+
+- NUEVA vista FormPrintLienzo.razor: `@page "/formularios/imprimir-lienzo/{ResponseId:guid}"` (hermana de
+  FormPrint, EmptyLayout + auto window.print()). Query opcional `?field={fieldCode}`; si falta toma el primer
+  LienzoBloques de la definicion. La grilla se DERIVA de LienzoBloquesConfig (columnas + Col/Row/ColSpan/RowSpan por
+  bloque; filas = max(Row+RowSpan-1)), asi sirve para cualquier lienzo custom, no solo BMC. Acento por
+  AccentPrimary, iconos por LienzoIcons.Inner. Valor del campo = JSON {blockId:texto} (mismo parser que el renderer).
+  Membrete generico: Title + Code + fecha; subtitulo = label del campo lienzo. Bloque vacio -> placeholder gris.
+  @page size A4 landscape, margin 10mm.
+- FormPrint.razor: boton "Imprimir lienzo" en la toolbar (solo si el form tiene un LienzoBloques) que abre la vista
+  nueva en pestana; y FIX del bug menor: RenderValue no tenia case LienzoBloques (caia al default e imprimia el JSON
+  crudo) -> ahora lista "Etiqueta: texto" por bloque con contenido.
+- Build Release OK (0 Errores via --artifacts-path; el bin/Release estaba bloqueado por el server dev PID 18220).
+  Siguiente: la sesion de formularios valida E2E contra CANVAS-EMP (BITCODE) imprimiendo un registro con el lienzo.
+
+## 2026-10-26 - v0.16.229: fix AiCompose en /f/ - FlushDraft + tenant ambiente (gotcha HonorHideSubmitBar)
+
+Validacion de la sesion de formularios (appout-bmc en /f/, CANVAS-EMP BITCODE): iconos y el control AiCompose
+RENDERIZAN OK, pero el boton "Armar lienzo con IA" fallaba con "El registro del formulario no existe". Dos causas
+en DynamicFormRenderer.OnAiComposeClickAsync:
+1. Llamaba SaveAsync(submit:false) pero el servicio lee el FormResponse PERSISTIDO por Id; se cambia a
+   FlushDraftAsync() (canonico de la ola HonorHideSubmitBar) para volcar el borrador antes (en wizard+HideSubmitChrome
+   el autosave periodico esta apagado) y asi el agente ve lo recien escrito.
+2. La llamada a ComposeAsync corria SIN el tenant ambiente: en el visor publico /f/ anonimo el HasQueryFilter
+   ocultaba el row -> "no existe". Ahora se envuelve en `using var ambient = BeginAmbient()` + `_dbGate` (como el
+   resto de llamadas a servicio del renderer). Solo UI (DynamicFormRenderer); sin migracion. Iconos + render del
+   control: aprobados por la sesion de formularios; pendiente revalidar la llamada real al agente Gemini.
+
+## 2026-10-26 - v0.16.228: agentes - concepto por defecto (crear_tarea siembra el checklist) (ADR-0134)
+
+Hand-off de la sesion de agentes: la tarea que crea el agente al cerrar/ganar un lead nacia SIN checklist por
+defecto. Raiz: `crear_tarea` (TasksToolset) armaba el request SIN SubcategoriaId -> el concepto llegaba null en
+CreateAsync y el checklist (ActividadSubcategoria.Chequeo del 000270) nunca se sembraba. Confirmado en prod EPRING
+(100% de las tareas del agente con subcategoria_id NULL). Solucion (concepto "Fijo por agente", ADR-0134):
+
+- DOMINIO: AiAgent.DefaultSubcategoriaId (Guid?, nullable). FK logica a actividad_subcategorias, OnDelete SET NULL.
+  Migracion DUAL AddAiAgentDefaultSubcategoria (PG 20261026204751 + SQL 20261026205013): columna + indice + FK.
+  Retrocompatible (null = comportamiento actual).
+- CABLEADO en crear_tarea: antes de armar el request, si el agente (AiToolRunContext.AgentId) tiene
+  DefaultSubcategoriaId y el concepto existe, es del mismo tenant (filtro global) y no esta archivado, se pasa como
+  SubcategoriaId. Null/invalido = sin concepto (no rompe el alta). Se MANTIENE BoardId del agente (el tablero del
+  concepto solo se hereda si BoardId es null). CreateAsync siembra el checklist solo (no se toco el bloque de siembra).
+- UI self-serve: editor del agente (Agentes.razor) con desplegable "Concepto por defecto de las tareas"
+  (conceptos no archivados del tenant + "(ninguno)"), enlazado a DefaultSubcategoriaId, guardado con el agente.
+- DTOs: AiAgentDto + UpdateAiAgentRequest + Map + UpdateAsync. Build Release OK (solo locks de copia DLL del server
+  dev), unitarios OK (Domain 35, Application 1144), snapshots PG+SQL consistentes.
+- Config (lo hace la sesion de agentes): fijar ai_agents.default_subcategoria_id del agente EPRING al concepto
+  "Nuevo lead" (01a0cfca...), o desde la UI; validar por el emulador que la tarea nace con ~30 items.
+
+## 2026-10-26 - v0.16.227: formularios - iconos por bloque en el Lienzo + control "Asistente IA (llenar campos)"
+
+Dos hand-offs del junior de formularios:
+
+1. ICONOS POR BLOQUE en LienzoBloques (ADR-0133): LienzoBlock.Icon (opcional); set corto compartido
+   LienzoIcons (SVG inline con currentColor -> respeta tema). El preset BMC trae un icono por bloque
+   (handshake/activity/box/star/heart/truck/users/trending-down/trending-up). RenderLienzo pinta el icono junto
+   al titulo; FormDesigner: selector de icono por bloque (self-serve). Sin icono = como antes (solo titulo).
+
+2. CONTROL NUEVO FormControlType.AiCompose "Asistente IA (llenar campos)" (primo de AiIntake): en vez de subir
+   imagen/PDF, lee las respuestas ya capturadas del propio formulario (FormResponse.Data) y PROPONE valores para
+   CAMPOS y/o BLOQUES de un LienzoBloques (targets). Config en OptionsJson (AiComposeConfig): agente, prompt,
+   sources (field codes o todas), targets ({field} o {lienzo,block}), buttonLabel, confirm, model.
+   - FormScopedToolset extendido con set_bloque (analoga a set_campo, acotada a la definicion; solo se ofrece si el
+     form tiene un lienzo) + ProposedBlocks.
+   - FormAiComposeService (hermano de FormAiIntakeService): arma contexto "etiqueta: valor", invoca al agente con
+     tool loop (MaxToolRounds), recoge propuestas ACOTADAS a los targets, reusa cupo + AiUsageLog ("form-ai-compose").
+   - Renderer: boton (buttonLabel) + spinner + modal de propuesta (campo/bloque) con aplicar/descartar; con
+     confirm=false aplica directo. El control no captura valor (IsNonInput), escribe en los targets via SetValue
+     (recalcula). Respeta /f/, wizard, cupo, multi-tenant (toolset acotado a la definicion).
+   - FormDesigner: paleta + selector de tipo + vista de diseno + editor (agente, boton, prompt, sources, targets por
+     checkbox de campos y bloques del lienzo, confirm, model). Self-serve.
+   - Primer consumidor CANVAS-EMP: el junior agrega el control en la pestana del Lienzo, lo apunta al agente
+     "Analista de Modelo de Negocio (BMC)" y mapea los 9 targets a los bloques; crea el agente en /agentes con el
+     prompt base del hand-off.
+
+SIN MIGRACION (enum es codigo; config/valor son datos de formulario; has-pending-model-changes limpio). Build
+Release OK (solo locks de copia DLL del server dev corriendo), unitarios OK (Domain 35, Application 1144). E2E del
+AiCompose pendiente de validar con agente real en CANVAS-EMP (requiere agente + proveedor con tools).
+
+## 2026-10-26 - v0.16.226: formularios - control "Lienzo de bloques" (preset Business Model Canvas)
+
+- Nuevo tipo de control FormControlType.LienzoBloques: una grilla de bloques con etiqueta + texto editable
+  (p.ej. un Business Model Canvas). El autor define los bloques (id/etiqueta/posicion col-fila/span/acento +
+  origen opcional); BMC es un PRESET de 9 bloques en la disposicion canonica. Captura valor: un objeto JSON
+  { bloque: texto } en FormResponse.Data (REPORTABLE, no es display-only). NO es el Canvas (croquis/dibujo) de la OT.
+- 'source' (field codes del mismo formulario) pre-llena el bloque concatenando esas respuestas y queda editable
+  (AutoComposeLienzos en la carga, respeta lo ya escrito y el modo bloqueado).
+- Self-serve en FormDesigner: tarjeta en la paleta + opcion en el selector de tipo + vista de diseno (mini-grilla)
+  + editor de config: boton "Preset BMC", columnas de la grilla, y por bloque etiqueta/acento/col/fila/ancho/alto +
+  mapeo de Origen (field codes por coma, con la lista de campos disponibles). Agregar/quitar bloques.
+- Config en OptionsJson raiz {preset,columns,blocks} (LienzoBloquesConfig.Parse/Serialize/Bmc). SIN MIGRACION
+  (enum es codigo; el valor es dato de formulario). Build Release verde, unitarios OK (Domain 35, Application 1144),
+  sin cambios de modelo en PG ni SQL. Primer consumidor CANVAS-EMP (BITCODE): el junior agrega una pestana "Lienzo"
+  y mapea el origen por bloque. ADR-0133. Fuera de alcance: exportar/imprimir el lienzo.
+
+## 2026-10-26 - v0.16.225: integridad de respuestas de formulario (soft-delete + auditoria + guards)
+
+- Raiz de un caso en prod (T00521 AGRO): una cotizacion ENVIADA y aprobada se perdio sin rastro porque
+  FormResponseService.DeleteRecordAsync hacia DELETE FISICO (sin soft-delete ni auditoria) y, al reabrir la tarea,
+  GetOrCreateDraft creaba un draft nuevo VACIO. Fix de codigo (1-4 del hand-off):
+  1. SOFT-DELETE en form_responses (IsDeleted/DeletedAt/DeletedByTenantUserId, ISoftDeletable): nunca DELETE fisico;
+     filtro global (tenant + !IsDeleted) via ApplyTenantSoftDeleteFilter. Se preserva el jsonb.
+  2. AUDITORIA inmutable tenant-scoped (tabla form_response_audits): Create/Submit/Delete/Void/PdfSnapshot con
+     actor, cuando, responseId, definicion, reference y SNAPSHOT del jsonb previo. (El autosave no se audita por fila.)
+  3. GUARDS: DeleteRecordAsync RECHAZA borrar una respuesta Submitted (enviada); GetOrCreateDraftAsync ABRE la
+     respuesta existente (enviada primero, luego borrador) en vez de crear un draft vacio que la tape.
+  4. Snapshot al GENERAR el PDF (QuoteDocumentRenderer -> RecordPdfSnapshotAsync), best-effort.
+- Callers (TaskDetailModal/FormModule) pasan el actor al borrar. MIGRACION DUAL AddFormResponseSoftDeleteAndAudit
+  (aditiva). Build Release verde, snapshots consistentes PG+SQL, unitarios OK.
+## 2026-10-26 - v0.16.224: formularios - presentacion ASISTENTE (wizard) para el contenedor Tabs
+
+- Un contenedor Tabs se puede pintar como WIZARD (asistente paso a paso) en vez de pestanas, activable por config
+  y sin romper los forms existentes. Pasos = hijos directos del Tabs (nombres de TabsJson). Stepper lateral
+  (activo/hecho ✓/pendiente, colapsa a scroll horizontal en movil) + barra de progreso "Paso X de N · %" +
+  Anterior/Siguiente (ultimo = Finalizar -> mismo envio que el boton Enviar). Clic en el stepper para volver atras.
+- Validacion POR PASO: al Siguiente valida los requeridos VISIBLES del paso (reusa FormFieldValidator, respeta
+  visible_when); el servidor valida todo igual al Finalizar. Mismo panel, asi que visible_when, cargo-readonly
+  (ADR-0082), autosave, /f/{token}, GridDetail y calculados siguen funcionando.
+- SIN MIGRACION: TabsJson admite forma objeto {tabs,presentation} ademas del arreglo legacy; parser unico
+  FormTabsConfig (Parse/Serialize) usado por renderer y disenador. Default "tabs" (forms actuales intactos).
+- FormDesigner: selector "Presentacion: Pestanas | Asistente" en el contenedor Tabs (self-serve). Primer consumidor
+  CANVAS-EMP (BITCODE); el junior activa el flag por SQL sobre su contenedor Tabs. Build Release verde, unitarios OK.
+
+## 2026-10-26 - v0.16.223: config voz - la prueba muestra QUE LOGRO la llamada (exito + datos capturados)
+
+- El resultado de la prueba ahora muestra, ademas de grabacion/transcripcion/resumen: un badge de EXITO
+  (call_analysis.call_successful -> "Objetivo logrado" / "NO logrado") y los DATOS CAPTURADOS
+  (call_analysis.custom_analysis_data) como lista campo -> valor (lo que el agente extrajo de la conversacion).
+  Si llega el analisis pero sin datos estructurados, avisa que hay que configurar "Post-Call Analysis"
+  (criterios de exito + campos a extraer) en el agente de Retell.
+- Backend: VoiceCallResultDto +CallSuccessful +CustomData; GetCallResultAsync los pobla con ExtractCallSuccessful
+  y ExtractCustomData (parsean call_analysis de la VoiceCall; el "exito" sale del resumen para mostrarse como badge).
+  Sin migracion. Build Release verde, unitarios OK.
+
+## 2026-10-26 - v0.16.222: config voz - ver agente (prompt/voz/idioma/modelo) + variables dinamicas editables en la prueba
+
+- El modal de prueba deja de ser caja negra: muestra el AGENTE que atendera. En modo simple (linea con Agent ID)
+  LEE de Retell el agente + su LLM (GET /get-agent, GET /get-retell-llm) y muestra voz, idioma, modelo y el prompt
+  (general_prompt). En modo compuesto muestra el prompt que armaria ECOREX (AiAgent + prompt adicional + objetivo).
+- Variables dinamicas: detecta los {{placeholders}} del prompt y pinta un input por cada uno (+ agregar manuales);
+  sus valores se mandan como retell_llm_dynamic_variables en la llamada de prueba (antes solo iba {objetivo}).
+  Boton "Actualizar" para re-leer el agente tras cambiar objetivo/prompt (modo compuesto).
+- Backend: IRetellApiClient +GetAgentAsync/+GetLlmAsync (RetellApiClient GET con lectura anidada response_engine.
+  llm_id); IRetellVoiceService.GetTestAgentInfoAsync + VoiceTestAgentInfoDto (modo/voz/idioma/modelo/prompt/vars/
+  warning); ExtractPromptVariables (regex {{...}}); VoicePlaceCallRequest +ExtraDynamicVariables (merge a dyn en
+  PlaceCallAsync). Sin migracion. Build Release verde, unitarios OK.
+
+## 2026-10-26 - v0.16.221: config voz - prueba por LINEA (modal) + grabacion/transcripcion/analisis
+
+- Modulo /config-voz: la prueba deja de ser una caja global que usa la linea por defecto y pasa a ser una ACCION
+  por tarjeta ("Probar") que abre un MODAL de prueba de ESA linea concreta. Tarjeta mas compacta (menos alta;
+  el grid ya no estira la tarjeta a la mas alta).
+- El modal permite: numero destino + OBJETIVO (prueba libre / ofrecer producto / llenar formulario) + PROMPT
+  ADICIONAL (opcional). Si la linea usa un agente Retell ya armado (Agent ID = modo simple), avisa que Retell no
+  deja cambiar el prompt por llamada (solo variables dinamicas); en modo compuesto el prompt extra SI se agrega.
+- Tras lanzar, muestra el RESULTADO en vivo sondeando la VoiceCall por call_id: estado (Registrada -> En curso ->
+  Finalizada -> Analizada), duracion, costo, GRABACION (audio + enlace), resumen del analisis y TRANSCRIPCION.
+  Requiere que llegue el webhook de Retell (en prod ya; en local, por el tunel).
+- Backend: VoicePlaceCallRequest +RetellVoiceLineId (prueba una linea concreta; antes elegia la default);
+  IRetellVoiceService.GetCallResultAsync + VoiceCallResultDto; VoiceCall +RecordingUrl y el webhook la captura
+  (recording_url) en call_ended/analyzed. ExtractAnalysisSummary (call_summary/sentimiento/exito).
+- MIGRACION DUAL AddVoiceCallRecordingUrl (aditiva: columna recording_url en voice_calls). Build Release verde,
+  snapshots EF consistentes (has-pending limpio PG+SQL), unitarios 1144/1144. Regenerada sobre HEAD tras commitear
+  otra sesion su FillFreeWidth (sin enredo).
+
+## 2026-10-25 - v0.16.220: fixes UI conciliacion (scroll modal) + config voz (E.164) [deploy]
+
+- Dos fixes de otra sesion, validados (build Release verde, sin migracion):
+  - conciliacion/UI (ea9d44b3): el modal de Configuracion (pestanas Salidas/Reglas/Asistente) hacia recorte con
+    ventanas de poca altura; fix flexbox en .cd-rules-* (min-height:0 en el cuerpo scrollable + flex:0 0 auto en
+    head/foot + flex-shrink:0 en las tarjetas). Solo CSS.
+  - config-voz (f4fe1e06): el numero saliente (FromNumber) se guardaba tal cual; si venia sin '+' la llamada de
+    prueba fallaba por E.164. SaveAsync ahora lo pasa por NormalizeE164 (igual que el destino de la prueba).
+- Bump 0.16.219 -> 0.16.220 para confirmar el deploy. Se despliega a prod por la via rapida.
+
+## 2026-10-25 - v0.16.219: tabla derivada del Contenedor de datos (ADR-0127) [DESPLEGADO]
+
+- Se integro al tronco la feature "tabla derivada" (merge 3f76f3f1, ADR-0127 fases 1-4): tabla MATERIALIZADA que
+  agrupa otra tabla por columnas con agregados (un nivel), wizard "Derivar tabla", crear/editar cross-contenedor,
+  y auto-refresco de derivadas al sincronizar su origen. Asistente IA (ADR-0130) revertido. Migracion dual
+  AddDerivedTables. Validado: build Release, snapshots EF PG+SQL consistentes, integracion dual DerivedTable 16/16.
+- Bump 0.16.218 -> 0.16.219 para que el footer confirme el deploy (el merge no habia subido version). DESPLEGADO a
+  prod (10.0.0.3) por la via rapida (GHCR + actualizar-en-linux.sh): prod v0.16.218 -> v0.16.219, HTTP 200,
+  Restarts=0. Migracion AddDerivedTables aplicada al arranque (columna data_containers.derived_from_container_id
+  presente en prod). Backup previo: ecorex-2026-10-25-0720.sql.gz. Imagen anterior (rollback): sha256:49a7fcbf...
+
+## 2026-10-24 - v0.16.218: AiIntake - spinner/modal + fixes (DbContext envenenado, idempotencia, Gemini HTTP/1.1) [DESPLEGADO]
+
+- DESPLEGADO a prod (10.0.0.3) via rapida (GHCR + actualizar-en-linux.sh): prod pasa de v0.16.213 -> v0.16.218.
+  Migraciones aplicadas al arranque: AddFormRuleParamsOverride, AddAgentRoundRobinAssignees,
+  AddFormContainerHiddenSurfaces (aditivas). Imagen anterior (rollback): sha256:829dc405... HTTP 200 OK.
+  Incluye todo lo acumulado sin desplegar: round-robin (214), PhoneField (215), asistente IA conciliador (216),
+  AiIntake (216) + estas mejoras/fixes (218), y el "ocultar secciones por salida" de la sesion de formularios.
+
+- UX del control AiIntake (ADR-0131): el "Analizando" pasa a OVERLAY con spinner + puntos (antes solo cambiaba un
+  texto chico, parecia colgado; se fuerza StateHasChanged para pintarlo al instante) y la propuesta de filas sale en
+  un MODAL (cabecera, tabla con scroll y cabecera fija, Aplicar/Descartar, cierra por fondo/X). CSS dfr-aimodal/
+  dfr-spinner en DynamicFormRenderer.razor.css (tema claro/oscuro + prefers-reduced-motion). [el markup del
+  renderer aterrizo en d39e486c; aqui van los estilos + el resto].
+- FIX "No se pudo analizar: ...saving the entity changes": re-subir el MISMO archivo chocaba con la clave unica de
+  stored_files; el guardado best-effort lo atrapaba PERO dejaba la entidad "Added" colgada en el DbContext del
+  circuito (Blazor Server, DbContext por circuito) y el SaveChanges siguiente (AiUsageLog) la reintentaba -> fallo.
+  (A) FileStorageService.SaveAsync DESACOPLA la entidad si SaveChanges falla (nunca envenena el contexto).
+  (B) el control AiIntake reusa el archivo via FindAsync (idempotente) en vez de re-insertar.
+- FIX Gemini se reseteaba a los 30s subiendo el PDF (SocketException 10054 al copiar el cuerpo). No era la red (un
+  POST de 693KB responde en 4s): era HTTP/2 reseteando el stream. AiProviderClient.SendWithRetryAsync fuerza
+  HTTP/1.1 explicito + REINTENTA ante cortes de transporte (reset/IOException), no solo ante codigos transitorios.
+- Config en BD local (AGRO): agente dedicado "Extractor de medidas (planos)" (Gemini) + control de la COT apuntado a
+  la grilla items. Build Release verde. Sin migracion propia.
+
+## 2026-10-23 - v0.16.216: control "Asistente de requerimiento (IA, imagen/PDF -> tabla)" (ADR-0131) (SIN deploy)
+
+- NUEVO FormControlType.AiIntake: control drag-and-drop que es un agente IA con una herramienta ACOTADA al mismo
+  formulario. Lee la foto/PDF del requerimiento del cliente y PROPONE filas para la grilla de detalle de ESE
+  formulario (nombre + medidas); el humano confirma (Aplicar) antes de escribir. Self-serve en el FormDesigner.
+- Backend (Application/Forms): AiIntakeConfig (OptionsJson["ai"]), FormScopedToolset (get_grid_schema +
+  rellenar_tabla que RECOLECTA filas, ignora columnas calculadas + tope maxRows + set_campo; acotado por ctor a la
+  definicion, no toca otros forms/registros/tenants), IFormAiIntakeService (resuelve el AGENTE referenciado ->
+  proveedor/modelo/prompt base, cupo + AiUsageLog "form-ai-intake", tool-loop con CompleteWithToolsAsync + imagen/PDF
+  inline, devuelve filas propuestas SIN escribir; solo Gemini/Claude). FormFieldValidator exime AiIntake.
+- UI: render en DynamicFormRenderer (dropzone + "Analizando" + preview + Aplicar/Descartar; aplica reusando
+  SetValue -> recalcula; guarda el archivo origen en StoredFile). Config en FormDesigner (agente, prompt, grilla
+  destino, guia columnas, accept, max_mb, max_rows, modo) + paleta + preview + dropdown de tipo.
+- Decisiones del usuario: referencia a un AGENTE (no proveedor suelto); solo autenticado (no link publico);
+  guardar el archivo origen. Gobernanza: el documento es DATO (ignora ordenes embebidas); confirmacion humana;
+  AiUsageLog + cupos; tenant-scoped. Build de solucion Release verde. Sin migracion. La config de la COT de AGRO
+  la deja el usuario en el disenador.
+
+## 2026-10-23 - v0.16.215: PhoneField segmentado (diseno de captura de telefono) (SIN deploy)
+
+- El campo de telefono (PhoneField, usado en /directorio-general, /directorio-especializado, GestorContactos y
+  TaskWizard via TerceroModal) se veia mal: indicativo y numero eran DOS cajas sueltas con un gap, desalineadas.
+  Rediseno a un control SEGMENTADO: una sola caja/borde con el indicativo pegado al numero por un divisor fino
+  (como un input unico), consistente con los demas campos. Auto-contenido en PhoneField.razor.css (scoped), ya no
+  depende del dg-input del host. Estados: focus (borde resaltado), invalido (borde rojo + nota), deshabilitado.
+  Solo UI, sin migracion ni cambios de logica.
+## 2026-10-24 - Quitar el asistente IA + auto-refresco de derivadas al sincronizar el origen (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUITADO el asistente IA de tablas derivadas (el usuario crea a mano): fuera el boton "Asistente IA" del
+  wizard y borradas sus piezas (DerivedTableChatPanel + .css, DerivedTableChatService/Contracts,
+  DerivedTableToolset, ProposalChatEngine, registros DI y pruebas DerivedTableChatServiceTests/
+  DerivedTableToolsetTests/DerivedChatTestDb). ADR-0130 queda REVERTIDO. El wizard determinista (selector de
+  origen + edicion) sigue igual.
+- NUEVA regla de sincronizacion: al sincronizar una tabla ORIGEN, sus derivadas se refrescan enseguida.
+  IProcessRunner.RefreshDependentsAsync(sourceTableId) busca los conectores FromTable cuya spec apunta a esa
+  tabla y corre el proceso de cada derivada (queda en la bitacora). Se dispara al cerrar con exito una
+  importacion server-direct REST (ProcessRunner) y la ingesta via agente (AgentImportService, Database/REST).
+  Incondicional, sin cascada en cadena (un solo nivel), sin migracion. Excel/edicion manual del origen NO
+  encadenan (no pasan por el motor de sync): ahi queda "Actualizar datos" en la derivada.
+- PRUEBAS: unit 1144/1144 (bajan 26: las del asistente borrado); integracion dual DerivedTable 8x2 = 16/16
+  (incluye la nueva RefreshDependents_RefreshesDerivedTables_WhenSourceSyncs); format limpio. Integration.Tests
+  ahora referencia Ecorex.SuperAdmin con alias 'superadmin' (evita el choque del Program global con Ecorex.Api).
+- VALIDADO en 5267: el wizard abre sin "Asistente IA"; crear/editar siguen funcionando.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
+## 2026-10-24 - Crear y EDITAR la derivada desde el contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: el usuario pidio crear y editar la tabla derivada desde el contenedor donde queda, no desde el del
+  origen. (1) Boton "+ Derivada" en la barra del lienzo: abre el wizard con el destino = ese contenedor y
+  un selector "Derivar de..." que lista las tablas normales del tenant (de este u otro contenedor). (2)
+  Engranaje en el nodo de una derivada: abre el wizard en modo EDICION precargado (receta + horario),
+  cambia agrupacion/agregados/filtro/refresco; origen y destino quedan fijos. El sigma de las tablas
+  normales y el lapiz (columnas propias) se conservan.
+- BACKEND: IDerivedTableService + 3 metodos nuevos: ListSourceTablesAsync (origenes candidatos con
+  columnas), GetEditInfoAsync (receta del conector + origen + horario para precargar) y UpdateAsync
+  (reescribe MappingJson, reconcilia columnas producidas conservando las propias, renombra, recalcula la
+  programacion, en transaccion; el refresco lo dispara el runner). Contratos nuevos DerivationSourceDto,
+  DerivedTableEditInfo, UpdateDerivedTableRequest. SIN migracion.
+- UI: DerivedTableWizard reescrito a 3 modos (origen fijo / destino fijo con selector de origen / edicion)
+  reutilizando pasos, vista previa y asistente IA (chat solo en creacion con origen elegido). ContenedorDatos
+  gana el boton "+ Derivada", el engranaje en nodos derivados y la invocacion del wizard con los 3 modos.
+- DECISION: al editar, cambiar las columnas de agrupacion cambia la identidad de los grupos, asi que el
+  refresco reconstruye la tabla y las filas/columnas propias atadas a los grupos viejos se pierden; cambiar
+  solo agregados/filtro/horario mantiene las claves y conserva las columnas propias.
+- PRUEBAS: 2 de integracion dual nuevas (Update quita agregado + conserva columna propia tras refresco;
+  ListSourceTables excluye derivadas). Build Release y format verdes. Validado en navegador en 5267.
+- COMMIT en rama claude/feat-contenedor-derivado-ea18ad. NO merge, NO deploy, pendiente OK del usuario para push.
+
+## 2026-10-23 - Tabla derivada en OTRO contenedor destino (extension de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: la derivada puede nacer en un contenedor DISTINTO al de su tabla origen (caso: TEST_HIJO con una
+  derivada de ALEGRA/Items). Sin migracion: `CreateDerivedTableRequest.ModelId` es el contenedor DESTINO;
+  hija + conector FromTable + ImportProcess cuelgan del destino; la spec sigue apuntando al origen por id.
+- SERVICIO: DerivedTableService sin las validaciones "mismo contenedor" (alta y refresco); un solo nivel y
+  guard de borrado del origen siguen por id. Posicion: al lado del origen si es el mismo contenedor, si no
+  sitio libre del lienzo destino (derecha de la tabla mas a la derecha; (40,40) si vacio).
+  DataModelService: GetAsync resuelve "Contenedor / Tabla" del origen foraneo (ModelTableDto.DerivedFromModelName);
+  DeleteModelAsync bloquea con mensaje si una derivada de OTRO contenedor apunta a una tabla de este.
+- UI: wizard con selector "Crear en el contenedor" (default el actual, solo si hay mas de uno); resumen y
+  mensaje final dicen donde nacio. Lienzo: distintivo "derivada de <Contenedor> / <Tabla>" y sin arista
+  cuando el origen no esta en ese lienzo (TryDerivedEdge ya lo omitia). ContenedorDatos.razor: 1 linea.
+- ASISTENTE IA: toolset acepta `contenedor_destino` (nombre o id) en proponer/crear (se valida desde la
+  propuesta); el arnes lista los otros contenedores con id; el selector del wizard se inyecta via
+  SetTargetModel cuando el modelo no manda destino (lo dicho por el usuario gana).
+- PRUEBAS: unit (toolset: destino por nombre/id/sin destino, destino inexistente; chat: inyeccion del
+  destino + arnes) e integracion dual nueva Create_InOtherModel_RefreshWorks_AndSourceGuardsHold (alta en
+  TEST_HIJO, refresco, distintivo, guards de tabla y contenedor origen, limpieza al borrar la hija).
+- ADR-0127: seccion "Extension 2026-10-23". dotnet format limpio en los 4 proyectos tocados (de paso se
+  formateo WorkflowAgentStepTests.cs, whitespace heredado del tronco). Unit Application 1174/1174;
+  integracion dual DerivedTableTests 10/10 (5 x PG/SQL Server).
+- VALIDADO EN 5267 (publish Release del worktree en appout5267, /dev/login BITCODE): wizard de ALEGRA/Items
+  con "Crear en el contenedor" = TEST_HIJO -> "Items por tipo (hijo)" nacio en TEST_HIJO en (40,40) con 3
+  filas reales (product 226, simple 73, service 20 = 319), conector y proceso en TEST_HIJO, distintivo
+  "derivada de ALEGRA / Items" sin arista, y "Actualizar datos" desde TEST_HIJO: 0 nuevas, 3 actualizadas.
+  La tabla de prueba quedo en la BD dev local.
+
+## 2026-10-22 - Asistente IA para tablas derivadas (ADR-0130, fase 2 de ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: en el wizard "Derivar tabla" aparece el boton "Asistente IA" que abre, como columna del mismo modal, un
+  chat donde el usuario describe la tabla ("items por categoria y marca con total de precio"); el asistente ve
+  las tablas del contenedor con sus columnas tipadas, pide una muestra si la necesita, PROPONE la derivacion
+  con la vista previa REAL (motor del refresco, primeros 10 grupos, pintada como tabla en el panel) y, cuando
+  el usuario esta de acuerdo, pide crearla: esa accion llega SIEMPRE como propuesta con Confirmar/Rechazar.
+  Al confirmar, la tabla nace por el MISMO IDerivedTableService del wizard (transaccion, un solo nivel) y el
+  wizard hace su mismo cierre (primer refresco por el runner, resumen, recarga del lienzo).
+- MOTOR GENERICO: Tenancy/ProposalChatEngine.cs extrae la maquinaria "proponer y confirmar" del asistente de
+  formularios (lecturas solas, mutantes como propuesta, escribir descarta, Confirmar/Rechazar, tope de vueltas,
+  timeout, cupo del plan, AiUsageLog) para cualquier toolset + prompt. FormBuilderChatService NO se migro.
+- TOOLSET: Tenancy/DerivedTableToolset.cs (describir_tabla / proponer_derivacion / crear_tabla_derivada) por
+  NOMBRE de columna, Count siempre, vocabulario tolerante (sum|suma|total, mayor|>, ...), origen derivado
+  rechazado antes del servicio. SERVICIO: DataContainers/DerivedTableChatService.cs (+Contracts): arnes con
+  las tablas del contenedor, proveedor "IA gestion de formularios" (Gemini respaldo), contenedor_id FORZADO
+  en cada tool-call, conversaciones en memoria del circuito, consumo con fuente "derived-table-chat".
+- UI: Components/Shared/DataContainers/DerivedTableChatPanel.razor (+css); DerivedTableWizard gano el boton,
+  la columna de chat y OnChatCreatedAsync. ContenedorDatos.razor intacto. dc-canvas.js?v=3 (scroll helper).
+- PRUEBAS: DerivedTableToolsetTests (18) + DerivedTableChatServiceTests (8) sobre EF InMemory + fakes de IA y
+  del servicio de derivadas; Application 1170/1170, Domain 35/35; dotnet format limpio en los proyectos tocados
+  (se corrigio de paso el whitespace heredado del tronco en RuleParamOptionsProvider.cs y Program.cs).
+- VALIDADO EN NAVEGADOR (5267, publish del worktree en appout5267, /dev/login BITCODE, Gemini 2.5 pro REAL):
+  "items por categoria y tipo con total de precio y suma de existencia" -> el asistente llamo
+  proponer_derivacion solo (lectura), el panel pinto la vista previa real (22 grupos, 319 filas), propuso el
+  nombre, al decir "si" llego la propuesta crear_tabla_derivada con Confirmar/Rechazar, y al confirmar nacio
+  "Items por categoria y tipo" (22 filas, 6 columnas) con primer refresco por el runner ("22 nuevas") y el
+  lienzo recargado (5 tablas, 2 conectores, 2 procesos). AiUsageLog con fuente derived-table-chat.
+- HALLAZGOS corregidos en la prueba real: (1) Gemini via API compatible OpenAI devuelve el nombre de la
+  herramienta con un prefijo inventado ("ecorex.proponer_derivacion"): el motor ahora NORMALIZA al nombre
+  conocido (si no, la lectura caia al gate y al confirmar fallaba). (2) ALEGRA tiene 'Items' e 'ITEMS': la
+  resolucion por nombre era solo case-insensitive y tomaba la equivocada; ahora id -> exacto -> laxo solo si
+  es unico (si no, error que pide precisar), y el arnes lista cada tabla con su id.
+- RAMA: claude/feat-contenedor-derivado-ea18ad (se le mergeo fase-0/clon-backbone v0.16.214, conflicto solo
+  en PROGRESO.md). SIN merge al tronco, SIN deploy, SIN push (pendiente OK del usuario).
+- SIGUIENTE: migrar FormBuilderChatService al motor generico cuando se toque; persistir el hilo si algun
+  dia el asistente sale del modal; la derivada de prueba "Items por categoria y tipo" quedo en la BD dev local.
+
+## 2026-10-22 - Tabla DERIVADA del Contenedor de datos (ADR-0127) (worktree, SIN merge ni deploy)
+
+- QUE: desde el lienzo del contenedor, "Derivar tabla" (boton sigma en cualquier tabla normal) abre un wizard
+  determinista (nombre -> agrupar -> agregados -> filtro -> VISTA PREVIA -> refresco -> crear) que crea una
+  tabla hija MATERIALIZADA (filas reales) agrupando la tabla origen por las columnas marcadas, con agregados
+  (Count siempre; Sum/Avg para numericas; Min/Max para numericas y fechas). Sin agregados = proyeccion
+  distinta. Opcion A del diagnostico (vista virtual descartada: todo lo que lee contenedores espera filas).
+- DOMINIO: ConnectorKind.FromTable ("Desde otra tabla"); DataContainer.DerivedFromContainerId (FK Restrict
+  en ambos motores). Spec tipada DerivationSpec en DataConnector.MappingJson (jsonb). Migracion dual
+  AddDerivedTables (PG 20261022125733 / SQL Server 20261022130043), aplicada en dev local (5442/ecorex).
+- MOTOR: DerivedRowsBuilder (puro, sin EF): normaliza por tipo antes de la clave ("10"=="10.0", fechas ISO,
+  booleanos true/false, texto trim), agrupa, agrega (Count->Number, Sum/Avg->Decimal, Min/Max heredan tipo y
+  comparan por tipo), Avg sin numericos = null. DerivedTableService: vista previa, alta en UNA transaccion
+  (hija + columnas + conector + ImportProcess Upsert por "Clave") y refresco con IRowIngestService + PODA de
+  grupos huerfanos en transaccion. Las columnas PROPIAS de la hija sobreviven al refresco (Upsert conserva
+  celdas no mapeadas). UN SOLO NIVEL (no derivar de derivada) validado en servicio + oculto en lienzo.
+- RUNNER: ProcessRunner.RunNowAsync rama FromTable server-direct con ImportRun (Inserted/Updated/Deleted
+  incl. poda). "Actualizar datos" ahora tambien aparece para procesos server-direct y muestra el desenlace
+  inmediato; resumen de bitacora dice nuevas/actualizadas/borradas.
+- BORRADO: el origen no se borra mientras exista una derivada (mensaje con nombre); borrar la derivada
+  limpia conector + proceso + corridas (cascada diferida).
+- UI: componente aparte Components/Shared/DataContainers/DerivedTableWizard.razor (+css); lienzo con nodo
+  verde "derivada de X" y arista punteada origen->hija; conector FromTable sin edicion por el form generico.
+- PRUEBAS: 30 unit (DerivedRowsBuilderTests) + 4x2 integracion dual PG/SQL Server (DerivedTableTests:
+  crear/refrescar/poda/columna propia, un solo nivel, guard de borrado, aislamiento tenant) en verde.
+  Suites completas: Domain 35/35, Application 1144/1144, Integration dual 493/493 (con
+  xunit.maxParallelThreads=3: sin tope, la suite entera levanta decenas de SQL Server a la vez y Docker
+  local (12.5 GB) revienta por timeouts; no es del codigo). dotnet format limpio.
+  Validado en navegador (5264, /dev/login BITCODE, contenedor ALEGRA/Items 319 filas -> "Items por
+  categoria" 11 grupos, vista previa, creacion, filas reales, "Actualizar datos" 11 actualizadas).
+- COMMITS en rama claude/feat-contenedor-derivado-ea18ad: 7c14f854 (core+migracion+tests), 6ae619a2 (UI),
+  + ADR/PROGRESO. NO mergeado al tronco, NO desplegado, sin push (pendiente OK del usuario).
+- PENDIENTE / fase 2: chat IA asistido para armar la derivacion (fuera de alcance a proposito).
+
+## 2026-10-22 - v0.16.214: agente - crear_actividad sin formulario (ADR-0129) + asignacion round-robin por usuarios del agente (ADR-0128) (SIN deploy)
+
+- HAND-OFF 1 (ADR-0129, sin migracion): crear_actividad (ActividadesToolset) ahora funciona con o SIN formulario.
+  Si el concepto no tiene FormDefinitionId se salta validacion + crear/llenar/enviar el form y solo da de alta la
+  actividad (arranca el flujo igual); 'datos' es opcional en el spec. Con formulario: identico a antes. Caso:
+  SARA/AGRO registra con el concepto "Seguimiento comercial agente IA" (sin form) para disparar su flujo.
+- HAND-OFF 2 (ADR-0128, migracion dual): asignacion round-robin por usuarios configurados en el agente.
+  AiAgent +AssigneeUserIdsJson (lista ordenada de TenantUser ids, jsonb) +AssigneeCursor (int). Picker compartido
+  AgentAssigneePicker: round-robin sobre la lista del agente (rota con el cursor; salta ids no-activos) o FALLBACK
+  al pool de asesores del tenant (AssignableByAgent). Aplicado en crear_tarea Y crear_actividad (antes la
+  actividad no asignaba). UI en Agentes.razor: acordeon con agregar/quitar/subir/bajar usuarios. Migracion dual
+  AddAgentRoundRobinAssignees (aditiva, OPT-IN: lista NULL => comportamiento anterior).
+- VERIFICACION: build Release 0 errores; has-pending-model-changes "No changes" en PG y SQL Server. Pendiente:
+  tests. SIN deploy sin OK.
+
 ## 2026-10-22 - Integracion Requerimientos (Agrupar/alta campos propios) + Reglas (params Select/Mapping + override por formulario) al tronco (SIN deploy)
 
 - INTEGRADO (merge --no-ff 67ca41fe, 0 conflictos merge-tree) desde requerimiento_compras, base 00e6a29c:

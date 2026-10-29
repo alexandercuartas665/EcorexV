@@ -670,7 +670,7 @@ else
         if (_deleteTarget is null || _def is null) { return; }
         _deleting = true;
         _deleteError = null;
-        var res = await ResponsesSvc.DeleteRecordAsync(_deleteTarget.Id);
+        var res = await ResponsesSvc.DeleteRecordAsync(_deleteTarget.Id, _actorTenantUserId);
         if (res.IsOk)
         {
             _records = await ResponsesSvc.ListRecordsAsync(_def.Id);

@@ -46,14 +46,19 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         // 2) Config del tenant (ambiente). Sin key habilitada no hay llamada.
-        // Elige la LINEA a usar: la habilitada por defecto; si no hay default, la primera habilitada completa.
-        var cfg = await _db.RetellVoiceLines
-            .Where(l => l.IsEnabled && l.RetellApiKeyEncrypted != null && l.FromNumber != null)
-            .OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name)
-            .FirstOrDefaultAsync(cancellationToken);
+        // Si la peticion fija una LINEA concreta (prueba por tarjeta), se usa esa; si no, la habilitada por
+        // defecto (o la primera habilitada y configurada completa).
+        var lines = _db.RetellVoiceLines.Where(l => l.IsEnabled && l.RetellApiKeyEncrypted != null && l.FromNumber != null);
+        var cfg = request.RetellVoiceLineId is Guid lineId
+            ? await lines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken)
+            : await lines.OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name).FirstOrDefaultAsync(cancellationToken);
         if (cfg is null)
         {
-            return new VoicePlaceCallResult(false, null, "No hay una linea de voz habilitada y configurada para el tenant.", Retryable: false);
+            return new VoicePlaceCallResult(false, null,
+                request.RetellVoiceLineId is null
+                    ? "No hay una linea de voz habilitada y configurada para el tenant."
+                    : "La linea elegida no existe, no esta habilitada o le falta API key / numero saliente.",
+                Retryable: false);
         }
         if (!IsE164(cfg.FromNumber))
         {
@@ -95,6 +100,14 @@ public sealed class RetellVoiceService : IRetellVoiceService
 
         // 5) Colocar la llamada.
         var dyn = BuildDynamicVariables(request.ContactVariables, request.Objetivo);
+        // Variables EXTRA (p.ej. las que el humano da en la prueba para los {{placeholders}} del prompt).
+        if (request.ExtraDynamicVariables is { Count: > 0 })
+        {
+            foreach (var kv in request.ExtraDynamicVariables)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Value)) { dyn[kv.Key] = kv.Value!.Trim(); }
+            }
+        }
         var sipHeaders = string.IsNullOrWhiteSpace(cfg.SipUsername)
             ? null
             : new Dictionary<string, string> { ["X-Telnyx-Username"] = cfg.SipUsername! };
@@ -134,6 +147,157 @@ public sealed class RetellVoiceService : IRetellVoiceService
 
         _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
         return new VoicePlaceCallResult(true, callRes.CallId, null, Retryable: false);
+    }
+
+    public async Task<VoiceCallResultDto?> GetCallResultAsync(string callId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(callId)) { return null; }
+        var vc = await _db.VoiceCalls.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.CallId == callId, cancellationToken);
+        if (vc is null) { return null; }
+        return new VoiceCallResultDto(
+            CallId: vc.CallId,
+            Status: vc.Status.ToString(),
+            StartedAt: vc.StartedAt,
+            EndedAt: vc.EndedAt,
+            DurationSeconds: vc.DurationSeconds,
+            CostUsd: vc.CostUsd,
+            TranscriptText: vc.TranscriptText,
+            RecordingUrl: vc.RecordingUrl,
+            AnalysisSummary: ExtractAnalysisSummary(vc.AnalysisJson),
+            CallSuccessful: ExtractCallSuccessful(vc.AnalysisJson),
+            CustomData: ExtractCustomData(vc.AnalysisJson));
+    }
+
+    /// <summary>call_analysis.call_successful (segun los success criteria del agente en Retell). Null si no vino.</summary>
+    public static bool? ExtractCallSuccessful(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("call_successful", out var ok)
+                && (ok.ValueKind == JsonValueKind.True || ok.ValueKind == JsonValueKind.False))
+            {
+                return ok.GetBoolean();
+            }
+        }
+        catch (JsonException) { }
+        return null;
+    }
+
+    /// <summary>call_analysis.custom_analysis_data: los campos estructurados que el agente extrajo (clave->valor).</summary>
+    public static IReadOnlyDictionary<string, string>? ExtractCustomData(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("custom_analysis_data", out var custom)
+                || custom.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var prop in custom.EnumerateObject())
+            {
+                var val = prop.Value.ValueKind switch
+                {
+                    JsonValueKind.String => prop.Value.GetString(),
+                    JsonValueKind.Number => prop.Value.GetRawText(),
+                    JsonValueKind.True => "si",
+                    JsonValueKind.False => "no",
+                    JsonValueKind.Null => null,
+                    _ => prop.Value.GetRawText()
+                };
+                if (val is not null) { d[prop.Name] = val; }
+            }
+            return d.Count > 0 ? d : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    public async Task<VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default)
+    {
+        var line = await _db.RetellVoiceLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return null; }
+
+        // MODO SIMPLE: la linea trae un Agent ID ya armado en Retell -> leemos su config real (voz/idioma/prompt).
+        if (!string.IsNullOrWhiteSpace(line.RetellAgentId))
+        {
+            if (string.IsNullOrEmpty(line.RetellApiKeyEncrypted))
+            {
+                return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(),
+                    "La linea no tiene API key configurada; no se puede leer el agente de Retell.");
+            }
+            string apiKey;
+            try { apiKey = _protector.Unprotect(line.RetellApiKeyEncrypted); }
+            catch { return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(), "La API key de Retell no se pudo descifrar."); }
+
+            var agent = await _retell.GetAgentAsync(apiKey, line.RetellAgentId!.Trim(), cancellationToken);
+            if (!agent.Ok)
+            {
+                return new VoiceTestAgentInfoDto("simple", line.VoiceId, line.Language, null, null, Array.Empty<string>(),
+                    $"No se pudo leer el agente de Retell: {agent.Error}");
+            }
+            string? prompt = null, model = null;
+            if (!string.IsNullOrWhiteSpace(agent.LlmId))
+            {
+                var llm = await _retell.GetLlmAsync(apiKey, agent.LlmId!, cancellationToken);
+                if (llm.Ok) { prompt = llm.GeneralPrompt; model = llm.Model; }
+            }
+            return new VoiceTestAgentInfoDto("simple", agent.VoiceId ?? line.VoiceId, agent.Language ?? line.Language, model, prompt,
+                ExtractPromptVariables(prompt),
+                "En modo simple el prompt lo controla Retell: no se puede cambiar por llamada, pero las variables si se rellenan.");
+        }
+
+        // MODO COMPUESTO: ECOREX arma el prompt al vuelo (AiAgent + prompt adicional + objetivo). No hay agente fijo.
+        var systemPrompt = "";
+        if (aiAgentId is Guid agentId)
+        {
+            systemPrompt = await _db.AiAgents.AsNoTracking()
+                .Where(a => a.Id == agentId).Select(a => a.SystemPrompt).FirstOrDefaultAsync(cancellationToken) ?? "";
+        }
+        var composed = ComposePrompt(systemPrompt, promptExtra, objetivo);
+        var voiceId = string.IsNullOrWhiteSpace(line.VoiceId) ? DefaultVoiceId : line.VoiceId;
+        var language = string.IsNullOrWhiteSpace(line.Language) ? "es-419" : line.Language;
+        return new VoiceTestAgentInfoDto("compuesto", voiceId, language, null, composed, ExtractPromptVariables(composed), null);
+    }
+
+    private static readonly Regex PromptVar = new(@"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", RegexOptions.Compiled);
+
+    /// <summary>Nombres de variables {{...}} que aparecen en el prompt (distintas, en orden de aparicion).</summary>
+    public static IReadOnlyList<string> ExtractPromptVariables(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) { return Array.Empty<string>(); }
+        var seen = new List<string>();
+        foreach (Match m in PromptVar.Matches(prompt))
+        {
+            var name = m.Groups[1].Value;
+            if (!seen.Contains(name, StringComparer.OrdinalIgnoreCase)) { seen.Add(name); }
+        }
+        return seen;
+    }
+
+    /// <summary>Saca un resumen legible del call_analysis (call_summary + exito + sentimiento) para la UI. Best-effort.</summary>
+    public static string? ExtractAnalysisSummary(string? analysisJson)
+    {
+        if (string.IsNullOrWhiteSpace(analysisJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(analysisJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            var parts = new List<string>();
+            if (root.TryGetProperty("call_summary", out var s) && s.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(s.GetString())) { parts.Add(s.GetString()!.Trim()); }
+            if (root.TryGetProperty("user_sentiment", out var se) && se.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(se.GetString())) { parts.Add("Sentimiento: " + se.GetString()); }
+            return parts.Count > 0 ? string.Join("\n", parts) : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     // ---- Aseguramiento del agente (LLM + agente Retell keyed por hash del prompt) ----

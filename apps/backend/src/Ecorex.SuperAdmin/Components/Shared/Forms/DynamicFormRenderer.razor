@@ -22,6 +22,9 @@
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
+@inject Ecorex.Application.Forms.IFormAiIntakeService AiIntakeSvc
+@inject Ecorex.Application.Forms.IFormAiComposeService AiComposeSvc
+@inject Ecorex.Application.Storage.IFileStorageService FileStore
 @inject NavigationManager Nav
 
 @* =====================================================================================
@@ -134,9 +137,11 @@ else
            columnas de nivel superior (p.ej. datos | visor) como en el disenador. Los de ancho 12 ocupan la fila
            completa (se apilan). El gap lo maneja el grid (sin desbordes). *@
         <div class="dfr-toplevel">
-            @foreach (var container in ChildrenOf(null))
+            @* TopLevelLayout() devuelve SOLO las secciones visibles con su span EFECTIVO: si un hermano de su fila
+               se oculta y la seccion tiene "ocupar el ancho libre" (FillFreeWidth), crece para llenar el hueco. *@
+            @foreach (var (container, span) in TopLevelLayout())
             {
-                <div class="dfr-top-cell" style="grid-column: span @(container.Width is >= 1 and <= 12 ? container.Width : 12);">
+                <div class="dfr-top-cell" style="grid-column: span @span;">
                     @RenderContainer(container)
                 </div>
             }
@@ -373,6 +378,10 @@ else
     /// el renderer emite aqui el nuevo responseId para que el HOST lo abra (modal en la tarea, etc.).</summary>
     [Parameter] public EventCallback<Guid> OnOpenFormRequested { get; set; }
 
+    /// <summary>Una regla de boton (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea: el
+    /// renderer avisa aqui para que el HOST (TaskDetailModal) recargue el flujo y refleje el avance.</summary>
+    [Parameter] public EventCallback OnStepCompleted { get; set; }
+
     /// <summary>
     /// Avisa al contenedor el borrador (FormResponse) en cuanto se crea/carga en modo Fill, SIN esperar
     /// al "Enviar". Lo usa la wizard de tareas para conocer el Id del borrador y poder anclarlo a la
@@ -391,6 +400,18 @@ else
     /// HideSubmitBar, se oculta la barra de Enviar/Imprimir/autoguardado (el commit lo hace el boton "Listo"
     /// del wizard). Los demas hosts (detalle de tarea, modulo standalone) lo dejan en false.</summary>
     [Parameter] public bool EmbeddedInTask { get; set; }
+
+    /// <summary>Opt-in para hosts que NO son el wizard: honra el HideSubmitBar de la definicion y oculta la
+    /// barra de Enviar/Imprimir aunque EmbeddedInTask sea false (p.ej. el modal de /autorizacion-compras-dian,
+    /// que tiene sus propias acciones Guardar cambios / Solicitar autorizacion). Con la barra oculta el autosave
+    /// periodico se apaga, asi que el host DEBE llamar FlushDraftAsync() en sus botones para no perder lo escrito.
+    /// Default false: los demas hosts conservan el comportamiento estandar (solo el wizard oculta la barra).</summary>
+    [Parameter] public bool HonorHideSubmitBar { get; set; }
+
+    /// <summary>Ids de SECCIONES (contenedores) a NO pintar en esta vista, decididas por quien renderiza el form
+    /// (p.ej. el modulo de autorizacion pasa las secciones que la salida del conciliador marco para ocultar).
+    /// El mismo formulario se reusa en varios lados y cada uno oculta lo que no aplica. Null/vacio = muestra todo.</summary>
+    [Parameter] public IReadOnlyList<Guid>? HiddenContainerIds { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
     /// <summary>
     /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
@@ -487,9 +508,10 @@ else
     // (lo usa el formulario del concepto mientras la tarea este abierta). Default: IsLocked == IsSubmitted.
     private bool IsLocked => IsSubmitted && !KeepEditable;
 
-    /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado: solo dentro del wizard de crear tarea
-    /// (EmbeddedInTask) y si la definicion lo pide (HideSubmitBar). Tambien apaga el autosave periodico.</summary>
-    private bool HideSubmitChrome => EmbeddedInTask && _definition?.HideSubmitBar == true;
+    /// <summary>Oculta la barra de Enviar/Imprimir/autoguardado cuando la definicion lo pide (HideSubmitBar) Y
+    /// el host es el wizard de crear tarea (EmbeddedInTask) o lo honra explicitamente (HonorHideSubmitBar, p.ej.
+    /// el modal de autorizacion). Tambien apaga el autosave periodico: el host debe llamar FlushDraftAsync().</summary>
+    private bool HideSubmitChrome => (EmbeddedInTask || HonorHideSubmitBar) && _definition?.HideSubmitBar == true;
     // Editable en Fill (llenado real) y en Sandbox (vista previa interactiva de borrador, sin persistir).
     private bool IsEditableMode => Mode is FormRenderMode.Fill or FormRenderMode.Sandbox;
     private bool IsDisabled => _busy || !IsEditableMode || IsLocked;
@@ -643,6 +665,8 @@ else
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
+                // Lienzo de bloques: pre-llena bloques con 'source' desde las respuestas del formulario (si vacios).
+                AutoComposeLienzos();
                 // Maestro-detalle (ola F5): registros hijos de los subformularios.
                 await LoadSubformChildrenAsync();
                 // Gestiones por fila (ADR-0085): conteos para los badges de las pildoras.
@@ -721,19 +745,113 @@ else
     // Pestana activa por contenedor Tabs (estado de UI del renderer).
     private readonly Dictionary<Guid, int> _activeTab = new();
 
+    // TabsJson admite forma legacy (arreglo) u objeto {tabs,presentation}; el parser unico lo resuelve.
     private static IReadOnlyList<string> ParseTabs(string? tabsJson)
+        => Ecorex.Application.Forms.FormTabsConfig.Parse(tabsJson).Tabs;
+
+    // Paso actual (y maximo alcanzado) del wizard por contenedor Tabs. Reusa _activeTab como paso actual.
+    private readonly Dictionary<Guid, int> _wizardMax = new();
+
+    // ===== Presentacion ASISTENTE (wizard) de un contenedor Tabs (mismo arbol, paso a paso) =====
+    private RenderFragment RenderWizard(FormContainerDto container, List<FormContainerDto> panels, IReadOnlyList<string> names, int active) => __builder =>
     {
-        if (string.IsNullOrWhiteSpace(tabsJson))
+        var total = panels.Count;
+        var cur = Math.Clamp(active, 0, total - 1);
+        var max = Math.Max(_wizardMax.GetValueOrDefault(container.Id), cur);
+        var pct = (int)Math.Round((cur + 1) * 100.0 / total);
+        var tabRootQuestions = QuestionsOf(container.Id);
+        <div class="dfr-segment dfr-wiz" style="@container.Style">
+            <div class="dfr-segment-head">@container.Name</div>
+            <div class="dfr-wiz-grid">
+                <aside class="dfr-wiz-side" role="tablist">
+                    @for (var i = 0; i < total; i++)
+                    {
+                        var index = i;
+                        var state = index == cur ? "active" : (index < cur ? "done" : "");
+                        <button type="button" class="dfr-wiz-step @state" disabled="@(index > max)"
+                                @onclick="@(() => WizardGoto(container, index, panels))">
+                            <span class="dfr-wiz-n">@(index < cur ? "✓" : (index + 1).ToString())</span>
+                            <span class="dfr-wiz-name">@TabName(names, panels, index)</span>
+                        </button>
+                    }
+                </aside>
+                <div class="dfr-wiz-main">
+                    <div class="dfr-wiz-prog">
+                        <span>Paso @(cur + 1) de @total</span>
+                        <span>@pct% completado</span>
+                    </div>
+                    <div class="dfr-wiz-bar"><span style="width:@(pct)%"></span></div>
+                    @if (tabRootQuestions.Count > 0)
+                    {
+                        <div class="row g-3">
+                            @foreach (var q in tabRootQuestions) { @RenderQuestion(q) }
+                        </div>
+                    }
+                    <div class="dfr-wiz-panel">
+                        @RenderContainerBody(panels[cur])
+                    </div>
+                    <div class="dfr-wiz-nav">
+                        <button type="button" class="btn btn-outline-secondary" disabled="@(cur == 0 || _busy)" @onclick="@(() => WizardPrev(container))">Anterior</button>
+                        <button type="button" class="btn btn-primary" disabled="@(_busy || IsLocked)" @onclick="@(() => WizardNextAsync(container, panels))">
+                            @(cur >= total - 1 ? (KeepEditable ? "Guardar" : "Finalizar") : "Siguiente")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    };
+
+    private static string TabName(IReadOnlyList<string> names, List<FormContainerDto> panels, int i)
+        => i < names.Count && !string.IsNullOrWhiteSpace(names[i]) ? names[i] : panels[i].Name;
+
+    private void WizardPrev(FormContainerDto container)
+        => _activeTab[container.Id] = Math.Max(0, _activeTab.GetValueOrDefault(container.Id) - 1);
+
+    // Clic en el stepper: solo a pasos ya alcanzados (volver atras o re-visitar). Adelante se usa "Siguiente".
+    private void WizardGoto(FormContainerDto container, int index, List<FormContainerDto> panels)
+    {
+        var max = Math.Max(_wizardMax.GetValueOrDefault(container.Id), _activeTab.GetValueOrDefault(container.Id));
+        if (index >= 0 && index <= max && index < panels.Count) { _activeTab[container.Id] = index; }
+    }
+
+    private async Task WizardNextAsync(FormContainerDto container, List<FormContainerDto> panels)
+    {
+        var cur = Math.Clamp(_activeTab.GetValueOrDefault(container.Id), 0, panels.Count - 1);
+        // Validacion por paso: requeridos VISIBLES del paso actual (respeta visible_when). El servidor
+        // valida TODO igualmente al Finalizar (submit), asi que esto es solo el gate de avance.
+        if (!ValidateStep(panels[cur])) { StateHasChanged(); return; }
+        if (cur < panels.Count - 1)
         {
-            return [];
+            var next = cur + 1;
+            _activeTab[container.Id] = next;
+            _wizardMax[container.Id] = Math.Max(_wizardMax.GetValueOrDefault(container.Id), next);
         }
-        try
+        else
         {
-            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(tabsJson) ?? [];
+            await OnPrimarySaveAsync();   // Finalizar = mismo envio que el boton Enviar actual
         }
-        catch (System.Text.Json.JsonException)
+    }
+
+    private bool ValidateStep(FormContainerDto panel)
+    {
+        var qs = VisibleInputsInSubtree(panel).ToList();
+        foreach (var q in qs) { ValidateField(q); }
+        return qs.All(q => !_errors.ContainsKey(q.FieldCode));
+    }
+
+    // Preguntas de CAPTURA VISIBLES del subarbol del paso (contenedores/campos ocultos por visible_when no cuentan).
+    private IEnumerable<FormQuestionDto> VisibleInputsInSubtree(FormContainerDto c)
+    {
+        if (c.IsHidden || !IsContainerVisibleByValue(c) || IsContainerHidden(c)) { yield break; }
+        foreach (var q in QuestionsOf(c.Id))
         {
-            return [];
+            if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden || IsFieldHidden(q) || !IsVisibleByValue(q)) { continue; }
+            if (FormFieldValidator.IsNonInput(q.ControlType)) { continue; }
+            yield return q;
+        }
+        foreach (var child in ChildrenOf(c.Id))
+        {
+            foreach (var q in VisibleInputsInSubtree(child)) { yield return q; }
         }
     }
 
@@ -749,7 +867,7 @@ else
     {
         @* Contenedores ocultos por el disenador, O por visibilidad condicional por VALOR (visible_when_json):
            ni el nodo ni su subarbol se pintan (ni se exigen). *@
-        if (container.IsHidden || !IsContainerVisibleByValue(container))
+        if (container.IsHidden || !IsContainerVisibleByValue(container) || IsContainerHidden(container))
         {
             return;
         }
@@ -760,6 +878,13 @@ else
             var panels = ChildrenOf(container.Id).Where(c => !c.IsHidden).ToList();
             var names = ParseTabs(container.TabsJson);
             var active = Math.Clamp(_activeTab.GetValueOrDefault(container.Id), 0, Math.Max(panels.Count - 1, 0));
+            @* Presentacion ASISTENTE (wizard): mismo arbol (Tabs + secciones hijas), pintado paso a paso.
+               Activable por config (TabsJson.presentation=wizard); default = pestanas (no cambia los forms). *@
+            if (panels.Count > 0 && Ecorex.Application.Forms.FormTabsConfig.Parse(container.TabsJson).IsWizard)
+            {
+                @RenderWizard(container, panels, names, active)
+                return;
+            }
             <div class="dfr-segment dfr-tabs" style="@container.Style">
                 <div class="dfr-segment-head">@container.Name</div>
                 @if (panels.Count > 0)
@@ -1171,12 +1296,105 @@ else
                 @* Documentos de la TAREA (solo lectura): galeria de los adjuntos de la tarea anfitriona. *@
                 @RenderTaskDocuments(q)
                 break;
+            case FormControlType.AiIntake:
+                @* Asistente de requerimiento (IA, imagen/PDF -> tabla): dropzone + preview + aplicar. *@
+                @RenderAiIntake(q)
+                break;
+            case FormControlType.LienzoBloques:
+                @* Lienzo de bloques (preset BMC): grilla de bloques con etiqueta + texto editable. *@
+                @RenderLienzo(q, value)
+                break;
+            case FormControlType.AiCompose:
+                @* Asistente IA (llenar campos): boton + propuesta (campos/bloques) + aplicar. *@
+                @RenderAiCompose(q)
+                break;
             default:
                 @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
                 break;
         }
     };
+
+    // ===== Lienzo de bloques (preset BMC): grilla de bloques con etiqueta + texto editable (ADR-0133) =====
+    private RenderFragment RenderLienzo(FormQuestionDto q, string? value) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+        var vals = ParseLienzoValues(value);
+        <div class="dfr-lienzo" style="grid-template-columns:repeat(@cfg.Columns,minmax(0,1fr));">
+            @foreach (var blk in cfg.Blocks)
+            {
+                var block = blk;
+                var text = vals.GetValueOrDefault(block.Id) ?? "";
+                var accent = string.Equals(block.Accent, Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary, StringComparison.OrdinalIgnoreCase) ? "accent" : "";
+                var ico = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Inner(block.Icon);
+                <article class="dfr-lb-card @accent" style="grid-column:@block.Col / span @block.ColSpan; grid-row:@block.Row / span @block.RowSpan;">
+                    <h4 class="dfr-lb-title">
+                        @if (ico is not null)
+                        {
+                            <span class="dfr-lb-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">@((MarkupString)ico)</svg></span>
+                        }
+                        <span>@block.Label</span>
+                    </h4>
+                    <textarea class="form-control dfr-lb-text" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
+                              @onchange="@(e => SetLienzoBlockAsync(q, block.Id, e.Value?.ToString()))">@text</textarea>
+                </article>
+            }
+        </div>
+    };
+
+    // Valor del campo Lienzo en Data: objeto JSON { blockId: texto }.
+    private static Dictionary<string, string> ParseLienzoValues(string? value)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(value)) { return d; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                {
+                    if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String) { d[p.Name] = p.Value.GetString() ?? ""; }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* valor corrupto -> vacio */ }
+        return d;
+    }
+
+    private async Task SetLienzoBlockAsync(FormQuestionDto q, string blockId, string? text)
+    {
+        var vals = ParseLienzoValues(_values.GetValueOrDefault(q.FieldCode));
+        vals[blockId] = text ?? "";
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(vals));
+    }
+
+    // Auto-componer: pre-llena los bloques con 'source' (concatena respuestas del formulario) si aun estan vacios.
+    // Conecta entrevista -> lienzo sin re-teclear; el usuario lo refina. Respeta lo ya escrito. Corre una vez al cargar.
+    private void AutoComposeLienzos()
+    {
+        if (_definition is null || !IsEditableMode || IsLocked) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques))
+        {
+            var cfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+            if (cfg.Blocks.All(b => b.Source.Count == 0)) { continue; }
+            var vals = ParseLienzoValues(_values.GetValueOrDefault(q.FieldCode));
+            var any = false;
+            foreach (var b in cfg.Blocks)
+            {
+                if (b.Source.Count == 0 || !string.IsNullOrWhiteSpace(vals.GetValueOrDefault(b.Id))) { continue; }
+                var composed = string.Join("\n", b.Source
+                    .Select(fc => _values.GetValueOrDefault(fc))
+                    .Where(v => !string.IsNullOrWhiteSpace(v))!);
+                if (!string.IsNullOrWhiteSpace(composed)) { vals[b.Id] = composed; any = true; }
+            }
+            if (any)
+            {
+                _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(vals);
+                _dirty = true;
+            }
+        }
+    }
 
     // Documentos de la TAREA (campo TaskDocuments): VISOR embebido (iframe PDF / imagen) + tira de miniaturas
     // para cambiar. Solo lectura; se ve el contenido del documento desde el propio formulario.
@@ -1569,6 +1787,330 @@ else
         catch (JSException) { }
     }
 
+    // ===== Asistente de requerimiento (IA, imagen/PDF -> tabla) (ADR-0131). Reusa _aiBusy/_aiError del
+    // asistente de texto (keyed por fieldCode; los campos de intake son distintos, sin colision de estado). =====
+    private readonly Dictionary<string, Ecorex.Application.Forms.AiIntakeResult> _aiResult = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (string Url, string Name, bool IsPdf)> _aiFile = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderAiIntake(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+        var busy = _aiBusy.Contains(q.FieldCode);
+        var err = _aiError.GetValueOrDefault(q.FieldCode);
+        var res = _aiResult.GetValueOrDefault(q.FieldCode);
+        var hasFile = _aiFile.TryGetValue(q.FieldCode, out var file);
+        var accept = string.Join(",", new[] { cfg.AcceptsImages ? "image/*" : null, cfg.AcceptsPdf ? "application/pdf" : null }.Where(x => x is not null));
+        var gridQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, cfg.TargetGrid, StringComparison.OrdinalIgnoreCase));
+
+        <div class="dfr-ai">
+            @if (cfg.AgentId is null || gridQ is null)
+            {
+                <div class="dfr-note-err">Este asistente aun no esta configurado (falta el agente de IA o la grilla destino). Configuralo en el disenador.</div>
+            }
+            else
+            {
+                <label class="dfr-ai-drop @(busy ? "busy" : "")">
+                    <InputFile OnChange="@(e => OnAiFileSelectedAsync(q, e))" accept="@accept" disabled="@(busy || IsLocked)" style="display:none" />
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" /></svg>
+                    <span class="dfr-ai-droptitle">@(busy ? "Analizando el documento..." : hasFile ? "Reemplazar / re-analizar (imagen o PDF)" : "Arrastra o elige una imagen/PDF del requerimiento")</span>
+                    <small>El asistente lee el documento y PROPONE las filas de "@gridQ.Label". Tu confirmas antes de escribir.</small>
+                </label>
+
+                @if (hasFile && !busy)
+                {
+                    <div class="dfr-ai-file">
+                        @if (file.IsPdf || string.IsNullOrEmpty(file.Url)) { <span class="dfr-ai-fileicon">@(file.IsPdf ? "PDF" : "IMG")</span> }
+                        else { <img src="@file.Url" class="dfr-ai-thumb" alt="origen" /> }
+                        <span class="dfr-ai-filename">@file.Name</span>
+                    </div>
+                }
+
+                @if (err is not null) { <div class="dfr-note-err">@err</div> }
+
+                @* Overlay con spinner mientras el agente lee el documento (antes solo cambiaba un texto: parecia colgado). *@
+                @if (busy)
+                {
+                    <div class="dfr-aimodal-back">
+                        <div class="dfr-aimodal dfr-aimodal-spin" @onclick:stopPropagation="true">
+                            <div class="dfr-spinner" role="status" aria-label="Analizando"></div>
+                            <div class="dfr-aimodal-spintitle">Analizando el documento</div>
+                            <div class="dfr-aimodal-spinsub">El asistente de IA esta leyendo @(hasFile && file.IsPdf ? "el PDF" : "el documento") y extrayendo las piezas y medidas para "@gridQ.Label". Esto puede tardar varios segundos.</div>
+                            <div class="dfr-aimodal-dots"><span></span><span></span><span></span></div>
+                        </div>
+                    </div>
+                }
+
+                @* Previsualizacion de las filas propuestas en un modal (el humano confirma antes de escribir). *@
+                @if (res is { Ok: true } && res.Rows.Count > 0)
+                {
+                    var cols = GridColumnsOf(gridQ);
+                    var usedCols = cols.Where(c => res.Rows.Any(r => r.Values.ContainsKey(c.Id))).ToList();
+                    <div class="dfr-aimodal-back" @onclick="@(() => DiscardAi(q))">
+                        <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true">
+                            <div class="dfr-aimodal-head">
+                                <div>
+                                    <strong>@res.Rows.Count fila(s) propuesta(s)</strong>
+                                    <span class="dfr-aimodal-sub">para "@gridQ.Label"</span>
+                                </div>
+                                <button type="button" class="dfr-aimodal-x" @onclick="@(() => DiscardAi(q))" aria-label="Cerrar">&times;</button>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <div class="dfr-aimodal-notes">@res.Notes</div> }
+                            <div class="dfr-aimodal-body">
+                                <table class="dfr-ai-table">
+                                    <thead><tr><th class="dfr-ai-rownum">#</th>@foreach (var c in usedCols) { <th>@c.Label</th> }</tr></thead>
+                                    <tbody>
+                                        @{ var __rowNo = 0; }
+                                        @foreach (var r in res.Rows)
+                                        {
+                                            __rowNo++;
+                                            <tr><td class="dfr-ai-rownum">@__rowNo</td>@foreach (var c in usedCols) { <td>@r.Values.GetValueOrDefault(c.Id)</td> }</tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="dfr-aimodal-foot">
+                                <small class="dfr-ai-hint">Caen en "@gridQ.Label"; podras editarlas o quitarlas antes de guardar.</small>
+                                <div class="dfr-aimodal-btns">
+                                    <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAi(q))">Descartar</button>
+                                    <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiRowsAsync(q, gridQ, res))" disabled="@IsLocked">Aplicar a la tabla (@(string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase) ? "reemplazar" : "agregar"))</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    };
+
+    private async Task OnAiFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
+    {
+        var upload = e.File;
+        if (upload is null || _definition is null) { return; }
+        var cfg = Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+        _aiError.Remove(q.FieldCode);
+        _aiResult.Remove(q.FieldCode);
+        long max = (long)cfg.MaxMb * 1024 * 1024;
+        if (upload.Size > max) { _aiError[q.FieldCode] = $"El archivo supera el tope de {cfg.MaxMb} MB."; return; }
+        var mime = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType.ToLowerInvariant();
+        var isImage = mime.StartsWith("image/", StringComparison.Ordinal);
+        var isPdf = mime == "application/pdf";
+        if (!isImage && !isPdf) { _aiError[q.FieldCode] = "Solo se aceptan imagenes o PDF."; return; }
+
+        _aiBusy.Add(q.FieldCode);
+        await InvokeAsync(StateHasChanged);   // pinta el spinner de inmediato antes del trabajo pesado
+        try
+        {
+            // El registro debe existir para colgarle el analisis/adjunto (igual que las gestiones por fila).
+            if (_response is null)
+            {
+                await SaveAsync(submit: false);
+                if (_response is null) { _aiError[q.FieldCode] = "Guarda el registro antes de analizar."; return; }
+            }
+
+            byte[] bytes;
+            await using (var stream = upload.OpenReadStream(max))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var b64 = Convert.ToBase64String(bytes);
+
+            // Guardar el archivo origen para auditoria (best-effort, idempotente) + miniatura. Si ya se subio
+            // el mismo archivo a este registro/campo (re-analizar), se reusa en vez de re-insertar (clave unica).
+            string? url = null;
+            try
+            {
+                var existing = await FileStore.FindAsync("form-ai-intake", _response.Id.ToString(), q.FieldCode, upload.Name);
+                var saved = existing ?? await FileStore.SaveAsync(new Ecorex.Application.Storage.FileStorageSaveRequest(
+                    "form-ai-intake", _response.Id.ToString(), q.FieldCode, upload.Name, mime, bytes));
+                url = saved.Url;
+            }
+            catch { /* el guardado del origen es best-effort; el analisis sigue */ }
+            _aiFile[q.FieldCode] = (url ?? (isImage ? $"data:{mime};base64,{b64}" : ""), upload.Name, isPdf);
+
+            var res = await AiIntakeSvc.AnalyzeAsync(_response.Id, q.FieldCode, b64, mime, SubmittedByTenantUserId ?? Guid.Empty);
+            if (!res.Ok) { _aiError[q.FieldCode] = res.Error ?? "El asistente no pudo analizar el documento."; }
+            else if (res.Rows.Count == 0) { _aiError[q.FieldCode] = "El asistente no encontro filas en el documento."; }
+            else { _aiResult[q.FieldCode] = res; }
+        }
+        catch (Exception ex) { _aiError[q.FieldCode] = $"No se pudo analizar: {ex.Message}"; }
+        finally { _aiBusy.Remove(q.FieldCode); }
+    }
+
+    private async Task ApplyAiRowsAsync(FormQuestionDto q, FormQuestionDto gridQ, Ecorex.Application.Forms.AiIntakeResult res)
+    {
+        var rows = GridRowsOf(gridQ);
+        if (string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase)) { rows.Clear(); }
+        var extras = GridExtrasOf(gridQ);
+        var cols = GridColumnsOf(gridQ);
+        foreach (var pr in res.Rows)
+        {
+            var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var col in cols) { row[col.Id] = extras.GetValueOrDefault(col.Id)?.Default; }
+            foreach (var kv in pr.Values) { row[kv.Key] = kv.Value; }
+            row[GestionRowIdKey] = Guid.NewGuid().ToString("N");
+            rows.Add(row);
+        }
+        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));   // recalcula calc/lookup
+        _aiResult.Remove(q.FieldCode);
+    }
+
+    private void DiscardAi(FormQuestionDto q) => _aiResult.Remove(q.FieldCode);
+
+    // ===== Asistente IA (llenar campos) (AiCompose). Lee las respuestas del propio formulario y PROPONE
+    // valores para campos/bloques (targets); el humano confirma. Reusa _aiBusy/_aiError. =====
+    private readonly Dictionary<string, Ecorex.Application.Forms.AiComposeResult> _aiComposeResult = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderAiCompose(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+        var busy = _aiBusy.Contains(q.FieldCode);
+        var err = _aiError.GetValueOrDefault(q.FieldCode);
+        var res = _aiComposeResult.GetValueOrDefault(q.FieldCode);
+        var ready = cfg.AgentId is not null && cfg.Targets.Count > 0;
+
+        <div class="dfr-ai">
+            @if (!ready)
+            {
+                <div class="dfr-note-err">Este asistente aun no esta configurado (falta el agente de IA o los destinos). Configuralo en el disenador.</div>
+            }
+            else
+            {
+                <button type="button" class="dfr-ai-btn" disabled="@(busy || IsLocked)" @onclick="@(() => OnAiComposeClickAsync(q))">
+                    @if (busy)
+                    {
+                        <span class="dfr-spinner dfr-spinner-sm" role="status" aria-label="Pensando"></span>
+                        <span>Pensando...</span>
+                    }
+                    else
+                    {
+                        <span>&#10024; @cfg.ButtonLabel</span>
+                    }
+                </button>
+                @if (!string.IsNullOrWhiteSpace(q.HelpText)) { <small class="dfr-ai-hint">@q.HelpText</small> }
+
+                @if (err is not null) { <div class="dfr-note-err">@err</div> }
+
+                @if (busy)
+                {
+                    <div class="dfr-aimodal-back">
+                        <div class="dfr-aimodal dfr-aimodal-spin" @onclick:stopPropagation="true">
+                            <div class="dfr-spinner" role="status" aria-label="Pensando"></div>
+                            <div class="dfr-aimodal-spintitle">El asistente esta trabajando</div>
+                            <div class="dfr-aimodal-spinsub">Lee las respuestas del formulario y propone el contenido. Esto puede tardar varios segundos.</div>
+                            <div class="dfr-aimodal-dots"><span></span><span></span><span></span></div>
+                        </div>
+                    </div>
+                }
+
+                @if (res is { Ok: true } && (res.Fields.Count > 0 || res.Blocks.Count > 0))
+                {
+                    <div class="dfr-aimodal-back" @onclick="@(() => DiscardAiCompose(q))">
+                        <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true">
+                            <div class="dfr-aimodal-head">
+                                <div>
+                                    <strong>Propuesta del asistente</strong>
+                                    <span class="dfr-aimodal-sub">@(res.Fields.Count + res.Blocks.Count) destino(s)</span>
+                                </div>
+                                <button type="button" class="dfr-aimodal-x" @onclick="@(() => DiscardAiCompose(q))" aria-label="Cerrar">&times;</button>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(res.Notes)) { <div class="dfr-aimodal-notes">@res.Notes</div> }
+                            <div class="dfr-aimodal-body">
+                                <div class="dfr-aicompose-list">
+                                    @foreach (var f in res.Fields)
+                                    {
+                                        <div class="dfr-aicompose-item">
+                                            <div class="dfr-aicompose-label">@(f.Label ?? f.Field)</div>
+                                            <div class="dfr-aicompose-val">@f.Value</div>
+                                        </div>
+                                    }
+                                    @foreach (var b in res.Blocks)
+                                    {
+                                        <div class="dfr-aicompose-item">
+                                            <div class="dfr-aicompose-label">@(b.BlockLabel ?? b.Block)</div>
+                                            <div class="dfr-aicompose-val">@b.Value</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="dfr-aimodal-foot">
+                                <small class="dfr-ai-hint">Podras editar cada destino despues de aplicar.</small>
+                                <div class="dfr-aimodal-btns">
+                                    <button type="button" class="btn btn-sm" @onclick="@(() => DiscardAiCompose(q))">Descartar</button>
+                                    <button type="button" class="btn btn-primary btn-sm" @onclick="@(() => ApplyAiComposeAsync(q, res))" disabled="@IsLocked">Aplicar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    };
+
+    private async Task OnAiComposeClickAsync(FormQuestionDto q)
+    {
+        if (_definition is null || IsLocked) { return; }
+        var cfg = Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+        _aiError.Remove(q.FieldCode);
+        _aiComposeResult.Remove(q.FieldCode);
+        if (!_aiBusy.Add(q.FieldCode)) { return; }
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // El servicio lee el FormResponse PERSISTIDO por Id: hay que VOLCAR el borrador antes. En
+            // wizard + HideSubmitChrome el autosave periodico esta apagado (lo guarda el "Listo"/Finalizar),
+            // asi que sin este flush el row aun no existe/no esta actualizado (mismo gotcha de FlushDraftAsync
+            // de la ola HonorHideSubmitBar). Ademas garantiza que el agente vea lo recien escrito.
+            await FlushDraftAsync();
+            if (_response is null) { _aiError[q.FieldCode] = "Guarda el registro antes de usar el asistente."; return; }
+
+            // El servicio corre con el DbContext del circuito: toma el gate (sin "second operation") y fija el
+            // tenant ambiente del token en el visor publico /f/ (sin esto el HasQueryFilter oculta el row ->
+            // "El registro del formulario no existe").
+            Ecorex.Application.Forms.AiComposeResult res;
+            await _dbGate.WaitAsync();
+            try
+            {
+                using var ambient = BeginAmbient();
+                res = await AiComposeSvc.ComposeAsync(_response.Id, q.FieldCode, SubmittedByTenantUserId ?? Guid.Empty);
+            }
+            finally { _dbGate.Release(); }
+            if (!res.Ok) { _aiError[q.FieldCode] = res.Error ?? "El asistente no pudo proponer valores."; return; }
+            if (res.Fields.Count == 0 && res.Blocks.Count == 0) { _aiError[q.FieldCode] = "El asistente no propuso valores."; return; }
+
+            if (cfg.Confirm) { _aiComposeResult[q.FieldCode] = res; }
+            else { await ApplyAiComposeAsync(q, res); }
+        }
+        catch (Exception ex) { _aiError[q.FieldCode] = $"No se pudo proponer: {ex.Message}"; }
+        finally { _aiBusy.Remove(q.FieldCode); }
+    }
+
+    private async Task ApplyAiComposeAsync(FormQuestionDto q, Ecorex.Application.Forms.AiComposeResult res)
+    {
+        if (_definition is null) { return; }
+        // Campos simples: escribir por su pregunta (recalcula calc/visible_when via SetValue).
+        foreach (var f in res.Fields)
+        {
+            var fieldQ = _definition.Questions.FirstOrDefault(x => string.Equals(x.FieldCode, f.Field, StringComparison.OrdinalIgnoreCase));
+            if (fieldQ is not null) { await SetValue(fieldQ, f.Value); }
+        }
+        // Bloques: agrupar por lienzo, mezclar sobre el valor actual y escribir una vez por lienzo.
+        foreach (var grp in res.Blocks.GroupBy(b => b.Lienzo, StringComparer.OrdinalIgnoreCase))
+        {
+            var lienzoQ = _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques
+                && string.Equals(x.FieldCode, grp.Key, StringComparison.OrdinalIgnoreCase));
+            if (lienzoQ is null) { continue; }
+            var vals = ParseLienzoValues(_values.GetValueOrDefault(lienzoQ.FieldCode));
+            foreach (var b in grp) { vals[b.Block] = b.Value; }
+            await SetValue(lienzoQ, System.Text.Json.JsonSerializer.Serialize(vals));
+        }
+        _aiComposeResult.Remove(q.FieldCode);
+    }
+
+    private void DiscardAiCompose(FormQuestionDto q) => _aiComposeResult.Remove(q.FieldCode);
+
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -1605,6 +2147,99 @@ else
     private readonly HashSet<string> _lookupOpen = new(StringComparer.Ordinal);
     private readonly HashSet<string> _lookupBusy = new(StringComparer.Ordinal);
 
+    // ---- Filtro en cascada de listas de Contenedor (config-driven, FilterJson) ----
+
+    /// <summary>Etiquetas de los campos PADRE (obligatorios) de la cascada que aun estan sin elegir.
+    /// Si hay alguno, la lista se bloquea: no se puede buscar hasta completar el padre. Sincrono (solo
+    /// mira el estado del formulario), para poder decidirlo en el render.</summary>
+    private IReadOnlyList<string> CascadeMissingParents(FormQuestionDto q)
+    {
+        if (q.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(q.FilterJson))
+        {
+            return Array.Empty<string>();
+        }
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        if (!spec.HasCascade) { return Array.Empty<string>(); }
+        var missing = new List<string>();
+        foreach (var c in spec.Cascade!)
+        {
+            if (!c.IsComplete || !c.Require) { continue; }
+            if (string.IsNullOrWhiteSpace(_values.GetValueOrDefault(c.FromField)))
+            {
+                var lbl = _definition?.Questions.FirstOrDefault(x => x.FieldCode == c.FromField)?.Label ?? c.FromField;
+                if (!missing.Contains(lbl)) { missing.Add(lbl); }
+            }
+        }
+        return missing;
+    }
+
+    /// <summary>Resuelve los filtros de igualdad (fijos + cascada) contra el estado del formulario.
+    /// DEBE llamarse DENTRO del _dbGate y con un BeginAmbient activo (usa LookupSvc.ResolveAsync para
+    /// leer la columna del padre). Devuelve Blocked=true si falta un padre obligatorio o no se pudo
+    /// resolver su valor: en ese caso la busqueda no debe ir a la base.</summary>
+    private async Task<(bool Blocked, Dictionary<string, string>? Eq)> ResolveEqFiltersAsync(FormQuestionDto q)
+    {
+        if (q.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(q.FilterJson))
+        {
+            return (false, null);
+        }
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        if (spec.IsEmpty) { return (false, null); }
+
+        var eq = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (spec.Fixed is not null) { foreach (var (k, v) in spec.Fixed) { eq[k] = v; } }
+
+        if (spec.HasCascade)
+        {
+            foreach (var c in spec.Cascade!)
+            {
+                if (!c.IsComplete) { continue; } // entrada a medio configurar: no filtra
+                var parentQ = _definition?.Questions.FirstOrDefault(x => x.FieldCode == c.FromField);
+                var pv = _values.GetValueOrDefault(c.FromField);
+                if (parentQ is null || string.IsNullOrWhiteSpace(pv))
+                {
+                    if (c.Require) { return (true, null); }
+                    continue; // filtro opcional con padre vacio: se omite (lista completa)
+                }
+                string? resolved = null;
+                try
+                {
+                    var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
+                    resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                }
+                catch (Exception) { resolved = null; }
+                if (string.IsNullOrWhiteSpace(resolved))
+                {
+                    if (c.Require) { return (true, null); }
+                    continue;
+                }
+                eq[c.Column] = resolved!;
+            }
+        }
+        return (false, eq.Count > 0 ? eq : null);
+    }
+
+    /// <summary>Al cambiar un campo padre, limpia los hijos que dependen de el (su seleccion previa ya no
+    /// es coherente con el nuevo padre). Recursivo: cubre cadenas de mas de un nivel.</summary>
+    private async Task ClearDependentChildrenAsync(string parentFieldCode)
+    {
+        if (_definition is null) { return; }
+        foreach (var child in _definition.Questions)
+        {
+            if (child.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(child.FilterJson)) { continue; }
+            var spec = FormLookupFilterSpec.Parse(child.FilterJson);
+            if (!spec.HasCascade) { continue; }
+            if (!spec.Cascade!.Any(c => string.Equals(c.FromField, parentFieldCode, StringComparison.Ordinal))) { continue; }
+            if (string.IsNullOrEmpty(_values.GetValueOrDefault(child.FieldCode))) { continue; }
+
+            _lookupDisplay.Remove(child.FieldCode);
+            _lookupQuery[child.FieldCode] = null;
+            _lookupResults.Remove(child.FieldCode);
+            await SetValue(child, null);
+            await ClearDependentChildrenAsync(child.FieldCode); // nietos
+        }
+    }
+
     private RenderFragment RenderLookup(FormQuestionDto q, string? value) => __builder =>
     {
         var label = _lookupDisplay.GetValueOrDefault(q.FieldCode);
@@ -1619,6 +2254,15 @@ else
         }
         var display = label ?? value;
         var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+
+        @* Cascada: mientras falte elegir el campo padre, la lista se bloquea con una pista. *@
+        var cascadeMissing = CascadeMissingParents(q);
+        if (cascadeMissing.Count > 0 && string.IsNullOrEmpty(value))
+        {
+            <input class="form-control" disabled
+                   placeholder="@($"Elige primero: {string.Join(", ", cascadeMissing)}")" />
+            return;
+        }
 
         if (q.Presentation == FormFieldPresentation.Dropdown)
         {
@@ -1670,7 +2314,7 @@ else
                     {
                         <div class="dfr-lookup-empty">
                             <span>Sin resultados.</span>
-                            @if (q.SourceKind != FormSourceKind.ExternalDataset)
+                            @if (q.SourceKind != FormSourceKind.ExternalDataset && q.SourceKind != FormSourceKind.SystemUser)
                             {
                                 <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
                             }
@@ -1749,9 +2393,19 @@ else
         try
         {
             using var ambient = BeginAmbient();
-            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
-                q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q), Skip: 0, Take: 20));
-            _lookupResults[q.FieldCode] = page.Items;
+            var (blocked, eq) = await ResolveEqFiltersAsync(q);
+            if (blocked)
+            {
+                // Falta el campo padre (o no se pudo resolver): no se consulta la base.
+                _lookupResults[q.FieldCode] = Array.Empty<FormLookupItem>();
+            }
+            else
+            {
+                var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                    q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q),
+                    Skip: 0, Take: 20, EqFilters: eq));
+                _lookupResults[q.FieldCode] = page.Items;
+            }
         }
         catch (Exception ex)
         {
@@ -1780,6 +2434,7 @@ else
             var targetQ = _definition!.Questions.FirstOrDefault(x => x.FieldCode == target);
             if (targetQ is not null) { ValidateField(targetQ); }
         }
+        await ClearDependentChildrenAsync(q.FieldCode); // la cascada hija depende de este padre
         RecomputeCalculatedFields();
         _dirty = true;
     }
@@ -1799,6 +2454,7 @@ else
         _lookupQuery[q.FieldCode] = null;
         _lookupOpen.Remove(q.FieldCode);
         await SetValue(q, null);
+        await ClearDependentChildrenAsync(q.FieldCode); // al vaciar el padre, se vacia la cascada hija
     }
 
     /// <summary>Al cargar, resuelve la etiqueta de cada id ya guardado (para mostrar nombre, no el Guid).</summary>
@@ -1812,11 +2468,24 @@ else
             try
             {
                 var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
-                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+                if (item is not null) { _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item); }
             }
             catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
         }
     }
+
+    /// <summary>
+    /// Etiqueta a mostrar de un valor de lookup ya resuelto. ResolveAsync (a diferencia de SearchAsync) NO
+    /// conoce el DisplayField, asi que su Display cae al fallback de la fuente (en el Contenedor, la primera
+    /// columna con valor, que suele ser el CODIGO, no el NOMBRE). Como LookupFields(q) ya pide el DisplayField,
+    /// su valor viene en item.Fields: se prefiere ese (p.ej. "NOMBRE") para que al reabrir se vea el label y no
+    /// el codigo. Sin DisplayField (p.ej. Usuarios del sistema) se usa el Display de la fuente.
+    /// </summary>
+    private static string DisplayFromItem(FormQuestionDto q, FormLookupItem item)
+        => (!string.IsNullOrWhiteSpace(q.DisplayField)
+            && item.Fields.TryGetValue(q.DisplayField!, out var dv)
+            && !string.IsNullOrWhiteSpace(dv))
+            ? dv! : item.Display;
 
     /// <summary>Resuelve la etiqueta de UN id de lookup bajo demanda (una sola vez por valor), fuera de la
     /// carga inicial: cubre los registros DERIVADOS cuyo id llego despues del load (el cliente recien creado
@@ -1832,7 +2501,7 @@ else
             var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
             if (item is not null)
             {
-                _lookupDisplay[q.FieldCode] = item.Display;
+                _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item);
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -3800,6 +4469,52 @@ else
     private bool IsContainerVisibleByValue(FormContainerDto c)
         => FormVisibilityEvaluator.IsVisible(c.VisibleWhenJson, code => _values.GetValueOrDefault(code));
 
+    // Oculta la seccion si el caller la paso en HiddenContainerIds (p.ej. el modulo de autorizacion pasa las
+    // secciones que la SALIDA del conciliador marco para ocultar). Un mismo form se reusa en varios lados y cada
+    // uno decide que secciones no mostrar. Sin lista -> no oculta nada.
+    private bool IsContainerHidden(FormContainerDto c)
+        => HiddenContainerIds is { Count: > 0 } && HiddenContainerIds.Contains(c.Id);
+
+    private static int WidthOf(FormContainerDto c) => c.Width is >= 1 and <= 12 ? c.Width : 12;
+    // Una seccion de nivel superior esta oculta por el disenador, por visibilidad condicional, o por el caller.
+    private bool IsTopHidden(FormContainerDto c)
+        => c.IsHidden || !IsContainerVisibleByValue(c) || IsContainerHidden(c);
+
+    // Layout del NIVEL SUPERIOR con reacomodo responsivo: agrupa las secciones en filas por ancho (como el wrap de
+    // la grilla de 12) y, en cada fila, reparte el ancho que dejan libre las secciones OCULTAS entre las visibles
+    // que tengan "ocupar el ancho libre" (FillFreeWidth). Devuelve (seccion visible, span efectivo 1..12); las
+    // ocultas no se devuelven (no dejan celda vacia).
+    private IReadOnlyList<(FormContainerDto C, int Span)> TopLevelLayout()
+    {
+        var tops = ChildrenOf(null).ToList();
+        var result = new List<(FormContainerDto, int)>();
+        var i = 0;
+        while (i < tops.Count)
+        {
+            var row = new List<FormContainerDto>();
+            var acc = 0;
+            while (i < tops.Count)
+            {
+                var w = WidthOf(tops[i]);
+                if (row.Count > 0 && acc + w > 12) { break; }
+                row.Add(tops[i]); acc += w; i++;
+                if (acc >= 12) { break; }
+            }
+            var visibles = row.Where(c => !IsTopHidden(c)).ToList();
+            if (visibles.Count == 0) { continue; }
+            var libre = row.Where(IsTopHidden).Sum(WidthOf);
+            var flex = visibles.Where(c => c.FillFreeWidth).ToList();
+            var span = visibles.ToDictionary(c => c.Id, WidthOf);
+            if (libre > 0 && flex.Count > 0)
+            {
+                var each = libre / flex.Count; var rem = libre % flex.Count;
+                for (var k = 0; k < flex.Count; k++) { span[flex[k].Id] += each + (k < rem ? 1 : 0); }
+            }
+            foreach (var c in visibles) { result.Add((c, Math.Clamp(span[c.Id], 1, 12))); }
+        }
+        return result;
+    }
+
     /// <summary>FieldCodes que quedan OCULTOS al enviar (para que el servidor no los exija): union de los
     /// ocultos por regla (runtime) MAS los ocultos por visibilidad condicional por valor (campos y todo el
     /// subarbol de una seccion oculta). El servidor ya salta la validacion Required de estos.</summary>
@@ -3811,7 +4526,7 @@ else
         var hiddenContainers = new HashSet<Guid>();
         foreach (var c in _definition.Containers)
         {
-            if (!IsContainerVisibleByValue(c)) { hiddenContainers.Add(c.Id); }
+            if (!IsContainerVisibleByValue(c) || IsContainerHidden(c)) { hiddenContainers.Add(c.Id); }
         }
         foreach (var q in _definition.Questions)
         {
@@ -3963,8 +4678,16 @@ else
         FormDefaultDynamic.CurrentUser => string.IsNullOrWhiteSpace(_currentUserName)
             ? SubmittedByTenantUserId?.ToString()
             : _currentUserName,
+        // Usuario asignado a la tarea anfitriona (para campos con origen SystemUser): el id viaja en el
+        // token {tareas.asignado} que publica el host; el lookup resuelve el nombre al cargar.
+        FormDefaultDynamic.AssignedUser => TokenValue("asignado"),
         _ => null,
     };
+
+    /// <summary>Lee un token de <see cref="TaskTokens"/> (contexto de la tarea anfitriona). null si no hay
+    /// contexto o el token esta vacio. Lo usa el default dinamico AssignedUser.</summary>
+    private string? TokenValue(string key)
+        => TaskTokens is not null && TaskTokens.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
 
     /// <summary>Aplica el formato de presentacion (moneda/%/entero) para MOSTRAR (no altera el valor guardado).</summary>
     /// <summary>Clase para alinear a la derecha las celdas de grid con formato numerico (moneda/entero/decimal/%).</summary>
@@ -4110,7 +4833,8 @@ else
             _values.GetValueOrDefault(q.FieldCode),
             FormFieldValidator.ParseOptions(q.OptionsJson),
             FormFieldValidator.ParseRules(q.ValidationJson),
-            q.OptionsJson);
+            q.OptionsJson,
+            q.SourceKind != FormSourceKind.Options);
         if (error is null)
         {
             _errors.Remove(q.FieldCode);
@@ -4336,6 +5060,12 @@ else
             return;
         }
 
+        // Persiste el borrador ANTES de correr las reglas del boton: algunos verbos leen el formulario YA
+        // guardado (p. ej. COMPLETAR_PASO_FLUJO cierra el paso y el nodo siguiente resuelve su encargado desde
+        // un campo de ESTE form por su referencia). Sin este flush, lo recien elegido vive solo en memoria y el
+        // verbo veria el valor viejo. SaveAsync maneja su propio _dbGate, por eso va antes de tomarlo aqui.
+        try { await FlushDraftAsync(); } catch { /* guardado best-effort; la regla igual corre con _values */ }
+
         await _dbGate.WaitAsync();
         FormFieldRulesOutcome outcome;
         try
@@ -4370,7 +5100,8 @@ else
             _ruleUiState.Apply(outcome.Actions, _values);
             _dirty = true;
             foreach (var fieldCode in outcome.Actions
-                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm)
+                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm
+                    && a.Kind != RuleActionKind.StepCompleted)
                 .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
             {
                 var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
@@ -4383,6 +5114,13 @@ else
         if (print is not null)
         {
             await StartPrintFromRuleAsync(print);
+        }
+
+        // Flujo: una regla (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea. Avisa al HOST
+        // para que recargue el flujo (el DynamicFormRenderer no conoce el diagrama; solo reenvia la senal).
+        if (outcome.Actions.Any(a => a.Kind == RuleActionKind.StepCompleted) && OnStepCompleted.HasDelegate)
+        {
+            await OnStepCompleted.InvokeAsync();
         }
 
         // Transformacion (ADR-0078): una regla creo OTRO registro (CONVERTIR_A_FORMULARIO) y pide abrirlo.

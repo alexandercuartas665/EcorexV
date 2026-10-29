@@ -33,6 +33,9 @@ public class ActividadesToolsetTests
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
         public DbSet<Conversation> Conversations => Set<Conversation>();
         public DbSet<TaskBoard> TaskBoards => Set<TaskBoard>();
+        // ADR-0128: el reparto (AgentAssigneePicker) consulta AiAgents y, en el fallback, Asesores.
+        public DbSet<Asesor> Asesores => Set<Asesor>();
+        public DbSet<AiAgent> AiAgents => Set<AiAgent>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -44,6 +47,7 @@ public class ActividadesToolsetTests
                 e.Ignore(x => x.Project); e.Ignore(x => x.Milestone); e.Ignore(x => x.WorkflowInstance);
                 e.Ignore(x => x.Parent); e.Ignore(x => x.SourceTask);
             });
+            b.Entity<Asesor>().Ignore(x => x.TenantUser);
         }
     }
 
@@ -162,7 +166,8 @@ public class ActividadesToolsetTests
         public Task<IReadOnlyList<TaskGridRowsDto>> GetBoardTaskGridRowsAsync(Guid boardId, Guid formDefId, string gridFieldCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormResponseDto>> ReopenResponseAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, Guid? deletedByTenantUserId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RecordPdfSnapshotAsync(Guid responseId, string? note = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -241,7 +246,7 @@ public class ActividadesToolsetTests
         public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => throw new NotSupportedException();
         public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
-        public DbSet<Asesor> Asesores => throw new NotSupportedException();
+        public DbSet<Asesor> Asesores => inner.Asesores;
         public DbSet<DataModelRelation> DataModelRelations => throw new NotSupportedException();
         public DbSet<DataModelRelationLink> DataModelRelationLinks => throw new NotSupportedException();
         public DbSet<ReportDefinition> ReportDefinitions => throw new NotSupportedException();
@@ -291,7 +296,7 @@ public class ActividadesToolsetTests
         public DbSet<MessageTemplate> MessageTemplates => throw new NotSupportedException();
         public DbSet<QuoteTemplate> QuoteTemplates => throw new NotSupportedException();
         public DbSet<TemplateAsset> TemplateAssets => throw new NotSupportedException();
-        public DbSet<AiAgent> AiAgents => throw new NotSupportedException();
+        public DbSet<AiAgent> AiAgents => inner.AiAgents;
         public DbSet<AiAgentResource> AiAgentResources => throw new NotSupportedException();
         public DbSet<AiAgentPrompt> AiAgentPrompts => throw new NotSupportedException();
         public DbSet<AiAgentCacheField> AiAgentCacheFields => throw new NotSupportedException();
@@ -341,6 +346,7 @@ public class ActividadesToolsetTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormResponseAudit> FormResponseAudits => throw new NotSupportedException();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
         public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
         public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();

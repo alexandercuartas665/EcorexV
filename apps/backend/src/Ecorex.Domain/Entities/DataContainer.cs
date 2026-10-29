@@ -38,6 +38,19 @@ public class DataContainer : TenantEntity
     /// <summary>Campo (tipo Submodel) del padre que ancla este sub-contenedor; null si es raiz.</summary>
     public Guid? ParentFieldId { get; set; }
 
+    // ---- Tabla DERIVADA (ADR-0127) ----
+    /// <summary>
+    /// Tabla ORIGEN de la que se deriva esta (agrupando sus filas por columnas elegidas, con agregados).
+    /// Null = tabla normal. Distinto de <see cref="ParentContainerId"/> (composicion: una matriz por
+    /// fila del padre): aqui las filas de esta tabla se CALCULAN a partir del origen y se refrescan por
+    /// un conector <c>ConnectorKind.FromTable</c>. Regla de producto: UN SOLO NIVEL (una derivada no
+    /// puede ser origen de otra derivada); se valida en la aplicacion, no en la estructura.
+    /// FK Restrict en ambos motores: no se puede borrar el origen mientras exista una derivada (el
+    /// servicio avisa con mensaje claro); borrar la derivada no toca al origen.
+    /// </summary>
+    public Guid? DerivedFromContainerId { get; set; }
+    public DataContainer? DerivedFromContainer { get; set; }
+
     // ---- Publicacion como modulo del menu (gestion de registros por el usuario final) ----
     // Espeja el patron ya probado de FormDefinition.IsModule/ModuleMenuNodeId, con dos correcciones:
     // (1) la RUTA es INMUTABLE una vez publicada (la clave del modulo en la matriz de roles ES el

@@ -394,7 +394,70 @@ public abstract class ActivityBoardTestsBase
         Assert.Contains(afterClear.Boards, b => b.Id == restricted.Id);
     }
 
+    // Borrar un ESTADO del tablero (TaskBoardService.DeleteColumnAsync): bloquea con tarjetas activas,
+    // pero si solo quedan ARCHIVADAS las reubica a otro estado (FK ColumnId es Restrict en ambos modelos)
+    // y entonces si borra. Antes esto reventaba el SaveChanges porque el guard solo miraba TaskCards.
+    [Fact]
+    public async Task DeleteColumn_RelocatesArchivedTasks_ButBlocksWhenActiveRemain()
+    {
+        var seed = await SeedTenantAsync("Boards DeleteColumn");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = BuildBoardService(ctx, tenantContext);
+        var columnsSvc = BuildColumnService(ctx, tenantContext);
+
+        var board = (await service.CreateBoardAsync(
+            new CreateActivityBoardRequest("Tablero borrar estado"), seed.PlatformUserId, "Tester")).Value!;
+        var columns = await ctx.TaskBoardColumns.AsNoTracking()
+            .Where(c => c.BoardId == board.Id).OrderBy(c => c.SortOrder).ToListAsync();
+        var doneColumn = columns.Single(c => c.IsDone);
+
+        // Una tarea ARCHIVADA (cerrada) vive en el estado de cierre: es la que colgaba el borrado.
+        var archived = (await service.QuickCreateTaskAsync(new QuickCreateTaskRequest(
+            board.Id, doneColumn.Id, "Tarea cerrada", AssigneeTenantUserId: seed.OwnerUserId),
+            seed.PlatformUserId, "Tester")).Value!;
+        var archivedRow = await ctx.TaskItems.FirstAsync(t => t.Id == archived.Item.Id);
+        archivedRow.IsArchived = true;
+        await ctx.SaveChangesAsync();
+
+        // (a) Con una tarea ACTIVA en el estado no se puede borrar.
+        var active = (await service.QuickCreateTaskAsync(new QuickCreateTaskRequest(
+            board.Id, doneColumn.Id, "Tarea viva", AssigneeTenantUserId: seed.OwnerUserId),
+            seed.PlatformUserId, "Tester")).Value!;
+        Assert.False(await columnsSvc.DeleteColumnAsync(doneColumn.Id, seed.PlatformUserId));
+        Assert.True(await ctx.TaskBoardColumns.AnyAsync(c => c.Id == doneColumn.Id));
+
+        // (b) Sin activas (archivamos la viva), el borrado reubica las archivadas y elimina el estado.
+        var activeRow = await ctx.TaskItems.FirstAsync(t => t.Id == active.Item.Id);
+        activeRow.IsArchived = true;
+        await ctx.SaveChangesAsync();
+        // Pre-chequeo: ambas deben estar archivadas y aun en doneColumn antes de borrar.
+        var preState = await ctx.TaskItems.AsNoTracking()
+            .Where(t => t.Id == archived.Item.Id || t.Id == active.Item.Id)
+            .Select(t => new { t.Id, t.IsArchived, t.ColumnId }).ToListAsync();
+        Assert.All(preState, s => Assert.True(s.IsArchived && s.ColumnId == doneColumn.Id,
+            $"pre-delete inesperado: arch={s.IsArchived} col={(s.ColumnId?.ToString() ?? "NULL")} (done={doneColumn.Id})"));
+        Assert.True(await columnsSvc.DeleteColumnAsync(doneColumn.Id, seed.PlatformUserId));
+        Assert.False(await ctx.TaskBoardColumns.AnyAsync(c => c.Id == doneColumn.Id));
+
+        // Las tarjetas archivadas sobrevivieron, siguen archivadas y reubicadas a OTRO estado del tablero
+        // (nunca quedan con ColumnId null ni apuntando al estado borrado).
+        var survivors = await ctx.TaskItems.AsNoTracking()
+            .Where(t => t.Id == archived.Item.Id || t.Id == active.Item.Id).ToListAsync();
+        Assert.Equal(2, survivors.Count);
+        var validDests = columns.Where(c => c.Id != doneColumn.Id).Select(c => c.Id).ToHashSet();
+        foreach (var t in survivors)
+        {
+            Assert.True(t.IsArchived);
+            Assert.True(t.ColumnId is Guid cid && validDests.Contains(cid),
+                $"ColumnId inesperado: {(t.ColumnId?.ToString() ?? "NULL")} (doneColumn={doneColumn.Id})");
+        }
+    }
+
     // ---- Helpers ----
+
+    private static TaskBoardService BuildColumnService(EcorexDbContext ctx, ITenantContext tenantContext)
+        => new(ctx, tenantContext, new AuditWriter(ctx));
 
     private static ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),

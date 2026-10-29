@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Infrastructure.Persistence;
 
-public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
+public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
 
@@ -153,6 +153,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<FormContainer> FormContainers => Set<FormContainer>();
     public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();
+    public DbSet<FormResponseAudit> FormResponseAudits => Set<FormResponseAudit>();
     // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
@@ -1083,6 +1084,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
             b.Property(x => x.CierreJson).HasColumnType(jsonColumnType);
             b.Property(x => x.ReactivacionJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AssigneeUserIdsJson).HasColumnType(jsonColumnType);
+            // Concepto por defecto de las tareas del agente (FK logica a actividad_subcategorias; SET NULL al
+            // borrar el concepto, nunca cascade). Nullable -> retrocompatible.
+            b.HasOne<ActividadSubcategoria>()
+                .WithMany()
+                .HasForeignKey(x => x.DefaultSubcategoriaId)
+                .OnDelete(DeleteBehavior.SetNull);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
@@ -1177,6 +1185,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.ListViewConfigJson).HasColumnType(jsonColumnType);
             // Restriccion de visibilidad por usuario (arreglo de TenantUserId). Null/vacio = todos.
             b.Property(x => x.AllowedUserIdsJson).HasColumnType(jsonColumnType);
+            // Alcance por usuario: quienes ven TODAS las tareas (arreglo de TenantUserId). Null/vacio = todos ven todo.
+            b.Property(x => x.SeeAllUserIdsJson).HasColumnType(jsonColumnType);
             // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
             // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
             b.Property(x => x.Code).HasMaxLength(20);
@@ -1699,6 +1709,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.AllowedCargosJson).HasColumnType(jsonColumnType);
             // Visibilidad condicional por valor (motor de formularios): JSON {field,op,value}.
             b.Property(x => x.VisibleWhenJson).HasColumnType(jsonColumnType);
+            // Crecer para ocupar el ancho libre de la fila si un hermano se oculta (layout).
+            b.Property(x => x.FillFreeWidth).HasDefaultValue(false);
             b.Property(x => x.Width).HasDefaultValue(12);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
@@ -1780,6 +1792,20 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()
                 .HasFilter(isNpgsql ? "record_number IS NOT NULL" : "[record_number] IS NOT NULL");
+            // Soft-delete (integridad): nunca DELETE fisico. El filtro global excluye IsDeleted.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Auditoria INMUTABLE de respuestas de formulario (integridad): append-only, tenant-scoped.
+        modelBuilder.Entity<FormResponseAudit>(b =>
+        {
+            b.Property(x => x.Reference).HasMaxLength(100);
+            b.Property(x => x.Note).HasMaxLength(500);
+            // Snapshot del jsonb anterior (jsonb en PG / nvarchar(max) en SQL Server).
+            b.Property(x => x.DataSnapshot).HasColumnType(jsonColumnType);
+            // Sin FK de navegacion dura: la respuesta puede soft-borrarse y el audit sobrevive.
+            b.HasIndex(x => new { x.TenantId, x.FormResponseId });
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         // Asistente de creacion de formularios por chat (Excel/PDF/imagen -> formulario).
@@ -3215,6 +3241,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
                 .HasFilter(isNpgsql ? "model_id IS NOT NULL AND parent_container_id IS NULL" : "[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
             b.HasIndex(x => new { x.TenantId, x.ModelId });
             b.HasIndex(x => new { x.TenantId, x.ParentContainerId });
+            // Tabla DERIVADA -> tabla origen (ADR-0127). Restrict en AMBOS motores a proposito: el
+            // origen no se borra mientras tenga derivadas (el servicio lo explica), y asi no se suma
+            // otra ruta de cascada auto-referenciada (SQL Server error 1785). Borrar la derivada no
+            // toca al origen.
+            b.HasOne(x => x.DerivedFromContainer).WithMany()
+                .HasForeignKey(x => x.DerivedFromContainerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.DerivedFromContainerId });
 
             // ---- Publicacion como modulo del menu ----
             b.Property(x => x.ModuleRoute).HasMaxLength(160);
@@ -3669,13 +3703,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     {
         var applyMethod = typeof(EcorexDbContext)
             .GetMethod(nameof(ApplyTenantFilter), BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var applySoftDelete = typeof(EcorexDbContext)
+            .GetMethod(nameof(ApplyTenantSoftDeleteFilter), BindingFlags.NonPublic | BindingFlags.Instance)!;
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            if (typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType))
-            {
-                applyMethod.MakeGenericMethod(entityType.ClrType).Invoke(this, [modelBuilder]);
-            }
+            if (!typeof(ITenantScoped).IsAssignableFrom(entityType.ClrType)) { continue; }
+            // Entidades con soft-delete: el filtro global excluye ademas las marcadas (IsDeleted).
+            var method = typeof(ISoftDeletable).IsAssignableFrom(entityType.ClrType) ? applySoftDelete : applyMethod;
+            method.MakeGenericMethod(entityType.ClrType).Invoke(this, [modelBuilder]);
         }
     }
 
@@ -3684,5 +3720,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     {
         // Fail-closed: si no hay tenant activo, TenantId del contexto es null y no devuelve filas.
         modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ApplyTenantSoftDeleteFilter<TEntity>(ModelBuilder modelBuilder)
+        where TEntity : class, ITenantScoped, ISoftDeletable
+    {
+        // Tenant (fail-closed) + excluye las soft-borradas. Para verlas/restaurarlas: IgnoreQueryFilters.
+        modelBuilder.Entity<TEntity>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId && !e.IsDeleted);
     }
 }

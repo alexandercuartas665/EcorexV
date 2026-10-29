@@ -21,11 +21,26 @@
     </div>
     <div style="display:flex;gap:8px;align-self:flex-start;flex-wrap:wrap;">
         <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@(_loading || _busy)">Actualizar</button>
-        <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _convs.Count == 0)"
-                title="Borra los LOGS de la bitacora y el CACHE de datos capturados de toda la empresa. NO borra los mensajes del chat (la memoria conversacional del agente) ni los leads. Para que un agente olvide a un contacto, usa 'Reiniciar memoria' en la fila del contacto.">
-            @(_busy ? "Borrando..." : "Limpiar bitacora y cache")
-        </button>
+        @if (_tab == "atencion")
+        {
+            <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _convs.Count == 0)"
+                    title="Borra los LOGS de la bitacora y el CACHE de datos capturados de toda la empresa. NO borra los mensajes del chat (la memoria conversacional del agente) ni los leads. Para que un agente olvide a un contacto, usa 'Reiniciar memoria' en la fila del contacto.">
+                @(_busy ? "Borrando..." : "Limpiar bitacora y cache")
+            </button>
+        }
     </div>
+</div>
+
+@* Pestanas: atencion del agente (SARA) vs fallos de ENTREGA de WhatsApp (el "no llego" con el motivo de Meta). *@
+<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);">
+    <button type="button" @onclick="@(() => _tab = "atencion")"
+            style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "atencion" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "atencion" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
+        Atencion del agente
+    </button>
+    <button type="button" @onclick="SwitchToFallosAsync"
+            style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "fallos" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "fallos" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
+        Fallos de envio@(_failures.Count > 0 ? $" ({_failures.Count})" : "")
+    </button>
 </div>
 
 @if (_flash is not null)
@@ -36,7 +51,7 @@
     </div>
 }
 
-@if (_held.Count > 0)
+@if (_tab == "atencion" && _held.Count > 0)
 {
     <div class="card" style="padding:14px;margin-bottom:14px;border-left:3px solid var(--primary);">
         <div style="font-weight:800;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
@@ -70,7 +85,7 @@
 {
     <p><em>Cargando...</em></p>
 }
-else
+else if (_tab == "atencion")
 {
     <div style="display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:22px;align-items:start;">
         <div class="card" style="padding:14px;">
@@ -147,6 +162,52 @@ else
         </div>
     </div>
 }
+else
+{
+    @* Pestana "Fallos de envio": salientes de WhatsApp que NO llegaron, con el motivo real de Meta (ADR-0135). *@
+    <div class="card" style="padding:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div style="font-size:12.5px;color:var(--muted-foreground);flex:1;min-width:240px;">
+                Mensajes SALIENTES de WhatsApp que el proveedor marco como <strong>no entregados</strong>, con el motivo real
+                de Meta (codigo + texto). Mas recientes primero. Si el motivo dice "sin detalle", Meta no devolvio texto;
+                usa "Actualizar motivos desde YCloud" para consultar el codigo real por cada mensaje.
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="RefreshFailureReasonsAsync" disabled="@_busy" style="white-space:nowrap;">
+                @(_busy ? "Consultando..." : "Actualizar motivos desde YCloud")
+            </button>
+        </div>
+        @if (_failures.Count == 0)
+        {
+            <p class="text-muted" style="padding:8px 2px;">No hay fallos de envio registrados. Cuando un mensaje no llegue, aparecera aqui con el motivo.</p>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto;">
+                @foreach (var f in _failures)
+                {
+                    <div style="border-left:3px solid var(--destructive);padding:8px 0 8px 14px;">
+                        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;">
+                            <strong style="font-size:13.5px;">
+                                @(string.IsNullOrWhiteSpace(f.ContactName) ? f.ContactPhone : f.ContactName)
+                                <span class="text-muted" style="font-weight:600;font-size:11.5px;">@f.ContactPhone @(f.LineLabel is null ? "" : $"- linea {f.LineLabel}")</span>
+                            </strong>
+                            <span class="text-muted" style="font-size:11.5px;">@f.SentAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                        </div>
+                        <div style="margin-top:4px;font-size:12.5px;color:var(--destructive);font-weight:700;">
+                            Motivo: @(string.IsNullOrWhiteSpace(f.DeliveryError) ? "sin detalle de Meta" : f.DeliveryError)
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(f.Body))
+                        {
+                            <div class="text-muted" style="font-size:11.5px;margin-top:4px;white-space:pre-wrap;">
+                                Mensaje: @Trunc(f.Body!, 220)@(string.IsNullOrWhiteSpace(f.SentByName) ? "" : $"  -  envio: {f.SentByName}")
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
     private bool _loading = true;
@@ -156,6 +217,9 @@ else
     private List<FlowHeldConversationDto> _held = new();
     private Guid? _selectedId;
     private List<AgentRunLogEntryDto> _log = new();
+    // Pestana activa: "atencion" (bitacora de SARA) o "fallos" (entregas de WhatsApp que no llegaron).
+    private string _tab = "atencion";
+    private List<AgentDeliveryFailureDto> _failures = new();
 
     private async Task ClearAllAsync()
     {
@@ -226,8 +290,34 @@ else
     {
         _convs = (await AgentLinesSvc.ListAttendedConversationsAsync()).ToList();
         _held = (await AgentLinesSvc.ListFlowHeldConversationsAsync()).ToList();
+        _failures = (await AgentLinesSvc.ListDeliveryFailuresAsync()).ToList();
         if (_selectedId is Guid id && _convs.All(c => c.ConversationId != id)) { _selectedId = null; _log = new(); }
     }
+
+    /// <summary>Cambia a la pestana "Fallos de envio" y refresca (para ver el estado mas reciente).</summary>
+    private async Task SwitchToFallosAsync()
+    {
+        _tab = "fallos";
+        await ReloadAsync();
+    }
+
+    /// <summary>ADR-0139: consulta YCloud por el id de cada saliente fallido SIN motivo y rellena el codigo real de
+    /// Meta, para que "sin detalle" pase a "codigo 131026 - ...". Solo lectura contra YCloud (no reenvia nada).</summary>
+    private async Task RefreshFailureReasonsAsync()
+    {
+        _busy = true; _flash = null;
+        try
+        {
+            var n = await AgentLinesSvc.RefreshDeliveryFailureReasonsAsync();
+            await ReloadAsync();
+            _flash = n > 0
+                ? $"Se actualizaron {n} motivo(s) consultando YCloud."
+                : "No se pudo recuperar mas detalle de Meta (YCloud no devolvio codigo para los fallos sin motivo, o no hay ninguno).";
+        }
+        finally { _busy = false; }
+    }
+
+    private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n] + "...";
 
     private async Task SelectAsync(Guid id)
     {

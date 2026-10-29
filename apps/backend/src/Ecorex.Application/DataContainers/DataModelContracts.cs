@@ -20,7 +20,18 @@ public sealed record ModelTableDto(
     string? Description,
     double CanvasX,
     double CanvasY,
-    IReadOnlyList<DataContainerColumnDto> Columns);
+    IReadOnlyList<DataContainerColumnDto> Columns,
+    /// <summary>Tabla origen si esta es DERIVADA (ADR-0127); null si es una tabla normal.</summary>
+    Guid? DerivedFromContainerId = null,
+    /// <summary>Nombre de esa tabla origen, para el distintivo "derivada de X" del lienzo.</summary>
+    string? DerivedFromName = null,
+    /// <summary>Nombre del CONTENEDOR del origen SOLO cuando es distinto al de esta tabla (origen en otro
+    /// contenedor): el lienzo lo muestra como "derivada de Contenedor / Tabla" y no dibuja arista.</summary>
+    string? DerivedFromModelName = null)
+{
+    public bool IsDerived => DerivedFromContainerId is not null;
+    public bool IsDerivedFromOtherModel => DerivedFromModelName is not null;
+}
 
 /// <summary>Una relacion (arista del lienzo) entre dos tablas del contenedor. Es una entidad propia
 /// (DataModelRelation), ORTOGONAL al tipo de dato de las columnas: tabla origen -> tabla destino con

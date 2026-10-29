@@ -28,6 +28,13 @@ public sealed record FlowHeldConversationDto(
     Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel,
     string TaskNumber, string TaskTitle, string NodeName, DateTimeOffset? HeldUntil);
 
+/// <summary>Fallo de ENTREGA de un saliente de WhatsApp (YCloud/Meta lo marco "failed": no llego). Para la
+/// pestana "Fallos de envio" de la bitacora, para ver en la app POR QUE no llego sin entrar al servidor.
+/// DeliveryError = codigo + motivo real de Meta (ADR-0135); null si Meta no dio detalle.</summary>
+public sealed record AgentDeliveryFailureDto(
+    Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel,
+    DateTimeOffset SentAt, string? Body, string? DeliveryError, string? SentByName);
+
 /// <summary>
 /// Gestiona el vinculo entre agentes de IA y lineas de WhatsApp (conectar/desconectar, modo autonomo)
 /// y expone la bitacora de atencion. Todo tenant-scoped.
@@ -45,6 +52,17 @@ public interface IAiAgentLineService
     /// WhatsApp). Es la lista visible de "esta linea atiende el flujo de la tarea X"; se vacia sola cuando el
     /// agente del nodo resuelve la salida (se limpia PendingWhatsAppConversationId).</summary>
     Task<IReadOnlyList<FlowHeldConversationDto>> ListFlowHeldConversationsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Fallos de ENTREGA de salientes de WhatsApp (DeliveryStatus "failed"), mas recientes primero.
+    /// Tenant-scoped (filtro global). Para ver en la app por que "no llego" un mensaje sin entrar al servidor
+    /// (ADR-0135: codigo + motivo real de Meta en DeliveryError).</summary>
+    Task<IReadOnlyList<AgentDeliveryFailureDto>> ListDeliveryFailuresAsync(int take = 100, CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0139: para los salientes marcados "failed" SIN motivo (DeliveryError vacio), CONSULTA YCloud por su
+    /// id y rellena DeliveryError con el codigo + texto real de Meta (ej. "codigo 131026 - Message undeliverable"),
+    /// para que la pestana "Fallos de envio" deje de decir "sin detalle de Meta". Solo lectura contra YCloud (no
+    /// reenvia nada). Devuelve cuantos motivos se actualizaron. Tenant-scoped.</summary>
+    Task<int> RefreshDeliveryFailureReasonsAsync(int take = 50, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0120: LIBERA manualmente la(s) linea(s) que un flujo tomo para esta conversacion. Devuelve el
     /// paso a atencion humana y suelta la conversacion (limpia PendingWhatsAppConversationId), de modo que el
@@ -72,13 +90,15 @@ public sealed class AiAgentLineService : IAiAgentLineService
     private readonly ITenantContext _tenant;
     private readonly IAuditWriter _audit;
     private readonly Workflows.IWorkflowAgentStepRunner _agentRunner;
+    private readonly IWhatsAppConnectorService _connector;
 
-    public AiAgentLineService(IApplicationDbContext db, ITenantContext tenant, IAuditWriter audit, Workflows.IWorkflowAgentStepRunner agentRunner)
+    public AiAgentLineService(IApplicationDbContext db, ITenantContext tenant, IAuditWriter audit, Workflows.IWorkflowAgentStepRunner agentRunner, IWhatsAppConnectorService connector)
     {
         _db = db;
         _tenant = tenant;
         _audit = audit;
         _agentRunner = agentRunner;
+        _connector = connector;
     }
 
     public async Task<IReadOnlyList<AgentLineDto>> ListLinesForAgentAsync(Guid agentId, CancellationToken cancellationToken = default)
@@ -200,6 +220,73 @@ public sealed class AiAgentLineService : IAiAgentLineService
                 r.Number, r.Title ?? "", r.NodeName ?? "", r.AgentDeadlineAt);
         }).ToList();
     }
+
+    public async Task<IReadOnlyList<AgentDeliveryFailureDto>> ListDeliveryFailuresAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        // Salientes que YCloud/Meta marco "failed" (no llegaron), mas recientes primero. Tenant-scoped (filtro
+        // global). El motivo real (codigo + texto de Meta) vive en DeliveryError (ADR-0135).
+        var msgs = await _db.Messages.AsNoTracking()
+            .Where(m => m.Direction == MessageDirection.Outbound && m.DeliveryStatus == "failed")
+            .OrderByDescending(m => m.SentAt)
+            .Take(take)
+            .Select(m => new { m.ConversationId, m.SentAt, m.Body, m.DeliveryError, m.SentByName })
+            .ToListAsync(cancellationToken);
+        if (msgs.Count == 0) { return Array.Empty<AgentDeliveryFailureDto>(); }
+
+        var convIds = msgs.Select(m => m.ConversationId).Distinct().ToList();
+        var convs = await _db.Conversations.AsNoTracking().Where(c => convIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        var lineLabels = await _db.WhatsAppLines.AsNoTracking()
+            .ToDictionaryAsync(l => l.Id, l => string.IsNullOrWhiteSpace(l.PhoneNumber) ? l.InstanceName : l.PhoneNumber!, cancellationToken);
+
+        return msgs.Select(m =>
+        {
+            var c = convs.FirstOrDefault(x => x.Id == m.ConversationId);
+            string? lineLabel = c?.WhatsAppLineId is Guid lid && lineLabels.TryGetValue(lid, out var lbl) ? lbl : null;
+            return new AgentDeliveryFailureDto(m.ConversationId, c?.ContactName, c?.ContactPhone ?? "?", lineLabel,
+                m.SentAt, m.Body, m.DeliveryError, m.SentByName);
+        }).ToList();
+    }
+
+    public async Task<int> RefreshDeliveryFailureReasonsAsync(int take = 50, CancellationToken cancellationToken = default)
+    {
+        // Salientes "failed" SIN motivo y con id de proveedor, mas recientes primero. TRACKED: se actualiza DeliveryError.
+        var failed = await _db.Messages
+            .Where(m => m.Direction == MessageDirection.Outbound && m.DeliveryStatus == "failed"
+                && (m.DeliveryError == null || m.DeliveryError == "") && m.ExternalId != null)
+            .OrderByDescending(m => m.SentAt)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        if (failed.Count == 0) { return 0; }
+
+        // Linea de cada mensaje (via su conversacion) para resolver la API key YCloud al consultar.
+        var convIds = failed.Select(m => m.ConversationId).Distinct().ToList();
+        var convLine = await _db.Conversations.AsNoTracking()
+            .Where(c => convIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.WhatsAppLineId })
+            .ToDictionaryAsync(c => c.Id, c => c.WhatsAppLineId, cancellationToken);
+
+        var updated = 0;
+        foreach (var m in failed)
+        {
+            if (cancellationToken.IsCancellationRequested) { break; }
+            if (!convLine.TryGetValue(m.ConversationId, out var lineIdN) || lineIdN is not Guid lineId) { continue; }
+            var probe = await _connector.ProbeDeliveryStatusAsync(lineId, m.ExternalId!, cancellationToken);
+            if (!probe.Ok) { continue; }   // linea no YCloud, sin key o no se pudo consultar: se deja igual
+            var reason = FormatDeliveryReason(probe.ErrorCode, probe.ErrorMessage);
+            if (reason is null) { continue; }   // YCloud tampoco trajo detalle: nada que rellenar
+            m.DeliveryError = reason;            // solo se enriquece el MOTIVO; el estado sigue "failed"
+            updated++;
+        }
+        if (updated > 0) { await _db.SaveChangesAsync(cancellationToken); }
+        return updated;
+    }
+
+    // Mismo formato que el webhook de estado (Program.cs): "codigo X - texto" / "codigo X" / "texto"; null si no hay nada.
+    private static string? FormatDeliveryReason(string? code, string? message)
+        => !string.IsNullOrWhiteSpace(code) && !string.IsNullOrWhiteSpace(message) ? $"codigo {code} - {message}"
+            : !string.IsNullOrWhiteSpace(code) ? $"codigo {code}"
+            : !string.IsNullOrWhiteSpace(message) ? message
+            : null;
 
     public async Task<int> ReleaseFlowHoldAsync(Guid conversationId, CancellationToken cancellationToken = default)
     {

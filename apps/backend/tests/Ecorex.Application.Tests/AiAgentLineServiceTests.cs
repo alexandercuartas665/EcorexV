@@ -162,6 +162,7 @@ public class AiAgentLineServiceTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormResponseAudit> FormResponseAudits => throw new NotSupportedException();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
         public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
         public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();
@@ -285,11 +286,41 @@ public class AiAgentLineServiceTests
             => Task.FromResult(false);
     }
 
-    private static (AiAgentLineService Svc, InnerDb Inner, FakeAudit Audit) NewService()
+    private static (AiAgentLineService Svc, InnerDb Inner, FakeAudit Audit) NewService(IWhatsAppConnectorService? connector = null)
     {
         var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var audit = new FakeAudit();
-        return (new AiAgentLineService(new FakeAppDb(inner), new FakeTenant(), audit, new NoopAgentRunner()), inner, audit);
+        return (new AiAgentLineService(new FakeAppDb(inner), new FakeTenant(), audit, new NoopAgentRunner(), connector ?? new FakeConnector()), inner, audit);
+    }
+
+    // Conector falso: solo implementa la consulta de estado (ProbeDeliveryStatusAsync) que usa el backfill; el resto
+    // no se ejerce en estas pruebas. Probes["id"] fija el resultado por id de mensaje; Default para los no mapeados.
+    private sealed class FakeConnector : IWhatsAppConnectorService
+    {
+        public Dictionary<string, WhatsAppDeliveryProbeResult> Probes { get; } = new();
+        public WhatsAppDeliveryProbeResult Default { get; set; } = new(false, null, null, null, "no-config");
+        public List<string> Probed { get; } = new();
+
+        public Task<WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default)
+        {
+            Probed.Add(externalId);
+            return Task.FromResult(Probes.TryGetValue(externalId, out var r) ? r : Default);
+        }
+
+        public Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<EvolutionServerSettingDto?> SetServerAsync(SetEvolutionServerRequest request, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineConnectResult> ConnectLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<WhatsAppLineDto?> RefreshAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> DeleteLineAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendTemplateAsync(Guid lineId, string phone, string templateName, string language, IReadOnlyList<string> bodyParams, Guid actorUserId, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, string? attachmentBase64 = null, string? attachmentMime = null, string? attachmentFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     [Fact]
@@ -310,6 +341,30 @@ public class AiAgentLineServiceTests
         Assert.True(reloaded.AgentContextResetAt >= before.AddSeconds(-5));
         Assert.Equal(1, inner.Messages.Count());                      // los mensajes NO se borraron
         Assert.Equal(1, audit.Writes);                                // se auditó
+    }
+
+    [Fact]
+    public async Task RefreshDeliveryFailureReasons_rellena_motivo_desde_YCloud_y_respeta_los_que_ya_tienen()
+    {
+        var line = Guid.NewGuid();
+        var conn = new FakeConnector();
+        var (svc, inner, _) = NewService(conn);
+        var conv = new Conversation { Id = Guid.NewGuid(), TenantId = Tenant, ContactPhone = "573182800618", WhatsAppLineId = line };
+        inner.Conversations.Add(conv);
+        // (1) fallido SIN motivo con id de proveedor -> candidato a consultar.
+        inner.Messages.Add(new Message { TenantId = Tenant, ConversationId = conv.Id, Direction = MessageDirection.Outbound, ExternalId = "yc-1", DeliveryStatus = "failed", DeliveryError = null, Body = "x", MessageType = "text", SentAt = DateTimeOffset.UtcNow });
+        // (2) fallido que YA tiene motivo -> NO se consulta ni se toca.
+        inner.Messages.Add(new Message { TenantId = Tenant, ConversationId = conv.Id, Direction = MessageDirection.Outbound, ExternalId = "yc-2", DeliveryStatus = "failed", DeliveryError = "codigo 131000 - previo", Body = "y", MessageType = "text", SentAt = DateTimeOffset.UtcNow });
+        inner.SaveChanges();
+        conn.Probes["yc-1"] = new WhatsAppDeliveryProbeResult(true, "failed", "131026", "Message undeliverable", null);
+
+        var n = await svc.RefreshDeliveryFailureReasonsAsync();
+
+        Assert.Equal(1, n);                                                           // se actualizo solo 1
+        Assert.Equal("codigo 131026 - Message undeliverable", inner.Messages.Single(m => m.ExternalId == "yc-1").DeliveryError);
+        Assert.Equal("codigo 131000 - previo", inner.Messages.Single(m => m.ExternalId == "yc-2").DeliveryError);  // intacto
+        Assert.Contains("yc-1", conn.Probed);
+        Assert.DoesNotContain("yc-2", conn.Probed);                                   // el que ya tenia motivo no se consulta
     }
 
     [Fact]

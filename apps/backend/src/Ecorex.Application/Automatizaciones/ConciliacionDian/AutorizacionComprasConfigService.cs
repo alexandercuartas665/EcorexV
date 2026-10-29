@@ -35,7 +35,24 @@ public sealed record SalidaFlujoDto(
     Guid Id, string Nombre,
     Guid? SubcategoriaId, string? Subcategoria, string? Categoria,
     Guid? FormDefinitionId, string? FormTitle,
-    bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps);
+    bool DireccionarEnabled, IReadOnlyList<DireccionarMapDto> DireccionarMaps,
+    // Secciones (contenedores) del formulario a OCULTAR cuando este se muestra en el modulo de autorizacion
+    // (ej. el visor de documentos sobra ahi porque el PDF ya se ve aparte). Ids de FormContainer.
+    IReadOnlyList<Guid>? HiddenContainerIds = null);
+
+/// <summary>Una seccion (contenedor con nombre) de un formulario, para el selector de "secciones a ocultar".</summary>
+public sealed record FormContainerOptionDto(Guid Id, string Name);
+
+/// <summary>
+/// Regla del asistente de IA POR PROVEEDOR: cuando el agente procesa una factura de ese proveedor, valida con la
+/// instruccion (prompt) SI la regla se cumple (si/no); si se cumple, se aplica la asignacion PRE-ELEGIDA aqui:
+/// el usuario (<see cref="AssignUserId"/>) y/o la salida/concepto de actividad (<see cref="SalidaId"/>). Asi el
+/// agente solo decide si la condicion se cumple y el "selector" ya esta resuelto por configuracion. Es solo
+/// configuracion (el cableado de la IA viene despues). Proveedor = NIT o nombre (texto libre).
+/// </summary>
+public sealed record AsistenteProveedorReglaDto(
+    Guid Id, string Proveedor, string Prompt,
+    Guid? AssignUserId = null, Guid? SalidaId = null);
 
 /// <summary>
 /// Configuracion POR TENANT del modulo de autorizacion. Guarda en TenantConfiguration (clave/valor, JSON) la
@@ -76,8 +93,22 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Resuelve el renglon del conciliador a partir del numero de tarea (reverse del mapa solicitadas;
     /// no hay FK task->renglon). null si no se encuentra.</summary>
     Task<Guid?> ResolveRenglonByTaskNumberAsync(string taskNumber, CancellationToken ct = default);
+    /// <summary>Resuelve el renglon desde la REFERENCIA del formulario, venga como quiera: primero como numero
+    /// de tarea (form abierto dentro de la tarea creada), y si no, como id de renglon directo (form abierto en
+    /// el PANEL del modulo de autorizacion, cuya referencia ES el id del renglon). null si ninguna aplica.</summary>
+    Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default);
     /// <summary>Campos (code+label) de un formulario, para el editor de mapeos (excluye no-dato: Button/Heading/etc.).</summary>
     Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default);
+
+    /// <summary>Codigos de campo que son texto/numero/fecha PLANOS (SourceKind=Options): los unicos seguros para
+    /// prellenar con datos crudos de la factura. EXCLUYE campos repurposados a lookup del Contenedor, usuario del
+    /// sistema, tercero, item, etc., para no pisarlos con el valor crudo (p. ej. meter la fecha en un campo que
+    /// ahora es un selector de usuario).</summary>
+    Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default);
+    /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
+    Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default);
+    /// <summary>Secciones a ocultar en autorizacion para el formulario dado (salen de la salida cuyo form coincide).</summary>
+    Task<IReadOnlyList<Guid>> GetHiddenContainerIdsForFormAsync(Guid formDefinitionId, CancellationToken ct = default);
 
     // ---- Salidas al flujo de tareas (N conceptos+formularios configurables; cada una con su Direccionar) ----
     /// <summary>Lista las salidas configuradas (con nombres resueltos). Si no hay salidas pero existe la config
@@ -89,6 +120,17 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Config de "Direccionar compra" para el formulario dado (busca la salida cuyo formulario coincide;
     /// si ninguna, cae a la config legacy). Lo usa el verbo DIRECCIONAR_CONCILIADOR para resolver los mapeos por form.</summary>
     Task<DireccionarConfigDto> GetDireccionarByFormAsync(Guid formDefinitionId, CancellationToken ct = default);
+
+    // ---- Asistente de IA del conciliador (agente elegido para apoyar la gestion) ----
+    /// <summary>Id del agente de IA elegido como asistente del conciliador (null si no hay). Por-tenant.</summary>
+    Task<Guid?> GetAsistenteAgentIdAsync(CancellationToken ct = default);
+    /// <summary>Guarda (o limpia con null) el agente de IA asistente del conciliador.</summary>
+    Task SetAsistenteAgentIdAsync(Guid? agentId, CancellationToken ct = default);
+
+    /// <summary>Reglas del asistente por proveedor (proveedor + prompt para elegir la ruta de flujo). Por-tenant.</summary>
+    Task<IReadOnlyList<AsistenteProveedorReglaDto>> GetAsistenteReglasAsync(CancellationToken ct = default);
+    /// <summary>Guarda las reglas del asistente por proveedor (descarta las vacias).</summary>
+    Task SaveAsistenteReglasAsync(IReadOnlyList<AsistenteProveedorReglaDto> reglas, CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -299,6 +341,23 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         return null;
     }
 
+    public async Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default)
+    {
+        reference = (reference ?? string.Empty).Trim();
+        if (reference.Length == 0) { return null; }
+        // 1) Form abierto DENTRO de la tarea: la referencia es el numero de tarea.
+        var byTask = await ResolveRenglonByTaskNumberAsync(reference, ct);
+        if (byTask is Guid g) { return g; }
+        // 2) Form abierto en el PANEL del modulo: la referencia ES el id del renglon. Se valida que exista
+        //    (y sea del tenant, via el filtro global) para no escribir sobre un id cualquiera.
+        if (Guid.TryParse(reference, out var rid)
+            && await _db.ConciliacionDianRenglones.AsNoTracking().AnyAsync(r => r.Id == rid, ct))
+        {
+            return rid;
+        }
+        return null;
+    }
+
     public async Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default)
     {
         var def = await _forms.GetAsync(formDefinitionId, ct);
@@ -311,6 +370,40 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .OrderBy(q => q.SortOrder)
             .Select(q => new FormFieldOptionDto(q.FieldCode, q.Label))
             .ToList();
+    }
+
+    public async Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+        // Solo campos "crudos": texto/area/numero/fecha con origen de opciones (no lookups ni usuarios).
+        var plain = new HashSet<FormControlType>
+        {
+            FormControlType.Text, FormControlType.TextArea, FormControlType.Number, FormControlType.Date,
+        };
+        return def.Questions
+            .Where(q => q.SourceKind == FormSourceKind.Options && plain.Contains(q.ControlType))
+            .Select(q => q.FieldCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return Array.Empty<FormContainerOptionDto>(); }
+        // Secciones de nivel superior (las que el usuario oculta). Nombre con fallback por tipo.
+        return def.Containers
+            .Where(c => c.ParentId is null)
+            .OrderBy(c => c.SortOrder)
+            .Select(c => new FormContainerOptionDto(c.Id, string.IsNullOrWhiteSpace(c.Name) ? $"Seccion ({c.ContainerType})" : c.Name))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetHiddenContainerIdsForFormAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var salidas = await ListSalidasAsync(ct);
+        var match = salidas.FirstOrDefault(s => s.FormDefinitionId == formDefinitionId);
+        return match?.HiddenContainerIds ?? Array.Empty<Guid>();
     }
 
     // Auto-cablea (idempotente) el boton "Direccionar compra" + la regla DIRECCIONAR_CONCILIADOR (Active) en el form.
@@ -359,7 +452,7 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
 
     // ================= Salidas al flujo de tareas (N conceptos+formularios, cada una con su Direccionar) =================
     private const string SalidasKey = "conciliacion-dian.salidas";
-    private sealed record SalidaStored(Guid Id, string Nombre, Guid? Sub, Guid? Form, bool DireEnabled, List<DireccionarMapDto> DireMaps);
+    private sealed record SalidaStored(Guid Id, string Nombre, Guid? Sub, Guid? Form, bool DireEnabled, List<DireccionarMapDto> DireMaps, List<Guid>? HiddenSecs = null);
 
     public async Task<IReadOnlyList<SalidaFlujoDto>> ListSalidasAsync(CancellationToken ct = default)
     {
@@ -385,7 +478,8 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             var sub = s.Sub is Guid sid ? subs.FirstOrDefault(x => x.SubcategoriaId == sid) : null;
             var form = s.Form is Guid fid ? forms.FirstOrDefault(x => x.Id == fid) : null;
             return new SalidaFlujoDto(s.Id, s.Nombre, s.Sub, sub?.Nombre, sub?.Categoria,
-                s.Form, form?.Title, s.DireEnabled, s.DireMaps ?? new List<DireccionarMapDto>());
+                s.Form, form?.Title, s.DireEnabled, s.DireMaps ?? new List<DireccionarMapDto>(),
+                s.HiddenSecs ?? new List<Guid>());
         }).ToList();
     }
 
@@ -398,7 +492,8 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             s.SubcategoriaId, s.FormDefinitionId, s.DireccionarEnabled,
             (s.DireccionarMaps ?? Array.Empty<DireccionarMapDto>())
                 .Where(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target))
-                .Select(m => new DireccionarMapDto(m.FormField.Trim(), m.Target.Trim())).ToList()))
+                .Select(m => new DireccionarMapDto(m.FormField.Trim(), m.Target.Trim())).ToList(),
+            (s.HiddenContainerIds ?? Array.Empty<Guid>()).Distinct().ToList()))
             .ToList();
 
         await GuardarSalidasAsync(list, ct);
@@ -456,6 +551,59 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var json = JsonSerializer.Serialize(list);
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SalidasKey, ct);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SalidasKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // ================= Asistente de IA (agente elegido para apoyar el conciliador) =================
+    private const string AsistenteKey = "conciliacion-dian.asistente-ia";
+
+    public async Task<Guid?> GetAsistenteAgentIdAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AsistenteKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return Guid.TryParse(raw, out var g) ? g : null;
+    }
+
+    public async Task SetAsistenteAgentIdAsync(Guid? agentId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteKey, ct);
+        if (agentId is not Guid aid)
+        {
+            if (row is not null) { _db.TenantConfigurations.Remove(row); await _db.SaveChangesAsync(ct); }
+            return;
+        }
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteKey, ConfigValue = aid.ToString() }); }
+        else { row.ConfigValue = aid.ToString(); }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // Reglas del asistente por proveedor (proveedor + prompt). Solo configuracion; la IA se cablea despues.
+    private const string AsistenteReglasKey = "conciliacion-dian.asistente-reglas";
+
+    public async Task<IReadOnlyList<AsistenteProveedorReglaDto>> GetAsistenteReglasAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AsistenteReglasKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(raw)) { return Array.Empty<AsistenteProveedorReglaDto>(); }
+        try { return JsonSerializer.Deserialize<List<AsistenteProveedorReglaDto>>(raw) ?? new(); }
+        catch { return Array.Empty<AsistenteProveedorReglaDto>(); }
+    }
+
+    public async Task SaveAsistenteReglasAsync(IReadOnlyList<AsistenteProveedorReglaDto> reglas, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var clean = (reglas ?? Array.Empty<AsistenteProveedorReglaDto>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt))
+            .Select(r => new AsistenteProveedorReglaDto(
+                r.Id == Guid.Empty ? Guid.CreateVersion7() : r.Id,
+                (r.Proveedor ?? string.Empty).Trim(), (r.Prompt ?? string.Empty).Trim(),
+                r.AssignUserId, r.SalidaId))
+            .ToList();
+        var json = JsonSerializer.Serialize(clean);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteReglasKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteReglasKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
         await _db.SaveChangesAsync(ct);
     }

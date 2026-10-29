@@ -1809,7 +1809,10 @@ app.MapPost("/webhooks/ycloud", async (
         // evento crudo (antes el motivo se perdia y un "no llego" quedaba invisible).
         static int StatusRank(string? st) => (st ?? "").ToLowerInvariant() switch
         {
-            "sent" => 1, "delivered" => 2, "read" => 3, _ => 0
+            "sent" => 1,
+            "delivered" => 2,
+            "read" => 3,
+            _ => 0
         };
         var statuses = Ecorex.SuperAdmin.RealTime.YCloudWebhookParser.ParseStatuses(doc.RootElement);
         var updated = 0; var recorded = 0;
@@ -1818,14 +1821,25 @@ app.MapPost("/webhooks/ycloud", async (
             if (string.IsNullOrWhiteSpace(s.Status)) { continue; }
             // "undelivered" se muestra como "failed" (no llego); los demas pasan tal cual.
             var uiStatus = s.IsFailure ? "failed" : s.Status.Trim().ToLowerInvariant();
-            var reason = string.IsNullOrWhiteSpace(s.ErrorMessage)
-                ? (string.IsNullOrWhiteSpace(s.ErrorCode) ? "sin detalle de Meta" : $"codigo {s.ErrorCode}")
-                : (string.IsNullOrWhiteSpace(s.ErrorCode) ? s.ErrorMessage! : $"{s.ErrorMessage} (codigo {s.ErrorCode})");
+            // Motivo VISIBLE: "codigo 131026 - Message undeliverable" cuando Meta entrega codigo y texto; "codigo X"
+            // o el texto si solo viene uno; "sin detalle de Meta" SOLO cuando de verdad no llega nada (el payload
+            // crudo igual queda en el log para ajustar el parser).
+            var reason =
+                !string.IsNullOrWhiteSpace(s.ErrorCode) && !string.IsNullOrWhiteSpace(s.ErrorMessage) ? $"codigo {s.ErrorCode} - {s.ErrorMessage}"
+                : !string.IsNullOrWhiteSpace(s.ErrorCode) ? $"codigo {s.ErrorCode}"
+                : !string.IsNullOrWhiteSpace(s.ErrorMessage) ? s.ErrorMessage!
+                : "sin detalle de Meta";
 
             // 1) Actualizar el mensaje saliente. Se correlaciona por CUALQUIERA de los dos ids: el wamid de Meta o el
             //    id interno de YCloud (al enviar solemos guardar el id de YCloud porque el wamid aun no existe). No se
             //    RETROCEDE el estado (read>delivered>sent); failed siempre marca. Si ya estaba failed, no se re-nota.
             var alreadyFailed = false;
+            // Si el fallo NO corresponde a ningun mensaje saliente persistido (caso de las NOTIFICACIONES de flujo:
+            // NodeNotifyService envia la plantilla por el conector pero NO guarda un Message con su ExternalId), no
+            // hay fila que marcar como "failed" y el fallo quedaba invisible en la pestana "Fallos de envio". En ese
+            // caso marcamos la NOTA que se crea abajo como el registro de fallo (DeliveryStatus=failed). Para SARA/chat
+            // (que SI persiste el saliente con ExternalId) se correlaciona y la nota queda sin estado, para no duplicar.
+            var correlated = false;
             var matchIds = new List<string>();
             if (!string.IsNullOrWhiteSpace(s.Wamid)) { matchIds.Add(s.Wamid!); }
             if (!string.IsNullOrWhiteSpace(s.ProviderId)) { matchIds.Add(s.ProviderId!); }
@@ -1836,6 +1850,7 @@ app.MapPost("/webhooks/ycloud", async (
                         && x.Direction == Ecorex.Domain.Enums.MessageDirection.Outbound, ct);
                 if (msg is not null)
                 {
+                    correlated = true;
                     alreadyFailed = msg.DeliveryStatus == "failed";
                     if (uiStatus == "failed")
                     {
@@ -1853,9 +1868,13 @@ app.MapPost("/webhooks/ycloud", async (
             // 2) Fallo: log del evento crudo + nota visible en la conversacion (una sola vez por mensaje).
             if (s.IsFailure)
             {
+                // Se incluye el payload de error CRUDO (subarbol error/errors): si el parser no reconocio la forma,
+                // con el JSON real a la vista se ajusta con certeza. El logger por defecto escribe a stdout -> sale
+                // en `docker compose logs superadmin` (el proyecto NO usa Serilog; no hay sink a archivo).
                 log.LogWarning(
-                    "Webhook YCloud FALLO de entrega. id={Id} to={To} estado={Status} codigo={Code} motivo={Msg}",
-                    s.Wamid ?? s.ProviderId, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)");
+                    "Webhook YCloud FALLO de entrega. id={Id} to={To} estado={Status} codigo={Code} motivo={Msg} errorRaw={Raw}",
+                    s.Wamid ?? s.ProviderId, s.RecipientPhone, s.Status, s.ErrorCode, s.ErrorMessage ?? "(sin detalle)",
+                    s.ErrorRaw ?? "(sin payload de error)");
                 if (alreadyFailed) { continue; }
 
                 var digits = new string((s.RecipientPhone ?? "").Where(char.IsDigit).ToArray());
@@ -1889,6 +1908,10 @@ app.MapPost("/webhooks/ycloud", async (
                     Direction = Ecorex.Domain.Enums.MessageDirection.Outbound,
                     Body = $"⚠ El WhatsApp al cliente NO se entrego (estado YCloud: {s.Status}). Motivo: {reason}.",
                     MessageType = "text",
+                    // Sin saliente correlacionado (notificacion de flujo): esta NOTA es el registro del fallo para que
+                    // aparezca en "Fallos de envio". Con saliente correlacionado (SARA/chat) la nota queda sin estado.
+                    DeliveryStatus = correlated ? null : "failed",
+                    DeliveryError = correlated ? null : reason,
                     SentByName = "Sistema (WhatsApp)",
                     SentAt = nowU
                 });

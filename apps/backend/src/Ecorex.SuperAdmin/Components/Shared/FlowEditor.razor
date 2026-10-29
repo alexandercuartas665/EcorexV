@@ -1657,7 +1657,7 @@ else
                 <input class="fe-input sm" value="@node.AssigneeFormFieldCode"
                        @onchange="@(e => OnAssigneeFieldChangedAsync(node, e))" placeholder="ej. responsable" />
             </div>
-            <div class="fe-acc-note">El asignado sale del valor de ese campo (id o correo de usuario) de un formulario diligenciado en un nodo anterior.</div>
+            <div class="fe-acc-note">El asignado sale del valor de ese campo (id o correo de usuario). Se busca primero en los formularios de nodos anteriores y, si no, en el formulario de la propia tarea.</div>
         }
         else if (!node.AllowsAssignment)
         {

@@ -50,3 +50,11 @@ public sealed record RetellImportNumberResult(bool Ok, string? PhoneNumber, stri
 
 /// <summary>Resultado de una validacion liviana de la key (ej. listar agentes) sin colocar llamadas.</summary>
 public sealed record RetellPingResult(bool Ok, string? Error, int StatusCode);
+
+/// <summary>GET /get-agent/{id}: config del agente (voz/idioma/llm). El prompt vive en el LLM (ver GetLlm).</summary>
+public sealed record RetellGetAgentResult(
+    bool Ok, string? AgentId, string? AgentName, string? VoiceId, string? Language, string? LlmId, string? Error, int StatusCode);
+
+/// <summary>GET /get-retell-llm/{id}: el general_prompt y el modelo del Response Engine.</summary>
+public sealed record RetellGetLlmResult(
+    bool Ok, string? LlmId, string? GeneralPrompt, string? Model, string? Error, int StatusCode);

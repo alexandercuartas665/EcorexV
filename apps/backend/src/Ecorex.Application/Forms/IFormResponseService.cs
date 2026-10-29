@@ -212,7 +212,14 @@ public interface IFormResponseService
     /// que lo referencian (maestro-detalle y notas de tercero) y libera su numero; los vinculos de
     /// flujo caen por cascada de BD. Irreversible: la UI debe confirmar.
     /// </summary>
-    Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default);
+    /// <summary>SOFT-DELETE (integridad): marca la respuesta como borrada (nunca DELETE fisico), audita quien/cuando
+    /// con snapshot del jsonb previo. RECHAZA borrar una respuesta ya ENVIADA (Submitted). deletedByTenantUserId =
+    /// quien la borra (para la auditoria).</summary>
+    Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, Guid? deletedByTenantUserId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Audita un SNAPSHOT del jsonb al generar/enviar el PDF de la respuesta (accion PdfSnapshot). Asi,
+    /// incluso si luego se pierde la fila, queda el estado que se envio al cliente. Best-effort (no lanza).</summary>
+    Task RecordPdfSnapshotAsync(Guid responseId, string? note = null, CancellationToken cancellationToken = default);
 
     /// <summary>Registros (respuestas enviadas) de una definicion, para la bandeja del formulario-modulo (ola F4).</summary>
     Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default);

@@ -77,6 +77,7 @@ public class ContactWorkflowDispatcherTests
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
 
     private sealed class FakeEmail : IEmailSender
@@ -91,6 +92,14 @@ public class ContactWorkflowDispatcherTests
         public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
             Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no usado en test", false));
+
+        public Task<Ecorex.Application.Voice.VoiceCallResultDto?> GetCallResultAsync(
+            string callId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Ecorex.Application.Voice.VoiceCallResultDto?>(null);
+
+        public Task<Ecorex.Application.Voice.VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(
+            Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default)
+            => Task.FromResult<Ecorex.Application.Voice.VoiceTestAgentInfoDto?>(null);
     }
 
     // Doble de tareas: el paso Llamada no se ejercita en estos tests (solo WhatsApp), asi que todos los
@@ -269,6 +278,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<FormContainer> FormContainers => NotUsed<FormContainer>();
         public DbSet<FormQuestion> FormQuestions => NotUsed<FormQuestion>();
         public DbSet<FormResponse> FormResponses => NotUsed<FormResponse>();
+        public DbSet<FormResponseAudit> FormResponseAudits => NotUsed<FormResponseAudit>();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => NotUsed<FormBuilderSnapshot>();
         public DbSet<FormBuilderConversation> FormBuilderConversations => NotUsed<FormBuilderConversation>();
         public DbSet<FormBuilderMessage> FormBuilderMessages => NotUsed<FormBuilderMessage>();

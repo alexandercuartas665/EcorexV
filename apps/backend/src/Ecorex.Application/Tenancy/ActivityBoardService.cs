@@ -193,7 +193,8 @@ public sealed class ActivityBoardService : IActivityBoardService
                 board.Status, board.DueDate, board.IsArchived, board.SortOrder,
                 columns.Where(c => c.BoardId == board.Id).Select(c => c.Name).ToList(),
                 progress, boardTasks.Count, members, board.MobileScanEnabled, board.CardPrimaryContact,
-                ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson)));
+                ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson),
+                ParseUserIds(board.SeeAllUserIdsJson)));
         }
 
         return new ActivityBoardIndexDto(summaries,
@@ -273,7 +274,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             Status = request.Status,
             DueDate = request.DueDate,
             SortOrder = nextOrder,
-            AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds)
+            AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds),
+            SeeAllUserIdsJson = SerializeUserIds(request.SeeAllUserIds)
         };
         _db.TaskBoards.Add(board);
 
@@ -342,6 +344,12 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             board.AllowedUserIdsJson = SerializeUserIds(request.AllowedUserIds);
         }
+        // Alcance por usuario (quien ve todas las tareas): null = no tocar; lista (vacia o no) = reemplazar.
+        // Vacia quita la restriccion (todos ven todo).
+        if (request.SeeAllUserIds is not null)
+        {
+            board.SeeAllUserIdsJson = SerializeUserIds(request.SeeAllUserIds);
+        }
         // Auto-archivado (ADR-0123): null = no tocar; se clampa a [0, 3650] (0 = nunca).
         if (request.AutoArchiveDoneDays is int days)
         {
@@ -358,7 +366,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.Id, board.Code, board.Name, board.Description, board.Color,
             board.Status, board.DueDate, board.IsArchived, board.SortOrder,
             columnNames, 0, 0, Array.Empty<ActivityBoardMemberDto>(), board.MobileScanEnabled, board.CardPrimaryContact,
-            ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson)));
+            ParseUserIds(board.AllowedUserIdsJson), board.AutoArchiveDoneDays, ParseCloseReasons(board.CloseReasonsJson),
+            ParseUserIds(board.SeeAllUserIdsJson)));
     }
 
     public async Task<TaskCoreResult<bool>> DeleteBoardAsync(Guid boardId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -428,7 +437,21 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             return TaskCoreResult<ActivityBoardDetailDto>.NotFound("Tablero de actividades no encontrado.");
         }
-        if (filter.Scope == ActivityBoardScope.Mine && filter.CurrentTenantUserId is null)
+
+        // Alcance por usuario: si el tablero tiene usuarios en SeeAll, la restriccion queda ACTIVA. Solo esos
+        // (mas Owner/Admin via CanSeeRestricted) pueden ver TODAS las tareas; los demas quedan limitados a sus
+        // tareas + las no asignadas (bloqueo duro, forzado aqui aunque el cliente pida otro alcance).
+        var seeAllUsers = ParseUserIds(board.SeeAllUserIdsJson);
+        var seeAllRestrictionOn = seeAllUsers.Count > 0;
+        var canSeeAllTasks = !seeAllRestrictionOn || filter.CanSeeRestricted
+            || (filter.CurrentTenantUserId is Guid meSee && seeAllUsers.Contains(meSee));
+        var effectiveScope = filter.Scope;
+        if (!canSeeAllTasks && effectiveScope is ActivityBoardScope.Team or ActivityBoardScope.Done)
+        {
+            // Bloqueo duro: "equipo"/"terminados" (todas las tareas) no estan permitidos -> caer a "mis tareas".
+            effectiveScope = ActivityBoardScope.Mine;
+        }
+        if (effectiveScope == ActivityBoardScope.Mine && filter.CurrentTenantUserId is null)
         {
             return TaskCoreResult<ActivityBoardDetailDto>.Invalid("El alcance 'mias' requiere el usuario actual.");
         }
@@ -488,14 +511,20 @@ public sealed class ActivityBoardService : IActivityBoardService
             : Array.Empty<Guid>();
         var noRoute = Array.Empty<Guid>();
 
-        var teamCount = await ApplyScope(query, ActivityBoardScope.Team, null, noRoute).CountAsync(cancellationToken);
+        // Con bloqueo duro NO se calculan (ni se revelan) los contadores de "equipo"/"terminados": el usuario
+        // solo ve sus tareas + las no asignadas.
+        var teamCount = canSeeAllTasks
+            ? await ApplyScope(query, ActivityBoardScope.Team, null, noRoute).CountAsync(cancellationToken)
+            : 0;
         var mineCount = filter.CurrentTenantUserId is Guid me
             ? await ApplyScope(query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
             : 0;
         var unassignedCount = await ApplyScope(query, ActivityBoardScope.Unassigned, null, noRoute).CountAsync(cancellationToken);
-        var doneCount = await ApplyScope(query, ActivityBoardScope.Done, null, noRoute).CountAsync(cancellationToken);
+        var doneCount = canSeeAllTasks
+            ? await ApplyScope(query, ActivityBoardScope.Done, null, noRoute).CountAsync(cancellationToken)
+            : 0;
 
-        var tasks = await ApplyScope(query, filter.Scope, filter.CurrentTenantUserId, routedTaskIds)
+        var tasks = await ApplyScope(query, effectiveScope, filter.CurrentTenantUserId, routedTaskIds)
             .OrderBy(t => t.BoardSortOrder).ThenBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
         var taskIds = tasks.Select(t => t.Id).ToList();
@@ -602,7 +631,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.IsArchived, columnDtos,
             new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
             board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson), board.CardPrimaryContact,
-            board.AutoArchiveDoneDays));
+            board.AutoArchiveDoneDays, seeAllRestrictionOn, canSeeAllTasks));
     }
 
     public async Task<Guid?> ResolveScannedTaskOnBoardAsync(Guid boardId, string scannedNumber, CancellationToken cancellationToken = default)

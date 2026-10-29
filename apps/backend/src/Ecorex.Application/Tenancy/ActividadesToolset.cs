@@ -60,14 +60,15 @@ public sealed class ActividadesToolset : IActividadesToolset
             """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"}},"required":["concepto"],"additionalProperties":false}"""),
         new AiToolSpec(
             "crear_actividad",
-            "Crea (CIERRA) una ACTIVIDAD del CONCEPTO indicado y LLENA+ENVIA su formulario con los datos " +
-            "capturados en la conversacion. La actividad hereda tablero/columna/flujo del concepto. NO crea " +
-            "contacto en el directorio. 'datos' es un objeto { field_code: valor } (usa ver_formulario_concepto " +
-            "para conocer los field_code y, en los campos de seleccion, las opciones validas). Los archivos que " +
-            "el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE. Devuelve un 'ticket' " +
-            "(numero de la actividad) que DEBES entregarle al cliente como comprobante. Incluye una " +
-            "'descripcion' con un resumen corto de la necesidad del cliente.",
-            """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"},"titulo":{"type":"string","description":"Titulo corto de la actividad (opcional; si falta se genera uno)"},"descripcion":{"type":"string","description":"Resumen breve de lo que necesita el cliente (va a la descripcion de la actividad). Opcional pero recomendado."},"datos":{"type":"object","description":"Valores del formulario por field_code (ver ver_formulario_concepto). En campos de seleccion usa una opcion valida.","additionalProperties":true}},"required":["concepto","datos"],"additionalProperties":false}"""),
+            "Crea (CIERRA) una ACTIVIDAD del CONCEPTO indicado y arranca su flujo. La actividad hereda " +
+            "tablero/columna/flujo del concepto. NO crea contacto en el directorio. Si el concepto TIENE " +
+            "formulario, ademas LLENA+ENVIA ese formulario con 'datos' (objeto { field_code: valor }; usa " +
+            "ver_formulario_concepto para conocer los field_code y las opciones validas de los campos de " +
+            "seleccion). Si el concepto NO tiene formulario, 'datos' no es necesario (solo se registra la " +
+            "actividad). Los archivos que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE. " +
+            "Devuelve un 'ticket' (numero de la actividad) que DEBES entregarle al cliente como comprobante. " +
+            "Incluye una 'descripcion' con un resumen corto de la necesidad del cliente.",
+            """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"},"titulo":{"type":"string","description":"Titulo corto de la actividad (opcional; si falta se genera uno)"},"descripcion":{"type":"string","description":"Resumen breve de lo que necesita el cliente (va a la descripcion de la actividad). Opcional pero recomendado."},"datos":{"type":"object","description":"Valores del formulario por field_code (ver ver_formulario_concepto). Solo si el concepto tiene formulario; en campos de seleccion usa una opcion valida.","additionalProperties":true}},"required":["concepto"],"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -154,13 +155,11 @@ public sealed class ActividadesToolset : IActividadesToolset
         var concepto = Str(args, "concepto");
         var sub = await ResolveConceptoAsync(concepto, ct);
         if (sub is null) { return await ConceptoNoExisteAsync(concepto, ct); }
-        if (sub.FormDefinitionId is not Guid defId)
-        {
-            return Err($"El concepto '{sub.Nombre}' no tiene un formulario asociado; no se puede crear la actividad por esta via.");
-        }
 
-        var def = await _formDefs.GetAsync(defId, ct);
-        if (def is null) { return Err($"El formulario del concepto '{sub.Nombre}' no se pudo cargar."); }
+        // El concepto puede o NO tener formulario. CON formulario: valida + llena + envia (igual que antes).
+        // SIN formulario (FormDefinitionId null, ej. "Seguimiento comercial agente IA"): se salta todo lo del
+        // form y solo se da de alta la actividad -> el flujo del concepto arranca igual. 'datos' no es necesario.
+        var hasForm = sub.FormDefinitionId is Guid;
 
         // datos { field_code: valor } -> mapa string. Valores escalares a texto; arreglos/objetos como JSON.
         var datos = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
@@ -170,33 +169,44 @@ public sealed class ActividadesToolset : IActividadesToolset
             foreach (var p in datosEl.EnumerateObject()) { datos[p.Name] = ValueToString(p.Value); }
         }
 
-        // PRE-VALIDACION contra la definicion (evita crear una actividad huerfana): requeridos presentes y
-        // valores de seleccion (Radio/Select) que sean una opcion valida. SaveAsync es la autoridad final.
-        var errores = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var q in def.Questions.Where(q => !IsNonInput(q.ControlType)))
+        // Tipos por field_code (solo con formulario): alimentan el SaveAsync del paso 3. Se llena en la validacion.
+        Dictionary<string, string>? typeByCode = null;
+        if (hasForm)
         {
-            datos.TryGetValue(q.FieldCode, out var val);
-            var vacio = string.IsNullOrWhiteSpace(val);
-            if (q.Required && vacio) { errores[q.FieldCode] = $"'{q.Label}' es obligatorio."; continue; }
-            if (!vacio && IsSingleChoice(q.ControlType))
+            var defId = (Guid)sub.FormDefinitionId!;
+            var def = await _formDefs.GetAsync(defId, ct);
+            if (def is null) { return Err($"El formulario del concepto '{sub.Nombre}' no se pudo cargar."); }
+
+            // PRE-VALIDACION contra la definicion (evita crear una actividad huerfana): requeridos presentes y
+            // valores de seleccion (Radio/Select) que sean una opcion valida. SaveAsync es la autoridad final.
+            var errores = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var q in def.Questions.Where(q => !IsNonInput(q.ControlType)))
             {
-                var opts = ParseOptions(q.OptionsJson);
-                if (opts.Count > 0 && !OptionMatches(opts, val!))
+                datos.TryGetValue(q.FieldCode, out var val);
+                var vacio = string.IsNullOrWhiteSpace(val);
+                if (q.Required && vacio) { errores[q.FieldCode] = $"'{q.Label}' es obligatorio."; continue; }
+                if (!vacio && IsSingleChoice(q.ControlType))
                 {
-                    var validas = string.Join(", ", opts.Select(o => o.Value ?? o.Id));
-                    errores[q.FieldCode] = $"'{val}' no es una opcion valida de '{q.Label}'. Opciones: {validas}.";
+                    var opts = ParseOptions(q.OptionsJson);
+                    if (opts.Count > 0 && !OptionMatches(opts, val!))
+                    {
+                        var validas = string.Join(", ", opts.Select(o => o.Value ?? o.Id));
+                        errores[q.FieldCode] = $"'{val}' no es una opcion valida de '{q.Label}'. Opciones: {validas}.";
+                    }
                 }
             }
-        }
-        if (errores.Count > 0)
-        {
-            // No se creo nada: el modelo debe reintentar con los datos corregidos.
-            return new AgentToolResult(JsonSerializer.Serialize(new
+            if (errores.Count > 0)
             {
-                ok = false,
-                error = "Los datos del formulario no son validos. Corrige los campos indicados y reintenta.",
-                campos = errores
-            }, JsonOut), SessionCompleted: false);
+                // No se creo nada: el modelo debe reintentar con los datos corregidos.
+                return new AgentToolResult(JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    error = "Los datos del formulario no son validos. Corrige los campos indicados y reintenta.",
+                    campos = errores
+                }, JsonOut), SessionCompleted: false);
+            }
+
+            typeByCode = def.Questions.ToDictionary(q => q.FieldCode, q => q.ControlType.ToString(), StringComparer.OrdinalIgnoreCase);
         }
 
         // Datos del solicitante (para el RESUMEN de la actividad): heuristica por field_code. El detalle real
@@ -244,6 +254,9 @@ public sealed class ActividadesToolset : IActividadesToolset
         // Resumen de la necesidad -> descripcion de la actividad (mismo patron que crear_tarea).
         var descripcion = Str(args, "descripcion");
 
+        // ADR-0128: reparto round-robin del agente (lista propia del agente, o pool del tenant como fallback).
+        var (asigUid, _) = await AgentAssigneePicker.PickAsync(_db, AiToolRunContext.AgentId, ct);
+
         // 1) Alta de la actividad tipada por el concepto (BoardId null -> hereda tablero/columna/flujo).
         var req = new CreateTaskItemRequest(
             Title: titulo!.Trim(),
@@ -254,45 +267,48 @@ public sealed class ActividadesToolset : IActividadesToolset
             RequesterEmail: clienteEmail,
             RequesterPhone: clienteTelefono,
             Description: string.IsNullOrWhiteSpace(descripcion) ? null : descripcion!.Trim(),
-            ConversationId: conversationId);
+            ConversationId: conversationId,
+            AssigneeTenantUserId: asigUid);
 
         var created = await _tasks.CreateAsync(req, actor, ActorName, ct);
         if (!created.IsOk || created.Value is null) { return Err(created.Error ?? "No se pudo crear la actividad."); }
         var taskId = created.Value.Item.Id;
         var ticket = created.Value.Item.Number;
 
-        // 2) Crear la respuesta del formulario del concepto para la actividad.
-        var form = await _forms.CreateTaskConceptFormAsync(taskId, ct);
-        if (!form.IsOk || form.Value is null)
+        // 2-3) Solo si el concepto tiene formulario: crear la respuesta y LLENARLA+ENVIARLA (Type = tipo del
+        // campo de la definicion). Sin formulario se omite: el alta (paso 1) ya arranco el flujo del concepto.
+        if (hasForm)
         {
-            await SafeArchiveAsync(taskId, actor, ct); // no dejar la actividad a medias
-            return Err(form.Error ?? "No se pudo crear el formulario de la actividad.");
-        }
-        var responseId = form.Value.ResponseId;
-
-        // 3) Llenar + ENVIAR el formulario con los valores (Type = tipo del campo de la definicion).
-        var typeByCode = def.Questions.ToDictionary(q => q.FieldCode, q => q.ControlType.ToString(), StringComparer.OrdinalIgnoreCase);
-        var data = new Dictionary<string, FormFieldValue>(StringComparer.Ordinal);
-        foreach (var kv in datos)
-        {
-            if (kv.Value is null) { continue; }
-            var type = typeByCode.TryGetValue(kv.Key, out var t) ? t : "Text";
-            data[kv.Key] = new FormFieldValue(kv.Value, type);
-        }
-
-        var saved = await _forms.SaveAsync(responseId, data, submit: true,
-            submittedByTenantUserId: null, executedByAiAgentId: AiToolRunContext.AgentId, cancellationToken: ct);
-        if (!saved.IsOk)
-        {
-            // Caso borde (una regla que la pre-validacion no cubrio): archivar la actividad para no dejarla
-            // huerfana y devolver los errores por campo para que el modelo reintente.
-            await SafeArchiveAsync(taskId, actor, ct);
-            return new AgentToolResult(JsonSerializer.Serialize(new
+            var form = await _forms.CreateTaskConceptFormAsync(taskId, ct);
+            if (!form.IsOk || form.Value is null)
             {
-                ok = false,
-                error = saved.Error ?? "El formulario no paso la validacion.",
-                campos = saved.FieldErrors ?? new Dictionary<string, string>()
-            }, JsonOut), SessionCompleted: false);
+                await SafeArchiveAsync(taskId, actor, ct); // no dejar la actividad a medias
+                return Err(form.Error ?? "No se pudo crear el formulario de la actividad.");
+            }
+            var responseId = form.Value.ResponseId;
+
+            var data = new Dictionary<string, FormFieldValue>(StringComparer.Ordinal);
+            foreach (var kv in datos)
+            {
+                if (kv.Value is null) { continue; }
+                var type = typeByCode!.TryGetValue(kv.Key, out var t) ? t : "Text";
+                data[kv.Key] = new FormFieldValue(kv.Value, type);
+            }
+
+            var saved = await _forms.SaveAsync(responseId, data, submit: true,
+                submittedByTenantUserId: null, executedByAiAgentId: AiToolRunContext.AgentId, cancellationToken: ct);
+            if (!saved.IsOk)
+            {
+                // Caso borde (una regla que la pre-validacion no cubrio): archivar la actividad para no dejarla
+                // huerfana y devolver los errores por campo para que el modelo reintente.
+                await SafeArchiveAsync(taskId, actor, ct);
+                return new AgentToolResult(JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    error = saved.Error ?? "El formulario no paso la validacion.",
+                    campos = saved.FieldErrors ?? new Dictionary<string, string>()
+                }, JsonOut), SessionCompleted: false);
+            }
         }
 
         // 4) Adjuntar automaticamente la media entrante de la conversacion.

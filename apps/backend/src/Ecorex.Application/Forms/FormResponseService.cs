@@ -59,11 +59,15 @@ public sealed class FormResponseService : IFormResponseService
         var normalizedReference = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
         if (normalizedReference is not null)
         {
+            // GUARD anti-reemplazo (integridad): si YA existe una respuesta para esta (definicion, reference),
+            // se ABRE esa en vez de crear un draft nuevo VACIO que la tape. Prioridad: la ENVIADA (mas reciente),
+            // luego el borrador (mas antiguo). El filtro global ya excluye las soft-borradas. Esto evitaba el
+            // caso de T00521: una cotizacion enviada quedaba tapada por un draft en blanco al reabrir la tarea.
             var existing = await _db.FormResponses.AsNoTracking()
-                .Where(r => r.DefinitionId == definitionId
-                    && r.Reference == normalizedReference
-                    && r.Status == FormResponseStatus.Draft)
-                .OrderBy(r => r.CreatedAt)
+                .Where(r => r.DefinitionId == definitionId && r.Reference == normalizedReference)
+                .OrderByDescending(r => r.Status == FormResponseStatus.Submitted)
+                .ThenByDescending(r => r.SubmittedAt)
+                .ThenBy(r => r.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
             if (existing is not null)
             {
@@ -80,6 +84,7 @@ public sealed class FormResponseService : IFormResponseService
             Data = "{}"
         };
         _db.FormResponses.Add(response);
+        AddAudit(response, FormResponseAuditAction.Create, actorUser: null, snapshot: null, note: "draft");
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
@@ -252,7 +257,8 @@ public sealed class FormResponseService : IFormResponseService
                     question.ControlType, question.Required, field?.Value,
                     FormFieldValidator.ParseOptions(question.OptionsJson),
                     FormFieldValidator.ParseRules(question.ValidationJson),
-                    question.OptionsJson);
+                    question.OptionsJson,
+                    question.SourceKind != FormSourceKind.Options);
                 if (error is not null)
                 {
                     errors[question.FieldCode] = error;
@@ -359,6 +365,8 @@ public sealed class FormResponseService : IFormResponseService
             response.Status = FormResponseStatus.Submitted;
             response.SubmittedAt = DateTimeOffset.UtcNow;
             response.SubmittedByTenantUserId = submittedByTenantUserId;
+            // Auditoria (integridad): snapshot del jsonb ENVIADO (quien/cuando). response.Data ya trae el documento.
+            AddAudit(response, FormResponseAuditAction.Submit, submittedByTenantUserId, response.Data, actorAiAgent: executedByAiAgentId);
 
             // Registro transaccional (ola F3): identidad ya resuelta antes de la transaccion.
             if (assignRecord)
@@ -840,6 +848,8 @@ public sealed class FormResponseService : IFormResponseService
         response.VoidedAt = DateTimeOffset.UtcNow;
         response.VoidedByTenantUserId = byTenantUserId;
         response.VoidReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        // Auditoria (integridad): snapshot del jsonb al anular (quien/cuando/motivo).
+        AddAudit(response, FormResponseAuditAction.Void, byTenantUserId, response.Data, note: response.VoidReason);
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
@@ -851,7 +861,7 @@ public sealed class FormResponseService : IFormResponseService
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
 
-    public async Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default)
+    public async Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, Guid? deletedByTenantUserId = null, CancellationToken cancellationToken = default)
     {
         var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
         if (response is null)
@@ -859,60 +869,58 @@ public sealed class FormResponseService : IFormResponseService
             return FormResult<bool>.NotFound("Registro no encontrado.");
         }
 
-        var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        // GUARD (integridad): una respuesta YA ENVIADA no se puede eliminar (p.ej. una cotizacion enviada y
+        // aprobada por el cliente). Antes un DELETE fisico la borraba sin rastro. Un registro transaccional
+        // confirmado se ANULA (Void), no se borra.
+        if (response.Status == FormResponseStatus.Submitted)
+        {
+            return FormResult<bool>.Invalid(
+                "La respuesta ya fue enviada; no se puede eliminar. Si es un registro confirmado, anulalo en vez de borrarlo.");
+        }
+
+        // SOFT-DELETE: nunca DELETE fisico. Se preserva el jsonb (Data) y queda AUDITADO (quien/cuando +
+        // snapshot previo). El filtro global del DbContext oculta las marcadas; para verlas/restaurar se
+        // usa IgnoreQueryFilters. Los enlaces/derivadas/notas se conservan (la fila sigue existiendo).
+        AddAudit(response, FormResponseAuditAction.Delete, deletedByTenantUserId, response.Data, note: "soft-delete");
+        response.IsDeleted = true;
+        response.DeletedAt = DateTimeOffset.UtcNow;
+        response.DeletedByTenantUserId = deletedByTenantUserId;
         try
         {
-            // Enlaces maestro-detalle (FormRecordLink) apuntan al registro con FK Restrict: la BD no
-            // deja borrar el registro mientras existan, asi que se retiran primero. El registro puede
-            // ser padre o hijo de otro.
-            var enlaces = await _db.FormRecordLinks
-                .Where(l => l.ParentResponseId == responseId || l.ChildResponseId == responseId)
-                .ToListAsync(cancellationToken);
-            if (enlaces.Count > 0) { _db.FormRecordLinks.RemoveRange(enlaces); }
-
-            // Notas de tercero que citan este registro (FK Restrict, nullable): se desligan sin
-            // borrar la nota (es historia del tercero, no del formulario).
-            var notas = await _db.TerceroNotas
-                .Where(n => n.FormResponseId == responseId)
-                .ToListAsync(cancellationToken);
-            foreach (var n in notas) { n.FormResponseId = null; }
-
-            // Respuestas DERIVADAS de esta (creadas con "Copiar"/duplicar) apuntan aqui por DerivedFromResponseId
-            // (self-FK Restrict por defecto de EF): se desligan para no bloquear el borrado del original.
-            var derivadas = await _db.FormResponses
-                .Where(r => r.DerivedFromResponseId == responseId)
-                .ToListAsync(cancellationToken);
-            foreach (var d in derivadas) { d.DerivedFromResponseId = null; }
-
-            // FormFlowLink cae por cascada de BD. El registro se borra de verdad y su numero se libera.
-            _db.FormResponses.Remove(response);
             await _db.SaveChangesAsync(cancellationToken);
-
-            if (tx is not null) { await tx.CommitAsync(cancellationToken); }
             return FormResult<bool>.Ok(true);
         }
         catch (DbUpdateConcurrencyException)
         {
-            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
             return FormResult<bool>.Conflict(ConflictMessage);
         }
-        catch (DbUpdateException)
+    }
+
+    public async Task RecordPdfSnapshotAsync(Guid responseId, string? note = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null) { return; }
+        AddAudit(response, FormResponseAuditAction.PdfSnapshot, actorUser: null, snapshot: response.Data, note: note ?? "pdf");
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    // Auditoria INMUTABLE de respuestas (integridad): agrega una fila (NO guarda; el caller hace SaveChanges).
+    private void AddAudit(FormResponse r, FormResponseAuditAction action, Guid? actorUser, string? snapshot,
+        string? note = null, Guid? actorAiAgent = null)
+    {
+        _db.FormResponseAudits.Add(new FormResponseAudit
         {
-            // La BD rechazo el borrado (FK Restrict de algo que aun referencia el registro). Antes esto se
-            // propagaba como excepcion y la UI no mostraba nada; ahora se devuelve un motivo legible.
-            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
-            return FormResult<bool>.Invalid(
-                "No se pudo eliminar: el formulario esta referenciado por otro registro (una actividad, un enlace o una respuesta relacionada). Quita esa relacion antes de eliminarlo.");
-        }
-        catch
-        {
-            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
-            throw;
-        }
-        finally
-        {
-            if (tx is not null) { await tx.DisposeAsync(); }
-        }
+            TenantId = r.TenantId,
+            FormResponseId = r.Id,
+            DefinitionId = r.DefinitionId,
+            Reference = r.Reference,
+            Action = action,
+            ActorTenantUserId = actorUser,
+            ActorAiAgentId = actorAiAgent,
+            DataSnapshot = snapshot,
+            Note = note,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
     }
 
     public async Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default)

@@ -6,6 +6,7 @@
 @using Ecorex.Domain.Enums
 @inject IAiAgentService AgentsSvc
 @inject ITaskBoardService BoardsSvc
+@inject Ecorex.Application.Actividades.IActividadCatalogoService ConceptosSvc
 @inject IEnumerable<IAgentToolset> Toolsets
 @inject IAiAgentCacheService CacheSvc
 @inject IAiServerConfigService AiServersSvc
@@ -770,6 +771,63 @@ else
                         }
                     </div>
 
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="field">
+                        <label class="form-label">Concepto por defecto de las tareas</label>
+                        <select class="form-control" value="@(_fDefaultSubcatId?.ToString() ?? "")" @onchange="@(e => _fDefaultSubcatId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)" disabled="@_busy">
+                            <option value="">(ninguno)</option>
+                            @foreach (var c in _conceptos)
+                            {
+                                <option value="@c.Id">@c.Nombre</option>
+                            }
+                        </select>
+                        <div class="text-muted" style="font-size:12px;margin-top:6px;">Cuando el agente crea una tarea (crear_tarea), le adjunta ESTE concepto (000270) para que nazca con su <strong>checklist por defecto</strong>. Vacio = sin concepto (como hoy). El tablero sigue siendo el que elige el agente.</div>
+                    </div>
+
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleAssignees">
+                            <span class="ag-accordion-chev @(_assigneesOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Usuarios para asignacion (round-robin)</span>
+                            <span class="ag-accordion-count">@(_fAssigneeUserIds.Count == 0 ? "Pool tenant" : _fAssigneeUserIds.Count.ToString())</span>
+                        </div>
+                        @if (_assigneesOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Lista ORDENADA de usuarios a los que el agente reparte las tareas/actividades que crea, rotando una ronda por cada registro (A, B, A, B...). <strong>Vacio = usa el pool de asesores del tenant marcados "asignable por agente"</strong> (comportamiento anterior). Los cambios se guardan con "Guardar cambios".</div>
+                                @if (_fAssigneeUserIds.Count > 0)
+                                {
+                                    <ol style="margin:0 0 10px 0;padding-left:0;list-style:none;">
+                                        @for (var i = 0; i < _fAssigneeUserIds.Count; i++)
+                                        {
+                                            var idx = i;
+                                            var uid = _fAssigneeUserIds[idx];
+                                            var u = _assigneeUsers.FirstOrDefault(x => x.Id == uid);
+                                            <li style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--border);">
+                                                <span style="flex:none;width:22px;text-align:center;font-weight:700;color:var(--muted);">@(idx + 1)</span>
+                                                <span style="flex:1;min-width:0;font-size:13px;">@(u is null ? uid.ToString() : CierreUserLabel(u))</span>
+                                                <button class="btn btn-sm" type="button" @onclick="() => MoveAssignee(idx, -1)" disabled="@(_busy || idx == 0)" title="Subir">&#9650;</button>
+                                                <button class="btn btn-sm" type="button" @onclick="() => MoveAssignee(idx, 1)" disabled="@(_busy || idx == _fAssigneeUserIds.Count - 1)" title="Bajar">&#9660;</button>
+                                                <button class="btn btn-sm" type="button" @onclick="() => RemoveAssignee(uid)" disabled="@_busy" title="Quitar">&times;</button>
+                                            </li>
+                                        }
+                                    </ol>
+                                }
+                                else
+                                {
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin lista: se reparte sobre el pool de asesores del tenant.</div>
+                                }
+                                <select class="form-select form-select-sm" style="max-width:320px;" value="" @onchange="OnAddAssignee" disabled="@_busy">
+                                    <option value="">+ Agregar usuario...</option>
+                                    @foreach (var u in _assigneeUsers.Where(x => !_fAssigneeUserIds.Contains(x.Id)))
+                                    {
+                                        <option value="@u.Id">@CierreUserLabel(u)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+
                 }
                </div>@* /ag-editor-left *@
 
@@ -1329,6 +1387,16 @@ else
     private List<TaskBoardDto> _allBoards = new();
     private List<Guid> _fAllowedBoardIds = new();
 
+    // ADR-0128: lista ORDENADA de usuarios para el reparto round-robin del agente. Vacio = pool del tenant.
+    private bool _assigneesOpen;
+    private List<TenantUserDto> _assigneeUsers = new();
+    private List<Guid> _fAssigneeUserIds = new();
+
+    // Concepto (ActividadSubcategoria 000270) por defecto de las tareas que crea el agente (crear_tarea).
+    // Vacio = sin concepto (comportamiento actual). El concepto aporta el checklist por defecto.
+    private List<Ecorex.Application.Actividades.ActividadSubcategoriaDto> _conceptos = new();
+    private Guid? _fDefaultSubcatId;
+
     // Reacciones automaticas (emoji) a los mensajes del cliente, sin pasar por el LLM (cero tokens).
     private bool _reactionsOpen;
     private bool _fReactionsEnabled;
@@ -1439,6 +1507,9 @@ else
         _phoneLines = (await LinesSvc.ListAsync()).Where(l => l.Status == WhatsAppLineStatus.Connected).ToList();
         _phoneLineId = _phoneLines.FirstOrDefault()?.Id ?? Guid.Empty;
         _allBoards = (await BoardsSvc.ListBoardsAsync()).ToList(); // no archivados; para la whitelist por agente
+        // Conceptos (000270) no archivados: para el "Concepto por defecto" del agente (aporta el checklist).
+        _conceptos = (await ConceptosSvc.ListSubcategoriasAsync(includeArchived: false))
+            .OrderBy(c => c.Nombre).ToList();
         await ReloadAsync();
         _loading = false;
     }
@@ -1489,6 +1560,9 @@ else
         _toolsOpen = false;
         _fAllowedBoardIds = new();
         _boardsOpen = false;
+        _fAssigneeUserIds = new();
+        _assigneesOpen = false;
+        _fDefaultSubcatId = null;
         _reactionsOpen = false;
         _fReactionsEnabled = false;
         _fReactionN = 3;
@@ -1549,6 +1623,9 @@ else
         foreach (var t in detail.Agent.DisabledTools ?? Array.Empty<string>()) { _disabledTools.Add(t); }
         _fAllowedBoardIds = (detail.Agent.AllowedBoardIds ?? Array.Empty<Guid>()).ToList();
         _boardsOpen = false;
+        _fAssigneeUserIds = (detail.Agent.AssigneeUserIds ?? Array.Empty<Guid>()).ToList();
+        _assigneesOpen = false;
+        _fDefaultSubcatId = detail.Agent.DefaultSubcategoriaId;
         _fReactionsEnabled = detail.Agent.ReactionsEnabled;
         _fReactionN = detail.Agent.ReactionRatioN;
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;
@@ -2090,6 +2167,30 @@ else
         if (allowed) { if (!_fAllowedBoardIds.Contains(boardId)) { _fAllowedBoardIds.Add(boardId); } }
         else { _fAllowedBoardIds.Remove(boardId); }
     }
+
+    // ADR-0128: editor de la lista de usuarios para el reparto round-robin del agente.
+    private async Task ToggleAssignees()
+    {
+        _assigneesOpen = !_assigneesOpen;
+        if (_assigneesOpen && _assigneeUsers.Count == 0)
+        {
+            _assigneeUsers = (await TenantUsersSvc.ListAsync()).ToList();
+        }
+    }
+    private void OnAddAssignee(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && !_fAssigneeUserIds.Contains(id))
+        {
+            _fAssigneeUserIds.Add(id);
+        }
+    }
+    private void RemoveAssignee(Guid id) => _fAssigneeUserIds.Remove(id);
+    private void MoveAssignee(int idx, int dir)
+    {
+        var j = idx + dir;
+        if (j < 0 || j >= _fAssigneeUserIds.Count) { return; }
+        (_fAssigneeUserIds[idx], _fAssigneeUserIds[j]) = (_fAssigneeUserIds[j], _fAssigneeUserIds[idx]);
+    }
     private static string Humanize(string toolName) =>
         string.IsNullOrEmpty(toolName) ? toolName : char.ToUpperInvariant(toolName[0]) + toolName[1..].Replace('_', ' ');
 
@@ -2327,7 +2428,7 @@ else
             }
             else
             {
-                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList()), actor);
+                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList(), _fAssigneeUserIds.ToList(), _fDefaultSubcatId), actor);
                 await ReloadVersionsAsync(_editId.Value);
             }
             await ReloadAsync();

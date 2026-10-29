@@ -85,4 +85,18 @@ public interface IWorkflowEngine
     Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
         Guid instanceId, Guid stepId, Guid? tenantUserId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// REINICIA la instancia: cierra TODOS los pasos vigentes (Skipped; historial append-only) y abre un
+    /// ciclo nuevo (CycleIndex+1, IsCycleStart, tope 50) en el nodo de reinicio -- por defecto el StartEvent
+    /// del flujo, o el nodo cuyo <paramref name="restartNodeBpmnId"/> se indique. Si llega
+    /// <paramref name="assigneeValue"/> (id o correo de un usuario del tenant), el/los paso(s) humano(s)
+    /// resultante(s) y el asignado de la TAREA quedan en ese usuario; deja constancia en la bitacora.
+    /// Pensado para un boton del formulario ("Rechazar"/"Redireccionar") que, cuando el ciclo arranco mal,
+    /// lo reinicia reasignado a quien corresponde.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> RestartInstanceAsync(
+        Guid instanceId, string? restartNodeBpmnId, string? assigneeValue,
+        Guid? executedByTenantUserId, string? note,
+        CancellationToken cancellationToken = default);
 }

@@ -58,4 +58,12 @@ public class FormContainer : TenantEntity
     /// seccion ni su subarbol se pintan ni se exigen. Null = siempre visible. Se evalua en vivo en el renderer.
     /// </summary>
     public string? VisibleWhenJson { get; set; }
+
+    /// <summary>
+    /// Si una seccion HERMANA de su fila se OCULTA (por cualquier motivo: por salida, condicional, etc.), esta
+    /// seccion CRECE para ocupar el ancho libre de la fila (hasta 12). Es config de LAYOUT del formulario; el
+    /// renderer lo resuelve al pintar el nivel superior. Ej: "Fila" (ancho 4) junto a "Visor" (ancho 8): si se
+    /// oculta el Visor y "Fila" tiene esto activo, "Fila" pasa a ocupar 12.
+    /// </summary>
+    public bool FillFreeWidth { get; set; }
 }

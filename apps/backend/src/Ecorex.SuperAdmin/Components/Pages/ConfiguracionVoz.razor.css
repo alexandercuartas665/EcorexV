@@ -2,16 +2,18 @@
 
 .cv-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
+    align-items: start;            /* cada tarjeta a su alto natural (no se estira a la mas alta) */
+    justify-content: start;
     gap: 14px;
     margin-top: 6px;
 }
 
 .cv-card {
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 12px;
     background: var(--surface);
-    padding: 16px 18px;
+    padding: 12px 14px;            /* mas compacta */
     box-shadow: var(--sh-sm);
 }
 
@@ -20,15 +22,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .cv-card-name {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-weight: 800;
-    font-size: 1.05rem;
+    font-weight: 700;
+    font-size: .98rem;
     color: var(--ink);
 }
 
@@ -49,8 +51,8 @@
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    padding: 3px 0;
-    font-size: .84rem;
+    padding: 2px 0;
+    font-size: .82rem;
 }
 
 .cv-card-row span { color: var(--ink-3); }
@@ -58,7 +60,85 @@
 
 .cv-card-actions {
     display: flex;
-    gap: 8px;
-    margin-top: 14px;
+    gap: 6px;
+    margin-top: 10px;
     flex-wrap: wrap;
 }
+
+/* ===== Modal de PRUEBA por linea (destino + prompt adicional + objetivo + resultado) ===== */
+.cv-test-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.cv-test-line {
+    display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--ink-2, #5c5c66);
+    background: var(--surface-2, #f8fafc); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+}
+.cv-test-note { font-size: .78rem; color: var(--ink-3); margin-top: 4px; }
+.cv-test-warn {
+    font-size: .78rem; color: var(--warn, #b45309); background: var(--warn-soft, #fffbeb);
+    border: 1px solid var(--warn-border, #fde68a); border-radius: 8px; padding: 6px 10px; margin-top: 2px;
+}
+.cv-result {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f8fafc);
+    padding: 10px 12px; margin-top: 4px; display: flex; flex-direction: column; gap: 8px;
+}
+.cv-result-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .84rem; }
+.cv-status {
+    font-weight: 700; padding: 2px 10px; border-radius: 999px; font-size: .74rem;
+    background: var(--primary-soft, #eef2ff); color: var(--primary, #4f46e5);
+}
+.cv-status.done { background: var(--ok-soft, #ecfdf5); color: var(--ok, #059669); }
+.cv-status.err { background: var(--danger-soft, #fef2f2); color: var(--danger, #e11d48); }
+.cv-result-meta { color: var(--ink-3); font-size: .78rem; }
+.cv-transcript {
+    white-space: pre-wrap; max-height: 220px; overflow-y: auto; font-size: .8rem; line-height: 1.5;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--ink);
+}
+.cv-analysis { white-space: pre-wrap; font-size: .8rem; color: var(--ink-2, #5c5c66); }
+.cv-audio { width: 100%; margin-top: 2px; }
+.cv-spin {
+    width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--primary, #4f46e5);
+    border-radius: 50%; display: inline-block; animation: cv-spin .8s linear infinite;
+}
+@keyframes cv-spin { to { transform: rotate(360deg); } }
+
+/* Seccion Agente (preview voz/idioma/modelo/prompt) */
+.cv-agent {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f8fafc);
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.cv-agent-head { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
+.cv-agent-head strong { color: var(--ink); }
+.cv-linkbtn {
+    border: 0; background: transparent; cursor: pointer; color: var(--primary, #4f46e5);
+    font-size: .78rem; font-weight: 600; padding: 0; margin-left: auto;
+}
+.cv-linkbtn:disabled { opacity: .5; cursor: default; }
+.cv-agent-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--ink-3); }
+.cv-agent-prompt summary { cursor: pointer; font-size: .8rem; color: var(--ink-2, #5c5c66); font-weight: 600; }
+.cv-agent-prompt .cv-transcript { margin-top: 6px; max-height: 180px; }
+
+/* Variables dinamicas */
+.cv-var-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cv-var-key {
+    font-family: ui-monospace, monospace; font-size: .78rem; color: var(--ink-2, #5c5c66);
+    background: var(--surface-3, #f2f2f3); border-radius: 6px; padding: 3px 8px; white-space: nowrap; min-width: 92px;
+}
+.cv-var-add { display: flex; gap: 8px; margin-top: 8px; }
+.cv-var-add .form-control { max-width: 220px; }
+
+/* Resultado: que LOGRO la llamada (exito + datos capturados) */
+.cv-outcome {
+    align-self: flex-start; font-weight: 700; font-size: .78rem; padding: 3px 12px; border-radius: 999px;
+}
+.cv-outcome.ok { background: var(--ok-soft, #ecfdf5); color: var(--ok, #059669); }
+.cv-outcome.no { background: var(--danger-soft, #fef2f2); color: var(--danger, #e11d48); }
+.cv-captured {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface, #fff); padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.cv-captured-title { font-size: .76rem; font-weight: 700; color: var(--ink-2, #5c5c66); margin-bottom: 2px; }
+.cv-cap-row { display: flex; gap: 10px; font-size: .82rem; align-items: baseline; }
+.cv-cap-key {
+    font-family: ui-monospace, monospace; font-size: .76rem; color: var(--ink-3);
+    min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cv-cap-val { color: var(--ink); font-weight: 600; word-break: break-word; }

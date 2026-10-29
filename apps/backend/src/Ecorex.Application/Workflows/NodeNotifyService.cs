@@ -196,9 +196,10 @@ public sealed class NodeNotifyService : INodeNotifyService
                 // caption) para no mandar "texto" + "documento" por separado. En otros proveedores se manda la
                 // plantilla y luego el documento aparte (comportamiento anterior).
                 Forms.QuoteDocument? cotDoc = null;
+                string? cotFailReason = null;   // motivo ESPECIFICO si el PDF no se pudo generar (va a la nota visible)
                 if (rule.AdjuntarPdfFormDefId is Guid formDefId && task is not null)
                 {
-                    cotDoc = await ResolveFormPdfAsync(task, formDefId, rule.AdjuntarPdfTemplateId, ct);
+                    (cotDoc, cotFailReason) = await ResolveFormPdfAsync(task, formDefId, rule.AdjuntarPdfTemplateId, ct);
                 }
                 var provider = await _db.WhatsAppLines.AsNoTracking()
                     .Where(l => l.Id == lineId).Select(l => (Domain.Enums.WhatsAppProvider?)l.Provider).FirstOrDefaultAsync(ct);
@@ -246,7 +247,8 @@ public sealed class NodeNotifyService : INodeNotifyService
                         "Notify WhatsApp '{Plantilla}' NO enviada: la plantilla exige documento en el encabezado y no se pudo generar el PDF (formDef {FormDefId}, plantilla impresion {TemplateId}).",
                         rule.Plantilla, rule.AdjuntarPdfFormDefId, rule.AdjuntarPdfTemplateId);
                     waOutcome = new WhatsAppSendOutcome(false,
-                        "La plantilla exige un documento en el encabezado y no se pudo generar el PDF de la cotizacion (revisa la plantilla de impresion y que el formulario tenga datos).");
+                        cotFailReason
+                        ?? "La plantilla exige un documento en el encabezado y no se pudo generar el PDF de la cotizacion (revisa la plantilla de impresion y que el formulario tenga datos).");
                 }
                 else if (headerMediaType is not null && headerMediaUrl is null)
                 {
@@ -275,7 +277,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                 // loguea; aqui ademas lo hace legible para el usuario). Best-effort, envuelto en try/catch.
                 if (!waOutcome.Ok && rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
                 {
-                    try { await RecordSendFailureNoteAsync(task, lineId, phone!, rule.Plantilla!, waOutcome.Error, ct); }
+                    try { await RecordSendFailureNoteAsync(task, lineId, phone!, rule.Plantilla!, waOutcome.Error, headerMediaUrl, ct); }
                     catch { /* best-effort: registrar el fallo nunca debe romper el flujo */ }
                 }
 
@@ -295,7 +297,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                             .Where(d => !string.IsNullOrWhiteSpace(d.ButtonLabel))
                             .Select(d => d.ButtonLabel!.Trim()).ToList();
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, notaAgenteRender, ct);
+                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, headerMediaUrl, notaAgenteRender, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -305,7 +307,11 @@ public sealed class NodeNotifyService : INodeNotifyService
 
     // Resuelve la respuesta del formulario <paramref name="formDefId"/> anclada a la tarea (Reference == numero o
     // "numero-n") y la renderiza a PDF. Devuelve null si no hay respuesta o falla el render (best-effort).
-    private async Task<Forms.QuoteDocument?> ResolveFormPdfAsync(Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, CancellationToken ct)
+    // Devuelve el PDF de la cotizacion y, cuando NO se puede generar, el MOTIVO ESPECIFICO (texto corto) para
+    // que la nota visible de "Fallos de envio" delate la causa real SIN tener que leer el log del servidor por
+    // SSH: distingue "no hay respuesta anclada del formulario que el nodo adjunta" vs "el render rindio vacio"
+    // vs "excepcion al renderizar". Pdf no nulo => FailReason nulo (exito).
+    private async Task<(Forms.QuoteDocument? Pdf, string? FailReason)> ResolveFormPdfAsync(Domain.Entities.TaskItem task, Guid formDefId, Guid? templateId, CancellationToken ct)
     {
         try
         {
@@ -324,11 +330,15 @@ public sealed class NodeNotifyService : INodeNotifyService
                 .FirstOrDefaultAsync(ct);
             if (responseId is not Guid rid)
             {
-                // No hay respuesta del formulario anclada a la tarea: no hay nada que adjuntar.
+                // No hay respuesta del formulario anclada a la tarea: no hay nada que adjuntar. Se nombra el
+                // formulario que el nodo ESPERA, porque el caso tipico es un desajuste (el nodo adjunta el
+                // formulario "Cotizacion" pero en la tarea solo esta diligenciado "Registro cotizaciones").
+                var formTitle = await _db.FormDefinitions.AsNoTracking()
+                    .Where(f => f.Id == formDefId).Select(f => f.Title).FirstOrDefaultAsync(ct);
                 _logger.LogWarning(
-                    "ResolveFormPdf: sin respuesta del formulario {FormDefId} anclada a la tarea {Numero}; no se adjunta PDF.",
-                    formDefId, num);
-                return null;
+                    "ResolveFormPdf: sin respuesta del formulario {FormDefId} ({FormTitle}) anclada a la tarea {Numero}; no se adjunta PDF.",
+                    formDefId, formTitle, num);
+                return (null, $"La tarea no tiene diligenciada una respuesta del formulario '{formTitle ?? formDefId.ToString()}' (ref {num}); el nodo adjunta ESE formulario y no lo encontro. Verifica que la cotizacion de la tarea sea de ese formulario y que el nodo apunte al formulario correcto.");
             }
 
             var pdf = await _quoteDoc.RenderResponsePdfAsync(rid, templateId, ct);
@@ -338,9 +348,10 @@ public sealed class NodeNotifyService : INodeNotifyService
                 _logger.LogWarning(
                     "ResolveFormPdf: el render de la respuesta {ResponseId} (formulario {FormDefId}, plantilla impresion {TemplateId}) devolvio null; no se adjunta PDF.",
                     rid, formDefId, templateId);
+                return (null, "La respuesta del formulario SI existe, pero la plantilla de impresion rindio un PDF vacio (revisa la plantilla de impresion configurada en el nodo para el adjunto).");
             }
 
-            return pdf;
+            return (pdf, null);
         }
         catch (Exception ex)
         {
@@ -349,7 +360,7 @@ public sealed class NodeNotifyService : INodeNotifyService
             _logger.LogWarning(ex,
                 "ResolveFormPdf: fallo al generar el PDF del formulario {FormDefId} (plantilla impresion {TemplateId}) para la tarea {Numero}.",
                 formDefId, templateId, task.Number);
-            return null;
+            return (null, $"Error al renderizar el PDF de la cotizacion: {ex.Message}");
         }
     }
 
@@ -388,7 +399,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// </summary>
     private async Task RecordContactShareObservationAsync(
         Domain.Entities.TaskItem task, Guid lineId, string phone, string? nodeName, bool hasDecisionLink,
-        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
+        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? pdfPublicUrl, string? notaAgente, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -432,7 +443,15 @@ public sealed class NodeNotifyService : INodeNotifyService
                 ? $"enlace de decision (opciones: {string.Join(" / ", decisionLabels)})"
                 : "enlace de decision (el cliente puede responder por el enlace)");
         }
-        if (cotDoc is not null) { enviado.Add($"cotizacion adjunta ({cotDoc.FileName})"); }
+        if (cotDoc is not null)
+        {
+            // Se registra tambien la URL PUBLICA del PDF (la que YCloud/Meta descarga como header de la plantilla):
+            // asi se puede ABRIR desde la bitacora para verificar que el PDF se genero y es alcanzable. Null cuando
+            // el proveedor no usa URL (Evolution manda bytes) o la plantilla no lleva header de media.
+            enviado.Add(string.IsNullOrWhiteSpace(pdfPublicUrl)
+                ? $"cotizacion adjunta ({cotDoc.FileName})"
+                : $"cotizacion adjunta ({cotDoc.FileName}) - PDF: {pdfPublicUrl}");
+        }
         if (enviado.Count > 0) { sb.Append($" Se envio: {string.Join(" + ", enviado)}."); }
         // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
         // notaAgente YA viene renderizada con los tokens de la tarea ({tarea.cliente}, etc.) por el llamador.
@@ -492,7 +511,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// devolvio Meta/YCloud. Se guarda como nota interna del sistema (no sale al cliente). Best-effort.
     /// </summary>
     private async Task RecordSendFailureNoteAsync(
-        Domain.Entities.TaskItem task, Guid lineId, string phone, string plantilla, string? reason, CancellationToken ct)
+        Domain.Entities.TaskItem task, Guid lineId, string phone, string plantilla, string? reason, string? pdfPublicUrl, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -520,6 +539,14 @@ public sealed class NodeNotifyService : INodeNotifyService
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
         sb.Append(". Motivo: ");
         sb.Append(string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor." : reason!.Trim());
+        // Si el PDF SI se publico (la plantilla lleva header de documento y el render funciono) pero el envio
+        // igual fallo, se deja la URL PUBLICA para ABRIRLA y descartar que el problema sea el archivo
+        // (inalcanzable, vacio, content-type o tamano). Null cuando no hubo PDF (no se genero) o el proveedor
+        // no usa URL.
+        if (!string.IsNullOrWhiteSpace(pdfPublicUrl))
+        {
+            sb.Append($" | PDF de la cotizacion publicado (abrelo para verificar que se genero y es alcanzable): {pdfPublicUrl}");
+        }
 
         _db.Messages.Add(new Domain.Entities.Message
         {
@@ -528,6 +555,10 @@ public sealed class NodeNotifyService : INodeNotifyService
             Direction = Domain.Enums.MessageDirection.Outbound,
             Body = sb.ToString(),
             MessageType = "text",
+            // Rechazo SINCRONO del envio (Meta/YCloud lo rechazo, o falta plantilla/numero): no se persistio ningun
+            // saliente, asi que esta nota ES el registro del fallo para que aparezca en "Fallos de envio".
+            DeliveryStatus = "failed",
+            DeliveryError = string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor" : reason!.Trim(),
             SentByName = "Sistema (flujo)",
             SentAt = now
         });

@@ -601,3 +601,34 @@
     font-size: 11.5px; font-weight: 600; white-space: nowrap;
     background: var(--t-amber-bg, #fff7ed); color: var(--t-amber, #b45309);
 }
+
+/* ---- Lienzo de bloques (BMC): vista de diseno + editor de config ---- */
+.fb-prev-lienzo {
+    display: grid; gap: 6px; grid-auto-rows: minmax(34px, auto);
+    border: 1.5px dashed var(--line-2); border-radius: 9px; padding: 6px; background: var(--surface-2);
+}
+.fb-prev-lb {
+    border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface);
+    padding: 6px 8px; font-size: 11px; font-weight: 600; color: var(--ink-2);
+    display: flex; align-items: flex-start; gap: 5px; min-height: 32px;
+}
+.fb-prev-lb-ico { display: inline-flex; flex: 0 0 auto; opacity: .8; }
+.fb-prev-lb.accent { border-color: var(--brand, #7c3aed); background: var(--brand-soft, #f5f3ff); color: var(--brand, #7c3aed); }
+.fb-lz-block {
+    border: 1px solid var(--line-2); border-radius: 9px; padding: 8px; margin-bottom: 8px;
+    background: var(--surface-2); display: flex; flex-direction: column; gap: 7px;
+}
+.fb-lz-row { display: flex; gap: 6px; align-items: center; }
+.fb-lz-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.fb-lz-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--ink-3); font-weight: 600; }
+.fb-lz-src label { font-size: 10.5px; color: var(--ink-3); font-weight: 600; display: block; margin-bottom: 3px; }
+.fb-btn-x {
+    width: 28px; height: 28px; flex: 0 0 auto; border-radius: 7px; border: 1px solid var(--line-2);
+    background: var(--surface); color: var(--ink-3); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.fb-btn-x:hover { background: var(--t-rose-bg, #fef2f2); color: var(--t-rose, #e11d48); }
+.fb-btn-sm {
+    height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2);
+    background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fb-btn-sm:hover { background: var(--surface-3); }

@@ -212,11 +212,64 @@ public sealed class DataContainerService : IDataContainerService
             throw new InvalidOperationException(
                 $"No se puede eliminar esta tabla: participa en una relacion con '{relatedTableName}'. Quita primero esa relacion.");
         }
-        // La cascada de BD borra el arbol completo (sub-contenedores, columnas, filas, celdas,
-        // conectores y procesos). No se borra a mano.
-        _db.DataContainers.Remove(entity);
-        await _db.SaveChangesAsync(ct);
-        return true;
+        // Guard (ADR-0127): el ORIGEN de una derivada no se borra mientras la derivada exista (FK
+        // Restrict en ambos motores). Se avisa con nombre, igual que con las relaciones.
+        var derivedName = await _db.DataContainers.AsNoTracking()
+            .Where(c => c.DerivedFromContainerId == id)
+            .Select(c => c.Name)
+            .FirstOrDefaultAsync(ct);
+        if (derivedName is not null)
+        {
+            throw new InvalidOperationException(
+                $"No se puede eliminar esta tabla: la tabla '{derivedName}' deriva de ella. Elimina primero la derivada.");
+        }
+
+        var joinTx = _db.HasActiveTransaction;
+        var tx = joinTx ? null : await _db.BeginTransactionAsync(ct);
+        try
+        {
+            // Una DERIVADA se lleva consigo su conector FromTable y el proceso de refresco (con su
+            // bitacora): sin la hija no significan nada, y en SQL Server la FK del conector hacia la
+            // tabla es Restrict, asi que hay que quitarlos a mano ANTES (cascada diferida, regla #5).
+            if (entity.DerivedFromContainerId is not null)
+            {
+                var connectors = await _db.DataConnectors
+                    .Where(c => c.ContainerId == id && c.Kind == ConnectorKind.FromTable)
+                    .ToListAsync(ct);
+                if (connectors.Count > 0)
+                {
+                    var connectorIds = connectors.Select(c => c.Id).ToList();
+                    var processes = await _db.ImportProcesses
+                        .Where(p => p.ConnectorId != null && connectorIds.Contains(p.ConnectorId.Value))
+                        .ToListAsync(ct);
+                    if (processes.Count > 0)
+                    {
+                        var processIds = processes.Select(p => p.Id).ToList();
+                        var runs = await _db.ImportRuns.Where(r => processIds.Contains(r.ProcessId)).ToListAsync(ct);
+                        if (runs.Count > 0) { _db.ImportRuns.RemoveRange(runs); }
+                        _db.ImportProcesses.RemoveRange(processes);
+                    }
+                    _db.DataConnectors.RemoveRange(connectors);
+                    await _db.SaveChangesAsync(ct);
+                }
+            }
+
+            // La cascada de BD borra el arbol completo (sub-contenedores, columnas, filas, celdas,
+            // conectores y procesos). No se borra a mano.
+            _db.DataContainers.Remove(entity);
+            await _db.SaveChangesAsync(ct);
+            if (tx is not null) { await tx.CommitAsync(ct); }
+            return true;
+        }
+        catch
+        {
+            if (tx is not null) { await tx.RollbackAsync(ct); }
+            throw;
+        }
+        finally
+        {
+            if (tx is not null) { await tx.DisposeAsync(); }
+        }
     }
 
     public async Task<IReadOnlyList<DataContainerRowDto>> ListRowsAsync(Guid containerId, string? search = null, Guid? parentRowId = null, int take = 500, CancellationToken ct = default)

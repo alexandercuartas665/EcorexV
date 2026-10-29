@@ -9,7 +9,7 @@ namespace Ecorex.Domain.Entities;
 /// (SQL Server), mismo patron dual de TaskItem.CcEmails. Reference ancla la respuesta a un
 /// caso externo (ej. numero de TaskItem). TENANT-SCOPED, concurrencia optimista portable.
 /// </summary>
-public class FormResponse : TenantEntity, IVersioned
+public class FormResponse : TenantEntity, IVersioned, ISoftDeletable
 {
     public Guid DefinitionId { get; set; }
     public FormDefinition? Definition { get; set; }
@@ -59,4 +59,11 @@ public class FormResponse : TenantEntity, IVersioned
     public DateTimeOffset? VoidedAt { get; set; }
     public Guid? VoidedByTenantUserId { get; set; }
     public string? VoidReason { get; set; }
+
+    // ---- Soft-delete (integridad de respuestas): nunca DELETE fisico; se marca y el filtro global la oculta.
+    // Preserva el jsonb de Data para no perder datos (p.ej. una cotizacion ya enviada). ----
+
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? DeletedByTenantUserId { get; set; }
 }

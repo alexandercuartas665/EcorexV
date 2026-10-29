@@ -64,7 +64,15 @@ public enum RuleActionKind
     /// DynamicFormRenderer emitiendo OnOpenFormRequested para que el HOST lo abra (modal en la tarea, etc.).
     /// Se agrego al FINAL para no romper los ordinales del enum.
     /// </summary>
-    OpenForm
+    OpenForm,
+
+    /// <summary>
+    /// Efecto de UNA sola vez: un verbo CERRO el paso actual del flujo de la tarea (verbo
+    /// COMPLETAR_PASO_FLUJO, disparado por un boton del formulario). No cambia campos; le avisa al HOST
+    /// (TaskDetailModal) que recargue el flujo para reflejar el avance. La aplica el DynamicFormRenderer
+    /// emitiendo OnStepCompleted. Se agrego al FINAL para no romper los ordinales del enum.
+    /// </summary>
+    StepCompleted
 }
 
 /// <summary>
@@ -86,6 +94,10 @@ public sealed record RuleAction(RuleActionKind Kind, string FieldCode, string? V
     /// <summary>Abrir el registro de formulario recien creado <paramref name="responseId"/> (ADR-0078).</summary>
     public static RuleAction OpenForm(string responseId)
         => new(RuleActionKind.OpenForm, string.Empty, Value: responseId);
+
+    /// <summary>Avisar al HOST que el paso del flujo se cerro (recargar el flujo). Sin campo ni valor.</summary>
+    public static RuleAction StepCompleted()
+        => new(RuleActionKind.StepCompleted, string.Empty);
 }
 
 /// <summary>Resultado de la ejecucion de UN verbo.</summary>

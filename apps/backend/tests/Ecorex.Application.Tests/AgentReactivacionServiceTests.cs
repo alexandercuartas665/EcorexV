@@ -71,6 +71,7 @@ public class AgentReactivacionServiceTests
         public Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Sender de notificaciones: registra los envios de plantilla; el resto no se usa.
@@ -221,6 +222,7 @@ public class AgentReactivacionServiceTests
         public DbSet<FormContainer> FormContainers => throw new NotSupportedException();
         public DbSet<FormQuestion> FormQuestions => throw new NotSupportedException();
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
+        public DbSet<FormResponseAudit> FormResponseAudits => throw new NotSupportedException();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => throw new NotSupportedException();
         public DbSet<FormBuilderConversation> FormBuilderConversations => throw new NotSupportedException();
         public DbSet<FormBuilderMessage> FormBuilderMessages => throw new NotSupportedException();

@@ -121,6 +121,33 @@ internal sealed class RetellApiClient : IRetellApiClient
         return new RetellPingResult(true, null, status);
     }
 
+    public async Task<RetellGetAgentResult> GetAgentAsync(string apiKey, string agentId, CancellationToken cancellationToken = default)
+    {
+        var (status, body, err) = await SendAsync(HttpMethod.Get, $"/get-agent/{Uri.EscapeDataString(agentId)}", apiKey, payload: null, allowRetry: true, cancellationToken);
+        if (err is not null || !IsSuccess(status))
+        {
+            return new RetellGetAgentResult(false, null, null, null, null, null, err ?? ExtractError(body) ?? $"HTTP {status}", status);
+        }
+        return new RetellGetAgentResult(
+            true,
+            ReadString(body, "agent_id") ?? agentId,
+            ReadString(body, "agent_name"),
+            ReadString(body, "voice_id"),
+            ReadString(body, "language"),
+            ReadNestedString(body, "response_engine", "llm_id"),
+            null, status);
+    }
+
+    public async Task<RetellGetLlmResult> GetLlmAsync(string apiKey, string llmId, CancellationToken cancellationToken = default)
+    {
+        var (status, body, err) = await SendAsync(HttpMethod.Get, $"/get-retell-llm/{Uri.EscapeDataString(llmId)}", apiKey, payload: null, allowRetry: true, cancellationToken);
+        if (err is not null || !IsSuccess(status))
+        {
+            return new RetellGetLlmResult(false, null, null, null, err ?? ExtractError(body) ?? $"HTTP {status}", status);
+        }
+        return new RetellGetLlmResult(true, ReadString(body, "llm_id") ?? llmId, ReadString(body, "general_prompt"), ReadString(body, "model"), null, status);
+    }
+
     // ---- Transporte comun ----
 
     private async Task<(int Status, string Body, string? NetworkError)> SendAsync(
@@ -181,6 +208,18 @@ internal sealed class RetellApiClient : IRetellApiClient
         {
             using var doc = JsonDocument.Parse(body);
             return doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static string? ReadNestedString(string body, string parent, string child)
+    {
+        if (string.IsNullOrWhiteSpace(body)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty(parent, out var p) && p.ValueKind == JsonValueKind.Object
+                && p.TryGetProperty(child, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         }
         catch (JsonException) { return null; }
     }

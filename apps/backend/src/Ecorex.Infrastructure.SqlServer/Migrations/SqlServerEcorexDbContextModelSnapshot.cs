@@ -827,6 +827,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<int>("AssigneeCursor")
+                        .HasColumnType("int")
+                        .HasColumnName("assignee_cursor");
+
+                    b.Property<string>("AssigneeUserIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("assignee_user_ids_json");
+
                     b.Property<string>("CierreJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("cierre_json");
@@ -838,6 +846,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<Guid?>("DefaultSubcategoriaId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("default_subcategoria_id");
 
                     b.Property<string>("DisabledToolsJson")
                         .HasColumnType("nvarchar(max)")
@@ -916,6 +928,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_ai_agents");
+
+                    b.HasIndex("DefaultSubcategoriaId")
+                        .HasDatabaseName("ix_ai_agents_default_subcategoria_id");
 
                     b.HasIndex("TenantId", "SortOrder")
                         .HasDatabaseName("ix_ai_agents_tenant_id_sort_order");
@@ -3658,6 +3673,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("DerivedFromContainerId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("derived_from_container_id");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)")
@@ -3724,6 +3743,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasKey("Id")
                         .HasName("pk_data_containers");
 
+                    b.HasIndex("DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_derived_from_container_id");
+
                     b.HasIndex("MenuNodeId")
                         .HasDatabaseName("ix_data_containers_menu_node_id");
 
@@ -3734,6 +3756,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_data_containers_model_id_name")
                         .HasFilter("[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
+
+                    b.HasIndex("TenantId", "DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_tenant_id_derived_from_container_id");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_data_containers_tenant_id_model_id");
@@ -6398,6 +6423,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("FillFreeWidth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("fill_free_width");
+
                     b.Property<bool>("InlineLabels")
                         .HasColumnType("bit")
                         .HasColumnName("inline_labels");
@@ -7074,6 +7105,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
                     b.Property<Guid?>("DerivedFromResponseId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("derived_from_response_id");
@@ -7083,6 +7122,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false)
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
@@ -7168,6 +7213,79 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
 
                     b.ToTable("form_responses", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormResponseAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("int")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorAiAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("actor_ai_agent_id");
+
+                    b.Property<Guid?>("ActorTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("actor_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DataSnapshot")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("data_snapshot");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("definition_id");
+
+                    b.Property<Guid>("FormResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("reference");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_response_audits");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_created_at");
+
+                    b.HasIndex("TenantId", "FormResponseId")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_form_response_id");
+
+                    b.ToTable("form_response_audits", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
@@ -13362,6 +13480,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(150)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SeeAllUserIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("see_all_user_ids_json");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
@@ -16575,6 +16697,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("objetivo");
 
+                    b.Property<string>("RecordingUrl")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("recording_url");
+
                     b.Property<string>("RetellAgentId")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
@@ -18009,6 +18135,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("agent_follow_up_index");
 
+                    b.Property<int>("AgentInvokeCount")
+                        .HasColumnType("int")
+                        .HasColumnName("agent_invoke_count");
+
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("agent_next_retry_at");
@@ -18328,6 +18458,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("WorkflowDefinition");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultSubcategoriaId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_agents_actividad_subcategorias_default_subcategoria_id");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgentCacheField", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.AiAgent", "Agent")
@@ -18548,6 +18687,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainer", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "DerivedFromContainer")
+                        .WithMany()
+                        .HasForeignKey("DerivedFromContainerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_data_containers_data_containers_derived_from_container_id");
+
                     b.HasOne("Ecorex.Domain.Entities.MenuNode", "MenuNode")
                         .WithMany()
                         .HasForeignKey("MenuNodeId")
@@ -18565,6 +18710,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasForeignKey("ParentContainerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_data_containers_data_containers_parent_container_id");
+
+                    b.Navigation("DerivedFromContainer");
 
                     b.Navigation("MenuNode");
 

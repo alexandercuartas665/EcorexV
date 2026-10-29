@@ -827,6 +827,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("allowed_board_ids_json");
 
+                    b.Property<int>("AssigneeCursor")
+                        .HasColumnType("integer")
+                        .HasColumnName("assignee_cursor");
+
+                    b.Property<string>("AssigneeUserIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("assignee_user_ids_json");
+
                     b.Property<string>("CierreJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("cierre_json");
@@ -838,6 +846,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<Guid?>("DefaultSubcategoriaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("default_subcategoria_id");
 
                     b.Property<string>("DisabledToolsJson")
                         .HasColumnType("jsonb")
@@ -916,6 +928,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_ai_agents");
+
+                    b.HasIndex("DefaultSubcategoriaId")
+                        .HasDatabaseName("ix_ai_agents_default_subcategoria_id");
 
                     b.HasIndex("TenantId", "SortOrder")
                         .HasDatabaseName("ix_ai_agents_tenant_id_sort_order");
@@ -3657,6 +3672,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("DerivedFromContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("derived_from_container_id");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
@@ -3723,6 +3742,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_data_containers");
 
+                    b.HasIndex("DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_derived_from_container_id");
+
                     b.HasIndex("MenuNodeId")
                         .HasDatabaseName("ix_data_containers_menu_node_id");
 
@@ -3733,6 +3755,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_data_containers_model_id_name")
                         .HasFilter("model_id IS NOT NULL AND parent_container_id IS NULL");
+
+                    b.HasIndex("TenantId", "DerivedFromContainerId")
+                        .HasDatabaseName("ix_data_containers_tenant_id_derived_from_container_id");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_data_containers_tenant_id_model_id");
@@ -6396,6 +6421,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("FillFreeWidth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("fill_free_width");
+
                     b.Property<bool>("InlineLabels")
                         .HasColumnType("boolean")
                         .HasColumnName("inline_labels");
@@ -7072,6 +7103,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
                     b.Property<Guid?>("DerivedFromResponseId")
                         .HasColumnType("uuid")
                         .HasColumnName("derived_from_response_id");
@@ -7081,6 +7120,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
@@ -7166,6 +7211,79 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
 
                     b.ToTable("form_responses", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormResponseAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorAiAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_ai_agent_id");
+
+                    b.Property<Guid?>("ActorTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DataSnapshot")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("data_snapshot");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<Guid>("FormResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_response_audits");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_created_at");
+
+                    b.HasIndex("TenantId", "FormResponseId")
+                        .HasDatabaseName("ix_form_response_audits_tenant_id_form_response_id");
+
+                    b.ToTable("form_response_audits", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormSignatureToken", b =>
@@ -13357,6 +13475,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("name");
 
+                    b.Property<string>("SeeAllUserIdsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("see_all_user_ids_json");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
@@ -16570,6 +16692,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("objetivo");
 
+                    b.Property<string>("RecordingUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("recording_url");
+
                     b.Property<string>("RetellAgentId")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
@@ -18004,6 +18130,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("agent_follow_up_index");
 
+                    b.Property<int>("AgentInvokeCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_invoke_count");
+
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("agent_next_retry_at");
@@ -18323,6 +18453,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("WorkflowDefinition");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultSubcategoriaId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_ai_agents_actividad_subcategorias_default_subcategoria_id");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgentCacheField", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.AiAgent", "Agent")
@@ -18543,6 +18682,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainer", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "DerivedFromContainer")
+                        .WithMany()
+                        .HasForeignKey("DerivedFromContainerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_data_containers_data_containers_derived_from_container_id");
+
                     b.HasOne("Ecorex.Domain.Entities.MenuNode", "MenuNode")
                         .WithMany()
                         .HasForeignKey("MenuNodeId")
@@ -18560,6 +18705,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasForeignKey("ParentContainerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_data_containers_data_containers_parent_container_id");
+
+                    b.Navigation("DerivedFromContainer");
 
                     b.Navigation("MenuNode");
 

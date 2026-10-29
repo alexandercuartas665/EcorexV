@@ -1,6 +1,12 @@
 # =============================================================================
 # deploy-prod.ps1  -  Despliegue de ECOREX.tareas a PRODUCCION (app2 / 10.0.0.3)
+#                     *** FALLBACK (build-from-git) ***
 # =============================================================================
+# VIA POR DEFECTO: usa deploy/deploy-prod-fast.ps1 (imagen GHCR que arma el CI + pull en
+# prod, ~1-2 min, sin compilar en el host). Este script (build-from-git) COMPILA en 10.0.0.3
+# y puede agotar la RAM del host (csc exit 137); usarlo SOLO si el CI o GHCR fallan, y con
+# swap temporal en el host (ver memoria deploy-host-oom-swap / ADR del Dockerfile en serie).
+#
 # Ejecuta el runbook estandar sobre el VPS de produccion, en este orden:
 #   1) ./backup.sh                                   (respaldo de la BD ANTES de nada)
 #   2) docker compose ... build --no-cache           (build-from-git de la rama)

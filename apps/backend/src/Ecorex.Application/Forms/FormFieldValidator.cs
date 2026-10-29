@@ -24,7 +24,11 @@ public static class FormFieldValidator
             // Subform (ola F5): los hijos son FormResponse propios (FormRecordLink), no un valor en el documento.
             or FormControlType.Subform
             // TaskDocuments: solo lectura (muestra los adjuntos de la tarea); no captura valor.
-            or FormControlType.TaskDocuments;
+            or FormControlType.TaskDocuments
+            // AiIntake: asistente IA que PROPONE filas para una grilla; no captura valor propio.
+            or FormControlType.AiIntake
+            // AiCompose: asistente IA que PROPONE valores para campos/bloques (targets); no captura valor propio.
+            or FormControlType.AiCompose;
 
     /// <summary>
     /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla
@@ -112,7 +116,7 @@ public static class FormFieldValidator
     public static string? Validate(
         FormControlType type, bool required, string? value,
         IReadOnlyList<FormOption>? options = null, FormValidationRules? rules = null,
-        string? optionsJson = null)
+        string? optionsJson = null, bool isLookup = false)
     {
         if (IsNonInput(type))
         {
@@ -145,8 +149,13 @@ public static class FormFieldValidator
             FormControlType.Time => ValidateTime(value!),
             FormControlType.DateTime => ValidateDate(value!),
             FormControlType.Toggle => ValidateToggle(value!),
-            FormControlType.Select or FormControlType.Radio => ValidateOption(value!, options),
-            FormControlType.MultiCheck => ValidateMulti(value!, options),
+            // Lookup (SourceKind != Options): el valor valido es un id de la fuente (Tercero / Contenedor /
+            // Usuarios del sistema / ...), NO una entrada de OptionsJson. La existencia en la fuente se
+            // revalida en el renderer al elegir (ResolveAsync); aqui solo se exige no-vacio (ya resuelto
+            // arriba). Sin esta excepcion un Select/Radio/MultiCheck con fuente siempre daria
+            // "Selecciona una opcion valida." porque options esta vacio.
+            FormControlType.Select or FormControlType.Radio => isLookup ? null : ValidateOption(value!, options),
+            FormControlType.MultiCheck => isLookup ? null : ValidateMulti(value!, options),
             FormControlType.GridDetail => ValidateGrid(value!, optionsJson),
             FormControlType.FixedMatrix => ValidateFixedMatrix(value!, optionsJson),
             _ => null

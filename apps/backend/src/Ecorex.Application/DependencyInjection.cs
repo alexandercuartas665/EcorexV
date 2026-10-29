@@ -148,6 +148,8 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
         services.AddScoped<Forms.IFormSignatureService, Forms.FormSignatureService>();
         services.AddScoped<Forms.IFormTextAssistService, Forms.FormTextAssistService>();
+        services.AddScoped<Forms.IFormAiIntakeService, Forms.FormAiIntakeService>();
+        services.AddScoped<Forms.IFormAiComposeService, Forms.FormAiComposeService>();
         // Formularios avanzados (ola F1, doc 01 D4): lookup/autocompletado desde tablas del
         // tenant. Un adaptador por origen (Tercero, Item, DataContainer) + fachada que despacha.
         // Sumar una fuente = registrar otro IFormLookupSource, sin tocar consumidores.
@@ -155,6 +157,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ItemLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.DataContainerLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ExternalDatasetLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.SystemUserLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupService, Forms.Lookups.FormLookupService>();
         // Motor de reglas (FASE 4 ola 3, ADR-0016): REGISTRO TIPADO de verbos en DI (el
         // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error
@@ -174,6 +177,8 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CargarFilasDesdeGrillaVerb>();   // FEATURE C: cargar filas de una grilla a otra
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarRequerimientosDesdeTablaVerb>();  // Capa 10: necesidad de compra por fila
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DireccionarConciliadorVerb>();   // Conciliador: boton del form -> columna del renglon
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CompletarPasoFlujoVerb>();        // Flujo: boton del form cierra el paso actual (con campos obligatorios opcionales)
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ReiniciarFlujoTareaVerb>();       // Flujo: boton del form reinicia el ciclo reasignado al usuario de un campo (Rechazar/Redireccionar)
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
@@ -222,6 +227,11 @@ public static class DependencyInjection
         services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();
         services.AddScoped<Agents.IAgentActivityQuery, Agents.AgentActivityQuery>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
+        // Tablas DERIVADAS (ADR-0127): vista previa, alta transaccional y refresco (motor + Upsert + poda).
+        services.AddScoped<DataContainers.IDerivedTableService, DataContainers.DerivedTableService>();
+        // Exportar/importar la definicion de un contenedor a JSON (ADR-0132): estructura + conectores +
+        // programacion, sin datos ni secretos.
+        services.AddScoped<DataContainers.IDataContainerPortabilityService, DataContainers.DataContainerPortabilityService>();
         // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
         services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
         // Vinculos dato-a-dato de las relaciones (FASE 2 del rediseno de relaciones).

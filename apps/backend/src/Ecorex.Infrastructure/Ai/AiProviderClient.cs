@@ -212,9 +212,16 @@ public sealed class AiProviderClient : IAiProviderClient
             Encoding.UTF8, "application/json");
 
     // Backoff ante saturacion transitoria del proveedor (Gemini/OpenAI suelen devolver 503 bajo carga).
-    // 4 intentos en total: inmediato + esperas de 1.2s / 3s / 6s. Solo reintenta codigos transitorios.
+    // 4 intentos en total: inmediato + esperas de 1.2s / 3s / 6s. Reintenta codigos transitorios Y cortes
+    // de transporte (reset de socket / IOException al enviar el cuerpo grande, p.ej. PDF inline).
     private static readonly int[] RetryDelaysMs = { 1200, 3000, 6000 };
     private static bool IsTransientStatus(int status) => status is 429 or 500 or 502 or 503 or 504;
+
+    // Corte de transporte reintenable: reset de conexion (10054), IOException al escribir el cuerpo, etc.
+    // NO incluye la cancelacion del llamador ni el timeout del HttpClient (TaskCanceled): esos fallan limpio.
+    private static bool IsTransientTransport(Exception ex)
+        => ex is System.Net.Http.HttpRequestException or System.IO.IOException or System.Net.Sockets.SocketException
+           || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException;
 
     // El HttpRequestMessage (y su contenido) no se puede reenviar; la fabrica lo reconstruye por intento.
     private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct)
@@ -222,7 +229,22 @@ public sealed class AiProviderClient : IAiProviderClient
         for (var attempt = 0; ; attempt++)
         {
             var req = requestFactory();
-            var resp = await _http.SendAsync(req, ct);
+            // HTTP/1.1 explicito: con HTTP/2 el servidor puede resetear el stream antes de terminar de subir
+            // el cuerpo grande (PDF inline) y el envio falla ("Unable to write data to the transport connection").
+            req.Version = System.Net.HttpVersion.Version11;
+            req.VersionPolicy = System.Net.Http.HttpVersionPolicy.RequestVersionExact;
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await _http.SendAsync(req, ct);
+            }
+            catch (Exception ex) when (attempt < RetryDelaysMs.Length && !ct.IsCancellationRequested && IsTransientTransport(ex))
+            {
+                req.Dispose();
+                await Task.Delay(RetryDelaysMs[attempt], ct);   // corte de transporte transitorio: reintentar
+                continue;
+            }
             req.Dispose();
             if (resp.IsSuccessStatusCode || !IsTransientStatus((int)resp.StatusCode) || attempt >= RetryDelaysMs.Length)
             {

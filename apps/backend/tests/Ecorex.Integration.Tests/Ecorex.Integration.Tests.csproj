@@ -36,6 +36,11 @@
     <ProjectReference Include="..\..\src\Ecorex.Application\Ecorex.Application.csproj" />
     <ProjectReference Include="..\..\src\Ecorex.Shared\Ecorex.Shared.csproj" />
     <ProjectReference Include="..\..\src\Ecorex.Api\Ecorex.Api.csproj" />
+    <!-- SuperAdmin: orquestacion del refresco (ProcessRunner + ImportRunLog) que encadena las derivadas
+         cuando se sincroniza su tabla origen (ADR-0127). Con alias 'superadmin' para que su clase global
+         Program no choque con la de Ecorex.Api (ambas son top-level); el WebApplicationFactory<Program> de
+         las pruebas de API sigue resolviendo la de Api. -->
+    <ProjectReference Include="..\..\src\Ecorex.SuperAdmin\Ecorex.SuperAdmin.csproj" Aliases="superadmin" />
   </ItemGroup>
 
 </Project>

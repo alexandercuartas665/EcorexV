@@ -244,6 +244,22 @@ public sealed class TasksToolset : ITasksToolset
         // (con usuario vinculado). No todos los asesores entran: solo los que tienen la marca.
         var asignado = await PickNextAssigneeAsync(ct);
 
+        // Concepto "Fijo por agente": si el agente tiene un concepto por defecto y valida (mismo tenant via filtro
+        // global + no archivado), se adjunta como SubcategoriaId para que CreateAsync siembre el checklist del
+        // concepto (ActividadSubcategoria.Chequeo). Null o no valido = comportamiento actual (sin concepto). El
+        // tablero sigue siendo el que eligio el agente (BoardId explicito gana sobre el del concepto).
+        Guid? defaultSubcatId = null;
+        if (AiToolRunContext.AgentId is Guid agentCtxId)
+        {
+            var defSub = await _db.AiAgents.AsNoTracking()
+                .Where(a => a.Id == agentCtxId).Select(a => a.DefaultSubcategoriaId).FirstOrDefaultAsync(ct);
+            if (defSub is Guid subId
+                && await _db.ActividadSubcategorias.AsNoTracking().AnyAsync(s => s.Id == subId && !s.IsArchived, ct))
+            {
+                defaultSubcatId = subId;
+            }
+        }
+
         var req = new CreateTaskItemRequest(
             Title: titulo!.Trim(),
             ActivityTypeId: tipoId,
@@ -256,6 +272,7 @@ public sealed class TasksToolset : ITasksToolset
             RequesterEmail: clienteEmail,
             RequesterPhone: clienteTelefono,
             RequesterDocument: clienteIdentificacion,
+            SubcategoriaId: defaultSubcatId,
             ConversationId: conversationId);
 
         var res = await _tasks.CreateAsync(req, actor, ActorName, ct);
@@ -571,23 +588,13 @@ public sealed class TasksToolset : ITasksToolset
 
     private sealed record Assignee(Guid UserId, string Nombre);
 
-    /// <summary>Elige el SIGUIENTE asesor para el reparto round-robin del agente y marca su ultima
-    /// asignacion. Elegibles: activos, con la MARCA AssignableByAgent y con usuario vinculado. Entre
-    /// ellos, recibe primero el que hace mas tiempo no recibe (LastAgentAssignmentAt null/mas antiguo).
-    /// Devuelve null si ningun asesor esta marcado (la tarea queda sin asignar).</summary>
+    /// <summary>Elige el SIGUIENTE usuario para el reparto round-robin del agente (ADR-0128): si el agente tiene
+    /// una lista propia de usuarios (AssigneeUserIdsJson) rota sobre ella; si no, cae al pool de asesores del
+    /// tenant marcados AssignableByAgent (menos-recientemente-asignado). Null = nadie a quien asignar.</summary>
     private async Task<Assignee?> PickNextAssigneeAsync(CancellationToken ct)
     {
-        var next = await _db.Asesores
-            .Where(a => a.IsActive && a.AssignableByAgent && a.TenantUserId != null)
-            .OrderBy(a => a.LastAgentAssignmentAt == null ? 0 : 1)
-            .ThenBy(a => a.LastAgentAssignmentAt)
-            .ThenBy(a => a.Nombre)
-            .FirstOrDefaultAsync(ct);
-        if (next?.TenantUserId is not Guid uid) { return null; }
-
-        next.LastAgentAssignmentAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(ct);
-        return new Assignee(uid, next.Nombre);
+        var (uid, name) = await AgentAssigneePicker.PickAsync(_db, AiToolRunContext.AgentId, ct);
+        return uid is Guid u ? new Assignee(u, name ?? "") : null;
     }
 
     // ===== Helpers =====

@@ -59,20 +59,27 @@
         <div class="ac-col-list">
             <div class="ac-list-head">
                 <strong>Facturas por autorizar</strong>
-                <span class="ac-badge">@_items.Count</span>
+                <span class="ac-badge">@ItemsMostrados.Count</span>
             </div>
+            @if (_miTenantUserId is not null)
+            {
+                <label class="ac-mine" title="Muestra solo las facturas asignadas a ti (desde el conciliador)">
+                    <input type="checkbox" checked="@_soloMios" @onchange="OnSoloMiosChanged" />
+                    <span>Solo mis documentos (asignados a mi)</span>
+                </label>
+            }
             <div class="ac-list">
                 @if (_busy)
                 {
                     <div class="ac-muted" style="padding:16px 4px;">Cargando...</div>
                 }
-                else if (_items.Count == 0)
+                else if (ItemsMostrados.Count == 0)
                 {
-                    <div class="ac-muted" style="padding:16px 4px;">No hay facturas pendientes de autorizar con el filtro actual.</div>
+                    <div class="ac-muted" style="padding:16px 4px;">@(_soloMios && _miTenantUserId is not null ? "No tienes facturas asignadas pendientes de autorizar." : "No hay facturas pendientes de autorizar con el filtro actual.")</div>
                 }
                 else
                 {
-                    @foreach (var r in _items)
+                    @foreach (var r in ItemsMostrados)
                     {
                         <div class="ac-card @(_sel?.Id == r.Id ? "activa" : "")" @key="r.Id" @onclick="() => SelectAsync(r)">
                             <h5>@Txt(r.NombreProveedor)</h5>
@@ -176,7 +183,7 @@
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" @key="_sel.Id" />
+                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()" @key="_sel.Id" />
                     }
                     else
                     {
@@ -234,6 +241,13 @@
     private ConciliacionDianRenglonDto? _sel;
     private bool _panelOpen;   // el detalle+formulario se muestra en modal (boton de la tarjeta), no como columna fija
 
+    // "Solo mis documentos": filtra las facturas a las asignadas al usuario actual (desde el conciliador). Por
+    // defecto ON al abrir el modulo. _miTenantUserId = TenantUser del usuario logueado (mapeo por PlatformUserId).
+    private bool _soloMios = true;
+    private Guid? _miTenantUserId;
+    private IReadOnlyList<ConciliacionDianRenglonDto> ItemsMostrados
+        => (_soloMios && _miTenantUserId is Guid me) ? _items.Where(r => r.AssignedTenantUserId == me).ToList() : _items;
+
     private bool _viewLoading;
     private List<StoredFileDto> _viewFiles = new();
     private StoredFileDto? _viewFile;
@@ -245,6 +259,11 @@
     // (/conciliacion-dian -> "Configuracion de tarea", modulo administrativo); aqui solo se LEE (_cfg)
     // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
+    // Secciones del formulario a OCULTAR aqui (configuradas en la salida del conciliador). Se pasan al renderer.
+    private IReadOnlyList<Guid> _hiddenSecs = Array.Empty<Guid>();
+    // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) el autosave esta apagado, asi que
+    // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios / Solicitar autorizacion.
+    private DynamicFormRenderer? _formRenderer;
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
     private List<TenantUserDto> _usuarios = new();
@@ -255,6 +274,15 @@
     private static string UserLabel(TenantUserDto u)
         => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
         : (u.Email.Contains('@') ? char.ToUpperInvariant(u.Email[0]) + u.Email[1..u.Email.IndexOf('@')] : u.Email);
+
+    // Tokens {tareas.campo} para el formulario del panel: el modulo no tiene aun una tarea creada, pero SI
+    // conoce el usuario asignado a la factura, asi un campo con origen SystemUser y default "Usuario asignado"
+    // (AssignedUser) cae por defecto en ese usuario. Se reconstruye por render (barato) con el asignado vigente.
+    private IReadOnlyDictionary<string, string?> BuildFormTokens()
+        => new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["asignado"] = _asignadoSel?.ToString(),
+        };
 
     // Enlace del desplegable de responsable. Con @bind (no value= ni selected por opcion) Blazor fija el
     // valor del <select> nativo en cada render, asi al cambiar de factura se refresca (incluido a vacio);
@@ -271,6 +299,8 @@
         _guardando = true; _okMsg = null; _errMsg = null;
         try
         {
+            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador a mano.
+            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
             await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
             _okMsg = "Cambios guardados.";
         }
@@ -294,6 +324,10 @@
         _solicitando = true;
         try
         {
+            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador ANTES de
+            // leerlo, para que el resumen y los datos copiados a la tarea incluyan lo ultimo escrito.
+            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
+
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
 
@@ -387,7 +421,12 @@
     protected override async Task OnInitializedAsync()
     {
         _cfg = await Cfg.GetAsync();
+        if (_cfg.FormDefinitionId is Guid fid) { _hiddenSecs = await Cfg.GetHiddenContainerIdsForFormAsync(fid); }
         _usuarios = (await Users.ListAsync()).ToList();
+        // Resolver el TenantUser del usuario actual (por PlatformUserId) para el filtro "solo mis documentos".
+        var actor = await ActorAsync();
+        _miTenantUserId = _usuarios.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
+        _soloMios = _miTenantUserId is not null;   // por defecto filtra a mis documentos si se pudo resolver
         await CargarAsync();
     }
 
@@ -404,14 +443,24 @@
         try
         {
             _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
-            // Si la seleccion ya no esta en la lista, se limpia; si no hay seleccion, se abre la primera.
-            if (_sel is not null && _items.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
-            if (_sel is null && _items.Count > 0) { await SelectAsync(_items[0]); }
+            // Si la seleccion ya no esta en la lista MOSTRADA (respeta "solo mios"), se limpia; si no hay, se abre la primera.
+            var vis = ItemsMostrados;
+            if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
+            if (_sel is null && vis.Count > 0) { await SelectAsync(vis[0]); }
         }
         finally { _busy = false; }
     }
 
     private async Task AplicarAsync() { _sel = null; await CargarAsync(); }
+
+    private async Task OnSoloMiosChanged(ChangeEventArgs e)
+    {
+        _soloMios = e.Value is bool b && b;
+        // Al cambiar el filtro, si la seleccion ya no esta en la lista mostrada se abre la primera de la nueva lista.
+        var vis = ItemsMostrados;
+        if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
+        if (_sel is null && vis.Count > 0) { await SelectAsync(vis[0]); }
+    }
     private async Task LimpiarAsync() { _texto = _desde = _hasta = string.Empty; _sel = null; await CargarAsync(); }
     private async Task OnFilterKey(KeyboardEventArgs e) { if (e.Key == "Enter") { await AplicarAsync(); } }
 
@@ -456,7 +505,17 @@
         await SelectAsync(r);
         _panelOpen = true;
     }
-    private void CerrarPanel() => _panelOpen = false;
+    // Al cerrar el modal se PERSISTE el borrador: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar)
+    // el autosave periodico esta apagado, asi que sin este flush lo escrito se perdia si el usuario cerraba
+    // (x / fondo) sin pulsar "Guardar cambios". FlushDraftAsync es no-op si no hay borrador o no hubo cambios.
+    private async Task CerrarPanel()
+    {
+        if (_formRenderer is not null)
+        {
+            try { await _formRenderer.FlushDraftAsync(); } catch { /* cerrar nunca debe fallar por el guardado */ }
+        }
+        _panelOpen = false;
+    }
 
     // ---- Visor PDF (zoom + arrastre) via interop ----
     private string? _loadedUrl;

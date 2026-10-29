@@ -85,10 +85,12 @@ public sealed class AiAgentService : IAiAgentService
         agent.SystemPrompt = request.SystemPrompt ?? "";
         agent.DisabledToolsJson = SerializeTools(request.DisabledTools);
         agent.AllowedBoardIdsJson = SerializeBoards(request.AllowedBoardIds);
+        agent.AssigneeUserIdsJson = SerializeBoards(request.AssigneeUserIds);
         agent.ReactionsEnabled = request.ReactionsEnabled;
         agent.ReactionRatioN = Math.Max(0, request.ReactionRatioN);
         agent.ReactionRatioM = Math.Max(1, request.ReactionRatioM);
         agent.ReactionEmojis = string.IsNullOrWhiteSpace(request.ReactionEmojis) ? null : request.ReactionEmojis.Trim();
+        agent.DefaultSubcategoriaId = request.DefaultSubcategoriaId;
 
         // Red de seguridad: guarda una instantanea {prompt base + enrutados} en el historial (ultimas 5).
         var snapshotPrompts = await _db.AiAgentPrompts.AsNoTracking()
@@ -231,6 +233,7 @@ public sealed class AiAgentService : IAiAgentService
             SortOrder = nextOrder,
             DisabledToolsJson = src.DisabledToolsJson,
             AllowedBoardIdsJson = src.AllowedBoardIdsJson,
+            AssigneeUserIdsJson = src.AssigneeUserIdsJson,
             PromptHistoryJson = src.PromptHistoryJson,
             ReactionsEnabled = src.ReactionsEnabled,
             ReactionRatioN = src.ReactionRatioN,
@@ -356,7 +359,7 @@ public sealed class AiAgentService : IAiAgentService
 
     private static AiAgentDto Map(AiAgent a, int resourceCount) =>
         new(a.Id, a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt, a.IsActive, a.SortOrder, resourceCount, ParseTools(a.DisabledToolsJson),
-            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, ParseBoards(a.AllowedBoardIdsJson));
+            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, ParseBoards(a.AllowedBoardIdsJson), ParseBoards(a.AssigneeUserIdsJson), a.DefaultSubcategoriaId);
 
     // Serializacion de la lista de herramientas deshabilitadas del agente (jsonb).
     private static string? SerializeTools(IReadOnlyList<string>? tools)

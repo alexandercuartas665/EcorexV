@@ -83,6 +83,7 @@ public interface IApplicationDbContext
     DbSet<FormContainer> FormContainers { get; }
     DbSet<FormQuestion> FormQuestions { get; }
     DbSet<FormResponse> FormResponses { get; }
+    DbSet<FormResponseAudit> FormResponseAudits { get; }
     DbSet<FormFlowLink> FormFlowLinks { get; }
     DbSet<FormToken> FormTokens { get; }
     DbSet<FormSignatureToken> FormSignatureTokens { get; }

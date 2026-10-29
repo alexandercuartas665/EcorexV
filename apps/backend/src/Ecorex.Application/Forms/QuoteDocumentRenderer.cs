@@ -22,11 +22,13 @@ public sealed class QuoteDocumentRenderer : IQuoteDocumentRenderer
 {
     private readonly IFormTemplateRenderService _templates;
     private readonly IQuotePdfRenderer _pdf;
+    private readonly IFormResponseService _responses;
 
-    public QuoteDocumentRenderer(IFormTemplateRenderService templates, IQuotePdfRenderer pdf)
+    public QuoteDocumentRenderer(IFormTemplateRenderService templates, IQuotePdfRenderer pdf, IFormResponseService responses)
     {
         _templates = templates;
         _pdf = pdf;
+        _responses = responses;
     }
 
     public async Task<QuoteDocument?> RenderResponsePdfAsync(Guid responseId, Guid? templateId = null, CancellationToken cancellationToken = default)
@@ -36,6 +38,11 @@ public sealed class QuoteDocumentRenderer : IQuoteDocumentRenderer
 
         var bytes = await _pdf.RenderHtmlToPdfAsync(html, cancellationToken);
         if (bytes is null || bytes.Length == 0) { return null; }
+
+        // Integridad (ADR): snapshot del jsonb al GENERAR el PDF (el estado que se envia al cliente), por si
+        // luego se pierde la fila. Best-effort: nunca rompe la generacion del documento.
+        try { await _responses.RecordPdfSnapshotAsync(responseId, note: "quote-pdf", cancellationToken); }
+        catch { /* el snapshot es best-effort */ }
 
         // Nombre amigable "NombreFormulario CodigoActividad" (mismo que la impresion); fallback generico.
         var baseName = await _templates.GetDocumentNameAsync(responseId, cancellationToken);

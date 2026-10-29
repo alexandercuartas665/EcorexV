@@ -32,7 +32,9 @@ public sealed record FormContainerDto(
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // Crecer para ocupar el ancho libre de su fila si una seccion hermana se oculta (layout del formulario).
+    bool FillFreeWidth = false);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -146,7 +148,9 @@ public sealed record SaveFormContainerRequest(
     // Acceso por cargo (ADR-0082): Guids de OrgUnit-Cargo autorizados a operar la seccion. Null/vacio = todos.
     string? AllowedCargosJson = null,
     // Visibilidad condicional de la seccion por valor de una pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // Crecer para ocupar el ancho libre de su fila si una seccion hermana se oculta (layout del formulario).
+    bool FillFreeWidth = false);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el

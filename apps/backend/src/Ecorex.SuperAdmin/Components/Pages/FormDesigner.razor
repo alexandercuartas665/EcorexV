@@ -25,6 +25,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
+@inject Ecorex.Application.Tenancy.IAiAgentService AgentsSvc
 
 @* ============================================================
    CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
@@ -941,7 +942,10 @@ else
         [FormControlType.Button] = new("Boton", "Boton", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"10\" rx=\"2\"/><path d=\"M7 12h2\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Chart] = new("Grafico", "Grafico", "M4 4v16h16", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
-        [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control")
+        [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.AiIntake] = new("Asistente IA (imagen/PDF -> tabla)", "AsistenteIA", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.LienzoBloques] = new("Lienzo de bloques (BMC)", "Lienzo", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 12h18M9 4v16M15 4v16\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.AiCompose] = new("Asistente IA (llenar campos)", "AsistenteLlenar", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
     };
 
     private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
@@ -1066,6 +1070,8 @@ else
         await ReloadAsync();
         // Definiciones para el selector de formulario hijo (Subform, ola F5).
         _allDefs = await FormsSvc.ListAsync();
+        // Agentes de IA del tenant para el control AiIntake (asistente imagen/PDF -> tabla).
+        try { _aiAgents = await AgentsSvc.ListAsync(); } catch { _aiAgents = Array.Empty<Ecorex.Application.Tenancy.AiAgentDto>(); }
         // Unidades asignables + conteo de candidatos para el picker de acceso por seccion (ADR-0082).
         await LoadAssignableUnitsAsync();
         _loading = false;
@@ -1332,6 +1338,152 @@ else
         await PatchQuestionAsync(q, r => r with { OptionsJson = obj.ToJsonString() });
     }
 
+    // ---- Config del control AiIntake (asistente IA imagen/PDF -> tabla): objeto bajo OptionsJson["ai"] ----
+    private IReadOnlyList<Ecorex.Application.Tenancy.AiAgentDto> _aiAgents = Array.Empty<Ecorex.Application.Tenancy.AiAgentDto>();
+
+    private static Ecorex.Application.Forms.AiIntakeConfig AiCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.AiIntakeConfig.Parse(q.OptionsJson);
+
+    private async Task PatchAiCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        System.Text.Json.Nodes.JsonObject root;
+        try
+        {
+            root = (string.IsNullOrWhiteSpace(q.OptionsJson)
+                ? null
+                : System.Text.Json.Nodes.JsonNode.Parse(q.OptionsJson) as System.Text.Json.Nodes.JsonObject) ?? new();
+        }
+        catch (System.Text.Json.JsonException) { root = new(); }
+        var ai = root["ai"] as System.Text.Json.Nodes.JsonObject ?? new();
+        bool Flag() => string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on";
+        switch (key)
+        {
+            case "agentId": ai["agentId"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+            case "prompt": ai["prompt"] = raw; break;
+            case "target_grid": ai["target_grid"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+            case "columns_hint": ai["columns_hint"] = raw; break;
+            case "accept": ai["accept"] = (raw == "image" || raw == "pdf") ? raw : "image,pdf"; break;
+            case "max_mb": if (int.TryParse(raw, out var mb)) { ai["max_mb"] = Math.Clamp(mb, 1, 50); } break;
+            case "max_rows": if (int.TryParse(raw, out var mr)) { ai["max_rows"] = Math.Clamp(mr, 1, 500); } break;
+            case "mode": ai["mode"] = raw == "replace" ? "replace" : "append"; break;
+            case "confirm": ai["confirm"] = Flag(); break;
+            case "model": ai["model"] = string.IsNullOrWhiteSpace(raw) ? null : raw; break;
+        }
+        root["ai"] = ai;
+        await PatchQuestionAsync(q, r => r with { OptionsJson = root.ToJsonString() });
+    }
+
+    // ---- Config del control LienzoBloques (BMC): toda la config es el OptionsJson raiz {preset,columns,blocks} ----
+    private static Ecorex.Application.Forms.LienzoBloquesConfig LzCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+
+    private Task SaveLzCfgAsync(FormQuestionDto q, Ecorex.Application.Forms.LienzoBloquesConfig cfg)
+        => PatchQuestionAsync(q, r => r with { OptionsJson = Ecorex.Application.Forms.LienzoBloquesConfig.Serialize(cfg) });
+
+    private Task ApplyLienzoBmcAsync(FormQuestionDto q)
+        => SaveLzCfgAsync(q, Ecorex.Application.Forms.LienzoBloquesConfig.Bmc());
+
+    private Task SetLienzoColumnsAsync(FormQuestionDto q, string? raw)
+    {
+        var cfg = LzCfg(q);
+        var cols = int.TryParse(raw, out var n) ? Math.Clamp(n, 1, 24) : cfg.Columns;
+        return SaveLzCfgAsync(q, cfg with { Columns = cols });
+    }
+
+    private Task PatchLienzoBlockAsync(FormQuestionDto q, string blockId, string key, string? raw)
+    {
+        var cfg = LzCfg(q);
+        var blocks = cfg.Blocks.ToList();
+        var i = blocks.FindIndex(b => b.Id == blockId);
+        if (i < 0) { return Task.CompletedTask; }
+        var b = blocks[i];
+        int IntOr(int fallback) => int.TryParse(raw, out var v) ? Math.Max(1, v) : fallback;
+        b = key switch
+        {
+            "label" => b with { Label = string.IsNullOrWhiteSpace(raw) ? b.Id : raw! },
+            "accent" => b with { Accent = (string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on") ? Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary : null },
+            "col" => b with { Col = IntOr(b.Col) },
+            "row" => b with { Row = IntOr(b.Row) },
+            "colSpan" => b with { ColSpan = IntOr(b.ColSpan) },
+            "rowSpan" => b with { RowSpan = IntOr(b.RowSpan) },
+            "source" => b with { Source = (raw ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) },
+            "icon" => b with { Icon = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Has(raw) ? raw!.Trim() : null },
+            _ => b
+        };
+        blocks[i] = b;
+        return SaveLzCfgAsync(q, cfg with { Blocks = blocks });
+    }
+
+    private Task AddLienzoBlockAsync(FormQuestionDto q)
+    {
+        var cfg = LzCfg(q);
+        var blocks = cfg.Blocks.ToList();
+        var id = "bloque" + (blocks.Count + 1);
+        while (blocks.Any(b => b.Id == id)) { id += "x"; }
+        var row = blocks.Count == 0 ? 1 : blocks.Max(b => b.Row + b.RowSpan - 1) + 1;
+        blocks.Add(new Ecorex.Application.Forms.LienzoBlock(id, "Nuevo bloque", null, 1, row, Math.Min(cfg.Columns, 2), 1, Array.Empty<string>()));
+        return SaveLzCfgAsync(q, cfg with { Preset = null, Blocks = blocks });
+    }
+
+    private Task RemoveLienzoBlockAsync(FormQuestionDto q, string blockId)
+    {
+        var cfg = LzCfg(q);
+        var blocks = cfg.Blocks.Where(b => b.Id != blockId).ToList();
+        return SaveLzCfgAsync(q, cfg with { Preset = null, Blocks = blocks });
+    }
+
+    // ---- Config del control AiCompose (asistente IA que llena campos/bloques desde el formulario) ----
+    private static Ecorex.Application.Forms.AiComposeConfig AcCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.AiComposeConfig.Parse(q.OptionsJson);
+
+    private Task SaveAcCfgAsync(FormQuestionDto q, Ecorex.Application.Forms.AiComposeConfig cfg)
+        => PatchQuestionAsync(q, r => r with { OptionsJson = Ecorex.Application.Forms.AiComposeConfig.Serialize(cfg) });
+
+    private Task PatchAcCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        var cfg = AcCfg(q);
+        bool Flag() => string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) || raw == "on";
+        cfg = key switch
+        {
+            "agentId" => cfg with { AgentId = Guid.TryParse(raw, out var g) ? g : null },
+            "prompt" => cfg with { Prompt = string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim() },
+            "buttonLabel" => cfg with { ButtonLabel = string.IsNullOrWhiteSpace(raw) ? Ecorex.Application.Forms.AiComposeConfig.DefaultButtonLabel : raw!.Trim() },
+            "confirm" => cfg with { Confirm = Flag() },
+            "model" => cfg with { Model = string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim() },
+            "sources" => cfg with { Sources = (raw ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) },
+            _ => cfg
+        };
+        return SaveAcCfgAsync(q, cfg);
+    }
+
+    private static bool IsAcFieldTarget(Ecorex.Application.Forms.AiComposeConfig cfg, string code)
+        => cfg.Targets.Any(t => t.IsField && string.Equals(t.Field, code, StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleAcFieldTargetAsync(FormQuestionDto q, string code)
+    {
+        var cfg = AcCfg(q);
+        var targets = cfg.Targets.ToList();
+        var i = targets.FindIndex(t => t.IsField && string.Equals(t.Field, code, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) { targets.RemoveAt(i); }
+        else { targets.Add(new Ecorex.Application.Forms.AiComposeTarget(code, null, null)); }
+        return SaveAcCfgAsync(q, cfg with { Targets = targets });
+    }
+
+    private static bool IsAcBlockTarget(Ecorex.Application.Forms.AiComposeConfig cfg, string lienzo, string block)
+        => cfg.Targets.Any(t => t.IsLienzo && string.Equals(t.Lienzo, lienzo, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(t.Block, block, StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleAcBlockTargetAsync(FormQuestionDto q, string lienzo, string block)
+    {
+        var cfg = AcCfg(q);
+        var targets = cfg.Targets.ToList();
+        var i = targets.FindIndex(t => t.IsLienzo && string.Equals(t.Lienzo, lienzo, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(t.Block, block, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) { targets.RemoveAt(i); }
+        else { targets.Add(new Ecorex.Application.Forms.AiComposeTarget(null, lienzo, block)); }
+        return SaveAcCfgAsync(q, cfg with { Targets = targets });
+    }
+
     // ---- Drag and drop ----
 
     private async Task DropOnAsync(Guid? containerId, Node? before)
@@ -1406,7 +1558,7 @@ else
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
-        c.InlineLabels, c.AllowedCargosJson);
+        c.InlineLabels, c.AllowedCargosJson, c.VisibleWhenJson, c.FillFreeWidth);
 
     private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
     {
@@ -1803,6 +1955,7 @@ else
 
     private Task SetVisibleWhenContainerAsync(FormContainerDto c, string? field, string? op, string? value)
         => PatchContainerAsync(c, r => r with { VisibleWhenJson = BuildVisibleWhen(field, op, value) });
+
 
     // Acceso por seccion (ADR-0082): AllowedCargosJson = arreglo JSON de Guids de OrgUnit (Dependencia|Cargo).
     private static List<Guid> ParseUnitIds(string? json)
@@ -2595,6 +2748,31 @@ else
             case FormControlType.TaskDocuments:
                 <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", 16)) Documentos de la tarea (se ven al llenar)</div>
                 break;
+            case FormControlType.AiIntake:
+                <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: imagen/PDF -&gt; propone filas</div>
+                break;
+            case FormControlType.AiCompose:
+                <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: llena campos/bloques desde el formulario</div>
+                break;
+            case FormControlType.LienzoBloques:
+                {
+                    var lzCfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
+                    <div class="fb-prev-lienzo" style="grid-template-columns:repeat(@lzCfg.Columns,minmax(0,1fr));">
+                        @foreach (var blk in lzCfg.Blocks)
+                        {
+                            var blkIco = Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Inner(blk.Icon);
+                            <div class="fb-prev-lb @(blk.Accent == Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary ? "accent" : "")"
+                                 style="grid-column:@blk.Col / span @blk.ColSpan; grid-row:@blk.Row / span @blk.RowSpan;">
+                                @if (blkIco is not null)
+                                {
+                                    <span class="fb-prev-lb-ico">@((MarkupString)$"<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{blkIco}</svg>")</span>
+                                }
+                                <span>@blk.Label</span>
+                            </div>
+                        }
+                    </div>
+                }
+                break;
             default:
                 <div class="fb-prev-input">@ph</div>
                 break;
@@ -2637,7 +2815,8 @@ else
                         FormControlType.Geografia,
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
-                        FormControlType.Button, FormControlType.TaskDocuments
+                        FormControlType.Button, FormControlType.TaskDocuments, FormControlType.AiIntake,
+                        FormControlType.LienzoBloques, FormControlType.AiCompose
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -2704,7 +2883,16 @@ else
         @if (node.IsContainer && node.C!.ContainerType == FormContainerType.Tabs)
         {
             <div class="fb-field">
-                <label>Pestanas</label>
+                <label>Presentacion</label>
+                <select class="fb-select" value="@TabsPresentationOf(node.C)"
+                        @onchange="@(e => SetTabsPresentationAsync(node.C!, e.Value?.ToString() ?? "tabs"))">
+                    <option value="tabs">Pestanas (tabbar)</option>
+                    <option value="wizard">Asistente (wizard paso a paso)</option>
+                </select>
+                <small style="color:var(--ink-3);">En "Asistente" las mismas secciones se recorren paso a paso (stepper + Anterior/Siguiente + validacion por paso).</small>
+            </div>
+            <div class="fb-field">
+                <label>Pasos / pestanas</label>
                 @RenderChipList(TabsOf(node.C), "var(--t-amber)",
                     (i, v) => PatchTabsAsync(node.C!, i, v),
                     i => PatchTabsAsync(node.C!, i, null),
@@ -2762,6 +2950,16 @@ else
                         </div>
                     </div>
                 }
+                @* Layout responsivo: si una seccion HERMANA de su fila se oculta (por salida en el conciliador,
+                   por condicional, etc.), esta seccion crece para ocupar el ancho libre (hasta 12). *@
+                @if (node.IsContainer)
+                {
+                    @RenderToggleRow("Ocupar el ancho libre", "Si una seccion hermana de su fila se oculta, esta crece (hasta 12) para llenar el espacio",
+                        node.C!.FillFreeWidth,
+                        () => PatchContainerAsync(node.C!, r => r with { FillFreeWidth = !node.C!.FillFreeWidth }))
+                }
+                @* Nota: ocultar secciones por modulo (ej. autorizacion-compras-dian) se configura en el CONCILIADOR
+                   (Configuracion -> Salidas, por salida), no aqui, porque depende de la salida/regla que use el form. *@
                 @* Visibilidad condicional de la SECCION por valor de una pregunta (mismo motor que los campos). *@
                 @if (node.IsContainer)
                 {
@@ -2897,6 +3095,200 @@ else
                 </label>
                 <div class="fb-hint">El croquis se guarda como SVG autocontenido (multipagina) y cada pagina imprime en su propia hoja.</div>
             </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.AiIntake })
+        {
+            var ai = AiCfg(node.Q!);
+            var grids = _def!.Questions.Where(x => x.ControlType == FormControlType.GridDetail).OrderBy(x => x.SortOrder).ToList();
+            <div class="fb-field">
+                <label>Agente de IA</label>
+                <select class="fb-select" value="@(ai.AgentId?.ToString() ?? "")" @onchange="@(e => PatchAiCfgAsync(node.Q!, "agentId", e.Value?.ToString()))">
+                    <option value="">-- Elige un agente --</option>
+                    @foreach (var a in _aiAgents)
+                    {
+                        <option value="@a.Id">@a.Name</option>
+                    }
+                </select>
+                <div class="fb-hint">Usa el proveedor/modelo de este agente. Debe ser un agente con Gemini o Claude (leen imagen/PDF).</div>
+            </div>
+            <div class="fb-field">
+                <label>Grilla destino</label>
+                <select class="fb-select" value="@(ai.TargetGrid ?? "")" @onchange="@(e => PatchAiCfgAsync(node.Q!, "target_grid", e.Value?.ToString()))">
+                    <option value="">-- Elige una tabla --</option>
+                    @foreach (var g in grids)
+                    {
+                        <option value="@g.FieldCode">@g.Label (@g.FieldCode)</option>
+                    }
+                </select>
+                @if (grids.Count == 0) { <div class="fb-hint">Agrega una tabla (GridDetail) al formulario para que el asistente la llene.</div> }
+            </div>
+            <div class="fb-field">
+                <label>Instruccion del agente (prompt)</label>
+                <textarea class="fb-input" rows="5" @onchange="@(e => PatchAiCfgAsync(node.Q!, "prompt", e.Value?.ToString()))">@ai.Prompt</textarea>
+                <div class="fb-hint">Que debe extraer y como. El documento del cliente es DATO (se ignoran ordenes embebidas); manda este prompt.</div>
+            </div>
+            <div class="fb-field">
+                <label>Guia de columnas (opcional)</label>
+                <input class="fb-input" value="@ai.ColumnsHint" @onchange="@(e => PatchAiCfgAsync(node.Q!, "columns_hint", e.Value?.ToString()))" placeholder="ej. nombre -> detalle; medidas -> ancho/largo/espesor" />
+            </div>
+            <div class="fb-field">
+                <label>Acepta</label>
+                <select class="fb-select" value="@ai.Accept" @onchange="@(e => PatchAiCfgAsync(node.Q!, "accept", e.Value?.ToString()))">
+                    <option value="image,pdf">Imagen y PDF</option>
+                    <option value="image">Solo imagen</option>
+                    <option value="pdf">Solo PDF</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Modo de escritura</label>
+                <select class="fb-select" value="@ai.Mode" @onchange="@(e => PatchAiCfgAsync(node.Q!, "mode", e.Value?.ToString()))">
+                    <option value="append">Agregar filas</option>
+                    <option value="replace">Reemplazar filas</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Maximo MB por archivo</label>
+                <input class="fb-input" type="number" min="1" max="50" value="@ai.MaxMb" @onchange="@(e => PatchAiCfgAsync(node.Q!, "max_mb", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label>Maximo de filas</label>
+                <input class="fb-input" type="number" min="1" max="500" value="@ai.MaxRows" @onchange="@(e => PatchAiCfgAsync(node.Q!, "max_rows", e.Value?.ToString()))" />
+            </div>
+            <div class="fb-field">
+                <label>Modelo (opcional)</label>
+                <input class="fb-input" value="@ai.Model" @onchange="@(e => PatchAiCfgAsync(node.Q!, "model", e.Value?.ToString()))" placeholder="vacio = el modelo del agente" />
+            </div>
+            <div class="fb-hint">El asistente PROPONE las filas; el usuario confirma (Aplicar) antes de escribir en la tabla. El archivo origen queda adjunto para auditoria.</div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.LienzoBloques })
+        {
+            var lz = LzCfg(node.Q!);
+            var codes = _def!.Questions
+                .Where(x => x.Id != node.Q!.Id && !string.IsNullOrWhiteSpace(x.FieldCode))
+                .OrderBy(x => x.SortOrder).Select(x => x.FieldCode).ToList();
+            <div class="fb-field">
+                <button type="button" class="fb-btn-sm" @onclick="@(() => ApplyLienzoBmcAsync(node.Q!))">Preset Business Model Canvas (9 bloques)</button>
+                <div class="fb-hint">Reemplaza los bloques por el lienzo BMC canonico. Luego edita etiquetas y mapeo abajo.</div>
+            </div>
+            <div class="fb-field">
+                <label>Columnas de la grilla</label>
+                <input class="fb-input" type="number" min="1" max="24" value="@lz.Columns" @onchange="@(e => SetLienzoColumnsAsync(node.Q!, e.Value?.ToString()))" />
+                <div class="fb-hint">Las posiciones (col/fila) y los spans de cada bloque se cuentan sobre estas columnas. BMC usa 10.</div>
+            </div>
+            <div class="fb-field">
+                <label>Bloques (@lz.Blocks.Count)</label>
+                @foreach (var blk in lz.Blocks)
+                {
+                    <div class="fb-lz-block">
+                        <div class="fb-lz-row">
+                            <input class="fb-input" style="flex:1" value="@blk.Label" placeholder="Etiqueta"
+                                   @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "label", e.Value?.ToString()))" />
+                            <button type="button" class="fb-btn-x" title="Quitar bloque" @onclick="@(() => RemoveLienzoBlockAsync(node.Q!, blk.Id))">x</button>
+                        </div>
+                        <div class="fb-lz-grid">
+                            <label>Col<input class="fb-input" type="number" min="1" value="@blk.Col" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "col", e.Value?.ToString()))" /></label>
+                            <label>Fila<input class="fb-input" type="number" min="1" value="@blk.Row" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "row", e.Value?.ToString()))" /></label>
+                            <label>Ancho<input class="fb-input" type="number" min="1" value="@blk.ColSpan" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "colSpan", e.Value?.ToString()))" /></label>
+                            <label>Alto<input class="fb-input" type="number" min="1" value="@blk.RowSpan" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "rowSpan", e.Value?.ToString()))" /></label>
+                        </div>
+                        <div class="fb-lz-row">
+                            <label class="fb-check" style="flex:1">
+                                <input type="checkbox" checked="@(blk.Accent == Ecorex.Application.Forms.LienzoBloquesConfig.AccentPrimary)"
+                                       @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "accent", e.Value?.ToString()))" />
+                                Acento (resaltar)
+                            </label>
+                            <select class="fb-select" style="flex:1" value="@(blk.Icon ?? "")" @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "icon", e.Value?.ToString()))">
+                                <option value="">(sin icono)</option>
+                                @foreach (var ic in Ecorex.SuperAdmin.Components.Shared.Forms.LienzoIcons.Names)
+                                {
+                                    <option value="@ic">@ic</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="fb-lz-src">
+                            <label>Origen (field codes separados por coma, se pre-llena concatenando)</label>
+                            <input class="fb-input" value="@string.Join(", ", blk.Source)"
+                                   @onchange="@(e => PatchLienzoBlockAsync(node.Q!, blk.Id, "source", e.Value?.ToString()))"
+                                   placeholder="ej. socios_texto, alianzas" />
+                        </div>
+                    </div>
+                }
+                <button type="button" class="fb-btn-sm" @onclick="@(() => AddLienzoBlockAsync(node.Q!))">+ Agregar bloque</button>
+                @if (codes.Count > 0)
+                {
+                    <div class="fb-hint">Campos disponibles para Origen: @string.Join(", ", codes)</div>
+                }
+            </div>
+            <div class="fb-hint">El valor capturado es un objeto JSON { bloque: texto } (reportable). Con Origen, cada bloque nace pre-llenado y editable. No es el Canvas (croquis) de la OT.</div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.AiCompose })
+        {
+            var ac = AcCfg(node.Q!);
+            var acFields = _def!.Questions
+                .Where(x => x.Id != node.Q!.Id && Ecorex.Application.Forms.FormFieldValidator.IsCapture(x.ControlType) && !string.IsNullOrWhiteSpace(x.FieldCode))
+                .OrderBy(x => x.SortOrder).ToList();
+            var acLienzos = _def!.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques)
+                .OrderBy(x => x.SortOrder).ToList();
+            <div class="fb-field">
+                <label>Agente de IA</label>
+                <select class="fb-select" value="@(ac.AgentId?.ToString() ?? "")" @onchange="@(e => PatchAcCfgAsync(node.Q!, "agentId", e.Value?.ToString()))">
+                    <option value="">-- Elige un agente --</option>
+                    @foreach (var a in _aiAgents)
+                    {
+                        <option value="@a.Id">@a.Name</option>
+                    }
+                </select>
+                <div class="fb-hint">Reusa proveedor/modelo/prompt base del agente, el cupo del plan y AiUsageLog.</div>
+            </div>
+            <div class="fb-field">
+                <label>Texto del boton</label>
+                <input class="fb-input" value="@ac.ButtonLabel" @onchange="@(e => PatchAcCfgAsync(node.Q!, "buttonLabel", e.Value?.ToString()))" placeholder="@Ecorex.Application.Forms.AiComposeConfig.DefaultButtonLabel" />
+            </div>
+            <div class="fb-field">
+                <label>Instruccion extra (prompt, opcional)</label>
+                <textarea class="fb-input" rows="4" @onchange="@(e => PatchAcCfgAsync(node.Q!, "prompt", e.Value?.ToString()))">@ac.Prompt</textarea>
+                <div class="fb-hint">Se suma al prompt base del agente.</div>
+            </div>
+            <div class="fb-field">
+                <label>Origen (field codes por coma; vacio = todas las respuestas)</label>
+                <input class="fb-input" value="@string.Join(", ", ac.Sources)" @onchange="@(e => PatchAcCfgAsync(node.Q!, "sources", e.Value?.ToString()))" placeholder="vacio = todo el formulario" />
+            </div>
+            <div class="fb-field">
+                <label>Destinos: campos</label>
+                @if (acFields.Count == 0) { <div class="fb-hint">No hay campos simples en el formulario.</div> }
+                @foreach (var f in acFields)
+                {
+                    <label class="fb-check">
+                        <input type="checkbox" checked="@IsAcFieldTarget(ac, f.FieldCode)" @onchange="@(() => ToggleAcFieldTargetAsync(node.Q!, f.FieldCode))" />
+                        @f.Label <span class="fb-hint" style="display:inline">(@f.FieldCode)</span>
+                    </label>
+                }
+            </div>
+            @foreach (var lz in acLienzos)
+            {
+                var lzCfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(lz.OptionsJson);
+                <div class="fb-field">
+                    <label>Destinos: bloques de "@lz.Label"</label>
+                    @foreach (var blk in lzCfg.Blocks)
+                    {
+                        <label class="fb-check">
+                            <input type="checkbox" checked="@IsAcBlockTarget(ac, lz.FieldCode, blk.Id)" @onchange="@(() => ToggleAcBlockTargetAsync(node.Q!, lz.FieldCode, blk.Id))" />
+                            @blk.Label <span class="fb-hint" style="display:inline">(@blk.Id)</span>
+                        </label>
+                    }
+                </div>
+            }
+            <div class="fb-field">
+                <label class="fb-check">
+                    <input type="checkbox" checked="@ac.Confirm" @onchange="@(e => PatchAcCfgAsync(node.Q!, "confirm", e.Value?.ToString()))" />
+                    Mostrar la propuesta y confirmar antes de escribir
+                </label>
+            </div>
+            <div class="fb-field">
+                <label>Modelo (opcional)</label>
+                <input class="fb-input" value="@ac.Model" @onchange="@(e => PatchAcCfgAsync(node.Q!, "model", e.Value?.ToString()))" placeholder="vacio = el modelo del agente" />
+            </div>
+            <div class="fb-hint">El asistente lee las respuestas del formulario y PROPONE los destinos (campos/bloques). El control no guarda valor propio; escribe en los destinos. Respeta cupo/AiUsageLog y multi-tenant.</div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
         {
@@ -3476,6 +3868,7 @@ else
                     <option value="@nameof(FormDefaultDynamic.None)">Ninguno</option>
                     <option value="@nameof(FormDefaultDynamic.Today)">Hoy (fecha)</option>
                     <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
+                    <option value="@nameof(FormDefaultDynamic.AssignedUser)">Usuario asignado a la tarea</option>
                 </select>
             </div>
             @* El formato de mascara (moneda/telefono/...) no aplica a controles de OPCION; para Radio/MultiCheck
@@ -3587,6 +3980,7 @@ else
                     <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
                     <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
                     <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
+                    <option value="@nameof(FormSourceKind.SystemUser)">Usuarios del sistema</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)
@@ -3636,11 +4030,28 @@ else
                     </select>
                 </div>
 
-                <div class="fb-field">
-                    <label>Filtro (JSON opcional)</label>
-                    <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
-                           @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
-                </div>
+                @if (q.SourceKind == FormSourceKind.DataContainer)
+                {
+                    <div class="fb-field">
+                        <label>Filtrar por otro campo (cascada)</label>
+                        @RenderCascadeEditor(q, fields)
+                    </div>
+                }
+                else if (q.SourceKind == FormSourceKind.SystemUser)
+                {
+                    <div class="fb-field">
+                        <label>Usuarios permitidos (vacio = todos)</label>
+                        @RenderSystemUserPicker(q)
+                    </div>
+                }
+                else
+                {
+                    <div class="fb-field">
+                        <label>Filtro (JSON opcional)</label>
+                        <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
+                               @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
+                    </div>
+                }
 
                 <div class="fb-field">
                     <label>Autollenar campos (al elegir, copia)</label>
@@ -3649,6 +4060,181 @@ else
             }
         </div>
     };
+
+    /// <summary>
+    /// Selector de USUARIOS PERMITIDOS para el origen "Usuarios del sistema" (sin JSON): casillas con los
+    /// usuarios del tenant; los marcados forman la lista blanca que guarda <see cref="FormQuestionDto.FilterJson"/>
+    /// como {"users":[..]} (ver <see cref="FormSystemUserFilter"/>). Ninguno marcado = todos (comportamiento
+    /// original). Asi un campo tipo "Aprobador del gasto" ofrece solo los usuarios elegidos.
+    /// </summary>
+    private RenderFragment RenderSystemUserPicker(FormQuestionDto q) => __builder =>
+    {
+        _ = EnsureSystemUsersAsync();
+        var selected = FormSystemUserFilter.Parse(q.FilterJson).UserIds
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        <div class="fb-autofill">
+            @if (_systemUsers.Count == 0)
+            {
+                <div class="fb-hint">Cargando usuarios del sistema...</div>
+            }
+            else
+            {
+                <div class="fb-hint">Marca los usuarios que apareceran en la lista. Si no marcas ninguno, se ofrecen todos.</div>
+                <div class="fb-chkgrid">
+                    @foreach (var u in _systemUsers)
+                    {
+                        <label class="pl-toggle">
+                            <input type="checkbox" checked="@selected.Contains(u.Value)"
+                                   @onchange="@(() => ToggleSystemUserAsync(q, u.Value))" />
+                            @u.Display
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    // Cache de los usuarios del tenant para el selector del disenador (se carga una vez via el lookup).
+    private List<FormLookupItem> _systemUsers = new();
+    private bool _systemUsersLoading;
+
+    private async Task EnsureSystemUsersAsync()
+    {
+        if (_systemUsers.Count > 0 || _systemUsersLoading) { return; }
+        _systemUsersLoading = true;
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                FormSourceKind.SystemUser, "", null, null, null, Array.Empty<string>(), Skip: 0, Take: 200));
+            _systemUsers = page.Items.ToList();
+        }
+        catch (Exception)
+        {
+            _systemUsers = new();
+        }
+        finally
+        {
+            _systemUsersLoading = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleSystemUserAsync(FormQuestionDto q, string userId)
+    {
+        var next = FormSystemUserFilter.Parse(q.FilterJson).Toggle(userId);
+        return PatchQuestionAsync(q, r => r with { FilterJson = next.ToJsonOrNull() });
+    }
+
+    /// <summary>
+    /// Editor de CASCADA (sin JSON): cada fila dice "la columna X de esta tabla = el valor que tenga, en
+    /// el campo padre, su columna Y". El padre es otro campo lista de Contenedor del mismo formulario.
+    /// Escribe <see cref="FormQuestionDto.FilterJson"/> con <see cref="FormLookupFilterSpec"/>.
+    /// </summary>
+    private RenderFragment RenderCascadeEditor(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+
+        // Columnas de ESTA tabla (sin el pseudo-campo "id").
+        var ownCols = fields.Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+        // Campos padre candidatos: otros campos lista de Contenedor con fuente elegida.
+        var parents = _def!.Questions
+            .Where(x => x.Id != q.Id && x.SourceKind == FormSourceKind.DataContainer && !string.IsNullOrWhiteSpace(x.SourceRef))
+            .ToList();
+
+        <div class="fb-autofill">
+            @if (rules.Count == 0)
+            {
+                <div class="fb-hint">Sin filtros. Agrega uno para que esta lista dependa de otro campo (p. ej. SUBCENTROS por el CENTRO elegido).</div>
+            }
+            @for (var i = 0; i < rules.Count; i++)
+            {
+                var idx = i;
+                var rule = rules[idx];
+                var parentQ = parents.FirstOrDefault(x => x.FieldCode == rule.FromField);
+                if (parentQ is not null)
+                {
+                    _ = EnsureLookupMetaAsync(FormSourceKind.DataContainer, parentQ.SourceRef);
+                }
+                var parentCols = parentQ is null
+                    ? new List<FormLookupFieldMeta>()
+                    : LookupFieldsFor(FormSourceKind.DataContainer, parentQ.SourceRef)
+                        .Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                <div class="fb-autofill-row">
+                    <select class="fb-select" value="@rule.Column"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Column = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna de esta tabla...</option>
+                        @foreach (var c in ownCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.Column)">@c.Label</option>
+                        }
+                    </select>
+                    <span class="fb-autofill-arrow">= valor de</span>
+                    <select class="fb-select" value="@rule.FromField"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromField = e.Value?.ToString() ?? "" }))">
+                        <option value="">Campo padre...</option>
+                        @foreach (var p in parents)
+                        {
+                            <option value="@p.FieldCode" selected="@(p.FieldCode == rule.FromField)">@p.Label</option>
+                        }
+                    </select>
+                    <select class="fb-select" value="@rule.FromColumn"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromColumn = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna del padre...</option>
+                        @foreach (var c in parentCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.FromColumn)">@c.Label</option>
+                        }
+                    </select>
+                    <label title="Obliga a elegir primero el campo padre"
+                           style="display:inline-flex;align-items:center;gap:4px;font-size:.8rem;white-space:nowrap;">
+                        <input type="checkbox" checked="@rule.Require"
+                               @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Require = (bool)(e.Value ?? false) }))" />
+                        Obligatorio
+                    </label>
+                    <button type="button" class="fb-autofill-x" title="Quitar filtro"
+                            @onclick="@(() => RemoveCascadeRuleAsync(q, idx))">&times;</button>
+                </div>
+            }
+            <button type="button" class="fb-autofill-add" @onclick="@(() => AddCascadeRuleAsync(q))">+ Agregar filtro</button>
+        </div>
+    };
+
+    private Task AddCascadeRuleAsync(FormQuestionDto q)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        rules.Add(new FormLookupCascade("", "", "", true));
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task RemoveCascadeRuleAsync(FormQuestionDto q, int index)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules.RemoveAt(index); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task UpdateCascadeRuleAsync(FormQuestionDto q, int index, Func<FormLookupCascade, FormLookupCascade> edit)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules[index] = edit(rules[index]); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    /// <summary>Reescribe FilterJson conservando los filtros fijos; null si no queda nada.</summary>
+    private Task SaveCascadeAsync(FormQuestionDto q, FormLookupFilterSpec prev, List<FormLookupCascade> rules)
+    {
+        // Se guardan incluso reglas incompletas (el usuario las completa); el motor ignora las que falten.
+        var cleaned = rules.Count > 0 ? rules : null;
+        var next = new FormLookupFilterSpec(prev.Fixed, cleaned);
+        var json = next.IsEmpty ? null : next.ToJson();
+        return PatchQuestionAsync(q, r => r with { FilterJson = json });
+    }
 
     /// <summary>Editor del mapa de autollenado: filas campoFuente -> campoFormulario (se copia al elegir).</summary>
     private RenderFragment RenderAutofillMap(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
@@ -4103,19 +4689,17 @@ else
 
     private static List<string> TabsOf(FormContainerDto c)
     {
+        // TabsJson admite forma legacy (arreglo) u objeto {tabs,presentation}; el parser unico lo resuelve.
         if (string.IsNullOrWhiteSpace(c.TabsJson))
         {
             return new List<string> { "Pestana 1", "Pestana 2" };
         }
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(c.TabsJson) ?? new List<string>();
-        }
-        catch (JsonException)
-        {
-            return new List<string>();
-        }
+        return Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Tabs.ToList();
     }
+
+    // Presentacion del contenedor Tabs: "tabs" (pestanas) o "wizard" (asistente). Default "tabs".
+    private static string TabsPresentationOf(FormContainerDto c)
+        => Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Presentation;
 
     private async Task PatchTabsAsync(FormContainerDto c, int index, string? value)
     {
@@ -4132,7 +4716,15 @@ else
         {
             tabs[index] = value;
         }
-        await PatchContainerAsync(c, r => r with { TabsJson = JsonSerializer.Serialize(tabs) });
+        // Conserva la presentacion elegida al editar los nombres.
+        var pres = Ecorex.Application.Forms.FormTabsConfig.Parse(c.TabsJson).Presentation;
+        await PatchContainerAsync(c, r => r with { TabsJson = Ecorex.Application.Forms.FormTabsConfig.Serialize(tabs, pres) });
+    }
+
+    private async Task SetTabsPresentationAsync(FormContainerDto c, string presentation)
+    {
+        var tabs = TabsOf(c);
+        await PatchContainerAsync(c, r => r with { TabsJson = Ecorex.Application.Forms.FormTabsConfig.Serialize(tabs, presentation) });
     }
 
     private static List<string> OptionLabels(FormQuestionDto q)

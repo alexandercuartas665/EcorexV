@@ -30,6 +30,13 @@
         <p class="page-sub" style="margin-bottom:0;">Necesidades de compra de varias areas. Filtra, ordena, agrupa y exporta; expande cada compra para ver sus distribuciones.</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
+        @if (_canConfig)
+        {
+            <button class="btn btn-outline-secondary btn-sm" @onclick="OpenConfig" disabled="@_busy" title="Configurar el modulo: trabajar Consolidado (una linea por producto) o Dividido (cada necesidad por separado), y la configuracion avanzada (origenes y proveedores)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Configuracion
+            </button>
+        }
         <button class="btn btn-primary" @onclick="() => OpenAlta()" disabled="@_busy">+ Nueva necesidad</button>
     </div>
 </div>
@@ -236,12 +243,6 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             <span>Campos</span>
         </button>
-
-        @* Configuracion del modulo (estilo Conciliacion DIAN): modo Consolidado/Dividido + enlace a la config avanzada *@
-        <button class="cd-tbtn" @onclick="OpenConfig" title="Configurar el modulo: trabajar Consolidado (una linea por producto) o Dividido (cada necesidad por separado), y la configuracion avanzada (origenes y proveedores)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span>Configuracion</span>
-        </button>
     }
 
     @* Consolidar: una sola linea por producto (suma cantidades/montos); expande para ver las necesidades reales *@
@@ -332,11 +333,7 @@ else
                     else if (it.Kind == GKind.Consol && it.Group is { } grp)
                     {
                         <tr class="req-consol">
-                            <td class="cd-exp-cell">
-                                <button class="req-exp-btn" @onclick="() => ToggleConsol(it.Key!)" title="@(_consolExpanded.Contains(it.Key!) ? "Ocultar las necesidades" : "Ver las necesidades reales")">
-                                    @(_consolExpanded.Contains(it.Key!) ? "▾" : "▸")
-                                </button>
-                            </td>
+                            <td class="cd-exp-cell"></td>
                             @foreach (var col in VisibleCols())
                             {
                                 var c = col;
@@ -937,47 +934,96 @@ else
                 <strong style="font-size:14px;">Planificar grupo: @_pgProducto</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showPlanGrupo = false">&times;</button>
             </div>
-            <div style="padding:14px 18px;">
-                <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Defines proveedor/precio/fecha UNA sola vez y se crea una distribucion por cada necesidad del producto (cada origen queda cubierto y se puede ejecutar). Total a planificar: <strong>@Fmt(_pgTotal)</strong>.</p>
-                <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-                    <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 220px;">
-                        Proveedor (opcional)
-                        <input list="req-grupo-prov-list" class="form-control form-control-sm" value="@_pgProvNombre" @onchange="OnPgProvChanged" placeholder="Escribe o elige un proveedor del Directorio" />
-                    </label>
-                    <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 130px;">
-                        Precio unit.
-                        <input type="number" step="any" class="form-control form-control-sm" @bind="_pgPrecio" />
-                    </label>
-                    <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 160px;">
-                        Fecha programada
-                        <input type="date" class="form-control form-control-sm" @bind="_pgFecha" />
-                    </label>
-                    <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 180px;">
-                        Despacho / nota
-                        <input type="text" class="form-control form-control-sm" @bind="_pgDespacho" />
-                    </label>
-                </div>
-                <div class="cd-grid-wrap">
-                    <table class="cd-grid">
-                        <thead><tr><th>Necesidad (origen)</th><th>Actividad</th><th class="num">Restante</th><th class="num">A planificar</th></tr></thead>
-                        <tbody>
-                            @foreach (var l in _pgLineas)
-                            {
-                                var lin = l;
-                                <tr>
-                                    <td>@(string.IsNullOrWhiteSpace(lin.Origen) ? "(sin origen)" : lin.Origen)</td>
-                                    <td>@(string.IsNullOrWhiteSpace(lin.Actividad) ? "-" : lin.Actividad)</td>
-                                    <td class="num">@Fmt(lin.Restante)</td>
-                                    <td class="num"><input type="number" step="any" style="width:110px;text-align:right;" class="form-control form-control-sm" @bind="lin.Cantidad" /></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-                @if (_pgError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_pgError</div> }
+            @* Pestanas: Detalle de los items agrupados | Planificacion *@
+            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <button class="req-pgtab @(_pgTab == "detalle" ? "on" : "")" @onclick='() => _pgTab = "detalle"'>Detalle (@_pgGrupo.Count)</button>
+                <button class="req-pgtab @(_pgTab == "plan" ? "on" : "")" @onclick='() => _pgTab = "plan"'>Planificacion</button>
             </div>
+
+            @if (_pgTab == "detalle")
+            {
+                <div style="padding:14px 18px;">
+                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Necesidades del MISMO producto que se agruparon en esta linea. Puedes sacar una del grupo con <strong>Dividir</strong> (se planificara aparte).</p>
+                    <div class="cd-grid-wrap">
+                        <table class="cd-grid">
+                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var d in _pgGrupo)
+                                {
+                                    var dr = d;
+                                    <tr>
+                                        <td>@(string.IsNullOrWhiteSpace(dr.OrigenNombre) ? "(sin origen)" : dr.OrigenNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(dr.SolicitanteNombre) ? "-" : dr.SolicitanteNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(dr.SourceTaskNumber) ? "-" : dr.SourceTaskNumber)</td>
+                                        <td class="num">@Fmt(dr.Cantidad)</td>
+                                        <td class="num">@Fmt(dr.CantidadPlanificada)</td>
+                                        <td class="num">@Fmt(dr.Cantidad - dr.CantidadPlanificada)</td>
+                                        <td>@(dr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                        <td>@RequerimientoFilter.EstadoLabel(dr.Estado)</td>
+                                        <td style="white-space:nowrap;">
+                                            @if (_canConfig)
+                                            {
+                                                <button class="btn btn-link btn-sm" @onclick="() => DividirDesdeGrupoAsync(dr)" disabled="@_busy" title="Sacar esta necesidad del grupo: se planificara por separado">Dividir</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div style="padding:14px 18px;">
+                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Defines proveedor/precio/fecha UNA sola vez y se crea una distribucion por cada necesidad del grupo (cada origen queda cubierto y se puede ejecutar). Total a planificar: <strong>@Fmt(_pgTotal)</strong>.</p>
+                    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 220px;">
+                            Proveedor (opcional)
+                            <input list="req-grupo-prov-list" class="form-control form-control-sm" value="@_pgProvNombre" @onchange="OnPgProvChanged" placeholder="Escribe o elige un proveedor del Directorio" />
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 130px;">
+                            Precio unit.
+                            <input type="number" step="any" class="form-control form-control-sm" @bind="_pgPrecio" />
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 160px;">
+                            Fecha programada
+                            <input type="date" class="form-control form-control-sm" @bind="_pgFecha" />
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 180px;">
+                            Despacho / nota
+                            <input type="text" class="form-control form-control-sm" @bind="_pgDespacho" />
+                        </label>
+                    </div>
+                    <div class="cd-grid-wrap">
+                        <table class="cd-grid">
+                            <thead><tr><th>Necesidad (origen)</th><th>Actividad</th><th class="num">Restante</th><th class="num">A planificar</th></tr></thead>
+                            <tbody>
+                                @foreach (var l in _pgLineas)
+                                {
+                                    var lin = l;
+                                    <tr>
+                                        <td>@(string.IsNullOrWhiteSpace(lin.Origen) ? "(sin origen)" : lin.Origen)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(lin.Actividad) ? "-" : lin.Actividad)</td>
+                                        <td class="num">@Fmt(lin.Restante)</td>
+                                        <td class="num"><input type="number" step="any" style="width:110px;text-align:right;" class="form-control form-control-sm" @bind="lin.Cantidad" /></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (_pgError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_pgError</div> }
+                </div>
+            }
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                <button class="btn btn-primary btn-sm" @onclick="GuardarPlanGrupoAsync" disabled="@_busy">Planificar grupo</button>
+                @if (_pgTab == "detalle")
+                {
+                    <button class="btn btn-primary btn-sm" @onclick='() => _pgTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanGrupoAsync" disabled="@_busy">Planificar grupo</button>
+                }
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlanGrupo = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
@@ -1204,6 +1250,11 @@ else
     private string _pgDespacho = "";
     private string? _pgError;
     private List<PgLinea> _pgLineas = new();
+    // Pestana activa del modal: "detalle" (items agrupados) o "plan" (planificacion).
+    private string _pgTab = "detalle";
+    // Clave de consolidacion del grupo abierto + las necesidades (DTO) para la pestana Detalle.
+    private string _pgKey = "";
+    private List<RequerimientoDto> _pgGrupo = new();
     private sealed class PgLinea
     {
         public Guid ReqId;
@@ -1555,7 +1606,9 @@ else
                     else
                     {
                         outl.Add(new GridItem { Kind = GKind.Consol, Key = pg.Key, Group = glist, Count = glist.Count, Sums = SumsOf(glist) });
-                        if (expandChildren || _consolExpanded.Contains(pg.Key))
+                        // En la vista NO se pintan los miembros del grupo (van en el modal "Planificar grupo",
+                        // pestana Detalle). Solo el export (expandChildren=true) los incluye para no perder datos.
+                        if (expandChildren)
                         {
                             foreach (var r in glist) { EmitData(r, outl, expandChildren); }
                         }
@@ -2355,7 +2408,17 @@ else
     {
         _pgError = null;
         _pgProducto = grp[0].ItemNombre ?? grp[0].Descripcion ?? "";
+        _pgKey = ConsolKey(grp[0]);
         _pgProvNombre = ""; _pgProv = ""; _pgPrecio = 0; _pgFecha = null; _pgDespacho = "";
+        BuildPgFrom(grp);
+        _pgTab = "detalle";
+        _showPlanGrupo = true;
+    }
+
+    // (Re)construye las lineas de planificacion y el total a partir de las necesidades del grupo.
+    private void BuildPgFrom(List<RequerimientoDto> grp)
+    {
+        _pgGrupo = grp;
         _pgLineas = grp.Select(r =>
         {
             var rest = r.Cantidad - r.CantidadPlanificada;
@@ -2369,7 +2432,22 @@ else
             };
         }).ToList();
         _pgTotal = _pgLineas.Sum(l => l.Restante > 0 ? l.Restante : 0);
-        _showPlanGrupo = true;
+    }
+
+    // Saca una necesidad del grupo (ForzarDividir) desde la pestana Detalle; recalcula el grupo restante.
+    private async Task DividirDesdeGrupoAsync(RequerimientoDto r)
+    {
+        _busy = true;
+        try
+        {
+            await Svc.SetForzarDividirAsync(r.Id, true);
+            await ReloadAsync();
+            var rem = _rows.Where(x => !x.ForzarDividir && ConsolKey(x) == _pgKey).ToList();
+            if (rem.Count >= 2) { BuildPgFrom(rem); }
+            else { _showPlanGrupo = false; _msg = $"'{r.ItemNombre ?? r.Descripcion}' se dividio: se planifica aparte."; }
+        }
+        catch (Exception ex) { _pgError = ex.Message; }
+        finally { _busy = false; }
     }
 
     private void OnPgProvChanged(ChangeEventArgs e)

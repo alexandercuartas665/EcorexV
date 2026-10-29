@@ -105,7 +105,8 @@ public sealed class RulesEngine : IRulesEngine
                 : new Dictionary<string, string?>(invocation.FormData, StringComparer.Ordinal),
             ExecutedByTenantUserId = invocation.ExecutedByTenantUserId,
             ActorUserId = invocation.ActorUserId,
-            ActorName = invocation.ActorName
+            ActorName = invocation.ActorName,
+            Confirmed = invocation.Confirmed
         };
 
         var stopwatch = Stopwatch.StartNew();
@@ -138,6 +139,7 @@ public sealed class RulesEngine : IRulesEngine
         Guid formQuestionId, IReadOnlyDictionary<string, string?> formData,
         Guid? formResponseId = null, Guid? executedByTenantUserId = null,
         Guid? actorUserId = null, string actorName = "Sistema",
+        bool confirmed = false,
         CancellationToken cancellationToken = default)
     {
         var ruleRows = await _db.FormFieldRules
@@ -161,7 +163,8 @@ public sealed class RulesEngine : IRulesEngine
                 FormResponseId: formResponseId,
                 ExecutedByTenantUserId: executedByTenantUserId,
                 ActorUserId: actorUserId, ActorName: actorName,
-                ParamsOverrideJson: row.ParamsOverrideJson), cancellationToken);
+                ParamsOverrideJson: row.ParamsOverrideJson,
+                Confirmed: confirmed), cancellationToken);
             if (result.Value is not RuleExecutionOutcome outcome)
             {
                 continue;

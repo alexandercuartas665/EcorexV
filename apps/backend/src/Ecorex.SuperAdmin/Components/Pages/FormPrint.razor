@@ -5,10 +5,12 @@
 @using Ecorex.Application.Forms.Calc
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
 @using Microsoft.JSInterop
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
 @inject IFormLookupService LookupSvc
+@inject IFormTokenService TokensSvc
 @inject IJSRuntime JS
 
 @* Impresion basica de un registro (ola F6, doc 01 D8 - version basica sin object storage/PDF de
@@ -117,7 +119,7 @@
         {
             @if (node.SectionTitle is not null)
             {
-                <div class="fpr-section">@node.SectionTitle</div>
+                <div class="fpr-section">@(node.SectionNumber is int n ? $"{n}. {node.SectionTitle}" : node.SectionTitle)</div>
             }
             else if (node.Question is FormQuestionDto q)
             {
@@ -146,6 +148,10 @@
 @code {
     [Parameter] public Guid ResponseId { get; set; }
 
+    /// <summary>Token publico del visor /f/{token} (si se imprime desde la superficie anonima): fija el tenant por
+    /// ambiente para que el registro, de otro modo tenant-scoped, sea visible sin sesion. Opcional.</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
     private readonly Dictionary<string, string> _lookupDisplay = new(StringComparer.Ordinal);
@@ -155,20 +161,51 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Superficie anonima /f/: sin sesion el HasQueryFilter ocultaria el registro. Si viene un token valido lo
+        // validamos (UNICO punto cross-tenant) y fijamos su tenant como ambiente alrededor de las lecturas. El token
+        // ya acota a UNA definicion: solo imprimimos si el registro pertenece a esa definicion.
+        if (!string.IsNullOrWhiteSpace(Token))
+        {
+            var v = await TokensSvc.ValidateAsync(Token);
+            if (v is { IsValid: true, TenantId: Guid tenantId, DefinitionId: Guid tokenDefId })
+            {
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    await LoadAsync(tokenDefId);
+                }
+            }
+        }
+        else
+        {
+            await LoadAsync(null);
+        }
+        _loading = false;
+    }
+
+    private async Task LoadAsync(Guid? tokenDefinitionId)
+    {
         _response = await ResponsesSvc.GetAsync(ResponseId);
+        // Con token: el registro debe ser de la definicion del token (no imprimir un registro de otra).
+        if (_response is not null && tokenDefinitionId is Guid defId && _response.DefinitionId != defId)
+        {
+            _response = null;
+            return;
+        }
         if (_response is not null)
         {
             _definition = await DefinitionsSvc.GetAsync(_response.DefinitionId);
             _hasLienzo = _definition?.Questions.Any(x => x.ControlType == FormControlType.LienzoBloques) ?? false;
             await ResolveLookupDisplaysAsync();
         }
-        _loading = false;
     }
 
     private async Task OpenLienzoPrintAsync()
     {
         // Abre la vista dedicada del lienzo (una pagina apaisada con la grilla) en una pestana nueva.
-        try { await JS.InvokeVoidAsync("open", $"/formularios/imprimir-lienzo/{ResponseId}", "_blank"); }
+        // Si llegamos por token (superficie anonima), lo reenviamos para que FormPrintLienzo resuelva el tenant.
+        var url = $"/formularios/imprimir-lienzo/{ResponseId}";
+        if (!string.IsNullOrWhiteSpace(Token)) { url += $"?token={Uri.EscapeDataString(Token)}"; }
+        try { await JS.InvokeVoidAsync("open", url, "_blank"); }
         catch (JSException) { }
     }
 
@@ -196,24 +233,34 @@
         catch (JSException) { }
     }
 
-    private sealed record PrintNode(string? SectionTitle, FormQuestionDto? Question);
+    private sealed record PrintNode(string? SectionTitle, FormQuestionDto? Question, int? SectionNumber = null);
 
     private IEnumerable<PrintNode> OrderedNodes()
     {
-        // Recorre contenedores en orden de arbol y sus preguntas por SortOrder, luego las raiz;
-        // asi el documento respeta la estructura del formulario (secciones + campos).
+        // Recorre contenedores en orden de arbol y sus preguntas por SortOrder, luego las raiz; asi el documento
+        // respeta la estructura del formulario (secciones + campos). Las SECCIONES-PASO se numeran 1..N en el orden
+        // del formulario (por SortOrder), igual que los pasos del asistente (wizard). Un contenedor es "paso" si
+        // cuelga de un contenedor Tabs (sus hijos son los pasos/pestanas) o si es de NIVEL SUPERIOR y NO es un Tabs
+        // (formulario plano sin envoltorio de pestanas). La cabecera (el propio contenedor Tabs) y las sub-secciones
+        // anidadas dentro de un paso NO se numeran.
         var result = new List<PrintNode>();
+        var byId = _definition!.Containers.ToDictionary(c => c.Id);
+        bool IsTabs(Guid id) => byId.TryGetValue(id, out var c) && c.ContainerType == FormContainerType.Tabs;
+        var stepNo = 0;
         void Walk(Guid? containerId)
         {
             foreach (var q in _definition!.Questions.Where(x => x.ContainerId == containerId).OrderBy(x => x.SortOrder))
             {
                 result.Add(new PrintNode(null, q));
             }
+            var parentIsTabs = containerId is Guid pid && IsTabs(pid);
             foreach (var c in _definition!.Containers.Where(x => x.ParentId == containerId).OrderBy(x => x.SortOrder))
             {
+                var isStep = parentIsTabs || (containerId is null && c.ContainerType != FormContainerType.Tabs);
+                int? number = isStep ? ++stepNo : (int?)null;
                 if (!string.IsNullOrWhiteSpace(c.Name))
                 {
-                    result.Add(new PrintNode(c.Name, null));
+                    result.Add(new PrintNode(c.Name, null, number));
                 }
                 Walk(c.Id);
             }

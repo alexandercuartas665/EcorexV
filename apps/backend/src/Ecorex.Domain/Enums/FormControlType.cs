@@ -140,5 +140,15 @@ public enum FormControlType
     /// targets, buttonLabel, confirm, model. No captura valor por si mismo (escribe en los targets). Al FINAL del
     /// enum para preservar los ordinales.
     /// </summary>
-    AiCompose
+    AiCompose,
+
+    /// <summary>
+    /// BOTON DE ACCION (self-serve): boton colocable en cualquier parte del formulario cuya accion se configura
+    /// 100% desde el disenador (sin regla de catalogo, a diferencia de <see cref="Button"/>). Config en OptionsJson
+    /// (<c>ActionButtonConfig</c>): action (p.ej. "print-lienzo"), targetField (field_code del LienzoBloques a
+    /// imprimir, opcional -> el primero del formulario) y label. Al hacer clic abre la vista FormPrintLienzo del
+    /// lienzo elegido en una pestana nueva (guarda el borrador antes). No captura valor. Al FINAL del enum para
+    /// preservar los ordinales.
+    /// </summary>
+    ActionButton
 }

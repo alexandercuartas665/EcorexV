@@ -294,7 +294,8 @@ public partial class TerceroModal
     // ---- Crear / editar ----
     /// <summary>Abre el modal en modo "crear tercero". Con <paramref name="preselectPerfil"/> nace con esa
     /// pildora de perfil ya activada y su(s) ficha(s) abiertas (p.ej. al crear desde el filtro "Clientes").</summary>
-    public async Task OpenCreate(TerceroPerfil preselectPerfil = TerceroPerfil.Ninguno, string? nombre = null)
+    public async Task OpenCreate(TerceroPerfil preselectPerfil = TerceroPerfil.Ninguno, string? nombre = null,
+        string? email = null, string? telefono = null, string? documento = null)
     {
         await EnsureReadyAsync();
         _editingId = null;
@@ -318,6 +319,11 @@ public partial class TerceroModal
         _mImagenUrl = "";
         // Prefill del nombre (p.ej. lo que el operador escribio en el autocompletar antes de "Crear tercero").
         if (!string.IsNullOrWhiteSpace(nombre)) { _mNombre = nombre.Trim(); }
+        // Prefill opcional de correo/telefono/documento (p.ej. al crear el Tercero desde "Editar contacto"
+        // de una tarea con datos de contacto de texto libre, para no perderlos).
+        if (!string.IsNullOrWhiteSpace(email)) { _mEmail = email.Trim(); }
+        if (!string.IsNullOrWhiteSpace(telefono)) { _mTelefono = telefono.Trim(); }
+        if (!string.IsNullOrWhiteSpace(documento)) { _mIdValor = documento.Trim(); }
         _mVendedorAsesorId = null;
         _ciudadQuery = "";
         _ciudadOpen = false;

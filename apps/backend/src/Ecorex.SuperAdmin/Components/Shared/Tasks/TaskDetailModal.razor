@@ -1518,43 +1518,12 @@
     </div>
 }
 
-@* ===== Recapturar datos de contacto del cliente (nombre/correo/telefono/identificacion). Reusa
-       UpdateAsync (concurrencia optimista); util cuando un dato se capturo mal (ej. el telefono). ===== *@
-@if (_editingContact)
-{
-    <div class="modal-overlay" style="z-index:62;overscroll-behavior:contain" @onmousedown="@(() => { if (!_busy) { _editingContact = false; } })">
-        <div class="modal-dialog" style="max-width:420px;" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
-            <div class="modal-head">
-                <h3>Datos de contacto</h3>
-                <button class="modal-close" @onclick="@(() => _editingContact = false)">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="display:flex;flex-direction:column;gap:12px;">
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <span style="font-size:.82rem;font-weight:600;">Nombre de contacto</span>
-                        <input class="form-control" @bind="_editContactName" maxlength="200" placeholder="Nombre del cliente / contacto" />
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <span style="font-size:.82rem;font-weight:600;">Correo</span>
-                        <input class="form-control" type="email" @bind="_editContactEmail" maxlength="256" placeholder="correo@@ejemplo.com" />
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <span style="font-size:.82rem;font-weight:600;">Telefono</span>
-                        <input class="form-control" @bind="_editContactPhone" maxlength="200" placeholder="Numero de contacto" />
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        <span style="font-size:.82rem;font-weight:600;">Identificacion / NIT</span>
-                        <input class="form-control" @bind="_editContactDoc" maxlength="60" placeholder="Documento o NIT" />
-                    </div>
-                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
-                        <button class="btn btn-outline-secondary" @onclick="@(() => _editingContact = false)" disabled="@_busy">Cancelar</button>
-                        <button class="btn btn-primary" @onclick="SaveContactAsync" disabled="@_busy">Guardar</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-}
+@* ===== Editar el contacto de la tarea como registro del Directorio (000232): reemplaza al mini-editor
+       de 4 campos. "Editar contacto" abre este TerceroModal en EDITAR (si la tarea ya tiene Tercero
+       enlazado) o en CREAR prellenado (texto libre), y al guardar se enlaza y se sincronizan los datos. ===== *@
+<TerceroModal @ref="_terceroModal"
+              OnCreated="OnContactTerceroCreatedAsync"
+              OnChanged="OnContactTerceroChangedAsync" />
 
 @* ===== Menu del nodo del diagrama, como popover FIJO a nivel raiz (no lo recorta el scroller ni lo
        descoloca el zoom del canvas). Se ancla a la posicion en pantalla del boton del nodo. ===== *@
@@ -1833,12 +1802,8 @@
     }
     private DateTime? _editDue;
     private DateTime? _editStart;
-    // Recaptura de datos de contacto (modal): nombre/correo/telefono/identificacion de la tarea.
-    private bool _editingContact;
-    private string _editContactName = "";
-    private string _editContactEmail = "";
-    private string _editContactPhone = "";
-    private string _editContactDoc = "";
+    // "Editar contacto" abre el TerceroModal (crear/editar del Directorio) en vez del viejo mini-editor.
+    private TerceroModal? _terceroModal;
     private bool _confirmClose;
     private bool _confirmArchive;
     private string? _copyNotice;
@@ -1969,7 +1934,7 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
         _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
-        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = _editingContact = false;
+        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
         _conflict = _actionError = _workLogError = _attError = _moveNote = null;
         _openMenu = null;
         _timerRunning = false;
@@ -3377,27 +3342,69 @@
         await ApplyUpdateAsync(BuildUpdate(description: string.IsNullOrWhiteSpace(_editDesc) ? "" : _editDesc));
     }
 
-    // Abre el modal de recaptura con los valores actuales del contacto.
-    private void OpenContactEditor()
+    // "Editar contacto": abre el TerceroModal para gestionar el contacto como registro del Directorio.
+    // Si la tarea ya tiene un Tercero enlazado lo abre en EDITAR; si el contacto es de texto libre, abre
+    // CREAR prellenado con los datos actuales y, al guardar, se crea el Tercero y se enlaza a la tarea.
+    private async Task OpenContactEditor()
     {
-        if (_detail is null) { return; }
-        _editContactName = _detail.RequesterName ?? "";
-        _editContactEmail = _detail.RequesterEmail ?? "";
-        _editContactPhone = _detail.RequesterPhone ?? "";
-        _editContactDoc = _detail.RequesterDocument ?? "";
-        _editingContact = true;
+        if (_detail is null || _terceroModal is null) { return; }
+        if (_detail.TerceroId is Guid terceroId)
+        {
+            await _terceroModal.OpenEditAsync(terceroId);
+        }
+        else
+        {
+            await _terceroModal.OpenCreate(
+                nombre: _detail.RequesterName,
+                email: _detail.RequesterEmail,
+                telefono: _detail.RequesterPhone,
+                documento: _detail.RequesterDocument);
+        }
     }
 
-    // Guarda los 4 datos del contacto de una (nombre/correo/telefono/identificacion). Se pasan SIEMPRE
-    // los valores del formulario (aunque vayan vacios: recapturar permite limpiar un dato mal puesto).
-    private async Task SaveContactAsync()
+    // El TerceroModal creo un contacto nuevo (OnCreated): se enlaza a la tarea y se sincronizan sus datos.
+    private async Task OnContactTerceroCreatedAsync(Guid terceroId)
+        => await LinkContactTerceroAsync(terceroId);
+
+    // El TerceroModal guardo cambios (OnChanged) sobre el Tercero YA enlazado: se re-sincronizan los
+    // 4 datos del contacto de la tarea desde el Tercero. Si la tarea aun no tiene Tercero, se ignora.
+    private async Task OnContactTerceroChangedAsync()
     {
-        _editingContact = false;
-        await ApplyUpdateAsync(BuildUpdate(
-            requesterName: _editContactName.Trim(),
-            requesterEmail: _editContactEmail.Trim(),
-            requesterPhone: _editContactPhone.Trim(),
-            requesterDocument: _editContactDoc.Trim()));
+        if (_detail?.TerceroId is Guid terceroId)
+        {
+            await LinkContactTerceroAsync(terceroId);
+        }
+    }
+
+    // Enlaza el Tercero a la tarea y vuelca sus datos a los 4 campos de contacto (nombre/correo/telefono/
+    // identificacion). Reusa el patron de ApplyUpdateAsync: conflicto -> recarga; ok -> notifica el cambio.
+    private async Task LinkContactTerceroAsync(Guid terceroId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = await TasksSvc.SetContactTerceroAsync(taskId, terceroId, await ActorAsync(), await ActorNameAsync());
+            if (result.Status == TaskCoreStatus.Conflict)
+            {
+                _conflict = result.Error;
+                await ReloadAsync(taskId);
+                return;
+            }
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                await ReloadAsync(taskId);
+                return;
+            }
+            _detail = result.Value;
+            await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task SavePriorityAsync(TaskPriority priority)

@@ -255,6 +255,7 @@
                                                        InputStyle="@InStyle"
                                                        Placeholder="Nombre completo del solicitante" />
                                     </div>
+                                    @if (_errors.TryGetValue("requesterName", out var reqNameErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@reqNameErr</div> }
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
                                         <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" maxlength="40" />
                                         <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" maxlength="256" />
@@ -1325,6 +1326,13 @@
         else if (step == 2)
         {
             if (!string.IsNullOrWhiteSpace(_requesterEmail) && !TaskUi.IsValidEmail(_requesterEmail)) { _errors["email"] = "El email no tiene un formato valido."; }
+            // Si se captura un TELEFONO de contacto, el NOMBRE es obligatorio: una plantilla de WhatsApp con el
+            // nombre vacio ({{1}}) la descarta Meta en silencio (YCloud responde "accepted" y luego "failed" sin
+            // codigo, el mensaje no llega). Se exige el nombre aqui para no crear tareas que no podran notificar.
+            if (!string.IsNullOrWhiteSpace(_requesterPhone) && string.IsNullOrWhiteSpace(_requesterName))
+            {
+                _errors["requesterName"] = "Si capturas un telefono de contacto, el nombre del contacto es obligatorio (sin el, la notificacion de WhatsApp no llega).";
+            }
             if (!string.IsNullOrWhiteSpace(_ccInput)) { _errors["cc"] = "Presiona Enter para agregar el correo CC (o borra el texto)."; }
         }
         return _errors.Count == 0;

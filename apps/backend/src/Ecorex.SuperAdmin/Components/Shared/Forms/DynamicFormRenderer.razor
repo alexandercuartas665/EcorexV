@@ -123,6 +123,25 @@ else
             <div class="dfr-alert" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46;">@_infoMessage</div>
         }
 
+        @if (_confirmOpen)
+        {
+            <div class="dfr-aimodal-back" @onclick="CancelRuleConfirm">
+                <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true" style="max-width:460px;">
+                    <div class="dfr-aimodal-head">
+                        <div class="dfr-aimodal-title">Confirmar</div>
+                        <button type="button" class="dfr-aimodal-x" @onclick="CancelRuleConfirm" aria-label="Cerrar">&times;</button>
+                    </div>
+                    <div class="dfr-aimodal-body"><p style="margin:0;">@_confirmMessage</p></div>
+                    <div class="dfr-aimodal-foot">
+                        <div class="dfr-aimodal-btns">
+                            <button type="button" class="btn btn-sm" @onclick="CancelRuleConfirm">Cancelar</button>
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="ConfirmRuleAsync" disabled="@IsLocked">Confirmar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
         @{ var rootQuestions = QuestionsOf(null); }
         @if (rootQuestions.Count > 0)
         {
@@ -372,6 +391,13 @@ else
     /// publico /f/{token}: el tenant viene del token validado, no de la sesion.
     /// </summary>
     [Parameter] public Guid? AmbientTenantId { get; set; }
+    /// <summary>
+    /// Token publico del visor /f/{token} (si el formulario se esta llenando anonimamente). Lo usa el control
+    /// "Boton de accion" (ActionButton) para que la vista de impresion del lienzo (FormPrintLienzo) resuelva el
+    /// tenant por el MISMO token (si no, FormPrintLienzo es tenant-scoped y el anonimo veria "no disponible").
+    /// Null en los modos con sesion (tarea, disenador).
+    /// </summary>
+    [Parameter] public string? PublicToken { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
 
     /// <summary>Una regla de boton (CONVERTIR_A_FORMULARIO, ADR-0078) creo OTRO registro y pide abrirlo:
@@ -485,6 +511,11 @@ else
     private bool _busy;
     private bool _dirty;
     private string? _globalError;
+
+    // Modal de confirmacion de regla (RuleAction.Confirm): el boton que lo abrio + el mensaje a mostrar.
+    private bool _confirmOpen;
+    private string? _confirmMessage;
+    private FormQuestionDto? _confirmQuestion;
     private string? _infoMessage;   // mensaje de exito/resultado de una regla disparada por boton
     private DateTimeOffset? _lastSavedAt;
     private System.Threading.Timer? _autosaveTimer;
@@ -1064,6 +1095,9 @@ else
                             <span class="dfr-formbtn-note">Vincula una regla (ej. IMPRIMIR_PLANTILLA) a este boton en el disenador.</span>
                         }
                     </div>
+                    break;
+                case FormControlType.ActionButton:
+                    @RenderActionButton(q)
                     break;
                 default:
                     <label class="form-label dfr-label" title="@q.HelpText">
@@ -2110,6 +2144,104 @@ else
     }
 
     private void DiscardAiCompose(FormQuestionDto q) => _aiComposeResult.Remove(q.FieldCode);
+
+    // ---- Boton de accion self-serve (ActionButton) ----
+    private readonly HashSet<string> _actionBusy = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _actionError = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Resuelve el LienzoBloques destino del boton: el de TargetField si se configuro, si no el
+    /// primer LienzoBloques del formulario. Null si el formulario no tiene ningun lienzo.</summary>
+    private FormQuestionDto? ResolveLienzoTarget(Ecorex.Application.Forms.ActionButtonConfig cfg)
+    {
+        if (_definition is null) { return null; }
+        if (!string.IsNullOrWhiteSpace(cfg.TargetField))
+        {
+            var byCode = _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques
+                && string.Equals(x.FieldCode, cfg.TargetField, StringComparison.OrdinalIgnoreCase));
+            if (byCode is not null) { return byCode; }
+        }
+        return _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques);
+    }
+
+    private RenderFragment RenderActionButton(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+        var busy = _actionBusy.Contains(q.FieldCode);
+        var err = _actionError.GetValueOrDefault(q.FieldCode);
+        var isPrintForm = string.Equals(cfg.Action, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+        // print-lienzo exige un lienzo en el formulario; print-form imprime el registro completo (sin lienzo).
+        var lienzo = isPrintForm ? null : ResolveLienzoTarget(cfg);
+        var needsLienzo = !isPrintForm && lienzo is null;
+        var defLabel = isPrintForm
+            ? Ecorex.Application.Forms.ActionButtonConfig.DefaultFormLabel
+            : Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel;
+        var label = string.IsNullOrWhiteSpace(cfg.Label) ? defLabel : cfg.Label;
+
+        <div class="dfr-formbtn-wrap">
+            <button type="button" class="dfr-formbtn"
+                    disabled="@(busy || Mode != FormRenderMode.Fill || needsLienzo)"
+                    @onclick="@(() => OnActionButtonClickAsync(q))">
+                @if (busy)
+                {
+                    <span class="dfr-spinner dfr-spinner-sm" role="status" aria-label="Abriendo"></span>
+                    <span>Abriendo...</span>
+                }
+                else
+                {
+                    <span>&#128424; @label</span>
+                }
+            </button>
+            @if (!string.IsNullOrWhiteSpace(q.HelpText)) { <span class="dfr-formbtn-note">@q.HelpText</span> }
+            @if (Mode != FormRenderMode.Fill)
+            {
+                <span class="dfr-formbtn-note">Vista previa: activo al llenar el formulario.</span>
+            }
+            else if (needsLienzo)
+            {
+                <span class="dfr-formbtn-note">Agrega un control "Lienzo de bloques" al formulario para poder imprimirlo.</span>
+            }
+            @if (err is not null) { <span class="dfr-formbtn-note" style="color:var(--danger,#b91c1c);">@err</span> }
+        </div>
+    };
+
+    private async Task OnActionButtonClickAsync(FormQuestionDto q)
+    {
+        if (_definition is null || Mode != FormRenderMode.Fill) { return; }
+        var cfg = Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+        _actionError.Remove(q.FieldCode);
+        if (!_actionBusy.Add(q.FieldCode)) { return; }
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // Las vistas de impresion leen el FormResponse PERSISTIDO por Id: hay que VOLCAR el borrador antes
+            // (mismo gotcha que OnAiComposeClickAsync: en wizard + HideSubmitChrome el autosave esta apagado).
+            await FlushDraftAsync();
+            if (_response is null) { _actionError[q.FieldCode] = "Guarda el registro antes de imprimir."; return; }
+
+            var isPrintForm = string.Equals(cfg.Action, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+            string url;
+            if (isPrintForm)
+            {
+                // Documento completo del registro (FormPrint).
+                url = $"/formularios/imprimir/{_response.Id}";
+            }
+            else
+            {
+                var lienzo = ResolveLienzoTarget(cfg);
+                if (lienzo is null) { _actionError[q.FieldCode] = "El formulario no tiene ningun lienzo para imprimir."; return; }
+                url = $"/formularios/imprimir-lienzo/{_response.Id}?field={Uri.EscapeDataString(lienzo.FieldCode)}";
+            }
+            // Superficie publica /f/{token}: las vistas de impresion son tenant-scoped, asi que les pasamos el MISMO
+            // token para que resuelvan el tenant por ambiente (sin esto el anonimo veria "no esta disponible").
+            if (!string.IsNullOrWhiteSpace(PublicToken))
+            {
+                url += (url.Contains('?') ? "&" : "?") + $"token={Uri.EscapeDataString(PublicToken)}";
+            }
+            await JS.InvokeVoidAsync("open", url, "_blank");
+        }
+        catch (Exception ex) { _actionError[q.FieldCode] = $"No se pudo abrir la impresion: {ex.Message}"; }
+        finally { _actionBusy.Remove(q.FieldCode); await InvokeAsync(StateHasChanged); }
+    }
 
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
     {
@@ -5046,18 +5178,22 @@ else
     /// devuelve IMPRIMIR_PLANTILLA, abre el flujo de impresion. La accion del boton ya no vive en
     /// options_json: es una regla del catalogo (el mismo enlazador que usan los campos).
     /// </summary>
-    private async Task OnButtonClickAsync(FormQuestionDto q)
+    private async Task OnButtonClickAsync(FormQuestionDto q, bool confirmed = false)
     {
         if (Mode != FormRenderMode.Fill || IsLocked || _response is null) { return; }
         if (!_ruleTriggerFields.Contains(q.FieldCode)) { return; }
 
         // Confirmacion opcional del boton (options_json {"confirm":"mensaje"}): si esta definida, pide
         // OK/Cancelar antes de disparar la regla. Reusa el confirm nativo (igual que el borrado de fila).
-        var confirmMsg = ButtonConfirmMessage(q.OptionsJson);
-        if (!string.IsNullOrWhiteSpace(confirmMsg)
-            && !await JS.InvokeAsync<bool>("confirm", confirmMsg))
+        // En la RE-EJECUCION tras el modal de confirmacion de regla (confirmed=true) no se vuelve a preguntar.
+        if (!confirmed)
         {
-            return;
+            var confirmMsg = ButtonConfirmMessage(q.OptionsJson);
+            if (!string.IsNullOrWhiteSpace(confirmMsg)
+                && !await JS.InvokeAsync<bool>("confirm", confirmMsg))
+            {
+                return;
+            }
         }
 
         // Persiste el borrador ANTES de correr las reglas del boton: algunos verbos leen el formulario YA
@@ -5072,11 +5208,27 @@ else
         {
             using var ambient = BeginAmbient();
             outcome = await RulesDispatcher.OnFieldChangedAsync(
-                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId, confirmed: confirmed);
         }
         finally
         {
             _dbGate.Release();
+        }
+
+        // Confirmacion de regla (RuleAction.Confirm): un verbo pide OK antes de una accion destructiva
+        // (p. ej. devolver el documento al conciliador). Si no se confirmo aun, abre el modal y NO aplica
+        // ningun efecto (el verbo no toco nada); al confirmar, el host RE-EJECUTA este boton con confirmed=true.
+        if (!confirmed)
+        {
+            var confirmAction = outcome.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.Confirm);
+            if (confirmAction is not null)
+            {
+                _confirmQuestion = q;
+                _confirmMessage = string.IsNullOrWhiteSpace(confirmAction.Value)
+                    ? "Confirmas esta accion?" : confirmAction.Value!;
+                _confirmOpen = true;
+                return;
+            }
         }
 
         // Resultado al usuario: si alguna regla fallo lo muestro como error; si no, junto los mensajes de exito.
@@ -5101,7 +5253,7 @@ else
             _dirty = true;
             foreach (var fieldCode in outcome.Actions
                 .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm
-                    && a.Kind != RuleActionKind.StepCompleted)
+                    && a.Kind != RuleActionKind.StepCompleted && a.Kind != RuleActionKind.Confirm)
                 .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
             {
                 var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
@@ -5144,6 +5296,25 @@ else
                 await OnOpenFormRequested.InvokeAsync(openId);
             }
         }
+    }
+
+    /// <summary>El usuario acepto el modal de confirmacion de regla: re-ejecuta el MISMO boton con confirmed=true
+    /// para que el verbo (p. ej. DEVOLVER_CONCILIADOR) ejecute ahora si el efecto.</summary>
+    private async Task ConfirmRuleAsync()
+    {
+        var q = _confirmQuestion;
+        _confirmOpen = false;
+        _confirmMessage = null;
+        _confirmQuestion = null;
+        if (q is not null) { await OnButtonClickAsync(q, confirmed: true); }
+    }
+
+    /// <summary>El usuario cancelo el modal de confirmacion: no se hace nada (el verbo no toco estado).</summary>
+    private void CancelRuleConfirm()
+    {
+        _confirmOpen = false;
+        _confirmMessage = null;
+        _confirmQuestion = null;
     }
 
     /// <summary>ADR-0078: reabre el registro DERIVADO (Orden de Trabajo) de esta respuesta ya convertida. No

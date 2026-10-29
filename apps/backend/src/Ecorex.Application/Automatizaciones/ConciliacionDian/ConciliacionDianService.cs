@@ -16,17 +16,20 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     private readonly IApplicationDbContext _db;
     private readonly IApplicationDbContextFactory _dbFactory;
     private readonly ITenantContext _tenant;
+    private readonly IConciliacionAsignacionHistorialService _hist;
     private readonly INewtonEventSender? _sender;
 
     public ConciliacionDianService(
         IApplicationDbContext db,
         IApplicationDbContextFactory dbFactory,
         ITenantContext tenant,
+        IConciliacionAsignacionHistorialService hist,
         INewtonEventSender? sender = null)
     {
         _db = db;
         _dbFactory = dbFactory;
         _tenant = tenant;
+        _hist = hist;
         _sender = sender;
     }
 
@@ -316,7 +319,15 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
         if (r is null) { return; }
+        var prev = r.AssignedTenantUserId;
         r.AssignedTenantUserId = tenantUserId;
+        // Historial: un direccionamiento solo cuenta cuando se asigna a un usuario REAL y DISTINTO del anterior
+        // (evita doble conteo). Al direccionar, el documento deja de estar "rechazado".
+        if (tenantUserId is Guid uid && uid != prev)
+        {
+            await _hist.RegistrarAsync(renglonId, uid, null, ConciliacionAsignacionAccion.Asignado, ct);
+            r.Rechazado = false;
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -541,5 +552,5 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             r.DescuentoComercial, r.SubtotalNeto, r.IvaDescontable, r.TotalAntesRetenciones, r.RetRetefuente,
             r.RetIca, r.TotalFactura, r.TipoPago, r.FacturaAprobada, r.PlataformaProveedor, r.RutEscaneado,
             r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor,
-            r.AssignedTenantUserId);
+            r.AssignedTenantUserId, r.Rechazado);
 }

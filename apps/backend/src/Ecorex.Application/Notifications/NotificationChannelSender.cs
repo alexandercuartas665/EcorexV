@@ -94,6 +94,19 @@ public sealed class NotificationChannelSender : INotificationChannelSender
             // Botones URL DINAMICOS: si la plantilla trae botones URL con variable y la regla aporta enlaces de
             // decision por etiqueta, se arma un parametro de boton por cada uno (indice + sufijo del enlace).
             var urlButtons = WhatsAppButtonComposer.BuildUrlButtonParams(tpl.ButtonsJson, decisionLinksByButtonLabel);
+            // GUARD anti-fallo silencioso de Meta: WhatsApp DESCARTA la plantilla si algun parametro del cuerpo va
+            // VACIO (caso tipico: la tarea SIN nombre de contacto -> {{1}} vacio -> YCloud responde "accepted" y luego
+            // Meta la marca "failed" SIN codigo ni detalle). En vez de mandar un mensaje condenado a no llegar, NO se
+            // envia y se devuelve un motivo claro que NOMBRA el dato faltante, para que el emisor lo deje en la
+            // bitacora ("Fallos de envio") y el usuario sepa exactamente que completar antes de reintentar.
+            var emptyParams = FindEmptyTemplateParams(tpl.VariablesJson, tokens);
+            if (emptyParams.Count > 0)
+            {
+                var faltan = string.Join(", ", emptyParams);
+                var reason = $"La plantilla '{tpl.Name}' exige el/los dato(s) [{faltan}] y no se tiene valor (quedarian vacios y WhatsApp descarta el mensaje). Completa [{faltan}] en la tarea/contacto y reintenta.";
+                _logger.LogWarning("WhatsApp plantilla NO enviada (linea {LineId}, {Template} {Lang}): parametro(s) de plantilla vacio(s) [{Faltan}].", lineId, tpl.Name, lang, faltan);
+                return new WhatsAppSendOutcome(false, reason);
+            }
             var res = await _wa.SendTemplateAsync(lineId, phone, tpl.Name, lang, BuildTemplateParams(tpl.VariablesJson, tokens), actorUserId, mediaType, mediaUrl, headerMediaFileNameOverride, attachmentBase64, attachmentMime, attachmentFileName, urlButtons, cancellationToken);
             if (!res.Ok)
             {
@@ -101,7 +114,10 @@ public sealed class NotificationChannelSender : INotificationChannelSender
                 // que antes se descartaba. Sin telefono en claro para no filtrar datos personales al log.
                 _logger.LogWarning("WhatsApp plantilla RECHAZADA (linea {LineId}, {Template} {Lang}): {Reason}", lineId, tpl.Name, lang, res.Error ?? "(sin detalle)");
             }
-            return new WhatsAppSendOutcome(res.Ok, res.Error);
+            // Se propaga el id del mensaje del proveedor (YCloud wamid): el emisor del flujo lo estampa en la nota
+            // saliente para que el webhook de estado correlacione la ENTREGA (sent/delivered/read/failed) y se vea
+            // en la bitacora, no solo los fallos.
+            return new WhatsAppSendOutcome(res.Ok, res.Error, res.MessageId);
         }
         catch (Exception ex)
         {
@@ -206,6 +222,45 @@ public sealed class NotificationChannelSender : INotificationChannelSender
         }
         catch { /* variables mal formadas: sin parametros */ }
         return result;
+    }
+
+    // Variables de plantilla que quedarian VACIAS con el mapa de tokens actual (Meta rechaza un parametro vacio).
+    // Devuelve el NOMBRE legible de cada una (etiqueta si existe, si no el token) para poder ALERTAR cual falta.
+    private static IReadOnlyList<string> FindEmptyTemplateParams(string? variablesJson, IReadOnlyDictionary<string, string> tokenMap)
+    {
+        var empty = new List<string>();
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return empty; }
+        try
+        {
+            using var doc = JsonDocument.Parse(variablesJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return empty; }
+            var index = 0;
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                index++;
+                if (el.ValueKind != JsonValueKind.Object) { continue; }
+                string? token = null;
+                string? label = null;
+                foreach (var p in el.EnumerateObject())
+                {
+                    if (p.Value.ValueKind != JsonValueKind.String) { continue; }
+                    if (string.Equals(p.Name, "token", StringComparison.OrdinalIgnoreCase)) { token = p.Value.GetString(); }
+                    else if (string.Equals(p.Name, "label", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(p.Name, "name", StringComparison.OrdinalIgnoreCase)) { label = p.Value.GetString(); }
+                }
+                var key = StripAccents((token ?? "").Trim().ToLowerInvariant());
+                var val = tokenMap.TryGetValue(key, out var v) ? v : "";
+                if (string.IsNullOrWhiteSpace(val))
+                {
+                    var display = !string.IsNullOrWhiteSpace(label) ? label!.Trim()
+                        : !string.IsNullOrWhiteSpace(token) ? token!.Trim()
+                        : $"variable {index}";
+                    empty.Add(display);
+                }
+            }
+        }
+        catch { /* variables mal formadas: no bloqueamos por esto */ }
+        return empty;
     }
 
     private static string StripAccents(string text)

@@ -35,6 +35,13 @@ public sealed record AgentDeliveryFailureDto(
     Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel,
     DateTimeOffset SentAt, string? Body, string? DeliveryError, string? SentByName);
 
+/// <summary>ENTREGA de un saliente de WhatsApp que SI salio (DeliveryStatus "sent"/"delivered"/"read"). Para la
+/// pestana "Entregados" de la bitacora: ver que mensajes del flujo (y de SARA) llegaron, no solo los que fallaron.
+/// DeliveryStatus = ultimo estado reportado por Meta via webhook.</summary>
+public sealed record AgentDeliveryDto(
+    Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel,
+    DateTimeOffset SentAt, string? Body, string DeliveryStatus, string? SentByName);
+
 /// <summary>
 /// Gestiona el vinculo entre agentes de IA y lineas de WhatsApp (conectar/desconectar, modo autonomo)
 /// y expone la bitacora de atencion. Todo tenant-scoped.
@@ -57,6 +64,11 @@ public interface IAiAgentLineService
     /// Tenant-scoped (filtro global). Para ver en la app por que "no llego" un mensaje sin entrar al servidor
     /// (ADR-0135: codigo + motivo real de Meta en DeliveryError).</summary>
     Task<IReadOnlyList<AgentDeliveryFailureDto>> ListDeliveryFailuresAsync(int take = 100, CancellationToken cancellationToken = default);
+
+    /// <summary>ENTREGAS de salientes de WhatsApp que SI salieron (DeliveryStatus "sent"/"delivered"/"read"), mas
+    /// recientes primero. Tenant-scoped. Para ver en la bitacora que mensajes del flujo (y de SARA) llegaron al
+    /// cliente, no solo los fallos. El estado se refresca con el webhook de YCloud (sent -> delivered -> read).</summary>
+    Task<IReadOnlyList<AgentDeliveryDto>> ListDeliveriesAsync(int take = 100, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0139: para los salientes marcados "failed" SIN motivo (DeliveryError vacio), CONSULTA YCloud por su
     /// id y rellena DeliveryError con el codigo + texto real de Meta (ej. "codigo 131026 - Message undeliverable"),
@@ -244,6 +256,34 @@ public sealed class AiAgentLineService : IAiAgentLineService
             string? lineLabel = c?.WhatsAppLineId is Guid lid && lineLabels.TryGetValue(lid, out var lbl) ? lbl : null;
             return new AgentDeliveryFailureDto(m.ConversationId, c?.ContactName, c?.ContactPhone ?? "?", lineLabel,
                 m.SentAt, m.Body, m.DeliveryError, m.SentByName);
+        }).ToList();
+    }
+
+    public async Task<IReadOnlyList<AgentDeliveryDto>> ListDeliveriesAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        // Salientes que SI salieron (sent/delivered/read), mas recientes primero. Tenant-scoped (filtro global).
+        // El flujo ahora estampa ExternalId + estado "sent" en su nota saliente, asi que el webhook la va
+        // actualizando a delivered/read; SARA/chat tambien persisten su saliente -> ambos entran aqui.
+        var ok = new[] { "sent", "delivered", "read" };
+        var msgs = await _db.Messages.AsNoTracking()
+            .Where(m => m.Direction == MessageDirection.Outbound && m.DeliveryStatus != null && ok.Contains(m.DeliveryStatus))
+            .OrderByDescending(m => m.SentAt)
+            .Take(take)
+            .Select(m => new { m.ConversationId, m.SentAt, m.Body, m.DeliveryStatus, m.SentByName })
+            .ToListAsync(cancellationToken);
+        if (msgs.Count == 0) { return Array.Empty<AgentDeliveryDto>(); }
+
+        var convIds = msgs.Select(m => m.ConversationId).Distinct().ToList();
+        var convs = await _db.Conversations.AsNoTracking().Where(c => convIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        var lineLabels = await _db.WhatsAppLines.AsNoTracking()
+            .ToDictionaryAsync(l => l.Id, l => string.IsNullOrWhiteSpace(l.PhoneNumber) ? l.InstanceName : l.PhoneNumber!, cancellationToken);
+
+        return msgs.Select(m =>
+        {
+            var c = convs.FirstOrDefault(x => x.Id == m.ConversationId);
+            string? lineLabel = c?.WhatsAppLineId is Guid lid && lineLabels.TryGetValue(lid, out var lbl) ? lbl : null;
+            return new AgentDeliveryDto(m.ConversationId, c?.ContactName, c?.ContactPhone ?? "?", lineLabel,
+                m.SentAt, m.Body, m.DeliveryStatus!, m.SentByName);
         }).ToList();
     }
 

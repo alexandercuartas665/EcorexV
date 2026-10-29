@@ -6,7 +6,7 @@ namespace Ecorex.Application.Notifications;
 /// razon de rechazo se descartaba, asi que un "no llego" quedaba invisible. Convierte implicitamente a bool
 /// para no romper a los llamadores que solo miran el exito (<c>if (!ok)</c>).
 /// </summary>
-public readonly record struct WhatsAppSendOutcome(bool Ok, string? Error)
+public readonly record struct WhatsAppSendOutcome(bool Ok, string? Error, string? MessageId = null)
 {
     public static implicit operator bool(WhatsAppSendOutcome outcome) => outcome.Ok;
 }

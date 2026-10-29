@@ -92,6 +92,7 @@ public class ActividadesToolsetTests
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<TaskItemDetailDto>> SetContactTerceroAsync(Guid taskId, Guid terceroId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -229,6 +230,7 @@ public class ActividadesToolsetTests
         public DbSet<Ecorex.Domain.Entities.ConciliacionRule> ConciliacionRules => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldDefinition> ConciliacionFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldValue> ConciliacionFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionDianAsignacion> ConciliacionDianAsignaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();

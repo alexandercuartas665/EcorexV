@@ -28,7 +28,9 @@ public static class FormFieldValidator
             // AiIntake: asistente IA que PROPONE filas para una grilla; no captura valor propio.
             or FormControlType.AiIntake
             // AiCompose: asistente IA que PROPONE valores para campos/bloques (targets); no captura valor propio.
-            or FormControlType.AiCompose;
+            or FormControlType.AiCompose
+            // ActionButton: boton de accion self-serve (ej. imprimir lienzo); no captura valor propio.
+            or FormControlType.ActionButton;
 
     /// <summary>
     /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla

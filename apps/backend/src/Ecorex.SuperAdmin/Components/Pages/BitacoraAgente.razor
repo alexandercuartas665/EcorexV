@@ -37,9 +37,17 @@
             style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "atencion" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "atencion" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
         Atencion del agente
     </button>
+    <button type="button" @onclick="@(() => _tab = "entregados")"
+            style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "entregados" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "entregados" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
+        Entregados@(_deliveries.Count > 0 ? $" ({_deliveries.Count})" : "")
+    </button>
     <button type="button" @onclick="SwitchToFallosAsync"
             style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "fallos" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "fallos" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
         Fallos de envio@(_failures.Count > 0 ? $" ({_failures.Count})" : "")
+    </button>
+    <button type="button" @onclick="@(() => _tab = "flujo")"
+            style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "flujo" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "flujo" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
+        Lineas por flujo@(_held.Count > 0 ? $" ({_held.Count})" : "")
     </button>
 </div>
 
@@ -48,36 +56,6 @@
     <div class="cv-warn" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <span>@_flash</span>
         <button class="btn btn-sm btn-outline-secondary" @onclick="() => _flash = null">Cerrar</button>
-    </div>
-}
-
-@if (_tab == "atencion" && _held.Count > 0)
-{
-    <div class="card" style="padding:14px;margin-bottom:14px;border-left:3px solid var(--primary);">
-        <div style="font-weight:800;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-            <span class="badge bg-primary">@_held.Count</span>
-            Lineas atendidas por el flujo <span class="text-muted" style="font-weight:600;">(el agente del paso tomo la linea; SARA en silencio hasta que libere la salida)</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;">
-            @foreach (var h in _held)
-            {
-                <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;border-bottom:1px solid var(--border);padding-bottom:6px;">
-                    <div>
-                        <strong>@(string.IsNullOrWhiteSpace(h.ContactName) ? h.ContactPhone : h.ContactName)</strong>
-                        <span class="text-muted">@h.ContactPhone @(h.LineLabel is null ? "" : $"- linea {h.LineLabel}")</span>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                        <span class="text-muted">
-                            Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
-                        </span>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ReleaseHoldAsync(h.ConversationId)" disabled="@_busy"
-                                title="Libera esta linea del flujo: el paso vuelve a atencion humana y el agente de la linea (SARA) retoma la conversacion.">
-                            @(_busy ? "..." : "Liberar linea")
-                        </button>
-                    </div>
-                </div>
-            }
-        </div>
     </div>
 }
 
@@ -162,7 +140,7 @@ else if (_tab == "atencion")
         </div>
     </div>
 }
-else
+else if (_tab == "fallos")
 {
     @* Pestana "Fallos de envio": salientes de WhatsApp que NO llegaron, con el motivo real de Meta (ADR-0135). *@
     <div class="card" style="padding:18px;">
@@ -208,6 +186,83 @@ else
         }
     </div>
 }
+else if (_tab == "entregados")
+{
+    @* Pestana "Entregados": salientes de WhatsApp que SI salieron (flujo y SARA). Estado refrescado por webhook. *@
+    <div class="card" style="padding:18px;">
+        <div style="font-size:12.5px;color:var(--muted-foreground);margin-bottom:14px;">
+            Mensajes SALIENTES de WhatsApp que <strong>si salieron</strong> al cliente, mas recientes primero. El estado
+            se refresca con el webhook de YCloud: <strong>enviado</strong> &rarr; <strong>entregado</strong> &rarr; <strong>leido</strong>.
+        </div>
+        @if (_deliveries.Count == 0)
+        {
+            <p class="text-muted" style="padding:8px 2px;">Aun no hay entregas registradas. Cuando el flujo o el agente envie un mensaje, aparecera aqui con su estado.</p>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto;">
+                @foreach (var d in _deliveries)
+                {
+                    <div style="border-left:3px solid var(--primary);padding:8px 0 8px 14px;">
+                        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;">
+                            <strong style="font-size:13.5px;">
+                                @(string.IsNullOrWhiteSpace(d.ContactName) ? d.ContactPhone : d.ContactName)
+                                <span class="text-muted" style="font-weight:600;font-size:11.5px;">@d.ContactPhone @(d.LineLabel is null ? "" : $"- linea {d.LineLabel}")</span>
+                            </strong>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span class="badge @DeliveryBadge(d.DeliveryStatus)">@DeliveryLabel(d.DeliveryStatus)</span>
+                                <span class="text-muted" style="font-size:11.5px;">@d.SentAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(d.Body))
+                        {
+                            <div class="text-muted" style="font-size:11.5px;margin-top:4px;white-space:pre-wrap;">
+                                @Trunc(d.Body!, 220)@(string.IsNullOrWhiteSpace(d.SentByName) ? "" : $"  -  envio: {d.SentByName}")
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    @* Pestana "Lineas por flujo": conversaciones que un flujo tomo ahora mismo. Propio tab, con scroll. *@
+    <div class="card" style="padding:18px;">
+        <div style="font-size:12.5px;color:var(--muted-foreground);margin-bottom:14px;">
+            Conversaciones <strong>atendidas por el flujo</strong> en este momento: el agente del paso tomo la linea y
+            SARA queda en silencio hasta que se libere la salida. Puedes liberar una linea para devolverla a SARA.
+        </div>
+        @if (_held.Count == 0)
+        {
+            <p class="text-muted" style="padding:8px 2px;">Ninguna linea esta tomada por un flujo ahora mismo.</p>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow-y:auto;">
+                @foreach (var h in _held)
+                {
+                    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;border-left:3px solid var(--primary);padding:6px 0 8px 14px;">
+                        <div>
+                            <strong>@(string.IsNullOrWhiteSpace(h.ContactName) ? h.ContactPhone : h.ContactName)</strong>
+                            <span class="text-muted">@h.ContactPhone @(h.LineLabel is null ? "" : $"- linea {h.LineLabel}")</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <span class="text-muted">
+                                Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ReleaseHoldAsync(h.ConversationId)" disabled="@_busy"
+                                    title="Libera esta linea del flujo: el paso vuelve a atencion humana y el agente de la linea (SARA) retoma la conversacion.">
+                                @(_busy ? "..." : "Liberar linea")
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
     private bool _loading = true;
@@ -220,6 +275,7 @@ else
     // Pestana activa: "atencion" (bitacora de SARA) o "fallos" (entregas de WhatsApp que no llegaron).
     private string _tab = "atencion";
     private List<AgentDeliveryFailureDto> _failures = new();
+    private List<AgentDeliveryDto> _deliveries = new();
 
     private async Task ClearAllAsync()
     {
@@ -291,6 +347,7 @@ else
         _convs = (await AgentLinesSvc.ListAttendedConversationsAsync()).ToList();
         _held = (await AgentLinesSvc.ListFlowHeldConversationsAsync()).ToList();
         _failures = (await AgentLinesSvc.ListDeliveryFailuresAsync()).ToList();
+        _deliveries = (await AgentLinesSvc.ListDeliveriesAsync()).ToList();
         if (_selectedId is Guid id && _convs.All(c => c.ConversationId != id)) { _selectedId = null; _log = new(); }
     }
 
@@ -318,6 +375,23 @@ else
     }
 
     private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n] + "...";
+
+    // Estado de entrega (webhook YCloud): enviado -> entregado -> leido.
+    private static string DeliveryLabel(string status) => status switch
+    {
+        "sent" => "Enviado",
+        "delivered" => "Entregado",
+        "read" => "Leido",
+        _ => status
+    };
+
+    private static string DeliveryBadge(string status) => status switch
+    {
+        "read" => "bg-success",
+        "delivered" => "bg-info",
+        "sent" => "bg-secondary",
+        _ => "bg-secondary"
+    };
 
     private async Task SelectAsync(Guid id)
     {

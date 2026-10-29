@@ -1593,7 +1593,67 @@ public sealed class TaskItemService : ITaskItemService
         return new TaskItemDetailDto(summary, task.Description,
             task.RequesterName, task.RequesterEmail, task.RequesterPhone, task.RequesterDocument,
             DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
-            checklist, assignees, task.CustomFieldsJson, subtasks, copies, task.SourceTaskId, sourceNumber);
+            checklist, assignees, task.CustomFieldsJson, subtasks, copies, task.SourceTaskId, sourceNumber,
+            TerceroId: task.TerceroId);
+    }
+
+    public async Task<TaskCoreResult<TaskItemDetailDto>> SetContactTerceroAsync(
+        Guid taskId, Guid terceroId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.NotFound("Tarea no encontrada.");
+        }
+        // Mismo criterio que el resto del detalle: editable mientras no este Cerrada.
+        if (task.Status == TaskItemStatus.Closed)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid(ClosedMessage);
+        }
+
+        // El filtro global por tenant garantiza que el Tercero sea del MISMO tenant que la tarea
+        // (una tarea no puede enlazar un contacto de otro tenant por construccion).
+        var tercero = await _db.Terceros.FirstOrDefaultAsync(x => x.Id == terceroId, cancellationToken);
+        if (tercero is null)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("El contacto del directorio no existe.");
+        }
+
+        // El Tercero es la fuente de verdad: enlaza y vuelca sus 4 datos a los campos de la tarea.
+        var newName = Normalize(tercero.Nombre, 200);
+        var newEmail = Normalize(tercero.Email, 256);
+        var newPhone = Normalize(tercero.Telefono, 200);
+        var newDoc = Normalize(tercero.IdValor, 60);
+
+        // OnChanged del modal puede dispararse por sub-acciones (notas, relaciones) sin tocar el contacto:
+        // si nada cambia, no se escribe ni se registra actividad (evita ruido en la bitacora).
+        if (task.TerceroId == tercero.Id
+            && string.Equals(task.RequesterName, newName, StringComparison.Ordinal)
+            && string.Equals(task.RequesterEmail, newEmail, StringComparison.Ordinal)
+            && string.Equals(task.RequesterPhone, newPhone, StringComparison.Ordinal)
+            && string.Equals(task.RequesterDocument, newDoc, StringComparison.Ordinal))
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
+        }
+
+        task.TerceroId = tercero.Id;
+        task.RequesterName = newName;
+        task.RequesterEmail = newEmail;
+        task.RequesterPhone = newPhone;
+        task.RequesterDocument = newDoc;
+
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+            TaskActivityType.Action, "vinculo el contacto del directorio"));
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Conflict(ConflictMessage);
+        }
+
+        return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(

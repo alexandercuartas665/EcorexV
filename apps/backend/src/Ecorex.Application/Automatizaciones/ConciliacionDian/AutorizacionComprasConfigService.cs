@@ -77,6 +77,9 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Numero de actividad ya solicitada para una factura (anti-duplicado). null si no se ha solicitado.</summary>
     Task<string?> GetSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
     Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default);
+    /// <summary>Quita el vinculo renglon-&gt;tarea del mapa "solicitadas" (al devolver el documento al conciliador,
+    /// para que un re-direccionamiento cree una tarea nueva). Idempotente.</summary>
+    Task ClearSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
     /// <summary>Mapa COMPLETO renglon->numero de actividad ya creada (una sola lectura; para pintar la grilla
     /// del conciliador en bloque). Lo comparten la autorizacion y la creacion de tareas por linea.</summary>
     Task<IReadOnlyDictionary<Guid, string>> GetSolicitadasMapAsync(CancellationToken ct = default);
@@ -141,11 +144,13 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     private readonly IConceptoActividadService _conceptos;
     private readonly IFormDefinitionService _forms;
     private readonly IRuleDocumentService _rules;
+    private readonly IConciliacionAsignacionHistorialService _hist;
 
     public AutorizacionComprasConfigService(IApplicationDbContext db, ITenantContext tenant,
-        IConceptoActividadService conceptos, IFormDefinitionService forms, IRuleDocumentService rules)
+        IConceptoActividadService conceptos, IFormDefinitionService forms, IRuleDocumentService rules,
+        IConciliacionAsignacionHistorialService hist)
     {
-        _db = db; _tenant = tenant; _conceptos = conceptos; _forms = forms; _rules = rules;
+        _db = db; _tenant = tenant; _conceptos = conceptos; _forms = forms; _rules = rules; _hist = hist;
     }
 
     private sealed record Stored(Guid? Sub, Guid? Form);
@@ -226,10 +231,20 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsignKey, ct);
         var map = ParseMap(row?.ConfigValue);
         var key = renglonId.ToString();
+        var prev = map.TryGetValue(key, out var pv) && Guid.TryParse(pv, out var pg) ? (Guid?)pg : null;
         if (userId is Guid uid) { map[key] = uid.ToString(); } else { map.Remove(key); }
         var json = JsonSerializer.Serialize(map);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsignKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
+
+        // Historial: contar un direccionamiento solo cuando se asigna a un usuario REAL y DISTINTO del anterior
+        // (evita doble conteo si se re-escribe el mismo). Al direccionar, el documento deja de estar "rechazado".
+        if (userId is Guid nuid && nuid != prev)
+        {
+            await _hist.RegistrarAsync(renglonId, nuid, null, ConciliacionAsignacionAccion.Asignado, ct);
+            var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+            if (r is not null) { r.Rechazado = false; }
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -278,6 +293,16 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var json = JsonSerializer.Serialize(map);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SolicKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task ClearSolicitadaAsync(Guid renglonId, CancellationToken ct = default)
+    {
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SolicKey, ct);
+        if (row is null) { return; }
+        var map = ParseMap(row.ConfigValue);
+        if (!map.Remove(renglonId.ToString())) { return; } // ya no estaba: idempotente
+        row.ConfigValue = JsonSerializer.Serialize(map);
         await _db.SaveChangesAsync(ct);
     }
 

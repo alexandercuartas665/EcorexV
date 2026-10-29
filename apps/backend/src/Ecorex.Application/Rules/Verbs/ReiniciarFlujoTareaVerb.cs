@@ -55,6 +55,10 @@ public sealed class ReiniciarFlujoTareaVerb : IRuleVerb
             new RuleVerbParamDescriptor("requireMessage", "Mensaje si falta el usuario",
                 RuleParamType.Text, Required: false,
                 "Texto a mostrar cuando el campo del usuario de redireccion esta vacio (si no, uno generico)."),
+            new RuleVerbParamDescriptor("onEmptyField", "Si el campo esta vacio",
+                RuleParamType.Text, Required: false,
+                "Que hacer si el campo de redireccion esta vacio: 'fail' (default) bloquea con el mensaje; "
+                + "'skip' no hace nada y deja que otro verbo del mismo boton (p. ej. DEVOLVER_CONCILIADOR) lo maneje."),
             new RuleVerbParamDescriptor("logMessage", "Nota del reinicio (opcional)",
                 RuleParamType.Text, Required: false,
                 "Nota adicional que se agrega a la bitacora de la tarea al reiniciar."),
@@ -77,6 +81,12 @@ public sealed class ReiniciarFlujoTareaVerb : IRuleVerb
         context.FormData.TryGetValue(fieldCode.Trim(), out var assigneeValue);
         if (string.IsNullOrWhiteSpace(assigneeValue))
         {
+            // onEmptyField=skip: no bloquea; deja que otro verbo del mismo boton (DEVOLVER_CONCILIADOR) actue.
+            var onEmpty = context.GetStringParam("onEmptyField");
+            if (string.Equals(onEmpty?.Trim(), "skip", StringComparison.OrdinalIgnoreCase))
+            {
+                return RuleVerbResult.Ok("Sin usuario de redireccion: se omite el reinicio.", recordsAffected: 0);
+            }
             var msg = context.GetStringParam("requireMessage");
             return RuleVerbResult.Fail(string.IsNullOrWhiteSpace(msg)
                 ? "Elige el usuario de redireccionamiento antes de reiniciar."

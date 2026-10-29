@@ -58,6 +58,7 @@ public static class DependencyInjection
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionRuleService, Automatizaciones.ConciliacionDian.ConciliacionRuleService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionFieldService, Automatizaciones.ConciliacionDian.ConciliacionFieldService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IAutorizacionComprasConfigService, Automatizaciones.ConciliacionDian.AutorizacionComprasConfigService>();
+        services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionAsignacionHistorialService, Automatizaciones.ConciliacionDian.ConciliacionAsignacionHistorialService>();
         services.AddScoped<Preferences.IUserTablePrefsService, Preferences.UserTablePrefsService>();
         services.AddScoped<Preferences.ISavedFilterService, Preferences.SavedFilterService>();
         services.AddScoped<Requerimientos.IRequerimientoConfigService, Requerimientos.RequerimientoConfigService>();
@@ -179,6 +180,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DireccionarConciliadorVerb>();   // Conciliador: boton del form -> columna del renglon
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CompletarPasoFlujoVerb>();        // Flujo: boton del form cierra el paso actual (con campos obligatorios opcionales)
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ReiniciarFlujoTareaVerb>();       // Flujo: boton del form reinicia el ciclo reasignado al usuario de un campo (Rechazar/Redireccionar)
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DevolverConciliadorVerb>();        // Conciliador: campo de redireccion vacio -> confirma y devuelve el documento al conciliador (rechazado)
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();

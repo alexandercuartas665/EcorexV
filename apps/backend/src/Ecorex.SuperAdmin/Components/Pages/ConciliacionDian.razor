@@ -24,6 +24,7 @@
 @inject IFileStorageService Files
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
+@inject IConciliacionAsignacionHistorialService Hist
 @inject IAiAgentService AiAgents
 @inject IAiInferenceService AiInfer
 @inject ITaskItemService Tasks
@@ -385,6 +386,7 @@ else
                                                     {
                                                         <div class="cd-dyn-lk" @onclick:stopPropagation="true">
                                                             <DataLookupField Config="nsCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "numsol", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                            <button type="button" class="cd-lk-x" title="Cancelar" @onclick="CancelSysEdit">&times;</button>
                                                         </div>
                                                     }
                                                     else
@@ -405,6 +407,7 @@ else
                                                     {
                                                         <div class="cd-dyn-lk" @onclick:stopPropagation="true">
                                                             <DataLookupField Config="ocCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "oc", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                            <button type="button" class="cd-lk-x" title="Cancelar" @onclick="CancelSysEdit">&times;</button>
                                                         </div>
                                                     }
                                                     else
@@ -446,6 +449,14 @@ else
                                                     }
                                                 </div>
                                                 break;
+                                            case "asignaciones":
+                                                var vecesAsig = _asignacionesCount.TryGetValue(r.Id, out var ca) ? ca : 0;
+                                                <button type="button" class="cd-asig-btn @(vecesAsig == 0 ? "empty" : "")"
+                                                        title="@(vecesAsig == 0 ? "Sin direccionamientos" : "Ver historial de asignaciones")"
+                                                        disabled="@(vecesAsig == 0)"
+                                                        @onclick="() => OpenHistAsync(r)" @onclick:stopPropagation="true">@vecesAsig</button>
+                                                break;
+                                            case "rechazado": <text>@(r.Rechazado ? "Si" : "-")</text> break;
                                             case "sub_bruto": <text>@Fmt(r.SubtotalBruto)</text> break;
                                             case "descuento": <text>@Fmt(r.DescuentoComercial)</text> break;
                                             case "sub_neto": <text>@Fmt(r.SubtotalNeto)</text> break;
@@ -479,6 +490,7 @@ else
                                                                 <DataLookupField Config="lkcfg" Value="@val"
                                                                     ValueChanged="@(v => SetDynLookup(r, dd, v))"
                                                                     ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                                <button type="button" class="cd-lk-x" title="Cancelar" @onclick="CloseEdit">&times;</button>
                                                             </div>
                                                         }
                                                         else
@@ -690,6 +702,49 @@ else
                             <div class="cd-muted" style="padding:24px;">Selecciona un documento de la izquierda.</div>
                         }
                     </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_histOpen && _histRenglon is { } hr)
+    {
+        <div class="cd-doc-backdrop" @onclick="CloseHist"></div>
+        <div class="cd-doc-modal cd-hist-modal" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Historial de asignaciones</div>
+                    <div class="cd-doc-title-sub">@hr.NombreProveedor &middot; Fact. @hr.NumFacturaProveedor</div>
+                </div>
+                <button class="cd-doc-close" title="Cerrar" @onclick="CloseHist">&times;</button>
+            </div>
+            <div class="cd-doc-body cd-hist-body">
+                @if (_histLoading)
+                {
+                    <div class="cd-muted" style="padding:24px;">Cargando…</div>
+                }
+                else if (_histItems.Count == 0)
+                {
+                    <div class="cd-muted" style="padding:24px;">Este documento no se ha direccionado todavia.</div>
+                }
+                else
+                {
+                    <ul class="cd-hist-list">
+                        @foreach (var h in _histItems)
+                        {
+                            <li class="cd-hist-item">
+                                <span class="cd-hist-badge @(h.Accion == ConciliacionAsignacionAccion.Rechazado ? "rech" : "asig")">
+                                    @(h.Accion == ConciliacionAsignacionAccion.Rechazado ? "Devuelto" : "Asignado")
+                                </span>
+                                <span class="cd-hist-user">@h.Usuario</span>
+                                @if (!string.IsNullOrWhiteSpace(h.TaskNumber))
+                                {
+                                    <span class="cd-hist-task">@h.TaskNumber</span>
+                                }
+                                <span class="cd-hist-date">@h.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                            </li>
+                        }
+                    </ul>
                 }
             </div>
         </div>
@@ -1510,6 +1565,8 @@ else
         new("numsol", "Num Factura SISTEMA", false, false),
         new("oc", "Orden Compra", false, false),
         new("usuario", "Usuario", false, true),
+        new("asignaciones", "Asignaciones", false, false),
+        new("rechazado", "Rechazado", false, true),
         new("sub_bruto", "Subtotal Bruto", true, false),
         new("descuento", "Descuento", true, false),
         new("sub_neto", "Subtotal Neto", true, false),
@@ -1613,6 +1670,13 @@ else
     // ---- Crear tarea desde la fila (cae en el flujo de la salida). Mapa renglon->numero compartido con
     // la autorizacion (anti-duplicado); se carga en bloque en ReloadAsync. ----
     private Dictionary<Guid, string> _tareaDeRenglon = new();
+
+    // Historial de asignaciones: conteo de direccionamientos por renglon (columna) + modal del detalle.
+    private Dictionary<Guid, int> _asignacionesCount = new();
+    private bool _histOpen;
+    private ConciliacionDianRenglonDto? _histRenglon;
+    private IReadOnlyList<ConciliacionAsignacionHistItemDto> _histItems = Array.Empty<ConciliacionAsignacionHistItemDto>();
+    private bool _histLoading;
     private bool _creandoTarea;
 
     private async Task AbrirConfigAsync()
@@ -2075,6 +2139,7 @@ else
     private (Guid Renglon, string Col)? _editSysCell;
     private bool IsEditingSys(Guid renglonId, string col) => _editSysCell is { } e && e.Renglon == renglonId && e.Col == col;
     private void OpenSysEdit(ConciliacionDianRenglonDto r, string col) { if (_sysSource.ContainsKey(col)) { _editSysCell = (r.Id, col); } }
+    private void CancelSysEdit() { _editSysCell = null; } // cierra el lookup inline sin elegir (p. ej. "Sin coincidencias")
 
     /// <summary>Al elegir en el typeahead de una columna fija, guarda el TEXTO elegido en la columna nativa.</summary>
     private async Task SetSysLookup(ConciliacionDianRenglonDto r, string col, string? rowId)
@@ -2611,6 +2676,7 @@ else
             "numsol" => r.NumFacturaSoldarco,
             "oc" => r.OrdenCompraSoldarco,
             "usuario" => UserNameById(r.AssignedTenantUserId),
+            "rechazado" => r.Rechazado ? "Si" : "No",
             "tipopago" => r.TipoPago,
             "plataforma" => r.PlataformaProveedor ? "Si" : "No",
             "aprobada" => r.FacturaAprobada ? "Aprobada" : "Pendiente",
@@ -2636,6 +2702,8 @@ else
         "numsol" => r.NumFacturaSoldarco,
         "oc" => r.OrdenCompraSoldarco,
         "usuario" => UserNameById(r.AssignedTenantUserId),
+        "asignaciones" => (_asignacionesCount.TryGetValue(r.Id, out var ca) ? ca : 0).ToString(),
+        "rechazado" => r.Rechazado ? "Si" : "No",
         "tipopago" => r.TipoPago,
         "plataforma" => r.PlataformaProveedor ? "Si" : "No",
         "aprobada" => r.FacturaAprobada ? "Aprobada" : "Pendiente",
@@ -2748,6 +2816,7 @@ else
     {
         if (_moneyKeys.Contains(key)) { return Money(key, r); }
         if (key == "fecha") { return r.FechaEmision; }
+        if (key == "asignaciones") { return _asignacionesCount.TryGetValue(r.Id, out var ca) ? ca : 0; }
         if (key.StartsWith("dyn:") && _dynByKey.TryGetValue(key, out var d) && d.Type == "Number")
         {
             return decimal.TryParse(DynVal(r.Id, d.Id), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0m;
@@ -2997,6 +3066,8 @@ else
         catch { /* best-effort: si falla, simplemente no se muestra el clip */ }
         try { _tareaDeRenglon = new Dictionary<Guid, string>(await TaskCfg.GetSolicitadasMapAsync()); }
         catch { _tareaDeRenglon = new(); }
+        try { _asignacionesCount = new Dictionary<Guid, int>(await Hist.GetConteosAsync(_renglones.Select(x => x.Id))); }
+        catch { _asignacionesCount = new(); }
         await LoadDynValuesAsync();
         RebuildItems();
         StateHasChanged();
@@ -3275,6 +3346,17 @@ else
     }
     private void SelectFile(StoredFileDto f) => _filesSelected = f;
     private void CloseFiles() { _filesOpen = false; _filesRenglon = null; _filesList = new(); _filesSelected = null; }
+
+    // ---- Historial de asignaciones (popup del conteo) ----
+    private async Task OpenHistAsync(ConciliacionDianRenglonDto r)
+    {
+        _histRenglon = r; _histOpen = true; _histLoading = true;
+        _histItems = Array.Empty<ConciliacionAsignacionHistItemDto>();
+        try { _histItems = await Hist.GetHistorialAsync(r.Id); }
+        catch { _histItems = Array.Empty<ConciliacionAsignacionHistItemDto>(); }
+        finally { _histLoading = false; }
+    }
+    private void CloseHist() { _histOpen = false; _histRenglon = null; _histItems = Array.Empty<ConciliacionAsignacionHistItemDto>(); }
 
     private static string TagArchivo(string? ref2) => ref2 switch
     {

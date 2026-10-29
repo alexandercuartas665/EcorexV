@@ -2,6 +2,180 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - RELEASE v0.16.246 (deploy prod via GHCR) - 4 features + fix flujo
+
+- AGENTES: Claude Opus 4.8 (esta sesion) + trabajo acumulado de sesiones de dev previas en el mismo arbol.
+- ALCANCE confirmado con el usuario (2 rondas de AskUserQuestion, re-confirmado tras inventario completo):
+  empaquetar TODO el WIP del arbol como v0.16.246 porque las features comparten archivos
+  (DynamicFormRenderer, RulesEngine, DependencyInjection, TaskDetailModal) y no se separan limpio.
+- CONTENIDO (4 grupos + 1 commit arrastrado):
+  1. Editar contacto de la tarea con el modal del Directorio (TerceroModal) en vez del mini-editor.
+     Enlaza/crea Tercero y sincroniza los 4 campos de contacto de la tarea (TerceroId + Requester*).
+     Nuevo SetContactTerceroAsync en TaskItemService/ITaskItemService + TerceroId en el detail DTO.
+     VALIDADO E2E en dev 5234 (rutas CREATE y EDIT). Fakes de test actualizados.
+  2. FormPrint / ActionButton (Fase 4): enum FormControlType.ActionButton + ActionButtonConfig.cs +
+     FormPrint/FormPrintLienzo/FormDesigner/FormPublic/DynamicFormRenderer/FormFieldValidator. (Cierra el
+     skew que hacia crashear builds del tronco al leer filas 'ActionButton' en la BD.)
+  3. Conciliacion "devolver al conciliador" + historial de asignaciones + filtro rechazados (ver la
+     entrada siguiente): verbo DEVOLVER_CONCILIADOR + mecanismo RuleAction.Confirm/RuleContext.Confirmed,
+     param onEmptyField en REINICIAR_FLUJO_TAREA, entidad ConciliacionDianAsignacion + enum
+     ConciliacionAsignacionAccion + flag Rechazado, ConciliacionAsignacionHistorialService, columna de
+     conteo + modal historial en la grilla, campo de filtro 'rechazado'.
+  4. Bundle v0.16.246: ajustes de BitacoraAgente, NotificationChannelSender/INotificationChannelSender,
+     AiAgentLineService, NodeNotifyService, TaskWizard.
+  (+) commit previo sin pushear 98552438 "fix(workflows): export/import JSON del flujo conserva el asignado del nodo".
+- MIGRACIONES (DUALES, ADITIVAS, auto-migran al arrancar): AddConciliacionAsignacionHistorial
+  (PG 20261029223052 / SQL 20261029223259): AddColumn rechazado (bool default false) en
+  conciliacion_dian_renglones + CreateTable conciliacion_dian_asignaciones + indices. Down limpio
+  (DropTable + DropColumn). Rollback seguro, no toca datos existentes.
+- GATE local: build Release 0 errores (producto + tests, redirigido a scratch por locks de otras
+  sesiones); unit tests Domain 35/35 + Application 1145/1145 (incluye RuleVerbTests). Secret-scan limpio.
+  Matriz dual de integracion (Testcontainers PG+SQLServer) + gitleaks: los corre el CI.
+- DEPLOY: VIA RAPIDA GHCR. bump AppVersion 0.16.245 -> 0.16.246, doble push al tronco fase-0/clon-backbone
+  y al espejo origin/main (dispara publish-image.yml). BACKUP de prod y corrida de deploy-prod-fast.ps1
+  -WaitCI -Version 0.16.246 los ejecuta el usuario (el backup necesita la connection string de prod que
+  no esta en el repo).
+
+## 2026-10-29 - Boton "Rechazar": devolver al conciliador + historial de asignaciones + filtro (DIAN, SOLDARCO)
+
+- PEDIDO: el boton "Rechazar" (AUT-COMPRA-001) hoy EXIGE elegir usuario en "Redireccionamiento" (campo fecha_compra);
+  si el asignado no sabe a quien redirigir, debe poder DEVOLVER el documento al conciliador: modal de confirmacion ->
+  cancela la tarea+flujo, desasigna el renglon (vuelve al pool) y lo marca RECHAZADO. Ademas: columna que cuenta las
+  veces direccionado (popup con usuario+fecha, marcando devoluciones) y campo "rechazado" en el filtro.
+- HECHO (4 fases, SIN push/deploy; validado en dev 5263 WILSON/SOLDARCO, BD ecorex 5442):
+  1. DATOS: entidad ConciliacionDianAsignacion (historial append-only) + enum ConciliacionAsignacionAccion
+     {Asignado,Rechazado} + columna bool Rechazado en ConciliacionDianRenglon + IConciliacionAsignacionHistorialService
+     (RegistrarAsync/GetHistorialAsync/GetConteosAsync). Log "Asignado" enganchado en SetAssigneeAsync (columna) y
+     SetAsignadoAsync (mapa JSON), solo si usuario != anterior (sin doble conteo) y limpia Rechazado al direccionar.
+     Migraciones DUALES AddConciliacionAsignacionHistorial (PG 20261029223052 / SQL 20261029...); PG aplicada a dev.
+  2. DEVOLVER: mecanismo generico de confirmacion de reglas -> RuleContext.Confirmed + RuleActionKind.Confirm +
+     RuleAction.Confirm(msg); param confirmed en IRulesEngine.ExecuteForFormFieldAsync + IFormRuleDispatcher. Verbo
+     nuevo DEVOLVER_CONCILIADOR (si el campo esta vacio y !Confirmed -> Confirm; si Confirmed -> desasigna ambos
+     almacenes + ClearSolicitadaAsync + Rechazado=true + historial + CancelInstanceAsync + ArchiveAsync la tarea).
+     REINICIAR_FLUJO_TAREA gana param onEmptyField=fail(default)|skip. DynamicFormRenderer: modal propio
+     (_confirmOpen) que, al confirmar, RE-EJECUTA el boton con confirmed=true.
+  3. GRILLA: columna "Asignaciones" (conteo, click -> modal historial fecha+usuario+badge Asignado/Devuelto) +
+     columna "Rechazado"; conteo por pagina via GetConteosAsync. CSS cd-asig-btn/cd-hist-*.
+  4. FILTRO: campo "rechazado" (Bool) en ConciliacionFilter -> "buscar documentos rechazados".
+- GATE: build Release 0 errores (SuperAdmin + backend); unit tests Application 1145/1145; sin drift dual
+  (has-pending-model-changes vacio PG+SQL). WILSON redesplegado (publish con BaseOutputPath redirigido para no
+  tocar src/bin bloqueado por servidores dev sueltos 5234/5249); columnas renderizan sin errores de consola.
+- PENDIENTE (DATA dev, self-serve): cablear el boton button_541d4 con 2 reglas: [0] REINICIAR {onEmptyField:skip}
+  (params_override en el link existente), [1] DEVOLVER_CONCILIADOR {emptyFieldCode:fecha_compra, confirmMessage}.
+  Ids: form AUT-COMPRA-001, doc regla 11110000-...-0003, tenant e3519cc4-..., REINICIAR rule 11110000-...-0004.
+- DEPLOY: NO. Ver [[flujo-asignado-desde-campo-formulario]].
+- FIX adicional (mismo dia, reportado al probar): el lookup inline del Contenedor en la grilla del conciliador
+  (columnas Orden Compra / Num Factura SISTEMA / dinamicas tipo Lookup) se quedaba ABIERTO sin forma de cerrarlo
+  cuando no habia coincidencias -- el DataLookupField en modo typeahead solo cierra su popup al ELEGIR fila
+  (ChooseAsync), sin cierre por blur/clic-fuera. FIX targeted (sin tocar el componente compartido que usan todos
+  los formularios): boton "x" Cancelar en el editor inline (ConciliacionDian.razor: CancelSysEdit para numsol/oc +
+  CloseEdit para dinamicos; CSS cd-lk-x). Validado en 5263 (abrir lookup OC -> aparece "Cancelar" -> cierra).
+  Redesplegado WILSON. NOTA de fondo (no arreglada aqui, afecta a todos los forms): el popup typeahead de
+  DataLookupField deberia cerrarse tambien al perder foco.
+
+## 2026-10-29 - INTEGRACION requerimiento_compras al tronco + DOBLE PUSH (modulo Requerimientos/Compras)
+
+- PEDIDO (sesion ecorex.soldarco): integrar `requerimiento_compras` (tip 16e87c54, en origin) al tronco.
+- MISMA SITUACION que el merge DIAN: la rama traia 18 commits sobre la base, pero 11 eran un merge de sincronizacion
+  (661670a3) con el tronco VIEJO (SHAs ya reemplazadas por el espejo limpio: los 7 DIAN nuevos + v0.16.241-245 de
+  origin). Confirmado: 11 patch-ids ya presentes en el tronco. Los GENUINAMENTE nuevos son 6 commits de feature.
+- HECHO (cherry-pick limpio de los 6, mismo criterio aprobado para no re-duplicar historia en el espejo):
+  a908e500,c409d9e6,76ef9bd3,a22f035e,f0de6be6,2a489d68 (ex 9b953e0a..16e87c54) sobre el tronco 13ac25b8.
+  Cherry-pick SIN conflictos (auto-merge de DynamicFormRenderer/FormDesigner/snapshots/DI). VERIFICACION: el
+  unico residual `git diff origin/requerimiento_compras HEAD` son los 2 commits DIAN mas nuevos que la rama NO
+  tenia (CompletarPasoFlujoVerb.cs compuertas + TaskDetailModal/app.css boton diagrama) -> nada del modulo
+  Requerimientos perdido, cero duplicados. Ambos remotos a 2a489d68 por FAST-FORWARD. Rama intacta en 16e87c54.
+- MIGRACIONES (DUALES, ADITIVAS AddColumn, auto-migra al arrancar): AddRequerimientoSolicitante (PG 20261022234952 /
+  SQL 20261022235420), AddRequerimientoObservaciones (PG 20261028211829 / SQL 20261028212145), AddRequerimientoForzarDividir
+  (PG 20261029142238 / SQL 20261029142522). Build Release confirma sin drift de modelo. CONFIG sin migracion:
+  modo Consolidado/Dividido en TenantConfiguration (ConfigKey 'requerimientos.modo', default Consolidado).
+- GATE: build Release 0 errores; dotnet format (archivos tocados) limpio; unit tests Domain 35/35 + Application
+  1145/1145 (0 fallos); grep de secretos limpio; gitleaks lo corre el CI. Matriz dual integracion (PG+SQLServer
+  Testcontainers): NO corrida local (pesada); migraciones solo AddColumn -> la cubre el CI.
+- RESUMEN FUNCIONAL: boton "Configuracion" en el header del modulo (modo Consolidado/Dividido + /requerimientos-config);
+  vista Consolidada por producto (compra a nivel de grupo via "Planificar grupo", export incluye miembros); override
+  "Dividir" por registro (forzar_dividir); modal "Planificar grupo" 2 tabs (Detalle + Planificacion transaccional).
+- DEPLOY: NO (paso aparte, requiere OK por version). Ver [[worktree-requerimiento-compras]].
+
+## 2026-10-29 - MERGE feat/flujo-botones-form-dian al tronco + DOBLE PUSH (botones del form que operan el flujo DIAN)
+
+- PEDIDO (sesion ecorex.soldarco): unir `feat/flujo-botones-form-dian` al tronco fase-0/clon-backbone y doble push
+  (origin/fase-0/clon-backbone + origin/main espejo). No reorganizar ramas ni reescribir historia. Sin deploy.
+- OJO (el premise del pedido estaba desactualizado): la rama traia 13 commits "sobre origin", pero origin YA habia
+  avanzado (otra sesion pusheo v0.16.241-245 con OTRAS SHAs). Divergencia real desde f56a7c4c (v0.16.240):
+  * origin (main==fase-0, aa9e2097) = base + 6 commits v0.16.241-245.
+  * local HEAD (d9c43fa6, == feat/flujo-botones-form-dian) = base + 7 commits DIAN/flujo + 6 DUPLICADOS de
+    v0.16.241-245 (confirmado: 6 patch-ids identicos).
+- HECHO (estrategia aprobada por el usuario: cherry-pick de los 7 nuevos, espejo limpio sin duplicados):
+  reset del tronco a origin/fase-0 (aa9e2097) + cherry-pick de los 7 commits DIAN/flujo
+  (6529773e,6ef354de,b01ef8ee,441fb8ac,4732ee15,4c68e1e7,d9c43fa6 -> nuevos 6422fa5c..13ac25b8). VERIFICACION
+  CLAVE: `git diff d9c43fa6 HEAD` = VACIO (el arbol resultante es identico al tip de la rama; nada perdido, los
+  duplicados absorbidos). Ambos remotos quedaron en 13ac25b8 por FAST-FORWARD (no force, no rewrite). La rama
+  feat/flujo-botones-form-dian se deja intacta en d9c43fa6.
+- GATE: build Release 0 errores; dotnet format (archivos tocados) limpio; unit tests Domain 35/35 + Application
+  1145/1145 (0 fallos); sin archivos de Migrations (no requiere database update). gitleaks: no instalado local
+  (lo corre el CI); grep manual del diff sin secretos. Matriz dual de integracion (PG+SQLServer Testcontainers):
+  NO corrida local (pesada, Docker); sin cambios de esquema -> la cubre el CI.
+- CONFIG DE DATOS (NO viaja en el merge): el boton "Aprobar" de AUT-COMPRA-001 opera por REGLAS enganchadas al
+  campo (rules + form_field_rules), datos por tenant; en prod hay que crearlas self-serve o por SQL.
+- DEPLOY: NO (paso aparte, requiere OK por version). Ver [[flujo-asignado-desde-campo-formulario]], [[dron-conciliacion-dian-merge]].
+
+## 2026-10-29 - Control de formulario "Boton (imprimir lienzo)" self-serve (sesion formularios)
+
+- PEDIDO (sesion de formularios, paso 13 CANVAS-EMP): control nuevo tipo "Boton", configurable 100% desde
+  FormDesigner, colocable en cualquier parte del formulario (fuera del LienzoBloques), que al hacer clic abra
+  la vista existente FormPrintLienzo del lienzo elegido en pestana nueva. Que funcione tambien en /f/ anonimo.
+- HECHO (patron calcado de AiCompose, FormControlType persistido como string AL FINAL del enum):
+  * `FormControlType.ActionButton` (enum, al final; preserva ordinales). `FormFieldValidator.IsNonInput` lo marca
+    sin captura de valor.
+  * `Ecorex.Application/Forms/ActionButtonConfig.cs` (NUEVO): OptionsJson bajo "button" -> action ("print-lienzo"),
+    targetField (field_code del LienzoBloques; vacio = el primero), label ("Imprimir lienzo"). Parse/Serialize tolerante.
+  * DynamicFormRenderer: `RenderActionButton` + `OnActionButtonClickAsync` (FlushDraftAsync -> window.open _blank,
+    MISMO patron que el Button legacy IMPRIMIR_PLANTILLA). Nuevo `[Parameter] PublicToken`: en /f/ agrega `&token=`.
+  * FormPublic.razor pasa `PublicToken="@Token"`.
+  * FormPrintLienzo.razor token-aware: si viene `?token=`, valida (IFormTokenService, unico punto cross-tenant) y
+    envuelve las lecturas en `AmbientTenantContext.Begin(tenant)`, con guarda: el registro debe ser de la
+    DefinitionId del token (si no -> no imprime).
+  * FormDesigner: "Boton (imprimir lienzo)" en el dropdown "Tipo de elemento" (self-serve) + panel de config en la
+    pestana **Datos** (Accion / Lienzo a imprimir / Texto del boton) + preview en el lienzo.
+- PRUEBAS: build SuperAdmin verde (0 errores, solo warnings preexistentes). E2E en BITCODE/CANVAS-EMP con build
+  local `appout-actionbtn` + preview `actionbtn-bitcode-5257` (DB ecorex, dev-login acuartas@bitcode.com.co):
+  dropdown lista el control, panel Datos OK, preview en lienzo, impresion por sesion y por token anonimo /f/
+  (BMC 9 bloques, sin "no disponible"). Seed de prueba: question `btn_imprimir_lienzo` en CANVAS-EMP + token
+  anonimo de prueba (solo dev DB). OJO: en esta DB local `ecorex` el tenant `019f478d` = BITCODE (en prod ese
+  guid es AGRO).
+- DEPLOY: NO (usuario: "nada de deploy por ahora"). Commit-less; queda el build local para que el usuario valide.
+- Ver [[form-boton-imprimir-lienzo]], [[form-lienzo-aicompose]].
+
+## 2026-10-29 - FormPrint: secciones numeradas + 2a accion "Imprimir formulario completo" (sesion formularios)
+
+- PEDIDO (sesion de formularios): (1) numerar las secciones del documento FormPrint como los pasos del asistente
+  ("1. Contexto general" ... "13. Lienzo del negocio"), sin numerar la cabecera ni las sub-secciones, para
+  cualquier form; (2) agregar al ActionButton una 2a accion `print-form` que abra FormPrint (registro completo)
+  en pestana nueva, y hacer FormPrint token-aware (igual que FormPrintLienzo) para que funcione en /f/ anonimo.
+- HECHO:
+  * `ActionButtonConfig`: nueva const `ActionPrintForm = "print-form"` + `DefaultFormLabel`. print-form no usa
+    TargetField.
+  * `DynamicFormRenderer.OnActionButtonClickAsync`: ramifica por accion -> print-form abre `/formularios/imprimir/{id}`
+    (sin field), print-lienzo sigue en `/formularios/imprimir-lienzo/{id}?field=`; ambos anexan `&token=` en /f/.
+    `RenderActionButton` ya no exige lienzo para print-form (solo print-lienzo).
+  * `FormPrint.razor`: numeracion de PASOS 1..N con contador unico en orden de arbol. Un contenedor es "paso"
+    (se numera) si cuelga de un contenedor `Tabs` (sus hijos = pasos/pestanas) o si es de NIVEL SUPERIOR y NO es
+    Tabs (form plano). La cabecera (el propio Tabs) y las sub-secciones NO se numeran. Token-aware calcado de
+    FormPrintLienzo (`?token=` -> ValidateAsync -> AmbientTenantContext.Begin + guarda por DefinitionId); el boton
+    "Imprimir lienzo" interno reenvia el token.
+  * `FormDesigner`: dropdown "Accion del boton" ahora ofrece "Imprimir lienzo" y "Imprimir formulario completo";
+    "Lienzo a imprimir" se oculta para print-form; al cambiar de accion, si la etiqueta seguia siendo el default
+    de la otra, se ajusta al nuevo default. Palette renombrada a "Boton (imprimir)".
+- PRUEBAS (BITCODE/CANVAS-EMP, build local `appout-actionbtn` + preview `actionbtn-bitcode-5257`, DB ecorex):
+  FormPrint numera exacto la cabecera "Diagnostico del modelo de negocio" SIN numero y los 13 pasos 1..13; el
+  dropdown del disenador lista las 2 acciones y oculta "Lienzo a imprimir" en print-form (etiqueta auto). Token
+  anonimo: sin token -> "no disponible" (sin fuga); con token valido -> documento completo; token + registro de
+  OTRA definicion -> "no disponible" (guarda). Token de prueba eliminado tras validar; el ActionButton existente
+  restaurado a print-lienzo.
+- DEPLOY: NO. Queda el build local para que el usuario coloque 2 ActionButtons en el paso 13 de CANVAS-EMP.
+- Ver [[form-boton-imprimir-lienzo]].
+
 ## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
 
 - PEDIDO (usuario): poder ver el "curl" COMPLETO que se consume al enviar la plantilla a YCloud + la respuesta,

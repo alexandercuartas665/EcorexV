@@ -297,7 +297,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                             .Where(d => !string.IsNullOrWhiteSpace(d.ButtonLabel))
                             .Select(d => d.ButtonLabel!.Trim()).ToList();
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, headerMediaUrl, notaAgenteRender, ct);
+                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, headerMediaUrl, notaAgenteRender, waOutcome.MessageId, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -399,7 +399,8 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// </summary>
     private async Task RecordContactShareObservationAsync(
         Domain.Entities.TaskItem task, Guid lineId, string phone, string? nodeName, bool hasDecisionLink,
-        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? pdfPublicUrl, string? notaAgente, CancellationToken ct)
+        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? pdfPublicUrl, string? notaAgente,
+        string? externalMessageId, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -470,7 +471,13 @@ public sealed class NodeNotifyService : INodeNotifyService
             Body = sb.ToString(),
             MessageType = "text",
             SentByName = "Sistema (flujo)",
-            SentAt = now
+            SentAt = now,
+            // Se estampa el id del proveedor (YCloud wamid) y el estado inicial "sent": asi el webhook de estado
+            // correlaciona esta saliente del flujo y la actualiza a delivered/read (o failed si Meta la rechaza
+            // luego: el caso "accepted y despues failed"). Sin esto, la ENTREGA del flujo era invisible y solo se
+            // veian los fallos. Null cuando el proveedor no devolvio id (Evolution) -> queda sin estado, como antes.
+            ExternalId = string.IsNullOrWhiteSpace(externalMessageId) ? null : externalMessageId,
+            DeliveryStatus = string.IsNullOrWhiteSpace(externalMessageId) ? null : "sent"
         });
         // ADR-0119 (contexto del agente de seguimiento): la misma observacion va a la bitacora de la ACTIVIDAD,
         // para que el agente del nodo sepa que ya se envio la cotizacion al cliente y pueda hacer el seguimiento.

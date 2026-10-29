@@ -77,4 +77,9 @@ public sealed class ConciliacionDianRenglon : TenantEntity
     /// <summary>Usuario (TenantUser) asignado al renglon para gestionar la factura por linea (asignar, y mas
     /// adelante crear tareas desde cada fila). null = sin asignar. No participa del cruce ni de los eventos.</summary>
     public Guid? AssignedTenantUserId { get; set; }
+
+    /// <summary>El documento fue DEVUELTO al conciliador (rechazado): el asignado lo regreso al pool porque no
+    /// sabia a quien redirigirlo. Se pone en true al devolver y vuelve a false al re-direccionar. El historial
+    /// (<see cref="ConciliacionDianAsignacion"/>) conserva cada rechazo. Sirve para filtrar "documentos rechazados".</summary>
+    public bool Rechazado { get; set; }
 }

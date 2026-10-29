@@ -59,6 +59,7 @@ public static class ConciliacionFilter
         new("plataforma", "En Newton (plataforma)", FilterFieldType.Bool),
         new("archivos", "Tiene archivos", FilterFieldType.Bool),
         new("aprobada", "Factura aprobada", FilterFieldType.Bool),
+        new("rechazado", "Documento rechazado", FilterFieldType.Bool),
         // Usuario asignado (texto = nombre). El valor lo resuelve la pagina via el resolver (UserNameById);
         // con el operador "está vacío" se filtran los renglones SIN usuario asignado.
         new("usuario", "Usuario", FilterFieldType.Text),
@@ -225,6 +226,7 @@ public static class ConciliacionFilter
         "plataforma" => r.PlataformaProveedor,
         "aprobada" => r.FacturaAprobada,
         "archivos" => hasFiles(r.Cufe),
+        "rechazado" => r.Rechazado,
         _ => false,
     };
 

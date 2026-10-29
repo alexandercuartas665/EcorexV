@@ -2124,6 +2124,62 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("conceptos_actividad", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianAsignacion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Accion")
+                        .HasColumnType("integer")
+                        .HasColumnName("accion");
+
+                    b.Property<Guid?>("AssignedToTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_to_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("RenglonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renglon_id");
+
+                    b.Property<string>("TaskNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("task_number");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conciliacion_dian_asignaciones");
+
+                    b.HasIndex("RenglonId")
+                        .HasDatabaseName("ix_conciliacion_dian_asignaciones_renglon_id");
+
+                    b.HasIndex("TenantId", "RenglonId")
+                        .HasDatabaseName("ix_conciliacion_dian_asignaciones_tenant_id_renglon_id");
+
+                    b.ToTable("conciliacion_dian_asignaciones", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianBotDummy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2529,6 +2585,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<bool>("PlataformaProveedor")
                         .HasColumnType("boolean")
                         .HasColumnName("plataforma_proveedor");
+
+                    b.Property<bool>("Rechazado")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("rechazado");
 
                     b.Property<decimal>("RetIca")
                         .HasPrecision(18, 2)
@@ -18582,6 +18644,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("FormDefinition");
 
                     b.Navigation("Subcategoria");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianAsignacion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ConciliacionDianRenglon", "Renglon")
+                        .WithMany()
+                        .HasForeignKey("RenglonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_conciliacion_dian_asignaciones_conciliacion_dian_renglones_");
+
+                    b.Navigation("Renglon");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianRenglon", b =>

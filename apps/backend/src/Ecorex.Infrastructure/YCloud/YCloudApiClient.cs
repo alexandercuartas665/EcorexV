@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Ecorex.Application.Tenancy;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.Infrastructure.YCloud;
 
@@ -15,10 +16,26 @@ internal sealed class YCloudApiClient : IYCloudApiClient
     private const string ApiBase = "https://api.ycloud.com/v2";
 
     private readonly HttpClient _http;
+    private readonly ILogger<YCloudApiClient> _logger;
 
-    public YCloudApiClient(HttpClient http)
+    // TRACE de diagnostico: cuando ECOREX_YCLOUD_TRACE=1 (o true), se registra en el log del server el "curl"
+    // COMPLETO de cada envio a YCloud (payload) + la RESPUESTA (status + body), para ver exactamente que se manda
+    // al enviar una plantilla y que contesta YCloud. La API key NUNCA se loguea (repo publico): se redacta. Off por
+    // defecto (ruido/volumen). Se lee una vez al cargar el tipo; activar/desactivar requiere reiniciar el contenedor.
+    // Leer en prod: docker logs <ecorex-app> 2>&1 | grep "YCLOUD TRACE".
+    private static readonly bool TraceEnabled = ReadTraceFlag();
+
+    public YCloudApiClient(HttpClient http, ILogger<YCloudApiClient> logger)
     {
         _http = http;
+        _logger = logger;
+    }
+
+    private static bool ReadTraceFlag()
+    {
+        var v = Environment.GetEnvironmentVariable("ECOREX_YCLOUD_TRACE");
+        return !string.IsNullOrWhiteSpace(v)
+            && (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase) || v.Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<YCloudCheckResult> CheckAsync(string apiKey, string? phoneNumber, CancellationToken cancellationToken = default)
@@ -190,13 +207,28 @@ internal sealed class YCloudApiClient : IYCloudApiClient
 
     private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/whatsapp/messages");
+        var url = $"{ApiBase}/whatsapp/messages";
+        if (TraceEnabled)
+        {
+            string payloadJson;
+            try { payloadJson = JsonSerializer.Serialize(payload); } catch { payloadJson = "<payload no serializable>"; }
+            // "curl" equivalente con la API key REDACTADA (nunca se loguea el secreto): asi se ve exactamente que
+            // se manda al enviar la plantilla/texto. El payload NO lleva secretos (from/to/template/components).
+            _logger.LogInformation(
+                "[YCLOUD TRACE] REQUEST\ncurl -X POST {Url} -H \"X-API-Key: ***REDACTED***\" -H \"Content-Type: application/json\" -d '{Payload}'",
+                url, payloadJson);
+        }
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("X-API-Key", apiKey);
         req.Content = JsonContent.Create(payload);
         try
         {
             using var res = await _http.SendAsync(req, ct);
             var body = await res.Content.ReadAsStringAsync(ct);
+            if (TraceEnabled)
+            {
+                _logger.LogInformation("[YCLOUD TRACE] RESPONSE HTTP {Status} body={Body}", (int)res.StatusCode, body);
+            }
             if (!res.IsSuccessStatusCode)
             {
                 return new YCloudSendResult(false, null, ExtractError(body) ?? $"HTTP {(int)res.StatusCode}");
@@ -207,6 +239,7 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         }
         catch (Exception ex)
         {
+            if (TraceEnabled) { _logger.LogWarning(ex, "[YCLOUD TRACE] EXCEPTION en POST {Url}", url); }
             return new YCloudSendResult(false, null, ex.Message);
         }
     }

@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
+
+- PEDIDO (usuario): poder ver el "curl" COMPLETO que se consume al enviar la plantilla a YCloud + la respuesta,
+  para diagnosticar por que el mensaje NO llega al cliente (la tarea ya tiene un numero valido = el del usuario).
+- HECHO (YCloudApiClient.SendMessageAsync, por donde pasan TODOS los envios: texto/media/plantilla/reaccion):
+  cuando `ECOREX_YCLOUD_TRACE=1` (o true/yes) se registra en el log del server:
+  * REQUEST: el curl equivalente (POST /v2/whatsapp/messages) con el PAYLOAD completo (plantilla, idioma,
+    components, header de documento con link/filename, from, to). La API KEY va REDACTADA (***REDACTED***) -nunca
+    se loguea el secreto, repo publico-; el payload no lleva secretos.
+  * RESPONSE: status HTTP + body completo de YCloud (wamid si acepto, o el error).
+  * EXCEPTION: si la llamada truena.
+  Off por defecto (volumen). Se lee una vez al cargar el tipo (activar/desactivar = reiniciar el contenedor).
+  Leer: `docker logs <ecorex-app> 2>&1 | grep "YCLOUD TRACE"`.
+- PRUEBAS: build Infrastructure verde (0 errores). Sin migracion. DI inyecta ILogger (AddHttpClient); nada
+  construye el cliente a mano.
+- OJO: la plantilla del flujo con PDF null NO llega a SendMessageAsync (se bloquea antes), asi que ahi no hay
+  trace; el trace SI captura los textos de SARA (que Meta marca failed "sin detalle") y cualquier plantilla que
+  SI se envie. Ver [[bitacora-fallos-envio-whatsapp]].
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.245 (incluye tambien v0.16.243 breaker + v0.16.244 URL PDF).
+
 ## 2026-10-29 - v0.16.244: la bitacora registra la URL PUBLICA del PDF de la cotizacion
 
 - CONTEXTO: para YCloud/Cloud el PDF de la cotizacion NO viaja como bytes; se PUBLICA a una URL publica

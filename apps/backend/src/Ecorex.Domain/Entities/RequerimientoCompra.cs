@@ -70,6 +70,12 @@ public sealed class RequerimientoCompra : TenantEntity
     /// <summary>Actividad (TaskItem) donde se origino la solicitud (el formulario vivia en esa tarea). Null si no aplica.</summary>
     public Guid? SourceTaskItemId { get; set; }
 
+    // ---- Observaciones (texto libre, se pueden alimentar desde el mapeo de una regla de formulario) ----
+    /// <summary>Observaciones generales de la necesidad.</summary>
+    public string? Observaciones { get; set; }
+    /// <summary>Observaciones/caracteristicas de despacho deseadas; sirven de default al planificar el hijo.</summary>
+    public string? ObservacionesDespacho { get; set; }
+
     public ICollection<RequerimientoCompraHijo> Hijos { get; set; } = new List<RequerimientoCompraHijo>();
 }
 

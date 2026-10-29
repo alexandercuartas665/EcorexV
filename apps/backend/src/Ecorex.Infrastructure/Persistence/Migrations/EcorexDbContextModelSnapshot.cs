@@ -10777,6 +10777,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
 
+                    b.Property<string>("Observaciones")
+                        .HasColumnType("text")
+                        .HasColumnName("observaciones");
+
+                    b.Property<string>("ObservacionesDespacho")
+                        .HasColumnType("text")
+                        .HasColumnName("observaciones_despacho");
+
                     b.Property<Guid?>("OrigenId")
                         .HasColumnType("uuid")
                         .HasColumnName("origen_id");

@@ -10780,6 +10780,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("item_id");
 
+                    b.Property<string>("Observaciones")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("observaciones");
+
+                    b.Property<string>("ObservacionesDespacho")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("observaciones_despacho");
+
                     b.Property<Guid?>("OrigenId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("origen_id");

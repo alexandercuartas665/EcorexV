@@ -289,6 +289,8 @@ public interface IApplicationDbContext
     DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas { get; }
     DbSet<RequerimientoCompra> RequerimientosCompra { get; }
     DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos { get; }
+    // Ofertas/cotizaciones de proveedor para el comparador de compras (Ola 13).
+    DbSet<RequerimientoCotizacion> RequerimientoCotizaciones { get; }
     // Campos DINAMICOS del modulo (definicion por tenant + valores por dueno padre/hijo, EAV) (Ola 12).
     DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions { get; }
     DbSet<RequerimientoFieldValue> RequerimientoFieldValues { get; }

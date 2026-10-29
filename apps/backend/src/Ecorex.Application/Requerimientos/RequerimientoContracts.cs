@@ -121,6 +121,50 @@ public sealed record PlanificarGrupoRequest(
 /// <summary>Resultado del plan de grupo.</summary>
 public sealed record PlanificarGrupoResult(bool Ok, string? Error, int HijosCreados);
 
+// ---- Ola 13: comparador de cotizaciones de proveedor ----
+
+/// <summary>Una oferta/cotizacion de un proveedor para un producto, con nombre resuelto y la variacion vs
+/// el ultimo precio del historico de ESE proveedor para el MISMO producto (sube/baja %).</summary>
+public sealed record CotizacionDto(
+    Guid Id,
+    Guid ProveedorId,
+    string? ProveedorNombre,
+    decimal PrecioUnitario,
+    string TiempoEntrega,
+    string CaracteristicasDespacho,
+    string CondicionesPago,
+    DateTimeOffset? VigenciaHasta,
+    string? Notas,
+    RequerimientoCotizacionFuente Fuente,
+    Guid? ProveedorContactoId,
+    decimal? UltimoPrecio,
+    decimal? VariacionPct);
+
+/// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
+public sealed record SaveCotizacionRequest(
+    Guid? Id,
+    Guid? ItemId,
+    string Descripcion,
+    Guid ProveedorId,
+    decimal PrecioUnitario,
+    string? TiempoEntrega,
+    string? CaracteristicasDespacho,
+    string? CondicionesPago,
+    DateTimeOffset? VigenciaHasta,
+    string? Notas,
+    Guid? ProveedorContactoId = null);
+
+/// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
+public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);
+
+/// <summary>Resultado de la evaluacion por IA de las ofertas de un producto: mejor opcion + ranking + resumen.</summary>
+public sealed record EvaluacionCotizacionesDto(
+    bool Ok,
+    string? Error,
+    Guid? ProveedorGanadorId,
+    string Resumen,
+    IReadOnlyList<CotizacionRankItem> Ranking);
+
 /// <summary>Estado de la planificacion de una necesidad: cantidades y sus hijos.</summary>
 public sealed record PlanificacionDto(
     Guid RequerimientoId,
@@ -217,4 +261,19 @@ public interface IRequerimientoService
     /// Empareja por ItemId cuando existe; si no, por Descripcion del padre. Excluye la necesidad actual.
     /// Devuelve null si no hay historial. No persiste nada: sirve de referencia al planificar.</summary>
     Task<UltimoPrecioDto?> GetUltimoPrecioAsync(Guid? itemId, string descripcion, Guid proveedorId, Guid excluirRequerimientoId, CancellationToken ct = default);
+
+    // ---- Ola 13: comparador de cotizaciones de proveedor ----
+    /// <summary>Ofertas de proveedor registradas para un producto (item o descripcion), con la variacion de
+    /// cada una vs el ultimo precio del historico de ese proveedor. Ordenadas por precio ascendente.</summary>
+    Task<IReadOnlyList<CotizacionDto>> ListCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Crea/actualiza una oferta de proveedor (upsert por producto+proveedor). Devuelve la lista refrescada.</summary>
+    Task<IReadOnlyList<CotizacionDto>> GuardarCotizacionAsync(SaveCotizacionRequest req, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Elimina una oferta.</summary>
+    Task<bool> EliminarCotizacionAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Siembra ofertas para el producto desde la matriz de proveedores + el ultimo precio del
+    /// historico (idempotente: no duplica proveedores que ya tengan oferta). Devuelve la lista refrescada.</summary>
+    Task<IReadOnlyList<CotizacionDto>> SembrarCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Evalua las ofertas con el agente configurado en el modulo (modulo de agentes) y propone la
+    /// mejor opcion + ranking + resumen. Si no hay agente configurado o no hay ofertas, devuelve Ok=false.</summary>
+    Task<EvaluacionCotizacionesDto> EvaluarCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
 }

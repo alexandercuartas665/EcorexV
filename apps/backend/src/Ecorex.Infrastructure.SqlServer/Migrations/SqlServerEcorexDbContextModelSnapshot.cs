@@ -11048,6 +11048,100 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("requerimiento_compra_hijos", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCotizacion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CaracteristicasDespacho")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)")
+                        .HasColumnName("caracteristicas_despacho");
+
+                    b.Property<string>("ClaveProducto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("clave_producto");
+
+                    b.Property<string>("CondicionesPago")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("condiciones_pago");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Fuente")
+                        .HasColumnType("int")
+                        .HasColumnName("fuente");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notas");
+
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("precio_unitario");
+
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_contacto_id");
+
+                    b.Property<Guid>("ProveedorId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TiempoEntrega")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("tiempo_entrega");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("VigenciaHasta")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("vigencia_hasta");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_cotizaciones");
+
+                    b.HasIndex("TenantId", "ClaveProducto")
+                        .HasDatabaseName("ix_requerimiento_cotizaciones_tenant_id_clave_producto");
+
+                    b.HasIndex("TenantId", "ClaveProducto", "ProveedorId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_cotizaciones_tenant_id_clave_producto_proveedor_id");
+
+                    b.ToTable("requerimiento_cotizaciones", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoFieldDefinition", b =>
                 {
                     b.Property<Guid>("Id")

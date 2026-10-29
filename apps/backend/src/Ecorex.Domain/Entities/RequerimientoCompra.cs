@@ -107,3 +107,34 @@ public sealed class RequerimientoCompraHijo : TenantEntity
     /// <summary>Actividad (TaskItem) generada al pedir la COTIZACION de este hijo (paralela a la compra).</summary>
     public Guid? CotizacionTaskItemId { get; set; }
 }
+
+/// <summary>OPERATIVO: una OFERTA/cotizacion de un proveedor para un producto (comparador de compras,
+/// Ola 12). Se agrupan por <see cref="ClaveProducto"/> (= "i:{ItemId}" o "d:{descripcion normalizada}")
+/// para que la MISMA oferta aparezca al planificar un registro o un grupo del mismo producto. Capturable
+/// a mano y sembrable desde la matriz de proveedores + el ultimo precio del historico. Un agente del
+/// modulo de agentes las evalua y propone la mejor.</summary>
+public sealed class RequerimientoCotizacion : TenantEntity
+{
+    /// <summary>Clave del producto: "i:{ItemId}" si hay item, o "d:{descripcion en minusculas, recortada}".</summary>
+    public string ClaveProducto { get; set; } = string.Empty;
+    /// <summary>Item del modulo de Inventarios si la oferta es de un producto catalogado (null = producto libre).</summary>
+    public Guid? ItemId { get; set; }
+    /// <summary>Proveedor (Tercero del Directorio General) que ofrece.</summary>
+    public Guid ProveedorId { get; set; }
+    /// <summary>Contacto especifico del proveedor (TerceroContacto) de quien viene la oferta. Null = datos del proveedor.</summary>
+    public Guid? ProveedorContactoId { get; set; }
+    /// <summary>Precio unitario ofertado.</summary>
+    public decimal PrecioUnitario { get; set; }
+    /// <summary>Tiempo de entrega ofertado (texto libre, p.ej. "15 dias", "inmediato").</summary>
+    public string TiempoEntrega { get; set; } = string.Empty;
+    /// <summary>Condiciones/caracteristicas de despacho (transportadora, lugar, etc.).</summary>
+    public string CaracteristicasDespacho { get; set; } = string.Empty;
+    /// <summary>Condiciones de pago (contado, credito 30 dias, etc.).</summary>
+    public string CondicionesPago { get; set; } = string.Empty;
+    /// <summary>Hasta cuando es valida la oferta. Null = sin vigencia declarada.</summary>
+    public DateTimeOffset? VigenciaHasta { get; set; }
+    /// <summary>Notas libres de la oferta.</summary>
+    public string? Notas { get; set; }
+    /// <summary>De donde nacio la oferta: capturada a mano, derivada del historico o de la matriz.</summary>
+    public RequerimientoCotizacionFuente Fuente { get; set; } = RequerimientoCotizacionFuente.Manual;
+}

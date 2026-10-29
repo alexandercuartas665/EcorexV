@@ -293,6 +293,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas => Set<RequerimientoProveedorRegla>();
     public DbSet<RequerimientoCompra> RequerimientosCompra => Set<RequerimientoCompra>();
     public DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos => Set<RequerimientoCompraHijo>();
+    public DbSet<RequerimientoCotizacion> RequerimientoCotizaciones => Set<RequerimientoCotizacion>();
     public DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions => Set<RequerimientoFieldDefinition>();
     public DbSet<RequerimientoFieldValue> RequerimientoFieldValues => Set<RequerimientoFieldValue>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
@@ -2907,6 +2908,20 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasOne(x => x.Requerimiento).WithMany(r => r.Hijos)
                 .HasForeignKey(x => x.RequerimientoId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.RequerimientoId });
+        });
+
+        modelBuilder.Entity<RequerimientoCotizacion>(b =>
+        {
+            b.Property(x => x.ClaveProducto).HasMaxLength(200).IsRequired();
+            b.Property(x => x.TiempoEntrega).HasMaxLength(120);
+            b.Property(x => x.CaracteristicasDespacho).HasMaxLength(400);
+            b.Property(x => x.CondicionesPago).HasMaxLength(200);
+            b.Property(x => x.Notas).HasMaxLength(1000);
+            b.Property(x => x.Fuente).HasConversion<int>();
+            b.Property(x => x.PrecioUnitario).HasPrecision(18, 4);
+            // Busqueda tipica: las ofertas de un producto. Y una oferta por (tenant, producto, proveedor).
+            b.HasIndex(x => new { x.TenantId, x.ClaveProducto });
+            b.HasIndex(x => new { x.TenantId, x.ClaveProducto, x.ProveedorId }).IsUnique();
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

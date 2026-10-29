@@ -6,6 +6,7 @@
 @using Ecorex.Application.Preferences
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Pages.Requerimientos
+@using Ecorex.SuperAdmin.Components.Shared.Requerimientos
 @using ClosedXML.Excel
 @inject IRequerimientoService Svc
 @inject IRequerimientoConfigService ConfigSvc
@@ -720,6 +721,10 @@ else
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
+                <CotizacionesComparador ItemId="_planItemId" Descripcion="_planDescripcion"
+                    Cantidad="@(RestanteActual > 0 ? RestanteActual : _planCantidadPadre)"
+                    CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
+
                 <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
                     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                         <thead>
@@ -911,6 +916,17 @@ else
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:8px;">Tip: en modo Consolidado puedes sacar un registro puntual de la consolidacion con el boton <strong>Dividir</strong> de su fila.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Agente evaluador de cotizaciones</div>
+                    <select class="form-select form-select-sm" value="@(_cfgAgente?.ToString() ?? "")" @onchange="OnCfgAgenteChanged">
+                        <option value="">(sin agente: "Evaluar con IA" pedira configurarlo)</option>
+                        @foreach (var a in _agentes)
+                        {
+                            <option value="@a.Id" selected="@(_cfgAgente == a.Id)">@a.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">El agente del <strong>modulo de agentes</strong> que compara las cotizaciones del comparador y propone la mejor opcion.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                     <button class="btn btn-link btn-sm" style="padding:0;" @onclick="GoToConfigAvanzada">Configuracion avanzada (origenes y proveedores) &rarr;</button>
                 </div>
                 @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
@@ -995,6 +1011,11 @@ else
                             <input type="text" class="form-control form-control-sm" @bind="_pgDespacho" />
                         </label>
                     </div>
+
+                    <CotizacionesComparador ItemId="@(_pgGrupo.FirstOrDefault()?.ItemId)"
+                        Descripcion="@(_pgGrupo.FirstOrDefault()?.Descripcion ?? _pgProducto)"
+                        Cantidad="_pgTotal" CanEdit="_canConfig" OnUsar="AplicarCotizacionGrupo" />
+
                     <div class="cd-grid-wrap">
                         <table class="cd-grid">
                             <thead><tr><th>Necesidad (origen)</th><th>Actividad</th><th class="num">Restante</th><th class="num">A planificar</th></tr></thead>
@@ -1238,6 +1259,9 @@ else
     private bool _showConfigModal;
     private RequerimientoModo _cfgModo;
     private string? _cfgError;
+    // Agente evaluador de cotizaciones (modulo de agentes) elegido en la config.
+    private Guid? _cfgAgente;
+    private List<RequerimientoOpcionDto> _agentes = new();
 
     // ---- Planificar GRUPO (vista consolidada: una pasada para N necesidades del mismo producto) ----
     private bool _showPlanGrupo;
@@ -1723,12 +1747,20 @@ else
     }
 
     // ---- Configuracion del modulo (modo Consolidado/Dividido) ----
-    private void OpenConfig()
+    private async Task OpenConfig()
     {
         _cfgError = null;
         _cfgModo = _modo;
+        try
+        {
+            _agentes = (await ConfigSvc.ListAgentesAsync()).ToList();
+            _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
         _showConfigModal = true;
     }
+    private void OnCfgAgenteChanged(ChangeEventArgs e)
+        => _cfgAgente = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
     private async Task SaveConfigAsync()
     {
         _cfgError = null;
@@ -1736,6 +1768,7 @@ else
         try
         {
             await ConfigSvc.SetModoAsync(_cfgModo);
+            await ConfigSvc.SetAgenteCotizacionesAsync(_cfgAgente);
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
             _consolidate = _modo == RequerimientoModo.Consolidado;
@@ -2587,6 +2620,38 @@ else
     {
         var resta = RestanteActual;
         _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1 });
+    }
+
+    // Vuelca una cotizacion elegida en el comparador a la planificacion del REGISTRO: llena la primera linea
+    // vacia (sin proveedor y sin actividad) o agrega una nueva, con proveedor/precio/entrega/despacho de la oferta.
+    private async Task AplicarCotizacionIndividualAsync(CotizacionDto c)
+    {
+        var row = _pHijos.FirstOrDefault(h => h.TaskItemId is null && string.IsNullOrWhiteSpace(h.Prov));
+        if (row is null)
+        {
+            var resta = RestanteActual;
+            row = new HijoEdit { Cantidad = resta > 0 ? resta : 1 };
+            _pHijos.Add(row);
+        }
+        row.Prov = c.ProveedorId.ToString();
+        row.ProvNombre = c.ProveedorNombre ?? "";
+        row.Precio = c.PrecioUnitario;
+        row.Entrega = c.TiempoEntrega;
+        row.Despacho = c.CaracteristicasDespacho;
+        row.ContactoId = c.ProveedorContactoId;
+        await FillContactoAsync(row);
+        _planError = null;
+        StateHasChanged();
+    }
+
+    // Vuelca una cotizacion elegida al plan de GRUPO (proveedor/precio/despacho compartidos de la pasada).
+    private void AplicarCotizacionGrupo(CotizacionDto c)
+    {
+        _pgProv = c.ProveedorId.ToString();
+        _pgProvNombre = c.ProveedorNombre ?? "";
+        _pgPrecio = c.PrecioUnitario;
+        if (!string.IsNullOrWhiteSpace(c.CaracteristicasDespacho)) { _pgDespacho = c.CaracteristicasDespacho; }
+        _pgError = null;
     }
 
     private async Task GuardarPlanAsync()

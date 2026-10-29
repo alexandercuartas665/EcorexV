@@ -41,6 +41,7 @@ public class RowIngestServiceTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompraHijo> RequerimientoCompraHijos => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoCotizacion> RequerimientoCotizaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();

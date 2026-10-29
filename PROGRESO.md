@@ -2,6 +2,41 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - Comparador de cotizaciones con evaluacion por agente IA (worktree requerimiento_compras)
+
+- PEDIDO (usuario): al planificar la compra (modal de planificar GRUPO o REGISTRO) debe haber una zona que
+  traiga las cotizaciones de distintos proveedores, mostradas como TARJETAS, resaltando las DIFERENCIAS de
+  cada proveedor, y un AGENTE DE IA debe evaluar las opciones y proponer la mejor. Regla: "todo agente vive
+  en mi modulo de agentes" (se elige un AiAgent existente; la IA PROPONE y el humano aplica).
+- HECHO (componente reusable `CotizacionesComparador.razor` + `.razor.css`, usado en AMBOS modales):
+  * Tarjetas por proveedor con: precio/u + Total (precio*cantidad), tiempo de entrega, despacho,
+    condiciones de pago, vigencia, variacion % vs ultimo precio historico, y badge de fuente
+    (manual/historico/matriz). Resalta "Mejor precio" (el mas barato) y "Recomendado por IA (#n)" + motivo.
+  * Captura manual de ofertas (+ Agregar oferta: proveedor por datalist filtrado a perfil Proveedor, precio,
+    entrega, despacho, pago, vigencia, notas) -> persiste en tabla nueva; editar/eliminar por tarjeta.
+  * "Sembrar": trae candidatos de la matriz de proveedores + historico (idempotente).
+  * "Evaluar con IA": arma una tabla de texto con las ofertas y llama al agente elegido via la ruta GOBERNADA
+    `IAiInferenceService.TestChatAsync` (registra AiUsageLog, respeta cupo); parsea el ranking y marca el
+    ganador. Sin agente configurado -> muestra "Configura un agente evaluador en la Configuracion del modulo".
+  * "Usar esta opcion": vuelca la oferta a una fila del plan (individual: proveedor/precio/entrega/despacho +
+    resuelve contacto; grupo: setea proveedor/precio/despacho compartidos de la pasada).
+  * Selector de agente evaluador en la Configuracion del modulo (persistido en TenantConfiguration, SIN
+    migracion de ese ajuste): key `requerimientos.agente_cotizaciones`; lista los AiAgent activos del tenant.
+- DATOS: entidad nueva `RequerimientoCotizacion` + enum `RequerimientoCotizacionFuente` (Manual/Historico/
+  Matriz). Migracion DUAL `AddRequerimientoCotizaciones` (PG 20261029212112 + SQL Server 20261029212340) +
+  ambos snapshots. Fix de paso: `ListProveedoresAsync` ahora filtra por `(Perfiles & Proveedor)`.
+- PRUEBAS: `dotnet build Ecorex.sln` VERDE (0 errores). 10 fakes de IApplicationDbContext en los tests
+  actualizados con el nuevo DbSet. E2E live (dev 5265 como SKY SYSTEM, BD ecorex 5442, migracion aplicada al
+  arrancar): tarjetas renderizan en modal individual Y de grupo; "Mejor precio" salta al mas barato; oferta
+  manual persiste y recarga; datalist de proveedor filtrado OK; "Usar esta opcion" llena la fila del plan con
+  contacto resuelto y actualiza los totales del header; "Evaluar con IA" sin agente muestra el mensaje de
+  configuracion. NO ejecutado: ranking IA real -> SKY no tiene AiAgent/proveedor configurado (brecha de datos
+  del entorno, no de codigo; el selector lista agentes en tenants que si los tienen: BITCODE/AGRO/SOLDARCO).
+- SIGUIENTE: integracion al tronco por el dev principal (prompt entregado). SIN push a fase-0/clon-backbone,
+  SIN deploy. Para probar la IA real: configurar un agente evaluador en un tenant con proveedor IA activo.
+- DECISIONES: IA PROPONE, humano aplica (no auto-aplica el ganador); comparar por precio/u+total, entrega+
+  despacho, pago+vigencia y variacion vs ultimo precio; agente elegido de los existentes (modulo de agentes).
+
 ## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
 
 - PEDIDO (usuario): poder ver el "curl" COMPLETO que se consume al enviar la plantilla a YCloud + la respuesta,

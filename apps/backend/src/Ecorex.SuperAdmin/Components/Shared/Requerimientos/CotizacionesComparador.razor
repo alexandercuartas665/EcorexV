@@ -1,0 +1,313 @@
+@* =====================================================================================================
+   Comparador de cotizaciones de proveedor (Ola 13). Reutilizable en el modal de Planificar registro y en
+   el de Planificar grupo. Trae las ofertas del producto (tarjetas), resalta diferencias, deja capturarlas
+   a mano / sembrarlas (matriz + historico) y pide a un agente del modulo de agentes que proponga la mejor.
+   "Usar esta opcion" devuelve la oferta al padre (OnUsar) para volcarla a la planificacion.
+   ===================================================================================================== *@
+@using Ecorex.Application.Requerimientos
+@using Ecorex.Domain.Enums
+@inject IRequerimientoService Svc
+
+<div class="rqc-wrap">
+    <div class="rqc-head">
+        <strong class="rqc-title">Comparador de cotizaciones</strong>
+        <span class="rqc-count">@_ofertas.Count oferta(s)</span>
+        <div class="rqc-head-actions">
+            @if (CanEdit)
+            {
+                <button class="btn btn-outline-secondary btn-sm" @onclick="SembrarAsync" disabled="@_busy"
+                        title="Trae proveedores de la matriz y el ultimo precio del historico como ofertas iniciales">Sembrar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirNueva" disabled="@_busy">+ Agregar oferta</button>
+            }
+            <button class="btn btn-primary btn-sm" @onclick="EvaluarAsync" disabled="@(_busy || _ofertas.Count == 0)"
+                    title="Un agente de IA compara las ofertas y propone la mejor">
+                @(_busyEval ? "Evaluando..." : "Evaluar con IA")
+            </button>
+        </div>
+    </div>
+
+    @if (_error is not null) { <div class="rqc-msg rqc-err">@_error</div> }
+    @if (_info is not null) { <div class="rqc-msg rqc-info">@_info</div> }
+    @if (_evaluado && !string.IsNullOrWhiteSpace(_resumen))
+    {
+        <div class="rqc-msg rqc-ai"><span class="rqc-ai-chip">IA</span> @_resumen</div>
+    }
+
+    @if (_ofertas.Count == 0)
+    {
+        <div class="rqc-empty">
+            Sin cotizaciones para este producto.
+            @if (CanEdit) { <text>Usa <strong>Sembrar</strong> para traerlas de la matriz/historico o <strong>+ Agregar oferta</strong>.</text> }
+        </div>
+    }
+    else
+    {
+        <div class="rqc-cards">
+            @foreach (var o in _ofertas)
+            {
+                var oc = o;
+                var esMejorPrecio = o.PrecioUnitario > 0m && o.PrecioUnitario == _minPrecio;
+                var esGanador = _evaluado && _ganador == o.ProveedorId;
+                (int Pos, string Motivo)? rk = _rank.TryGetValue(o.ProveedorId, out var rv) ? rv : null;
+                <div class="rqc-card @(esGanador ? "rqc-win" : "")">
+                    <div class="rqc-card-top">
+                        <span class="rqc-prov">@(string.IsNullOrWhiteSpace(o.ProveedorNombre) ? "(proveedor)" : o.ProveedorNombre)</span>
+                        <div class="rqc-badges">
+                            @if (esGanador) { <span class="rqc-badge rqc-badge-ai">Recomendado por IA@(rk is { } rr ? $" (#{rr.Pos})" : "")</span> }
+                            else if (rk is { } rr2) { <span class="rqc-badge rqc-badge-rank">#@rr2.Pos</span> }
+                            @if (esMejorPrecio) { <span class="rqc-badge rqc-badge-low">Mejor precio</span> }
+                            <span class="rqc-badge rqc-badge-src">@FuenteLbl(o.Fuente)</span>
+                        </div>
+                    </div>
+
+                    <div class="rqc-price">
+                        <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
+                        <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
+                        @if (o.VariacionPct is { } v && o.UltimoPrecio is { } up)
+                        {
+                            <span class="rqc-var @(v > 0 ? "up" : v < 0 ? "down" : "")" title="@($"Ultimo precio historico: {Money(up)}")">
+                                @(v > 0 ? "▲" : v < 0 ? "▼" : "=") @Math.Abs(v)% vs ult.
+                            </span>
+                        }
+                    </div>
+
+                    <div class="rqc-meta">
+                        <div><span class="rqc-k">Entrega</span><span class="rqc-v">@Dash(o.TiempoEntrega)</span></div>
+                        <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
+                        <div><span class="rqc-k">Pago</span><span class="rqc-v">@Dash(o.CondicionesPago)</span></div>
+                        <div><span class="rqc-k">Vigencia</span><span class="rqc-v">@(o.VigenciaHasta is { } vh ? vh.ToString("dd/MM/yy") : "-")</span></div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(o.Notas)) { <div class="rqc-notas">@o.Notas</div> }
+                    @if (esGanador && rk is { Motivo: var mtv } && !string.IsNullOrWhiteSpace(mtv)) { <div class="rqc-motivo">@mtv</div> }
+
+                    <div class="rqc-card-actions">
+                        <button class="btn btn-primary btn-sm" @onclick="() => UsarAsync(oc)" disabled="@_busy">Usar esta opcion</button>
+                        @if (CanEdit)
+                        {
+                            <button class="btn btn-link btn-sm" @onclick="() => AbrirEdicion(oc)" disabled="@_busy">Editar</button>
+                            <button class="btn btn-link btn-sm rqc-del" @onclick="() => EliminarAsync(oc.Id)" disabled="@_busy">Eliminar</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (_showForm && CanEdit)
+    {
+        <div class="rqc-form">
+            <div class="rqc-form-title">@(_editId is null ? "Nueva oferta" : "Editar oferta")</div>
+            <datalist id="rqc-prov-list">
+                @foreach (var p in _provs) { <option value="@p.Nombre"></option> }
+            </datalist>
+            <div class="rqc-form-grid">
+                <label class="rqc-f rqc-f-wide">Proveedor
+                    <input list="rqc-prov-list" class="form-control form-control-sm" value="@_fProvNombre" @onchange="OnFormProvChanged" placeholder="Escribe o elige del Directorio" />
+                </label>
+                <label class="rqc-f">Precio unit.
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fPrecio" />
+                </label>
+                <label class="rqc-f">Tiempo de entrega
+                    <input class="form-control form-control-sm" @bind="_fEntrega" placeholder="15 dias, inmediato" />
+                </label>
+                <label class="rqc-f">Despacho
+                    <input class="form-control form-control-sm" @bind="_fDespacho" placeholder="transportadora, lugar" />
+                </label>
+                <label class="rqc-f">Condiciones de pago
+                    <input class="form-control form-control-sm" @bind="_fPago" placeholder="contado, credito 30 dias" />
+                </label>
+                <label class="rqc-f">Vigencia hasta
+                    <input type="date" class="form-control form-control-sm" @bind="_fVigencia" />
+                </label>
+                <label class="rqc-f rqc-f-wide">Notas
+                    <input class="form-control form-control-sm" @bind="_fNotas" />
+                </label>
+            </div>
+            @if (_formError is not null) { <div class="rqc-msg rqc-err">@_formError</div> }
+            <div class="rqc-form-actions">
+                <button class="btn btn-primary btn-sm" @onclick="GuardarOfertaAsync" disabled="@_busy">Guardar oferta</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showForm = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? ItemId { get; set; }
+    [Parameter] public string Descripcion { get; set; } = "";
+    [Parameter] public decimal Cantidad { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public EventCallback<CotizacionDto> OnUsar { get; set; }
+
+    private List<CotizacionDto> _ofertas = new();
+    private List<RequerimientoOpcionDto> _provs = new();
+    private decimal _minPrecio;
+    private bool _busy;
+    private bool _busyEval;
+    private string? _error;
+    private string? _info;
+
+    // Evaluacion por IA.
+    private bool _evaluado;
+    private Guid? _ganador;
+    private string _resumen = "";
+    private Dictionary<Guid, (int, string)> _rank = new();
+
+    // Formulario de alta/edicion.
+    private bool _showForm;
+    private Guid? _editId;
+    private string _fProv = "";
+    private string _fProvNombre = "";
+    private decimal _fPrecio;
+    private string _fEntrega = "";
+    private string _fDespacho = "";
+    private string _fPago = "";
+    private DateTime? _fVigencia;
+    private string _fNotas = "";
+    private string? _formError;
+
+    private string _loadedKey = "\0";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = (ItemId?.ToString() ?? "") + "|" + (Descripcion ?? "").Trim().ToLowerInvariant();
+        if (key != _loadedKey)
+        {
+            _loadedKey = key;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null; _info = null;
+        _evaluado = false; _ganador = null; _resumen = ""; _rank = new();
+        _showForm = false;
+        try
+        {
+            _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            if (_provs.Count == 0) { _provs = (await Svc.ListProveedoresAsync()).ToList(); }
+            RecalcMin();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void RecalcMin()
+        => _minPrecio = _ofertas.Where(o => o.PrecioUnitario > 0m)
+            .Select(o => o.PrecioUnitario).DefaultIfEmpty(0m).Min();
+
+    private async Task SembrarAsync()
+    {
+        _busy = true; _error = null; _info = null;
+        try
+        {
+            var antes = _ofertas.Count;
+            _ofertas = (await Svc.SembrarCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            RecalcMin();
+            var nuevas = _ofertas.Count - antes;
+            _info = nuevas > 0 ? $"Se sembraron {nuevas} oferta(s) desde la matriz/historico." : "No se encontraron proveedores nuevos para sembrar.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EvaluarAsync()
+    {
+        _busyEval = true; _error = null; _info = null;
+        try
+        {
+            var ev = await Svc.EvaluarCotizacionesAsync(ItemId, Descripcion, Cantidad);
+            if (!ev.Ok) { _error = ev.Error ?? "No se pudo evaluar."; _evaluado = false; return; }
+            _ganador = ev.ProveedorGanadorId;
+            _resumen = ev.Resumen;
+            _rank = ev.Ranking.ToDictionary(r => r.ProveedorId, r => (r.Posicion, r.Motivo));
+            _evaluado = true;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busyEval = false; }
+    }
+
+    private async Task UsarAsync(CotizacionDto o)
+    {
+        if (OnUsar.HasDelegate) { await OnUsar.InvokeAsync(o); }
+    }
+
+    private void AbrirNueva()
+    {
+        _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
+        _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
+        _formError = null; _showForm = true;
+    }
+
+    private void AbrirEdicion(CotizacionDto o)
+    {
+        _editId = o.Id;
+        _fProv = o.ProveedorId.ToString();
+        _fProvNombre = o.ProveedorNombre ?? "";
+        _fPrecio = o.PrecioUnitario;
+        _fEntrega = o.TiempoEntrega;
+        _fDespacho = o.CaracteristicasDespacho;
+        _fPago = o.CondicionesPago;
+        _fVigencia = o.VigenciaHasta?.DateTime;
+        _fNotas = o.Notas ?? "";
+        _formError = null; _showForm = true;
+    }
+
+    private void OnFormProvChanged(ChangeEventArgs e)
+    {
+        var txt = (e.Value?.ToString() ?? "").Trim();
+        _fProvNombre = txt;
+        var match = _provs.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
+        _fProv = match?.Id.ToString() ?? "";
+    }
+
+    private async Task GuardarOfertaAsync()
+    {
+        _formError = null;
+        if (!Guid.TryParse(_fProv, out var provId))
+        {
+            _formError = "Elige un proveedor del Directorio (perfil Proveedor).";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var req = new SaveCotizacionRequest(
+                _editId, ItemId, Descripcion ?? "", provId, _fPrecio,
+                _fEntrega, _fDespacho, _fPago,
+                _fVigencia is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+                _fNotas, null);
+            _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
+            RecalcMin();
+            _evaluado = false; _ganador = null; _rank = new();
+            _showForm = false;
+        }
+        catch (Exception ex) { _formError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EliminarAsync(Guid id)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            await Svc.EliminarCotizacionAsync(id);
+            _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            RecalcMin();
+            _evaluado = false; _ganador = null; _rank = new();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string FuenteLbl(RequerimientoCotizacionFuente f) => f switch
+    {
+        RequerimientoCotizacionFuente.Historico => "historico",
+        RequerimientoCotizacionFuente.Matriz => "matriz",
+        _ => "manual"
+    };
+
+    private static string Dash(string? s) => string.IsNullOrWhiteSpace(s) ? "-" : s!;
+    private static string Money(decimal d) => d.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+}

@@ -67,6 +67,14 @@ public interface IRequerimientoConfigService
     /// <summary>Guarda el modo de trabajo del modulo para el tenant.</summary>
     Task SetModoAsync(RequerimientoModo modo, CancellationToken ct = default);
 
+    /// <summary>Agente (del modulo de agentes) que evalua las cotizaciones del comparador de compras. Se
+    /// guarda en TenantConfiguration. Null si no hay uno elegido.</summary>
+    Task<Guid?> GetAgenteCotizacionesAsync(CancellationToken ct = default);
+    /// <summary>Elige el agente evaluador de cotizaciones (null para quitarlo).</summary>
+    Task SetAgenteCotizacionesAsync(Guid? agentId, CancellationToken ct = default);
+    /// <summary>Agentes ACTIVOS del modulo de agentes para el selector de la config.</summary>
+    Task<IReadOnlyList<RequerimientoOpcionDto>> ListAgentesAsync(CancellationToken ct = default);
+
     /// <summary>Subcategorias (conceptos 000270) para elegir el proceso de compra del origen.</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default);
     /// <summary>Formularios publicados/activos para elegir la fuente (TipoFuente=Formulario).</summary>

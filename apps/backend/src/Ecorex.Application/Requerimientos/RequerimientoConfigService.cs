@@ -103,6 +103,39 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         await _db.SaveChangesAsync(ct);
     }
 
+    // ---- Agente evaluador de cotizaciones (modulo de agentes): config por tenant en TenantConfiguration ----
+    private const string AgenteCotizacionesKey = "requerimientos.agente_cotizaciones";
+
+    public async Task<Guid?> GetAgenteCotizacionesAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == AgenteCotizacionesKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+        return Guid.TryParse(val, out var id) ? id : null;
+    }
+
+    public async Task SetAgenteCotizacionesAsync(Guid? agentId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var value = agentId is Guid g && g != Guid.Empty ? g.ToString() : "";
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AgenteCotizacionesKey, ct);
+        if (row is null)
+        {
+            _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AgenteCotizacionesKey, ConfigValue = value });
+        }
+        else
+        {
+            row.ConfigValue = value;
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListAgentesAsync(CancellationToken ct = default)
+        => await _db.AiAgents.AsNoTracking().Where(a => a.IsActive)
+            .OrderBy(a => a.SortOrder).ThenBy(a => a.Name)
+            .Select(a => new RequerimientoOpcionDto(a.Id, a.Name)).ToListAsync(ct);
+
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default)
         => (await _catalogo.ListSubcategoriasAsync(null, includeArchived: false, ct))
             .OrderBy(s => s.Nombre)
@@ -201,7 +234,9 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
-        => await _db.Terceros.AsNoTracking().OrderBy(t => t.Nombre)
+        => await _db.Terceros.AsNoTracking()
+            .Where(t => (t.Perfiles & TerceroPerfil.Proveedor) == TerceroPerfil.Proveedor)
+            .OrderBy(t => t.Nombre)
             .Select(t => new RequerimientoOpcionDto(t.Id, t.Nombre)).Take(2000).ToListAsync(ct);
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListValoresDimensionAsync(RequerimientoDimension dimension, CancellationToken ct = default)

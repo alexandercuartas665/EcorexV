@@ -79,7 +79,8 @@ public sealed class RequerimientoService : IRequerimientoService
                 hl.Sum(x => x.Total),
                 hl,
                 r.SolicitanteUserId, r.SolicitanteNombre, r.SourceTaskItemId,
-                r.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null);
+                r.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null,
+                r.ForzarDividir);
         }).ToList();
     }
 
@@ -169,6 +170,18 @@ public sealed class RequerimientoService : IRequerimientoService
         }
         r.Estado = RequerimientoEstado.Ejecutado;
         await _db.SaveChangesAsync(ct);
+        return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
+    }
+
+    public async Task<RequerimientoDto?> SetForzarDividirAsync(Guid id, bool dividir, CancellationToken ct = default)
+    {
+        var r = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) { return null; }
+        if (r.ForzarDividir != dividir)
+        {
+            r.ForzarDividir = dividir;
+            await _db.SaveChangesAsync(ct);
+        }
         return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
     }
 

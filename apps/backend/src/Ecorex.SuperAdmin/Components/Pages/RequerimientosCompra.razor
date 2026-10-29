@@ -8,9 +8,11 @@
 @using Ecorex.SuperAdmin.Components.Pages.Requerimientos
 @using ClosedXML.Excel
 @inject IRequerimientoService Svc
+@inject IRequerimientoConfigService ConfigSvc
 @inject IRequerimientoFieldService FieldSvc
 @inject IUserTablePrefsService Prefs
 @inject ISavedFilterService SavedFilters
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -233,6 +235,12 @@
         <button class="cd-tbtn @(_dynDefsPadre.Count + _dynDefsHija.Count > 0 ? "on" : "")" @onclick="OpenCamposAsync" title="Crear campos propios (a medida) para las necesidades y las lineas de planificacion">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             <span>Campos</span>
+        </button>
+
+        @* Configuracion del modulo (estilo Conciliacion DIAN): modo Consolidado/Dividido + enlace a la config avanzada *@
+        <button class="cd-tbtn" @onclick="OpenConfig" title="Configurar el modulo: trabajar Consolidado (una linea por producto) o Dividido (cada necesidad por separado), y la configuracion avanzada (origenes y proveedores)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Configuracion</span>
         </button>
     }
 
@@ -479,6 +487,10 @@ else
                                     {
                                         case "producto":
                                             <text>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</text>
+                                            @if (r.ForzarDividir)
+                                            {
+                                                <span class="req-dividido" title="Este registro no se consolida con los del mismo producto (se planifica aparte)">dividido</span>
+                                            }
                                             break;
                                         case "area": <text>@(string.IsNullOrWhiteSpace(r.Area) ? "-" : r.Area)</text> break;
                                         case "origen": <text>@(r.OrigenNombre ?? "-")</text> break;
@@ -517,6 +529,13 @@ else
                                             @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
                                             {
                                                 <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
+                                            }
+                                            @if (_canConfig)
+                                            {
+                                                <button class="btn btn-link btn-sm" @onclick="() => ToggleForzarDividirAsync(r)" disabled="@_busy"
+                                                        title="@(r.ForzarDividir ? "Volver a consolidar este registro con los del mismo producto" : "Sacar este registro de la consolidacion: se planifica aparte aunque el modulo este en modo Consolidado")">
+                                                    @(r.ForzarDividir ? "Consolidar" : "Dividir")
+                                                </button>
                                             }
                                             <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
                                             break;
@@ -867,6 +886,46 @@ else
 }
 
 @* ---- Planificar GRUPO (vista consolidada: una pasada para todas las necesidades del mismo producto) ---- *@
+@if (_showConfigModal)
+{
+    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showConfigModal = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">Configuracion del modulo</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _showConfigModal = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;">
+                <div>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:8px;">Modo de trabajo</div>
+                    <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid @(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");border-radius:10px;cursor:pointer;margin-bottom:8px;background:@(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand-soft,#eef2ff)" : "transparent");">
+                        <input type="radio" name="reqmodo" checked="@(_cfgModo == RequerimientoModo.Consolidado)" @onchange="() => _cfgModo = RequerimientoModo.Consolidado" style="margin-top:3px;" />
+                        <span>
+                            <span style="font-size:13px;font-weight:700;color:var(--ink,#1f2937);">Consolidado</span>
+                            <span style="display:block;font-size:12px;color:var(--ink-3,#6b7280);margin-top:2px;">Junta las necesidades del MISMO producto en una sola linea sumada. Se planifican como grupo (una pasada: un proveedor/precio/fecha, 1 distribucion por cada necesidad).</span>
+                        </span>
+                    </label>
+                    <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid @(_cfgModo == RequerimientoModo.Dividido ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");border-radius:10px;cursor:pointer;background:@(_cfgModo == RequerimientoModo.Dividido ? "var(--brand-soft,#eef2ff)" : "transparent");">
+                        <input type="radio" name="reqmodo" checked="@(_cfgModo == RequerimientoModo.Dividido)" @onchange="() => _cfgModo = RequerimientoModo.Dividido" style="margin-top:3px;" />
+                        <span>
+                            <span style="font-size:13px;font-weight:700;color:var(--ink,#1f2937);">Dividido</span>
+                            <span style="display:block;font-size:12px;color:var(--ink-3,#6b7280);margin-top:2px;">Cada necesidad se ve y se planifica por separado (sin agrupar por producto).</span>
+                        </span>
+                    </label>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:8px;">Tip: en modo Consolidado puedes sacar un registro puntual de la consolidacion con el boton <strong>Dividir</strong> de su fila.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <button class="btn btn-link btn-sm" style="padding:0;" @onclick="GoToConfigAvanzada">Configuracion avanzada (origenes y proveedores) &rarr;</button>
+                </div>
+                @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showPlanGrupo)
 {
     <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showPlanGrupo = false">
@@ -1127,6 +1186,12 @@ else
 
     // Expansion de distribuciones (hijos) por fila (transitorio, no se persiste).
     private HashSet<Guid> _expanded = new();
+
+    // ---- Configuracion del modulo (modo Consolidado/Dividido) ----
+    private RequerimientoModo _modo = RequerimientoModo.Consolidado;
+    private bool _showConfigModal;
+    private RequerimientoModo _cfgModo;
+    private string? _cfgError;
 
     // ---- Planificar GRUPO (vista consolidada: una pasada para N necesidades del mismo producto) ----
     private bool _showPlanGrupo;
@@ -1475,7 +1540,9 @@ else
         {
             if (consolidate)
             {
-                var prodGroups = rows.GroupBy(ConsolKey)
+                // Un registro marcado "Dividir" (ForzarDividir) recibe una clave unica: nunca se junta con
+                // los del mismo producto, asi cae en el camino de 1 elemento -> fila normal (EmitData).
+                var prodGroups = rows.GroupBy(r => r.ForzarDividir ? "f:" + r.Id.ToString("N") : ConsolKey(r))
                     .OrderBy(g => g.First().ItemNombre ?? g.First().Descripcion, StringComparer.OrdinalIgnoreCase);
                 foreach (var pg in prodGroups)
                 {
@@ -1602,6 +1669,41 @@ else
         RebuildItems();
     }
 
+    // ---- Configuracion del modulo (modo Consolidado/Dividido) ----
+    private void OpenConfig()
+    {
+        _cfgError = null;
+        _cfgModo = _modo;
+        _showConfigModal = true;
+    }
+    private async Task SaveConfigAsync()
+    {
+        _cfgError = null;
+        _busy = true;
+        try
+        {
+            await ConfigSvc.SetModoAsync(_cfgModo);
+            _modo = _cfgModo;
+            // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
+            _consolidate = _modo == RequerimientoModo.Consolidado;
+            if (!_consolidate) { _consolExpanded.Clear(); }
+            _showConfigModal = false;
+            RebuildItems();
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+    private void GoToConfigAvanzada() => Nav.NavigateTo("/requerimientos-config");
+
+    // Override por registro: saca/mete una necesidad de la consolidacion (se planifica aparte).
+    private async Task ToggleForzarDividirAsync(RequerimientoDto r)
+    {
+        _busy = true;
+        try { await Svc.SetForzarDividirAsync(r.Id, !r.ForzarDividir); await ReloadAsync(); }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
     // ---- Expansion ----
     private void ToggleExpand(Guid id)
     {
@@ -1638,6 +1740,9 @@ else
         }
         await LoadDynDefsAsync();   // antes de las prefs: las columnas dinamicas deben existir para el orden
         await LoadPrefsAsync();
+        // Modo del modulo (Consolidado/Dividido): manda sobre el estado inicial de la vista consolidada.
+        _modo = await ConfigSvc.GetModoAsync();
+        _consolidate = _modo == RequerimientoModo.Consolidado;
         // Asegura que las columnas dinamicas esten en el orden aunque no hubiera prefs guardadas.
         foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
         await LoadSavedFiltersAsync();

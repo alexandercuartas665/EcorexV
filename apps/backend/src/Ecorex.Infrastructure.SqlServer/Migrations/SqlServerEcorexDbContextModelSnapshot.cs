@@ -10894,6 +10894,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_necesidad");
 
+                    b.Property<bool>("ForzarDividir")
+                        .HasColumnType("bit")
+                        .HasColumnName("forzar_dividir");
+
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("item_id");

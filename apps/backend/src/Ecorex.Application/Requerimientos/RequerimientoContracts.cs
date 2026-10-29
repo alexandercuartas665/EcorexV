@@ -25,7 +25,9 @@ public sealed record RequerimientoDto(
     Guid? SolicitanteUserId = null,
     string? SolicitanteNombre = null,
     Guid? SourceTaskItemId = null,
-    string? SourceTaskNumber = null);
+    string? SourceTaskNumber = null,
+    // Override por registro: sacar esta necesidad de la consolidacion (se planifica aparte).
+    bool ForzarDividir = false);
 
 /// <summary>Filtro de la grilla de necesidades.</summary>
 public sealed record RequerimientoFiltro(string? Texto = null, RequerimientoEstado? Estado = null, Guid? OrigenId = null);
@@ -152,6 +154,10 @@ public interface IRequerimientoService
     Task<RequerimientoDto?> CerrarAsync(Guid id, CancellationToken ct = default);
     /// <summary>Reabre una necesidad Cerrada: Cerrado -> Ejecutado.</summary>
     Task<RequerimientoDto?> ReabrirAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Marca/desmarca una necesidad como "dividir" (override por registro): si es true, no se
+    /// consolida con las del mismo producto aunque el modulo este en modo Consolidado.</summary>
+    Task<RequerimientoDto?> SetForzarDividirAsync(Guid id, bool dividir, CancellationToken ct = default);
 
     /// <summary>Items activos del modulo de Inventarios para el selector.</summary>
     Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default);

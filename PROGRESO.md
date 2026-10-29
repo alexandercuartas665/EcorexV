@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - Planificar grupo usa el MISMO planificador rico (fusion real) (worktree requerimiento_compras)
+
+- PEDIDO (usuario): "la linea agrupada abre el modal viejo". La fusion anterior (64e56402) solo agrego
+  pestanas al modal INDIVIDUAL; el grupo seguia abriendo su planificador de "una pasada" (un solo
+  proveedor/precio repartido). Eleccion del usuario: "Mismo planificador rico (identicos)": el grupo debe
+  usar EXACTAMENTE la misma tabla de divisiones, con una fila por necesidad/origen, cada una con su propio
+  proveedor/precio/fecha/despacho, su comparador y Ejecutar/Cotizar por fila. Acepta que esto CAMBIA el
+  guardado del grupo de "una pasada" a por-linea.
+- HECHO (RequerimientosCompra.razor): se ELIMINO el modal `_showPlanGrupo` (markup + `PgLinea`, `_pg*`,
+  `BuildPgFrom`, `GuardarPlanGrupoAsync`, `AplicarCotizacionGrupo`, `OnPgProvChanged`). Ahora "Planificar
+  grupo" llama `OpenPlanificarGrupoAsync(grp)` que abre el MISMO `_showPlan` con `_planIsGroup=true` y
+  `_planRegs=grp`.
+  * `HijoEdit.ReqId` (necesidad/padre de cada division). `MapHijo(h, reqId)`. `BuildGroupHijosAsync`:
+    por cada necesidad trae sus hijos guardados (GetPlanificacionAsync) o siembra una fila default con el
+    restante; se concatenan en `_pHijos`.
+  * La tabla de divisiones gana, SOLO en grupo, una 1a columna "Necesidad (origen)" = `<select>` ligado a
+    `hi.ReqId` (OnHijoReqChanged); colspans 8->9 condicionales. `TotalPlan` = suma de cantidades del grupo.
+  * Guardado: `GuardarPlanAsync` se ramifica. En grupo agrupa `_pHijos` por `ReqId` y hace UNA llamada de
+    reemplazo `GuardarHijosAsync(GuardarHijosRequest(ReqId, lineas))` por cada padre (respeta la validacion
+    de suma <= cantidad del padre). Ejecutar/Cotizar en grupo reconstruyen via `BuildGroupHijosAsync`.
+  * "Dividir" (pestana Detalle) saca la necesidad del grupo y reconstruye el grupo restante en el mismo modal.
+- PRUEBAS: `dotnet build` SuperAdmin Release VERDE (0 errores). E2E live (5265 SKY SYSTEM): "Planificar grupo"
+  de CABLE UTP CAT 6 (x2) abre el modal rico; Detalle (2) lista las 2 necesidades; Planificacion muestra el
+  comparador (2 ofertas) + la tabla con la columna "Necesidad (origen)" sembrada una fila por origen
+  (PROYECTOS/T00214 -> 1, PROYECTOS -> 25). Aplique Produvarios a la fila T00214 y Guardar -> toast "Plan de
+  grupo guardado: 2 division(es) en 2 necesidad(es), sin planificar 0"; BD confirma 2 hijos en 2 padres
+  distintos (01a18487 con Produvarios/Medellin/8 dias/9500; 01a18706 sin prov/5000).
+- SIGUIENTE: integrar al tronco por el dev principal cuando el usuario lo indique. SIN push a
+  fase-0/clon-backbone, SIN deploy.
+
 ## 2026-10-29 - Unificacion modal "Planificar" individual con el de grupo (worktree requerimiento_compras)
 
 - PEDIDO (usuario, repetido): "Planificar" (un registro) debe ser el MISMO modal que "Planificar grupo";

@@ -362,7 +362,7 @@ else
                                         case "proveedor": <span class="cd-muted">-</span> break;
                                         case "precio": <span class="cd-muted">-</span> break;
                                         case "acciones":
-                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenPlanificarGrupo(grp)" disabled="@_busy" title="Planificar/comprar las necesidades de este producto de una sola vez (un proveedor, se reparte a cada origen)">Planificar grupo</button>
+                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenPlanificarGrupoAsync(grp)" disabled="@_busy" title="Planificar/comprar las necesidades de este producto: una fila por origen, cada una con su proveedor y precio">Planificar grupo</button>
                                             break;
                                         default:
                                             {
@@ -713,30 +713,44 @@ else
                 <strong style="font-size:14px;">Planificar: @_planProducto</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showPlan = false">&times;</button>
             </div>
-            @* Pestanas: Detalle de la necesidad | Planificacion (mismo patron que Planificar grupo) *@
+            @* Pestanas: Detalle (necesidad[es]) | Planificacion -- mismo modal para individual y grupo *@
             <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <button class="req-pgtab @(_planTab == "detalle" ? "on" : "")" @onclick='() => _planTab = "detalle"'>Detalle</button>
+                <button class="req-pgtab @(_planTab == "detalle" ? "on" : "")" @onclick='() => _planTab = "detalle"'>Detalle (@_planRegs.Count)</button>
                 <button class="req-pgtab @(_planTab == "plan" ? "on" : "")" @onclick='() => _planTab = "plan"'>Planificacion</button>
             </div>
             @if (_planTab == "detalle")
             {
                 <div style="padding:14px 18px;">
-                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Necesidad que vas a planificar (origen, solicitante y actividad de donde vino el pedido).</p>
+                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">
+                        @if (_planIsGroup)
+                        {
+                            <text>Necesidades del MISMO producto que se agruparon en esta linea. Puedes sacar una del grupo con <strong>Dividir</strong> (se planificara aparte).</text>
+                        }
+                        else
+                        {
+                            <text>Necesidad que vas a planificar (origen, solicitante y actividad de donde vino el pedido).</text>
+                        }
+                    </p>
                     <div class="cd-grid-wrap">
                         <table class="cd-grid">
-                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th></tr></thead>
+                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th>@if (_planIsGroup && _canConfig) { <th></th> }</tr></thead>
                             <tbody>
-                                @if (_planReg is { } pr)
+                                @foreach (var pr in _planRegs)
                                 {
+                                    var prr = pr;
                                     <tr>
-                                        <td>@(string.IsNullOrWhiteSpace(pr.OrigenNombre) ? "(sin origen)" : pr.OrigenNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(pr.SolicitanteNombre) ? "-" : pr.SolicitanteNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(pr.SourceTaskNumber) ? "-" : pr.SourceTaskNumber)</td>
-                                        <td class="num">@Fmt(pr.Cantidad)</td>
-                                        <td class="num">@Fmt(pr.CantidadPlanificada)</td>
-                                        <td class="num">@Fmt(pr.Cantidad - pr.CantidadPlanificada)</td>
-                                        <td>@(pr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
-                                        <td>@RequerimientoFilter.EstadoLabel(pr.Estado)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.OrigenNombre) ? "(sin origen)" : prr.OrigenNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.SolicitanteNombre) ? "-" : prr.SolicitanteNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.SourceTaskNumber) ? "-" : prr.SourceTaskNumber)</td>
+                                        <td class="num">@Fmt(prr.Cantidad)</td>
+                                        <td class="num">@Fmt(prr.CantidadPlanificada)</td>
+                                        <td class="num">@Fmt(prr.Cantidad - prr.CantidadPlanificada)</td>
+                                        <td>@(prr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                        <td>@RequerimientoFilter.EstadoLabel(prr.Estado)</td>
+                                        @if (_planIsGroup && _canConfig)
+                                        {
+                                            <td style="white-space:nowrap;"><button class="btn btn-link btn-sm" @onclick="() => DividirDesdeGrupoAsync(prr)" disabled="@_busy" title="Sacar esta necesidad del grupo: se planificara por separado">Dividir</button></td>
+                                        }
                                     </tr>
                                 }
                             </tbody>
@@ -748,20 +762,21 @@ else
             {
             <div style="padding:14px 18px;">
                 <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:12px;">
-                    <span>Cantidad total: <strong>@Fmt(_planCantidadPadre)</strong></span>
+                    <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong></span>
                     <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong></span>
                     <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong></span>
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
                 <CotizacionesComparador ItemId="_planItemId" Descripcion="_planDescripcion"
-                    Cantidad="@(RestanteActual > 0 ? RestanteActual : _planCantidadPadre)"
+                    Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
                     CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
 
                 <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
                     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                         <thead>
                             <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
+                                @if (_planIsGroup) { <th style="padding:7px 10px;">Necesidad (origen)</th> }
                                 <th style="padding:7px 10px;">Cantidad</th>
                                 <th style="padding:7px 10px;">Fecha de compra</th>
                                 <th style="padding:7px 10px;">Despacho</th>
@@ -775,12 +790,23 @@ else
                         <tbody>
                             @if (_pHijos.Count == 0)
                             {
-                                <tr><td colspan="8" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
+                                <tr><td colspan="@(_planIsGroup ? 9 : 8)" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
                             }
                             @foreach (var h in _pHijos)
                             {
                                 var hi = h;
                                 <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                    @if (_planIsGroup)
+                                    {
+                                        <td style="padding:5px 8px;">
+                                            <select class="cd-in" style="height:30px;min-width:160px;max-width:230px;font-size:12px;" @onchange="e => OnHijoReqChanged(hi, e)">
+                                                @foreach (var rg in _planRegs)
+                                                {
+                                                    <option value="@rg.Id" selected="@(hi.ReqId == rg.Id)">@(string.IsNullOrWhiteSpace(rg.OrigenNombre) ? "(sin origen)" : rg.OrigenNombre)@(string.IsNullOrWhiteSpace(rg.SourceTaskNumber) ? "" : $" / {rg.SourceTaskNumber}")</option>
+                                                }
+                                            </select>
+                                        </td>
+                                    }
                                     <td style="padding:5px 8px;"><input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" /></td>
                                     <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
                                     <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
@@ -863,7 +889,7 @@ else
                                 @if (_dynDefsHija.Count > 0)
                                 {
                                     <tr style="border-top:0;">
-                                        <td colspan="8" style="padding:2px 10px 8px 10px;">
+                                        <td colspan="@(_planIsGroup ? 9 : 8)" style="padding:2px 10px 8px 10px;">
                                             @if (hi.Id is null)
                                             {
                                                 <span style="font-size:11px;color:var(--ink-3,#6b7280);">Guarda la planificacion para capturar los campos propios de esta linea.</span>
@@ -975,118 +1001,6 @@ else
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
                 <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cancelar</button>
-            </div>
-        </div>
-    </div>
-}
-
-@if (_showPlanGrupo)
-{
-    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showPlanGrupo = false">
-        <datalist id="req-grupo-prov-list">
-            @foreach (var p in _proveedores) { <option value="@p.Nombre"></option> }
-        </datalist>
-        <div style="background:var(--surface,#fff);border-radius:14px;width:min(820px,96vw);box-shadow:0 24px 64px rgba(15,23,42,.28);" @onclick:stopPropagation="true">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <strong style="font-size:14px;">Planificar grupo: @_pgProducto</strong>
-                <button class="btn btn-link btn-sm" @onclick="() => _showPlanGrupo = false">&times;</button>
-            </div>
-            @* Pestanas: Detalle de los items agrupados | Planificacion *@
-            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <button class="req-pgtab @(_pgTab == "detalle" ? "on" : "")" @onclick='() => _pgTab = "detalle"'>Detalle (@_pgGrupo.Count)</button>
-                <button class="req-pgtab @(_pgTab == "plan" ? "on" : "")" @onclick='() => _pgTab = "plan"'>Planificacion</button>
-            </div>
-
-            @if (_pgTab == "detalle")
-            {
-                <div style="padding:14px 18px;">
-                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Necesidades del MISMO producto que se agruparon en esta linea. Puedes sacar una del grupo con <strong>Dividir</strong> (se planificara aparte).</p>
-                    <div class="cd-grid-wrap">
-                        <table class="cd-grid">
-                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th><th></th></tr></thead>
-                            <tbody>
-                                @foreach (var d in _pgGrupo)
-                                {
-                                    var dr = d;
-                                    <tr>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.OrigenNombre) ? "(sin origen)" : dr.OrigenNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.SolicitanteNombre) ? "-" : dr.SolicitanteNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.SourceTaskNumber) ? "-" : dr.SourceTaskNumber)</td>
-                                        <td class="num">@Fmt(dr.Cantidad)</td>
-                                        <td class="num">@Fmt(dr.CantidadPlanificada)</td>
-                                        <td class="num">@Fmt(dr.Cantidad - dr.CantidadPlanificada)</td>
-                                        <td>@(dr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
-                                        <td>@RequerimientoFilter.EstadoLabel(dr.Estado)</td>
-                                        <td style="white-space:nowrap;">
-                                            @if (_canConfig)
-                                            {
-                                                <button class="btn btn-link btn-sm" @onclick="() => DividirDesdeGrupoAsync(dr)" disabled="@_busy" title="Sacar esta necesidad del grupo: se planificara por separado">Dividir</button>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            }
-            else
-            {
-                <div style="padding:14px 18px;">
-                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Defines proveedor/precio/fecha UNA sola vez y se crea una distribucion por cada necesidad del grupo (cada origen queda cubierto y se puede ejecutar). Total a planificar: <strong>@Fmt(_pgTotal)</strong>.</p>
-                    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 220px;">
-                            Proveedor (opcional)
-                            <input list="req-grupo-prov-list" class="form-control form-control-sm" value="@_pgProvNombre" @onchange="OnPgProvChanged" placeholder="Escribe o elige un proveedor del Directorio" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 130px;">
-                            Precio unit.
-                            <input type="number" step="any" class="form-control form-control-sm" @bind="_pgPrecio" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 160px;">
-                            Fecha programada
-                            <input type="date" class="form-control form-control-sm" @bind="_pgFecha" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 180px;">
-                            Despacho / nota
-                            <input type="text" class="form-control form-control-sm" @bind="_pgDespacho" />
-                        </label>
-                    </div>
-
-                    <CotizacionesComparador ItemId="@(_pgGrupo.FirstOrDefault()?.ItemId)"
-                        Descripcion="@(_pgGrupo.FirstOrDefault()?.Descripcion ?? _pgProducto)"
-                        Cantidad="_pgTotal" CanEdit="_canConfig" OnUsar="AplicarCotizacionGrupo" />
-
-                    <div class="cd-grid-wrap">
-                        <table class="cd-grid">
-                            <thead><tr><th>Necesidad (origen)</th><th>Actividad</th><th class="num">Restante</th><th class="num">A planificar</th></tr></thead>
-                            <tbody>
-                                @foreach (var l in _pgLineas)
-                                {
-                                    var lin = l;
-                                    <tr>
-                                        <td>@(string.IsNullOrWhiteSpace(lin.Origen) ? "(sin origen)" : lin.Origen)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(lin.Actividad) ? "-" : lin.Actividad)</td>
-                                        <td class="num">@Fmt(lin.Restante)</td>
-                                        <td class="num"><input type="number" step="any" style="width:110px;text-align:right;" class="form-control form-control-sm" @bind="lin.Cantidad" /></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                    @if (_pgError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_pgError</div> }
-                </div>
-            }
-            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                @if (_pgTab == "detalle")
-                {
-                    <button class="btn btn-primary btn-sm" @onclick='() => _pgTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
-                }
-                else
-                {
-                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanGrupoAsync" disabled="@_busy">Planificar grupo</button>
-                }
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlanGrupo = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
     </div>
@@ -1304,35 +1218,14 @@ else
     private Guid? _cfgAgente;
     private List<RequerimientoOpcionDto> _agentes = new();
 
-    // ---- Planificar GRUPO (vista consolidada: una pasada para N necesidades del mismo producto) ----
-    private bool _showPlanGrupo;
-    private string _pgProducto = "";
-    private decimal _pgTotal;
-    private string _pgProvNombre = "";
-    private string _pgProv = "";   // id del proveedor como string ("" si ninguno)
-    private decimal _pgPrecio;
-    private DateTime? _pgFecha;
-    private string _pgDespacho = "";
-    private string? _pgError;
-    private List<PgLinea> _pgLineas = new();
-    // Pestana activa del modal: "detalle" (items agrupados) o "plan" (planificacion).
-    private string _pgTab = "detalle";
-    // Clave de consolidacion del grupo abierto + las necesidades (DTO) para la pestana Detalle.
+    // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
-    private List<RequerimientoDto> _pgGrupo = new();
-    private sealed class PgLinea
-    {
-        public Guid ReqId;
-        public string Origen = "";
-        public string Actividad = "";
-        public decimal Restante;
-        public decimal Cantidad;   // cantidad a planificar en esta pasada (default = restante)
-    }
 
     // ---- Planificacion (division en hijos) ----
     private bool _showPlan;
-    private string _planTab = "detalle";      // pestana activa del modal individual (igual que Planificar grupo)
-    private RequerimientoDto? _planReg;        // necesidad que se esta planificando (para la pestana Detalle)
+    private string _planTab = "detalle";      // pestana activa del modal (Detalle | plan)
+    private bool _planIsGroup;                 // true = se planifican varias necesidades (linea agrupada)
+    private List<RequerimientoDto> _planRegs = new();  // necesidad(es) que se planifican (1 individual, N grupo)
     private string? _planError;
     private Guid _planReqId;
     private string _planProducto = "";
@@ -1343,6 +1236,7 @@ else
     private sealed class HijoEdit
     {
         public Guid? Id;
+        public Guid ReqId;                     // necesidad (padre) a la que pertenece esta division (clave en modo grupo)
         public decimal Cantidad = 1;
         public DateTime? Fecha;
         public string Despacho = "";
@@ -1362,9 +1256,10 @@ else
         public Guid? ContactoId;               // contacto especifico elegido (Ola 11); null = el primero
         public List<ProveedorContactoItemDto> ContactosDisponibles = new();
     }
-    private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
+    private static HijoEdit MapHijo(RequerimientoHijoDto h, Guid reqId) => new()
     {
         Id = h.Id,
+        ReqId = reqId,
         Cantidad = h.Cantidad,
         Fecha = h.FechaProgramadaCompra?.DateTime,
         Despacho = h.CaracteristicasDespacho,
@@ -1388,8 +1283,9 @@ else
     private Guid? _cEditId;
     private string _cNombre = "", _cCargo = "", _cEmail = "", _cTel = "";
 
+    private decimal TotalPlan => _planIsGroup ? _planRegs.Sum(r => r.Cantidad) : _planCantidadPadre;
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
-    private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
+    private decimal RestanteActual => TotalPlan - PlanificadaActual;
 
     // ---- Constructor de filtros (arbol AND/OR anidado; se evalua en cliente) ----
     private const string FilterModule = "RequerimientosCompra";
@@ -2479,37 +2375,6 @@ else
         finally { _busy = false; }
     }
 
-    // Abre el modal de plan de GRUPO para un producto consolidado (sus N necesidades).
-    private void OpenPlanificarGrupo(List<RequerimientoDto> grp)
-    {
-        _pgError = null;
-        _pgProducto = grp[0].ItemNombre ?? grp[0].Descripcion ?? "";
-        _pgKey = ConsolKey(grp[0]);
-        _pgProvNombre = ""; _pgProv = ""; _pgPrecio = 0; _pgFecha = null; _pgDespacho = "";
-        BuildPgFrom(grp);
-        _pgTab = "detalle";
-        _showPlanGrupo = true;
-    }
-
-    // (Re)construye las lineas de planificacion y el total a partir de las necesidades del grupo.
-    private void BuildPgFrom(List<RequerimientoDto> grp)
-    {
-        _pgGrupo = grp;
-        _pgLineas = grp.Select(r =>
-        {
-            var rest = r.Cantidad - r.CantidadPlanificada;
-            return new PgLinea
-            {
-                ReqId = r.Id,
-                Origen = r.OrigenNombre ?? "",
-                Actividad = r.SourceTaskNumber ?? "",
-                Restante = rest,
-                Cantidad = rest > 0 ? rest : 0,
-            };
-        }).ToList();
-        _pgTotal = _pgLineas.Sum(l => l.Restante > 0 ? l.Restante : 0);
-    }
-
     // Saca una necesidad del grupo (ForzarDividir) desde la pestana Detalle; recalcula el grupo restante.
     private async Task DividirDesdeGrupoAsync(RequerimientoDto r)
     {
@@ -2519,59 +2384,25 @@ else
             await Svc.SetForzarDividirAsync(r.Id, true);
             await ReloadAsync();
             var rem = _rows.Where(x => !x.ForzarDividir && ConsolKey(x) == _pgKey).ToList();
-            if (rem.Count >= 2) { BuildPgFrom(rem); }
-            else { _showPlanGrupo = false; _msg = $"'{r.ItemNombre ?? r.Descripcion}' se dividio: se planifica aparte."; }
-        }
-        catch (Exception ex) { _pgError = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private void OnPgProvChanged(ChangeEventArgs e)
-    {
-        var txt = (e.Value?.ToString() ?? "").Trim();
-        _pgProvNombre = txt;
-        var match = _proveedores.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
-        _pgProv = match is not null ? match.Id.ToString() : "";
-    }
-
-    private async Task GuardarPlanGrupoAsync()
-    {
-        _pgError = null;
-        var conCantidad = _pgLineas.Where(l => l.Cantidad > 0).ToList();
-        if (conCantidad.Count == 0) { _pgError = "Indica al menos una cantidad a planificar."; return; }
-        foreach (var l in conCantidad)
-        {
-            if (l.Cantidad > l.Restante)
+            if (rem.Count >= 2)
             {
-                _pgError = $"Una linea pide {Fmt(l.Cantidad)} pero su restante es {Fmt(l.Restante)}.";
-                return;
+                _planRegs = rem;
+                _planCantidadPadre = rem.Sum(x => x.Cantidad);
+                await BuildGroupHijosAsync(rem);
+                foreach (var h in _pHijos) { await FillContactoAsync(h); }
+                await LoadHijoDynValuesAsync();
             }
+            else { _showPlan = false; _msg = $"'{r.ItemNombre ?? r.Descripcion}' se dividio: se planifica aparte."; }
         }
-        _busy = true;
-        try
-        {
-            var req = new PlanificarGrupoRequest(
-                conCantidad.Select(l => new PlanificarGrupoLinea(l.ReqId, l.Cantidad)).ToList(),
-                Guid.TryParse(_pgProv, out var pv) ? pv : null,
-                null,
-                _pgPrecio,
-                _pgFecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                _pgDespacho,
-                null);
-            var res = await Svc.PlanificarGrupoAsync(req);
-            if (!res.Ok) { _pgError = res.Error ?? "No se pudo planificar el grupo."; return; }
-            _showPlanGrupo = false;
-            _msg = $"Plan de grupo: {res.HijosCreados} distribucion(es) creada(s) en {_pgProducto}.";
-            await ReloadAsync();
-        }
-        catch (Exception ex) { _pgError = ex.Message; }
+        catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
     }
 
     private async Task OpenPlanificarAsync(RequerimientoDto r)
     {
         _planError = null;
-        _planReg = r;
+        _planIsGroup = false;
+        _planRegs = new() { r };
         _planTab = "detalle";
         _planReqId = r.Id;
         _planItemId = r.ItemId;
@@ -2579,12 +2410,56 @@ else
         var plan = await Svc.GetPlanificacionAsync(r.Id);
         _planProducto = plan?.Producto ?? r.Descripcion;
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
-        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(MapHijo).ToList();
+        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => MapHijo(h, r.Id)).ToList();
         _showPlan = true;
         // Trae el contacto (nombre/correo/telefono) de los proveedores ya asignados.
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
         // Valores de los campos dinamicos de las lineas (hijas) ya guardadas.
         await LoadHijoDynValuesAsync();
+    }
+
+    // Abre el MISMO modal de plan (rico) para una linea agrupada: una fila por necesidad/origen.
+    private async Task OpenPlanificarGrupoAsync(List<RequerimientoDto> grp)
+    {
+        _planError = null;
+        _planIsGroup = true;
+        _planRegs = grp;
+        _planTab = "detalle";
+        _planReqId = grp[0].Id;
+        _planItemId = grp[0].ItemId;
+        _planDescripcion = grp[0].Descripcion;
+        _planProducto = grp[0].ItemNombre ?? grp[0].Descripcion ?? "";
+        _planCantidadPadre = grp.Sum(r => r.Cantidad);
+        _pgKey = ConsolKey(grp[0]);
+        await BuildGroupHijosAsync(grp);
+        _showPlan = true;
+        foreach (var h in _pHijos) { await FillContactoAsync(h); }
+        await LoadHijoDynValuesAsync();
+    }
+
+    // Construye las filas del plan en modo grupo: trae las divisiones guardadas de cada necesidad,
+    // o siembra una fila por defecto (con el restante) para las que aun no tienen ninguna.
+    private async Task BuildGroupHijosAsync(List<RequerimientoDto> grp)
+    {
+        var hijos = new List<HijoEdit>();
+        foreach (var r in grp)
+        {
+            var plan = await Svc.GetPlanificacionAsync(r.Id);
+            var mapped = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => MapHijo(h, r.Id)).ToList();
+            if (mapped.Count == 0)
+            {
+                var rest = r.Cantidad - r.CantidadPlanificada;
+                hijos.Add(new HijoEdit { ReqId = r.Id, Cantidad = rest > 0 ? rest : 0, Fecha = r.FechaNecesidad?.DateTime });
+            }
+            else { hijos.AddRange(mapped); }
+        }
+        _pHijos = hijos;
+    }
+
+    // Cambia la necesidad (origen) a la que pertenece una division en modo grupo.
+    private void OnHijoReqChanged(HijoEdit h, ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var rid)) { h.ReqId = rid; }
     }
 
     private async Task LoadHijoDynValuesAsync()
@@ -2664,8 +2539,11 @@ else
     private void AddHijoRow()
     {
         var resta = RestanteActual;
-        _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1 });
+        _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1, ReqId = DefaultReqId });
     }
+
+    // Necesidad (padre) por defecto para una fila nueva: en grupo, la primera del grupo; en individual, el padre.
+    private Guid DefaultReqId => _planRegs.Count > 0 ? _planRegs[0].Id : _planReqId;
 
     // Vuelca una cotizacion elegida en el comparador a la planificacion del REGISTRO: llena la primera linea
     // vacia (sin proveedor y sin actividad) o agrega una nueva, con proveedor/precio/entrega/despacho de la oferta.
@@ -2675,7 +2553,7 @@ else
         if (row is null)
         {
             var resta = RestanteActual;
-            row = new HijoEdit { Cantidad = resta > 0 ? resta : 1 };
+            row = new HijoEdit { Cantidad = resta > 0 ? resta : 1, ReqId = DefaultReqId };
             _pHijos.Add(row);
         }
         row.Prov = c.ProveedorId.ToString();
@@ -2689,15 +2567,13 @@ else
         StateHasChanged();
     }
 
-    // Vuelca una cotizacion elegida al plan de GRUPO (proveedor/precio/despacho compartidos de la pasada).
-    private void AplicarCotizacionGrupo(CotizacionDto c)
-    {
-        _pgProv = c.ProveedorId.ToString();
-        _pgProvNombre = c.ProveedorNombre ?? "";
-        _pgPrecio = c.PrecioUnitario;
-        if (!string.IsNullOrWhiteSpace(c.CaracteristicasDespacho)) { _pgDespacho = c.CaracteristicasDespacho; }
-        _pgError = null;
-    }
+    private static HijoInput ToHijoInput(HijoEdit h) => new(
+        h.Id, h.Cantidad,
+        h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+        h.Despacho, h.Entrega,
+        Guid.TryParse(h.Prov, out var pv) ? pv : null,
+        h.Precio,
+        h.ContactoId);
 
     private async Task GuardarPlanAsync()
     {
@@ -2705,18 +2581,33 @@ else
         _busy = true;
         try
         {
-            var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(h => new HijoInput(
-                h.Id, h.Cantidad,
-                h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                h.Despacho, h.Entrega,
-                Guid.TryParse(h.Prov, out var pv) ? pv : null,
-                h.Precio,
-                h.ContactoId)).ToList());
-            var plan = await Svc.GuardarHijosAsync(req);
-            if (plan is null) { _planError = "No se pudo guardar."; return; }
-            _showPlan = false;
-            _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
-            await ReloadAsync();
+            if (_planIsGroup)
+            {
+                // Una llamada de reemplazo por cada necesidad (padre); las filas se agrupan por su ReqId.
+                var conCantidad = _pHijos.Where(h => h.Cantidad > 0).ToList();
+                if (conCantidad.Count == 0) { _planError = "Indica al menos una cantidad a planificar."; return; }
+                var totalDiv = 0; var sinPlan = 0m;
+                foreach (var g in conCantidad.GroupBy(h => h.ReqId))
+                {
+                    var req = new GuardarHijosRequest(g.Key, g.Select(ToHijoInput).ToList());
+                    var plan = await Svc.GuardarHijosAsync(req);
+                    if (plan is null) { _planError = "No se pudo guardar una de las necesidades."; return; }
+                    totalDiv += plan.Hijos.Count;
+                    sinPlan += plan.CantidadSinPlanificar;
+                }
+                _showPlan = false;
+                _msg = $"Plan de grupo guardado: {totalDiv} division(es) en {conCantidad.GroupBy(h => h.ReqId).Count()} necesidad(es), sin planificar {Fmt(sinPlan)}.";
+                await ReloadAsync();
+            }
+            else
+            {
+                var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(ToHijoInput).ToList());
+                var plan = await Svc.GuardarHijosAsync(req);
+                if (plan is null) { _planError = "No se pudo guardar."; return; }
+                _showPlan = false;
+                _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
+                await ReloadAsync();
+            }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
@@ -2753,11 +2644,18 @@ else
                     ? $"Compra ejecutada: actividad {num} creada."
                     : "Compra ejecutada: actividad creada.";
             }
-            if (res.Plan is { } plan)
+            if (_planIsGroup)
+            {
+                // En grupo, reconstruye todas las necesidades (el plan devuelto es solo del padre ejecutado).
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else if (res.Plan is { } plan)
             {
                 _planProducto = plan.Producto;
                 _planCantidadPadre = plan.CantidadPadre;
-                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
                 await LoadHijoDynValuesAsync();
             }
@@ -2791,14 +2689,23 @@ else
                 if (!res.Ok) { _planError = res.Error ?? "No se pudo crear una cotizacion."; break; }
                 if (res.TaskNumber is { } n) { nums.Add(n); }
             }
-            var plan = await Svc.GetPlanificacionAsync(_planReqId);
-            if (plan is not null)
+            if (_planIsGroup)
             {
-                _planProducto = plan.Producto;
-                _planCantidadPadre = plan.CantidadPadre;
-                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                await BuildGroupHijosAsync(_planRegs);
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
                 await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var plan = await Svc.GetPlanificacionAsync(_planReqId);
+                if (plan is not null)
+                {
+                    _planProducto = plan.Producto;
+                    _planCantidadPadre = plan.CantidadPadre;
+                    _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                    foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                    await LoadHijoDynValuesAsync();
+                }
             }
             if (_planError is null)
             {

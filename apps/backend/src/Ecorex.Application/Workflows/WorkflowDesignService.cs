@@ -1309,7 +1309,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 x = n.X,
                 y = n.Y,
                 w = n.W ?? BpmnXmlWriter.DefaultSize(n.NodeType).W,
-                h = n.H ?? BpmnXmlWriter.DefaultSize(n.NodeType).H
+                h = n.H ?? BpmnXmlWriter.DefaultSize(n.NodeType).H,
+                // Metadatos del nodo que NO viajan en el XML BPMN: se exportan aparte para que el
+                // export->import conserve el asignado ("Desde campo de formulario" y su codigo), si el nodo
+                // es punto de atencion (permiteAsignado) y la apariencia. Antes se perdian al re-importar.
+                permiteAsignado = n.AllowsAssignment,
+                asignadoFuente = n.AssigneeSource.ToString(),
+                asignadoCampo = n.AssigneeFormFieldCode,
+                color = n.Color,
+                nota = n.Note
             }),
             conexiones = edges.Select(e => new
             {
@@ -1360,7 +1368,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             {
                 return WorkflowResult<FlowCanvasDto>.Invalid("El JSON no trae el arreglo 'nodos'.");
             }
-            var rawNodes = new List<(string Id, string? Label, WorkflowNodeType Type, int? X, int? Y, int? W, int? H)>();
+            var rawNodes = new List<(string Id, string? Label, WorkflowNodeType Type, int? X, int? Y, int? W, int? H,
+                bool? AllowsAssignment, WorkflowAssigneeSource? AssigneeSource, string? AssigneeFieldCode,
+                string? Color, string? Note)>();
             var index = 0;
             foreach (var nodeJson in nodesJson.EnumerateArray())
             {
@@ -1374,7 +1384,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                         $"Tipo de nodo no soportado: '{tipo}' (usa startEvent, task, exclusiveGateway o endEvent).");
                 }
                 rawNodes.Add((id, GetString(nodeJson, "label") ?? GetString(nodeJson, "nombre"), type.Value,
-                    GetInt(nodeJson, "x"), GetInt(nodeJson, "y"), GetInt(nodeJson, "w"), GetInt(nodeJson, "h")));
+                    GetInt(nodeJson, "x"), GetInt(nodeJson, "y"), GetInt(nodeJson, "w"), GetInt(nodeJson, "h"),
+                    GetBool(nodeJson, "permiteAsignado"), GetAssigneeSource(nodeJson, "asignadoFuente"),
+                    GetString(nodeJson, "asignadoCampo"), GetString(nodeJson, "color"), GetString(nodeJson, "nota")));
             }
 
             var rawEdges = new List<(string From, string To, string? Name, string? Condition)>();
@@ -1429,6 +1441,28 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 created.Category = category.Trim();
                 await _db.SaveChangesAsync(cancellationToken);
             }
+
+            // Metadatos del nodo que NO viajan en el XML BPMN (asignado y apariencia): se re-aplican por
+            // BpmnElementId sobre los nodos recien creados, igual que al derivar un borrador (EnsureDraftAsync).
+            // Sin esto, el export->import perdia el asignado "Desde campo de formulario" (y permiteAsignado,
+            // que vuelve a su default por tipo), rompiendo el enrutado del paso. JSON viejo sin estos campos:
+            // los getters devuelven null y se conserva el default del import (sin regresion).
+            var draftNodes = await _db.WorkflowNodes
+                .Where(n => n.DefinitionId == imported.Value.Id).ToListAsync(cancellationToken);
+            var draftByElement = draftNodes.ToDictionary(n => n.BpmnElementId, StringComparer.Ordinal);
+            var patched = false;
+            foreach (var raw in rawNodes)
+            {
+                if (!draftByElement.TryGetValue(raw.Id, out var node)) { continue; }
+                if (raw.AllowsAssignment is bool allows) { node.AllowsAssignment = allows; }
+                if (raw.AssigneeSource is WorkflowAssigneeSource src) { node.AssigneeSource = src; }
+                if (raw.AssigneeFieldCode is not null) { node.AssigneeFormFieldCode = raw.AssigneeFieldCode; }
+                if (raw.Color is not null) { node.Color = raw.Color; }
+                if (raw.Note is not null) { node.Note = raw.Note; }
+                patched = true;
+            }
+            if (patched) { await _db.SaveChangesAsync(cancellationToken); }
+
             if (transaction is not null)
             {
                 await transaction.CommitAsync(cancellationToken);
@@ -1837,6 +1871,20 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             && element.TryGetProperty(property, out var value)
             && value.ValueKind == JsonValueKind.Number
             ? (int)Math.Round(value.GetDouble())
+            : null;
+
+    private static bool? GetBool(JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(property, out var value)
+            && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+
+    /// <summary>Lee el origen del asignado (enum por nombre: Policy/InheritStart/InheritPrevious/FormField).</summary>
+    private static WorkflowAssigneeSource? GetAssigneeSource(JsonElement element, string property)
+        => GetString(element, property) is string s
+            && Enum.TryParse<WorkflowAssigneeSource>(s, ignoreCase: true, out var v)
+            ? v
             : null;
 
     private static string DefaultLabel(WorkflowNodeType type) => type switch

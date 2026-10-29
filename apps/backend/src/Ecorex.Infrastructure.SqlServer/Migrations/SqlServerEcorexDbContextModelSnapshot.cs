@@ -18115,6 +18115,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("agent_follow_up_index");
 
+                    b.Property<int>("AgentInvokeCount")
+                        .HasColumnType("int")
+                        .HasColumnName("agent_invoke_count");
+
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("agent_next_retry_at");

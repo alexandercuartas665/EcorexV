@@ -18110,6 +18110,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("agent_follow_up_index");
 
+                    b.Property<int>("AgentInvokeCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_invoke_count");
+
                     b.Property<DateTimeOffset?>("AgentNextRetryAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("agent_next_retry_at");

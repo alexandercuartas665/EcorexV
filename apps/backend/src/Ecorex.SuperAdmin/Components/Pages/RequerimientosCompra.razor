@@ -236,6 +236,13 @@
         </button>
     }
 
+    @* Consolidar: una sola linea por producto (suma cantidades/montos); expande para ver las necesidades reales *@
+    <button class="cd-tbtn @(_consolidate && !ByProvider ? "on" : "")" @onclick="ToggleConsolidate" disabled="@ByProvider"
+            title="Consolidar: junta las necesidades del mismo producto en una sola linea sumada. Expande cada linea para ver las necesidades reales (con su origen y su Planificar).">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        <span>Consolidar</span>
+    </button>
+
     @* Expandir / colapsar distribuciones *@
     <button class="cd-tbtn" @onclick="ExpandAll" disabled="@ByProvider" title="Mostrar las distribuciones (hijos) de todas las compras">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
@@ -261,9 +268,16 @@
     {
         <span class="cd-toolbar-hint">Agrupado por Proveedor (lineas de planificacion)</span>
     }
-    else if (_groups.Count > 0)
+    else
     {
-        <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", _groups.Select(g => ColByKey(g)?.Label ?? g))</span>
+        @if (_consolidate)
+        {
+            <span class="cd-toolbar-hint">Consolidado por producto (una linea por producto)</span>
+        }
+        @if (EffectiveGroups().Count > 0)
+        {
+            <span class="cd-toolbar-hint">Agrupado por @string.Join(" > ", EffectiveGroups().Select(g => ColByKey(g)?.Label ?? g))</span>
+        }
     }
 </div>
 
@@ -293,7 +307,6 @@ else
                             <span class="cd-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
                         </th>
                     }
-                    <th class="cd-th-acts">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -306,6 +319,53 @@ else
                                 <span class="cd-grp-lbl" style="padding-left:@(it.Level * 18)px">@it.Label</span>
                                 <span class="cd-grp-n">@it.Count reg.</span>
                             </td>
+                        </tr>
+                    }
+                    else if (it.Kind == GKind.Consol && it.Group is { } grp)
+                    {
+                        <tr class="req-consol">
+                            <td class="cd-exp-cell">
+                                <button class="req-exp-btn" @onclick="() => ToggleConsol(it.Key!)" title="@(_consolExpanded.Contains(it.Key!) ? "Ocultar las necesidades" : "Ver las necesidades reales")">
+                                    @(_consolExpanded.Contains(it.Key!) ? "▾" : "▸")
+                                </button>
+                            </td>
+                            @foreach (var col in VisibleCols())
+                            {
+                                var c = col;
+                                <td class="@(c.Num ? "num" : null) @(c.Key == "acciones" ? "req-acts" : null)">
+                                    @switch (c.Key)
+                                    {
+                                        case "producto":
+                                            <strong>@(grp[0].ItemNombre ?? grp[0].Descripcion)@(string.IsNullOrWhiteSpace(grp[0].ItemSku) ? "" : $" ({grp[0].ItemSku})")</strong>
+                                            <span class="req-consol-n" title="@it.Count necesidades consolidadas en esta linea">×@it.Count</span>
+                                            break;
+                                        case "cantidad": <strong>@Fmt(it.Sums!["cantidad"])</strong> break;
+                                        case "monto": <text>@(it.Sums!["monto"] > 0 ? Fmt(it.Sums!["monto"]) : "-")</text> break;
+                                        case "hijos":
+                                            {
+                                                var th = grp.Sum(x => x.CantidadHijos);
+                                                var resta = grp.Sum(x => x.Cantidad - x.CantidadPlanificada);
+                                                if (th > 0)
+                                                {
+                                                    <span title="Distribuciones (hijos) sumadas">@th</span>
+                                                    if (resta > 0) { <span class="req-resta" title="Cantidad sin planificar (sumada)">(resta @Fmt(resta))</span> }
+                                                }
+                                                else { <span class="cd-muted">-</span> }
+                                            }
+                                            break;
+                                        case "proveedor": <span class="cd-muted">-</span> break;
+                                        case "precio": <span class="cd-muted">-</span> break;
+                                        case "acciones": <span class="cd-muted" title="Expande la linea para planificar cada necesidad">—</span> break;
+                                        default:
+                                            {
+                                                var cf = ConsolCell(c.Key, grp);
+                                                if (cf.Tip is not null) { <span title="@cf.Tip">@cf.Text</span> }
+                                                else { <text>@cf.Text</text> }
+                                            }
+                                            break;
+                                    }
+                                </td>
+                            }
                         </tr>
                     }
                     else if (it.Kind == GKind.Subtotal)
@@ -327,7 +387,6 @@ else
                                     }
                                 </td>
                             }
-                            <td></td>
                         </tr>
                     }
                     else if (it.Kind == GKind.Child && it.R is { } pr && it.H is { } h)
@@ -361,7 +420,6 @@ else
                                     }
                                 </td>
                             }
-                            <td></td>
                         </tr>
                     }
                     else if (it.Kind == GKind.ProvRow && it.R is { } ppr && it.H is { } ph)
@@ -371,7 +429,7 @@ else
                             @foreach (var col in VisibleCols())
                             {
                                 var c = col;
-                                <td class="@(c.Num ? "num" : null)">
+                                <td class="@(c.Num ? "num" : null) @(c.Key == "acciones" ? "req-acts" : null)">
                                     @switch (c.Key)
                                     {
                                         case "producto": <text>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</text> break;
@@ -391,13 +449,13 @@ else
                                             }
                                             break;
                                         case "hijos": <text>-</text> break;
+                                        case "acciones":
+                                            <button class="btn btn-sm btn-light" @onclick="() => OpenPlanificarAsync(ppr)" title="Abrir la planificacion de esta necesidad">Planificar</button>
+                                            break;
                                         default: <text></text> break;
                                     }
                                 </td>
                             }
-                            <td class="cd-th-acts">
-                                <button class="btn btn-sm btn-light" @onclick="() => OpenPlanificarAsync(ppr)" title="Abrir la planificacion de esta necesidad">Planificar</button>
-                            </td>
                         </tr>
                     }
                     else if (it.R is { } r)
@@ -414,7 +472,7 @@ else
                             @foreach (var col in VisibleCols())
                             {
                                 var c = col;
-                                <td class="@(c.Num ? "num" : null)">
+                                <td class="@(c.Num ? "num" : null) @(c.Key == "acciones" ? "req-acts" : null)">
                                     @switch (c.Key)
                                     {
                                         case "producto":
@@ -448,6 +506,18 @@ else
                                             }
                                             else { <span class="cd-muted">-</span> }
                                             break;
+                                        case "acciones":
+                                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
+                                            @if (_canConfig && r.Estado == RequerimientoEstado.Ejecutado)
+                                            {
+                                                <button class="btn btn-outline-secondary btn-sm" title="Marcar la compra como terminada" @onclick="() => CerrarAsync(r.Id)" disabled="@_busy">Cerrar</button>
+                                            }
+                                            @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
+                                            {
+                                                <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
+                                            }
+                                            <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
+                                            break;
                                         default:
                                             @if (DynDefByKey(c.Key) is { } ddef)
                                             {
@@ -479,18 +549,6 @@ else
                                     }
                                 </td>
                             }
-                            <td class="req-acts">
-                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenPlanificarAsync(r)" disabled="@_busy">Planificar</button>
-                                @if (_canConfig && r.Estado == RequerimientoEstado.Ejecutado)
-                                {
-                                    <button class="btn btn-outline-secondary btn-sm" title="Marcar la compra como terminada" @onclick="() => CerrarAsync(r.Id)" disabled="@_busy">Cerrar</button>
-                                }
-                                @if (_canConfig && r.Estado == RequerimientoEstado.Cerrado)
-                                {
-                                    <button class="btn btn-outline-secondary btn-sm" title="Reabrir la necesidad cerrada" @onclick="() => ReabrirAsync(r.Id)" disabled="@_busy">Reabrir</button>
-                                }
-                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteAsync(r.Id)" disabled="@_busy">Eliminar</button>
-                            </td>
                         </tr>
                     }
                 }
@@ -1107,6 +1165,7 @@ else
         new("monto", "Monto", true, false),
         new("fecha", "Fecha necesidad", false, true),
         new("hijos", "Distrib.", false, false),
+        new("acciones", "Acciones", false, false),
     };
 
     private sealed class SortSpec { public string K { get; set; } = ""; public int Dir { get; set; } = 1; }
@@ -1115,8 +1174,15 @@ else
     private HashSet<string> _hidden = new();
     private Dictionary<string, int> _widths = new();
     private List<SortSpec> _sorts = new();
+    // Agrupar es ortogonal y por defecto va vacio: la vista CONSOLIDADA (ver _consolidate) ya entrega
+    // una sola linea por producto sumada. Si el usuario guardo una preferencia, esa gana (LoadPrefsAsync).
     private List<string> _groups = new();
     private int _frozen;
+    // Vista CONSOLIDADA (solo presentacion): junta las necesidades del MISMO producto en una sola linea
+    // que suma cantidad/monto; al expandir se ven las necesidades reales intactas (cada una con su
+    // origen/tarea y su propio Planificar). Default ON; es preferencia por usuario (toggle "Consolidar").
+    private bool _consolidate = true;
+    private readonly HashSet<string> _consolExpanded = new();
     // Vista "por proveedor": cuando se agrupa por "proveedor" (que vive en la linea hija), la grilla se
     // aplana a las lineas de planificacion y se agrupa por proveedor con subtotales.
     private bool ByProvider => _groups.Contains("proveedor");
@@ -1172,11 +1238,11 @@ else
 
     private GridCol? ColByKey(string k) => AllCols.FirstOrDefault(c => c.Key == k);
     private IEnumerable<GridCol> VisibleCols() => _order.Select(ColByKey).Where(c => c is not null && !_hidden.Contains(c!.Key)).Select(c => c!);
-    private int ColSpanAll => 2 + VisibleCols().Count();
+    private int ColSpanAll => 1 + VisibleCols().Count();
 
     private static readonly string[] _sumKeys = { "cantidad", "monto" };
 
-    private enum GKind { Group, Data, Child, Subtotal, ProvRow }
+    private enum GKind { Group, Data, Child, Subtotal, ProvRow, Consol }
     private sealed class GridItem
     {
         public GKind Kind;
@@ -1187,6 +1253,9 @@ else
         public RequerimientoHijoDto? H;
         public Dictionary<string, decimal>? Sums;
         public bool Grand;
+        // Solo para GKind.Consol: la clave de consolidacion (producto) y las necesidades reales que agrupa.
+        public string? Key;
+        public List<RequerimientoDto>? Group;
     }
     private List<GridItem> _gridItems = new();
 
@@ -1296,32 +1365,85 @@ else
         return d;
     }
 
-    // Construye los items renderizables. expandChildren=true mete SIEMPRE las filas hijas (export);
-    // si es false, solo mete las hijas de las compras expandidas en la vista.
-    private void BuildItems(List<RequerimientoDto> rows, int level, List<GridItem> outl, bool expandChildren)
+    // Clave de consolidacion: por ItemId cuando existe; si no, por la descripcion normalizada del padre.
+    private static string ConsolKey(RequerimientoDto r)
+        => r.ItemId is { } id
+            ? "i:" + id
+            : "d:" + string.Join(' ', (r.Descripcion ?? "").Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    // Grupos efectivos para la recursion: al consolidar quitamos "producto" (la consolidacion ya agrupa
+    // por producto), para no pintar una cabecera de grupo redundante encima de cada linea consolidada.
+    private List<string> EffectiveGroups() => _consolidate ? _groups.Where(g => g != "producto").ToList() : _groups;
+
+    // Emite la fila padre (Data) y, si corresponde, sus distribuciones (hijos).
+    private void EmitData(RequerimientoDto r, List<GridItem> outl, bool expandChildren)
     {
-        if (level >= _groups.Count)
+        outl.Add(new GridItem { Kind = GKind.Data, R = r });
+        if ((expandChildren || _expanded.Contains(r.Id)) && r.Hijos.Count > 0)
         {
-            foreach (var r in Sorted(rows))
+            foreach (var h in r.Hijos) { outl.Add(new GridItem { Kind = GKind.Child, R = r, H = h }); }
+        }
+    }
+
+    // Construye los items renderizables. expandChildren=true mete SIEMPRE las filas hijas (export);
+    // si es false, solo mete las hijas de las compras expandidas en la vista. consolidate=true junta
+    // las necesidades del mismo producto en una linea resumen (GKind.Consol) expandible.
+    private void BuildItems(List<RequerimientoDto> rows, int level, List<GridItem> outl, bool expandChildren, List<string> groups, bool consolidate)
+    {
+        if (level >= groups.Count)
+        {
+            if (consolidate)
             {
-                outl.Add(new GridItem { Kind = GKind.Data, R = r });
-                if ((expandChildren || _expanded.Contains(r.Id)) && r.Hijos.Count > 0)
+                var prodGroups = rows.GroupBy(ConsolKey)
+                    .OrderBy(g => g.First().ItemNombre ?? g.First().Descripcion, StringComparer.OrdinalIgnoreCase);
+                foreach (var pg in prodGroups)
                 {
-                    foreach (var h in r.Hijos) { outl.Add(new GridItem { Kind = GKind.Child, R = r, H = h }); }
+                    var glist = Sorted(pg).ToList();
+                    if (glist.Count == 1)
+                    {
+                        // Un solo pedido del producto: no tiene sentido una linea resumen, va como fila normal.
+                        EmitData(glist[0], outl, expandChildren);
+                    }
+                    else
+                    {
+                        outl.Add(new GridItem { Kind = GKind.Consol, Key = pg.Key, Group = glist, Count = glist.Count, Sums = SumsOf(glist) });
+                        if (expandChildren || _consolExpanded.Contains(pg.Key))
+                        {
+                            foreach (var r in glist) { EmitData(r, outl, expandChildren); }
+                        }
+                    }
                 }
+            }
+            else
+            {
+                foreach (var r in Sorted(rows)) { EmitData(r, outl, expandChildren); }
             }
             return;
         }
-        var key = _groups[level];
+        var key = groups[level];
         var label = ColByKey(key)?.Label ?? key;
-        var groups = rows.GroupBy(r => GroupText(key, r)).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
-        foreach (var g in groups)
+        var grps = rows.GroupBy(r => GroupText(key, r)).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var g in grps)
         {
             var glist = g.ToList();
             outl.Add(new GridItem { Kind = GKind.Group, Level = level, Label = $"{label}: {g.Key}", Count = glist.Count });
-            BuildItems(glist, level + 1, outl, expandChildren);
+            BuildItems(glist, level + 1, outl, expandChildren, groups, consolidate);
             outl.Add(new GridItem { Kind = GKind.Subtotal, Level = level, Count = glist.Count, Sums = SumsOf(glist), Grand = false });
         }
+    }
+
+    // Valor a mostrar en una celda de la linea consolidada para columnas que pueden diferir entre
+    // necesidades: si todas coinciden muestra el valor; si no, "Varias (N)" con el detalle en el tooltip.
+    private (string Text, string? Tip) ConsolCell(string key, List<RequerimientoDto> glist)
+    {
+        var vals = glist.Select(r => CellStr(key, r)?.Trim() ?? "")
+            .Where(s => s.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (vals.Count == 0) { return ("-", null); }
+        if (vals.Count == 1) { return (vals[0], null); }
+        var tip = string.Join(", ", vals.Take(8)) + (vals.Count > 8 ? "..." : "");
+        return ($"Varias ({vals.Count})", tip);
     }
 
     private List<RequerimientoDto> FilteredRows() => FilterCount > 0
@@ -1338,7 +1460,7 @@ else
         else
         {
             var src = FilteredRows();
-            BuildItems(src, 0, items, expandChildren: false);
+            BuildItems(src, 0, items, expandChildren: false, groups: EffectiveGroups(), consolidate: _consolidate);
             if (src.Count > 0)
             {
                 items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
@@ -1385,6 +1507,20 @@ else
         });
     }
 
+    // ---- Consolidacion (vista) ----
+    private void ToggleConsolidate()
+    {
+        _consolidate = !_consolidate;
+        if (!_consolidate) { _consolExpanded.Clear(); }
+        _ = SavePrefsAsync();
+        RebuildItems();
+    }
+    private void ToggleConsol(string key)
+    {
+        if (!_consolExpanded.Remove(key)) { _consolExpanded.Add(key); }
+        RebuildItems();
+    }
+
     // ---- Expansion ----
     private void ToggleExpand(Guid id)
     {
@@ -1394,11 +1530,21 @@ else
     private void ExpandAll()
     {
         _expanded = _rows.Where(r => r.CantidadHijos > 0).Select(r => r.Id).ToHashSet();
+        // Al consolidar, "Expandir todo" tambien abre las lineas resumen para ver las necesidades reales.
+        if (_consolidate)
+        {
+            _consolExpanded.Clear();
+            foreach (var k in FilteredRows().GroupBy(ConsolKey).Where(g => g.Count() > 1).Select(g => g.Key))
+            {
+                _consolExpanded.Add(k);
+            }
+        }
         RebuildItems();
     }
     private void CollapseAll()
     {
         _expanded.Clear();
+        _consolExpanded.Clear();
         RebuildItems();
     }
 
@@ -1579,7 +1725,8 @@ else
     {
         var src = FilteredRows();
         var items = new List<GridItem>();
-        BuildItems(src, 0, items, expandChildren: true); // SIEMPRE todos los hijos
+        // Export: detalle completo (sin consolidar) y con los grupos reales, para que el Excel/CSV liste cada necesidad.
+        BuildItems(src, 0, items, expandChildren: true, groups: _groups, consolidate: false); // SIEMPRE todos los hijos
         if (src.Count > 0)
         {
             items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
@@ -1589,7 +1736,7 @@ else
 
     private async Task ExportCsvAsync()
     {
-        var vis = VisibleCols().ToList();
+        var vis = VisibleCols().Where(c => c.Key != "acciones").ToList();
         if (vis.Count == 0) { _msg = "No hay columnas visibles para exportar."; return; }
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(string.Join(';', vis.Select(c => Csv(c.Label))));
@@ -1629,7 +1776,7 @@ else
         _busy = true; _msg = null;
         try
         {
-            var vis = VisibleCols().ToList();
+            var vis = VisibleCols().Where(c => c.Key != "acciones").ToList();
             if (vis.Count == 0) { _msg = "No hay columnas visibles para exportar."; return; }
             var lblCol = vis.FindIndex(c => !c.Num); if (lblCol < 0) { lblCol = 0; }
 
@@ -1801,6 +1948,7 @@ else
         public List<SortSpec>? sorts { get; set; }
         public List<string>? groups { get; set; }
         public int frozen { get; set; }
+        public bool? consolidate { get; set; }
     }
 
     private async Task LoadPrefsAsync()
@@ -1820,6 +1968,7 @@ else
             _sorts = (p.sorts ?? new()).Where(s => known.Contains(s.K)).ToList();
             _groups = (p.groups ?? new()).Where(k => known.Contains(k) && (ColByKey(k)?.Groupable ?? false)).ToList();
             _frozen = Math.Max(0, p.frozen);
+            _consolidate = p.consolidate ?? true;   // default consolidado (prefs antiguas sin el campo -> ON)
         }
         catch { }
     }
@@ -1836,6 +1985,7 @@ else
                 sorts = _sorts,
                 groups = _groups,
                 frozen = _frozen,
+                consolidate = _consolidate,
             });
             await Prefs.SaveAsync(TableKey, json);
         }

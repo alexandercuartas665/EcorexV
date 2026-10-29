@@ -711,6 +711,109 @@ public sealed class WorkflowEngine : IWorkflowEngine
         return WorkflowResult<WorkflowInstanceDto>.Ok(BuildInstanceDto(instance, steps, graph));
     }
 
+    public async Task<WorkflowResult<WorkflowInstanceDto>> RestartInstanceAsync(
+        Guid instanceId, string? restartNodeBpmnId, string? assigneeValue,
+        Guid? executedByTenantUserId, string? note, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return loaded.Error;
+        }
+        var (instance, steps, graph, task) = loaded.Value;
+
+        // Nodo de reinicio: el indicado por BpmnElementId, o el StartEvent del flujo (reinicio "desde el inicio").
+        var target = !string.IsNullOrWhiteSpace(restartNodeBpmnId)
+            ? graph.Nodes.FirstOrDefault(n => string.Equals(n.BpmnElementId, restartNodeBpmnId.Trim(), StringComparison.OrdinalIgnoreCase))
+            : graph.Nodes.FirstOrDefault(n => n.NodeType == WorkflowNodeType.StartEvent);
+        if (target is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(string.IsNullOrWhiteSpace(restartNodeBpmnId)
+                ? "El flujo no tiene un nodo de inicio para reiniciar."
+                : $"No existe el nodo de reinicio '{restartNodeBpmnId}' en el flujo.");
+        }
+
+        // Nuevo asignado (id o correo de usuario del tenant), si se indico.
+        var assignTo = string.IsNullOrWhiteSpace(assigneeValue)
+            ? null
+            : await MapValueToUserAsync(assigneeValue.Trim(), cancellationToken);
+        if (!string.IsNullOrWhiteSpace(assigneeValue) && assignTo is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("El usuario de redireccion no corresponde a un usuario del tenant.");
+        }
+
+        // Tope de ciclos, igual que el reinicio nativo por RestartNodeId.
+        var cycle = steps.Count == 0 ? 1 : steps.Max(s => s.CycleIndex) + 1;
+        if (cycle > 50)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("Se alcanzo el tope de reinicios del flujo (50).");
+        }
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+
+        // Cierra todos los pasos vigentes (Skipped). El historial es append-only: no se borran.
+        foreach (var s in steps.Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending).ToList())
+        {
+            s.Status = WorkflowStepStatus.Skipped;
+            s.IsCurrent = false;
+            s.CompletedAt = DateTimeOffset.UtcNow;
+            s.ExecutedByTenantUserId = executedByTenantUserId;
+            s.ApprovalComment = Normalize(note);
+        }
+
+        // Abre el ciclo nuevo en el nodo de reinicio y avanza en cascada (el StartEvent se autocompleta y el
+        // flujo llega al primer paso humano). El predecesor sugiere el asignado para nodos InheritPrevious; el
+        // override de abajo lo garantiza para cualquier AssigneeSource.
+        await ActivateNodeAsync(instance, steps, target, cycle, isCycleStart: true,
+            inheritedApprovalResult: null, task, predecessorUserId: assignTo, cancellationToken);
+        instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
+
+        var stuck = await AdvanceAsync(instance, steps, graph, task, cancellationToken);
+
+        // Fuerza el asignado del/los paso(s) humano(s) vigente(s) al nuevo usuario (cubre Policy/InheritStart/
+        // FormField, no solo InheritPrevious).
+        if (assignTo is Guid forced)
+        {
+            foreach (var s in steps.Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending))
+            {
+                if (graph.NodesById.TryGetValue(s.NodeId, out var n) && n.WaitsForHuman)
+                {
+                    s.AssignedToTenantUserId = forced;
+                }
+            }
+        }
+
+        // Reasigna la TAREA al nuevo usuario y deja constancia en la bitacora.
+        if (task is not null)
+        {
+            if (assignTo is Guid u) { task.AssigneeTenantUserId = u; }
+            var who = target.Name ?? target.BpmnElementId;
+            AddTaskActivity(task, executedByTenantUserId, "Usuario",
+                string.IsNullOrWhiteSpace(note)
+                    ? $"reinicio el flujo en {who} y reasigno la actividad"
+                    : $"reinicio el flujo en {who} y reasigno la actividad: {note.Trim()}");
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Conflict(ConflictMessage);
+        }
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        await BroadcastTaskAsync(task, cancellationToken);
+
+        var dto = BuildInstanceDto(instance, steps, graph);
+        return stuck
+            ? WorkflowResult<WorkflowInstanceDto>.Stuck(dto, StuckMessage())
+            : WorkflowResult<WorkflowInstanceDto>.Ok(dto);
+    }
+
     // ---- Avance interno (port de SiguienteEstado) ----
 
     /// <summary>

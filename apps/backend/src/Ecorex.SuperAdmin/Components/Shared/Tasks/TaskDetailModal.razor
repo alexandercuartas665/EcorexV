@@ -359,6 +359,7 @@
                                 <span><span class="tk-flow-key" style="background:var(--t-violet)"></span>Manual</span>
                                 <span><span class="tk-flow-key" style="background:var(--t-green)"></span>Cerrado</span>
                             </div>
+                            <button class="tk-flow-zbtn tk-flow-reset" title="Volver a la posicion por defecto: reordena los nodos movidos y restablece el zoom" @onclick="FlowLayoutReset" disabled="@(_flowOffsets.Count == 0 && _flowZoom == 1)">&#10226;</button>
                             <div class="tk-flow-zoom">
                                 <button class="tk-flow-zbtn" title="Alejar" @onclick="FlowZoomOut">&#8722;</button>
                                 <span class="tk-flow-zval">@((int)Math.Round(_flowZoom * 100))%</span>
@@ -2708,6 +2709,22 @@
     private void FlowZoomIn() => _flowZoom = Math.Min(1.6, Math.Round(_flowZoom + 0.15, 2));
     private void FlowZoomOut() => _flowZoom = Math.Max(0.5, Math.Round(_flowZoom - 0.15, 2));
     private void FlowZoomReset() => _flowZoom = 1;
+
+    // Devuelve el diagrama a su estado por defecto: quita los desplazamientos manuales de los nodos
+    // (vuelven al auto-layout) y restablece el zoom. El desplazamiento es presentacion COMPARTIDA entre
+    // usuarios (ADR-0051 v2), asi que persiste la limpieza (0,0) de cada nodo que se habia movido.
+    // Best-effort por nodo: si la persistencia falla, al menos queda ordenado en esta sesion.
+    private async Task FlowLayoutReset()
+    {
+        var moved = _flowOffsets.Keys.ToList();
+        _flowOffsets.Clear();
+        _flowZoom = 1;
+        _flowDragNode = null;
+        foreach (var id in moved)
+        {
+            try { await InboxSvc.SetNodeRuntimeOffsetAsync(id, 0, 0); } catch { /* best-effort */ }
+        }
+    }
 
     private static string FlowShortName(string? label)
     {

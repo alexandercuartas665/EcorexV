@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - Unificacion modal "Planificar" individual con el de grupo (worktree requerimiento_compras)
+
+- PEDIDO (usuario, repetido): "Planificar" (un registro) debe ser el MISMO modal que "Planificar grupo";
+  la unica diferencia aceptada es que el grupo tiene una pestana "Detalle" que deja ver todos los items
+  pedidos desde distintos origenes. Eleccion del usuario (Opcion A): mismo modal con pestanas, pero cada
+  boton conserva su propio planificador.
+- HECHO (RequerimientosCompra.razor, commit 64e56402): el modal `_showPlan` ahora usa el patron de pestanas
+  de "Planificar grupo": `_planTab` (detalle|plan) + `_planReg` (la necesidad).
+  * Pestana "Detalle" (nueva): tabla con origen/solicitante/actividad/cantidad/planificado/restante/fecha/
+    estado del registro; pie con "Continuar a planificar ->".
+  * Pestana "Planificacion": intacta -> stats + CotizacionesComparador + filas de compras programadas +
+    pie Cotizar seleccionadas / Guardar planificacion / Cancelar.
+  * Reusa las clases `req-pgtab` y `cd-grid` del grupo para que se vean iguales. Sin cambios en guardado
+    (GuardarPlanAsync y GuardarPlanGrupoAsync quedan igual) -> bajo riesgo.
+- PRUEBAS: `dotnet build` SuperAdmin Release VERDE (0 errores). E2E live (5265 SKY SYSTEM): el individual
+  abre en "Detalle" mostrando la necesidad (PROYECTOS / T00214 / 12), "Continuar" pasa a "Planificacion"
+  con el comparador (2 ofertas) y el planificador de divisiones; el pie muestra Guardar/Cotizar/Agregar.
+- SIGUIENTE: integrar al tronco por el dev principal cuando el usuario lo indique. SIN push a
+  fase-0/clon-backbone, SIN deploy.
+
 ## 2026-10-29 - Comparador de cotizaciones con evaluacion por agente IA (worktree requerimiento_compras)
 
 - PEDIDO (usuario): al planificar la compra (modal de planificar GRUPO o REGISTRO) debe haber una zona que

@@ -172,6 +172,7 @@ public abstract class WhatsAppTemplatesTestsBase
         public Task<YCloudSendResult> SendReactionAsync(string apiKey, string fromPhone, string toPhone, string messageId, string emoji, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
         public Task<YCloudTemplateResult> CreateTemplateAsync(string apiKey, string wabaId, string name, string language, string category, object components, int? ttlSeconds, CancellationToken cancellationToken = default) => Fail<YCloudTemplateResult>();
         public Task<YCloudTemplateListResult> ListTemplatesAsync(string apiKey, string wabaId, CancellationToken cancellationToken = default) => Fail<YCloudTemplateListResult>();
+        public Task<YCloudMessageStatusResult> GetMessageAsync(string apiKey, string messageId, CancellationToken cancellationToken = default) => Fail<YCloudMessageStatusResult>();
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

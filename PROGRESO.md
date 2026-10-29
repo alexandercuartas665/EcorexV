@@ -2,6 +2,43 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-28 - v0.16.243: circuit-breaker anti-loop del agente de nodo de flujo
+
+- INCIDENTE (AGRO): el nodo "Agente seguimiento inteligente" (agente IA en nodo, ADR-0090) entro en LOOP
+  INFINITO y agoto el cupo de Gemini del usuario. En /bitacora-agente > "Atencion del agente": ~50 lineas
+  atendidas por ese paso y el numero de prueba del usuario (573217626882) con 365 invocaciones.
+- CAUSA RAIZ (verificada en codigo): el runner trataba el envio como OK en cuanto YCloud ACEPTA (sent=true) y
+  pausaba esperando respuesta; el "failed" de Meta llega DESPUES por webhook. No habia NINGUN chequeo de
+  DeliveryStatus en runner/invoker. Cuando la entrega falla de forma sistemica (saldo/WABA YCloud, externo), el
+  cliente nunca recibe -> nunca responde -> la cadencia/reintentos re-invocan el modelo en todas las lineas
+  retenidas sin freno. MaxWhatsAppAsks=4 solo cuenta ENVIOS por paso; las re-corridas que esperan/re-deciden sin
+  enviar no lo tocaban.
+- HECHO (fix v0.16.243, en WorkflowAgentStepRunner.RunClaimedAsync, ANTES de armar contexto e invocar el modelo;
+  ambos cortan DURO via FinalizeAsFailureAsync(allowRoute:false) -ReturnToPersonAsync con OnFailure=Retry NO
+  pararia el loop-):
+  * Circuit breaker por fallo de entrega (K=3): si PendingWhatsAppConversationId esta seteado y los ULTIMOS 3
+    salientes de esa conversacion estan TODOS en DeliveryStatus="failed" -> no se invoca al modelo; paso a una
+    persona con el motivo real (revisar numero + saldo/estado de la linea). Const DeliveryFailStreakToBreak=3.
+  * Tope duro de invocaciones por paso: columna nueva WorkflowStepHistory.AgentInvokeCount (int, se incrementa
+    justo antes de cada invocacion real; sobrevive a reanudaciones, se reinicia por ciclo). Si >=
+    MaxAgentInvokesPerStep (env ECOREX_AGENT_MAX_INVOKES_PER_STEP, 20 por defecto) -> paso a una persona.
+  * Migracion dual AddAgentInvokeCount (PG + SQL Server, agent_invoke_count int NOT NULL default 0; prod aplica
+    en arranque via MigrateAsync).
+- PRUEBAS: build verde (Application + SuperAdmin aislado); Domain 35/35; Application 1145/1145; 3 tests nuevos del
+  breaker/tope en WorkflowAgentStepTests (matriz dual PG+SQLServer) 6/6. Integracion dual: 511/513 (los 2 fallos
+  son el MISMO test de forms DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical en ambos motores, ver abajo).
+- GOTCHA del tronco (ARREGLADO aqui): f56a7c4c (v0.16.240, ADR-0139) dejo WhatsAppTemplatesTests.cs SIN COMPILAR
+  (el fake UnusedYCloudClient no implementaba IYCloudApiClient.GetMessageAsync). Como el build de imagen GHCR no
+  compila los tests, paso inadvertido (el CI de PR si lo habria pillado). Se agrego el stub minimo; sin eso NINGUN
+  test de integracion compilaba.
+- BLOQUEO/HALLAZGO AJENO: DynamicFormsTests.DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical:86 falla
+  DETERMINISTA en ambos motores (Assert.NotEqual de ids: tras SUBMIT de REF-001, GetOrCreateDraftAsync devuelve la
+  respuesta ya enviada en vez de un draft nuevo). NO es de este cambio (no toco forms); es un bug LATENTE del
+  tronco que solo se vio ahora porque el fix de compilacion hizo correr la suite por primera vez. Dejado como tarea
+  aparte (dominio forms).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.243. SIGUIENTE (externo, usuario): resolver el saldo/estado
+  WABA en YCloud -raiz del dia, nada se entrega-; el fix solo ACOTA el gasto. Ver [[agente-flujo-circuit-breaker-loop]].
+
 ## 2026-10-28 - v0.16.240: consultar YCloud para recuperar el motivo REAL de un fallo "sin detalle" [ADR-0139]
 
 - CASO (AGRO, tarea T00558, cliente 573182800618): WhatsApp no llego; la pestana "Fallos de envio" mostraba

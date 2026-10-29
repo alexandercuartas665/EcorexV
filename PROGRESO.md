@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-29 - v0.16.244: la bitacora registra la URL PUBLICA del PDF de la cotizacion
+
+- CONTEXTO: para YCloud/Cloud el PDF de la cotizacion NO viaja como bytes; se PUBLICA a una URL publica
+  (_mediaStore.PublishAsync) y esa URL se manda como header de media de la plantilla (es lo que Meta descarga).
+  Si el envio falla "sin detalle", no habia forma de verificar si el problema era el ARCHIVO (no generado,
+  vacio, inalcanzable, content-type, tamano) sin leer el log por SSH.
+- HECHO (NodeNotifyService): se captura headerMediaUrl y se deja en la bitacora:
+  * Fallo (RecordSendFailureNoteAsync): si el PDF SI se publico pero el envio igual fallo, la nota de "Fallos
+    de envio" ahora incluye "| PDF de la cotizacion publicado (abrelo para verificar...): <url>".
+  * Exito (RecordContactShareObservationAsync): la nota de contexto/bitacora del agente incluye
+    "cotizacion adjunta (archivo) - PDF: <url>".
+  OJO: si el PDF salio NULL (no se genero), NO hay URL; ahi sigue el motivo especifico de ResolveFormPdfAsync
+  (v0.16.242). La URL cubre el caso "se publico pero Meta lo rechazo".
+- PRUEBAS: build Application verde (0 errores). Sin migracion (solo texto en notas; reusa Message.Body). Cambios
+  solo en metodos privados (firmas internas); no afecta llamadas externas ni tests.
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.244. Ver [[bitacora-fallos-envio-whatsapp]].
+
 ## 2026-10-28 - v0.16.243: circuit-breaker anti-loop del agente de nodo de flujo
 
 - INCIDENTE (AGRO): el nodo "Agente seguimiento inteligente" (agente IA en nodo, ADR-0090) entro en LOOP

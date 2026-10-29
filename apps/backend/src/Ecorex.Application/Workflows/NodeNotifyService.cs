@@ -277,7 +277,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                 // loguea; aqui ademas lo hace legible para el usuario). Best-effort, envuelto en try/catch.
                 if (!waOutcome.Ok && rule.Destino == NodeNotifyRecipient.ContactoTarea && task is not null)
                 {
-                    try { await RecordSendFailureNoteAsync(task, lineId, phone!, rule.Plantilla!, waOutcome.Error, ct); }
+                    try { await RecordSendFailureNoteAsync(task, lineId, phone!, rule.Plantilla!, waOutcome.Error, headerMediaUrl, ct); }
                     catch { /* best-effort: registrar el fallo nunca debe romper el flujo */ }
                 }
 
@@ -297,7 +297,7 @@ public sealed class NodeNotifyService : INodeNotifyService
                             .Where(d => !string.IsNullOrWhiteSpace(d.ButtonLabel))
                             .Select(d => d.ButtonLabel!.Trim()).ToList();
                         await RecordContactShareObservationAsync(
-                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, notaAgenteRender, ct);
+                            task, lineId, phone!, nodeName, rule.EnlacesDecision is { Count: > 0 }, decisionLabels, cotDoc, headerMediaUrl, notaAgenteRender, ct);
                     }
                     catch { /* best-effort: la nota de contexto nunca debe romper la notificacion */ }
                 }
@@ -399,7 +399,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// </summary>
     private async Task RecordContactShareObservationAsync(
         Domain.Entities.TaskItem task, Guid lineId, string phone, string? nodeName, bool hasDecisionLink,
-        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? notaAgente, CancellationToken ct)
+        IReadOnlyList<string>? decisionLabels, Forms.QuoteDocument? cotDoc, string? pdfPublicUrl, string? notaAgente, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -443,7 +443,15 @@ public sealed class NodeNotifyService : INodeNotifyService
                 ? $"enlace de decision (opciones: {string.Join(" / ", decisionLabels)})"
                 : "enlace de decision (el cliente puede responder por el enlace)");
         }
-        if (cotDoc is not null) { enviado.Add($"cotizacion adjunta ({cotDoc.FileName})"); }
+        if (cotDoc is not null)
+        {
+            // Se registra tambien la URL PUBLICA del PDF (la que YCloud/Meta descarga como header de la plantilla):
+            // asi se puede ABRIR desde la bitacora para verificar que el PDF se genero y es alcanzable. Null cuando
+            // el proveedor no usa URL (Evolution manda bytes) o la plantilla no lleva header de media.
+            enviado.Add(string.IsNullOrWhiteSpace(pdfPublicUrl)
+                ? $"cotizacion adjunta ({cotDoc.FileName})"
+                : $"cotizacion adjunta ({cotDoc.FileName}) - PDF: {pdfPublicUrl}");
+        }
         if (enviado.Count > 0) { sb.Append($" Se envio: {string.Join(" + ", enviado)}."); }
         // Nota que el usuario escribio en la config del nodo para dar CONTEXTO al agente (que se gestiono).
         // notaAgente YA viene renderizada con los tokens de la tarea ({tarea.cliente}, etc.) por el llamador.
@@ -503,7 +511,7 @@ public sealed class NodeNotifyService : INodeNotifyService
     /// devolvio Meta/YCloud. Se guarda como nota interna del sistema (no sale al cliente). Best-effort.
     /// </summary>
     private async Task RecordSendFailureNoteAsync(
-        Domain.Entities.TaskItem task, Guid lineId, string phone, string plantilla, string? reason, CancellationToken ct)
+        Domain.Entities.TaskItem task, Guid lineId, string phone, string plantilla, string? reason, string? pdfPublicUrl, CancellationToken ct)
     {
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) { return; }
@@ -531,6 +539,14 @@ public sealed class NodeNotifyService : INodeNotifyService
         if (!string.IsNullOrWhiteSpace(task.Title)) { sb.Append($" - {task.Title}"); }
         sb.Append(". Motivo: ");
         sb.Append(string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor." : reason!.Trim());
+        // Si el PDF SI se publico (la plantilla lleva header de documento y el render funciono) pero el envio
+        // igual fallo, se deja la URL PUBLICA para ABRIRLA y descartar que el problema sea el archivo
+        // (inalcanzable, vacio, content-type o tamano). Null cuando no hubo PDF (no se genero) o el proveedor
+        // no usa URL.
+        if (!string.IsNullOrWhiteSpace(pdfPublicUrl))
+        {
+            sb.Append($" | PDF de la cotizacion publicado (abrelo para verificar que se genero y es alcanzable): {pdfPublicUrl}");
+        }
 
         _db.Messages.Add(new Domain.Entities.Message
         {

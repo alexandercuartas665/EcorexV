@@ -42,7 +42,10 @@ public sealed record CrearRequerimientoRequest(
     // Trazabilidad opcional: quien pidio (TenantUser) y la actividad origen. El nombre se resuelve si va vacio.
     Guid? SolicitanteUserId = null,
     string? SolicitanteNombre = null,
-    Guid? SourceTaskItemId = null);
+    Guid? SourceTaskItemId = null,
+    // Observaciones opcionales (las puede alimentar el mapeo de una regla de formulario).
+    string? Observaciones = null,
+    string? ObservacionesDespacho = null);
 
 /// <summary>Opcion de item para el selector (del modulo de Inventarios).</summary>
 public sealed record ItemOpcionDto(Guid Id, string Nombre, string? Sku);

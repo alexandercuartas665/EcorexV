@@ -126,6 +126,8 @@ public sealed class RequerimientoService : IRequerimientoService
             SolicitanteUserId = req.SolicitanteUserId,
             SolicitanteNombre = string.IsNullOrWhiteSpace(solicitanteNombre) ? null : solicitanteNombre!.Trim(),
             SourceTaskItemId = req.SourceTaskItemId,
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones!.Trim(),
+            ObservacionesDespacho = string.IsNullOrWhiteSpace(req.ObservacionesDespacho) ? null : req.ObservacionesDespacho!.Trim(),
         };
         _db.RequerimientosCompra.Add(entity);
         await _db.SaveChangesAsync(ct);

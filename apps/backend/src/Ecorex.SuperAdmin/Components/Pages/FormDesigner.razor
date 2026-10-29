@@ -872,6 +872,15 @@ else
 
     // Asistente de mapeo por formulario (GENERAR_REQUERIMIENTOS).
     private sealed class MapeoRow { public string Target = ""; public string Kind = "col"; public string Ref = ""; }
+    // Retorno (Requerimientos -> grid del formulario): a que COLUMNA del grid va cada FUENTE del requerimiento.
+    private sealed class ReturnRow { public string Col = ""; public string Source = ""; }
+    private static readonly RuleParamOption[] _mapeoReturnSources =
+    {
+        new("cotizado_total", "Valor cotizado (total linea)"),
+        new("cotizado_unit", "Valor cotizado (unitario)"),
+        new("estado", "Estado de la necesidad"),
+        new("proveedor", "Proveedor elegido"),
+    };
     private bool _mapeoOpen;
     private Guid _mapeoLinkId;
     private string _mapeoGrid = "";
@@ -880,6 +889,7 @@ else
     private List<RuleParamOption> _mapeoOrigenes = new();
     private List<RuleParamOption> _mapeoCustomTargets = new();
     private List<MapeoRow> _mapeoRows = new();
+    private List<ReturnRow> _mapeoReturnRows = new();
 
     // Editor de condicion inline (D4).
     private bool _condOpen;
@@ -2280,6 +2290,8 @@ else
         new("unidad", "Unidad"),
         new("fecha", "Fecha requerida"),
         new("area", "Area solicitante"),
+        new("observaciones", "Observaciones generales"),
+        new("observaciones_despacho", "Observaciones de despacho"),
     };
     private IReadOnlyList<RuleParamOption> MapeoTargets()
         => _mapeoBaseTargets.Concat(_mapeoCustomTargets).ToList();
@@ -2297,13 +2309,16 @@ else
     private void MapeoKindChanged(MapeoRow row, ChangeEventArgs e) { row.Kind = e.Value?.ToString() ?? "col"; row.Ref = ""; }
     private void MapeoRefChanged(MapeoRow row, ChangeEventArgs e) => row.Ref = e.Value?.ToString() ?? "";
     private void MapeoRemoveRow(int idx) { if (idx >= 0 && idx < _mapeoRows.Count) { _mapeoRows.RemoveAt(idx); } }
+    private void ReturnColChanged(ReturnRow r, ChangeEventArgs e) => r.Col = e.Value?.ToString() ?? "";
+    private void ReturnSourceChanged(ReturnRow r, ChangeEventArgs e) => r.Source = e.Value?.ToString() ?? "";
+    private void ReturnRemoveRow(int idx) { if (idx >= 0 && idx < _mapeoReturnRows.Count) { _mapeoReturnRows.RemoveAt(idx); } }
 
     private async Task OpenMapeoAssistantAsync(QuestionRuleLinkDto link)
     {
         _mapeoError = null;
         _mapeoLinkId = link.Id;
         _rulePickerOpen = false;
-        _mapeoGrid = ""; _mapeoOrigen = ""; _mapeoRows = new();
+        _mapeoGrid = ""; _mapeoOrigen = ""; _mapeoRows = new(); _mapeoReturnRows = new();
         try { _mapeoOrigenes = (await RuleOpts.GetOptionsAsync("requerimiento-origenes")).ToList(); } catch { _mapeoOrigenes = new(); }
         try { _mapeoCustomTargets = (await RuleOpts.GetOptionsAsync("requerimiento-campos-padre")).ToList(); } catch { _mapeoCustomTargets = new(); }
         var existing = await RulesSvc.GetFieldRuleOverrideAsync(link.Id);
@@ -2330,23 +2345,43 @@ else
                     _mapeoRows.Add(new MapeoRow { Target = p.Name, Kind = i >= 0 ? expr[..i] : "fixed", Ref = i >= 0 ? expr[(i + 1)..] : expr });
                 }
             }
+            _mapeoReturnRows = new();
+            if (root.TryGetProperty("retorno", out var rt) && rt.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in rt.EnumerateObject())
+                {
+                    var src = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? (p.Value.GetString() ?? "") : "";
+                    _mapeoReturnRows.Add(new ReturnRow { Col = p.Name, Source = src });
+                }
+            }
         }
         catch { }
     }
 
     private void AutoSuggestMapeo()
     {
-        // Elige la primera grilla si no hay una.
+        // Elige la grilla mas probable (lista de materiales): la que tenga columna de producto/descripcion Y
+        // cantidad. Si ninguna califica, la primera. Evita caer en una grilla auxiliar (p.ej. "Items" vacia).
         if (string.IsNullOrWhiteSpace(_mapeoGrid))
         {
-            _mapeoGrid = _def?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail)?.FieldCode ?? "";
+            var grids = _def?.Questions.Where(x => x.ControlType == FormControlType.GridDetail).ToList() ?? new();
+            bool Has(IEnumerable<FormGridColumn> cs, params string[] ns) => cs.Any(c => ns.Any(n =>
+                c.Id.Contains(n, StringComparison.OrdinalIgnoreCase) || c.Label.Contains(n, StringComparison.OrdinalIgnoreCase)));
+            var best = grids.FirstOrDefault(g =>
+            {
+                var cs = FormGridCalculator.ParseColumns(g.OptionsJson).ToList();
+                return Has(cs, "descrip", "producto", "material", "articulo") && Has(cs, "cantidad", "cant", "qty");
+            });
+            _mapeoGrid = (best ?? grids.FirstOrDefault())?.FieldCode ?? "";
         }
         var cols = MapeoGridCols().ToList();
         string? ColLike(params string[] needles) => cols.FirstOrDefault(c => needles.Any(n =>
             c.Id.Contains(n, StringComparison.OrdinalIgnoreCase) || c.Label.Contains(n, StringComparison.OrdinalIgnoreCase)))?.Id;
         var rows = new List<MapeoRow>();
         void AddCol(string target, string? col) { if (!string.IsNullOrWhiteSpace(col)) { rows.Add(new MapeoRow { Target = target, Kind = "col", Ref = col! }); } }
-        AddCol("descripcion", ColLike("producto", "descrip", "material", "item"));
+        // Producto/descripcion: prioriza una columna de descripcion/producto; "item" solo como ultimo recurso
+        // (en grillas APU "Item" es el numero de linea, no el producto).
+        AddCol("descripcion", ColLike("descrip", "producto", "material", "articulo", "nombre") ?? ColLike("item"));
         AddCol("cantidad", ColLike("cantidad", "cant", "qty"));
         AddCol("unidad", ColLike("unidad", "und", "um"));
         AddCol("fecha", ColLike("fecha", "requerida"));
@@ -2376,6 +2411,14 @@ else
                 mapeo[row.Target] = $"{row.Kind}:{row.Ref}";
             }
             if (mapeo.Count > 0) { obj["mapeo"] = mapeo; }
+            // Retorno (Requerimientos -> grid): columna del grid <- fuente. Ultima gana si se repite la columna.
+            var retorno = new System.Text.Json.Nodes.JsonObject();
+            foreach (var r in _mapeoReturnRows)
+            {
+                if (string.IsNullOrWhiteSpace(r.Col) || string.IsNullOrWhiteSpace(r.Source)) { continue; }
+                retorno[r.Col] = r.Source;
+            }
+            if (retorno.Count > 0) { obj["retorno"] = retorno; }
             var result = await RulesSvc.SetFieldRuleOverrideAsync(_mapeoLinkId, obj.ToJsonString());
             if (!result.IsOk) { _mapeoError = result.Error; return; }
             _mapeoOpen = false;
@@ -4418,8 +4461,13 @@ else
            con los campos/columnas REALES de este formulario. Guarda un override en el vinculo. *@
         @if (_mapeoOpen)
         {
-            <div class="fb-rule-picker" style="margin-top:10px;">
-                <div class="fb-rules-desc" style="font-weight:700;margin-bottom:6px;">Mapeo de requerimientos (solo este formulario)</div>
+            <div class="modal-overlay" style="z-index:72;" @onclick="@(() => _mapeoOpen = false)">
+              <div class="modal-dialog fd-mapeo-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Mapeo de requerimientos (solo este formulario)</h3>
+                    <button class="modal-close" @onclick="@(() => _mapeoOpen = false)">&times;</button>
+                </div>
+                <div class="modal-body">
                 <div class="fb-field">
                     <label>Grilla de origen (cada fila es una necesidad)</label>
                     <select class="fb-select" value="@_mapeoGrid" @onchange="@(e => _mapeoGrid = e.Value?.ToString() ?? "")">
@@ -4486,12 +4534,43 @@ else
                     </div>
                 }
                 <button class="fb-rule-add" @onclick="@(() => _mapeoRows.Add(new MapeoRow()))">+ Agregar dato</button>
+
+                @* Retorno: datos que REGRESAN desde Requerimientos al grid (ej. valor cotizado por linea). Se
+                   emparejan por la descripcion/producto y se escriben al reabrir el formulario en la tarea. *@
+                <label style="font-size:11px;font-weight:700;color:var(--ink-3,#9ca3af);text-transform:uppercase;letter-spacing:.04em;display:block;margin-top:16px;">Devolver al grid (desde Requerimientos)</label>
+                <div class="fb-rules-desc" style="margin:2px 0 6px;">Al reabrir el formulario en la tarea, cada fila trae el dato de su necesidad (emparejado por el producto).</div>
+                @for (var ri = 0; ri < _mapeoReturnRows.Count; ri++)
+                {
+                    var rrow = _mapeoReturnRows[ri]; var ridx = ri;
+                    <div style="display:flex;gap:6px;align-items:center;margin:6px 0;">
+                        <select class="fb-select" style="flex:1.1;" @onchange="@(e => ReturnColChanged(rrow, e))">
+                            <option value="">Columna del grid...</option>
+                            @foreach (var c in MapeoGridCols())
+                            {
+                                <option value="@c.Id" selected="@(c.Id == rrow.Col)">@c.Label</option>
+                            }
+                        </select>
+                        <span style="color:var(--ink-3,#9ca3af);font-size:12px;">&larr;</span>
+                        <select class="fb-select" style="flex:1.3;" @onchange="@(e => ReturnSourceChanged(rrow, e))">
+                            <option value="">Dato de la necesidad...</option>
+                            @foreach (var s in _mapeoReturnSources)
+                            {
+                                <option value="@s.Value" selected="@(s.Value == rrow.Source)">@s.Label</option>
+                            }
+                        </select>
+                        <span class="fb-rule-x" title="Quitar" @onclick="@(() => ReturnRemoveRow(ridx))">&times;</span>
+                    </div>
+                }
+                <button class="fb-rule-add" @onclick="@(() => _mapeoReturnRows.Add(new ReturnRow()))">+ Agregar retorno</button>
+
                 @if (_mapeoError is not null) { <div style="color:#b91c1c;font-size:12px;margin-top:6px;">@_mapeoError</div> }
-                <div style="display:flex;gap:8px;margin-top:10px;">
-                    <button class="fb-btn-ghost" title="Sugerir el mapeo por el nombre de columnas/campos" @onclick="AutoSuggestMapeo">Auto-sugerir</button>
-                    <button class="fb-btn-ghost" style="flex:1;" @onclick="@(() => _mapeoOpen = false)">Cancelar</button>
-                    <button class="fb-btn-primary" style="flex:1;" disabled="@(_busy || string.IsNullOrWhiteSpace(_mapeoGrid))" @onclick="SaveMapeoAsync">Guardar</button>
                 </div>
+                <div class="modal-foot">
+                    <button class="fb-btn-ghost" title="Sugerir el mapeo por el nombre de columnas/campos" style="margin-right:auto;" @onclick="AutoSuggestMapeo">Auto-sugerir</button>
+                    <button class="fb-btn-ghost" @onclick="@(() => _mapeoOpen = false)">Cancelar</button>
+                    <button class="fb-btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_mapeoGrid))" @onclick="SaveMapeoAsync">Guardar</button>
+                </div>
+              </div>
             </div>
         }
 

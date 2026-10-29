@@ -18,6 +18,7 @@
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
 @inject Ecorex.Application.Tenancy.ITaskDocumentsService TaskDocsSvc
+@inject Ecorex.Application.Requerimientos.IRequerimientoReturnService ReqReturnSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
@@ -657,6 +658,10 @@ else
                 // Auto-resolucion multi-clave (VLOOKUP): resuelve las columnas 'resolve' de cada fila
                 // ANTES del calculo, para que un borrador restaurado traiga los precios ya puestos.
                 await ResolveAllGridsAsync();
+                // Retorno desde Requerimientos (Capa 10): si el form tiene regla GENERAR_REQUERIMIENTOS con
+                // "retorno" configurado y vive en una tarea, trae a cada fila del grid el valor cotizado/estado/
+                // proveedor de su necesidad. Antes del calculo para que un campo calculado pueda usar lo devuelto.
+                await ApplyRequerimientoReturnsAsync();
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
@@ -3790,6 +3795,42 @@ else
         => FormFieldValidator.ParseGridRows(_values.GetValueOrDefault(q.FieldCode))
             .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal))
             .ToList();
+
+    /// <summary>Capa 10: escribe en el grid de origen los datos que REGRESAN desde Requerimientos (valor
+    /// cotizado, estado, proveedor...) emparejando cada fila por su descripcion/producto. No toca columnas no
+    /// configuradas; marca el borrador sucio para que el autosave lo persista. Silencioso si no aplica.</summary>
+    private async Task ApplyRequerimientoReturnsAsync()
+    {
+        if (Mode != FormRenderMode.Fill || _response is null || string.IsNullOrWhiteSpace(_response.Reference)) { return; }
+        Ecorex.Application.Requerimientos.RequerimientoReturnData? data;
+        try { data = await ReqReturnSvc.GetGridReturnsAsync(DefinitionId, _response.Reference!); }
+        catch { return; }
+        if (data is null) { return; }
+        var gridQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, data.GridFieldCode, StringComparison.OrdinalIgnoreCase));
+        if (gridQ is null) { return; }
+        var rows = GridRowsOf(gridQ);
+        if (rows.Count == 0) { return; }
+        var changed = false;
+        foreach (var row in rows)
+        {
+            var key = Ecorex.Application.Requerimientos.RequerimientoReturnService.NormDesc(row.GetValueOrDefault(data.MatchDescripcionCol));
+            if (string.IsNullOrEmpty(key) || !data.ValuesByKey.TryGetValue(key, out var vals)) { continue; }
+            foreach (var (col, source) in data.ColumnSources)
+            {
+                if (vals.TryGetValue(source, out var v) && !string.Equals(row.GetValueOrDefault(col), v, StringComparison.Ordinal))
+                {
+                    row[col] = v;
+                    changed = true;
+                }
+            }
+        }
+        if (changed)
+        {
+            _values[gridQ.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+            _dirty = true;
+        }
+    }
 
     /// <summary>FEATURE A: opciones de un select de grilla tomadas de las filas VIVAS de otra grilla del formulario
     /// (value = valueField, etiqueta = labelField). Lee las filas ya computadas (RecomputeGrids las dejo en _values,

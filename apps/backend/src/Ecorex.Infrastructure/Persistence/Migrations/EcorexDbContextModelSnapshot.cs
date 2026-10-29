@@ -10891,6 +10891,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_necesidad");
 
+                    b.Property<bool>("ForzarDividir")
+                        .HasColumnType("boolean")
+                        .HasColumnName("forzar_dividir");
+
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");

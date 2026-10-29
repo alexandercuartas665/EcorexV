@@ -62,6 +62,10 @@ public sealed class RequerimientoCompra : TenantEntity
     /// <summary>Clave por la que se agrupan los pedidos del MISMO producto (p.ej. ItemId o referencia).</summary>
     public string ClaveAgrupacion { get; set; } = string.Empty;
 
+    /// <summary>Override por registro: si es true, esta necesidad NO se consolida con las del mismo producto
+    /// (sale como linea propia y se planifica aparte) aunque el modulo este en modo Consolidado.</summary>
+    public bool ForzarDividir { get; set; }
+
     // ---- Trazabilidad de la solicitud (quien pidio y desde que actividad) ----
     /// <summary>TenantUser que origino la solicitud (quien envio el formulario). Null si anonimo (/f publico).</summary>
     public Guid? SolicitanteUserId { get; set; }

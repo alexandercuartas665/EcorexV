@@ -246,6 +246,63 @@ public sealed class RequerimientoService : IRequerimientoService
         return await GetPlanificacionAsync(padre.Id, ct);
     }
 
+    public async Task<PlanificarGrupoResult> PlanificarGrupoAsync(PlanificarGrupoRequest req, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return new PlanificarGrupoResult(false, "Sin tenant resuelto.", 0); }
+
+        var lineas = (req.Lineas ?? Array.Empty<PlanificarGrupoLinea>()).Where(l => l.Cantidad > 0).ToList();
+        if (lineas.Count == 0) { return new PlanificarGrupoResult(false, "No hay cantidades para planificar.", 0); }
+
+        var ids = lineas.Select(l => l.RequerimientoId).Distinct().ToList();
+        var padres = await _db.RequerimientosCompra.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+        var existentes = (await _db.RequerimientoCompraHijos.Where(h => ids.Contains(h.RequerimientoId)).ToListAsync(ct))
+            .GroupBy(h => h.RequerimientoId).ToDictionary(g => g.Key, g => g.Sum(h => h.Cantidad));
+
+        // 1) Validar TODO antes de tocar nada (transaccional: todo o nada).
+        foreach (var l in lineas)
+        {
+            var padre = padres.FirstOrDefault(p => p.Id == l.RequerimientoId);
+            if (padre is null) { return new PlanificarGrupoResult(false, "Una necesidad del grupo ya no existe.", 0); }
+            var yaPlan = existentes.GetValueOrDefault(padre.Id);
+            if (yaPlan + l.Cantidad > padre.Cantidad)
+            {
+                return new PlanificarGrupoResult(false,
+                    $"En '{padre.Descripcion}' lo planificado ({yaPlan + l.Cantidad:#,##0.##}) excederia la necesidad ({padre.Cantidad:#,##0.##}).", 0);
+            }
+        }
+
+        // 2) Agregar una distribucion a cada necesidad (sin tocar las existentes) + un solo SaveChanges.
+        var precio = req.PrecioUnitario < 0 ? 0 : req.PrecioUnitario;
+        var despacho = (req.CaracteristicasDespacho ?? "").Trim();
+        var entrega = (req.TiempoEntrega ?? "").Trim();
+        var creados = 0;
+        foreach (var l in lineas)
+        {
+            var padre = padres.First(p => p.Id == l.RequerimientoId);
+            _db.RequerimientoCompraHijos.Add(new RequerimientoCompraHijo
+            {
+                TenantId = tenantId,
+                RequerimientoId = padre.Id,
+                Cantidad = l.Cantidad,
+                FechaProgramadaCompra = req.FechaProgramadaCompra,
+                CaracteristicasDespacho = despacho,
+                TiempoEntrega = entrega,
+                ProveedorId = req.ProveedorId,
+                ProveedorContactoId = req.ProveedorId is null ? null : req.ProveedorContactoId,
+                PrecioUnitario = precio,
+                Estado = req.ProveedorId is not null ? RequerimientoEstado.ConProveedor : RequerimientoEstado.Planificado,
+            });
+            if (padre.Estado is RequerimientoEstado.Recibido or RequerimientoEstado.Agrupado or RequerimientoEstado.Planificado)
+            {
+                padre.Estado = RequerimientoEstado.Planificado;
+            }
+            creados++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new PlanificarGrupoResult(true, null, creados);
+    }
+
     private static PlanificacionDto BuildPlanificacion(RequerimientoCompra r, List<RequerimientoCompraHijo> hijos,
         IReadOnlyDictionary<Guid, string> proveedores)
     {

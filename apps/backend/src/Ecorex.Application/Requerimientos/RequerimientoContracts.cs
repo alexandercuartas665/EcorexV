@@ -102,6 +102,23 @@ public sealed record HijoInput(
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
 
+/// <summary>Una linea del plan de grupo: una necesidad del producto consolidado + la cantidad a planificar en esta pasada.</summary>
+public sealed record PlanificarGrupoLinea(Guid RequerimientoId, decimal Cantidad);
+
+/// <summary>Planifica VARIAS necesidades del mismo producto (vista consolidada) de una vez: AGREGA una
+/// distribucion (hijo) a cada una con el mismo proveedor/precio/fecha/despacho (no toca las ya existentes).</summary>
+public sealed record PlanificarGrupoRequest(
+    IReadOnlyList<PlanificarGrupoLinea> Lineas,
+    Guid? ProveedorId,
+    Guid? ProveedorContactoId,
+    decimal PrecioUnitario,
+    DateTimeOffset? FechaProgramadaCompra,
+    string? CaracteristicasDespacho,
+    string? TiempoEntrega);
+
+/// <summary>Resultado del plan de grupo.</summary>
+public sealed record PlanificarGrupoResult(bool Ok, string? Error, int HijosCreados);
+
 /// <summary>Estado de la planificacion de una necesidad: cantidades y sus hijos.</summary>
 public sealed record PlanificacionDto(
     Guid RequerimientoId,
@@ -147,6 +164,11 @@ public interface IRequerimientoService
     /// <summary>Reemplaza el conjunto de hijos de una necesidad. Valida que la suma NO exceda al padre;
     /// pone el padre en Planificado si queda con hijos (o Recibido si queda sin ninguno). Devuelve el nuevo estado.</summary>
     Task<PlanificacionDto?> GuardarHijosAsync(GuardarHijosRequest req, CancellationToken ct = default);
+
+    /// <summary>Planifica de una sola vez varias necesidades del mismo producto (vista consolidada): AGREGA
+    /// una distribucion a cada una con proveedor/precio/fecha compartidos, sin tocar las existentes, validando
+    /// el restante de cada necesidad. Transaccional (todo o nada).</summary>
+    Task<PlanificarGrupoResult> PlanificarGrupoAsync(PlanificarGrupoRequest req, CancellationToken ct = default);
 
     // ---- Ola 4: proveedores ----
     /// <summary>Proveedores del Directorio General para el selector del hijo.</summary>

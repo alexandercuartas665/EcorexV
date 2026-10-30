@@ -1979,6 +1979,7 @@ else
         if (string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase)) { rows.Clear(); }
         var extras = GridExtrasOf(gridQ);
         var cols = GridColumnsOf(gridQ);
+        var startIndex = rows.Count;   // solo resolvemos el lookup de las filas que AGREGA el agente
         foreach (var pr in res.Rows)
         {
             var row = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -1987,7 +1988,25 @@ else
             row[GestionRowIdKey] = Guid.NewGuid().ToString("N");
             rows.Add(row);
         }
-        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));   // recalcula calc/lookup
+        // El agente escribe las celdas directo, saltandose el lookup de grilla que SI corre cuando un
+        // humano teclea el codigo (GridLookupCommitAsync). Por eso, antes de recomputar, resolvemos el
+        // lookup de cada fila nueva (autollena costo/stock/... desde la fuente) para que las formulas por
+        // fila y los roll-ups no queden en 0. Dentro del _dbGate + BeginAmbient porque SearchAsync toca BD.
+        if (extras.Values.Any(e => e.Lookup is not null || e.Resolve is not null))
+        {
+            await _dbGate.WaitAsync();
+            try
+            {
+                using var ambient = BeginAmbient();
+                for (var i = startIndex; i < rows.Count; i++)
+                {
+                    await ResolveRowLookupsAsync(gridQ, rows, i);
+                }
+            }
+            finally { _dbGate.Release(); }
+        }
+        // SetValue recomputa SOLO calc por fila + roll-ups (crossGrid), NO el lookup de grilla (ya resuelto arriba).
+        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));
         _aiResult.Remove(q.FieldCode);
     }
 
@@ -3611,7 +3630,8 @@ else
         // 'resolve' de ESTA fila igual que SetGridCell, para que precio_corte/doblez y su aviso "sin tarifa"
         // no queden stale. Debe ir ANTES de SetValue para que el calculo use los precios recien resueltos.
         await ResolveGridRowAsync(q, rows, rowIndex);
-        // SetValue recalcula formulas por fila y roll-ups con los valores recien copiados.
+        // SetValue recomputa SOLO calc por fila + roll-ups (crossGrid) con los valores recien copiados; el
+        // lookup de grilla NO lo hace SetValue: ya se resolvio arriba (cfg.Autofill + ResolveGridRowAsync).
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
     }
 
@@ -3670,6 +3690,71 @@ else
         if (!_gridLookupNote.ContainsKey(key)) { _gridLookupNote[key] = "Codigo no encontrado."; }
         _gridLookupOpen.Remove(key);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    /// <summary>
+    /// Resuelve los LOOKUP de una fila de grilla igual que cuando un humano teclea el codigo
+    /// (<see cref="GridLookupCommitAsync"/>): por cada columna con lookup toma el valor que ya hay en la
+    /// celda clave (o, si viene vacio, el de la columna destino del DisplayField, la de "nombre"), busca
+    /// coincidencia EXACTA por la clave (o por el texto mostrado), autollena las columnas destino y, si no
+    /// hay match, conserva lo que habia y avisa en la celda sin bloquear. Al final resuelve las columnas
+    /// 'resolve'. Lo usa <see cref="ApplyAiRowsAsync"/>, cuyo camino (el agente escribe las celdas directo)
+    /// se salta el lookup que SI dispara el teclado humano. NO toca _dbGate ni llama SetValue: el llamador
+    /// debe tener el _dbGate tomado + un BeginAmbient activo, y recomputar con un unico SetValue al terminar.
+    /// </summary>
+    private async Task ResolveRowLookupsAsync(FormQuestionDto q, List<Dictionary<string, string?>> rows, int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var row = rows[rowIndex];
+        foreach (var ex in GridExtrasOf(q).Values.Where(e => e.Lookup is not null))
+        {
+            var cfg = ex.Lookup!;
+            var noteKey = GridCellKey(q, rowIndex, ex.Id);
+            // Texto a resolver: lo que el agente puso en la celda clave; si viene vacio, el valor de la
+            // columna destino que corresponde al DisplayField (la columna de "nombre" mostrado).
+            var text = row.GetValueOrDefault(ex.Id)?.Trim();
+            if (string.IsNullOrEmpty(text) && !string.IsNullOrWhiteSpace(cfg.DisplayField))
+            {
+                var nameTarget = cfg.Autofill
+                    .FirstOrDefault(kv => string.Equals(kv.Key, cfg.DisplayField, StringComparison.OrdinalIgnoreCase)).Value;
+                if (!string.IsNullOrEmpty(nameTarget)) { text = row.GetValueOrDefault(nameTarget)?.Trim(); }
+            }
+            if (string.IsNullOrEmpty(text)) { continue; }   // sin clave que resolver en esta columna
+
+            FormLookupItem? match = null;
+            try
+            {
+                // Mismo criterio que GridLookupCommitAsync: buscar y matchear exacto por clave, si no por texto.
+                var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                    cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+                match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase))
+                    ?? page.Items.FirstOrDefault(i => string.Equals(i.Display, text, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception lookupEx)
+            {
+                _gridLookupNote[noteKey] = $"No se pudo verificar el codigo: {lookupEx.Message}";
+                continue;
+            }
+
+            if (match is not null)
+            {
+                // Fija la celda a la clave canonica y vuelca el autollenado (igual que GridLookupChooseAsync).
+                row[ex.Id] = cfg.KeyOf(match);
+                foreach (var (source, target) in cfg.Autofill)
+                {
+                    row[target] = match.Fields.TryGetValue(source, out var v) ? v : null;
+                }
+                _gridLookupNote.Remove(noteKey);
+            }
+            else if (!_gridLookupNote.ContainsKey(noteKey))
+            {
+                // Sin match: se conserva lo que trajo el agente (pudo traer costo/nombre del documento) y solo
+                // se avisa; no se vacian destinos ni se bloquea (mismo criterio no-bloqueante que el teclado).
+                _gridLookupNote[noteKey] = "Codigo no encontrado.";
+            }
+        }
+        // Columnas 'resolve' (VLOOKUP por clave compuesta) con las claves ya autollenadas por el lookup.
+        await ResolveGridRowAsync(q, rows, rowIndex);
     }
 
     // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----

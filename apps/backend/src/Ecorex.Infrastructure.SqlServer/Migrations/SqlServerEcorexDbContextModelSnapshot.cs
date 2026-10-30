@@ -11081,6 +11081,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("FechaCotizacion")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_cotizacion");
+
                     b.Property<int>("Fuente")
                         .HasColumnType("int")
                         .HasColumnName("fuente");

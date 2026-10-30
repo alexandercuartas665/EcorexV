@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-30 - Tarjetas del comparador: fecha/hora cotizado + contacto (nombre/tel/correo) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug+Release 0 errores.
+- PEDIDO (usuario): en el modal de planeacion, las tarjetas del comparador deben mostrar la FECHA/HORA en
+  que se cotizo y el CONTACTO con quien se hablo (nombre, telefono, correo).
+- HECHO:
+  * Dominio: RequerimientoCotizacion + columna FechaCotizacion (DateTimeOffset?). El contacto NO agrego
+    columnas: reutiliza el ProveedorContactoId ya existente (TerceroContacto del Directorio).
+  * Contratos: CotizacionDto + FechaCotizacion, ContactoNombre, ContactoTelefono, ContactoCorreo (resueltos);
+    SaveCotizacionRequest + FechaCotizacion.
+  * Servicio: MapCotizacionesAsync resuelve el contacto por lote desde TerceroContactos y proyecta fecha;
+    GuardarCotizacionAsync fija FechaCotizacion (la dada, o conserva, o momento de captura); Sembrar pone now.
+  * Componente CotizacionesComparador.razor: tarjeta muestra "Cotizado dd/MM/yy HH:mm" + bloque Contacto
+    (nombre, tel tel:, correo mailto:). Form: input datetime-local + select de contactos del proveedor
+    (ListContactosAsync al cambiar proveedor) + 3 campos "nuevo contacto" que crean el TerceroContacto al
+    vuelo (GuardarContactoAsync) si no esta en la lista. CSS rqc-contacto/rqc-c-*.
+  * Migraciones DUALES: PG 20261030175310 + SQLServer 20261030175339 (AddCotizacionContactoYFecha), solo
+    agregan columna fecha_cotizacion a requerimiento_cotizaciones; ambos snapshots actualizados.
+- VALIDADO E2E en 5265 (SKY SYSTEM): la app auto-aplico la migracion PG al arrancar; edite la oferta de
+  Produvarios -> el combo cargo su contacto del Directorio "Andres Gil · 3117778899 · agil@produvarios.local",
+  fije fecha 28/10 10:30 -> la tarjeta quedo mostrando COTIZADO 28/10/26 10:30 y CONTACTO Andres Gil + tel +
+  correo clicables; INGETEL (sin editar) muestra "-" como corresponde.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy (migracion dual).
+
 ## 2026-10-29 - Planificar grupo usa el MISMO planificador rico (fusion real) (worktree requerimiento_compras)
 
 - PEDIDO (usuario): "la linea agrupada abre el modal viejo". La fusion anterior (64e56402) solo agrego

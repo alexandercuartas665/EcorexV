@@ -719,6 +719,13 @@ public sealed class RequerimientoService : IRequerimientoService
         var provIds = rows.Select(r => r.ProveedorId).Distinct().ToList();
         var provs = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        // Contacto (con quien se hablo) resuelto por lote desde el Directorio, para pintar nombre/tel/correo.
+        var contIds = rows.Where(r => r.ProveedorContactoId is not null)
+            .Select(r => r.ProveedorContactoId!.Value).Distinct().ToList();
+        var conts = contIds.Count == 0
+            ? new Dictionary<Guid, (string Nombre, string? Tel, string? Mail)>()
+            : await _db.TerceroContactos.AsNoTracking().Where(c => contIds.Contains(c.Id))
+                .ToDictionaryAsync(c => c.Id, c => (Nombre: c.Nombre, Tel: c.Telefono, Mail: c.Email), ct);
         var list = new List<CotizacionDto>();
         foreach (var c in rows)
         {
@@ -727,10 +734,16 @@ public sealed class RequerimientoService : IRequerimientoService
             decimal? varPct = (ult is { Precio: > 0m } && c.PrecioUnitario > 0m)
                 ? Math.Round((c.PrecioUnitario - ult.Precio) / ult.Precio * 100m, 1)
                 : null;
+            string? cNom = null, cTel = null, cMail = null;
+            if (c.ProveedorContactoId is Guid cid && conts.TryGetValue(cid, out var ci))
+            {
+                cNom = ci.Nombre; cTel = ci.Tel; cMail = ci.Mail;
+            }
             list.Add(new CotizacionDto(
                 c.Id, c.ProveedorId, provs.TryGetValue(c.ProveedorId, out var pn) ? pn : null,
                 c.PrecioUnitario, c.TiempoEntrega, c.CaracteristicasDespacho, c.CondicionesPago,
-                c.VigenciaHasta, c.Notas, c.Fuente, c.ProveedorContactoId, ult?.Precio, varPct));
+                c.VigenciaHasta, c.Notas, c.Fuente, c.ProveedorContactoId, ult?.Precio, varPct,
+                c.FechaCotizacion, cNom, cTel, cMail));
         }
         // Mas barato primero (los de precio 0 = sin precio al final).
         return list
@@ -774,6 +787,8 @@ public sealed class RequerimientoService : IRequerimientoService
         entity.CondicionesPago = (req.CondicionesPago ?? "").Trim();
         entity.VigenciaHasta = req.VigenciaHasta;
         entity.Notas = string.IsNullOrWhiteSpace(req.Notas) ? null : req.Notas.Trim();
+        // Fecha/hora en que se cotizo: la indicada; si no, conserva la previa; si es nueva, el momento de captura.
+        entity.FechaCotizacion = req.FechaCotizacion ?? entity.FechaCotizacion ?? DateTimeOffset.UtcNow;
         // Guardada a mano = oferta Manual (aunque viniera sembrada, el humano la pacto/ajusto).
         entity.Fuente = RequerimientoCotizacionFuente.Manual;
         await _db.SaveChangesAsync(ct);
@@ -849,6 +864,7 @@ public sealed class RequerimientoService : IRequerimientoService
                 TiempoEntrega = string.Empty,
                 CaracteristicasDespacho = string.Empty,
                 CondicionesPago = string.Empty,
+                FechaCotizacion = DateTimeOffset.UtcNow,
                 Fuente = ult is not null ? RequerimientoCotizacionFuente.Historico : RequerimientoCotizacionFuente.Matriz,
             });
             nuevos++;

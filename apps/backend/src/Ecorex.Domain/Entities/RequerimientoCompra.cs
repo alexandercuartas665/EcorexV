@@ -133,6 +133,8 @@ public sealed class RequerimientoCotizacion : TenantEntity
     public string CondicionesPago { get; set; } = string.Empty;
     /// <summary>Hasta cuando es valida la oferta. Null = sin vigencia declarada.</summary>
     public DateTimeOffset? VigenciaHasta { get; set; }
+    /// <summary>Fecha y hora en que se cotizo (cuando se pacto/recibio la oferta). Default = momento de captura.</summary>
+    public DateTimeOffset? FechaCotizacion { get; set; }
     /// <summary>Notas libres de la oferta.</summary>
     public string? Notas { get; set; }
     /// <summary>De donde nacio la oferta: capturada a mano, derivada del historico o de la matriz.</summary>

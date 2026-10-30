@@ -11078,6 +11078,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("FechaCotizacion")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_cotizacion");
+
                     b.Property<int>("Fuente")
                         .HasColumnType("integer")
                         .HasColumnName("fuente");

@@ -72,11 +72,23 @@
                     </div>
 
                     <div class="rqc-meta">
+                        <div><span class="rqc-k">Cotizado</span><span class="rqc-v">@FechaHora(o.FechaCotizacion)</span></div>
                         <div><span class="rqc-k">Entrega</span><span class="rqc-v">@Dash(o.TiempoEntrega)</span></div>
                         <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
                         <div><span class="rqc-k">Pago</span><span class="rqc-v">@Dash(o.CondicionesPago)</span></div>
                         <div><span class="rqc-k">Vigencia</span><span class="rqc-v">@(o.VigenciaHasta is { } vh ? vh.ToString("dd/MM/yy") : "-")</span></div>
                     </div>
+                    @if (!string.IsNullOrWhiteSpace(o.ContactoNombre) || !string.IsNullOrWhiteSpace(o.ContactoTelefono) || !string.IsNullOrWhiteSpace(o.ContactoCorreo))
+                    {
+                        <div class="rqc-contacto">
+                            <span class="rqc-k">Contacto</span>
+                            <div class="rqc-contacto-v">
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoNombre)) { <span class="rqc-c-nom">@o.ContactoNombre</span> }
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoTelefono)) { <a class="rqc-c-line" href="tel:@o.ContactoTelefono">@o.ContactoTelefono</a> }
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoCorreo)) { <a class="rqc-c-line" href="mailto:@o.ContactoCorreo">@o.ContactoCorreo</a> }
+                            </div>
+                        </div>
+                    }
                     @if (!string.IsNullOrWhiteSpace(o.Notas)) { <div class="rqc-notas">@o.Notas</div> }
                     @if (esGanador && rk is { Motivo: var mtv } && !string.IsNullOrWhiteSpace(mtv)) { <div class="rqc-motivo">@mtv</div> }
 
@@ -106,6 +118,27 @@
                 </label>
                 <label class="rqc-f">Precio unit.
                     <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fPrecio" />
+                </label>
+                <label class="rqc-f">Fecha/hora cotizado
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_fFechaCotiz" />
+                </label>
+                <label class="rqc-f rqc-f-wide">Contacto con quien se hablo
+                    <select class="form-select form-select-sm" @bind="_fContactoId" disabled="@(string.IsNullOrEmpty(_fProv))">
+                        <option value="">@(_contactos.Count == 0 ? "(sin contactos; captura uno abajo)" : "Elige un contacto del proveedor")</option>
+                        @foreach (var ct in _contactos)
+                        {
+                            <option value="@ct.Id">@ct.Nombre@(string.IsNullOrWhiteSpace(ct.Telefono) ? "" : $" · {ct.Telefono}")@(string.IsNullOrWhiteSpace(ct.Email) ? "" : $" · {ct.Email}")</option>
+                        }
+                    </select>
+                </label>
+                <label class="rqc-f">Nuevo contacto: nombre
+                    <input class="form-control form-control-sm" @bind="_fNewContNombre" placeholder="si no esta en la lista" />
+                </label>
+                <label class="rqc-f">Nuevo: telefono
+                    <input class="form-control form-control-sm" @bind="_fNewContTel" />
+                </label>
+                <label class="rqc-f">Nuevo: correo
+                    <input type="email" class="form-control form-control-sm" @bind="_fNewContMail" />
                 </label>
                 <label class="rqc-f">Tiempo de entrega
                     <input class="form-control form-control-sm" @bind="_fEntrega" placeholder="15 dias, inmediato" />
@@ -164,6 +197,12 @@
     private string _fPago = "";
     private DateTime? _fVigencia;
     private string _fNotas = "";
+    private DateTime? _fFechaCotiz;
+    private string _fContactoId = "";
+    private string _fNewContNombre = "";
+    private string _fNewContTel = "";
+    private string _fNewContMail = "";
+    private List<ProveedorContactoItemDto> _contactos = new();
     private string? _formError;
 
     private string _loadedKey = "\0";
@@ -237,10 +276,12 @@
     {
         _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
         _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
+        _fFechaCotiz = DateTime.Now; _fContactoId = ""; _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
+        _contactos = new();
         _formError = null; _showForm = true;
     }
 
-    private void AbrirEdicion(CotizacionDto o)
+    private async Task AbrirEdicion(CotizacionDto o)
     {
         _editId = o.Id;
         _fProv = o.ProveedorId.ToString();
@@ -251,15 +292,28 @@
         _fPago = o.CondicionesPago;
         _fVigencia = o.VigenciaHasta?.DateTime;
         _fNotas = o.Notas ?? "";
+        _fFechaCotiz = o.FechaCotizacion?.LocalDateTime ?? DateTime.Now;
+        _fContactoId = o.ProveedorContactoId?.ToString() ?? "";
+        _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
         _formError = null; _showForm = true;
+        await CargarContactosAsync(o.ProveedorId);
     }
 
-    private void OnFormProvChanged(ChangeEventArgs e)
+    private async Task OnFormProvChanged(ChangeEventArgs e)
     {
         var txt = (e.Value?.ToString() ?? "").Trim();
         _fProvNombre = txt;
         var match = _provs.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
         _fProv = match?.Id.ToString() ?? "";
+        _fContactoId = "";
+        await CargarContactosAsync(match?.Id);
+    }
+
+    private async Task CargarContactosAsync(Guid? proveedorId)
+    {
+        _contactos = proveedorId is Guid pid
+            ? (await Svc.ListContactosAsync(pid)).ToList()
+            : new();
     }
 
     private async Task GuardarOfertaAsync()
@@ -273,11 +327,22 @@
         _busy = true;
         try
         {
+            // Contacto: el elegido de la lista, o uno nuevo capturado al vuelo (se crea en el Directorio del proveedor).
+            Guid? contactoId = Guid.TryParse(_fContactoId, out var cguid) ? cguid : null;
+            if (contactoId is null && !string.IsNullOrWhiteSpace(_fNewContNombre))
+            {
+                var nuevo = await Svc.GuardarContactoAsync(provId,
+                    new ContactoInput(null, _fNewContNombre.Trim(), null,
+                        string.IsNullOrWhiteSpace(_fNewContMail) ? null : _fNewContMail.Trim(),
+                        string.IsNullOrWhiteSpace(_fNewContTel) ? null : _fNewContTel.Trim()));
+                contactoId = nuevo.Id;
+            }
             var req = new SaveCotizacionRequest(
                 _editId, ItemId, Descripcion ?? "", provId, _fPrecio,
                 _fEntrega, _fDespacho, _fPago,
                 _fVigencia is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                _fNotas, null);
+                _fNotas, contactoId,
+                _fFechaCotiz is { } fc ? new DateTimeOffset(fc, TimeSpan.Zero) : null);
             _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();
@@ -310,4 +375,5 @@
 
     private static string Dash(string? s) => string.IsNullOrWhiteSpace(s) ? "-" : s!;
     private static string Money(decimal d) => d.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+    private static string FechaHora(DateTimeOffset? d) => d is { } v ? v.LocalDateTime.ToString("dd/MM/yy HH:mm") : "-";
 }

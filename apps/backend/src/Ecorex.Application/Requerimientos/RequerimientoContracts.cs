@@ -138,7 +138,11 @@ public sealed record CotizacionDto(
     RequerimientoCotizacionFuente Fuente,
     Guid? ProveedorContactoId,
     decimal? UltimoPrecio,
-    decimal? VariacionPct);
+    decimal? VariacionPct,
+    DateTimeOffset? FechaCotizacion = null,
+    string? ContactoNombre = null,
+    string? ContactoTelefono = null,
+    string? ContactoCorreo = null);
 
 /// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
 public sealed record SaveCotizacionRequest(
@@ -152,7 +156,8 @@ public sealed record SaveCotizacionRequest(
     string? CondicionesPago,
     DateTimeOffset? VigenciaHasta,
     string? Notas,
-    Guid? ProveedorContactoId = null);
+    Guid? ProveedorContactoId = null,
+    DateTimeOffset? FechaCotizacion = null);
 
 /// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
 public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);

@@ -23,16 +23,19 @@ public sealed class TasksToolset : ITasksToolset
     private readonly ITenantContext _tenant;
     private readonly Forms.IQuoteDocumentRenderer _quoteDoc;
     private readonly Notifications.INotificationChannelSender _sender;
+    private readonly IAgentAvisoTareaService _aviso;
 
     public TasksToolset(
         IApplicationDbContext db, ITaskItemService tasks, ITenantContext tenant,
-        Forms.IQuoteDocumentRenderer quoteDoc, Notifications.INotificationChannelSender sender)
+        Forms.IQuoteDocumentRenderer quoteDoc, Notifications.INotificationChannelSender sender,
+        IAgentAvisoTareaService aviso)
     {
         _db = db;
         _tasks = tasks;
         _tenant = tenant;
         _quoteDoc = quoteDoc;
         _sender = sender;
+        _aviso = aviso;
     }
 
     public string GroupKey => "tareas";
@@ -287,6 +290,13 @@ public sealed class TasksToolset : ITasksToolset
         // pendientes del contexto (los que sube la herramienta de pruebas del agente).
         var adjuntados = await AttachConversationMediaAsync(taskId, ct);
         adjuntados += await AttachPendingAsync(taskId, ct);
+
+        // Aviso de "tarea asignada" al usuario ASIGNADO (ADR-0140): best-effort, solo en la creacion REAL
+        // (los caminos idempotentes de arriba ya devolvieron). Un fallo de envio no rompe la respuesta.
+        if (AiToolRunContext.AgentId is Guid avisoAgentId)
+        {
+            await _aviso.NotifyTaskAssignedAsync(avisoAgentId, taskId, conversationId, actor, ct);
+        }
 
         var okJson = JsonSerializer.Serialize(new
         {

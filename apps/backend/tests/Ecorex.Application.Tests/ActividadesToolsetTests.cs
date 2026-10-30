@@ -499,7 +499,14 @@ public class ActividadesToolsetTests
         var tasks = new FakeTasks();
         var forms = new FakeForms();
         var defs = new FakeFormDefs { Def = def };
-        return (new ActividadesToolset(db, tasks, forms, defs, new FakeTenant()), tasks, forms, inner);
+        return (new ActividadesToolset(db, tasks, forms, defs, new FakeTenant(), new FakeAviso()), tasks, forms, inner);
+    }
+
+    // Aviso de tarea asignada: no-op en las pruebas del toolset (su logica se cubre aparte).
+    private sealed class FakeAviso : IAgentAvisoTareaService
+    {
+        public Task NotifyTaskAssignedAsync(Guid agentId, Guid taskId, Guid? conversationId, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private static async Task<JsonElement> RunAsync(ActividadesToolset ts, string tool, object args)

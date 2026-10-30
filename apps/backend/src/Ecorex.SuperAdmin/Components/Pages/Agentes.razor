@@ -405,6 +405,7 @@ else
                                         </div>
                                         @if (a.Canal == CierreCanal.WhatsApp)
                                         {
+                                            var cVars = TemplateVariablesOf(a.Plantilla);
                                             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
                                                 <select class="form-control" style="min-width:170px;" @bind="a.LineaId" disabled="@_busy">
                                                     <option value="">Linea de la conversacion</option>
@@ -422,6 +423,22 @@ else
                                                 </select>
                                             </div>
                                             <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM (YCloud). Variables por nombre: {{cliente}}, {{telefono}}, {{resumen}}, {{agente}}. Se envia al telefono del usuario.</div>
+                                            @if (cVars.Count > 0)
+                                            {
+                                                <div style="margin-top:8px;padding:8px;background:var(--surface-2);border-radius:6px;">
+                                                    <div class="text-muted" style="font-size:11px;margin-bottom:6px;">Asigna un token a cada variable de la plantilla (vacio = llenado automatico por nombre):</div>
+                                                    @foreach (var vt in cVars)
+                                                    {
+                                                        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+                                                            <span class="small" style="min-width:70px;font-family:monospace;">@("{{" + vt + "}}")</span>
+                                                            <input class="form-control" style="min-width:220px;" placeholder="Token a usar (ver abajo)"
+                                                                   value="@(a.Variables.TryGetValue(vt, out var cex) ? cex : "")"
+                                                                   @onchange="@(e => SetAlertaVar(a, vt, e.Value?.ToString()))" disabled="@_busy" />
+                                                        </div>
+                                                    }
+                                                    <div class="text-muted" style="font-size:10.5px;margin-top:2px;">Tokens: @AvisoTokenHint</div>
+                                                </div>
+                                            }
                                         }
                                         else if (a.Canal == CierreCanal.WhatsAppGrupo)
                                         {
@@ -464,6 +481,139 @@ else
                                     @if (!string.IsNullOrEmpty(_cierreError))
                                     {
                                         <span class="small" style="color:var(--danger);">@_cierreError</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Aviso de tarea asignada (al crear/asignar una actividad) - acordeon ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleAvisoAsync">
+                            <span class="ag-accordion-chev @(_avisoOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Aviso de tarea asignada</span>
+                            <span class="ag-accordion-count">@_avisoAlertas.Count</span>
+                        </div>
+                        @if (_avisoOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+                                    Se dispara cuando el agente CREA Y ASIGNA una actividad/tarea. Notifica al usuario <strong>asignado a la tarea</strong> (su telefono/correo), con la tarea en contexto. Corre en el servidor: <strong>no consume tokens</strong>. Queda registrado en la bitacora del agente y en la historia de la tarea.
+                                </div>
+
+                                @if (_avisoAlertas.Count == 0)
+                                {
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin avisos. Agrega uno para avisarle al asignado cuando el agente le cree una tarea.</div>
+                                }
+                                @foreach (var a in _avisoAlertas)
+                                {
+                                    <div class="card" style="padding:10px;margin-bottom:8px;">
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                            <select class="form-control" style="width:150px;" @bind="a.Canal" disabled="@_busy">
+                                                <option value="@CierreCanal.WhatsApp">WhatsApp</option>
+                                                <option value="@CierreCanal.Correo">Correo</option>
+                                                <option value="@CierreCanal.WhatsAppGrupo">WhatsApp (grupo)</option>
+                                                <option value="@CierreCanal.Telegram">Telegram</option>
+                                            </select>
+                                            @if (a.Canal != CierreCanal.WhatsAppGrupo && a.Canal != CierreCanal.Telegram)
+                                            {
+                                                <select class="form-control" style="width:220px;" @bind="a.Destino" disabled="@_busy">
+                                                    <option value="@CierreDestino.UsuarioTarea">Usuario de la tarea (asignado)</option>
+                                                    <option value="@CierreDestino.Usuario">Otro usuario...</option>
+                                                </select>
+                                                @if (a.Destino == CierreDestino.Usuario)
+                                                {
+                                                    <select class="form-control" style="min-width:180px;" @bind="a.UsuarioId" disabled="@_busy">
+                                                        <option value="">-- usuario --</option>
+                                                        @foreach (var u in _cierreUsers)
+                                                        {
+                                                            <option value="@u.Id">@CierreUserLabel(u)</option>
+                                                        }
+                                                    </select>
+                                                }
+                                            }
+                                            <span class="ag-accordion-spacer"></span>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAvisoAlerta(a)" disabled="@_busy" title="Quitar aviso">x</button>
+                                        </div>
+                                        @if (a.Canal == CierreCanal.WhatsApp)
+                                        {
+                                            var aVars = TemplateVariablesOf(a.Plantilla);
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                                <select class="form-control" style="min-width:170px;" @bind="a.LineaId" disabled="@_busy">
+                                                    <option value="">Linea del agente</option>
+                                                    @foreach (var l in _cierreLines)
+                                                    {
+                                                        <option value="@l.Id">@l.InstanceName</option>
+                                                    }
+                                                </select>
+                                                <select class="form-control" style="min-width:180px;" @bind="a.Plantilla" disabled="@_busy">
+                                                    <option value="">-- plantilla --</option>
+                                                    @foreach (var t in _cierreTemplates)
+                                                    {
+                                                        <option value="@t.Name">@t.Name (@t.Language)</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM (YCloud). Se envia al telefono del usuario asignado. Si la plantilla usa variables posicionales ({{1}}, {{2}}...), asignalas abajo.</div>
+                                            @if (aVars.Count > 0)
+                                            {
+                                                <div style="margin-top:8px;padding:8px;background:var(--surface-2);border-radius:6px;">
+                                                    <div class="text-muted" style="font-size:11px;margin-bottom:6px;">Asigna un token a cada variable de la plantilla (vacio = llenado automatico por nombre):</div>
+                                                    @foreach (var vt in aVars)
+                                                    {
+                                                        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+                                                            <span class="small" style="min-width:70px;font-family:monospace;">@("{{" + vt + "}}")</span>
+                                                            <input class="form-control" style="min-width:220px;" placeholder="Token a usar (ver abajo)"
+                                                                   value="@(a.Variables.TryGetValue(vt, out var aex) ? aex : "")"
+                                                                   @onchange="@(e => SetAlertaVar(a, vt, e.Value?.ToString()))" disabled="@_busy" />
+                                                        </div>
+                                                    }
+                                                    <div class="text-muted" style="font-size:10.5px;margin-top:2px;">Tokens: @AvisoTokenHint</div>
+                                                </div>
+                                            }
+                                        }
+                                        else if (a.Canal == CierreCanal.WhatsAppGrupo)
+                                        {
+                                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                                                <select class="form-control" style="min-width:170px;" @bind="a.LineaId" disabled="@_busy">
+                                                    <option value="">Linea del agente</option>
+                                                    @foreach (var l in _cierreLines.Where(l => l.Provider == WhatsAppProvider.Evolution))
+                                                    {
+                                                        <option value="@l.Id">@l.InstanceName</option>
+                                                    }
+                                                </select>
+                                                <input class="form-control" style="min-width:220px;" placeholder="Jid del grupo (...@@g.us)" @bind="a.GrupoJid" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Texto plano a un GRUPO de WhatsApp (solo lineas Evolution).</div>
+                                        }
+                                        else if (a.Canal == CierreCanal.Telegram)
+                                        {
+                                            <div style="margin-top:8px;">
+                                                <input class="form-control" placeholder="chat_id de Telegram (usuario o grupo)" @bind="a.ChatId" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Usa el bot del tenant (seccion Cierre). El destinatario debe haberle escrito al bot, o el bot estar en el grupo.</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="margin-top:8px;">
+                                                <input class="form-control" placeholder="Asunto del correo (opcional)" @bind="a.Asunto" disabled="@_busy" />
+                                            </div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Se envia al correo del usuario asignado, con los datos de la tarea.</div>
+                                        }
+                                    </div>
+                                }
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddAvisoAlerta" disabled="@_busy">+ Agregar aviso</button>
+
+                                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                                    <button class="btn btn-primary" @onclick="SaveAvisoAsync" disabled="@_busy">Guardar avisos</button>
+                                    @if (_avisoSaved)
+                                    {
+                                        <span class="small" style="color:var(--success);">Guardado.</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(_avisoError))
+                                    {
+                                        <span class="small" style="color:var(--danger);">@_avisoError</span>
                                     }
                                 </div>
                             </div>
@@ -1633,6 +1783,7 @@ else
         _reactionsOpen = false;
         await LoadCierreAsync(id);
         _cierreOpen = false;
+        _avisoOpen = false;
         await LoadReactivacionAsync(id);
         _reactOpen = false;
         _resources = detail.Resources.ToList();
@@ -2205,6 +2356,12 @@ else
     private List<WhatsAppLineDto> _cierreLines = new();
     private List<WhatsAppTemplateDto> _cierreTemplates = new();
 
+    // Avisos de "tarea asignada" (viven en el mismo CierreJson que el cierre; comparten usuarios/lineas/plantillas).
+    private bool _avisoOpen;
+    private bool _avisoSaved;
+    private string? _avisoError;
+    private List<CierreAlertaRow> _avisoAlertas = new();
+
     // Fila editable de una alerta (usa strings para los ids: bind de <select> seguro con opcion vacia).
     private sealed class CierreAlertaRow
     {
@@ -2217,7 +2374,60 @@ else
         public string? Asunto { get; set; }
         public string? GrupoJid { get; set; }
         public string? ChatId { get; set; }
+        // Binding VARIABLE de la plantilla -> expresion de token (ej. "1" -> "{tarea.numero}"). Vacio = llenado
+        // automatico por nombre (compat. atras).
+        public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
+
+    // Tokens sugeridos para el binding de variables de plantilla (ayuda del editor).
+    private const string AvisoTokenHint = "{tarea.numero}, {tarea.titulo}, {tarea.cliente}, {tarea.solicitante}, {tarea.telefono}, {tarea.enlace}, {usuario.nombre}, {usuario.telefono}, {usuario.email}, {sistema.fecha}, {sistema.hora}";
+
+    // Variables (tokens) declaradas por la plantilla elegida (de whats_app_templates.variables_json). Vacio si
+    // la plantilla no declara variables o no se ha elegido.
+    private IReadOnlyList<string> TemplateVariablesOf(string? plantilla)
+    {
+        if (string.IsNullOrWhiteSpace(plantilla)) { return Array.Empty<string>(); }
+        var tpl = _cierreTemplates.FirstOrDefault(t => t.Name == plantilla);
+        return tpl?.Variables.Select(v => v.Token).ToList() ?? (IReadOnlyList<string>)Array.Empty<string>();
+    }
+
+    private void SetAlertaVar(CierreAlertaRow row, string token, string? expr)
+    {
+        if (string.IsNullOrWhiteSpace(expr)) { row.Variables.Remove(token); }
+        else { row.Variables[token] = expr.Trim(); }
+        _cierreSaved = false;
+        _avisoSaved = false;
+    }
+
+    // Construye las alertas de dominio desde las filas editables (comun a cierre y avisos de tarea).
+    private static List<AgentCierreAlerta> BuildAlertas(IEnumerable<CierreAlertaRow> rows)
+        => rows.Select(r => new AgentCierreAlerta(
+            r.Canal,
+            r.Destino,
+            Guid.TryParse(r.UsuarioId, out var uid) ? uid : (Guid?)null,
+            Guid.TryParse(r.LineaId, out var lid) ? lid : (Guid?)null,
+            string.IsNullOrWhiteSpace(r.Plantilla) ? null : r.Plantilla,
+            string.IsNullOrWhiteSpace(r.Idioma) ? null : r.Idioma,
+            string.IsNullOrWhiteSpace(r.Asunto) ? null : r.Asunto,
+            string.IsNullOrWhiteSpace(r.GrupoJid) ? null : r.GrupoJid!.Trim(),
+            string.IsNullOrWhiteSpace(r.ChatId) ? null : r.ChatId!.Trim(),
+            r.Variables.Count > 0 ? new Dictionary<string, string>(r.Variables) : null)).ToList();
+
+    private static CierreAlertaRow ToRow(AgentCierreAlerta a) => new()
+    {
+        Canal = a.Canal,
+        Destino = a.Destino,
+        UsuarioId = a.UsuarioId?.ToString(),
+        LineaId = a.LineaId?.ToString(),
+        Plantilla = a.Plantilla,
+        Idioma = a.Idioma,
+        Asunto = a.Asunto,
+        GrupoJid = a.GrupoJid,
+        ChatId = a.ChatId,
+        Variables = a.Variables is { Count: > 0 }
+            ? new Dictionary<string, string>(a.Variables, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    };
 
     // Bot de Telegram del tenant (compartido por las alertas de Telegram).
     private bool _tgHasToken;
@@ -2233,40 +2443,50 @@ else
     {
         var cfg = await CierreSvc.GetConfigAsync(agentId);
         _cierreOlvidar = cfg.Olvidar;
-        _cierreAlertas = (cfg.Alertas ?? Array.Empty<AgentCierreAlerta>())
-            .Select(a => new CierreAlertaRow
-            {
-                Canal = a.Canal,
-                Destino = a.Destino,
-                UsuarioId = a.UsuarioId?.ToString(),
-                LineaId = a.LineaId?.ToString(),
-                Plantilla = a.Plantilla,
-                Idioma = a.Idioma,
-                Asunto = a.Asunto,
-                GrupoJid = a.GrupoJid,
-                ChatId = a.ChatId
-            }).ToList();
+        _cierreAlertas = (cfg.Alertas ?? Array.Empty<AgentCierreAlerta>()).Select(ToRow).ToList();
+        _avisoAlertas = (cfg.AvisosTarea ?? Array.Empty<AgentCierreAlerta>()).Select(ToRow).ToList();
         _cierreSaved = false;
         _cierreError = null;
+        _avisoSaved = false;
+        _avisoError = null;
         _cierreDataLoaded = false;
+    }
+
+    // Persiste el CierreJson COMPLETO (olvidar + alertas de cierre + avisos de tarea): ambas secciones viven
+    // en el mismo blob, asi que al guardar cualquiera se conservan las dos. Devuelve el resultado.
+    private async Task<bool> SaveCierreConfigAsync()
+    {
+        if (_editId is not Guid id) { return false; }
+        var actor = await ActorAsync();
+        return await CierreSvc.SaveConfigAsync(id,
+            new AgentCierreConfig(_cierreOlvidar, BuildAlertas(_cierreAlertas), BuildAlertas(_avisoAlertas)), actor);
+    }
+
+    private async Task EnsureCierreDataAsync()
+    {
+        if (_cierreDataLoaded) { return; }
+        _cierreUsers = (await TenantUsersSvc.ListAsync()).ToList();
+        _cierreLines = (await LinesSvc.ListAsync()).ToList();
+        _cierreTemplates = (await TemplatesSvc.ListAsync()).ToList();
+        var tg = await TelegramSvc.GetAsync();
+        _tgHasToken = tg.HasToken;
+        _tgUsername = tg.BotUsername;
+        _tgEnabled = tg.IsEnabled;
+        _tgToken = null;
+        _tgSaved = false;
+        _cierreDataLoaded = true;
     }
 
     private async Task ToggleCierreAsync()
     {
         _cierreOpen = !_cierreOpen;
-        if (_cierreOpen && !_cierreDataLoaded)
-        {
-            _cierreUsers = (await TenantUsersSvc.ListAsync()).ToList();
-            _cierreLines = (await LinesSvc.ListAsync()).ToList();
-            _cierreTemplates = (await TemplatesSvc.ListAsync()).ToList();
-            var tg = await TelegramSvc.GetAsync();
-            _tgHasToken = tg.HasToken;
-            _tgUsername = tg.BotUsername;
-            _tgEnabled = tg.IsEnabled;
-            _tgToken = null;
-            _tgSaved = false;
-            _cierreDataLoaded = true;
-        }
+        if (_cierreOpen) { await EnsureCierreDataAsync(); }
+    }
+
+    private async Task ToggleAvisoAsync()
+    {
+        _avisoOpen = !_avisoOpen;
+        if (_avisoOpen) { await EnsureCierreDataAsync(); }
     }
 
     private async Task SaveTelegramAsync()
@@ -2289,42 +2509,55 @@ else
     private void AddCierreAlerta() { _cierreAlertas.Add(new CierreAlertaRow()); _cierreSaved = false; }
     private void RemoveCierreAlerta(CierreAlertaRow r) { _cierreAlertas.Remove(r); _cierreSaved = false; }
 
+    // Destino por defecto de un aviso de tarea = el usuario ASIGNADO a la tarea.
+    private void AddAvisoAlerta() { _avisoAlertas.Add(new CierreAlertaRow { Canal = CierreCanal.WhatsApp, Destino = CierreDestino.UsuarioTarea }); _avisoSaved = false; }
+    private void RemoveAvisoAlerta(CierreAlertaRow r) { _avisoAlertas.Remove(r); _avisoSaved = false; }
+
+    // Validacion minima comun por canal. Devuelve el mensaje de error o null si todo esta completo.
+    private static string? ValidateAlertas(IEnumerable<AgentCierreAlerta> alertas)
+    {
+        foreach (var a in alertas)
+        {
+            if (a.Canal is CierreCanal.Correo or CierreCanal.WhatsApp && a.Destino == CierreDestino.Usuario && a.UsuarioId is null)
+            { return "Elige el usuario destino en cada alerta 'Otro usuario'."; }
+            if (a.Canal == CierreCanal.WhatsApp && string.IsNullOrWhiteSpace(a.Plantilla))
+            { return "Elige la plantilla en cada alerta de WhatsApp."; }
+            if (a.Canal == CierreCanal.WhatsAppGrupo && string.IsNullOrWhiteSpace(a.GrupoJid))
+            { return "Indica el jid del grupo (...@g.us) en cada alerta de grupo."; }
+            if (a.Canal == CierreCanal.Telegram && string.IsNullOrWhiteSpace(a.ChatId))
+            { return "Indica el chat_id en cada alerta de Telegram."; }
+        }
+        return null;
+    }
+
     private async Task SaveCierreAsync()
     {
-        if (_editId is not Guid id) { return; }
+        if (_editId is null) { return; }
         _cierreError = null;
         _busy = true;
         try
         {
-            var alertas = _cierreAlertas.Select(r => new AgentCierreAlerta(
-                r.Canal,
-                r.Destino,
-                Guid.TryParse(r.UsuarioId, out var uid) ? uid : (Guid?)null,
-                Guid.TryParse(r.LineaId, out var lid) ? lid : (Guid?)null,
-                string.IsNullOrWhiteSpace(r.Plantilla) ? null : r.Plantilla,
-                string.IsNullOrWhiteSpace(r.Idioma) ? null : r.Idioma,
-                string.IsNullOrWhiteSpace(r.Asunto) ? null : r.Asunto,
-                string.IsNullOrWhiteSpace(r.GrupoJid) ? null : r.GrupoJid!.Trim(),
-                string.IsNullOrWhiteSpace(r.ChatId) ? null : r.ChatId!.Trim())).ToList();
-
-            // Validacion minima por canal.
-            var perUser = new[] { CierreCanal.Correo, CierreCanal.WhatsApp };
-            foreach (var a in alertas)
-            {
-                if (perUser.Contains(a.Canal) && a.Destino == CierreDestino.Usuario && a.UsuarioId is null)
-                { _cierreError = "Elige el usuario destino en cada alerta 'Otro usuario'."; return; }
-                if (a.Canal == CierreCanal.WhatsApp && string.IsNullOrWhiteSpace(a.Plantilla))
-                { _cierreError = "Elige la plantilla en cada alerta de WhatsApp."; return; }
-                if (a.Canal == CierreCanal.WhatsAppGrupo && string.IsNullOrWhiteSpace(a.GrupoJid))
-                { _cierreError = "Indica el jid del grupo (...@g.us) en cada alerta de grupo."; return; }
-                if (a.Canal == CierreCanal.Telegram && string.IsNullOrWhiteSpace(a.ChatId))
-                { _cierreError = "Indica el chat_id en cada alerta de Telegram."; return; }
-            }
-
-            var actor = await ActorAsync();
-            var ok = await CierreSvc.SaveConfigAsync(id, new AgentCierreConfig(_cierreOlvidar, alertas), actor);
+            var err = ValidateAlertas(BuildAlertas(_cierreAlertas));
+            if (err is not null) { _cierreError = err; return; }
+            var ok = await SaveCierreConfigAsync();
             _cierreSaved = ok;
             if (!ok) { _cierreError = "No se pudo guardar."; }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAvisoAsync()
+    {
+        if (_editId is null) { return; }
+        _avisoError = null;
+        _busy = true;
+        try
+        {
+            var err = ValidateAlertas(BuildAlertas(_avisoAlertas));
+            if (err is not null) { _avisoError = err; return; }
+            var ok = await SaveCierreConfigAsync();
+            _avisoSaved = ok;
+            if (!ok) { _avisoError = "No se pudo guardar."; }
         }
         finally { _busy = false; }
     }

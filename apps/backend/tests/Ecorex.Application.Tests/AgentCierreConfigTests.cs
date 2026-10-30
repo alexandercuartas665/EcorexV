@@ -113,4 +113,56 @@ public class AgentCierreConfigTests
         Assert.NotNull(cfg.Alertas);
         Assert.Empty(cfg.Alertas!);
     }
+
+    // ADR-0140: los AVISOS de tarea asignada viven en el MISMO CierreJson (sin migracion). El round-trip debe
+    // conservar la lista, el destino nuevo UsuarioTarea y el binding de variables de la plantilla.
+    [Fact]
+    public void RoundTrip_AvisosTareaConBindingDeVariables()
+    {
+        var original = new AgentCierreConfig(
+            Olvidar: false,
+            Alertas: Array.Empty<AgentCierreAlerta>(),
+            AvisosTarea: new[]
+            {
+                new AgentCierreAlerta(CierreCanal.WhatsApp, CierreDestino.UsuarioTarea,
+                    LineaId: Guid.Parse("44444444-4444-4444-4444-444444444444"),
+                    Plantilla: "aviso_tarea", Idioma: "es",
+                    Variables: new Dictionary<string, string>
+                    {
+                        ["1"] = "{tarea.numero}",
+                        ["2"] = "{tarea.titulo}",
+                        ["3"] = "{usuario.nombre}"
+                    })
+            });
+
+        var back = AgentCierreConfig.Parse(original.Serialize());
+
+        Assert.False(back.IsNoop);
+        Assert.NotNull(back.AvisosTarea);
+        var aviso = Assert.Single(back.AvisosTarea!);
+        Assert.Equal(CierreCanal.WhatsApp, aviso.Canal);
+        Assert.Equal(CierreDestino.UsuarioTarea, aviso.Destino);
+        Assert.Equal("aviso_tarea", aviso.Plantilla);
+        Assert.NotNull(aviso.Variables);
+        Assert.Equal("{tarea.numero}", aviso.Variables!["1"]);
+        Assert.Equal("{tarea.titulo}", aviso.Variables!["2"]);
+        Assert.Equal("{usuario.nombre}", aviso.Variables!["3"]);
+    }
+
+    [Fact]
+    public void IsNoop_False_SoloConAvisosDeTarea()
+    {
+        var cfg = new AgentCierreConfig(false, Array.Empty<AgentCierreAlerta>(),
+            new[] { new AgentCierreAlerta(CierreCanal.WhatsApp, CierreDestino.UsuarioTarea, Plantilla: "aviso_tarea") });
+        Assert.False(cfg.IsNoop);
+    }
+
+    [Fact]
+    public void Parse_JsonViejoSinAvisosTarea_DejaListaVaciaNoNull()
+    {
+        // Compat. atras: un CierreJson guardado ANTES de ADR-0140 no tiene avisosTarea.
+        var cfg = AgentCierreConfig.Parse("{\"olvidar\":false,\"alertas\":[]}");
+        Assert.NotNull(cfg.AvisosTarea);
+        Assert.Empty(cfg.AvisosTarea!);
+    }
 }

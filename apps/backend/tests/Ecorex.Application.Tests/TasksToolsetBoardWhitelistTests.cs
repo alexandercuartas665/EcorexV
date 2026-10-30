@@ -399,7 +399,14 @@ public class TasksToolsetBoardWhitelistTests
 
         var db = new FakeAppDb(inner);
         var tasks = new FakeTasks();
-        return (new TasksToolset(db, tasks, new FakeTenant(), new FakeQuoteDoc(), new FakeSender()), tasks, inner);
+        return (new TasksToolset(db, tasks, new FakeTenant(), new FakeQuoteDoc(), new FakeSender(), new FakeAviso()), tasks, inner);
+    }
+
+    // Aviso de tarea asignada: no-op en estas pruebas (su logica se cubre aparte).
+    private sealed class FakeAviso : IAgentAvisoTareaService
+    {
+        public Task NotifyTaskAssignedAsync(Guid agentId, Guid taskId, Guid? conversationId, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private static async Task<JsonElement> CreateAsync(TasksToolset ts, string? tablero, string titulo = "Necesito ayuda")

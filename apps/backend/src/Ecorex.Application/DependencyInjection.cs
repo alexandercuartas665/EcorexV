@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<Notifications.ITemplateMediaStore, Notifications.NullTemplateMediaStore>();
         services.AddScoped<Tenancy.IWhatsAppConnectorService, Tenancy.WhatsAppConnectorService>();
         services.AddScoped<Tenancy.IAgentCierreService, Tenancy.AgentCierreService>();
+        services.AddScoped<Tenancy.IAgentAvisoTareaService, Tenancy.AgentAvisoTareaService>();
         services.AddScoped<Tenancy.IAgentReactivacionService, Tenancy.AgentReactivacionService>();
         services.AddScoped<Tenancy.ITelegramConfigService, Tenancy.TelegramConfigService>();
         services.AddScoped<Notifications.INotificationChannelSender, Notifications.NotificationChannelSender>();

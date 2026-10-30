@@ -99,4 +99,17 @@ public interface IWorkflowEngine
         Guid instanceId, string? restartNodeBpmnId, string? assigneeValue,
         Guid? executedByTenantUserId, string? note,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// RE-RESUELVE el encargado del paso VIGENTE desde el campo del formulario (WorkflowAssigneeSource.FormField
+    /// del nodo) y reasigna SOLO ese paso al nuevo usuario, SIN avanzar el flujo ni tocar el dueno de la TAREA.
+    /// Pensado para que el encargado de una COMPUERTA ATENDIDA (p. ej. "Autorizar Compra", encargado tomado de
+    /// text_ca893) DELEGUE la decision a otra persona: cambia ese campo y pulsa "Redireccionar"; la compuerta
+    /// sigue vigente, ahora en manos del delegado. Usa el MISMO resolver que asigna el paso al activarse, asi la
+    /// delegacion cae exactamente en quien caeria una activacion fresca. Solo aplica si el nodo toma el encargado
+    /// de un campo del formulario; si no, devuelve Invalid.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> ReassignCurrentStepFromFormAsync(
+        Guid instanceId, Guid stepId, Guid? actorUserId,
+        CancellationToken cancellationToken = default);
 }

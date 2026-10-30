@@ -596,6 +596,73 @@ public sealed class WorkflowEngine : IWorkflowEngine
             : WorkflowResult<WorkflowInstanceDto>.Ok(dto);
     }
 
+    public async Task<WorkflowResult<WorkflowInstanceDto>> ReassignCurrentStepFromFormAsync(
+        Guid instanceId, Guid stepId, Guid? actorUserId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
+        if (loaded.Error is not null)
+        {
+            return loaded.Error;
+        }
+        var (instance, steps, graph, task) = loaded.Value;
+
+        var step = steps.FirstOrDefault(s => s.Id == stepId);
+        if (step is null)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.NotFound("El paso no existe en la instancia.");
+        }
+        if (!step.IsCurrent || step.Status != WorkflowStepStatus.Pending)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid("El paso no esta vigente.");
+        }
+        var node = graph.NodesById[step.NodeId];
+        if (node.AssigneeSource != WorkflowAssigneeSource.FormField
+            || string.IsNullOrWhiteSpace(node.AssigneeFormFieldCode))
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(
+                "Este paso no toma su encargado de un campo del formulario; no se puede redireccionar asi.");
+        }
+
+        // Mismo resolver que usa ActivateNodeAsync al asignar el paso: la delegacion cae EXACTAMENTE en quien
+        // caeria una activacion fresca a partir del valor (ya guardado) del campo del formulario.
+        var newAssignee = await ResolveAssigneeFromFormAsync(
+            instance.Id, node.Id, node.AssigneeFormFieldCode!.Trim(), cancellationToken);
+        if (newAssignee is not Guid nid)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(
+                "No se pudo resolver el nuevo encargado desde el formulario (revisa el campo del aprobador).");
+        }
+
+        // Sin cambio real: el campo ya apunta al mismo encargado. No es error; no se registra nada.
+        if (nid == step.AssignedToTenantUserId)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Ok(BuildInstanceDto(instance, steps, graph));
+        }
+
+        step.AssignedToTenantUserId = nid;
+
+        if (task is not null)
+        {
+            var toEmail = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == nid).Select(u => u.Email)
+                .FirstOrDefaultAsync(cancellationToken);
+            AddTaskActivity(task, actorUserId, "Usuario",
+                $"redirecciono el paso {node.Name ?? node.BpmnElementId} del flujo a {toEmail ?? "otro usuario"}");
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return WorkflowResult<WorkflowInstanceDto>.Conflict(ConflictMessage);
+        }
+        await BroadcastTaskAsync(task, cancellationToken);
+
+        return WorkflowResult<WorkflowInstanceDto>.Ok(BuildInstanceDto(instance, steps, graph));
+    }
+
     public async Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
         Guid instanceId, Guid stepId, Guid? tenantUserId, CancellationToken cancellationToken = default)
     {

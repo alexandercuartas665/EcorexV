@@ -63,6 +63,11 @@ public sealed class CompletarPasoFlujoVerb : IRuleVerb
                 RuleParamType.Text, Required: false,
                 "BpmnElementId del nodo destino a seguir cuando el paso actual es una compuerta atendida, p. ej. "
                 + "Event_0kh7q6v (Contabilizar Factura). Obligatorio si el paso vigente es una compuerta."),
+            new RuleVerbParamDescriptor("onGatewayNoTarget", "Compuerta sin ruta: que hacer",
+                RuleParamType.Text, Required: false,
+                "Solo cuando el paso es compuerta y NO hay targetNodeBpmnId. 'reassign' = REDIRECCIONAR: "
+                + "reasigna el paso al encargado tomado del campo del nodo (delegar la decision a otra persona), "
+                + "sin avanzar el flujo ni mover la tarea. Vacio (por defecto) = avisar que falta la ruta."),
         });
 
     public async Task<RuleVerbResult> ExecuteAsync(RuleContext context, CancellationToken cancellationToken)
@@ -137,6 +142,22 @@ public sealed class CompletarPasoFlujoVerb : IRuleVerb
             // parametro (self-serve); ChooseGatewayRouteAsync revalida que sea una salida directa de la compuerta.
             if (string.IsNullOrWhiteSpace(targetBpmn))
             {
+                // Sin ruta destino en una compuerta: segun config, "Redireccionar" del APROBADOR DELEGA la
+                // decision reasignando el paso al encargado tomado del campo del nodo (FormField), SIN avanzar
+                // el flujo ni mover la tarea. El mismo boton que en un paso Task avanza, en la compuerta delega.
+                var onNoTarget = context.GetStringParam("onGatewayNoTarget");
+                if (string.Equals(onNoTarget, "reassign", StringComparison.OrdinalIgnoreCase))
+                {
+                    var rr = await _engine.ReassignCurrentStepFromFormAsync(
+                        iid, step.Id, context.ExecutedByTenantUserId, cancellationToken);
+                    if (!rr.IsOk)
+                    {
+                        return RuleVerbResult.Fail(rr.Error ?? "No se pudo redireccionar el paso del flujo.");
+                    }
+                    return RuleVerbResult.Ok(
+                        "Paso redireccionado al nuevo encargado.", recordsAffected: 1,
+                        actions: new[] { RuleAction.StepCompleted() });
+                }
                 return RuleVerbResult.Fail("El paso actual es una compuerta: configura la ruta destino (targetNodeBpmnId) para resolverla.");
             }
             var defId = await _db.WorkflowInstances.AsNoTracking()

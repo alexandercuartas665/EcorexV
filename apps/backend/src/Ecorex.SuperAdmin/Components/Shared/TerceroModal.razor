@@ -22,6 +22,7 @@
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFichaService FichaSvc
+@inject IDirectorioLayoutConfigService LayoutSvc
 @inject ITerceroFormService FormsSvc
 @inject IGestorContactosService GestorSvc
 @inject Ecorex.Application.Crm.IConceptoActividadService ConceptosSvc
@@ -153,6 +154,68 @@
 
                             @* ---- Campos principales ---- *@
                             <div class="dg-field-col">
+                                @* Render de un campo de la ficha reservada "general" intercalado entre los principales.
+                                   Sus valores viven en FichasJson["general"] (GetFicha/SetFicha), igual que cualquier ficha. *@
+                                @{
+                                    RenderFragment GeneralInline(TerceroFieldDto f) =>
+                                    @<text>
+                                        <div style="min-width:0" class="@WidthClass(f)">
+                                            @if (f.FieldType == TerceroFieldType.Separator)
+                                            {
+                                                <div class="dg-fld-sep">@f.Label</div>
+                                            }
+                                            else if (!string.IsNullOrWhiteSpace(f.RepeatWithFieldKey))
+                                            {
+                                                <label class="dg-flabel">@f.Label</label>
+                                                <div class="dg-rep-hint">Este campo repetible se configura en su ficha.</div>
+                                            }
+                                            else
+                                            {
+                                                <label class="dg-flabel">@f.Label</label>
+                                                @switch (f.FieldType)
+                                                {
+                                                    case TerceroFieldType.Select:
+                                                        <select class="dg-input" value="@GetFicha(GeneralFichaKey, f.FieldKey)" @onchange="e => SetFicha(GeneralFichaKey, f.FieldKey, e.Value?.ToString())">
+                                                            <option value="">-</option>
+                                                            @foreach (var o in SplitOptions(f.Options)) { <option value="@o">@o</option> }
+                                                        </select>
+                                                        break;
+                                                    case TerceroFieldType.TextArea:
+                                                        <textarea class="dg-input dg-textarea" value="@GetFicha(GeneralFichaKey, f.FieldKey)" @onchange="e => SetFicha(GeneralFichaKey, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                        break;
+                                                    case TerceroFieldType.Lookup:
+                                                        @if (LookupCfg(f) is { } lkCfg)
+                                                        {
+                                                            <DataLookupField Config="lkCfg"
+                                                                             Value="@GetFicha(GeneralFichaKey, f.FieldKey)"
+                                                                             ValueChanged="v => SetFicha(GeneralFichaKey, f.FieldKey, v)"
+                                                                             FormValues="TodosLosValores()"
+                                                                             OnAutofill="AplicarAutollenado"
+                                                                             ActorUserId="_actorId"
+                                                                             Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="dg-calc-warn">Este campo aun no tiene configurada su tabla de origen.</div>
+                                                        }
+                                                        break;
+                                                    case TerceroFieldType.Calculated:
+                                                        <div class="dg-calc">
+                                                            <input class="dg-input dg-input-ro" type="text" readonly value="@(_calculated.GetValueOrDefault(f.FieldKey) ?? "")" />
+                                                            <span class="dg-calc-ic" title="@($"Calculado: {f.Formula}")">fx</span>
+                                                        </div>
+                                                        break;
+                                                    case TerceroFieldType.Url:
+                                                        <input class="dg-input" type="url" value="@GetFicha(GeneralFichaKey, f.FieldKey)" @onchange="e => SetFicha(GeneralFichaKey, f.FieldKey, e.Value?.ToString())" />
+                                                        break;
+                                                    default:
+                                                        <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(GeneralFichaKey, f.FieldKey)" @onchange="e => SetFicha(GeneralFichaKey, f.FieldKey, e.Value?.ToString())" />
+                                                        break;
+                                                }
+                                            }
+                                        </div>
+                                    </text>;
+                                }
                                 @if (_editingId is null)
                                 {
                                     <label class="dg-sec-lbl">BUSCADOR</label>
@@ -220,6 +283,7 @@
                                             <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
                                             <input class="dg-input" @bind="_mNombre" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("nombre")) { @GeneralInline(gf) }
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Identificacion</label>
                                             <div class="dg-doc-row">
@@ -236,6 +300,14 @@
                                                 }
                                             </div>
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("identificacion")) { @GeneralInline(gf) }
+                                    }
+                                    else
+                                    {
+                                        @* Modo crear: Razon social / Identificacion viven en el buscador de arriba; los
+                                           campos "general" anclados a ellos se pintan aqui para que no desaparezcan. *@
+                                        @foreach (var gf in GeneralFieldsAfter("nombre")) { @GeneralInline(gf) }
+                                        @foreach (var gf in GeneralFieldsAfter("identificacion")) { @GeneralInline(gf) }
                                     }
                                     @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
                                        Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
@@ -265,20 +337,36 @@
                                             </div>
                                         }
                                     </div>
+                                    @foreach (var gf in GeneralFieldsAfter("ciudad")) { @GeneralInline(gf) }
                                     @if (_mTipo == TerceroTipo.Empresa)
                                     {
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Sector / Industria</label>
-                                            <input class="dg-input" @bind="_mSector" />
+                                            @if (_sectorIsList)
+                                            {
+                                                @* Lista configurable (DirectorioLayoutConfigService). Conserva el valor actual
+                                                   aunque no este entre las opciones, para no perder un dato previo de texto libre. *@
+                                                <select class="dg-input" value="@_mSector" @onchange="e => _mSector = e.Value?.ToString() ?? string.Empty">
+                                                    <option value="">-</option>
+                                                    @foreach (var o in SectorOptionList()) { <option value="@o">@o</option> }
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <input class="dg-input" @bind="_mSector" />
+                                            }
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("sector")) { @GeneralInline(gf) }
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Correo</label>
                                             <input class="dg-input" @bind="_mEmail" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("correo")) { @GeneralInline(gf) }
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Telefono</label>
                                             <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("telefono")) { @GeneralInline(gf) }
                                     }
                                     else
                                     {
@@ -286,14 +374,17 @@
                                             <label class="dg-flabel">Cargo</label>
                                             <input class="dg-input" @bind="_mCargo" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("sector")) { @GeneralInline(gf) }
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Correo</label>
                                             <input class="dg-input" @bind="_mEmail" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("correo")) { @GeneralInline(gf) }
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Telefono</label>
                                             <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
                                         </div>
+                                        @foreach (var gf in GeneralFieldsAfter("telefono")) { @GeneralInline(gf) }
                                     }
                                     <div style="min-width:0">
                                         <label class="dg-flabel">Vendedor asignado</label>
@@ -309,6 +400,7 @@
                                             <div style="font-size:11px;color:var(--ink-3);margin-top:3px;">Texto anterior: @_mVendedor</div>
                                         }
                                     </div>
+                                    @foreach (var gf in GeneralFieldsAfter("vendedor")) { @GeneralInline(gf) }
                                     <div style="min-width:0">
                                         <label class="dg-flabel">Estado</label>
                                         <select class="dg-input" value="@_mEstado" @onchange="e => _mEstado = Enum.Parse<TerceroEstado>(e.Value!.ToString()!)">
@@ -316,6 +408,7 @@
                                             <option value="@TerceroEstado.Prospecto">Prospecto</option>
                                         </select>
                                     </div>
+                                    @foreach (var gf in GeneralFieldsAfter("estado")) { @GeneralInline(gf) }
                                 </div>
 
                             </div>
@@ -353,7 +446,8 @@
                                 }
                             </div>
                         }
-                        var fichas = VisibleFichas();
+                        @* "general" se pinta EN LINEA junto a los principales (arriba), no como tarjeta colapsable. *@
+                        var fichas = VisibleFichas().Where(f => f.FichaKey != GeneralFichaKey).ToList();
                         if (fichas.Count > 0)
                                 {
                                     <div class="dg-fichas">

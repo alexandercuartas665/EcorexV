@@ -153,6 +153,15 @@ public partial class TerceroModal
     // ---- Campos configurables por ficha (cache; se recarga al abrir el modal). ----
     private readonly Dictionary<string, List<TerceroFieldDto>> _fichaFields = new(StringComparer.Ordinal);
 
+    // ---- Layout de la zona principal (motor Clasico): Sector como lista + anclas de los campos de la
+    // ficha reservada "general". Se recarga al abrir el modal (DirectorioLayoutConfigService). ----
+    private bool _sectorIsList;
+    private string? _sectorOptions;
+    private Dictionary<string, string> _generalAnchors = new(StringComparer.Ordinal);
+
+    /// <summary>Clave de la ficha reservada que se pinta EN LINEA junto a los campos principales.</summary>
+    private const string GeneralFichaKey = "general";
+
     private bool _permsLoaded;
     private Guid _actorId;
 
@@ -172,6 +181,11 @@ public partial class TerceroModal
         }
         await FieldSvc.EnsureDefaultsAsync();
         _fichas = (await FichaSvc.ListAsync()).ToList();
+        // Layout de la zona principal (Sector lista/texto + anclas de los campos "general").
+        var layout = await LayoutSvc.GetAsync();
+        _sectorIsList = layout.SectorIsList;
+        _sectorOptions = layout.SectorOptions;
+        _generalAnchors = new Dictionary<string, string>(layout.Anchors, StringComparer.Ordinal);
         // Asesores activos para el selector "Vendedor asignado". Se recarga en cada apertura para
         // reflejar altas recientes del catalogo; es una lista corta por tenant.
         _asesorOptions = (await AsesorSvc.ListOptionsAsync()).ToList();
@@ -189,6 +203,36 @@ public partial class TerceroModal
 
     private IReadOnlyList<TerceroFieldDto> FieldsFor(string ficha)
         => _fichaFields.TryGetValue(ficha, out var l) ? l : (IReadOnlyList<TerceroFieldDto>)Array.Empty<TerceroFieldDto>();
+
+    // ---- Zona principal: campos de la ficha "general" intercalados + Sector como lista ----
+
+    /// <summary>
+    /// Campos de la ficha reservada "general" anclados DESPUES del campo principal indicado (ya
+    /// ordenados por SortOrder). El ancla por defecto (si no se configuro) es "sector", para que los
+    /// campos nuevos caigan junto a los datos de negocio. Se consulta por cada campo principal al pintar.
+    /// </summary>
+    private IEnumerable<TerceroFieldDto> GeneralFieldsAfter(string anchor)
+    {
+        foreach (var f in FieldsFor(GeneralFichaKey))
+        {
+            var a = _generalAnchors.TryGetValue(f.FieldKey, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "sector";
+            if (string.Equals(a, anchor, StringComparison.Ordinal)) { yield return f; }
+        }
+    }
+
+    /// <summary>
+    /// Opciones del desplegable Sector / Industria cuando esta configurado como lista. Conserva el valor
+    /// actual del tercero aunque no este en la lista (no se pierde un dato previo de texto libre).
+    /// </summary>
+    private IEnumerable<string> SectorOptionList()
+    {
+        var opts = SplitOptions(_sectorOptions).ToList();
+        if (!string.IsNullOrWhiteSpace(_mSector) && !opts.Contains(_mSector, StringComparer.Ordinal))
+        {
+            opts.Insert(0, _mSector);
+        }
+        return opts;
+    }
 
     private static IEnumerable<string> SplitOptions(string? options)
         => string.IsNullOrWhiteSpace(options)

@@ -253,6 +253,7 @@ public static class DependencyInjection
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
         services.AddScoped<Directorio.ITerceroFichaService, Directorio.TerceroFichaService>();
+        services.AddScoped<Directorio.IDirectorioLayoutConfigService, Directorio.DirectorioLayoutConfigService>();
         services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
         // Variante de UI del Directorio elegida por el tenant (Ligero | Especializado), en TenantConfiguration.
         services.AddScoped<Directorio.IDirectoryVariantService, Directorio.DirectoryVariantService>();

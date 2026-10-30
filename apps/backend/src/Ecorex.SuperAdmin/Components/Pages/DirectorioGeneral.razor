@@ -593,6 +593,28 @@
                     </div>
                 }
 
+                @* --- Config del campo principal Sector / Industria (solo en la ficha "general") --- *@
+                @if (_cfgFicha == GeneralFichaKey)
+                {
+                    <div class="dg-sec-cfg" style="border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--surface-2,var(--surface));">
+                        <label class="dg-sec-lbl">CAMPO SECTOR / INDUSTRIA</label>
+                        <p style="font-size:12px;color:var(--ink-3);margin:4px 0 10px;">Define como se llena el campo principal "Sector / Industria": texto libre o una lista de opciones.</p>
+                        <label class="dg-fm-check" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <input type="checkbox" checked="@_secIsList" @onchange="e => { _secIsList = (bool)(e.Value ?? false); _secSaved = false; }" />
+                            Llenar desde una lista de opciones
+                        </label>
+                        @if (_secIsList)
+                        {
+                            <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
+                            <textarea class="dg-input dg-textarea" @bind="_secOptions" @bind:after="() => _secSaved = false" placeholder="Una opcion por linea. Ej: Agropecuario, Industrial, Servicios, Comercio"></textarea>
+                        }
+                        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+                            <button class="dg-btn-save" disabled="@_busy" @onclick="SaveSectorCfgAsync">Guardar Sector</button>
+                            @if (_secSaved) { <span style="font-size:12px;color:var(--ok,#1D7A4A);">Guardado</span> }
+                        </div>
+                    </div>
+                }
+
                 <div class="dg-cfg-cols">
                 <div class="dg-cfg-left">
                 @* --- Lista de campos --- *@
@@ -678,6 +700,20 @@
                                 <option value="3">Grande (completo)</option>
                             </select>
                         </div>
+                        @if (_cfgFicha == GeneralFichaKey)
+                        {
+                            @* Solo la ficha "general" se intercala entre los campos principales del tercero:
+                               aqui se elige despues de cual aparece. *@
+                            <div style="min-width:0">
+                                <label class="dg-flabel">Posicion</label>
+                                <select class="dg-input" @bind="_cfgAnchor">
+                                    @foreach (var (key, lbl) in AnchorOptions)
+                                    {
+                                        <option value="@key">@lbl</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         <div style="min-width:0">
                             <label class="dg-flabel">Descripcion <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
                             <input class="dg-input" @bind="_cfgDescription" />

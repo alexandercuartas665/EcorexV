@@ -2,6 +2,168 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-30 - Campos configurables en la zona principal del tercero + Sector como lista (ADR-0141)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). Codigo en tronco, pendiente OK de deploy.
+- PEDIDO: la ficha del cliente tiene campos PRINCIPALES fijos; el usuario quiere insertar campos NUEVOS configurados
+  ENTRE esos principales, y que "Sector / Industria" se llene desde una LISTA configurable en el editor de campos.
+  Se penso antes de codear (AskUserQuestion): solo motor Clasico; Enfoque A (principales fijos, campos nuevos
+  intercalados por "ancla", Sector como lista); valor de Sector preexistente se conserva como opcion extra.
+- SOLUCION (sin migracion, ADR-0141): ficha reservada `general` ("Datos principales") sembrada por
+  TerceroFichaService (+ backfill tenants existentes), renderizada INLINE en la zona principal y excluida de las
+  fichas colapsables; sus valores viven en Tercero.FichasJson["general"]. El ANCLA de cada campo (despues de cual
+  principal aparece) y el modo de Sector (texto/lista + opciones) viven en UNA fila de TenantConfiguration
+  (clave `directorio.general.layout`, JSON) -> servicio nuevo IDirectorioLayoutConfigService
+  (Ecorex.Application/Directorio/). El ancla NO se guarda en SortOrder porque ReorderFieldsAsync lo renumera.
+- UI: modal "Configurar campos" (ficha Datos principales) gana bloque "CAMPO SECTOR / INDUSTRIA"
+  (checkbox lista + textarea opciones + Guardar Sector) y selector "Posicion" (= ancla) en el form de campo,
+  solo para la ficha general. Modal del tercero: GeneralFieldsAfter(anchor) intercala cada campo general tras su
+  principal; Sector se pinta como <select> (SectorOptionList antepone el valor actual si no esta en la lista) cuando
+  el layout lo marca como lista, si no, como el <input> de texto de siempre.
+- ARCHIVOS: nuevos Directorio/DirectorioLayoutConfigService.cs (+interface) y registro en DependencyInjection.cs;
+  TerceroFichaService.cs (ficha general + backfill); TerceroModal.razor (+.cs) (render inline + Sector lista);
+  DirectorioSharedBase.cs + DirectorioGeneral.razor (UI config: Sector + Posicion/ancla).
+- VALIDADO E2E (preview 5234, BD local ecorex 5442, login calidad@agrometalicas.com): campo "Pais" (Texto) anclado
+  "Despues de Ciudad" + Sector lista (Agropecuario/Industrial/Servicios/Comercio). En "360 Investments S.A.S": Pais
+  aparecio intercalado tras Ciudad y Sector como desplegable; Pais=Colombia y Sector=Industrial persistieron al
+  reabrir (lectura fresca de BD); registro revertido limpio al terminar. FIX de paso: el placeholder del textarea de
+  opciones mostraba literal `&#10;` -> cambiado a texto plano. Build SuperAdmin verde (0 errores).
+- SIGUIENTE: OK de deploy del usuario para esta feature (junto a 47cd9336 sync-contacto y 89459412 aviso-tarea-asignada,
+  ambos SIN deploy). Reflejar en vault (INVENTARIO GENERAL) al cerrar Directorio.
+- BLOQUEOS: ninguno. El modal del tercero NO cierra al Guardar (comportamiento preexistente, no de esta feature);
+  el guardado persiste igual.
+
+## 2026-10-30 - Asistente de reglas: campos y nodos como DESPLEGABLE (A + B)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev 5263). Solo UI (SuperAdmin) + descriptores de 3 verbos.
+- PEDIDO: en el asistente POR-VINCULO del FormDesigner, el usuario vio params que parecian vacios y ningun selector
+  de flujo, y pregunto si "el flujo esta hardcodeado". Diagnostico: el flujo NO esta hardcodeado -> los verbos de
+  flujo resuelven la instancia ACTIVA de la TAREA en ejecucion (resp.Reference -> TaskItem -> WorkflowInstance
+  Running), por eso no hay "seleccionar flujo". Lo que SE sentia hardcodeado eran las referencias por texto crudo:
+  codigos de campo (ej. fecha_compra) y BpmnElementId de nodos (ej. Event_0kh7q6v). Mejora pedida: A) campos como
+  desplegable; B) nodos como desplegable eligiendo un flujo de ayuda.
+- A (campos desplegable): nuevo RuleParamType.FieldCodeList (multi-campo, se guarda arreglo JSON de codigos).
+  Descriptores: REINICIAR_FLUJO_TAREA.assigneeFieldCode Text->FieldCode; DEVOLVER_CONCILIADOR.emptyFieldCode
+  Text->FieldCode; COMPLETAR_PASO_FLUJO.requireFields Json->FieldCodeList. El modal ya resolvia FieldCode con
+  FormFieldOptions(); se agrego la UI de lista (agregar/quitar) para FieldCodeList.
+- B (nodos desplegable): nuevo RuleParamType.FlowNode. Descriptores: COMPLETAR_PASO_FLUJO.targetNodeBpmnId y
+  REINICIAR_FLUJO_TAREA.restartNodeBpmnId Text->FlowNode. El modal (FieldRuleParamsModal) inyecta
+  IWorkflowDesignService: muestra un selector de FLUJO (ayuda de diseno; NO amarra la regla, el runtime sigue
+  resolviendo de la tarea) via ListForIndexAsync, y cada FlowNode es un desplegable de nodos (GetCanvasAsync ->
+  BpmnElementId + nombre + tipo). Si ya hay un nodo guardado, AUTO-DETECTA a que flujo pertenece y lo preselecciona.
+  Se guarda el BpmnElementId (string).
+- Compat: RuleParamXml.cs y Reglas.razor (editor de catalogo) tratan FieldCodeList como JSON y FlowNode como
+  string (default). Enums nuevos AL FINAL (no corren valores). Build Release verde (0 errores).
+- VALIDADO E2E dev 5263 (Owner gerenciacomercial), AUT-COMPRA-001: assigneeFieldCode salio como desplegable con
+  "Redireccionamiento (fecha_compra)"; requireFields como fila "Aprobador del gasto (text_ca893)"; al elegir
+  COMPRAS (v5) el nodo listo Inicio/Validacion Factura/Autorizar Compra (Compuerta)/Contabilizar Factura (Fin)/
+  No se aprueba; "Aprobar Compra" (targetNodeBpmnId=Event_0kh7q6v) AUTO-selecciono COMPRAS y mostro "Contabilizar
+  Factura - Fin". Guardado persiste {"targetNodeBpmnId":"Event_0kh7q6v"} (verificado en BD, luego revertido a NULL).
+- FIX (mismo dia): el selector de flujo salia en blanco en reglas SIN nodo guardado (ej. "Rechazar y reiniciar",
+  restartNodeBpmnId vacio = inicio del flujo), y parecia "mal configurado". El auto-detect solo deducia el flujo de
+  un nodo YA guardado. Causa real: el form NO esta vinculado a un nodo (workflow_node_forms vacio); el nexo form->flujo
+  es la SUBCATEGORIA de actividad (actividad_subcategorias.form_definition_id -> workflow_definition_id). Agregado
+  IWorkflowDesignService.GetFlowDefinitionForFormAsync(formDefId); el modal recibe FormDefinitionId (desde FormDesigner)
+  y, sin nodo guardado, PRESELECCIONA el flujo del formulario. Validado: "Rechazar y reiniciar" abre con flujo
+  COMPRAS (v5) y "Nodo donde reiniciar" como desplegable con "(sin valor / inicio del flujo)".
+- DESPLIEGUE dev: build Release de SuperAdmin -> copia de Ecorex.SuperAdmin.dll + Ecorex.Application.dll a appout5263;
+  server relanzado como Owner. Sin cambios de esquema de BD. GOTCHA: otra sesion esta tocando Ecorex.Application
+  (tipos nuevos, ej. DirectorioLayoutDto); al reconstruir SuperAdmin hay que copiar TAMBIEN el Application.dll recien
+  compilado o da TypeLoadException al arrancar.
+- PENDIENTE: commit + (con OK) deploy a prod. No toca prod ni requiere migracion.
+
+## 2026-10-30 - Asistente de parametros POR-VINCULO en el FormDesigner (reglas del formulario)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev 5263). Solo cambios de UI (SuperAdmin).
+- PEDIDO (imagen 98): en el tab Reglas del FormDesigner, "Editar" saltaba al catalogo global (/reglas), donde
+  los parametros son COMPARTIDOS (REINICIAR y DEVOLVER apuntaban al mismo doc). El usuario quiere que cada
+  regla vinculada tenga SUS parametros independientes, configurables con un MODAL ASISTENTE aqui mismo, y que
+  esa config VIVA en el formulario (no en el catalogo).
+- SOLUCION: componente nuevo `Components/Shared/Forms/FieldRuleParamsModal.razor` (+ .razor.css). Modal
+  GENERICO guiado por el `RuleVerbDescriptor` del verbo (mismo contrato que /reglas, sin conocer la clase):
+  * Carga EFECTIVA = params del catalogo (RulesSvc.GetRuleAsync) + override del vinculo
+    (GetFieldRuleOverrideAsync); el override gana por clave (MergeParams).
+  * Renderiza un input por parametro segun RuleParamType (Text/Number/Boolean/Json/FieldCode/Select/Mapping);
+    FieldCode = desplegable con los campos del formulario; help por parametro; obligatorios validados.
+  * Guarda el set COMPLETO en form_field_rules.params_override_json (SetFieldRuleOverrideAsync) -> cada
+    vinculo queda AUTONOMO del catalogo. Boton "Restablecer al catalogo" (override = NULL).
+- FormDesigner: el "Editar" de la lista de reglas ahora abre este modal (OpenParamsAssistant) en vez del
+  enlace externo; se deja un link secundario "catalogo ↗" (avanzado). Nuevo helper FormFieldOptions() para los
+  parametros FieldCode. GENERAR_REQUERIMIENTOS conserva su asistente de mapeo propio.
+- GOTCHA corregido en vuelo: pasar `VerbName="pl.VerbName"` (string) lo tomaba LITERAL; debe ser
+  `VerbName="@pl.VerbName"`. Los params Guid (no-string) si se evaluan sin @.
+- VALIDADO E2E dev 5263 (como Owner gerenciacomercial; el FormDesigner exige policy Formularios.Disenar y
+  WILSON=Advisor NO la tiene): en AUT-COMPRA-001, boton "Rechazar" -> tab Reglas -> "Editar" en
+  DEVOLVER_CONCILIADOR abre el modal con emptyFieldCode/confirmMessage/logMessage precargados; edite logMessage
+  y Guardar escribio el set completo en params_override_json del vinculo (verificado en BD); modal cierra y la
+  lista refresca. Artefacto de prueba luego limpiado (override -> NULL).
+- DESPLIEGUE dev: publish Release -> appout5263 (robocopy /MIR, restaurado appsettings.Development.local.json,
+  CSS scoped 200 OK); un re-swap de solo Ecorex.SuperAdmin.dll tras el fix del @. Sin cambios de BD de esquema.
+- PENDIENTE: commit + (con OK) deploy a prod. No toca prod ni requiere migracion.
+
+## 2026-10-30 - RELEASE v0.16.248 (deploy prod) - Fase F DIAN (Redireccionar APROBADOR = delegar)
+
+- AGENTE: Claude Opus 4.8. Deploy a prod por VIA RAPIDA GHCR (OK explicito del usuario, alcance confirmado
+  por AskUserQuestion: "empaquetar Fase F y desplegar").
+- QUE SHIPEA: la Fase F del boton "Redireccionar" del formulario (ver entrada "Boton Rechazar/Redireccionar"
+  mas abajo y la memoria [[flujo-asignado-desde-campo-formulario]]). Cuando el aprobador YA esta EN la
+  compuerta "Autorizar Compra" y cambia "Aprobador del gasto" (text_ca893) y pulsa "Redireccionar",
+  DELEGA reasignando SOLO el paso vigente (engine.ReassignCurrentStepFromFormAsync) SIN avanzar el flujo ni
+  cambiar el dueno de la tarea; antes reventaba por "compuerta sin targetNodeBpmnId". Archivos: Ecorex.Application
+  WorkflowEngine.cs (+67), IWorkflowEngine.cs (+13), Rules/Verbs/CompletarPasoFlujoVerb.cs (+21, param
+  onGatewayNoTarget=reassign). Sin migracion, sin secretos, ASCII. Trabajo de la sesion SOLDARCO; esta sesion
+  lo empaqueto y desplego con OK del usuario.
+- GATE: build Release 0 errores; Ecorex.Application.Tests 1145/1145.
+- DEPLOY: bump AppVersion 0.16.247 -> 0.16.248, doble push tronco+espejo, deploy-prod-fast.ps1 -WaitCI.
+- PENDIENTE DATA (prod, self-serve o SQL): recrear la config del boton "Redireccionar" (text_50959):
+  params_override_json '{"onGatewayNoTarget":"reassign"}' en el form_field_rule por tenant. El codigo NO lleva
+  esa config; sin ella el boton se comporta como antes.
+
+## 2026-10-30 - RELEASE v0.16.247 (deploy prod) - fix de voz (sondeo Retell)
+
+- AGENTE: Claude Opus 4.8. Integracion + deploy a prod por VIA RAPIDA GHCR (OK explicito del usuario por version).
+- INTEGRACION: cherry-pick del commit 5bfbecdb (rama worktree-voz-retell-fallback, dev sesion VOZ) -> c9b66d15
+  en el tronco. Toca solo 4 archivos: Voice/{IRetellApiClient,RetellDtos,RetellVoiceService}.cs +
+  Infrastructure/Retell/RetellApiClient.cs. Sin migracion, sin secretos, ASCII.
+- QUE ARREGLA: en /config-voz la "Llamada de prueba" giraba infinito porque el resultado solo llega por
+  webhook de Retell y en dev/tunel no alcanza la instancia. FIX: fallback de sondeo GET /v2/get-call/{id}
+  (lectura idempotente) que vuelca estado/transcript/grabacion/costo a la VoiceCall cuando el webhook no llega.
+- GATE: build Release 0 errores; Ecorex.Application.Tests 1145/1145.
+- DEPLOY: bump AppVersion 0.16.246 -> 0.16.247 (commit c3a26a9e, solo AppVersion.cs), doble push tronco+espejo.
+  deploy-prod-fast.ps1 -WaitCI corrido por el agente. VERIFICADO EN VIVO contra 10.0.0.3: /login HTTP 200
+  = v0.16.247, "Now listening" + "Application started" sin fatal, sin migraciones que aplicar.
+- PENDIENTE (lo dejo anotado del dev de VOZ): los flujos reales de prod (paso de agente esperando la llamada
+  + volcado a formulario) SIGUEN dependiendo del webhook; el sondeo cubre SOLO el modal de prueba. Endurecer:
+  registrar webhook_url por llamada en /v2/create-phone-call y/o sondear en el barrido de agentes.
+- NOTA: esta entrada quedo en el arbol de trabajo pendiente de commit git porque PROGRESO.md tenia cambios
+  sin commitear de otra sesion (fix "Redireccionar APROBADOR"); se commiteara junto o cuando esa sesion cierre.
+
+## 2026-10-29 - Fix: "Redireccionar" del APROBADOR en la compuerta (delegar) - DIAN SOLDARCO
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5263 WILSON). Codigo compila; config cableada solo en BD dev.
+- SINTOMA (caso T00043): el aprobador, parado en la compuerta "Autorizar Compra", cambia el "Aprobador
+  del gasto" (text_ca893) y pulsa "Redireccionar" para delegar a otra persona -> error rojo
+  "El paso actual es una compuerta: configura la ruta destino (targetNodeBpmnId) para resolverla."
+- CAUSA: el boton "Redireccionar" (text_50959) corre COMPLETAR_PASO_FLUJO sin targetNodeBpmnId. En el paso
+  Task "Validacion Factura" eso completa y avanza (la compuerta siguiente toma su encargado de text_ca893,
+  por eso "cambiaba la persona de aprobacion"). Pero en T00043 el flujo YA esta EN la compuerta; sin ruta
+  destino, la rama de compuerta que agregue en Fase D cortaba con ese error. El usuario confirmo que
+  "redireccionar" aqui = cambiar el aprobador (delegar), reasignando SOLO el paso (la tarea queda igual).
+- FIX (codigo, solo Ecorex.Application):
+  * Nuevo IWorkflowEngine.ReassignCurrentStepFromFormAsync(instanceId, stepId, actorUserId): re-resuelve el
+    encargado del paso VIGENTE con el MISMO resolver de activacion (ResolveAssigneeFromFormAsync, lee el
+    campo del nodo YA guardado) y reasigna SOLO ese paso; NO avanza el flujo ni toca el dueno de la tarea;
+    registra la bitacora "redirecciono el paso X a <correo>". Solo aplica si el nodo es AssigneeSource.FormField.
+  * CompletarPasoFlujoVerb: en compuerta sin targetNodeBpmnId, si el param nuevo onGatewayNoTarget=="reassign",
+    llama al metodo anterior (delega) en vez de fallar; devuelve StepCompleted para refrescar el flujo.
+- CONFIG (DATA, dev BD, self-serve): form_field_rules del boton text_50959 -> params_override_json
+  '{"onGatewayNoTarget":"reassign"}'. El requireFields:[text_ca893] existente sigue exigiendo el aprobador.
+- VALIDADO E2E en dev 5263 (WILSON, BD ecorex 5442): en T00043 el paso "Autorizar Compra" paso de
+  gerenciacomercial@soldarco.com a administracion@soldarco.com (= text_ca893), compuerta sigue Pending+current
+  (no avanza), tarea sigue de WILSON/Active, sin error. Build Release 0 errores; sin fakes de IWorkflowEngine.
+- PENDIENTE (requiere OK del usuario): llevar a prod -> deploy del Ecorex.Application nuevo + recrear el
+  override '{"onGatewayNoTarget":"reassign"}' en el FFR del boton Redireccionar en la BD de prod.
+
 ## 2026-10-29 - RELEASE v0.16.246 (deploy prod via GHCR) - 4 features + fix flujo
 
 - AGENTES: Claude Opus 4.8 (esta sesion) + trabajo acumulado de sesiones de dev previas en el mismo arbol.

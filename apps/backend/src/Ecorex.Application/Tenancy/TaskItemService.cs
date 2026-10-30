@@ -1613,7 +1613,12 @@ public sealed class TaskItemService : ITaskItemService
 
         // El filtro global por tenant garantiza que el Tercero sea del MISMO tenant que la tarea
         // (una tarea no puede enlazar un contacto de otro tenant por construccion).
-        var tercero = await _db.Terceros.FirstOrDefaultAsync(x => x.Id == terceroId, cancellationToken);
+        // AsNoTracking: leemos los valores RECIEN guardados por el editor de contacto (TerceroModal ->
+        // TerceroService.UpdateAsync commitea en otro contexto). Sin esto, el identity-map del contexto
+        // rastreado podria devolver una instancia VIEJA del Tercero (p.ej. cargada en un enlace previo del
+        // mismo circuito Blazor), haciendo que el guard de "nada cambio" (abajo) dispare y NO sincronice
+        // los campos desnormalizados de vuelta a la tarea.
+        var tercero = await _db.Terceros.AsNoTracking().FirstOrDefaultAsync(x => x.Id == terceroId, cancellationToken);
         if (tercero is null)
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El contacto del directorio no existe.");
